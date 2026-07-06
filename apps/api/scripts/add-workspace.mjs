@@ -8,6 +8,11 @@
  *     [--binding UPLOADS] [--public-base-url https://media.example.com] \
  *     [--account-id ...] [--access-key-id ...] [--secret-access-key ...] \
  *     [--local]            # write to wrangler dev's local KV instead of prod
+ *
+ * Credential flags fall back to R2_ACCOUNT_ID / R2_ACCESS_KEY_ID /
+ * R2_SECRET_ACCESS_KEY, and --public-base-url to R2_PUBLIC_BASE_URL, so you
+ * can keep them in the repo-root .env and run:
+ *   node --env-file=../../.env scripts/add-workspace.mjs <name> --bucket <bucket>
  */
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -34,11 +39,11 @@ const record = {
   provider: "r2",
   bucket: opts.bucket,
   binding: opts.binding,
-  publicBaseUrl: opts["public-base-url"],
+  publicBaseUrl: opts["public-base-url"] ?? process.env.R2_PUBLIC_BASE_URL,
   tokenHash: crypto.createHash("sha256").update(token).digest("hex"),
-  accountId: opts["account-id"],
-  accessKeyId: opts["access-key-id"],
-  secretAccessKey: opts["secret-access-key"],
+  accountId: opts["account-id"] ?? process.env.R2_ACCOUNT_ID,
+  accessKeyId: opts["access-key-id"] ?? process.env.R2_ACCESS_KEY_ID,
+  secretAccessKey: opts["secret-access-key"] ?? process.env.R2_SECRET_ACCESS_KEY,
 };
 Object.keys(record).forEach((k) => record[k] === undefined && delete record[k]);
 
