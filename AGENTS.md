@@ -78,7 +78,11 @@ records; any future global secrets go through `wrangler secret put` (prod) or
 
 ## Roadmap (see README for detail)
 
-MCP server for agent access (primary users are agents); presigned upload URLs
-(`POST /v1/sign`); web UI on files-sdk's `createFilesRouter` + browser client
-rather than more hand-rolled REST; more providers in `packages/storage`; point
-the `github-screenshots` skill at this API.
+MCP server for agent access (primary users are agents); key/path governance
+(auto-prefix bare filenames, typed destinations like `screenshots`,
+per-workspace key policy — arbitrary paths are an internal-audience allowance,
+not the end state); encrypt BYO-bucket S3 credentials in KV records before
+external tenants; presigned upload URLs (`POST /v1/sign`); web UI on
+files-sdk's `createFilesRouter` + browser client rather than more hand-rolled
+REST; more providers in `packages/storage`; point the `github-screenshots`
+skill at this API.
