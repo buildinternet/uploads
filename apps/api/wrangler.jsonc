@@ -6,7 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "routes": [
     {
-      "pattern": "uploads.sh",
+      "pattern": "api.uploads.sh",
       "custom_domain": true
     }
   ],

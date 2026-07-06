@@ -8,7 +8,7 @@ scripts in `buildinternet-skills/github-screenshots`.
 ## Layout
 
 ```
-apps/api          Hono worker — REST API, deploys to uploads.sh
+apps/api          Hono worker — REST API, deploys to api.uploads.sh
 apps/web          Astro placeholder — future browse/manage UI (separate deploy)
 packages/storage  @uploads/storage — files-sdk adapter factory
 ```
@@ -65,9 +65,18 @@ records; any future global secrets go through `wrangler secret put` (prod) or
 - Follow Cloudflare Workers best practices: no floating promises, no
   module-level request state, secrets never in config or source.
 
+## Environment files
+
+- `.env.example` (repo root) — client-side vars (`UPLOADS_API_URL`,
+  `UPLOADS_WORKSPACE`, `UPLOADS_TOKEN`) for scripts/skills/tests hitting the
+  API. Copy to `.env`, which is gitignored.
+- `apps/api/.dev.vars.example` — the worker's local config (Workers
+  convention). Currently empty of secrets; workspace secrets live in KV.
+- Never edit a user's `.env` / `.dev.vars` directly; template files only.
+
 ## Roadmap (see README for detail)
 
-Presigned upload URLs (`POST /v1/sign`); web UI on files-sdk's
-`createFilesRouter` + browser client rather than more hand-rolled REST; more
-providers in `packages/storage`; point the `github-screenshots` skill at this
-API.
+MCP server for agent access (primary users are agents); presigned upload URLs
+(`POST /v1/sign`); web UI on files-sdk's `createFilesRouter` + browser client
+rather than more hand-rolled REST; more providers in `packages/storage`; point
+the `github-screenshots` skill at this API.

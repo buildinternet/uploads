@@ -56,7 +56,7 @@ Unknown workspaces and bad tokens are indistinguishable (both 401).
 `publicBaseUrl`, otherwise `null`.
 
 ```bash
-curl -X PUT https://uploads.sh/v1/buildinternet/files/screenshots/myapp/42/shot.png \
+curl -X PUT https://api.uploads.sh/v1/buildinternet/files/screenshots/myapp/42/shot.png \
   -H "Authorization: Bearer $UPLOADS_TOKEN" \
   -H "Content-Type: image/png" \
   --data-binary @shot.png
@@ -81,10 +81,13 @@ pnpm typecheck
    I/O; workspaces can instead carry their own S3 credentials for HTTP mode.
 3. Register the workspace: `node scripts/add-workspace.mjs buildinternet
    --bucket uploads --binding UPLOADS --public-base-url <bucket domain>`.
-4. `pnpm deploy` — the worker attaches to `uploads.sh` (custom domain route).
+4. `pnpm deploy` — the worker attaches to `api.uploads.sh` (custom domain route); the apex stays free for the web app.
 
 ## Roadmap
 
+- **MCP server** — the primary users are agents, so expose upload/list/delete
+  as MCP tools (Cloudflare's `McpAgent` on the same worker, or a sibling
+  worker on `mcp.uploads.sh`), authenticated per workspace like REST.
 - **Presigned upload URLs** (`POST /v1/sign`) via files-sdk `signedUploadUrl()`
   — needs the hybrid-mode HTTP credentials above; lets clients PUT large files
   straight to the bucket.

@@ -56,4 +56,4 @@ execFileSync(
 console.log(`\nworkspace : ${name}`);
 console.log(`token     : ${token}`);
 console.log("\nStore the token now — only its hash is kept in KV.");
-console.log(`try it    : curl -H "Authorization: Bearer ${token}" https://uploads.sh/v1/${name}/files`);
+console.log(`try it    : curl -H "Authorization: Bearer ${token}" https://api.uploads.sh/v1/${name}/files`);
