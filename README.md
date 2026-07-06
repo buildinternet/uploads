@@ -74,6 +74,13 @@ pnpm typecheck
 
 ## Deploy
 
+Works against any Cloudflare account — this repo carries no account-specific
+secrets. Auth either interactively (`wrangler login`) or headlessly by setting
+`CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` in the repo-root `.env`
+(`pnpm deploy` loads it automatically; see `.env.example`). Forks: point
+`routes[0].pattern` in `apps/api/wrangler.jsonc` at your own domain, or delete
+the `routes` block to serve from your `workers.dev` subdomain.
+
 1. Create the registry: `wrangler kv namespace create REGISTRY`, paste the id
    into `apps/api/wrangler.jsonc`.
 2. Create the bucket: `wrangler r2 bucket create uploads` (or point

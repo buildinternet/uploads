@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
     "types": "wrangler types",
     "typecheck": "wrangler types && tsc --noEmit"
   },
