@@ -67,9 +67,11 @@ records; any future global secrets go through `wrangler secret put` (prod) or
 
 ## Environment files
 
-- `.env.example` (repo root) — client-side vars (`UPLOADS_API_URL`,
-  `UPLOADS_WORKSPACE`, `UPLOADS_TOKEN`) for scripts/skills/tests hitting the
-  API. Copy to `.env`, which is gitignored.
+- `.env.example` (repo root) — client vars (`UPLOADS_API_URL`,
+  `UPLOADS_WORKSPACE`, `UPLOADS_TOKEN`), optional real R2 credentials for
+  registering HTTP-mode dev workspaces, and `CLOUDFLARE_ACCOUNT_ID` /
+  `CLOUDFLARE_API_TOKEN` for headless deploys to any account (`pnpm deploy`
+  loads the file via `node --env-file-if-exists`). Copy to `.env`, gitignored.
 - `apps/api/.dev.vars.example` — the worker's local config (Workers
   convention). Currently empty of secrets; workspace secrets live in KV.
 - Never edit a user's `.env` / `.dev.vars` directly; template files only.
