@@ -34,7 +34,7 @@ one with:
 cd apps/api
 node scripts/add-workspace.mjs buildinternet \
   --bucket buildinternet-dev --binding UPLOADS \
-  --public-base-url https://media.example.com   # add --local for dev
+  --public-base-url https://media.buildinternet.dev   # add --local for dev
 ```
 
 It prints the bearer token once.
@@ -83,11 +83,13 @@ the `routes` block to serve from your `workers.dev` subdomain.
 
 1. Create the registry: `wrangler kv namespace create REGISTRY`, paste the id
    into `apps/api/wrangler.jsonc`.
-2. Create the bucket: use an existing bucket (today: `buildinternet-dev`, public at `media.buildinternet.dev`) or create one — point
-   `bucket_name` at an existing one). Same-account buckets get binding-mode
+2. Point `bucket_name` in `apps/api/wrangler.jsonc` at your bucket (today:
+   `buildinternet-dev`, public at `media.buildinternet.dev`), or create one
+   with `wrangler r2 bucket create`. Same-account buckets get binding-mode
    I/O; workspaces can instead carry their own S3 credentials for HTTP mode.
 3. Register the workspace: `node scripts/add-workspace.mjs buildinternet
-   --bucket buildinternet-dev --binding UPLOADS --public-base-url <bucket domain>`.
+   --bucket buildinternet-dev --binding UPLOADS --public-base-url
+   https://media.buildinternet.dev`.
 4. `pnpm deploy` — the worker attaches to `api.uploads.sh` (custom domain route); the apex stays free for the web app.
 
 ## Roadmap
