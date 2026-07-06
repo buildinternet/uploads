@@ -1,0 +1,22 @@
+{
+  "name": "@uploads/storage",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1080.0",
+    "@aws-sdk/s3-presigned-post": "^3.1080.0",
+    "@aws-sdk/s3-request-presigner": "^3.1080.0",
+    "files-sdk": "^2.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260706.1",
+    "typescript": "^6.0.3"
+  }
+}
