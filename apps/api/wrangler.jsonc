@@ -15,7 +15,9 @@
     "head_sampling_rate": 1
   },
   // Workspace registry: `ws:<name>` → WorkspaceRecord (see src/workspace.ts).
-  // Create with `wrangler kv namespace create REGISTRY` and paste the id here.
+  // Create with `wrangler kv namespace create <title>` and paste the id here.
+  // The account-level namespace title (ours: UPLOADS_REGISTRY) is independent
+  // of the REGISTRY binding name the code uses.
   "kv_namespaces": [
     {
       "binding": "REGISTRY",
