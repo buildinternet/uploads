@@ -3,10 +3,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @uploads/api dev",
-    "deploy": "pnpm --filter @uploads/api deploy",
-    "deploy:web": "pnpm --filter @uploads/web deploy",
-    "typecheck": "pnpm -r typecheck"
+    "dev": "pnpm run dev:api",
+    "dev:api": "pnpm --filter @uploads/api dev",
+    "dev:web": "pnpm --filter @uploads/web dev",
+    "build": "pnpm --filter @uploads/web build",
+    "deploy": "pnpm run deploy:api && pnpm run deploy:web",
+    "deploy:api": "pnpm --filter @uploads/api run deploy",
+    "deploy:web": "pnpm --filter @uploads/web run deploy",
+    "upload:api": "pnpm --filter @uploads/api exec wrangler versions upload",
+    "upload:web": "pnpm --filter @uploads/web run build && pnpm --filter @uploads/web exec wrangler versions upload",
+    "types": "pnpm --filter @uploads/api types",
+    "typecheck": "pnpm -r typecheck",
+    "workspace:add": "pnpm --filter @uploads/api run workspace:add"
   },
   "packageManager": "pnpm@9.15.9"
 }

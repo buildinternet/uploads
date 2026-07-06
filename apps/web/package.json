@@ -7,10 +7,15 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "deploy": "astro build && node --env-file-if-exists=../../.env ../api/node_modules/wrangler/bin/wrangler.js deploy",
-    "typecheck": "astro check || true"
+    "deploy": "astro build && node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
+    "typecheck": "astro check"
   },
   "dependencies": {
     "astro": "^7.0.6"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.107.0"
   }
 }

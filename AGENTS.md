@@ -22,11 +22,15 @@ in `createStorage` plus its files-sdk peer deps.
 
 ```bash
 pnpm install
-pnpm dev                 # wrangler dev on :8787 (local R2 simulation)
+pnpm dev                 # API on :8787 (local R2 + KV simulation)
+pnpm dev:web             # Astro site
 pnpm typecheck           # wrangler types + tsc across workspaces
-pnpm deploy              # wrangler deploy (apps/api)
-pnpm --filter @uploads/web build
+pnpm run deploy          # both workers; or deploy:api / deploy:web
+pnpm workspace:add <name> --bucket <bucket> [--binding X] [--local]
 ```
+
+Use `pnpm run deploy` (not bare `pnpm deploy` — that's pnpm's built-in).
+Production deploys normally happen via Workers Builds on push to main.
 
 Run `wrangler types` (or `pnpm --filter @uploads/api types`) after any
 `wrangler.jsonc` change — `Env` is generated into `worker-configuration.d.ts`,

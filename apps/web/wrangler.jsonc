@@ -1,5 +1,5 @@
 {
-  "$schema": "../api/node_modules/wrangler/config-schema.json",
+  "$schema": "node_modules/wrangler/config-schema.json",
   "name": "uploads-web",
   "compatibility_date": "2026-07-06",
   "assets": {

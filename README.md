@@ -37,8 +37,7 @@ hash of the workspace's token (the token itself is never stored). Register
 one with:
 
 ```bash
-cd apps/api
-node scripts/add-workspace.mjs buildinternet \
+pnpm workspace:add buildinternet \
   --bucket buildinternet-dev --binding UPLOADS \
   --public-base-url https://media.buildinternet.dev   # add --local for dev
 ```
@@ -73,8 +72,8 @@ curl -X PUT https://api.uploads.sh/v1/buildinternet/files/screenshots/myapp/42/s
 ```bash
 pnpm install
 cp apps/api/.dev.vars.example apps/api/.dev.vars
-cd apps/api && node scripts/add-workspace.mjs buildinternet --bucket buildinternet-dev --binding UPLOADS --local
-pnpm dev            # wrangler dev on :8787 (local R2 + KV simulation)
+pnpm workspace:add default --bucket uploads-default --binding UPLOADS_DEFAULT --local
+pnpm dev            # API on :8787 (local R2 + KV simulation); pnpm dev:web for the site
 pnpm typecheck
 ```
 
@@ -93,10 +92,13 @@ the `routes` block to serve from your `workers.dev` subdomain.
    `buildinternet-dev`, public at `media.buildinternet.dev`), or create one
    with `wrangler r2 bucket create`. Same-account buckets get binding-mode
    I/O; workspaces can instead carry their own S3 credentials for HTTP mode.
-3. Register the workspace: `node scripts/add-workspace.mjs buildinternet
+3. Register the workspace: `pnpm workspace:add buildinternet
    --bucket buildinternet-dev --binding UPLOADS --public-base-url
    https://media.buildinternet.dev`.
-4. `pnpm deploy` — the worker attaches to `api.uploads.sh` (custom domain route); the apex stays free for the web app.
+4. `pnpm run deploy` — ships both workers (`deploy:api` → `api.uploads.sh`,
+   `deploy:web` → the `uploads.sh` apex). Note `pnpm run deploy`, not
+   `pnpm deploy` — the bare form is pnpm's own command. In CI, Workers Builds
+   deploys each app from its own directory instead.
 
 ## Roadmap
 
