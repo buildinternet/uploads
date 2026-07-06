@@ -16,5 +16,9 @@
     "typecheck": "pnpm -r typecheck",
     "workspace:add": "pnpm --filter @uploads/api run workspace:add"
   },
-  "packageManager": "pnpm@9.15.9"
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=11"
+  },
+  "packageManager": "pnpm@11.10.0"
 }
