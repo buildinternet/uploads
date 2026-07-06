@@ -19,7 +19,7 @@
   "kv_namespaces": [
     {
       "binding": "REGISTRY",
-      "id": "REPLACE_WITH_KV_NAMESPACE_ID"
+      "id": "808bc1c3a86a4675b134e11b6dca303d"
     }
   ],
   // One binding per same-account bucket a workspace wants binding-mode I/O on.
