@@ -21,8 +21,14 @@ peer deps — no API changes.
 ## Workspaces
 
 Every request is scoped to a **workspace** — a tenant with its own bucket,
-credentials, and bearer token. `buildinternet` happens to be the only one
-registered today; nothing in the code treats it as special.
+credentials, and bearer token. Nothing in the code treats any workspace as
+special; landing in a particular bucket is always an intentional choice of
+workspace. Registered in production today:
+
+| Workspace | Bucket | Public base URL |
+|---|---|---|
+| `default` | `uploads-default` | `https://storage.uploads.sh` — generic hosting |
+| `buildinternet` | `buildinternet-dev` | `https://media.buildinternet.dev` |
 
 Workspace records live in the `REGISTRY` KV namespace (`ws:<name>`). Each
 record carries the storage provider, bucket, optional R2 binding name,

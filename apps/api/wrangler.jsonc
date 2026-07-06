@@ -31,6 +31,10 @@
     {
       "binding": "UPLOADS",
       "bucket_name": "buildinternet-dev"
+    },
+    {
+      "binding": "UPLOADS_DEFAULT",
+      "bucket_name": "uploads-default"
     }
   ]
 }
