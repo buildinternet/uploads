@@ -1,6 +1,4 @@
-# Copy to .dev.vars for local dev; set with `wrangler secret put <NAME>` in prod.
-AUTH_TOKEN=dev-token
-# Only needed for presigned/public URL signing (hybrid mode). Reads/writes use the binding.
-R2_ACCOUNT_ID=
-R2_ACCESS_KEY_ID=
-R2_SECRET_ACCESS_KEY=
+# Copy to .dev.vars for local dev. No global secrets today — auth and storage
+# credentials are per-workspace, stored in the REGISTRY KV namespace.
+# Seed a local workspace with:
+#   node scripts/add-workspace.mjs buildinternet --bucket uploads --binding UPLOADS --local

@@ -32,29 +32,34 @@ Run `wrangler types` (or `pnpm --filter @uploads/api types`) after any
 `wrangler.jsonc` change — `Env` is generated into `worker-configuration.d.ts`,
 never hand-written.
 
-## Configuration
+## Workspaces (multi-tenant model)
 
-Non-secret config lives in `apps/api/wrangler.jsonc` `vars`; secrets go through
-`wrangler secret put` (prod) or `apps/api/.dev.vars` (local, gitignored — copy
-from `.dev.vars.example`). Never commit credentials.
+All API routes are workspace-scoped: `/v1/:workspace/files/...`. A workspace
+is a tenant record in the `REGISTRY` KV namespace (`ws:<name>` →
+`WorkspaceRecord`, see `apps/api/src/workspace.ts`) carrying its provider,
+bucket, optional R2 binding name, optional `publicBaseUrl`, optional S3
+credentials, and the SHA-256 hash of its bearer token. Register workspaces
+with `apps/api/scripts/add-workspace.mjs` (`--local` for dev KV). Never treat
+`buildinternet` as special in code — it's just the first registered tenant.
 
-R2 uses **two credential paths on the same bucket**, both supported and
-deployer-configurable:
+R2 workspaces have **two credential paths on the same bucket**:
 
-1. **Workers binding** (`UPLOADS`) — reads/writes, no egress, no keys needed.
-2. **Bucket-scoped S3 credentials** (`R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` /
-   `R2_SECRET_ACCESS_KEY`) — only for `url()` / `signedUploadUrl()` presigning
-   (files-sdk hybrid mode). Optional until presigned uploads ship.
+1. **Workers binding** (record's `binding` names an `r2_buckets` entry in
+   `wrangler.jsonc`) — reads/writes, no egress, no keys. Same-account buckets.
+2. **Bucket-scoped S3 credentials** (in the workspace record) — presigning,
+   or full HTTP-mode I/O for buckets with no binding (other accounts).
 
-`PUBLIC_BASE_URL` is the bucket's public custom domain (differs from
-uploads.sh); when set, responses include public object URLs.
+Secrets never go in `wrangler.jsonc` or source: workspace secrets live in KV
+records; any future global secrets go through `wrangler secret put` (prod) or
+`.dev.vars` (local, gitignored).
 
 ## Conventions
 
 - TypeScript strict, ESM only, `lib: ["ES2022"]` (no DOM — the Workers types
   own globals like `crypto.subtle.timingSafeEqual`).
-- Auth is bearer-token (`AUTH_TOKEN` secret) with hashed timing-safe compare —
-  see `apps/api/src/auth.ts`.
+- Auth is per-workspace bearer tokens, hashed + timing-safe compare, with
+  uniform 401s so workspace names can't be enumerated — see
+  `apps/api/src/workspace.ts`.
 - Object keys are validated (`badKey` in `routes/files.ts`); URL parsing
   normalizes dot segments before handlers run.
 - Follow Cloudflare Workers best practices: no floating promises, no

@@ -18,24 +18,46 @@ the seam for growth: `createStorage()` takes a `StorageConfig` whose `provider`
 field selects the files-sdk adapter, so adding S3/GCS/etc. is one new case plus
 peer deps — no API changes.
 
+## Workspaces
+
+Every request is scoped to a **workspace** — a tenant with its own bucket,
+credentials, and bearer token. `buildinternet` happens to be the only one
+registered today; nothing in the code treats it as special.
+
+Workspace records live in the `REGISTRY` KV namespace (`ws:<name>`). Each
+record carries the storage provider, bucket, optional R2 binding name,
+optional public base URL, S3-style credentials if needed, and the SHA-256
+hash of the workspace's token (the token itself is never stored). Register
+one with:
+
+```bash
+cd apps/api
+node scripts/add-workspace.mjs buildinternet \
+  --bucket uploads --binding UPLOADS \
+  --public-base-url https://media.example.com   # add --local for dev
+```
+
+It prints the bearer token once.
+
 ## API
 
-All `/v1` routes require `Authorization: Bearer <AUTH_TOKEN>`.
+All `/v1` routes require the workspace's `Authorization: Bearer <token>`.
+Unknown workspaces and bad tokens are indistinguishable (both 401).
 
 | Route | Description |
 |---|---|
 | `GET /health` | Liveness (no auth) |
-| `PUT /v1/files/:key` | Upload raw body; `Content-Type` header is stored. Returns `{ key, url, size }` |
-| `GET /v1/files?prefix=&limit=&cursor=` | List objects |
-| `GET /v1/files/:key` | Object metadata |
-| `DELETE /v1/files/:key` | Delete object |
+| `PUT /v1/:workspace/files/:key` | Upload raw body; `Content-Type` header is stored. Returns `{ workspace, key, url, size }` |
+| `GET /v1/:workspace/files?prefix=&limit=&cursor=` | List objects |
+| `GET /v1/:workspace/files/:key` | Object metadata |
+| `DELETE /v1/:workspace/files/:key` | Delete object |
 
-`url` in responses is the public URL when `PUBLIC_BASE_URL` is set (bucket
-fronted by a custom domain), otherwise `null`.
+`url` in responses is the public URL when the workspace has a
+`publicBaseUrl`, otherwise `null`.
 
 ```bash
-curl -X PUT https://uploads.sh/v1/files/screenshots/myapp/42/shot.png \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
+curl -X PUT https://uploads.sh/v1/buildinternet/files/screenshots/myapp/42/shot.png \
+  -H "Authorization: Bearer $UPLOADS_TOKEN" \
   -H "Content-Type: image/png" \
   --data-binary @shot.png
 ```
@@ -44,22 +66,22 @@ curl -X PUT https://uploads.sh/v1/files/screenshots/myapp/42/shot.png \
 
 ```bash
 pnpm install
-cp apps/api/.dev.vars.example apps/api/.dev.vars   # then edit
-pnpm dev            # wrangler dev on :8787 (local R2 simulation)
+cp apps/api/.dev.vars.example apps/api/.dev.vars
+cd apps/api && node scripts/add-workspace.mjs buildinternet --bucket uploads --binding UPLOADS --local
+pnpm dev            # wrangler dev on :8787 (local R2 + KV simulation)
 pnpm typecheck
 ```
 
 ## Deploy
 
-1. Create the bucket: `wrangler r2 bucket create uploads` (or point
-   `bucket_name` in `apps/api/wrangler.jsonc` at an existing one).
-2. Set config in `apps/api/wrangler.jsonc`: `STORAGE_BUCKET`,
-   `PUBLIC_BASE_URL` (the bucket's custom domain, optional).
-3. Secrets (from `apps/api`): `wrangler secret put AUTH_TOKEN`. Optionally
-   `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`
-   (bucket-scoped Object Read & Write token) — only needed for presigned URLs;
-   reads/writes go through the R2 binding.
-4. `pnpm deploy`
+1. Create the registry: `wrangler kv namespace create REGISTRY`, paste the id
+   into `apps/api/wrangler.jsonc`.
+2. Create the bucket: `wrangler r2 bucket create uploads` (or point
+   `bucket_name` at an existing one). Same-account buckets get binding-mode
+   I/O; workspaces can instead carry their own S3 credentials for HTTP mode.
+3. Register the workspace: `node scripts/add-workspace.mjs buildinternet
+   --bucket uploads --binding UPLOADS --public-base-url <bucket domain>`.
+4. `pnpm deploy` — the worker attaches to `uploads.sh` (custom domain route).
 
 ## Roadmap
 
