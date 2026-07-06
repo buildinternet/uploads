@@ -28,7 +28,7 @@
   "r2_buckets": [
     {
       "binding": "UPLOADS",
-      "bucket_name": "uploads"
+      "bucket_name": "buildinternet-dev"
     }
   ]
 }
