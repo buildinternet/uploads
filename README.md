@@ -148,9 +148,10 @@ the `routes` block to serve from your `workers.dev` subdomain.
    default binding expects `uploads-default`), or create one with
    `wrangler r2 bucket create`. Same-account buckets get binding-mode I/O;
    workspaces can instead carry their own S3 credentials for HTTP mode.
-3. Register the workspace: `pnpm workspace:add default
-   [--bucket uploads-default] [--binding UPLOADS_DEFAULT] --public-base-url
-   https://storage.uploads.sh`.
+3. Register the workspace: `pnpm workspace:add default` — with no flags it
+   lands in the shared `uploads-default` bucket under a `default/` prefix,
+   served at `https://storage.uploads.sh`. Pass `--bucket` (and optionally
+   `--binding` / `--public-base-url`) for a dedicated bucket instead.
 4. `pnpm run deploy` — ships both workers (`deploy:api` → `api.uploads.sh`,
    `deploy:web` → the `uploads.sh` apex). Note `pnpm run deploy`, not
    `pnpm deploy` — the bare form is pnpm's own command. In CI, Workers Builds
