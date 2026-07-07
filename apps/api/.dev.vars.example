@@ -1,4 +1,4 @@
 # Copy to .dev.vars for local dev. No global secrets today — auth and storage
 # credentials are per-workspace, stored in the REGISTRY KV namespace.
 # Seed a local workspace with:
-#   node scripts/add-workspace.mjs buildinternet --bucket buildinternet-dev --binding UPLOADS --local
+#   node scripts/add-workspace.mjs default --bucket uploads-default --binding UPLOADS_DEFAULT --local

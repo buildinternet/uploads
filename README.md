@@ -23,23 +23,22 @@ peer deps — no API changes.
 Every request is scoped to a **workspace** — a tenant with its own bucket,
 credentials, and bearer token. Nothing in the code treats any workspace as
 special; landing in a particular bucket is always an intentional choice of
-workspace. Registered in production today:
+workspace. The default workspace ships ready to use:
 
 | Workspace | Bucket | Public base URL |
 |---|---|---|
 | `default` | `uploads-default` | `https://storage.uploads.sh` — generic hosting |
-| `buildinternet` | `buildinternet-dev` | `https://media.buildinternet.dev` |
 
 Workspace records live in the `REGISTRY` KV namespace (`ws:<name>`). Each
 record carries the storage provider, bucket, optional R2 binding name,
 optional public base URL, S3-style credentials if needed, and the SHA-256
 hash of the workspace's token (the token itself is never stored). Register
-one with:
+another with:
 
 ```bash
-pnpm workspace:add buildinternet \
-  --bucket buildinternet-dev --binding UPLOADS \
-  --public-base-url https://media.buildinternet.dev   # add --local for dev
+pnpm workspace:add my-workspace \
+  --bucket my-bucket --binding UPLOADS \
+  --public-base-url https://media.example.com   # add --local for dev
 ```
 
 It prints the bearer token once.
@@ -61,7 +60,7 @@ Unknown workspaces and bad tokens are indistinguishable (both 401).
 `publicBaseUrl`, otherwise `null`.
 
 ```bash
-curl -X PUT https://api.uploads.sh/v1/buildinternet/files/screenshots/myapp/42/shot.png \
+curl -X PUT https://api.uploads.sh/v1/default/files/screenshots/myapp/42/shot.png \
   -H "Authorization: Bearer $UPLOADS_TOKEN" \
   -H "Content-Type: image/png" \
   --data-binary @shot.png
@@ -88,13 +87,13 @@ the `routes` block to serve from your `workers.dev` subdomain.
 
 1. Create the registry: `wrangler kv namespace create REGISTRY`, paste the id
    into `apps/api/wrangler.jsonc`.
-2. Point `bucket_name` in `apps/api/wrangler.jsonc` at your bucket (today:
-   `buildinternet-dev`, public at `media.buildinternet.dev`), or create one
-   with `wrangler r2 bucket create`. Same-account buckets get binding-mode
-   I/O; workspaces can instead carry their own S3 credentials for HTTP mode.
-3. Register the workspace: `pnpm workspace:add buildinternet
-   --bucket buildinternet-dev --binding UPLOADS --public-base-url
-   https://media.buildinternet.dev`.
+2. Point `bucket_name` in `apps/api/wrangler.jsonc` at your bucket (the
+   default binding expects `uploads-default`), or create one with
+   `wrangler r2 bucket create`. Same-account buckets get binding-mode I/O;
+   workspaces can instead carry their own S3 credentials for HTTP mode.
+3. Register the workspace: `pnpm workspace:add default
+   --bucket uploads-default --binding UPLOADS_DEFAULT --public-base-url
+   https://storage.uploads.sh`.
 4. `pnpm run deploy` — ships both workers (`deploy:api` → `api.uploads.sh`,
    `deploy:web` → the `uploads.sh` apex). Note `pnpm run deploy`, not
    `pnpm deploy` — the bare form is pnpm's own command. In CI, Workers Builds

@@ -44,7 +44,7 @@ is a tenant record in the `REGISTRY` KV namespace (`ws:<name>` →
 bucket, optional R2 binding name, optional `publicBaseUrl`, optional S3
 credentials, and the SHA-256 hash of its bearer token. Register workspaces
 with `apps/api/scripts/add-workspace.mjs` (`--local` for dev KV). Never treat
-`buildinternet` as special in code — it's just the first registered tenant.
+any workspace as special in code — even `default` is just a registered tenant.
 
 R2 workspaces have **two credential paths on the same bucket**:
 
