@@ -73,6 +73,31 @@ function ghTargetFromFlags(
   return { repo, kind: pr !== undefined ? "pull" : "issues", num: (pr ?? issue) as number };
 }
 
+/**
+ * List every attachment under the target's prefix and create/update the
+ * managed comment. Throws on gh failure — callers decide whether that is
+ * fatal (`comment` command) or a warning (`put --comment`).
+ */
+async function syncAttachmentsComment(
+  ctx: CliContext,
+  target: GhTarget,
+  run: CommandRunner,
+): Promise<{ action: "created" | "updated" | "skipped"; count: number }> {
+  const items: AttachmentItem[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await ctx.client.list({ prefix: ghKeyPrefix(target), cursor });
+    items.push(...page.items.map(({ key, url }) => ({ key, url })));
+    cursor = page.cursor ?? undefined;
+  } while (cursor);
+
+  if (items.length === 0) return { action: "skipped", count: 0 };
+
+  const body = attachmentsCommentBody(items);
+  const { created } = upsertAttachmentsComment(target, body, run);
+  return { action: created ? "created" : "updated", count: items.length };
+}
+
 export async function runPut(ctx: CliContext, args: string[], help = false, run: CommandRunner = execRunner): Promise<number> {
   if (help) {
     process.stderr.write(PUT_HELP);
@@ -92,6 +117,11 @@ export async function runPut(ctx: CliContext, args: string[], help = false, run:
 
   const keyHint = flagString(parsed.flags, "--key");
   const ghTarget = ghTargetFromFlags(parsed.flags, run);
+  const wantComment = parsed.flags.has("--comment");
+  if (wantComment && typeof parsed.flags.get("--comment") === "string") {
+    throw new UsageError("--comment takes no value — place it after the file argument");
+  }
+  if (wantComment && !ghTarget) throw new UsageError("--comment requires --pr or --issue");
   if (ghTarget) {
     if (keyHint) throw new UsageError("--key cannot be combined with --pr/--issue");
     if (flagString(parsed.flags, "--ref")) {
@@ -156,6 +186,21 @@ export async function runPut(ctx: CliContext, args: string[], help = false, run:
     default:
       await writeStdout(`URL: ${result.url}\nMARKDOWN: ${markdown}\n`);
   }
+
+  if (wantComment && ghTarget) {
+    try {
+      const sync = await syncAttachmentsComment(ctx, ghTarget, run);
+      if (!ctx.quiet && format === "human") {
+        process.stderr.write(`>> attachments comment ${sync.action}\n`);
+      }
+    } catch (err) {
+      // Upload already succeeded; the comment is best-effort by design.
+      process.stderr.write(
+        `warning: upload succeeded but the GitHub comment failed (is gh installed and authenticated?): ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+  }
+
   return 0;
 }
 
@@ -227,6 +272,47 @@ export async function runDelete(ctx: CliContext, args: string[], help = false): 
   const result = await ctx.client.delete(key);
   if (ctx.json) await writeJson(result);
   else if (!ctx.quiet) process.stderr.write(`deleted ${result.key}\n`);
+  return 0;
+}
+
+// --- comment ---
+
+const COMMENT_HELP = `uploads comment (--pr <num> | --issue <num>) [--repo <owner/name>] [--workspace <name>]
+
+Create or update the managed attachments comment on a GitHub PR or issue,
+listing everything uploaded for it. Uses your local gh auth. Finds its own
+prior comment via a hidden marker and edits it in place; never touches other
+comments or the description.
+
+Examples:
+  uploads --env-file .env comment --pr 123
+  uploads comment --issue 45 --repo buildinternet/uploads
+`;
+
+export async function runComment(
+  ctx: CliContext,
+  args: string[],
+  help = false,
+  run: CommandRunner = execRunner,
+): Promise<number> {
+  const parsed = parseCommandArgs(args);
+  if (help || parsed.help) {
+    process.stderr.write(COMMENT_HELP);
+    return 0;
+  }
+  const target = ghTargetFromFlags(parsed.flags, run);
+  if (!target) throw new UsageError("comment requires --pr or --issue");
+
+  const result = await syncAttachmentsComment(ctx, target, run);
+  if (ctx.json) {
+    await writeJson({ ...target, ...result });
+  } else if (!ctx.quiet) {
+    process.stderr.write(
+      result.action === "skipped"
+        ? `no attachments under ${ghKeyPrefix(target)} — nothing to do\n`
+        : `${result.action} attachments comment on ${target.repo}#${target.num} (${result.count} file${result.count === 1 ? "" : "s"})\n`,
+    );
+  }
   return 0;
 }
 
