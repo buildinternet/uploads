@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import { publicUrl, storage, storageConfig } from "../storage";
+import { isPurgeable, purgeUrls } from "../purge";
 import type { WorkspaceVars } from "../workspace";
+
+// Bounds edge/camo staleness on overwrite for every bucket, including
+// bring-your-own domains. The core zone additionally purges on write (below).
+const UPLOAD_CACHE_CONTROL = "public, max-age=60";
 
 const KEY_RE = /^[\w!*'().\/-]+$/;
 
@@ -23,9 +28,19 @@ export const files = new Hono<WorkspaceVars>()
 
     const ws = c.get("workspace");
     const contentType = c.req.header("Content-Type") ?? "application/octet-stream";
-    await storage(c.env, ws).upload(key, new Uint8Array(body), { contentType });
+    await storage(c.env, ws).upload(key, new Uint8Array(body), {
+      contentType,
+      cacheControl: UPLOAD_CACHE_CONTROL,
+    });
 
     const url = publicUrl(storageConfig(c.env, ws), key);
+    // Instant propagation for the core zone: the object may already be edge-cached
+    // under a previous version, so purge the exact URL before returning — callers
+    // (e.g. the GitHub-embed flow) reference the URL immediately after. Best-effort:
+    // purgeUrls never throws, and the short Cache-Control above is the backstop.
+    if (url && isPurgeable(c.env, url)) {
+      await purgeUrls(c.env, [url]);
+    }
     return c.json({ workspace: c.get("workspaceName"), key, url, size: body.byteLength, contentType }, 201);
   })
 

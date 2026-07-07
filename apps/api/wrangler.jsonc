@@ -14,6 +14,14 @@
     "enabled": true,
     "head_sampling_rate": 1
   },
+  // Cache purge-on-overwrite for the core zone. Non-secret: zone id + the hosts
+  // we're allowed to purge (the shared bucket's custom domain). The matching API
+  // token is a secret: `wrangler secret put CF_PURGE_TOKEN` (Zone → Cache Purge).
+  // Leave CF_PURGE_TOKEN unset to disable purging (uploads fall back to the TTL).
+  "vars": {
+    "CF_PURGE_ZONE_ID": "",
+    "CF_PURGE_HOSTS": "storage.uploads.sh"
+  },
   // Workspace registry: `ws:<name>` → WorkspaceRecord (see src/workspace.ts).
   // Create with `wrangler kv namespace create <title>` and paste the id here.
   // The account-level namespace title (ours: UPLOADS_REGISTRY) is independent
