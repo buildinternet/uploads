@@ -1,0 +1,57 @@
+{
+  "name": "@buildinternet/uploads",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CLI and client for uploads.sh — workspace-scoped image hosting for GitHub embeds",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/buildinternet/uploads.git",
+    "directory": "packages/uploads"
+  },
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./agent": {
+      "types": "./dist/agent.d.ts",
+      "import": "./dist/agent.js"
+    }
+  },
+  "bin": {
+    "uploads": "./bin/uploads.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "prepublishOnly": "pnpm run build"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "peerDependencies": {
+    "files-sdk": "^2.1.0"
+  },
+  "peerDependenciesMeta": {
+    "files-sdk": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "ai": "^6.0.0",
+    "files-sdk": "^2.1.0",
+    "typescript": "^6.0.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

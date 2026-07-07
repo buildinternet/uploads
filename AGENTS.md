@@ -8,9 +8,10 @@ scripts in `buildinternet-skills/github-screenshots`.
 ## Layout
 
 ```
-apps/api          Hono worker — REST API, deploys to api.uploads.sh
-apps/web          Astro placeholder — future browse/manage UI (separate deploy)
-packages/storage  @uploads/storage — files-sdk adapter factory
+apps/api            Hono worker — REST API, deploys to api.uploads.sh
+apps/web            Astro placeholder — future browse/manage UI (separate deploy)
+packages/storage    @uploads/storage — files-sdk adapter factory
+packages/uploads    @buildinternet/uploads — CLI + client for GitHub image embeds
 ```
 
 Keep API and web separate deployables. All storage access goes through
@@ -27,6 +28,7 @@ pnpm dev:web             # Astro site
 pnpm typecheck           # wrangler types + tsc across workspaces
 pnpm run deploy          # both workers; or deploy:api / deploy:web
 pnpm workspace:add <name> --bucket <bucket> [--binding X] [--local]
+pnpm uploads put <file> --env-file .env   # CLI (builds package first)
 ```
 
 Use `pnpm run deploy` (not bare `pnpm deploy` — that's pnpm's built-in).
