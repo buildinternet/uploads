@@ -30,7 +30,7 @@ export type WorkspaceVars = {
 
 const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 
-function hexToBytes(hex: string): Uint8Array {
+export function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   return out;
@@ -65,7 +65,9 @@ export const workspaceAuth: MiddlewareHandler<WorkspaceVars> = async (c, next) =
   const providedHash = await sha256Hex(token);
   const providedBytes = hexToBytes(providedHash);
   const candidates = record ? workspaceTokenHashes(record) : [];
-  // Always compare at least once so unknown workspaces cost the same.
+  // Compare against every candidate hash (no early break) so match position isn't timing-visible.
+  // Note: total work scales with token count — acceptable for this throwaway PoC; a leaked
+  // token-count signal goes away with the real auth system.
   const toCheck = candidates.length > 0 ? candidates : [providedHash.replace(/./g, "0")];
   let matched = false;
   for (const hash of toCheck) {

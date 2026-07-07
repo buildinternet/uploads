@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from "hono";
-import { sha256Hex } from "./workspace";
+import { hexToBytes, sha256Hex } from "./workspace";
 
 /**
  * Gates /admin/* on the ADMIN_TOKEN secret. Fails closed: if the secret is
@@ -12,15 +12,10 @@ export const adminAuth: MiddlewareHandler<{ Bindings: Env }> = async (c, next) =
 
   const providedHash = await sha256Hex(token);
   const expectedHash = secret ? await sha256Hex(secret) : providedHash.replace(/./g, "0");
-  const bytes = (hex: string) => {
-    const out = new Uint8Array(hex.length / 2);
-    for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-    return out;
-  };
   const ok =
     secret.length > 0 &&
     token.length > 0 &&
-    crypto.subtle.timingSafeEqual(bytes(providedHash), bytes(expectedHash));
+    crypto.subtle.timingSafeEqual(hexToBytes(providedHash), hexToBytes(expectedHash));
 
   if (!ok) return c.json({ error: "unauthorized" }, 401);
   await next();

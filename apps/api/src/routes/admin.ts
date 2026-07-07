@@ -16,6 +16,7 @@ export const admin = new Hono<{ Bindings: Env }>()
     const label = body.label?.trim() || undefined;
     if (!WS_NAME_RE.test(name)) return c.json({ error: "invalid workspace" }, 400);
 
+    // Read-modify-write, no locking: concurrent mints for the same workspace can race (last put wins, dropping a token). Acceptable for this admin-only PoC endpoint.
     const record = await c.env.REGISTRY.get<WorkspaceRecord>(`ws:${name}`, { type: "json" });
     if (!record) return c.json({ error: "workspace not found" }, 404);
 
