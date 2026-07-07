@@ -7,12 +7,12 @@
   "routes": [
     {
       "pattern": "api.uploads.sh",
-      "custom_domain": true
-    }
+      "custom_domain": true,
+    },
   ],
   "observability": {
     "enabled": true,
-    "head_sampling_rate": 1
+    "head_sampling_rate": 1,
   },
   // Workspace registry: `ws:<name>` → WorkspaceRecord (see src/workspace.ts).
   // Create with `wrangler kv namespace create <title>` and paste the id here.
@@ -21,8 +21,8 @@
   "kv_namespaces": [
     {
       "binding": "REGISTRY",
-      "id": "808bc1c3a86a4675b134e11b6dca303d"
-    }
+      "id": "808bc1c3a86a4675b134e11b6dca303d",
+    },
   ],
   // One binding per same-account bucket a workspace wants binding-mode I/O on.
   // Workspaces reference these by name; workspaces without a binding fall back
@@ -30,11 +30,11 @@
   "r2_buckets": [
     {
       "binding": "UPLOADS",
-      "bucket_name": "buildinternet-dev"
+      "bucket_name": "buildinternet-dev",
     },
     {
       "binding": "UPLOADS_DEFAULT",
-      "bucket_name": "uploads-default"
-    }
-  ]
+      "bucket_name": "uploads-default",
+    },
+  ],
 }

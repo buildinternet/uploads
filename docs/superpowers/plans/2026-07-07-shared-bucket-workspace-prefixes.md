@@ -28,17 +28,20 @@
 ### Task 1: Prefix plumbing in `@uploads/storage` (config, validation, publicUrl) + vitest setup
 
 **Files:**
+
 - Modify: `packages/storage/src/index.ts`
 - Modify: `packages/storage/package.json`
 - Create: `packages/storage/test/index.test.ts`
 
 **Interfaces:**
+
 - Consumes: nothing from other tasks.
 - Produces: `StorageConfig.prefix?: string` (optional, must match `/^([a-z0-9][a-z0-9._-]*\/)+$/`); `createStorage(config)` returns a `Files` instance whose operations are confined under `config.prefix`; `publicUrl(config, key)` returns `<base>/<prefix><key>` (segments URI-encoded). Task 2 tests behavior; Task 3 passes `prefix` from the workspace record.
 
 - [ ] **Step 1: Add vitest to the storage package**
 
 Run:
+
 ```bash
 pnpm --filter @uploads/storage add -D vitest
 ```
@@ -202,10 +205,12 @@ git commit -m "feat(storage): confine operations under an optional key prefix"
 ### Task 2: Behavioral prefix-confinement tests (fake R2 binding)
 
 **Files:**
+
 - Create: `packages/storage/test/fake-r2.ts`
 - Create: `packages/storage/test/prefix-confinement.test.ts`
 
 **Interfaces:**
+
 - Consumes: `createStorage` with `prefix` from Task 1.
 - Produces: `FakeR2Bucket` (in-memory stand-in for a Workers `R2Bucket` binding, exposing its raw `store: Map<string, ...>` for assertions). Test-only; nothing else depends on it.
 
@@ -435,10 +440,12 @@ git commit -m "test(storage): prove prefix confinement across shared-bucket tena
 ### Task 3: Thread `prefix` through the API (workspace record → storage config)
 
 **Files:**
+
 - Modify: `apps/api/src/workspace.ts` (the `WorkspaceRecord` interface, around line 9-24)
 - Modify: `apps/api/src/storage.ts` (the `storageConfig` return object, around line 13-21)
 
 **Interfaces:**
+
 - Consumes: `StorageConfig.prefix` from Task 1.
 - Produces: `WorkspaceRecord.prefix?: string` — read by `storageConfig()`; Task 4 writes it when registering shared-bucket workspaces. Route code is NOT modified.
 
@@ -476,9 +483,11 @@ git commit -m "feat(api): carry workspace key prefix into storage config"
 ### Task 4: Flip `add-workspace.mjs` to shared-bucket defaults
 
 **Files:**
+
 - Modify: `apps/api/scripts/add-workspace.mjs`
 
 **Interfaces:**
+
 - Consumes: `WorkspaceRecord.prefix` shape from Task 3 (the script writes raw JSON to KV; it does not import the type).
 - Produces: registration behavior — no `--bucket` ⇒ shared-bucket record (`bucket: "uploads-default"`, `binding: "UPLOADS_DEFAULT"`, `prefix: "<name>/"`, `publicBaseUrl: "https://storage.uploads.sh"`); `--bucket <name>` ⇒ BYO record identical to today's output.
 
@@ -526,11 +535,13 @@ const SHARED = {
   publicBaseUrl: "https://storage.uploads.sh",
 };
 
-const tokens = [{
-  hash: crypto.createHash("sha256").update(token).digest("hex"),
-  label: "initial",
-  createdAt: new Date().toISOString(),
-}];
+const tokens = [
+  {
+    hash: crypto.createHash("sha256").update(token).digest("hex"),
+    label: "initial",
+    createdAt: new Date().toISOString(),
+  },
+];
 
 const record = opts.bucket
   ? {
@@ -564,24 +575,29 @@ Object.keys(record).forEach((k) => record[k] === undefined && delete record[k]);
 - [ ] **Step 3: Verify shared mode against local KV**
 
 Run (from `apps/api`):
+
 ```bash
 node scripts/add-workspace.mjs planck --local
 pnpm exec wrangler kv key get ws:planck --binding REGISTRY --local
 ```
+
 Expected: the second command prints a JSON record with `"bucket": "uploads-default"`, `"binding": "UPLOADS_DEFAULT"`, `"prefix": "planck/"`, `"publicBaseUrl": "https://storage.uploads.sh"`, a `tokens` array, and NO `accountId`/`accessKeyId`/`secretAccessKey` keys.
 
 - [ ] **Step 4: Verify BYO mode against local KV**
 
 Run (from `apps/api`):
+
 ```bash
 node scripts/add-workspace.mjs byocheck --bucket custom-bucket --binding UPLOADS --local
 pnpm exec wrangler kv key get ws:byocheck --binding REGISTRY --local
 ```
+
 Expected: JSON with `"bucket": "custom-bucket"`, `"binding": "UPLOADS"`, and NO `prefix` key. (Run without `--env-file`, so no env credentials leak in.)
 
 - [ ] **Step 5: Clean up the local test records**
 
 Run (from `apps/api`):
+
 ```bash
 pnpm exec wrangler kv key delete ws:planck --binding REGISTRY --local
 pnpm exec wrangler kv key delete ws:byocheck --binding REGISTRY --local
@@ -599,10 +615,12 @@ git commit -m "feat(api): default new workspaces to shared-bucket prefix mode"
 ### Task 5: Documentation
 
 **Files:**
+
 - Modify: `AGENTS.md` (the "Workspaces (multi-tenant model)" section and the `workspace:add` line in "Commands")
 - Modify: `README.md` only if it mentions `--bucket` being required or describes the one-bucket-per-workspace model (check with `grep -n "bucket" README.md`); otherwise leave it.
 
 **Interfaces:**
+
 - Consumes: final behavior from Tasks 1-4.
 - Produces: docs matching reality. Nothing depends on this task.
 

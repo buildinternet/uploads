@@ -31,11 +31,17 @@ for (let i = 0; i < rest.length; i++) {
   const flag = rest[i];
   if (!flag.startsWith("--")) fail(`unexpected argument: ${flag}`);
   const key = flag.slice(2);
-  if (key === "local") { opts.local = true; continue; }
+  if (key === "local") {
+    opts.local = true;
+    continue;
+  }
   opts[key] = rest[++i];
 }
 
-function fail(msg) { console.error(`error: ${msg}`); process.exit(1); }
+function fail(msg) {
+  console.error(`error: ${msg}`);
+  process.exit(1);
+}
 
 if (!name || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(name)) {
   fail("workspace name must be lowercase alphanumeric/hyphens, 2-63 chars");
@@ -48,11 +54,13 @@ const SHARED = {
   publicBaseUrl: "https://storage.uploads.sh",
 };
 
-const tokens = [{
-  hash: crypto.createHash("sha256").update(token).digest("hex"),
-  label: "initial",
-  createdAt: new Date().toISOString(),
-}];
+const tokens = [
+  {
+    hash: crypto.createHash("sha256").update(token).digest("hex"),
+    label: "initial",
+    createdAt: new Date().toISOString(),
+  },
+];
 
 const record = opts.bucket
   ? {
@@ -85,9 +93,15 @@ Object.keys(record).forEach((k) => record[k] === undefined && delete record[k]);
 execFileSync(
   "pnpm",
   [
-    "exec", "wrangler", "kv", "key", "put", `ws:${name}`,
+    "exec",
+    "wrangler",
+    "kv",
+    "key",
+    "put",
+    `ws:${name}`,
     JSON.stringify(record),
-    "--binding", "REGISTRY",
+    "--binding",
+    "REGISTRY",
     opts.local ? "--local" : "--remote",
   ],
   { stdio: "inherit" },
@@ -96,4 +110,6 @@ execFileSync(
 console.log(`\nworkspace : ${name}`);
 console.log(`token     : ${token}`);
 console.log("\nStore the token now — only its hash is kept in KV.");
-console.log(`try it    : curl -H "Authorization: Bearer ${token}" https://api.uploads.sh/v1/${name}/files`);
+console.log(
+  `try it    : curl -H "Authorization: Bearer ${token}" https://api.uploads.sh/v1/${name}/files`,
+);

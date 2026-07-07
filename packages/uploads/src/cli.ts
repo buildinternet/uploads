@@ -8,14 +8,7 @@ import {
   parseCommandArgs,
   UsageError,
 } from "./cli-args.js";
-import {
-  runPut,
-  runList,
-  runDelete,
-  runHealth,
-  runDoctor,
-  type CliContext,
-} from "./commands.js";
+import { runPut, runList, runDelete, runHealth, runDoctor, type CliContext } from "./commands.js";
 import { runConfig } from "./commands/config.js";
 import { runSetup } from "./commands/setup.js";
 
@@ -136,11 +129,7 @@ export async function runCli(argv: string[]): Promise<number> {
 
     switch (parsed.command) {
       case "health":
-        return runHealth(
-          { apiUrl: resolveApiUrl(parsed.globals), json },
-          cmdArgs,
-          showHelp,
-        );
+        return runHealth({ apiUrl: resolveApiUrl(parsed.globals), json }, cmdArgs, showHelp);
       case "config":
         return runConfig(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
       case "setup":
@@ -167,8 +156,8 @@ export async function runCli(argv: string[]): Promise<number> {
     }
   } catch (err) {
     errorOut(err, argv.includes("--json"));
-    if (err instanceof UsageError && !argv.includes("--json")) process.stderr.write(`\n${ROOT_HELP}`);
+    if (err instanceof UsageError && !argv.includes("--json"))
+      process.stderr.write(`\n${ROOT_HELP}`);
     return exitCode(err);
   }
-  return 1;
 }

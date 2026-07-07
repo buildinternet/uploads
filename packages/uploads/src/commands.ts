@@ -1,13 +1,7 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { createUploadsClient, type UploadsClient } from "./client.js";
-import {
-  parseCommandArgs,
-  flagString,
-  flagBool,
-  flagInt,
-  UsageError,
-} from "./cli-args.js";
+import { parseCommandArgs, flagString, flagBool, flagInt, UsageError } from "./cli-args.js";
 import {
   resolvePutDefaults,
   workspaceMismatch,
@@ -77,10 +71,9 @@ export async function runPut(ctx: CliContext, args: string[], help = false): Pro
 
   const keyHint = flagString(parsed.flags, "--key");
   const bytes =
-    fileArg === "-"
-      ? new Uint8Array(readFileSync(0))
-      : new Uint8Array(readFileSync(fileArg));
-  const filename = fileArg === "-" ? (keyHint ? basename(keyHint) : "stdin.bin") : basename(fileArg);
+    fileArg === "-" ? new Uint8Array(readFileSync(0)) : new Uint8Array(readFileSync(fileArg));
+  const filename =
+    fileArg === "-" ? (keyHint ? basename(keyHint) : "stdin.bin") : basename(fileArg);
 
   const format = ctx.json
     ? "json"
@@ -172,14 +165,17 @@ export async function runList(ctx: CliContext, args: string[], help = false): Pr
       next = page.cursor;
     } while (next);
     if (ctx.json) await writeJson({ items, cursor: null });
-    else for (const item of items) await writeStdout(`${item.key}${item.url ? `  ${item.url}` : ""}\n`);
+    else
+      for (const item of items)
+        await writeStdout(`${item.key}${item.url ? `  ${item.url}` : ""}\n`);
     return 0;
   }
 
   const result = await ctx.client.list({ prefix, limit, cursor });
   if (ctx.json) await writeJson(result);
   else {
-    for (const item of result.items) await writeStdout(`${item.key}${item.url ? `  ${item.url}` : ""}\n`);
+    for (const item of result.items)
+      await writeStdout(`${item.key}${item.url ? `  ${item.url}` : ""}\n`);
     if (result.cursor) process.stderr.write(`cursor: ${result.cursor}\n`);
   }
   return 0;
@@ -277,7 +273,9 @@ export async function runDoctor(ctx: CliContext, args: string[], help = false): 
   } catch (err) {
     authError = err instanceof UploadsError ? err.message : String(err);
     if (err instanceof UploadsError && err.code === "UNAUTHORIZED") {
-      hints.push("if this token works on api.uploads.sh, set UPLOADS_API_URL=https://api.uploads.sh");
+      hints.push(
+        "if this token works on api.uploads.sh, set UPLOADS_API_URL=https://api.uploads.sh",
+      );
     }
   }
 

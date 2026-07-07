@@ -1,7 +1,9 @@
 /** GitHub-embed helpers (content type + markdown). */
 
 export function inferContentType(filename: string): string {
-  const ext = filename.includes(".") ? filename.slice(filename.lastIndexOf(".") + 1).toLowerCase() : "";
+  const ext = filename.includes(".")
+    ? filename.slice(filename.lastIndexOf(".") + 1).toLowerCase()
+    : "";
   switch (ext) {
     case "png":
       return "image/png";

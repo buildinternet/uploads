@@ -159,10 +159,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
       if (opts.limit != null) params.set("limit", String(opts.limit));
       if (opts.cursor) params.set("cursor", opts.cursor);
       const qs = params.toString();
-      return request<ListResult>(
-        "GET",
-        `${filesBase(config)}${qs ? `?${qs}` : ""}`,
-      );
+      return request<ListResult>("GET", `${filesBase(config)}${qs ? `?${qs}` : ""}`);
     },
 
     async delete(key: string): Promise<DeleteResult> {
