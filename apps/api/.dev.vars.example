@@ -2,3 +2,9 @@
 # credentials are per-workspace, stored in the REGISTRY KV namespace.
 # Seed a local workspace with:
 #   node scripts/add-workspace.mjs default --bucket uploads-default --binding UPLOADS_DEFAULT --local
+
+# Gates the /admin/* endpoints (e.g. POST /admin/tokens to mint upload tokens).
+# Any non-empty string works locally. In production set it with:
+#   cd apps/api && pnpm exec wrangler secret put ADMIN_TOKEN
+# If unset, /admin/* rejects every request (fails closed).
+ADMIN_TOKEN=

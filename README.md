@@ -5,6 +5,10 @@ Lightweight file-hosting backend on Cloudflare Workers, built on
 (R2 today; any files-sdk adapter later). Successor to the R2 upload scripts in
 `buildinternet-skills/github-screenshots`.
 
+> **Active development — not production-ready.** uploads.sh is being built in
+> the open and its APIs (including auth) will change without notice. Don't rely
+> on it for anything you can't afford to lose or re-key.
+
 ## Layout
 
 ```
@@ -42,6 +46,36 @@ pnpm workspace:add my-workspace \
 ```
 
 It prints the bearer token once.
+
+### Minting upload tokens
+
+Tokens are minted by an admin endpoint guarded by the `ADMIN_TOKEN` secret.
+Set it once per environment:
+
+```bash
+# local: add ADMIN_TOKEN=... to apps/api/.dev.vars
+# production:
+cd apps/api && pnpm exec wrangler secret put ADMIN_TOKEN
+```
+
+Then mint a token (defaults to the `default` workspace):
+
+```bash
+curl -XPOST https://api.uploads.sh/admin/tokens \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+# → { "workspace": "default", "token": "up_default_…", "label": null }
+
+# a specific workspace, with an optional label:
+curl -XPOST https://api.uploads.sh/admin/tokens \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"workspace":"acme","label":"ci"}'
+```
+
+The token is shown once. Minting appends — a workspace can hold several valid
+tokens. The workspace must already exist (`pnpm workspace:add …`); this endpoint
+issues tokens, it does not create workspaces. There is no revoke endpoint yet —
+remove a token by editing its `ws:<name>` record in KV.
 
 ## API
 
