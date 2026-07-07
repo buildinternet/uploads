@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  ATTACHMENTS_MARKER,
+  attachmentsCommentBody,
   ghAttachmentKey,
   ghKeyPrefix,
   isValidRepo,
@@ -58,5 +60,35 @@ describe("ghKeyPrefix / ghAttachmentKey", () => {
     expect(ghAttachmentKey(pr, "my shot (1).png")).toBe(
       "gh/buildinternet/uploads/pull/123/my-shot--1-.png",
     );
+  });
+});
+
+describe("attachmentsCommentBody", () => {
+  it("starts with the marker and renders images inline, other files as links", () => {
+    const body = attachmentsCommentBody([
+      { key: "gh/o/r/pull/1/notes.txt", url: "https://x.test/gh/o/r/pull/1/notes.txt" },
+      { key: "gh/o/r/pull/1/after.png", url: "https://x.test/gh/o/r/pull/1/after.png" },
+    ]);
+    expect(body.startsWith(ATTACHMENTS_MARKER)).toBe(true);
+    expect(body).toContain("![after.png](https://x.test/gh/o/r/pull/1/after.png)");
+    expect(body).toContain("- [notes.txt](https://x.test/gh/o/r/pull/1/notes.txt)");
+  });
+
+  it("sorts deterministically by key so repeated runs produce identical bodies", () => {
+    const a = attachmentsCommentBody([
+      { key: "gh/o/r/pull/1/b.png", url: "https://x/b.png" },
+      { key: "gh/o/r/pull/1/a.png", url: "https://x/a.png" },
+    ]);
+    const b = attachmentsCommentBody([
+      { key: "gh/o/r/pull/1/a.png", url: "https://x/a.png" },
+      { key: "gh/o/r/pull/1/b.png", url: "https://x/b.png" },
+    ]);
+    expect(a).toBe(b);
+    expect(a.indexOf("a.png")).toBeLessThan(a.indexOf("b.png"));
+  });
+
+  it("lists items without a url as plain names", () => {
+    const body = attachmentsCommentBody([{ key: "gh/o/r/pull/1/x.bin", url: null }]);
+    expect(body).toContain("- x.bin");
   });
 });
