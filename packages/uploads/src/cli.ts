@@ -14,6 +14,7 @@ import {
   runDelete,
   runHealth,
   runDoctor,
+  runComment,
   type CliContext,
 } from "./commands.js";
 import { runConfig } from "./commands/config.js";
@@ -45,6 +46,7 @@ Other globals (before command):
 
 Commands:
   put <file>          Upload (+ URL + markdown for GitHub)
+  comment             Create/update a PR/issue attachments comment (via gh)
   list                List objects
   delete <key>        Delete object
   setup               Guided config + token minting steps
@@ -148,11 +150,14 @@ export async function runCli(argv: string[]): Promise<number> {
       case "put":
       case "list":
       case "delete":
-      case "doctor": {
+      case "doctor":
+      case "comment": {
         const ctx = createContext(parsed.globals, !showHelp, cmdArgs);
         switch (parsed.command) {
           case "put":
             return runPut(ctx, cmdArgs, showHelp);
+          case "comment":
+            return runComment(ctx, cmdArgs, showHelp);
           case "list":
             return runList(ctx, cmdArgs, showHelp);
           case "delete":

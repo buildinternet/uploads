@@ -29,6 +29,7 @@ pnpm typecheck           # wrangler types + tsc across workspaces
 pnpm run deploy          # both workers; or deploy:api / deploy:web
 pnpm workspace:add <name> [--bucket <bucket>] [--binding X] [--local]
 pnpm uploads put <file> --env-file .env   # CLI (builds package first)
+pnpm uploads put <file> --pr <num> --comment   # PR attachment + managed GitHub comment
 ```
 
 Use `pnpm run deploy` (not bare `pnpm deploy` — that's pnpm's built-in).

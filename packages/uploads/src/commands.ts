@@ -7,6 +7,7 @@ import {
   flagBool,
   flagInt,
   UsageError,
+  type CommandFlags,
 } from "./cli-args.js";
 import {
   resolvePutDefaults,
@@ -16,6 +17,8 @@ import {
 } from "./config.js";
 import { buildMarkdown } from "./embed.js";
 import { UploadsError } from "./errors.js";
+import { ghAttachmentKey, ghKeyPrefix, attachmentsCommentBody, type GhTarget, type AttachmentItem } from "./github.js";
+import { resolveRepo, execRunner, upsertAttachmentsComment, type CommandRunner } from "./github-gh.js";
 
 export interface CliContext {
   config: ResolvedConfig;
@@ -52,13 +55,57 @@ Options:
   --no-git              Don't derive --repo from git (or UPLOADS_NO_GIT=1)
   --workspace, -w <name>  Override workspace (wins over UPLOADS_WORKSPACE and token inference)
   --format human|url|markdown|json
+  --pr <num>            Attach to a pull request: key gh/<owner>/<repo>/pull/<num>/<name> (stable URL, no hash)
+  --issue <num>         Attach to an issue: key gh/<owner>/<repo>/issues/<num>/<name>
+  --comment             With --pr/--issue: create/update the attachments comment via your local gh auth
 
 Examples:
   uploads put ./shot.png --repo myorg/myapp --ref 1722 --alt "New cards" --width 700
   uploads --env-file .env put ./shot.png
+  uploads --env-file .env put ./after.png --pr 123 --comment
 `;
 
-export async function runPut(ctx: CliContext, args: string[], help = false): Promise<number> {
+/** Reads --pr/--issue (+ --repo) into a GhTarget; undefined when neither flag is present. */
+function ghTargetFromFlags(
+  flags: CommandFlags["flags"],
+  run: CommandRunner,
+): GhTarget | undefined {
+  const pr = flagInt(flags, "--pr", "--pr");
+  const issue = flagInt(flags, "--issue", "--issue");
+  if (pr === undefined && issue === undefined) return undefined;
+  if (pr !== undefined && issue !== undefined) {
+    throw new UsageError("--pr and --issue are mutually exclusive");
+  }
+  const repo = resolveRepo(flagString(flags, "--repo"), run);
+  return { repo, kind: pr !== undefined ? "pull" : "issues", num: (pr ?? issue) as number };
+}
+
+/**
+ * List every attachment under the target's prefix and create/update the
+ * managed comment. Throws on gh failure — callers decide whether that is
+ * fatal (`comment` command) or a warning (`put --comment`).
+ */
+async function syncAttachmentsComment(
+  ctx: CliContext,
+  target: GhTarget,
+  run: CommandRunner,
+): Promise<{ action: "created" | "updated" | "skipped"; count: number }> {
+  const items: AttachmentItem[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await ctx.client.list({ prefix: ghKeyPrefix(target), cursor });
+    items.push(...page.items.map(({ key, url }) => ({ key, url })));
+    cursor = page.cursor ?? undefined;
+  } while (cursor);
+
+  if (items.length === 0) return { action: "skipped", count: 0 };
+
+  const body = attachmentsCommentBody(items);
+  const { created } = upsertAttachmentsComment(target, body, run);
+  return { action: created ? "created" : "updated", count: items.length };
+}
+
+export async function runPut(ctx: CliContext, args: string[], help = false, run: CommandRunner = execRunner): Promise<number> {
   if (help) {
     process.stderr.write(PUT_HELP);
     return 0;
@@ -76,6 +123,21 @@ export async function runPut(ctx: CliContext, args: string[], help = false): Pro
   }
 
   const keyHint = flagString(parsed.flags, "--key");
+  const ghTarget = ghTargetFromFlags(parsed.flags, run);
+  const wantComment = parsed.flags.has("--comment");
+  if (wantComment && typeof parsed.flags.get("--comment") === "string") {
+    throw new UsageError("--comment takes no value — place it after the file argument");
+  }
+  if (wantComment && !ghTarget) throw new UsageError("--comment requires --pr or --issue");
+  if (ghTarget) {
+    if (keyHint) throw new UsageError("--key cannot be combined with --pr/--issue");
+    if (flagString(parsed.flags, "--ref")) {
+      throw new UsageError("--ref cannot be combined with --pr/--issue");
+    }
+    if (flagString(parsed.flags, "--prefix")) {
+      throw new UsageError("--prefix cannot be combined with --pr/--issue");
+    }
+  }
   const bytes =
     fileArg === "-"
       ? new Uint8Array(readFileSync(0))
@@ -110,7 +172,7 @@ export async function runPut(ctx: CliContext, args: string[], help = false): Pro
   const noGit = flagBool(parsed.flags, "--no-git") || defaults.noGit === true;
   const result = await ctx.client.put(bytes, {
     filename,
-    key: keyHint,
+    key: ghTarget ? ghAttachmentKey(ghTarget, filename) : keyHint,
     prefix: flagString(parsed.flags, "--prefix") ?? defaults.prefix,
     repo: flagString(parsed.flags, "--repo") ?? defaults.repo,
     ref: flagString(parsed.flags, "--ref") ?? defaults.ref,
@@ -137,21 +199,42 @@ export async function runPut(ctx: CliContext, args: string[], help = false): Pro
     default:
       await writeStdout(`URL: ${result.url}\nMARKDOWN: ${markdown}\n`);
   }
+
+  if (wantComment && ghTarget) {
+    try {
+      const sync = await syncAttachmentsComment(ctx, ghTarget, run);
+      if (!ctx.quiet && format === "human") {
+        process.stderr.write(`>> attachments comment ${sync.action}\n`);
+      }
+    } catch (err) {
+      // Upload already succeeded; the comment is best-effort by design.
+      process.stderr.write(
+        `warning: upload succeeded but the GitHub comment failed (is gh installed and authenticated?): ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+  }
+
   return 0;
 }
 
 // --- list ---
 
-const LIST_HELP = `uploads list [--prefix <p>] [--limit <n>] [--cursor <c>] [--all] [--workspace <name>]
+const LIST_HELP = `uploads list [--prefix <p>] [--pr <num> | --issue <num>] [--repo <owner/name>] [--limit <n>] [--cursor <c>] [--all] [--workspace <name>]
 
 Default prefix: UPLOADS_DEFAULT_PREFIX (screenshots if unset).
 
 Examples:
   uploads list --prefix screenshots/
+  uploads list --pr 123
   uploads list --all --json
 `;
 
-export async function runList(ctx: CliContext, args: string[], help = false): Promise<number> {
+export async function runList(
+  ctx: CliContext,
+  args: string[],
+  help = false,
+  run: CommandRunner = execRunner,
+): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
     process.stderr.write(LIST_HELP);
@@ -159,7 +242,12 @@ export async function runList(ctx: CliContext, args: string[], help = false): Pr
   }
   const defaults = resolvePutDefaults({ envFile: ctx.envFile });
   const prefixFlag = flagString(parsed.flags, "--prefix");
-  const prefix = prefixFlag ?? (defaults.prefix ? `${defaults.prefix}/` : undefined);
+  let prefix = prefixFlag ?? (defaults.prefix ? `${defaults.prefix}/` : undefined);
+  const ghTarget = ghTargetFromFlags(parsed.flags, run);
+  if (ghTarget) {
+    if (prefixFlag) throw new UsageError("--prefix cannot be combined with --pr/--issue");
+    prefix = ghKeyPrefix(ghTarget);
+  }
   const limit = flagInt(parsed.flags, "--limit", "--limit");
   const cursor = flagString(parsed.flags, "--cursor");
 
@@ -212,6 +300,47 @@ export async function runDelete(ctx: CliContext, args: string[], help = false): 
   const result = await ctx.client.delete(key);
   if (ctx.json) await writeJson(result);
   else if (!ctx.quiet) process.stderr.write(`deleted ${result.key}\n`);
+  return 0;
+}
+
+// --- comment ---
+
+const COMMENT_HELP = `uploads comment (--pr <num> | --issue <num>) [--repo <owner/name>] [--workspace <name>]
+
+Create or update the managed attachments comment on a GitHub PR or issue,
+listing everything uploaded for it. Uses your local gh auth. Finds its own
+prior comment via a hidden marker and edits it in place; never touches other
+comments or the description.
+
+Examples:
+  uploads --env-file .env comment --pr 123
+  uploads comment --issue 45 --repo buildinternet/uploads
+`;
+
+export async function runComment(
+  ctx: CliContext,
+  args: string[],
+  help = false,
+  run: CommandRunner = execRunner,
+): Promise<number> {
+  const parsed = parseCommandArgs(args);
+  if (help || parsed.help) {
+    process.stderr.write(COMMENT_HELP);
+    return 0;
+  }
+  const target = ghTargetFromFlags(parsed.flags, run);
+  if (!target) throw new UsageError("comment requires --pr or --issue");
+
+  const result = await syncAttachmentsComment(ctx, target, run);
+  if (ctx.json) {
+    await writeJson({ ...target, ...result });
+  } else if (!ctx.quiet) {
+    process.stderr.write(
+      result.action === "skipped"
+        ? `no attachments under ${ghKeyPrefix(target)} — nothing to do\n`
+        : `${result.action} attachments comment on ${target.repo}#${target.num} (${result.count} file${result.count === 1 ? "" : "s"})\n`,
+    );
+  }
   return 0;
 }
 

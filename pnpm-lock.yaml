@@ -85,10 +85,13 @@ importers:
         version: 6.0.220(zod@4.4.3)
       files-sdk:
         specifier: ^2.1.0
-        version: 2.1.0(patch_hash=9e4b79cace0a4f9f8905aa675e78ffc05bfc59498007f2bf4a2ef882dbf5dee2)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.12.28)(zod@4.4.3)
+        version: 2.1.0(patch_hash=9e4b79cace0a4f9f8905aa675e78ffc05bfc59498007f2bf4a2ef882dbf5dee2)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.12.27)(zod@4.4.3)
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(yaml@2.9.0))
 
 packages:
 
@@ -4429,25 +4432,6 @@ snapshots:
       ai: 6.0.220(zod@4.4.3)
       h3: 1.15.11
       hono: 4.12.27
-      zod: 4.4.3
-    transitivePeerDependencies:
-      - '@cfworker/json-schema'
-      - supports-color
-
-  files-sdk@2.1.0(patch_hash=9e4b79cace0a4f9f8905aa675e78ffc05bfc59498007f2bf4a2ef882dbf5dee2)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.12.28)(zod@4.4.3):
-    dependencies:
-      commander: 15.0.0
-      picomatch: 4.0.5
-      safe-regex2: 5.1.1
-    optionalDependencies:
-      '@aws-sdk/client-s3': 3.1080.0
-      '@aws-sdk/s3-presigned-post': 3.1080.0
-      '@aws-sdk/s3-request-presigner': 3.1080.0
-      '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.3)
-      '@opentelemetry/api': 1.9.1
-      ai: 6.0.220(zod@4.4.3)
-      h3: 1.15.11
-      hono: 4.12.28
       zod: 4.4.3
     transitivePeerDependencies:
       - '@cfworker/json-schema'
