@@ -74,8 +74,27 @@ curl -XPOST https://api.uploads.sh/admin/tokens \
 
 The token is shown once. Minting appends — a workspace can hold several valid
 tokens. The workspace must already exist (`pnpm workspace:add …`); this endpoint
-issues tokens, it does not create workspaces. There is no revoke endpoint yet —
-remove a token by editing its `ws:<name>` record in KV.
+issues tokens, it does not create workspaces.
+
+List a workspace's tokens (the raw token and full hash are never returned — only
+an 8-char `hashPrefix`, which is the handle for revoke):
+
+```bash
+curl https://api.uploads.sh/admin/tokens?workspace=default \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+# → { "workspace": "default", "tokens": [ { "label": "ci", "createdAt": "…", "hashPrefix": "a1b2c3d4" } ] }
+```
+
+Revoke a token by `hashPrefix` or `label`. A selector that matches no token is
+`404`; one that matches more than one is `409` (pick a longer `hashPrefix`):
+
+```bash
+curl -XDELETE https://api.uploads.sh/admin/tokens \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"workspace":"default","hashPrefix":"a1b2c3d4"}'
+# or: -d '{"workspace":"default","label":"ci"}'
+```
 
 ## API
 
