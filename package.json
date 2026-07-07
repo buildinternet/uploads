@@ -13,8 +13,13 @@
     "upload:api": "pnpm --filter @uploads/api exec wrangler versions upload",
     "upload:web": "pnpm --filter @uploads/web run build && pnpm --filter @uploads/web exec wrangler versions upload",
     "types": "pnpm --filter @uploads/api types",
-    "typecheck": "pnpm -r typecheck",
-    "workspace:add": "pnpm --filter @uploads/api run workspace:add"
+    "typecheck": "pnpm --filter @buildinternet/uploads run build && pnpm -r typecheck",
+    "workspace:add": "pnpm --filter @uploads/api run workspace:add",
+    "preuploads": "pnpm --filter @buildinternet/uploads run build",
+    "uploads": "pnpm exec uploads"
+  },
+  "devDependencies": {
+    "@buildinternet/uploads": "workspace:*"
   },
   "engines": {
     "node": ">=22",
