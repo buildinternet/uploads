@@ -25,3 +25,5 @@ minimumReleaseAgeExclude:
   - '@cloudflare/workers-types@5.20260706.1'
   - files-sdk@2.1.0
   - hono@4.12.28
+patchedDependencies:
+  files-sdk@2.1.0: patches/files-sdk@2.1.0.patch

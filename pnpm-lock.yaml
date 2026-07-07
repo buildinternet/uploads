@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  files-sdk@2.1.0: 9e4b79cace0a4f9f8905aa675e78ffc05bfc59498007f2bf4a2ef882dbf5dee2
+
 importers:
 
   .: {}
@@ -56,7 +59,7 @@ importers:
         version: 3.1080.0
       files-sdk:
         specifier: ^2.1.0
-        version: 2.1.0(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(h3@1.15.11)(hono@4.12.27)(zod@4.4.3)
+        version: 2.1.0(patch_hash=9e4b79cace0a4f9f8905aa675e78ffc05bfc59498007f2bf4a2ef882dbf5dee2)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(h3@1.15.11)(hono@4.12.27)(zod@4.4.3)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^5.20260706.1
@@ -4148,7 +4151,7 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.5
 
-  files-sdk@2.1.0(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(h3@1.15.11)(hono@4.12.27)(zod@4.4.3):
+  files-sdk@2.1.0(patch_hash=9e4b79cace0a4f9f8905aa675e78ffc05bfc59498007f2bf4a2ef882dbf5dee2)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(h3@1.15.11)(hono@4.12.27)(zod@4.4.3):
     dependencies:
       commander: 15.0.0
       picomatch: 4.0.5

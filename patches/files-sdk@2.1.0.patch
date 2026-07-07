@@ -1,0 +1,17 @@
+diff --git a/dist/r2/index.js b/dist/r2/index.js
+index 291ca05dee674c7845e5e18868d481a3e4168b10..237e9726bd3e49ea5246cdf50acf62f37a54b035 100644
+--- a/dist/r2/index.js
++++ b/dist/r2/index.js
+@@ -231,7 +231,11 @@ var r2FromBinding = (opts) => {
+           ...options?.prefix && { prefix: options.prefix },
+           ...options?.limit !== undefined && { limit: options.limit },
+           ...options?.cursor && { cursor: options.cursor },
+-          ...options?.delimiter && { delimiter: options.delimiter }
++          ...options?.delimiter && { delimiter: options.delimiter },
++          // Patched: R2 list() omits httpMetadata/customMetadata unless explicitly
++          // requested, so item.type would always default to application/octet-stream.
++          // Requesting them makes list() report the stored content type like head().
++          include: ["httpMetadata", "customMetadata"]
+         });
+       } catch (error) {
+         throw mapR2Error(error);
