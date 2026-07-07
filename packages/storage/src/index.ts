@@ -19,9 +19,20 @@ export interface StorageConfig {
   accountId?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
+  /**
+   * Key prefix all operations are confined under (e.g. "myws/"). Must end
+   * with "/". Applied via files-sdk's instance prefix; clients never see it.
+   */
+  prefix?: string;
 }
 
+/** Segments of lowercase alphanumerics/._- each ending in "/"; first char alphanumeric (so "." and ".." are impossible). */
+const PREFIX_RE = /^([a-z0-9][a-z0-9._-]*\/)+$/;
+
 export function createStorage(config: StorageConfig): Files {
+  if (config.prefix !== undefined && !PREFIX_RE.test(config.prefix)) {
+    throw new Error(`invalid storage prefix: ${JSON.stringify(config.prefix)}`);
+  }
   switch (config.provider) {
     case "r2": {
       const shared = {
@@ -34,18 +45,19 @@ export function createStorage(config: StorageConfig): Files {
       const adapter = config.r2Binding
         ? r2({ binding: config.r2Binding, bucket: config.bucket, ...shared })
         : r2({ bucket: config.bucket, ...shared });
-      return new Files({ adapter });
+      return new Files({ adapter, prefix: config.prefix });
     }
     default:
       throw new Error(`Unsupported storage provider: ${config.provider satisfies never}`);
   }
 }
 
-/** Public URL for a key when the bucket is fronted by a custom domain. */
+/** Public URL for a key when the bucket is fronted by a custom domain. Includes the workspace prefix. */
 export function publicUrl(config: StorageConfig, key: string): string | null {
   if (!config.publicBaseUrl) return null;
   const base = config.publicBaseUrl.replace(/\/$/, "");
-  return `${base}/${key.split("/").map(encodeURIComponent).join("/")}`;
+  const fullKey = `${config.prefix ?? ""}${key}`;
+  return `${base}/${fullKey.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 export type { Files };
