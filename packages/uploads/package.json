@@ -30,6 +30,7 @@
     "src"
   ],
   "scripts": {
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "prepublishOnly": "pnpm run build"
@@ -49,7 +50,8 @@
     "@types/node": "^26.1.0",
     "ai": "^6.0.0",
     "files-sdk": "^2.1.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
   },
   "publishConfig": {
     "access": "public"

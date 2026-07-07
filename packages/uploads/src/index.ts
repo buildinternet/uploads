@@ -41,3 +41,20 @@ export {
   type DeleteResult,
   type HealthResult,
 } from "./client.js";
+export {
+  ATTACHMENTS_MARKER,
+  attachmentsCommentBody,
+  ghAttachmentKey,
+  ghKeyPrefix,
+  isValidRepo,
+  parseRepoFromRemoteUrl,
+  type AttachmentItem,
+  type GhTarget,
+  type GhTargetKind,
+} from "./github.js";
+export {
+  execRunner,
+  resolveRepo,
+  upsertAttachmentsComment,
+  type CommandRunner,
+} from "./github-gh.js";

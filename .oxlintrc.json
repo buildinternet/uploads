@@ -90,7 +90,7 @@
   },
   "overrides": [
     {
-      "files": ["**/*.test.ts", "packages/storage/test/**"],
+      "files": ["**/*.test.ts", "packages/storage/test/**", "packages/uploads/test/**"],
       "rules": {
         "typescript/no-floating-promises": "off",
         "typescript/await-thenable": "off",

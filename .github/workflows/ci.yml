@@ -67,4 +67,4 @@ jobs:
         run: pnpm types
 
       - name: Run tests
-        run: pnpm --filter @uploads/storage test
+        run: pnpm --filter @uploads/storage test && pnpm --filter @buildinternet/uploads test
