@@ -16,15 +16,24 @@ import {
   runDoctor,
   type CliContext,
 } from "./commands.js";
+import { runConfig } from "./commands/config.js";
+import { runSetup } from "./commands/setup.js";
 
 const ROOT_HELP = `uploads — CLI for uploads.sh (GitHub image embeds)
 
 Usage:
   uploads [globals] <command> [args]
 
-Workspace (first match wins):
+Config (first match wins, per key):
+  CLI flags           --api-url, --token, --workspace
+  environment         UPLOADS_API_URL, UPLOADS_TOKEN, UPLOADS_WORKSPACE
+  --env-file <path>
+  $BUILDINTERNET_CONFIG
+  ~/.config/buildinternet/config   (shared with github-screenshots)
+
+Workspace (within config layers):
   --workspace, -w     override — global (before command) or per-command (after)
-  UPLOADS_WORKSPACE   env / --env-file
+  UPLOADS_WORKSPACE   env / config file
   (else inferred from token up_<name>_…, else "default")
 
 Other globals (before command):
@@ -38,13 +47,20 @@ Commands:
   put <file>          Upload (+ URL + markdown for GitHub)
   list                List objects
   delete <key>        Delete object
+  setup               Guided config + token minting steps
+  config              Show path, init, or set shared config
   doctor              Health + auth + workspace checks
   health              API liveness (no auth)
 
+Put/list defaults (config file or env):
+  UPLOADS_DEFAULT_PREFIX, UPLOADS_DEFAULT_REPO, UPLOADS_DEFAULT_REF
+  UPLOADS_DEFAULT_WIDTH, UPLOADS_NO_GIT
+
 Examples:
-  uploads --env-file .env put ./shot.png --repo myorg/myapp --ref 42
-  uploads put ./shot.png --workspace acme
-  uploads --workspace buildinternet --env-file .env doctor
+  uploads setup
+  uploads setup --token up_default_… --repo myorg/myapp
+  uploads put ./shot.png --ref 42
+  uploads doctor
 
 Agent/MCP: use createUploadsWorkerFileTools() from @buildinternet/uploads/agent on the Worker.
 `;
@@ -67,6 +83,7 @@ function createContext(
     client: createUploadsClient(config),
     json: globals.json ?? false,
     quiet: globals.quiet ?? false,
+    envFile: globals.envFile,
   };
 }
 
@@ -97,7 +114,11 @@ function errorOut(err: unknown, json: boolean): void {
         ? { error: err.message, code: "USAGE" }
         : { error: err instanceof Error ? err.message : String(err) };
   if (json) process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
-  else process.stderr.write(`error: ${payload.error}\n`);
+  else {
+    const msg = payload.error;
+    if (msg.includes("\n")) process.stderr.write(`${msg}\n`);
+    else process.stderr.write(`error: ${msg}\n`);
+  }
 }
 
 export async function runCli(argv: string[]): Promise<number> {
@@ -120,6 +141,10 @@ export async function runCli(argv: string[]): Promise<number> {
           cmdArgs,
           showHelp,
         );
+      case "config":
+        return runConfig(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
+      case "setup":
+        return runSetup(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
       case "put":
       case "list":
       case "delete":

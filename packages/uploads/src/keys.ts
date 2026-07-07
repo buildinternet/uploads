@@ -25,6 +25,7 @@ export function deriveRepoFromGit(): string | undefined {
 export async function buildScreenshotKey(opts: {
   filename: string;
   fileBytes: Uint8Array;
+  prefix?: string;
   repo?: string;
   ref?: string;
   deriveRepoFromGit?: boolean;
@@ -39,5 +40,6 @@ export async function buildScreenshotKey(opts: {
   const ref = sanitizeKeySegment(opts.ref ?? new Date().toISOString().slice(0, 10));
   const short = await sha256Short(opts.fileBytes);
 
-  return `screenshots/${repo}/${ref}/${sanitizeKeySegment(stem)}-${short}${ext ? `.${sanitizeKeySegment(ext)}` : ""}`;
+  const prefix = sanitizeKeySegment(opts.prefix ?? "screenshots");
+  return `${prefix}/${repo}/${ref}/${sanitizeKeySegment(stem)}-${short}${ext ? `.${sanitizeKeySegment(ext)}` : ""}`;
 }
