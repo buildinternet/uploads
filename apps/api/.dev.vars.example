@@ -8,10 +8,3 @@
 #   cd apps/api && pnpm exec wrangler secret put ADMIN_TOKEN
 # If unset, /admin/* rejects every request (fails closed).
 ADMIN_TOKEN=
-
-# Cloudflare API token (Zone → Cache Purge) for purge-on-overwrite on the core
-# zone. Set in production with:
-#   cd apps/api && pnpm exec wrangler secret put CF_PURGE_TOKEN
-# Zone id + purgeable hosts are non-secret `vars` in wrangler.jsonc. If unset,
-# purging is skipped and overwrites propagate within the upload Cache-Control TTL.
-CF_PURGE_TOKEN=
