@@ -128,7 +128,7 @@ curl -X PUT https://api.uploads.sh/v1/default/files/screenshots/myapp/42/shot.pn
 ```bash
 pnpm install
 cp apps/api/.dev.vars.example apps/api/.dev.vars
-pnpm workspace:add default [--bucket uploads-default] [--binding UPLOADS_DEFAULT] --local
+pnpm workspace:add default --local
 pnpm dev            # API on :8787 (local R2 + KV simulation); pnpm dev:web for the site
 pnpm typecheck
 ```
