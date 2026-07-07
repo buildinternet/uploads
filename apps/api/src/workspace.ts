@@ -13,8 +13,10 @@ export interface WorkspaceRecord {
   binding?: string;
   /** Public custom domain for this workspace's bucket. */
   publicBaseUrl?: string;
-  /** SHA-256 hex of the workspace's bearer token. */
-  tokenHash: string;
+  /** Bearer tokens valid for this workspace. */
+  tokens?: { hash: string; label?: string; createdAt: string }[];
+  /** @deprecated legacy single-token field; still honored on read. */
+  tokenHash?: string;
   /** HTTP credentials — presigning, or I/O for workspaces without a binding. */
   accountId?: string;
   accessKeyId?: string;
@@ -39,6 +41,11 @@ export async function sha256Hex(value: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** All valid token hashes for a workspace (new list + legacy single field). */
+export function workspaceTokenHashes(record: WorkspaceRecord): string[] {
+  return record.tokens?.map((t) => t.hash) ?? (record.tokenHash ? [record.tokenHash] : []);
+}
+
 /**
  * Resolves `:workspace` from the path, verifies the bearer token against the
  * workspace's stored token hash, and puts the record on the context.
@@ -55,13 +62,16 @@ export const workspaceAuth: MiddlewareHandler<WorkspaceVars> = async (c, next) =
       ? await c.env.REGISTRY.get<WorkspaceRecord>(`ws:${name}`, { type: "json", cacheTtl: 60 })
       : null;
 
-  // Always burn a hash + compare, even for unknown workspaces.
   const providedHash = await sha256Hex(token);
-  const expectedHash = record?.tokenHash ?? providedHash.replace(/./g, "0");
-  const ok =
-    record !== null &&
-    token.length > 0 &&
-    crypto.subtle.timingSafeEqual(hexToBytes(providedHash), hexToBytes(expectedHash));
+  const providedBytes = hexToBytes(providedHash);
+  const candidates = record ? workspaceTokenHashes(record) : [];
+  // Always compare at least once so unknown workspaces cost the same.
+  const toCheck = candidates.length > 0 ? candidates : [providedHash.replace(/./g, "0")];
+  let matched = false;
+  for (const hash of toCheck) {
+    if (crypto.subtle.timingSafeEqual(providedBytes, hexToBytes(hash))) matched = true;
+  }
+  const ok = record !== null && token.length > 0 && candidates.length > 0 && matched;
 
   if (!ok || !record || !name) return c.json({ error: "unauthorized" }, 401);
 
