@@ -5,7 +5,12 @@
  * TTL, so overwriting a key at a stable URL keeps serving the old body until the
  * TTL lapses. `Cache-Control: max-age=60` on upload bounds that everywhere; for
  * the core `uploads.sh` zone we additionally purge the exact URL on write so
- * replacements propagate immediately.
+ * our edge serves fresh bytes immediately.
+ *
+ * Scope note: this evicts OUR Cloudflare edge only. GitHub embeds are proxied
+ * through Camo/Fastly, which keeps its own cache we can't purge — there, the
+ * upload `Cache-Control` is what governs how fast a replacement shows up. This
+ * purge mainly helps direct storage.uploads.sh viewers.
  *
  * Gated on config: no token / no zone / a host we don't control → no-op, and
  * callers rely on the short TTL instead. Bring-your-own-domain workspaces
