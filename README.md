@@ -24,10 +24,14 @@ peer deps — no API changes.
 
 ## Workspaces
 
-Every request is scoped to a **workspace** — a tenant with its own bucket,
-credentials, and bearer token. Nothing in the code treats any workspace as
-special; landing in a particular bucket is always an intentional choice of
-workspace. The default workspace ships ready to use:
+Every request is scoped to a **workspace** — a tenant with its own credentials
+and bearer token. By default, a workspace is a `<name>/` prefix in the shared
+`uploads-default` bucket (binding `UPLOADS_DEFAULT`, public at
+`https://storage.uploads.sh`); the record carries `prefix: "<name>/"` and
+creating one is a pure KV write. Bring-your-own-bucket is the advanced case:
+register with `--bucket` and the record points at a dedicated bucket (own
+binding or S3 credentials). Nothing in the code treats any workspace as special.
+The default workspace ships ready to use:
 
 | Workspace | Bucket | Public base URL |
 |---|---|---|
@@ -41,8 +45,8 @@ another with:
 
 ```bash
 pnpm workspace:add my-workspace \
-  --bucket my-bucket --binding UPLOADS \
-  --public-base-url https://media.example.com   # add --local for dev
+  [--bucket my-bucket] [--binding UPLOADS] \
+  [--public-base-url https://media.example.com]   # add --local for dev
 ```
 
 It prints the bearer token once.
@@ -124,7 +128,7 @@ curl -X PUT https://api.uploads.sh/v1/default/files/screenshots/myapp/42/shot.pn
 ```bash
 pnpm install
 cp apps/api/.dev.vars.example apps/api/.dev.vars
-pnpm workspace:add default --bucket uploads-default --binding UPLOADS_DEFAULT --local
+pnpm workspace:add default --local
 pnpm dev            # API on :8787 (local R2 + KV simulation); pnpm dev:web for the site
 pnpm typecheck
 ```
@@ -144,9 +148,10 @@ the `routes` block to serve from your `workers.dev` subdomain.
    default binding expects `uploads-default`), or create one with
    `wrangler r2 bucket create`. Same-account buckets get binding-mode I/O;
    workspaces can instead carry their own S3 credentials for HTTP mode.
-3. Register the workspace: `pnpm workspace:add default
-   --bucket uploads-default --binding UPLOADS_DEFAULT --public-base-url
-   https://storage.uploads.sh`.
+3. Register the workspace: `pnpm workspace:add default` — with no flags it
+   lands in the shared `uploads-default` bucket under a `default/` prefix,
+   served at `https://storage.uploads.sh`. Pass `--bucket` (and optionally
+   `--binding` / `--public-base-url`) for a dedicated bucket instead.
 4. `pnpm run deploy` — ships both workers (`deploy:api` → `api.uploads.sh`,
    `deploy:web` → the `uploads.sh` apex). Note `pnpm run deploy`, not
    `pnpm deploy` — the bare form is pnpm's own command. In CI, Workers Builds

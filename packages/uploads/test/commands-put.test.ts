@@ -40,6 +40,8 @@ function ctxWith(client: UploadsClient): CliContext {
       workspace: "test",
       token: "up_test_x",
       workspaceSource: "override",
+      configPath: "/tmp/uploads-test-config",
+      configExists: false,
     },
     client,
     json: false,

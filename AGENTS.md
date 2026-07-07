@@ -27,7 +27,7 @@ pnpm dev                 # API on :8787 (local R2 + KV simulation)
 pnpm dev:web             # Astro site
 pnpm typecheck           # wrangler types + tsc across workspaces
 pnpm run deploy          # both workers; or deploy:api / deploy:web
-pnpm workspace:add <name> --bucket <bucket> [--binding X] [--local]
+pnpm workspace:add <name> [--bucket <bucket>] [--binding X] [--local]
 pnpm uploads put <file> --env-file .env   # CLI (builds package first)
 pnpm uploads put <file> --pr <num> --comment   # PR attachment + managed GitHub comment
 ```
@@ -48,6 +48,17 @@ bucket, optional R2 binding name, optional `publicBaseUrl`, optional S3
 credentials, and the SHA-256 hash of its bearer token. Register workspaces
 with `apps/api/scripts/add-workspace.mjs` (`--local` for dev KV). Never treat
 any workspace as special in code — even `default` is just a registered tenant.
+
+By default a workspace is a **`<name>/` prefix in the shared `uploads-default`
+bucket** (binding `UPLOADS_DEFAULT`, public at `https://storage.uploads.sh`):
+the record carries `prefix: "<name>/"` and creating one is a pure KV write.
+The prefix is applied in exactly one place — `createStorage()` in
+`packages/storage` (files-sdk instance prefix) — so route code and clients
+never see it; public URLs are `https://storage.uploads.sh/<name>/<key>`.
+Bring-your-own-bucket is the advanced case: register with `--bucket` and the
+record points at a dedicated bucket (own binding or S3 credentials, own
+`publicBaseUrl`, no prefix) — `buildinternet` on `buildinternet-dev` is the
+reference example.
 
 R2 workspaces have **two credential paths on the same bucket**:
 

@@ -1,0 +1,43 @@
+# uploads.sh CLI configuration — REFERENCE ONLY.
+#
+# Copy these keys into the shared buildinternet config file:
+#
+#   ~/.config/buildinternet/config        (or $XDG_CONFIG_HOME/buildinternet/config)
+#
+# Other buildinternet skills (e.g. github-screenshots) share this file; each reads
+# only its own prefixed keys, so append these lines to it.
+#
+# Resolution order (first match wins, per key):
+#   1. CLI flags (--api-url, --token, --workspace)
+#   2. environment variables (UPLOADS_* already exported)
+#   3. --env-file <path>
+#   4. $BUILDINTERNET_CONFIG
+#   5. ~/.config/buildinternet/config
+#
+# Quick setup:
+#   uploads config init --token up_default_…
+#   uploads config show
+#   uploads doctor
+
+# API base URL. Local dev: http://localhost:8787
+UPLOADS_API_URL=https://api.uploads.sh
+
+# Workspace tenant — selects bucket via the API registry (default → uploads-default).
+UPLOADS_WORKSPACE=default
+
+# Bearer token for that workspace. Mint via admin endpoint or workspace:add script.
+UPLOADS_TOKEN=
+
+# --- Put defaults (optional) ------------------------------------------------
+# Applied when flags are omitted on `uploads put` / `uploads list`.
+
+# Key prefix (default: screenshots). list appends "/" automatically.
+UPLOADS_DEFAULT_PREFIX=screenshots
+
+# Default repo/ref segments for auto-generated keys.
+# UPLOADS_DEFAULT_REPO=myorg/myapp
+# UPLOADS_DEFAULT_REF=1722
+
+# Default markdown width and git behavior.
+# UPLOADS_DEFAULT_WIDTH=700
+# UPLOADS_NO_GIT=1

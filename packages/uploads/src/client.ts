@@ -6,6 +6,7 @@ import { buildScreenshotKey } from "./keys.js";
 export interface PutOptions {
   key?: string;
   contentType?: string;
+  prefix?: string;
   repo?: string;
   ref?: string;
   deriveRepoFromGit?: boolean;
@@ -123,6 +124,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
         (await buildScreenshotKey({
           filename: opts.filename,
           fileBytes: body,
+          prefix: opts.prefix,
           repo: opts.repo,
           ref: opts.ref,
           deriveRepoFromGit: opts.deriveRepoFromGit,

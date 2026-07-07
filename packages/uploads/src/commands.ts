@@ -9,7 +9,12 @@ import {
   UsageError,
   type CommandFlags,
 } from "./cli-args.js";
-import { workspaceMismatch, workspaceFromToken, type ResolvedConfig } from "./config.js";
+import {
+  resolvePutDefaults,
+  workspaceMismatch,
+  workspaceFromToken,
+  type ResolvedConfig,
+} from "./config.js";
 import { buildMarkdown } from "./embed.js";
 import { UploadsError } from "./errors.js";
 import { ghAttachmentKey, ghKeyPrefix, attachmentsCommentBody, type GhTarget, type AttachmentItem } from "./github.js";
@@ -20,6 +25,7 @@ export interface CliContext {
   client: UploadsClient;
   json: boolean;
   quiet: boolean;
+  envFile?: string;
 }
 
 async function writeStdout(text: string): Promise<void> {
@@ -39,13 +45,14 @@ const PUT_HELP = `uploads put <file> [options]
 Upload an image for GitHub embeds. Use "-" for stdin.
 
 Options:
-  --key <key>           Object key (default: screenshots/<repo>/<ref>/<name>-<hash>.<ext>)
-  --repo <owner/repo>   Repo segment (default: git remote)
-  --ref <id>            PR/issue/branch segment (default: today's date)
+  --key <key>           Object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>)
+  --prefix <path>       Key prefix (default: screenshots, or UPLOADS_DEFAULT_PREFIX)
+  --repo <owner/repo>   Repo segment (default: git remote, or UPLOADS_DEFAULT_REPO)
+  --ref <id>            PR/issue/branch segment (default: today, or UPLOADS_DEFAULT_REF)
   --alt <text>          Alt text (default: filename)
-  --width <px>          <img width=…> markdown
+  --width <px>          <img width=…> markdown (or UPLOADS_DEFAULT_WIDTH)
   --content-type <mime> Override Content-Type
-  --no-git              Don't derive --repo from git
+  --no-git              Don't derive --repo from git (or UPLOADS_NO_GIT=1)
   --workspace, -w <name>  Override workspace (wins over UPLOADS_WORKSPACE and token inference)
   --format human|url|markdown|json
   --pr <num>            Attach to a pull request: key gh/<owner>/<repo>/pull/<num>/<name> (stable URL, no hash)
@@ -127,6 +134,9 @@ export async function runPut(ctx: CliContext, args: string[], help = false, run:
     if (flagString(parsed.flags, "--ref")) {
       throw new UsageError("--ref cannot be combined with --pr/--issue");
     }
+    if (flagString(parsed.flags, "--prefix")) {
+      throw new UsageError("--prefix cannot be combined with --pr/--issue");
+    }
   }
   const bytes =
     fileArg === "-"
@@ -143,6 +153,7 @@ export async function runPut(ctx: CliContext, args: string[], help = false, run:
         throw new UsageError(`invalid --format: ${raw}`);
       })();
 
+  const defaults = resolvePutDefaults({ envFile: ctx.envFile });
   const alt = flagString(parsed.flags, "--alt") ?? basename(filename);
   const widthRaw = flagString(parsed.flags, "--width");
   const width =
@@ -152,19 +163,21 @@ export async function runPut(ctx: CliContext, args: string[], help = false, run:
         ? (() => {
             throw new UsageError(`invalid --width: ${widthRaw}`);
           })()
-        : undefined;
+        : defaults.width;
 
   if (!ctx.quiet && format === "human") {
     process.stderr.write(`>> uploading ${fileArg === "-" ? "stdin" : fileArg}\n`);
   }
 
+  const noGit = flagBool(parsed.flags, "--no-git") || defaults.noGit === true;
   const result = await ctx.client.put(bytes, {
     filename,
     key: ghTarget ? ghAttachmentKey(ghTarget, filename) : keyHint,
-    repo: flagString(parsed.flags, "--repo"),
-    ref: flagString(parsed.flags, "--ref"),
+    prefix: flagString(parsed.flags, "--prefix") ?? defaults.prefix,
+    repo: flagString(parsed.flags, "--repo") ?? defaults.repo,
+    ref: flagString(parsed.flags, "--ref") ?? defaults.ref,
     contentType: flagString(parsed.flags, "--content-type"),
-    deriveRepoFromGit: !flagBool(parsed.flags, "--no-git"),
+    deriveRepoFromGit: !noGit,
   });
 
   const markdown = buildMarkdown(result.url, { alt, width });
@@ -208,6 +221,8 @@ export async function runPut(ctx: CliContext, args: string[], help = false, run:
 
 const LIST_HELP = `uploads list [--prefix <p>] [--pr <num> | --issue <num>] [--repo <owner/name>] [--limit <n>] [--cursor <c>] [--all] [--workspace <name>]
 
+Default prefix: UPLOADS_DEFAULT_PREFIX (screenshots if unset).
+
 Examples:
   uploads list --prefix screenshots/
   uploads list --pr 123
@@ -225,10 +240,12 @@ export async function runList(
     process.stderr.write(LIST_HELP);
     return 0;
   }
-  let prefix = flagString(parsed.flags, "--prefix");
+  const defaults = resolvePutDefaults({ envFile: ctx.envFile });
+  const prefixFlag = flagString(parsed.flags, "--prefix");
+  let prefix = prefixFlag ?? (defaults.prefix ? `${defaults.prefix}/` : undefined);
   const ghTarget = ghTargetFromFlags(parsed.flags, run);
   if (ghTarget) {
-    if (prefix) throw new UsageError("--prefix cannot be combined with --pr/--issue");
+    if (prefixFlag) throw new UsageError("--prefix cannot be combined with --pr/--issue");
     prefix = ghKeyPrefix(ghTarget);
   }
   const limit = flagInt(parsed.flags, "--limit", "--limit");
@@ -393,12 +410,18 @@ export async function runDoctor(ctx: CliContext, args: string[], help = false): 
     }
   }
 
+  if (!ctx.config.configExists && !ctx.config.token) {
+    hints.push(`run uploads setup to configure ${ctx.config.configPath}`);
+  }
+
   const report = {
     ok: health.ok && authOk,
     apiUrl: ctx.config.apiUrl,
     workspace: ctx.config.workspace,
     workspaceSource: ctx.config.workspaceSource,
     workspaceFromToken: workspaceFromToken(ctx.config.token),
+    configPath: ctx.config.configPath,
+    configExists: ctx.config.configExists,
     health,
     auth: { ok: authOk, error: authError },
     hints,
@@ -410,9 +433,10 @@ export async function runDoctor(ctx: CliContext, args: string[], help = false): 
   }
 
   const lines = [
+    `config:    ${ctx.config.configPath}${ctx.config.configExists ? "" : " (missing)"}`,
     `api:       ${ctx.config.apiUrl} (${health.ok ? "ok" : "failed"})`,
     `workspace: ${ctx.config.workspace}`,
-    `auth:      ${authOk ? "ok" : `failed — ${authError}`}`,
+    `auth:      ${authOk ? "ok" : `failed — ${authError ?? "no token"}`}`,
   ];
   if (mismatch) lines.push(`warning:   ${mismatch}`);
   for (const h of hints) if (h !== mismatch) lines.push(`hint:      ${h}`);
