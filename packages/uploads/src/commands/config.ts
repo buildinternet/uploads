@@ -11,12 +11,7 @@ import {
   writeConfigKeys,
   type UploadsConfigKey,
 } from "../config.js";
-import {
-  flagBool,
-  flagString,
-  parseCommandArgs,
-  UsageError,
-} from "../cli-args.js";
+import { flagBool, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
 
 const CONFIG_HELP = `uploads config — manage shared buildinternet config
 
@@ -198,9 +193,7 @@ Examples:
       process.stdout.write(`${verb} ${result.path}\n`);
       if (result.updated.length) process.stdout.write(`keys: ${result.updated.join(", ")}\n`);
       if (!token) {
-        process.stderr.write(
-          "hint: add a token with uploads config set UPLOADS_TOKEN <token>\n",
-        );
+        process.stderr.write("hint: add a token with uploads config set UPLOADS_TOKEN <token>\n");
       }
     }
     return 0;

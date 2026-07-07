@@ -52,9 +52,7 @@ describe("ghKeyPrefix / ghAttachmentKey", () => {
     expect(ghKeyPrefix({ repo: "o/r", kind: "issues", num: 7 })).toBe("gh/o/r/issues/7/");
   });
   it("builds a stable key with no content hash", () => {
-    expect(ghAttachmentKey(pr, "after.png")).toBe(
-      "gh/buildinternet/uploads/pull/123/after.png",
-    );
+    expect(ghAttachmentKey(pr, "after.png")).toBe("gh/buildinternet/uploads/pull/123/after.png");
   });
   it("sanitizes filename characters", () => {
     expect(ghAttachmentKey(pr, "my shot (1).png")).toBe(

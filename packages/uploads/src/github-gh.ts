@@ -17,10 +17,7 @@ export const execRunner: CommandRunner = (cmd, args, input) =>
  * Resolve "owner/name". Order: explicit --repo (validated) → `gh repo view`
  * (fork-aware) → parse the origin remote → UsageError.
  */
-export function resolveRepo(
-  explicit: string | undefined,
-  run: CommandRunner = execRunner,
-): string {
+export function resolveRepo(explicit: string | undefined, run: CommandRunner = execRunner): string {
   if (explicit !== undefined) {
     if (!isValidRepo(explicit)) {
       throw new UsageError(`--repo must be owner/name (got: ${explicit})`);
@@ -62,9 +59,7 @@ interface GhComment {
 function findManagedComment(target: GhTarget, run: CommandRunner): GhComment | undefined {
   const raw = run("gh", ["api", `repos/${target.repo}/issues/${target.num}/comments?per_page=100`]);
   const comments = JSON.parse(raw) as GhComment[];
-  return comments.find(
-    (c) => typeof c.body === "string" && c.body.includes(ATTACHMENTS_MARKER),
-  );
+  return comments.find((c) => typeof c.body === "string" && c.body.includes(ATTACHMENTS_MARKER));
 }
 
 /**
@@ -93,10 +88,6 @@ export function upsertAttachmentsComment(
     );
     return { created: false };
   }
-  run(
-    "gh",
-    ["api", `repos/${target.repo}/issues/${target.num}/comments`, "-F", "body=@-"],
-    body,
-  );
+  run("gh", ["api", `repos/${target.repo}/issues/${target.num}/comments`, "-F", "body=@-"], body);
   return { created: true };
 }

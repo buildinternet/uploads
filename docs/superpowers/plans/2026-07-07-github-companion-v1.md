@@ -29,10 +29,12 @@
 The repo currently has **no tests anywhere**. Set up vitest for `packages/uploads` and prove the harness with one test of an existing function.
 
 **Files:**
+
 - Modify: `packages/uploads/package.json` (add devDependency + script)
 - Create: `packages/uploads/test/embed.test.ts`
 
 **Interfaces:**
+
 - Consumes: `buildMarkdown(url, {alt, width?})` from `packages/uploads/src/embed.ts` (exists).
 - Produces: the `test` script (`pnpm --filter @buildinternet/uploads test`) that every later task uses. Tests live in `packages/uploads/test/`, import sources as `../src/<module>.js`, and are excluded from the build (tsconfig `include` is `["src"]` — leave it alone).
 
@@ -94,10 +96,12 @@ git commit -m "test: add vitest harness to @buildinternet/uploads"
 ### Task 2: Pure GitHub key helpers (`src/github.ts`, part 1)
 
 **Files:**
+
 - Create: `packages/uploads/src/github.ts`
 - Test: `packages/uploads/test/github.test.ts`
 
 **Interfaces:**
+
 - Consumes: `sanitizeKeySegment(s: string): string` from `src/keys.ts` (exists; strips everything but `A-Za-z0-9._-`).
 - Produces (later tasks depend on these exact names):
   - `type GhTargetKind = "pull" | "issues"`
@@ -164,9 +168,7 @@ describe("ghKeyPrefix / ghAttachmentKey", () => {
     expect(ghKeyPrefix({ repo: "o/r", kind: "issues", num: 7 })).toBe("gh/o/r/issues/7/");
   });
   it("builds a stable key with no content hash", () => {
-    expect(ghAttachmentKey(pr, "after.png")).toBe(
-      "gh/buildinternet/uploads/pull/123/after.png",
-    );
+    expect(ghAttachmentKey(pr, "after.png")).toBe("gh/buildinternet/uploads/pull/123/after.png");
   });
   it("sanitizes filename characters", () => {
     expect(ghAttachmentKey(pr, "my shot (1).png")).toBe(
@@ -249,10 +251,12 @@ git commit -m "feat(uploads): stable PR/issue attachment keys"
 ### Task 3: Managed-comment marker and body (`src/github.ts`, part 2)
 
 **Files:**
+
 - Modify: `packages/uploads/src/github.ts` (append)
 - Test: `packages/uploads/test/github.test.ts` (append)
 
 **Interfaces:**
+
 - Consumes: `inferContentType(filename: string): string` from `src/embed.ts` (exists).
 - Produces:
   - `ATTACHMENTS_MARKER` — the exact string `<!-- uploads.sh:attachments -->`
@@ -352,10 +356,12 @@ git commit -m "feat(uploads): managed attachments-comment body generation"
 ### Task 4: `gh`/`git` wrapper with injectable runner (`src/github-gh.ts`)
 
 **Files:**
+
 - Create: `packages/uploads/src/github-gh.ts`
 - Test: `packages/uploads/test/github-gh.test.ts`
 
 **Interfaces:**
+
 - Consumes: `UsageError` from `src/cli-args.ts`; `ATTACHMENTS_MARKER`, `isValidRepo`, `parseRepoFromRemoteUrl`, `GhTarget` from `src/github.ts` (Tasks 2–3).
 - Produces:
   - `type CommandRunner = (cmd: string, args: string[], input?: string) => string` — returns stdout, throws on non-zero exit
@@ -493,10 +499,7 @@ export const execRunner: CommandRunner = (cmd, args, input) =>
  * Resolve "owner/name". Order: explicit --repo (validated) → `gh repo view`
  * (fork-aware) → parse the origin remote → UsageError.
  */
-export function resolveRepo(
-  explicit: string | undefined,
-  run: CommandRunner = execRunner,
-): string {
+export function resolveRepo(explicit: string | undefined, run: CommandRunner = execRunner): string {
   if (explicit !== undefined) {
     if (!isValidRepo(explicit)) {
       throw new UsageError(`--repo must be owner/name (got: ${explicit})`);
@@ -538,9 +541,7 @@ interface GhComment {
 function findManagedComment(target: GhTarget, run: CommandRunner): GhComment | undefined {
   const raw = run("gh", ["api", `repos/${target.repo}/issues/${target.num}/comments?per_page=100`]);
   const comments = JSON.parse(raw) as GhComment[];
-  return comments.find(
-    (c) => typeof c.body === "string" && c.body.includes(ATTACHMENTS_MARKER),
-  );
+  return comments.find((c) => typeof c.body === "string" && c.body.includes(ATTACHMENTS_MARKER));
 }
 
 /**
@@ -569,11 +570,7 @@ export function upsertAttachmentsComment(
     );
     return { created: false };
   }
-  run(
-    "gh",
-    ["api", `repos/${target.repo}/issues/${target.num}/comments`, "-F", "body=@-"],
-    body,
-  );
+  run("gh", ["api", `repos/${target.repo}/issues/${target.num}/comments`, "-F", "body=@-"], body);
   return { created: true };
 }
 ```
@@ -597,10 +594,12 @@ git commit -m "feat(uploads): gh wrapper — repo inference and comment upsert"
 ### Task 5: `put --pr` / `put --issue` (stable keys)
 
 **Files:**
+
 - Modify: `packages/uploads/src/commands.ts`
 - Test: `packages/uploads/test/commands-put.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ghAttachmentKey`, `GhTarget` (Task 2); `resolveRepo`, `execRunner`, `CommandRunner` (Task 4); existing `runPut`, `CliContext`, `flagInt`, `flagString`, `flagBool`, `UsageError`.
 - Produces:
   - `runPut(ctx, args, help?, run?: CommandRunner)` — 4th parameter added, defaults to `execRunner`. `cli.ts` keeps calling it with 3 args.
@@ -693,21 +692,36 @@ describe("runPut --pr/--issue", () => {
   it("rejects --pr with --issue", async () => {
     const { client } = fakeClient();
     await expect(
-      runPut(ctxWith(client), [tmpFile(), "--pr", "1", "--issue", "2", "--repo", "o/r"], false, noRun),
+      runPut(
+        ctxWith(client),
+        [tmpFile(), "--pr", "1", "--issue", "2", "--repo", "o/r"],
+        false,
+        noRun,
+      ),
     ).rejects.toThrow(UsageError);
   });
 
   it("rejects --pr with --key", async () => {
     const { client } = fakeClient();
     await expect(
-      runPut(ctxWith(client), [tmpFile(), "--pr", "1", "--key", "x/y.png", "--repo", "o/r"], false, noRun),
+      runPut(
+        ctxWith(client),
+        [tmpFile(), "--pr", "1", "--key", "x/y.png", "--repo", "o/r"],
+        false,
+        noRun,
+      ),
     ).rejects.toThrow(UsageError);
   });
 
   it("rejects --pr with --ref", async () => {
     const { client } = fakeClient();
     await expect(
-      runPut(ctxWith(client), [tmpFile(), "--pr", "1", "--ref", "abc", "--repo", "o/r"], false, noRun),
+      runPut(
+        ctxWith(client),
+        [tmpFile(), "--pr", "1", "--ref", "abc", "--repo", "o/r"],
+        false,
+        noRun,
+      ),
     ).rejects.toThrow(UsageError);
   });
 
@@ -732,8 +746,19 @@ Expected: FAIL — `runPut` takes 3 args / keys don't match.
 Add imports at the top (merge with existing import lines):
 
 ```ts
-import { ghAttachmentKey, ghKeyPrefix, attachmentsCommentBody, type GhTarget, type AttachmentItem } from "./github.js";
-import { resolveRepo, execRunner, upsertAttachmentsComment, type CommandRunner } from "./github-gh.js";
+import {
+  ghAttachmentKey,
+  ghKeyPrefix,
+  attachmentsCommentBody,
+  type GhTarget,
+  type AttachmentItem,
+} from "./github.js";
+import {
+  resolveRepo,
+  execRunner,
+  upsertAttachmentsComment,
+  type CommandRunner,
+} from "./github-gh.js";
 import type { CommandFlags } from "./cli-args.js";
 ```
 
@@ -743,10 +768,7 @@ Add the shared helper (above `runPut`):
 
 ```ts
 /** Reads --pr/--issue (+ --repo) into a GhTarget; undefined when neither flag is present. */
-function ghTargetFromFlags(
-  flags: CommandFlags["flags"],
-  run: CommandRunner,
-): GhTarget | undefined {
+function ghTargetFromFlags(flags: CommandFlags["flags"], run: CommandRunner): GhTarget | undefined {
   const pr = flagInt(flags, "--pr", "--pr");
   const issue = flagInt(flags, "--issue", "--issue");
   if (pr === undefined && issue === undefined) return undefined;
@@ -772,13 +794,13 @@ export async function runPut(
 Inside `runPut`, right after `const keyHint = flagString(parsed.flags, "--key");` (before reading file bytes), add:
 
 ```ts
-  const ghTarget = ghTargetFromFlags(parsed.flags, run);
-  if (ghTarget) {
-    if (keyHint) throw new UsageError("--key cannot be combined with --pr/--issue");
-    if (flagString(parsed.flags, "--ref")) {
-      throw new UsageError("--ref cannot be combined with --pr/--issue");
-    }
+const ghTarget = ghTargetFromFlags(parsed.flags, run);
+if (ghTarget) {
+  if (keyHint) throw new UsageError("--key cannot be combined with --pr/--issue");
+  if (flagString(parsed.flags, "--ref")) {
+    throw new UsageError("--ref cannot be combined with --pr/--issue");
   }
+}
 ```
 
 Change the `ctx.client.put` call's `key` line from `key: keyHint,` to:
@@ -818,11 +840,13 @@ git commit -m "feat(uploads): put --pr/--issue with stable attachment keys"
 ### Task 6: `uploads comment` command + `put --comment`
 
 **Files:**
+
 - Modify: `packages/uploads/src/commands.ts`
 - Modify: `packages/uploads/src/cli.ts`
 - Test: `packages/uploads/test/commands-comment.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ghTargetFromFlags` (Task 5), `ghKeyPrefix`, `attachmentsCommentBody`, `AttachmentItem` (Tasks 2–3), `upsertAttachmentsComment` (Task 4).
 - Produces:
   - `runComment(ctx: CliContext, args: string[], help?: boolean, run?: CommandRunner): Promise<number>` — exported from `commands.ts`, wired into `cli.ts` as the `comment` command (authenticated path, same as `put`).
@@ -875,9 +899,7 @@ function ghRunner() {
 describe("runComment", () => {
   it("requires --pr or --issue", async () => {
     const { run } = ghRunner();
-    await expect(runComment(ctxWith(listClient([])), [], false, run)).rejects.toThrow(
-      UsageError,
-    );
+    await expect(runComment(ctxWith(listClient([])), [], false, run)).rejects.toThrow(UsageError);
   });
 
   it("creates a comment listing the PR's attachments", async () => {
@@ -885,12 +907,7 @@ describe("runComment", () => {
     const client = listClient([
       { key: "gh/o/r/pull/5/after.png", url: "https://x.test/gh/o/r/pull/5/after.png" },
     ]);
-    const code = await runComment(
-      ctxWith(client),
-      ["--pr", "5", "--repo", "o/r"],
-      false,
-      run,
-    );
+    const code = await runComment(ctxWith(client), ["--pr", "5", "--repo", "o/r"], false, run);
     expect(code).toBe(0);
     const create = calls.find((c) => c.args.includes("repos/o/r/issues/5/comments"));
     expect(create).toBeDefined();
@@ -999,36 +1016,36 @@ export async function runComment(
 Wire `put --comment` in `runPut`. In the validation block added in Task 5, extend to:
 
 ```ts
-  const ghTarget = ghTargetFromFlags(parsed.flags, run);
-  const wantComment = parsed.flags.has("--comment");
-  if (wantComment && typeof parsed.flags.get("--comment") === "string") {
-    throw new UsageError("--comment takes no value — place it after the file argument");
+const ghTarget = ghTargetFromFlags(parsed.flags, run);
+const wantComment = parsed.flags.has("--comment");
+if (wantComment && typeof parsed.flags.get("--comment") === "string") {
+  throw new UsageError("--comment takes no value — place it after the file argument");
+}
+if (wantComment && !ghTarget) throw new UsageError("--comment requires --pr or --issue");
+if (ghTarget) {
+  if (keyHint) throw new UsageError("--key cannot be combined with --pr/--issue");
+  if (flagString(parsed.flags, "--ref")) {
+    throw new UsageError("--ref cannot be combined with --pr/--issue");
   }
-  if (wantComment && !ghTarget) throw new UsageError("--comment requires --pr or --issue");
-  if (ghTarget) {
-    if (keyHint) throw new UsageError("--key cannot be combined with --pr/--issue");
-    if (flagString(parsed.flags, "--ref")) {
-      throw new UsageError("--ref cannot be combined with --pr/--issue");
-    }
-  }
+}
 ```
 
 At the end of `runPut`, just before `return 0;`, add:
 
 ```ts
-  if (wantComment && ghTarget) {
-    try {
-      const sync = await syncAttachmentsComment(ctx, ghTarget, run);
-      if (!ctx.quiet && format === "human") {
-        process.stderr.write(`>> attachments comment ${sync.action}\n`);
-      }
-    } catch (err) {
-      // Upload already succeeded; the comment is best-effort by design.
-      process.stderr.write(
-        `warning: upload succeeded but the GitHub comment failed (is gh installed and authenticated?): ${err instanceof Error ? err.message : String(err)}\n`,
-      );
+if (wantComment && ghTarget) {
+  try {
+    const sync = await syncAttachmentsComment(ctx, ghTarget, run);
+    if (!ctx.quiet && format === "human") {
+      process.stderr.write(`>> attachments comment ${sync.action}\n`);
     }
+  } catch (err) {
+    // Upload already succeeded; the comment is best-effort by design.
+    process.stderr.write(
+      `warning: upload succeeded but the GitHub comment failed (is gh installed and authenticated?): ${err instanceof Error ? err.message : String(err)}\n`,
+    );
   }
+}
 ```
 
 Wire the command in `packages/uploads/src/cli.ts`:
@@ -1071,10 +1088,12 @@ git commit -m "feat(uploads): comment command and put --comment"
 ### Task 7: `list --pr` / `list --issue`
 
 **Files:**
+
 - Modify: `packages/uploads/src/commands.ts` (`runList`, `LIST_HELP`)
 - Test: `packages/uploads/test/commands-list.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ghTargetFromFlags` (Task 5), `ghKeyPrefix` (Task 2).
 - Produces: `runList(ctx, args, help?, run?: CommandRunner)` — 4th parameter added, defaulting to `execRunner`; `cli.ts` keeps calling with 3 args.
 
@@ -1168,12 +1187,12 @@ export async function runList(
 Replace the line `const prefix = flagString(parsed.flags, "--prefix");` with:
 
 ```ts
-  let prefix = flagString(parsed.flags, "--prefix");
-  const ghTarget = ghTargetFromFlags(parsed.flags, run);
-  if (ghTarget) {
-    if (prefix) throw new UsageError("--prefix cannot be combined with --pr/--issue");
-    prefix = ghKeyPrefix(ghTarget);
-  }
+let prefix = flagString(parsed.flags, "--prefix");
+const ghTarget = ghTargetFromFlags(parsed.flags, run);
+if (ghTarget) {
+  if (prefix) throw new UsageError("--prefix cannot be combined with --pr/--issue");
+  prefix = ghKeyPrefix(ghTarget);
+}
 ```
 
 Update `LIST_HELP` to:
@@ -1207,11 +1226,13 @@ git commit -m "feat(uploads): list --pr/--issue"
 ### Task 8: Public exports and docs sweep
 
 **Files:**
+
 - Modify: `packages/uploads/src/index.ts`
 - Modify: `AGENTS.md` (repo root — one line)
 - Modify: `packages/uploads/README.md` **only if it exists** (check with `ls packages/uploads/README.md`); skip silently if not.
 
 **Interfaces:**
+
 - Consumes: everything from Tasks 2–4.
 - Produces: library consumers can import the GitHub helpers from `@buildinternet/uploads`.
 
@@ -1270,9 +1291,11 @@ git commit -m "feat(uploads): export GitHub helpers; document PR attachments"
 **Different repo:** `/Users/zachdunn/Code/buildinternet-skills`. Check `git -C /Users/zachdunn/Code/buildinternet-skills status` first; if the working tree is dirty, create a branch before committing and mention it in the task report. This task is documentation-only — do not modify the skill's `scripts/`.
 
 **Files:**
+
 - Modify: `/Users/zachdunn/Code/buildinternet-skills/skills/github-screenshots/SKILL.md`
 
 **Interfaces:**
+
 - Consumes: the CLI behavior shipped in Tasks 5–6 (`uploads put --pr/--issue [--comment]`).
 - Produces: the skill instructs agents to prefer the uploads.sh CLI when configured, keeping direct-R2 as fallback.
 
@@ -1332,7 +1355,7 @@ Expected: key `gh/buildinternet/uploads/pull/<NUM>/<some.png>` and a URL that se
 
 - [ ] **Step 2: Replace the file, confirm the URL content changes**
 
-Upload a *different* image with the same filename and the same `--pr`. Expected: same key, same URL; `curl` now returns the new bytes. This is the core stable-URL guarantee — if the key gained a hash suffix, the implementation is wrong.
+Upload a _different_ image with the same filename and the same `--pr`. Expected: same key, same URL; `curl` now returns the new bytes. This is the core stable-URL guarantee — if the key gained a hash suffix, the implementation is wrong.
 
 - [ ] **Step 3: Comment idempotence**
 

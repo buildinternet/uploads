@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { publicUrl, storage, storageConfig } from "../storage";
 import type { WorkspaceVars } from "../workspace";
 
-const KEY_RE = /^[\w!*'().\/-]+$/;
+const KEY_RE = /^[\w!*'()./-]+$/;
 
 function badKey(key: string): boolean {
   return (
@@ -26,7 +26,10 @@ export const files = new Hono<WorkspaceVars>()
     await storage(c.env, ws).upload(key, new Uint8Array(body), { contentType });
 
     const url = publicUrl(storageConfig(c.env, ws), key);
-    return c.json({ workspace: c.get("workspaceName"), key, url, size: body.byteLength, contentType }, 201);
+    return c.json(
+      { workspace: c.get("workspaceName"), key, url, size: body.byteLength, contentType },
+      201,
+    );
   })
 
   // List

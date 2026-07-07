@@ -42,9 +42,7 @@ export interface WorkspaceRecord {
 Auth builds its candidate hash list as:
 
 ```ts
-const hashes =
-  record.tokens?.map((t) => t.hash) ??
-  (record.tokenHash ? [record.tokenHash] : []);
+const hashes = record.tokens?.map((t) => t.hash) ?? (record.tokenHash ? [record.tokenHash] : []);
 ```
 
 and does a timing-safe compare of the presented token's hash against each
@@ -80,7 +78,7 @@ Mirrors `workspaceAuth`:
 
 Write `tokens: [{ hash, label: "initial", createdAt }]` instead of `tokenHash`.
 Still prints the token once. (Existing overwrite semantics for that script are
-unchanged — it is workspace *creation*.)
+unchanged — it is workspace _creation_.)
 
 ### 5. Docs & env templates
 

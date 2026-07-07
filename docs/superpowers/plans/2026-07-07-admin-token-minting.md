@@ -23,10 +23,12 @@
 ### Task 1: Multi-token record schema + auth
 
 **Files:**
+
 - Modify: `apps/api/src/workspace.ts` (schema `WorkspaceRecord`; `workspaceAuth` hash-list compare)
 - Create: `apps/api/src/env.d.ts` (type `ADMIN_TOKEN` onto `Env`)
 
 **Interfaces:**
+
 - Produces:
   - `interface WorkspaceRecord` gains `tokens?: { hash: string; label?: string; createdAt: string }[]` and marks `tokenHash?` optional/legacy.
   - `export function workspaceTokenHashes(record: WorkspaceRecord): string[]` — returns `record.tokens?.map(t => t.hash) ?? (record.tokenHash ? [record.tokenHash] : [])`. Reused by Task 2's endpoint.
@@ -72,18 +74,18 @@ export function workspaceTokenHashes(record: WorkspaceRecord): string[] {
 Replace the compare block (the `const providedHash` / `expectedHash` / `ok` section) in `workspaceAuth` with a candidate-list match that keeps a constant-ish work profile:
 
 ```ts
-  const providedHash = await sha256Hex(token);
-  const providedBytes = hexToBytes(providedHash);
-  const candidates = record ? workspaceTokenHashes(record) : [];
-  // Always compare at least once so unknown workspaces cost the same.
-  const toCheck = candidates.length > 0 ? candidates : [providedHash.replace(/./g, "0")];
-  let matched = false;
-  for (const hash of toCheck) {
-    if (crypto.subtle.timingSafeEqual(providedBytes, hexToBytes(hash))) matched = true;
-  }
-  const ok = record !== null && token.length > 0 && candidates.length > 0 && matched;
+const providedHash = await sha256Hex(token);
+const providedBytes = hexToBytes(providedHash);
+const candidates = record ? workspaceTokenHashes(record) : [];
+// Always compare at least once so unknown workspaces cost the same.
+const toCheck = candidates.length > 0 ? candidates : [providedHash.replace(/./g, "0")];
+let matched = false;
+for (const hash of toCheck) {
+  if (crypto.subtle.timingSafeEqual(providedBytes, hexToBytes(hash))) matched = true;
+}
+const ok = record !== null && token.length > 0 && candidates.length > 0 && matched;
 
-  if (!ok || !record || !name) return c.json({ error: "unauthorized" }, 401);
+if (!ok || !record || !name) return c.json({ error: "unauthorized" }, 401);
 ```
 
 - [ ] **Step 4: Typecheck**
@@ -115,11 +117,13 @@ git commit -m "Support multiple bearer tokens per workspace"
 ### Task 2: Admin auth middleware + mint endpoint
 
 **Files:**
+
 - Create: `apps/api/src/admin.ts` (adminAuth middleware)
 - Create: `apps/api/src/routes/admin.ts` (POST /admin/tokens)
 - Modify: `apps/api/src/index.ts` (mount the route)
 
 **Interfaces:**
+
 - Consumes: `sha256Hex`, `workspaceTokenHashes`, `WorkspaceRecord` from `./workspace` (Task 1).
 - Produces:
   - `export const adminAuth: MiddlewareHandler<{ Bindings: Env }>` — 401 unless `Authorization: Bearer <ADMIN_TOKEN>` matches the secret; fails closed if the secret is unset.
@@ -183,11 +187,17 @@ export const admin = new Hono<{ Bindings: Env }>()
     const record = await c.env.REGISTRY.get<WorkspaceRecord>(`ws:${name}`, { type: "json" });
     if (!record) return c.json({ error: "workspace not found" }, 404);
 
-    const token = `up_${name}_${btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24))))
-      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+    const token = `up_${name}_${btoa(
+      String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24))),
+    )
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "")}`;
     const entry = { hash: await sha256Hex(token), label, createdAt: new Date().toISOString() };
 
-    const tokens = record.tokens ?? (record.tokenHash ? [{ hash: record.tokenHash, createdAt: entry.createdAt }] : []);
+    const tokens =
+      record.tokens ??
+      (record.tokenHash ? [{ hash: record.tokenHash, createdAt: entry.createdAt }] : []);
     tokens.push(entry);
     const { tokenHash: _drop, ...rest } = record;
     await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify({ ...rest, tokens }));
@@ -260,9 +270,11 @@ git commit -m "Add admin endpoint to mint workspace tokens"
 ### Task 3: Emit the new token format from `add-workspace.mjs`
 
 **Files:**
+
 - Modify: `apps/api/scripts/add-workspace.mjs` (write `tokens: [...]` instead of `tokenHash`)
 
 **Interfaces:**
+
 - Consumes: nothing new. Produces records in the Task 1 `tokens[]` shape.
 
 - [ ] **Step 1: Write the `tokens` list instead of `tokenHash`**
@@ -309,6 +321,7 @@ git commit -m "Emit list-format token from add-workspace script"
 ### Task 4: Docs + env templates
 
 **Files:**
+
 - Modify: `README.md` (active-development callout + "Minting tokens" section)
 - Modify: `apps/api/.dev.vars.example` (add `ADMIN_TOKEN`)
 - Modify: `.env.example` (note the admin mint flow)
@@ -410,6 +423,7 @@ git commit -m "Document token minting and admin secret"
 ## Self-Review
 
 **Spec coverage:**
+
 - Multi-token schema + legacy read → Task 1. ✓
 - Auth matches any hash → Task 1 Step 3. ✓
 - `adminAuth` secret, fails closed → Task 2 Step 1. ✓
