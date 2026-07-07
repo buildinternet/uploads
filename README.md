@@ -33,8 +33,8 @@ register with `--bucket` and the record points at a dedicated bucket (own
 binding or S3 credentials). Nothing in the code treats any workspace as special.
 The default workspace ships ready to use:
 
-| Workspace | Bucket | Public base URL |
-|---|---|---|
+| Workspace | Bucket            | Public base URL                                |
+| --------- | ----------------- | ---------------------------------------------- |
 | `default` | `uploads-default` | `https://storage.uploads.sh` — generic hosting |
 
 Workspace records live in the `REGISTRY` KV namespace (`ws:<name>`). Each
@@ -105,13 +105,13 @@ curl -XDELETE https://api.uploads.sh/admin/tokens \
 All `/v1` routes require the workspace's `Authorization: Bearer <token>`.
 Unknown workspaces and bad tokens are indistinguishable (both 401).
 
-| Route | Description |
-|---|---|
-| `GET /health` | Liveness (no auth) |
-| `PUT /v1/:workspace/files/:key` | Upload raw body; `Content-Type` header is stored. Returns `{ workspace, key, url, size }` |
-| `GET /v1/:workspace/files?prefix=&limit=&cursor=` | List objects |
-| `GET /v1/:workspace/files/:key` | Object metadata |
-| `DELETE /v1/:workspace/files/:key` | Delete object |
+| Route                                             | Description                                                                               |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `GET /health`                                     | Liveness (no auth)                                                                        |
+| `PUT /v1/:workspace/files/:key`                   | Upload raw body; `Content-Type` header is stored. Returns `{ workspace, key, url, size }` |
+| `GET /v1/:workspace/files?prefix=&limit=&cursor=` | List objects                                                                              |
+| `GET /v1/:workspace/files/:key`                   | Object metadata                                                                           |
+| `DELETE /v1/:workspace/files/:key`                | Delete object                                                                             |
 
 `url` in responses is the public URL when the workspace has a
 `publicBaseUrl`, otherwise `null`.

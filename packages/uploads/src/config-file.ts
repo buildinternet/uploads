@@ -61,10 +61,12 @@ function parsePutDefaultsFromRaw(raw: UploadsConfigValues): PutDefaults {
 
 function parsePutDefaultsFromEnv(): PutDefaults {
   const raw: UploadsConfigValues = {};
-  if (process.env.UPLOADS_DEFAULT_PREFIX) raw.UPLOADS_DEFAULT_PREFIX = process.env.UPLOADS_DEFAULT_PREFIX;
+  if (process.env.UPLOADS_DEFAULT_PREFIX)
+    raw.UPLOADS_DEFAULT_PREFIX = process.env.UPLOADS_DEFAULT_PREFIX;
   if (process.env.UPLOADS_DEFAULT_REPO) raw.UPLOADS_DEFAULT_REPO = process.env.UPLOADS_DEFAULT_REPO;
   if (process.env.UPLOADS_DEFAULT_REF) raw.UPLOADS_DEFAULT_REF = process.env.UPLOADS_DEFAULT_REF;
-  if (process.env.UPLOADS_DEFAULT_WIDTH) raw.UPLOADS_DEFAULT_WIDTH = process.env.UPLOADS_DEFAULT_WIDTH;
+  if (process.env.UPLOADS_DEFAULT_WIDTH)
+    raw.UPLOADS_DEFAULT_WIDTH = process.env.UPLOADS_DEFAULT_WIDTH;
   if (process.env.UPLOADS_NO_GIT) raw.UPLOADS_NO_GIT = process.env.UPLOADS_NO_GIT;
   return parsePutDefaultsFromRaw(raw);
 }
@@ -136,7 +138,9 @@ export function mergePutDefaults(...layers: PutDefaults[]): PutDefaults {
 export function resolvePutDefaults(flags?: { envFile?: string }): PutDefaults {
   const fromEnv = parsePutDefaultsFromEnv();
   const fromEnvFile = flags?.envFile ? parsePutDefaultsFromRaw(loadConfigFile(flags.envFile)) : {};
-  const fromUser = flags?.envFile ? {} : parsePutDefaultsFromRaw(loadConfigFile(resolveConfigPath(flags)));
+  const fromUser = flags?.envFile
+    ? {}
+    : parsePutDefaultsFromRaw(loadConfigFile(resolveConfigPath(flags)));
   return mergePutDefaults(fromUser, fromEnvFile, fromEnv);
 }
 

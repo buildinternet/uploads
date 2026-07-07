@@ -89,13 +89,7 @@ function pickApiUrl(flags?: ConfigLayer & { apiUrl?: string; envFile?: string })
 /** How the active workspace was chosen (for doctor hints). */
 export type WorkspaceSource = "override" | "env" | "file" | "user-config" | "token" | "default";
 
-export type ConfigValueSource =
-  | "flag"
-  | "env"
-  | "env-file"
-  | "user-config"
-  | "token"
-  | "default";
+export type ConfigValueSource = "flag" | "env" | "env-file" | "user-config" | "token" | "default";
 
 export interface ResolvedConfig extends UploadsClientConfig {
   workspaceSource: WorkspaceSource;
@@ -149,8 +143,7 @@ export function resolveConfig(
   const fromUser = layerFromUserConfig(flags);
   const configPath = resolveConfigPath(flags);
 
-  const token =
-    flags?.token ?? process.env.UPLOADS_TOKEN ?? fromEnvFile.token ?? fromUser.token;
+  const token = flags?.token ?? process.env.UPLOADS_TOKEN ?? fromEnvFile.token ?? fromUser.token;
   const apiUrl = pickApiUrl(flags);
 
   let workspace: string;

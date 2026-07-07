@@ -6,8 +6,13 @@ const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const HASH_PREFIX_LEN = 8;
 
 /** Token list for a record, migrating a legacy `tokenHash`-only record into the list shape. */
-function migrateTokens(record: WorkspaceRecord): { hash: string; label?: string; createdAt: string }[] {
-  return record.tokens ?? (record.tokenHash ? [{ hash: record.tokenHash, createdAt: new Date(0).toISOString() }] : []);
+function migrateTokens(
+  record: WorkspaceRecord,
+): { hash: string; label?: string; createdAt: string }[] {
+  return (
+    record.tokens ??
+    (record.tokenHash ? [{ hash: record.tokenHash, createdAt: new Date(0).toISOString() }] : [])
+  );
 }
 
 export const admin = new Hono<{ Bindings: Env }>()
@@ -26,8 +31,12 @@ export const admin = new Hono<{ Bindings: Env }>()
     const record = await c.env.REGISTRY.get<WorkspaceRecord>(`ws:${name}`, { type: "json" });
     if (!record) return c.json({ error: "workspace not found" }, 404);
 
-    const token = `up_${name}_${btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24))))
-      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+    const token = `up_${name}_${btoa(
+      String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24))),
+    )
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "")}`;
     const entry = { hash: await sha256Hex(token), label, createdAt: new Date().toISOString() };
 
     const tokens = migrateTokens(record);

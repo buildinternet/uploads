@@ -7,7 +7,7 @@ import type { WorkspaceVars } from "../workspace";
 // bring-your-own domains. The core zone additionally purges on write (below).
 const UPLOAD_CACHE_CONTROL = "public, max-age=60";
 
-const KEY_RE = /^[\w!*'().\/-]+$/;
+const KEY_RE = /^[\w!*'()./-]+$/;
 
 function badKey(key: string): boolean {
   return (
@@ -41,7 +41,10 @@ export const files = new Hono<WorkspaceVars>()
     if (url && isPurgeable(c.env, url)) {
       await purgeUrls(c.env, [url]);
     }
-    return c.json({ workspace: c.get("workspaceName"), key, url, size: body.byteLength, contentType }, 201);
+    return c.json(
+      { workspace: c.get("workspaceName"), key, url, size: body.byteLength, contentType },
+      201,
+    );
   })
 
   // List

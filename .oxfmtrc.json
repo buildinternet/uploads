@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "semi": true,
+  "singleQuote": false,
+  "trailingComma": "all",
+  "printWidth": 100,
+  "tabWidth": 2,
+  "useTabs": false,
+  "arrowParens": "always",
+  "endOfLine": "lf",
+  "sortPackageJson": false,
+  "ignorePatterns": [
+    "node_modules",
+    ".wrangler",
+    "apps/web/dist",
+    "apps/web/.astro",
+    "**/*.d.ts",
+    "pnpm-lock.yaml",
+    "packages/*/dist",
+    ".superpowers"
+  ]
+}

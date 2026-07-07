@@ -17,11 +17,11 @@ the CLI directly get the same experience for free.
 
 ## Decisions made
 
-| Question | Decision |
-| --- | --- |
-| First user | Agents (skills / Claude Code), humans second |
-| Sync model | Stable URLs + optional comment posted via the agent's local `gh` auth. No server-side GitHub integration. |
-| Key policy | Client-side convention only. API unchanged — `GET /v1/:ws/files?prefix=` already covers listing (`apps/api/src/routes/files.ts`). |
+| Question      | Decision                                                                                                                             |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| First user    | Agents (skills / Claude Code), humans second                                                                                         |
+| Sync model    | Stable URLs + optional comment posted via the agent's local `gh` auth. No server-side GitHub integration.                            |
+| Key policy    | Client-side convention only. API unchanged — `GET /v1/:ws/files?prefix=` already covers listing (`apps/api/src/routes/files.ts`).    |
 | Agent surface | Extend the existing CLI (`@buildinternet/uploads`) and update the `github-screenshots` skill. MCP server stays a later roadmap item. |
 
 ## Key convention (client-built)
@@ -32,7 +32,7 @@ gh/<org>/<repo>/issues/<num>/<filename>
 ```
 
 - `org`/`repo` inferred from the git remote (prefer `gh repo view
-  --json nameWithOwner`, fall back to parsing `origin`), overridable with
+--json nameWithOwner`, fall back to parsing `origin`), overridable with
   `--repo org/name`.
 - Same filename → same key → overwrite → stable URL. This is the
   auto-update mechanism; it requires nothing else.

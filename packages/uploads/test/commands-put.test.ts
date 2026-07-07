@@ -82,21 +82,36 @@ describe("runPut --pr/--issue", () => {
   it("rejects --pr with --issue", async () => {
     const { client } = fakeClient();
     await expect(
-      runPut(ctxWith(client), [tmpFile(), "--pr", "1", "--issue", "2", "--repo", "o/r"], false, noRun),
+      runPut(
+        ctxWith(client),
+        [tmpFile(), "--pr", "1", "--issue", "2", "--repo", "o/r"],
+        false,
+        noRun,
+      ),
     ).rejects.toThrow(UsageError);
   });
 
   it("rejects --pr with --key", async () => {
     const { client } = fakeClient();
     await expect(
-      runPut(ctxWith(client), [tmpFile(), "--pr", "1", "--key", "x/y.png", "--repo", "o/r"], false, noRun),
+      runPut(
+        ctxWith(client),
+        [tmpFile(), "--pr", "1", "--key", "x/y.png", "--repo", "o/r"],
+        false,
+        noRun,
+      ),
     ).rejects.toThrow(UsageError);
   });
 
   it("rejects --pr with --ref", async () => {
     const { client } = fakeClient();
     await expect(
-      runPut(ctxWith(client), [tmpFile(), "--pr", "1", "--ref", "abc", "--repo", "o/r"], false, noRun),
+      runPut(
+        ctxWith(client),
+        [tmpFile(), "--pr", "1", "--ref", "abc", "--repo", "o/r"],
+        false,
+        noRun,
+      ),
     ).rejects.toThrow(UsageError);
   });
 

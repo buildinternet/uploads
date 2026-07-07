@@ -46,7 +46,7 @@ export interface AttachmentItem {
 }
 
 export function attachmentsCommentBody(items: AttachmentItem[]): string {
-  const sorted = [...items].sort((a, b) => a.key.localeCompare(b.key));
+  const sorted = items.toSorted((a, b) => a.key.localeCompare(b.key));
   const lines: string[] = [ATTACHMENTS_MARKER, "### 📎 Attachments", ""];
   for (const item of sorted) {
     const name = item.key.slice(item.key.lastIndexOf("/") + 1);

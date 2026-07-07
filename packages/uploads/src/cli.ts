@@ -138,11 +138,7 @@ export async function runCli(argv: string[]): Promise<number> {
 
     switch (parsed.command) {
       case "health":
-        return runHealth(
-          { apiUrl: resolveApiUrl(parsed.globals), json },
-          cmdArgs,
-          showHelp,
-        );
+        return runHealth({ apiUrl: resolveApiUrl(parsed.globals), json }, cmdArgs, showHelp);
       case "config":
         return runConfig(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
       case "setup":
@@ -172,8 +168,8 @@ export async function runCli(argv: string[]): Promise<number> {
     }
   } catch (err) {
     errorOut(err, argv.includes("--json"));
-    if (err instanceof UsageError && !argv.includes("--json")) process.stderr.write(`\n${ROOT_HELP}`);
+    if (err instanceof UsageError && !argv.includes("--json"))
+      process.stderr.write(`\n${ROOT_HELP}`);
     return exitCode(err);
   }
-  return 1;
 }

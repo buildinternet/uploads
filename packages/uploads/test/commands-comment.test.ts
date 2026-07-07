@@ -42,9 +42,7 @@ function ghRunner() {
 describe("runComment", () => {
   it("requires --pr or --issue", async () => {
     const { run } = ghRunner();
-    await expect(runComment(ctxWith(listClient([])), [], false, run)).rejects.toThrow(
-      UsageError,
-    );
+    await expect(runComment(ctxWith(listClient([])), [], false, run)).rejects.toThrow(UsageError);
   });
 
   it("creates a comment listing the PR's attachments", async () => {
@@ -52,12 +50,7 @@ describe("runComment", () => {
     const client = listClient([
       { key: "gh/o/r/pull/5/after.png", url: "https://x.test/gh/o/r/pull/5/after.png" },
     ]);
-    const code = await runComment(
-      ctxWith(client),
-      ["--pr", "5", "--repo", "o/r"],
-      false,
-      run,
-    );
+    const code = await runComment(ctxWith(client), ["--pr", "5", "--repo", "o/r"], false, run);
     expect(code).toBe(0);
     const create = calls.find((c) => c.args.includes("repos/o/r/issues/5/comments"));
     expect(create).toBeDefined();

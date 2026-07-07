@@ -13,13 +13,7 @@ import {
   workspaceFromToken,
   type UploadsConfigValues,
 } from "../config.js";
-import {
-  flagBool,
-  flagInt,
-  flagString,
-  parseCommandArgs,
-  UsageError,
-} from "../cli-args.js";
+import { flagBool, flagInt, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
 import { UploadsError } from "../errors.js";
 
 const SETUP_HELP = `uploads setup — guided CLI configuration
@@ -104,7 +98,9 @@ function formatWizard(status: SetupStatus): string {
 
   if (!status.token) {
     lines.push("Step 1 — Mint a token");
-    lines.push("  You need ADMIN_TOKEN for the API (ask your uploads.sh admin, or set it locally in apps/api/.dev.vars).");
+    lines.push(
+      "  You need ADMIN_TOKEN for the API (ask your uploads.sh admin, or set it locally in apps/api/.dev.vars).",
+    );
     lines.push("  Mint:");
     lines.push(`    ${mintTokenCommand(status.apiUrl, status.workspace)}`);
     lines.push("  Save:");
@@ -220,9 +216,7 @@ export async function runSetup(
   const result = writeConfigKeys(path, keys, { force });
   const savedApiUrl = apiUrl ?? resolveApiUrl({ envFile: opts.envFile });
   const savedWorkspace =
-    workspace ??
-    (token ? workspaceFromToken(token) : undefined) ??
-    DEFAULT_WORKSPACE;
+    workspace ?? (token ? workspaceFromToken(token) : undefined) ?? DEFAULT_WORKSPACE;
 
   const shouldCheck = !noCheck && (checkExplicit || Boolean(token));
   let doctorOk: boolean | undefined;
