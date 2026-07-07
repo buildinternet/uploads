@@ -66,6 +66,27 @@ commands.
 - `--comment` on a PR/issue that doesn't exist → surface the `gh` error;
   the file is already uploaded and its URL printed.
 
+## Interaction with shared-bucket workspace prefixes
+
+Designed alongside `2026-07-07-shared-bucket-workspace-prefixes-design.md`
+(in progress in parallel). The two compose without changes to either:
+
+- The workspace prefix is applied transparently in the storage layer;
+  `gh/…` keys here are **client keys** (workspace-relative). A
+  shared-bucket workspace stores them at `<ws>/gh/…` and `?prefix=`
+  listing still operates on client keys, so `uploads ls --pr` is
+  unaffected.
+- Public URLs stay stable and deterministic
+  (`https://storage.uploads.sh/<ws>/gh/org/repo/pull/123/shot.png`), so the
+  replace-updates-embeds mechanism is untouched. Constraint: the CLI must
+  always use the API-returned `url` and never compose URLs from
+  `publicBaseUrl` client-side (the client already behaves this way).
+- Intentional divergence from the existing screenshot key scheme:
+  `buildScreenshotKey` in `packages/uploads/src/keys.ts` appends a content
+  hash to filenames, which defeats URL stability. `--pr`/`--issue` keys use
+  plain filenames with **no content hash** by design; the hashed scheme
+  remains for non-PR/issue puts.
+
 ## Skill update
 
 Point the `github-screenshots` skill at `uploads put --pr` instead of its
