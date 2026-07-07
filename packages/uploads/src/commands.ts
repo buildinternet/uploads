@@ -7,10 +7,13 @@ import {
   flagBool,
   flagInt,
   UsageError,
+  type CommandFlags,
 } from "./cli-args.js";
 import { workspaceMismatch, workspaceFromToken, type ResolvedConfig } from "./config.js";
 import { buildMarkdown } from "./embed.js";
 import { UploadsError } from "./errors.js";
+import { ghAttachmentKey, ghKeyPrefix, attachmentsCommentBody, type GhTarget, type AttachmentItem } from "./github.js";
+import { resolveRepo, execRunner, upsertAttachmentsComment, type CommandRunner } from "./github-gh.js";
 
 export interface CliContext {
   config: ResolvedConfig;
@@ -45,13 +48,32 @@ Options:
   --no-git              Don't derive --repo from git
   --workspace, -w <name>  Override workspace (wins over UPLOADS_WORKSPACE and token inference)
   --format human|url|markdown|json
+  --pr <num>            Attach to a pull request: key gh/<owner>/<repo>/pull/<num>/<name> (stable URL, no hash)
+  --issue <num>         Attach to an issue: key gh/<owner>/<repo>/issues/<num>/<name>
+  --comment             With --pr/--issue: create/update the attachments comment via your local gh auth
 
 Examples:
   uploads put ./shot.png --repo myorg/myapp --ref 1722 --alt "New cards" --width 700
   uploads --env-file .env put ./shot.png
+  uploads --env-file .env put ./after.png --pr 123 --comment
 `;
 
-export async function runPut(ctx: CliContext, args: string[], help = false): Promise<number> {
+/** Reads --pr/--issue (+ --repo) into a GhTarget; undefined when neither flag is present. */
+function ghTargetFromFlags(
+  flags: CommandFlags["flags"],
+  run: CommandRunner,
+): GhTarget | undefined {
+  const pr = flagInt(flags, "--pr", "--pr");
+  const issue = flagInt(flags, "--issue", "--issue");
+  if (pr === undefined && issue === undefined) return undefined;
+  if (pr !== undefined && issue !== undefined) {
+    throw new UsageError("--pr and --issue are mutually exclusive");
+  }
+  const repo = resolveRepo(flagString(flags, "--repo"), run);
+  return { repo, kind: pr !== undefined ? "pull" : "issues", num: (pr ?? issue) as number };
+}
+
+export async function runPut(ctx: CliContext, args: string[], help = false, run: CommandRunner = execRunner): Promise<number> {
   if (help) {
     process.stderr.write(PUT_HELP);
     return 0;
@@ -69,6 +91,13 @@ export async function runPut(ctx: CliContext, args: string[], help = false): Pro
   }
 
   const keyHint = flagString(parsed.flags, "--key");
+  const ghTarget = ghTargetFromFlags(parsed.flags, run);
+  if (ghTarget) {
+    if (keyHint) throw new UsageError("--key cannot be combined with --pr/--issue");
+    if (flagString(parsed.flags, "--ref")) {
+      throw new UsageError("--ref cannot be combined with --pr/--issue");
+    }
+  }
   const bytes =
     fileArg === "-"
       ? new Uint8Array(readFileSync(0))
@@ -101,7 +130,7 @@ export async function runPut(ctx: CliContext, args: string[], help = false): Pro
 
   const result = await ctx.client.put(bytes, {
     filename,
-    key: keyHint,
+    key: ghTarget ? ghAttachmentKey(ghTarget, filename) : keyHint,
     repo: flagString(parsed.flags, "--repo"),
     ref: flagString(parsed.flags, "--ref"),
     contentType: flagString(parsed.flags, "--content-type"),
