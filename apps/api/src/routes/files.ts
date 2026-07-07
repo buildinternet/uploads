@@ -2,6 +2,13 @@ import { Hono } from "hono";
 import { publicUrl, storage, storageConfig } from "../storage";
 import type { WorkspaceVars } from "../workspace";
 
+// The freshness floor on overwrite for every bucket. This is the operative lever
+// for GitHub embeds: they're proxied through GitHub's Camo/Fastly cache, and
+// max-age caps how long Camo serves a stale copy before revalidating against the
+// (now-overwritten) origin. Without it, R2's custom-domain default (max-age=14400)
+// kept replaced images stale for hours.
+const UPLOAD_CACHE_CONTROL = "public, max-age=60";
+
 const KEY_RE = /^[\w!*'()./-]+$/;
 
 function badKey(key: string): boolean {
@@ -23,7 +30,10 @@ export const files = new Hono<WorkspaceVars>()
 
     const ws = c.get("workspace");
     const contentType = c.req.header("Content-Type") ?? "application/octet-stream";
-    await storage(c.env, ws).upload(key, new Uint8Array(body), { contentType });
+    await storage(c.env, ws).upload(key, new Uint8Array(body), {
+      contentType,
+      cacheControl: UPLOAD_CACHE_CONTROL,
+    });
 
     const url = publicUrl(storageConfig(c.env, ws), key);
     return c.json(
