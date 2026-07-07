@@ -1,9 +1,11 @@
 import { Hono } from "hono";
 import { workspaceAuth, type WorkspaceVars } from "./workspace";
 import { files } from "./routes/files";
+import { admin } from "./routes/admin";
 
 const app = new Hono<WorkspaceVars>()
   .get("/health", (c) => c.json({ ok: true }))
+  .route("/admin", admin)
   .use("/v1/:workspace/*", workspaceAuth)
   .route("/v1/:workspace/files", files)
   .onError((err, c) => {
