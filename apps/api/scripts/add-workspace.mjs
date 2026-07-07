@@ -40,7 +40,11 @@ const record = {
   bucket: opts.bucket,
   binding: opts.binding,
   publicBaseUrl: opts["public-base-url"] ?? process.env.R2_PUBLIC_BASE_URL,
-  tokenHash: crypto.createHash("sha256").update(token).digest("hex"),
+  tokens: [{
+    hash: crypto.createHash("sha256").update(token).digest("hex"),
+    label: "initial",
+    createdAt: new Date().toISOString(),
+  }],
   accountId: opts["account-id"] ?? process.env.R2_ACCOUNT_ID,
   accessKeyId: opts["access-key-id"] ?? process.env.R2_ACCESS_KEY_ID,
   secretAccessKey: opts["secret-access-key"] ?? process.env.R2_SECRET_ACCESS_KEY,
