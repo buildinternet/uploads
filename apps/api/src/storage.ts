@@ -13,6 +13,7 @@ export function storageConfig(env: Env, ws: WorkspaceRecord): StorageConfig {
   return {
     provider: ws.provider,
     bucket: ws.bucket,
+    prefix: ws.prefix,
     publicBaseUrl: ws.publicBaseUrl,
     r2Binding: binding,
     accountId: ws.accountId,

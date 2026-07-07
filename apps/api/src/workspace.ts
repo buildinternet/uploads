@@ -11,6 +11,8 @@ export interface WorkspaceRecord {
   bucket: string;
   /** Name of an R2 binding declared in wrangler.jsonc (e.g. "UPLOADS"). When set, I/O uses the binding. */
   binding?: string;
+  /** Key prefix inside the bucket (e.g. "myws/"). Set for shared-bucket workspaces; all I/O is confined under it. */
+  prefix?: string;
   /** Public custom domain for this workspace's bucket. */
   publicBaseUrl?: string;
   /** Bearer tokens valid for this workspace. */
