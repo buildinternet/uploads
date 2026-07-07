@@ -206,20 +206,31 @@ export async function runPut(ctx: CliContext, args: string[], help = false, run:
 
 // --- list ---
 
-const LIST_HELP = `uploads list [--prefix <p>] [--limit <n>] [--cursor <c>] [--all] [--workspace <name>]
+const LIST_HELP = `uploads list [--prefix <p>] [--pr <num> | --issue <num>] [--repo <owner/name>] [--limit <n>] [--cursor <c>] [--all] [--workspace <name>]
 
 Examples:
   uploads list --prefix screenshots/
+  uploads list --pr 123
   uploads list --all --json
 `;
 
-export async function runList(ctx: CliContext, args: string[], help = false): Promise<number> {
+export async function runList(
+  ctx: CliContext,
+  args: string[],
+  help = false,
+  run: CommandRunner = execRunner,
+): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
     process.stderr.write(LIST_HELP);
     return 0;
   }
-  const prefix = flagString(parsed.flags, "--prefix");
+  let prefix = flagString(parsed.flags, "--prefix");
+  const ghTarget = ghTargetFromFlags(parsed.flags, run);
+  if (ghTarget) {
+    if (prefix) throw new UsageError("--prefix cannot be combined with --pr/--issue");
+    prefix = ghKeyPrefix(ghTarget);
+  }
   const limit = flagInt(parsed.flags, "--limit", "--limit");
   const cursor = flagString(parsed.flags, "--cursor");
 
