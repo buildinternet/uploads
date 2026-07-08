@@ -12,7 +12,13 @@ apps/api            Hono worker — REST API, deploys to api.uploads.sh
 apps/web            Astro placeholder — future browse/manage UI (separate deploy)
 packages/storage    @uploads/storage — files-sdk adapter factory
 packages/uploads    @buildinternet/uploads — CLI + client for GitHub image embeds
+skills/uploads-cli  Agent skill for driving the CLI (host a file → embed in a PR/issue)
 ```
+
+The `uploads-cli` skill in `skills/uploads-cli/SKILL.md` is checked in at the repo
+root so it's installable via the `npx skills add` convention (`--skill uploads-cli`),
+and is the API-backed successor to the `github-screenshots` skill's bundled R2
+scripts. Keep it in sync when the CLI's commands or flags change.
 
 Keep API and web separate deployables. All storage access goes through
 `createStorage()` in `packages/storage` — never import files-sdk adapters or
