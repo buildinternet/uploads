@@ -100,7 +100,7 @@ records; any future global secrets go through `wrangler secret put` (prod) or
   convention). Currently empty of secrets; workspace secrets live in KV.
 - Never edit a user's `.env` / `.dev.vars` directly; template files only.
 
-## Roadmap (see README for detail)
+## Roadmap (see docs/roadmap.md for detail)
 
 MCP server for agent access (primary users are agents); key/path governance
 (auto-prefix bare filenames, typed destinations like `screenshots`,
