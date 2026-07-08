@@ -105,18 +105,18 @@ capture them. Use `-` as the file to read from stdin.
 
 Key options (`uploads put --help` for all):
 
-| Flag | Purpose |
-|---|---|
-| `--alt <text>` | Alt text for the markdown (default: filename). Always write meaningful alt text. |
-| `--width <px>` | Emit sized `<img width=…>` HTML instead of `![]()` (markdown can't size images). |
-| `--repo <owner/repo>` | Repo segment of the auto key (default: git remote, or `UPLOADS_DEFAULT_REPO`). |
-| `--ref <id>` | PR/issue/branch/date segment (default: today, or `UPLOADS_DEFAULT_REF`). |
-| `--prefix <path>` | Key prefix (default: `screenshots`, or `UPLOADS_DEFAULT_PREFIX`). |
-| `--key <key>` | Set the object key explicitly; skips the auto-naming below. |
-| `--content-type <mime>` | Override the content type (else inferred from extension). |
-| `--no-git` | Don't derive `--repo` from the git remote (or `UPLOADS_NO_GIT=1`). |
-| `--format human\|url\|markdown\|json` | Control stdout. `--json` (global) forces json. |
-| `-w, --workspace <name>` | Override workspace (wins over env and token inference). |
+| Flag                                  | Purpose                                                                          |
+| ------------------------------------- | -------------------------------------------------------------------------------- |
+| `--alt <text>`                        | Alt text for the markdown (default: filename). Always write meaningful alt text. |
+| `--width <px>`                        | Emit sized `<img width=…>` HTML instead of `![]()` (markdown can't size images). |
+| `--repo <owner/repo>`                 | Repo segment of the auto key (default: git remote, or `UPLOADS_DEFAULT_REPO`).   |
+| `--ref <id>`                          | PR/issue/branch/date segment (default: today, or `UPLOADS_DEFAULT_REF`).         |
+| `--prefix <path>`                     | Key prefix (default: `screenshots`, or `UPLOADS_DEFAULT_PREFIX`).                |
+| `--key <key>`                         | Set the object key explicitly; skips the auto-naming below.                      |
+| `--content-type <mime>`               | Override the content type (else inferred from extension).                        |
+| `--no-git`                            | Don't derive `--repo` from the git remote (or `UPLOADS_NO_GIT=1`).               |
+| `--format human\|url\|markdown\|json` | Control stdout. `--json` (global) forces json.                                   |
+| `-w, --workspace <name>`              | Override workspace (wins over env and token inference).                          |
 
 **Auto key naming** (when you don't pass `--key`):
 `<prefix>/<repo-name>/<ref-or-date>/<basename>-<shorthash>.<ext>`. The short hash keeps
@@ -180,12 +180,12 @@ uploads comment --issue 45 --repo buildinternet/uploads
 - **Constrain width** on large shots with `--width` so they don't dominate the page.
 - **Before/after reads best side by side** in a table:
   ```markdown
-  | Before | After |
-  |---|---|
+  | Before                               | After                               |
+  | ------------------------------------ | ----------------------------------- |
   | <img width="380" src="…/before.png"> | <img width="380" src="…/after.png"> |
   ```
 - Prefer writing the body to a file and using `gh pr edit --body-file` / `gh issue
-  comment --body-file` over inline HEREDOCs.
+comment --body-file` over inline HEREDOCs.
 - The host is agnostic — the same URLs work in issues, PR comments, discussions, and
   plain markdown docs.
 
