@@ -79,6 +79,11 @@ records; any future global secrets go through `wrangler secret put` (prod) or
 
 ## Conventions
 
+- `pnpm check` runs `oxlint` then `oxfmt --check`. Autofix with `pnpm lint:fix`
+  / `pnpm format`. CI runs the same gate in the **Lint & Format** job
+  (`.github/workflows/ci.yml`).
+- A Husky pre-commit hook runs `lint-staged` (oxlint + oxfmt on staged files);
+  it's installed via the `prepare` script on `pnpm install`.
 - TypeScript strict, ESM only, `lib: ["ES2022"]` (no DOM — the Workers types
   own globals like `crypto.subtle.timingSafeEqual`).
 - Auth is per-workspace bearer tokens, hashed + timing-safe compare, with
