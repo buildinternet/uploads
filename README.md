@@ -43,12 +43,12 @@ plus peer deps, no API changes.
 
 ## Docs
 
-| Doc | Contents |
-| --- | -------- |
-| [workspaces](docs/workspaces.md) | Multi-tenant model, registration, BYO-bucket |
+| Doc                                  | Contents                                     |
+| ------------------------------------ | -------------------------------------------- |
+| [workspaces](docs/workspaces.md)     | Multi-tenant model, registration, BYO-bucket |
 | [admin-tokens](docs/admin-tokens.md) | Minting, listing, and revoking upload tokens |
-| [api](docs/api.md) | REST routes and CLI usage |
-| [deploy](docs/deploy.md) | Cloudflare setup and production deploy |
-| [roadmap](docs/roadmap.md) | Planned features |
+| [api](docs/api.md)                   | REST routes and CLI usage                    |
+| [deploy](docs/deploy.md)             | Cloudflare setup and production deploy       |
+| [roadmap](docs/roadmap.md)           | Planned features                             |
 
 Agent and contributor conventions live in [AGENTS.md](AGENTS.md).
