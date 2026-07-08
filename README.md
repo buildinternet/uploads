@@ -27,6 +27,59 @@ curl -X PUT http://localhost:8787/v1/default/files/test.txt \
   --data-binary "hello"
 ```
 
+### CLI
+
+The `@buildinternet/uploads` package wraps the API for scripting and GitHub
+image embeds. `pnpm workspace:add` prints a bearer token once — save it to
+`.env` (from `.env.example`) or run `pnpm uploads setup --token <token>`.
+
+```bash
+cp .env.example .env   # fill in UPLOADS_TOKEN from workspace:add output
+pnpm uploads put ./shot.png --env-file .env
+# stdout: public URL + ready-to-paste markdown; stderr: human summary
+```
+
+More output control:
+
+```bash
+pnpm uploads put ./shot.png --format url --env-file .env
+pnpm uploads put ./shot.png --repo myorg/myapp --ref 1722 --width 700 --env-file .env
+```
+
+### GitHub embeds
+
+GitHub's native image hosting only works through a browser session — agents
+and `gh` need a public URL first. The CLI uploads to R2 and returns stable
+markdown you can drop into a PR or issue.
+
+**Stable PR/issue attachments** (`--pr` / `--issue`) use hash-free keys so
+re-uploading the same filename overwrites in place and the URL never changes:
+
+```bash
+pnpm uploads put ./after.png --pr 123 --alt "Dashboard after" --env-file .env
+# key: gh/<owner>/<repo>/pull/123/after.png
+```
+
+**Managed attachments comment** (`--comment`, requires local `gh` auth)
+creates or updates a single comment listing every file attached to that
+PR/issue — the upload still succeeds if `gh` is unavailable:
+
+```bash
+pnpm uploads put ./after.png --pr 123 --comment --env-file .env
+pnpm uploads comment --pr 123 --env-file .env   # re-sync without uploading
+```
+
+> **Privacy:** Hosted files are served from a public CDN with no link to GitHub
+> repo visibility. A screenshot on a private PR is still reachable by anyone who
+> knows or guesses the URL — `--pr`/`--issue` keys embed the repo path and
+> filename (`gh/myorg/myapp/pull/123/after.png`), so generic names are easier
+> to guess than hashed keys. Treat uploads as public; don't host secrets or
+> sensitive UI. Tighter access controls for private repos are planned — see
+> [roadmap](docs/roadmap.md).
+
+See `skills/uploads-cli/SKILL.md` for agent-oriented usage and
+[docs/api.md](docs/api.md) for REST routes.
+
 ## Layout
 
 ```

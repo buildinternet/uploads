@@ -28,3 +28,8 @@
 - **More providers**: add cases to `packages/storage` (`s3`, `gcs`, …).
 - **Point `github-screenshots` at this API** — replaces its bundled SigV4
   script with one authenticated PUT.
+- **Private-repo embed privacy** — today every hosted file is on a public CDN;
+  `--pr`/`--issue` keys are predictable (`gh/<owner>/<repo>/pull/<n>/<name>`),
+  so attachments on private repos are not secret from anyone who can guess the
+  URL. Future options: signed/time-limited URLs, repo-scoped auth at the edge,
+  or non-guessable keys while keeping stable overwrite semantics.
