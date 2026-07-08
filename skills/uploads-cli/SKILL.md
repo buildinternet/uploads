@@ -118,9 +118,19 @@ Key options (`uploads put --help` for all):
 | `--format human\|url\|markdown\|json` | Control stdout. `--json` (global) forces json.                                   |
 | `-w, --workspace <name>`              | Override workspace (wins over env and token inference).                          |
 
-**Auto key naming** (when you don't pass `--key`):
-`<prefix>/<repo-name>/<ref-or-date>/<basename>-<shorthash>.<ext>`. The short hash keeps
-repeated uploads from colliding. Override with `--key` only when you have a reason.
+**How keys work** — three paths, no extra naming modes:
+
+| Intent                                | Command                                    |
+| ------------------------------------- | ------------------------------------------ |
+| Just upload it, give me a URL         | `uploads put ./file.png`                   |
+| Stable GitHub embed I might re-upload | `uploads put ./file.png --pr <num>`        |
+| I know exactly where it goes          | `uploads put ./file.png --key my/path.png` |
+
+Default `put` is the fast path; you don't need `--key`, `--prefix`, or `--repo`. Without
+`--key`, keys look like
+`<prefix>/<repo-name>/<ref-or-date>/<basename>-<shorthash>.<ext>` — the short hash
+prevents collisions without random names or a separate "preserve name" flag. Override
+with `--key` only when you have a reason.
 
 **Output formats** — pick what you'll consume:
 

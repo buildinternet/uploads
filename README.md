@@ -39,6 +39,11 @@ pnpm uploads put ./shot.png --env-file .env
 # stdout: public URL + ready-to-paste markdown; stderr: human summary
 ```
 
+**How keys work:** default `put` is the fast path — run it with no flags and you get
+a unique public URL (`screenshots/<repo>/<date>/<name>-<hash>.<ext>`). Use `--pr` or
+`--issue` when you need a stable, hash-free filename for a GitHub embed. Use `--key`
+only when you want an exact path.
+
 More output control:
 
 ```bash
