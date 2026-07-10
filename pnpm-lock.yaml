@@ -55,6 +55,34 @@ importers:
         specifier: ^4.107.0
         version: 4.107.0
 
+  apps/mcp:
+    dependencies:
+      '@buildinternet/uploads':
+        specifier: workspace:^
+        version: link:../../packages/uploads
+      '@uploads/api':
+        specifier: workspace:^
+        version: link:../api
+      '@uploads/storage':
+        specifier: workspace:^
+        version: link:../../packages/storage
+      hono:
+        specifier: ^4.12.28
+        version: 4.12.28
+    devDependencies:
+      '@types/node':
+        specifier: ^26.1.0
+        version: 26.1.0
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@26.1.0)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(yaml@2.9.0))
+      wrangler:
+        specifier: ^4.107.0
+        version: 4.107.0
+
   apps/web:
     dependencies:
       astro:
@@ -84,7 +112,7 @@ importers:
         version: 3.1080.0
       files-sdk:
         specifier: ^2.1.0
-        version: 2.1.0(patch_hash=9e4b79cace0a4f9f8905aa675e78ffc05bfc59498007f2bf4a2ef882dbf5dee2)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.12.27)(zod@4.4.3)
+        version: 2.1.0(patch_hash=9e4b79cace0a4f9f8905aa675e78ffc05bfc59498007f2bf4a2ef882dbf5dee2)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.12.28)(zod@4.4.3)
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^5.20260706.1
@@ -106,7 +134,7 @@ importers:
         version: 6.0.220(zod@4.4.3)
       files-sdk:
         specifier: ^2.1.0
-        version: 2.1.0(patch_hash=9e4b79cace0a4f9f8905aa675e78ffc05bfc59498007f2bf4a2ef882dbf5dee2)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.12.27)(zod@4.4.3)
+        version: 2.1.0(patch_hash=9e4b79cace0a4f9f8905aa675e78ffc05bfc59498007f2bf4a2ef882dbf5dee2)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.12.28)(zod@4.4.3)
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -2160,10 +2188,6 @@ packages:
   hast-util-whitespace@3.0.0:
     resolution: {integrity: sha512-88JUN06ipLwsnv+dVn+OIYOvAuvBMy/Qoi6O7mQHxdPXpjy+Cd6xRkWwux7DKO+4sYILtLBRIKgsdpS2gQc7qw==}
 
-  hono@4.12.27:
-    resolution: {integrity: sha512-1yrb/+w6HWQJrUCLkJ2IF5jNIPvvFkblV5RNOYl6bV+OA6p9GLcMpHFFGTosSvHvcAUibuUukRqhlYI4z32C7Q==}
-    engines: {node: '>=16.9.0'}
-
   hono@4.12.28:
     resolution: {integrity: sha512-YwUvVpSF7m1yOblFPrU3Hbo8XhPheBoiyfGuII6z19LnOr6JpDnyyp7LFNrfV56wS8tpvtBFGRISHN02pDdLOA==}
     engines: {node: '>=16.9.0'}
@@ -3831,9 +3855,9 @@ snapshots:
   '@esbuild/win32-x64@0.28.1':
     optional: true
 
-  '@hono/node-server@1.19.14(hono@4.12.27)':
+  '@hono/node-server@1.19.14(hono@4.12.28)':
     dependencies:
-      hono: 4.12.27
+      hono: 4.12.28
     optional: true
 
   '@img/colour@1.1.0': {}
@@ -4047,7 +4071,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@4.4.3)':
     dependencies:
-      '@hono/node-server': 1.19.14(hono@4.12.27)
+      '@hono/node-server': 1.19.14(hono@4.12.28)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -4057,7 +4081,7 @@ snapshots:
       eventsource-parser: 3.1.0
       express: 5.2.1
       express-rate-limit: 8.5.2(express@5.2.1)
-      hono: 4.12.27
+      hono: 4.12.28
       jose: 6.2.3
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -5004,7 +5028,7 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.5
 
-  files-sdk@2.1.0(patch_hash=9e4b79cace0a4f9f8905aa675e78ffc05bfc59498007f2bf4a2ef882dbf5dee2)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.12.27)(zod@4.4.3):
+  files-sdk@2.1.0(patch_hash=9e4b79cace0a4f9f8905aa675e78ffc05bfc59498007f2bf4a2ef882dbf5dee2)(@aws-sdk/client-s3@3.1080.0)(@aws-sdk/s3-presigned-post@3.1080.0)(@aws-sdk/s3-request-presigner@3.1080.0)(@opentelemetry/api@1.9.1)(ai@6.0.220(zod@4.4.3))(h3@1.15.11)(hono@4.12.28)(zod@4.4.3):
     dependencies:
       commander: 15.0.0
       picomatch: 4.0.5
@@ -5017,7 +5041,7 @@ snapshots:
       '@opentelemetry/api': 1.9.1
       ai: 6.0.220(zod@4.4.3)
       h3: 1.15.11
-      hono: 4.12.27
+      hono: 4.12.28
       zod: 4.4.3
     transitivePeerDependencies:
       - '@cfworker/json-schema'
@@ -5127,9 +5151,6 @@ snapshots:
   hast-util-whitespace@3.0.0:
     dependencies:
       '@types/hast': 3.0.4
-
-  hono@4.12.27:
-    optional: true
 
   hono@4.12.28: {}
 

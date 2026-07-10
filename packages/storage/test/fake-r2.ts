@@ -89,7 +89,9 @@ export class FakeR2Bucket {
         return JSON.parse(new TextDecoder().decode(data));
       },
       async blob() {
-        return new Blob([data as BlobPart]);
+        // Cast keeps this typechecking under every consumer's lib config —
+        // apps/mcp has no BlobPart (Workers types own globals there).
+        return new Blob([data as unknown as ArrayBuffer]);
       },
     };
   }

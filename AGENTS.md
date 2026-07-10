@@ -9,9 +9,11 @@ scripts in `buildinternet-skills/github-screenshots`.
 
 ```
 apps/api            Hono worker — REST API, deploys to api.uploads.sh
+apps/mcp            Hono worker — remote MCP server, deploys to mcp.uploads.sh
 apps/web            Astro placeholder — future browse/manage UI (separate deploy)
 packages/storage    @uploads/storage — files-sdk adapter factory
 packages/uploads    @buildinternet/uploads — CLI + client for GitHub image embeds
+                    (also ships `uploads mcp`, a stdio MCP server mirroring the CLI commands)
 skills/uploads-cli  Agent skill for driving the CLI (host a file → embed in a PR/issue)
 ```
 
@@ -32,7 +34,7 @@ pnpm install
 pnpm dev                 # API on :8787 (local R2 + KV simulation)
 pnpm dev:web             # Astro site
 pnpm typecheck           # wrangler types + tsc across workspaces
-pnpm run deploy          # both workers; or deploy:api / deploy:web
+pnpm run deploy          # all workers; or deploy:api / deploy:web / deploy:mcp
 pnpm workspace:add <name> [--bucket <bucket>] [--binding X] [--local]
 pnpm uploads put <file> --env-file .env   # CLI (builds package first)
 pnpm uploads put <file> --pr <num> --comment   # PR attachment + managed GitHub comment

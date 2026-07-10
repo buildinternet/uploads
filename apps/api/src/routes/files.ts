@@ -1,75 +1,43 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import { FileOpError, badKey, deleteObject, listObjects, putObject } from "../files-core";
 import { publicUrl, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
-import { checkDeclaredLength, inspectUpload, resolveUploadPolicy, writeRateLimit } from "../guards";
+import { checkDeclaredLength, resolveUploadPolicy, writeRateLimit } from "../guards";
 
-// The freshness floor on overwrite for every bucket. This is the operative lever
-// for GitHub embeds: they're proxied through GitHub's Camo/Fastly cache, and
-// max-age caps how long Camo serves a stale copy before revalidating against the
-// (now-overwritten) origin. Without it, R2's custom-domain default (max-age=14400)
-// kept replaced images stale for hours.
-const UPLOAD_CACHE_CONTROL = "public, max-age=60";
-
-const KEY_RE = /^[\w!*'()./-]+$/;
-
-function badKey(key: string): boolean {
-  return (
-    !KEY_RE.test(key) ||
-    key.length > 1024 ||
-    key.split("/").some((seg) => seg === "" || seg === "." || seg === "..")
-  );
+/** Maps a core validation failure to the REST error shape; rethrows anything else. */
+function mapFileOpError(c: Context, err: unknown): Response {
+  if (err instanceof FileOpError) return c.json(err.body, err.status);
+  throw err;
 }
 
 export const files = new Hono<WorkspaceVars>()
 
   // Upload: raw body PUT. The stored content type is sniffed from the bytes,
-  // not taken from the client header — see guards.ts.
+  // not taken from the client header — size/type policy is enforced in
+  // files-core's putObject (shared with the MCP worker); see guards.ts.
   .put("/:key{.+}", writeRateLimit, requireScope("files:write"), async (c) => {
+    // Fail fast on a bad key and on an oversized declared length before
+    // buffering the body into isolate memory; putObject re-checks both.
     const key = c.req.param("key");
     if (badKey(key)) return c.json({ error: "invalid key" }, 400);
-
     const policy = resolveUploadPolicy(c.get("workspace"));
-
-    // Reject oversized uploads on the declared length before buffering the body
-    // into isolate memory; inspectUpload re-checks the actual size below.
     const declared = checkDeclaredLength(c.req.header("Content-Length"), policy);
     if (declared) return c.json(declared.body, declared.status);
 
     const body = await c.req.arrayBuffer();
-    if (body.byteLength === 0) return c.json({ error: "empty body" }, 400);
-
-    const bytes = new Uint8Array(body);
-    const inspection = inspectUpload(bytes, policy);
-    if (!inspection.ok) return c.json(inspection.body, inspection.status);
-
-    const ws = c.get("workspace");
-    const contentType = inspection.contentType;
-    await storage(c.env, ws).upload(key, bytes, {
-      contentType,
-      cacheControl: UPLOAD_CACHE_CONTROL,
-    });
-
-    const url = publicUrl(storageConfig(c.env, ws), key);
-    return c.json(
-      { workspace: c.get("workspaceName"), key, url, size: body.byteLength, contentType },
-      201,
-    );
+    try {
+      const result = await putObject(c.env, c.get("workspace"), key, new Uint8Array(body));
+      return c.json({ workspace: c.get("workspaceName"), ...result }, 201);
+    } catch (err) {
+      return mapFileOpError(c, err);
+    }
   })
 
   // List
   .get("/", requireScope("files:read"), async (c) => {
     const { prefix, cursor } = c.req.query();
-    const limit = Math.min(Number(c.req.query("limit") ?? 100) || 100, 1000);
-    const ws = c.get("workspace");
-    const result = await storage(c.env, ws).list({ prefix, limit, cursor });
-    const cfg = storageConfig(c.env, ws);
-    return c.json({
-      items: result.items.map((item: { key: string }) => ({
-        ...item,
-        url: publicUrl(cfg, item.key),
-      })),
-      cursor: result.cursor ?? null,
-    });
+    const limit = Number(c.req.query("limit") ?? 100) || 100;
+    return c.json(await listObjects(c.env, c.get("workspace"), { prefix, limit, cursor }));
   })
 
   // Metadata
@@ -85,8 +53,9 @@ export const files = new Hono<WorkspaceVars>()
 
   // Delete
   .delete("/:key{.+}", writeRateLimit, requireScope("files:delete"), async (c) => {
-    const key = c.req.param("key");
-    if (badKey(key)) return c.json({ error: "invalid key" }, 400);
-    await storage(c.env, c.get("workspace")).delete(key);
-    return c.json({ key, deleted: true });
+    try {
+      return c.json(await deleteObject(c.env, c.get("workspace"), c.req.param("key")));
+    } catch (err) {
+      return mapFileOpError(c, err);
+    }
   });

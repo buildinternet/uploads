@@ -26,6 +26,8 @@ try {
     "dist/index.d.ts",
     "dist/agent.js",
     "dist/agent.d.ts",
+    "dist/mcp/server.js",
+    "dist/mcp/server.d.ts",
     "dist/cli.js",
   ]) {
     assert(files.has(required), `packed artifact is missing ${required}`);

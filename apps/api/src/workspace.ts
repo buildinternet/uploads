@@ -2,6 +2,8 @@ import type { MiddlewareHandler } from "hono";
 import type { StorageProvider } from "@uploads/storage";
 import { FILE_SCOPES, findActiveToken, parseScopes, type FileScope } from "./auth-db";
 
+export type { FileScope } from "./auth-db";
+
 /**
  * A workspace is a tenant: its own bucket, credentials, and auth token.
  * Records live in the REGISTRY KV namespace under `ws:<name>`; secrets in the

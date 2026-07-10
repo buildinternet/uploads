@@ -268,6 +268,12 @@ uploads --api-url http://localhost:8787 doctor
   in R2 changes immediately.
 - **Exit codes** (useful in scripts): `2` usage/missing-token, `3` unauthorized or
   not-found, `4` network, `1` other. `--json` also emits `{error,code,status}`.
+- **MCP server:** the CLI can also be exposed to agents as a local stdio MCP server —
+  `uploads mcp` — with tools mirroring the commands described here (`put`, `attach`,
+  `list`, `delete`, `comment`, `health`, `doctor`) under the same config resolution.
+  Every tool also accepts a per-call `workspace` argument to override the configured
+  workspace (mirrors `--workspace`).
+  E.g. `claude mcp add uploads -- uploads --env-file /path/to/.env mcp`.
 - **Agents on the Worker side:** the package also exports
   `createUploadsWorkerFileTools()` from `@buildinternet/uploads/agent` for exposing
   upload/list/delete as AI-SDK tools inside the Worker — separate from this CLI, and

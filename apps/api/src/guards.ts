@@ -144,10 +144,22 @@ export function inspectUpload(bytes: Uint8Array, policy: UploadPolicy): UploadIn
  * Fails open when the binding is absent (some local/dev setups, tests).
  */
 export const writeRateLimit: MiddlewareHandler<WorkspaceVars> = async (c, next) => {
-  const limiter = c.env.WRITE_LIMITER;
-  if (limiter) {
-    const { success } = await limiter.limit({ key: c.get("workspaceName") });
-    if (!success) return c.json({ error: "rate limit exceeded" }, 429);
+  if (!(await allowWrite(c.env, c.get("workspaceName")))) {
+    return c.json({ error: "rate limit exceeded" }, 429);
   }
   await next();
 };
+
+/**
+ * The check behind writeRateLimit, for non-route callers (the MCP worker's
+ * put/delete tools). False = over budget; fails open without the binding.
+ */
+export async function allowWrite(
+  env: { WRITE_LIMITER?: Env["WRITE_LIMITER"] },
+  workspaceName: string,
+): Promise<boolean> {
+  const limiter = env.WRITE_LIMITER;
+  if (!limiter) return true;
+  const { success } = await limiter.limit({ key: workspaceName });
+  return success;
+}

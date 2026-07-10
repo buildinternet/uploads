@@ -1,24 +1,21 @@
 {
-  "name": "@uploads/api",
+  "name": "@uploads/mcp",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": {
-    ".": "./src/index.ts",
-    "./workspace": "./src/workspace.ts",
-    "./storage": "./src/storage.ts",
-    "./files": "./src/files-core.ts",
-    "./guards": "./src/guards.ts"
-  },
   "scripts": {
+    "predev": "pnpm --filter @buildinternet/uploads run build",
     "dev": "wrangler dev",
+    "predeploy": "pnpm --filter @buildinternet/uploads run build",
     "deploy": "node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
     "types": "wrangler types",
-    "workspace:add": "node --env-file-if-exists=../../.env scripts/add-workspace.mjs",
     "typecheck": "wrangler types && tsc --noEmit",
+    "pretest": "pnpm --filter @buildinternet/uploads run build",
     "test": "vitest run"
   },
   "dependencies": {
+    "@buildinternet/uploads": "workspace:^",
+    "@uploads/api": "workspace:^",
     "@uploads/storage": "workspace:^",
     "hono": "^4.12.28"
   },

@@ -39,6 +39,11 @@ jobs:
       - name: Generate Wrangler types
         run: pnpm types
 
+      # apps/mcp imports @buildinternet/uploads from its built dist; type-aware
+      # oxlint needs the package built to resolve those modules.
+      - name: Build workspace packages
+        run: pnpm --filter @buildinternet/uploads run build
+
       - name: Oxlint
         run: pnpm lint
 
@@ -67,7 +72,7 @@ jobs:
         run: pnpm types
 
       - name: Run tests
-        run: pnpm --filter @uploads/api test && pnpm --filter @uploads/storage test && pnpm --filter @buildinternet/uploads test
+        run: pnpm --filter @uploads/api test && pnpm --filter @uploads/mcp test && pnpm --filter @uploads/storage test && pnpm --filter @buildinternet/uploads test
 
       - name: Verify npm package
         run: pnpm --filter @buildinternet/uploads run build && pnpm --filter @buildinternet/uploads run pack:check
