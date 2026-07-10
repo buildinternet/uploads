@@ -52,6 +52,7 @@ export function resolveUploadPolicy(record: UploadPolicyOverrides): UploadPolicy
   return { maxBytes, allowed };
 }
 
+/** True when `bytes` contains `signature` at `offset` (bounds-checked). */
 function matches(bytes: Uint8Array, signature: number[], offset = 0): boolean {
   if (bytes.length < offset + signature.length) return false;
   for (let i = 0; i < signature.length; i++) {
@@ -60,6 +61,7 @@ function matches(bytes: Uint8Array, signature: number[], offset = 0): boolean {
   return true;
 }
 
+/** Decode `length` bytes at `offset` as ASCII (empty string if out of range). */
 function asciiAt(bytes: Uint8Array, offset: number, length: number): string {
   if (bytes.length < offset + length) return "";
   return String.fromCharCode(...bytes.subarray(offset, offset + length));
@@ -97,6 +99,7 @@ export function detectContentType(bytes: Uint8Array): string | null {
 export type UploadRejection = { ok: false; status: 413 | 415; body: Record<string, unknown> };
 export type UploadInspection = { ok: true; contentType: string } | UploadRejection;
 
+/** The shared 413 rejection for both the pre-buffer and post-buffer size checks. */
 function tooLarge(maxBytes: number): UploadRejection {
   return { ok: false, status: 413, body: { error: "payload too large", maxBytes } };
 }
