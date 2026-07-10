@@ -7,7 +7,7 @@
     ".": "./src/index.ts",
     "./workspace": "./src/workspace.ts",
     "./storage": "./src/storage.ts",
-    "./files": "./src/routes/files.ts"
+    "./files": "./src/files-core.ts"
   },
   "scripts": {
     "dev": "wrangler dev",

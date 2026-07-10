@@ -14,6 +14,12 @@ import { createUploadsMcpTools } from "../src/mcp/tools.js";
 function fakeFactory() {
   const puts: Array<{ key?: string; filename: string; contentType?: string }> = [];
   const configs: UploadsClientConfig[] = [];
+  const list = async ({ prefix }: { prefix?: string } = {}) => ({
+    items: puts
+      .filter(({ key }) => (key ?? "").startsWith(prefix ?? ""))
+      .map(({ key }) => ({ key: key!, url: `https://x.test/${key}` })),
+    cursor: null,
+  });
   const factory = (config: UploadsClientConfig): UploadsClient => {
     configs.push(config);
     return {
@@ -31,12 +37,8 @@ function fakeFactory() {
           contentType: opts.contentType ?? "image/png",
         };
       },
-      list: async ({ prefix }: { prefix?: string } = {}) => ({
-        items: puts
-          .filter(({ key }) => (key ?? "").startsWith(prefix ?? ""))
-          .map(({ key }) => ({ key: key!, url: `https://x.test/${key}` })),
-        cursor: null,
-      }),
+      list,
+      listAll: async (opts: { prefix?: string } = {}) => (await list(opts)).items,
       delete: async (key: string) => ({ key, deleted: true }),
       head: async () => {
         throw new Error("unexpected head");

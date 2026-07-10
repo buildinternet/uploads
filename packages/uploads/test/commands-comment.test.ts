@@ -8,6 +8,7 @@ import type { CommandRunner } from "../src/github-gh.js";
 function listClient(items: { key: string; url: string | null }[]) {
   return {
     list: async () => ({ items, cursor: null }),
+    listAll: async () => items,
   } as unknown as UploadsClient;
 }
 

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import app from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "@uploads/api/workspace";
-import { FakeR2Bucket } from "./fake-r2";
+import { FakeR2Bucket } from "@uploads/storage/test/fake-r2";
 
 const TOKEN = "up_test-ws_legacy-token-value";
 
@@ -209,6 +209,8 @@ describe("mcp worker", () => {
       token,
     );
     expect(result.isError).toBe(true);
+    // The shared usage() helper throws UploadsError, whose code the server
+    // core appends to the tool error text.
     expect(result.content).toEqual([
       { type: "text", text: "forbidden: requires files:write scope" },
     ]);

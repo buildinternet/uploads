@@ -18,6 +18,12 @@ function files(...names: string[]): string[] {
 
 function fakeClient() {
   const puts: string[] = [];
+  const list = async ({ prefix }: { prefix?: string } = {}) => ({
+    items: puts
+      .filter((key) => key.startsWith(prefix ?? ""))
+      .map((key) => ({ key, url: `https://x.test/${key}` })),
+    cursor: null,
+  });
   const client = {
     put: async (_body: Uint8Array, opts: { key: string }) => {
       puts.push(opts.key);
@@ -29,12 +35,8 @@ function fakeClient() {
         contentType: "image/png",
       };
     },
-    list: async ({ prefix }: { prefix?: string }) => ({
-      items: puts
-        .filter((key) => key.startsWith(prefix ?? ""))
-        .map((key) => ({ key, url: `https://x.test/${key}` })),
-      cursor: null,
-    }),
+    list,
+    listAll: async (opts: { prefix?: string } = {}) => (await list(opts)).items,
   } as unknown as UploadsClient;
   return { client, puts };
 }

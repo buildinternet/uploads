@@ -6,40 +6,15 @@
  * a filesystem or the gh CLI (attach, comment, doctor) stay stdio-only.
  */
 import { buildMarkdown, buildScreenshotKey, inferContentType } from "@buildinternet/uploads";
-import type { McpTool } from "@buildinternet/uploads/mcp";
-import { UPLOAD_CACHE_CONTROL, badKey } from "@uploads/api/files";
-import { publicUrl, storage, storageConfig } from "@uploads/api/storage";
-import type { WorkspaceRecord, WorkspaceVars } from "@uploads/api/workspace";
-
-type FileScope = WorkspaceVars["Variables"]["authScopes"][number];
+import { optPosInt, optString, usage, type McpTool } from "@buildinternet/uploads/mcp";
+import { deleteObject, listObjects, putObject } from "@uploads/api/files";
+import type { FileScope, WorkspaceRecord } from "@uploads/api/workspace";
 
 export interface RemoteToolContext {
   env: Env;
   workspace: WorkspaceRecord;
   workspaceName: string;
   authScopes: readonly FileScope[];
-}
-
-type ToolArgs = Record<string, unknown>;
-
-function usage(msg: string): never {
-  throw new Error(msg);
-}
-
-function optString(args: ToolArgs, name: string): string | undefined {
-  const v = args[name];
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== "string") usage(`${name} must be a string`);
-  return v;
-}
-
-function optPosInt(args: ToolArgs, name: string): number | undefined {
-  const v = args[name];
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) {
-    usage(`${name} must be a positive integer`);
-  }
-  return v;
 }
 
 function decodeBase64(value: string): Uint8Array {
@@ -56,7 +31,8 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
   const { env, workspace, workspaceName } = ctx;
 
   function requireScope(scope: FileScope): void {
-    if (!ctx.authScopes.includes(scope)) usage(`forbidden: requires ${scope} scope`);
+    // Authorization failure, not a usage error — no (USAGE) suffix in the tool result.
+    if (!ctx.authScopes.includes(scope)) throw new Error(`forbidden: requires ${scope} scope`);
   }
 
   return [
@@ -121,39 +97,30 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         }
 
         const bytes = decodeBase64(contentBase64);
-        if (bytes.length === 0) usage("empty content");
 
-        let key: string;
-        if (explicitKey !== undefined) {
-          if (badKey(explicitKey)) usage("invalid key");
-          key = explicitKey;
-        } else {
+        const key =
+          explicitKey ??
           // deriveRepoFromGit: false — no git (or child_process) on a worker.
-          key = await buildScreenshotKey({
+          (await buildScreenshotKey({
             filename,
             fileBytes: bytes,
             prefix,
             repo,
             ref,
             deriveRepoFromGit: false,
-          });
-        }
+          }));
 
         const contentType = optString(args, "contentType") ?? inferContentType(filename);
-        await storage(env, workspace).upload(key, bytes, {
-          contentType,
-          cacheControl: UPLOAD_CACHE_CONTROL,
-        });
-
-        const url = publicUrl(storageConfig(env, workspace), key);
+        // Key and empty-body validation live in putObject, shared with the REST API.
+        const result = await putObject(env, workspace, key, bytes, contentType);
         const markdown =
-          url === null
+          result.url === null
             ? undefined
-            : buildMarkdown(url, {
+            : buildMarkdown(result.url, {
                 alt: optString(args, "alt") ?? filename,
                 width: optPosInt(args, "width"),
               });
-        return { workspace: workspaceName, key, url, size: bytes.length, contentType, markdown };
+        return { workspace: workspaceName, ...result, markdown };
       },
     },
     {
@@ -171,18 +138,11 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       },
       async handler(args) {
         requireScope("files:read");
-        const prefix = optString(args, "prefix");
-        const limit = Math.min(optPosInt(args, "limit") ?? 100, 1000);
-        const cursor = optString(args, "cursor");
-        const result = await storage(env, workspace).list({ prefix, limit, cursor });
-        const cfg = storageConfig(env, workspace);
-        return {
-          items: result.items.map((item: { key: string }) => ({
-            ...item,
-            url: publicUrl(cfg, item.key),
-          })),
-          cursor: result.cursor ?? null,
-        };
+        return listObjects(env, workspace, {
+          prefix: optString(args, "prefix"),
+          limit: optPosInt(args, "limit"),
+          cursor: optString(args, "cursor"),
+        });
       },
     },
     {
@@ -200,9 +160,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         requireScope("files:delete");
         const key = optString(args, "key");
         if (!key) usage("key is required");
-        if (badKey(key)) usage("invalid key");
-        await storage(env, workspace).delete(key);
-        return { key, deleted: true };
+        return deleteObject(env, workspace, key);
       },
     },
     {

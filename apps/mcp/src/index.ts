@@ -11,10 +11,8 @@
 import { createMcpServer } from "@buildinternet/uploads/mcp";
 import { workspaceAuth, type WorkspaceVars } from "@uploads/api/workspace";
 import { Hono } from "hono";
+import pkg from "../package.json";
 import { createRemoteTools } from "./tools";
-
-/** Kept in sync with package.json by hand — fine for a private worker. */
-const SERVER_VERSION = "0.1.0";
 
 const app = new Hono<WorkspaceVars>()
   .get("/health", (c) => c.json({ ok: true }))
@@ -22,7 +20,7 @@ const app = new Hono<WorkspaceVars>()
   .post("/:workspace/mcp", async (c) => {
     const body = await c.req.text();
     const server = createMcpServer({
-      serverInfo: { name: "uploads-mcp", version: SERVER_VERSION },
+      serverInfo: { name: "uploads-mcp", version: pkg.version },
       tools: createRemoteTools({
         env: c.env,
         workspace: c.get("workspace"),

@@ -17,6 +17,7 @@ import {
 } from "./config.js";
 import { buildMarkdown } from "./embed.js";
 import { UploadsError } from "./errors.js";
+import { writeJson, writeStdout } from "./io.js";
 import {
   ghAttachmentKey,
   ghKeyPrefix,
@@ -38,16 +39,6 @@ export interface CliContext {
   json: boolean;
   quiet: boolean;
   envFile?: string;
-}
-
-async function writeStdout(text: string): Promise<void> {
-  if (!process.stdout.write(text)) {
-    await new Promise<void>((resolve) => process.stdout.once("drain", resolve));
-  }
-}
-
-async function writeJson(value: unknown): Promise<void> {
-  await writeStdout(JSON.stringify(value, null, 2) + "\n");
 }
 
 // --- put ---
@@ -77,16 +68,32 @@ Examples:
   uploads --env-file .env put ./after.png --pr 123 --comment
 `;
 
-/** Reads --pr/--issue (+ --repo) into a GhTarget; undefined when neither flag is present. */
-function ghTargetFromFlags(flags: CommandFlags["flags"], run: CommandRunner): GhTarget | undefined {
-  const pr = flagInt(flags, "--pr", "--pr");
-  const issue = flagInt(flags, "--issue", "--issue");
+/**
+ * Turns a pr/issue pair (+ optional repo) into a GhTarget; undefined when
+ * neither is present. Shared by the CLI flags and the MCP tool arguments.
+ */
+export function makeGhTarget(
+  pr: number | undefined,
+  issue: number | undefined,
+  repoArg: string | undefined,
+  run: CommandRunner,
+): GhTarget | undefined {
   if (pr === undefined && issue === undefined) return undefined;
   if (pr !== undefined && issue !== undefined) {
     throw new UsageError("--pr and --issue are mutually exclusive");
   }
-  const repo = resolveRepo(flagString(flags, "--repo"), run);
+  const repo = resolveRepo(repoArg, run);
   return { repo, kind: pr !== undefined ? "pull" : "issues", num: (pr ?? issue) as number };
+}
+
+/** Reads --pr/--issue (+ --repo) into a GhTarget; undefined when neither flag is present. */
+function ghTargetFromFlags(flags: CommandFlags["flags"], run: CommandRunner): GhTarget | undefined {
+  return makeGhTarget(
+    flagInt(flags, "--pr", "--pr"),
+    flagInt(flags, "--issue", "--issue"),
+    flagString(flags, "--repo"),
+    run,
+  );
 }
 
 /**
@@ -99,13 +106,9 @@ export async function syncAttachmentsComment(
   target: GhTarget,
   run: CommandRunner,
 ): Promise<{ action: "created" | "updated" | "skipped"; count: number }> {
-  const items: AttachmentItem[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await client.list({ prefix: ghKeyPrefix(target), cursor });
-    items.push(...page.items.map(({ key, url }) => ({ key, url })));
-    cursor = page.cursor ?? undefined;
-  } while (cursor);
+  const items: AttachmentItem[] = (await client.listAll({ prefix: ghKeyPrefix(target) })).map(
+    ({ key, url }) => ({ key, url }),
+  );
 
   if (items.length === 0) return { action: "skipped", count: 0 };
 
@@ -347,13 +350,8 @@ export async function runList(
   const cursor = flagString(parsed.flags, "--cursor");
 
   if (flagBool(parsed.flags, "--all")) {
-    const items = [];
-    let next: string | null | undefined = cursor;
-    do {
-      const page = await ctx.client.list({ prefix, limit, cursor: next ?? undefined });
-      items.push(...page.items);
-      next = page.cursor;
-    } while (next);
+    // --all may start from a caller-provided --cursor and drains from there.
+    const items = await ctx.client.listAll({ prefix, limit, cursor });
     if (ctx.json) await writeJson({ items, cursor: null });
     else
       for (const item of items)
@@ -492,6 +490,8 @@ export interface DoctorReport {
   configExists: boolean;
   health: { ok: boolean };
   auth: { ok: boolean; error: string | undefined };
+  /** Workspace/token mismatch warning (also present in hints). */
+  warning?: string;
   hints: string[];
 }
 
@@ -536,6 +536,7 @@ export async function buildDoctorReport(
     configExists: config.configExists,
     health,
     auth: { ok: authOk, error: authError },
+    warning: mismatch,
     hints,
   };
 }
@@ -553,15 +554,14 @@ export async function runDoctor(ctx: CliContext, args: string[], help = false): 
     return report.ok ? 0 : 1;
   }
 
-  const mismatch = workspaceMismatch(ctx.config);
   const lines = [
     `config:    ${report.configPath}${report.configExists ? "" : " (missing)"}`,
     `api:       ${report.apiUrl} (${report.health.ok ? "ok" : "failed"})`,
     `workspace: ${report.workspace}`,
     `auth:      ${report.auth.ok ? "ok" : `failed — ${report.auth.error ?? "no token"}`}`,
   ];
-  if (mismatch) lines.push(`warning:   ${mismatch}`);
-  for (const h of report.hints) if (h !== mismatch) lines.push(`hint:      ${h}`);
+  if (report.warning) lines.push(`warning:   ${report.warning}`);
+  for (const h of report.hints) if (h !== report.warning) lines.push(`hint:      ${h}`);
   await writeStdout(lines.join("\n") + "\n");
   return report.ok ? 0 : 1;
 }

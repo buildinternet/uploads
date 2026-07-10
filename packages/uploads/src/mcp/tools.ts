@@ -7,8 +7,8 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { GlobalFlags } from "../cli-args.js";
-import { createUploadsClient, type ListItem, type UploadsClient } from "../client.js";
-import { buildDoctorReport, syncAttachmentsComment } from "../commands.js";
+import { createUploadsClient, type UploadsClient } from "../client.js";
+import { buildDoctorReport, makeGhTarget, syncAttachmentsComment } from "../commands.js";
 import {
   resolveConfig,
   resolvePutDefaults,
@@ -16,7 +16,6 @@ import {
   type UploadsClientConfig,
 } from "../config.js";
 import { buildMarkdown } from "../embed.js";
-import { UploadsError } from "../errors.js";
 import { ghAttachmentKey, ghKeyPrefix, type GhTarget } from "../github.js";
 import {
   execRunner,
@@ -24,29 +23,8 @@ import {
   resolveRepo,
   type CommandRunner,
 } from "../github-gh.js";
+import { optPosInt, optString, usage, type ToolArgs } from "./args.js";
 import type { McpTool } from "./server.js";
-
-type ToolArgs = Record<string, unknown>;
-
-function usage(msg: string): never {
-  throw new UploadsError(msg, "USAGE");
-}
-
-function optString(args: ToolArgs, name: string): string | undefined {
-  const v = args[name];
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== "string") usage(`${name} must be a string`);
-  return v;
-}
-
-function optPosInt(args: ToolArgs, name: string): number | undefined {
-  const v = args[name];
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) {
-    usage(`${name} must be a positive integer`);
-  }
-  return v;
-}
 
 function optBool(args: ToolArgs, name: string): boolean {
   const v = args[name];
@@ -66,18 +44,36 @@ function optStringArray(args: ToolArgs, name: string): string[] | undefined {
 
 /** Reads pr/issue (+ repo) into a GhTarget; undefined when neither is present. */
 function ghTargetFromArgs(args: ToolArgs, run: CommandRunner): GhTarget | undefined {
-  const pr = optPosInt(args, "pr");
-  const issue = optPosInt(args, "issue");
-  if (pr === undefined && issue === undefined) return undefined;
-  if (pr !== undefined && issue !== undefined) usage("pr and issue are mutually exclusive");
-  const repo = resolveRepo(optString(args, "repo"), run);
-  return { repo, kind: pr !== undefined ? "pull" : "issues", num: (pr ?? issue) as number };
+  return makeGhTarget(
+    optPosInt(args, "pr"),
+    optPosInt(args, "issue"),
+    optString(args, "repo"),
+    run,
+  );
 }
 
 const workspaceProp = {
   type: "string",
   description: "Override the workspace for this call (like the CLI's --workspace flag).",
 };
+
+/** pr/issue/repo schema properties shared by the tools that resolve a GhTarget. */
+function ghTargetProps(action: string) {
+  return {
+    pr: {
+      type: "number",
+      description: `${action} this pull request. Mutually exclusive with issue.`,
+    },
+    issue: {
+      type: "number",
+      description: `${action} this issue. Mutually exclusive with pr.`,
+    },
+    repo: {
+      type: "string",
+      description: "owner/name repository (default: gh/git inference).",
+    },
+  };
+}
 
 export function createUploadsMcpTools(opts: {
   globals: GlobalFlags;
@@ -145,6 +141,8 @@ export function createUploadsMcpTools(opts: {
             description:
               "Key prefix (default: screenshots, or UPLOADS_DEFAULT_PREFIX). Cannot be combined with pr/issue.",
           },
+          ...ghTargetProps("Attach to"),
+          // put's repo doubles as the default key layout's repo segment.
           repo: {
             type: "string",
             description: "owner/name repo segment (default: git remote, or UPLOADS_DEFAULT_REPO).",
@@ -161,16 +159,6 @@ export function createUploadsMcpTools(opts: {
           },
           contentType: { type: "string", description: "Override the Content-Type." },
           noGit: { type: "boolean", description: "Don't derive the repo segment from git." },
-          pr: {
-            type: "number",
-            description:
-              "Attach to this pull request with a stable key gh/<owner>/<repo>/pull/<num>/<name>. Mutually exclusive with issue.",
-          },
-          issue: {
-            type: "number",
-            description:
-              "Attach to this issue with a stable key gh/<owner>/<repo>/issues/<num>/<name>. Mutually exclusive with pr.",
-          },
           comment: {
             type: "boolean",
             description:
@@ -245,18 +233,7 @@ export function createUploadsMcpTools(opts: {
             items: { type: "string" },
             description: "Paths of the files to upload (at least one).",
           },
-          pr: {
-            type: "number",
-            description: "Attach to this pull request. Mutually exclusive with issue.",
-          },
-          issue: {
-            type: "number",
-            description: "Attach to this issue. Mutually exclusive with pr.",
-          },
-          repo: {
-            type: "string",
-            description: "owner/name repository (default: gh/git inference).",
-          },
+          ...ghTargetProps("Attach to"),
           noComment: {
             type: "boolean",
             description: "Upload only; don't create/update the managed comment.",
@@ -309,18 +286,7 @@ export function createUploadsMcpTools(opts: {
             description:
               "Key prefix filter (default: UPLOADS_DEFAULT_PREFIX + '/'). Cannot be combined with pr/issue.",
           },
-          pr: {
-            type: "number",
-            description: "List this pull request's attachments. Mutually exclusive with issue.",
-          },
-          issue: {
-            type: "number",
-            description: "List this issue's attachments. Mutually exclusive with pr.",
-          },
-          repo: {
-            type: "string",
-            description: "owner/name repository (default: gh/git inference).",
-          },
+          ...ghTargetProps("List attachments for"),
           limit: { type: "number", description: "Page size." },
           cursor: { type: "string", description: "Pagination cursor from a previous call." },
           all: { type: "boolean", description: "Follow cursors and return every page." },
@@ -342,13 +308,7 @@ export function createUploadsMcpTools(opts: {
         const { client } = clientFor(args);
 
         if (optBool(args, "all")) {
-          const items: ListItem[] = [];
-          let next: string | null | undefined = cursor;
-          do {
-            const page = await client.list({ prefix, limit, cursor: next ?? undefined });
-            items.push(...page.items);
-            next = page.cursor;
-          } while (next);
+          const items = await client.listAll({ prefix, limit, cursor });
           return { items, cursor: null };
         }
         return client.list({ prefix, limit, cursor });
@@ -385,18 +345,7 @@ export function createUploadsMcpTools(opts: {
       inputSchema: {
         type: "object",
         properties: {
-          pr: {
-            type: "number",
-            description: "Pull request number. Exactly one of pr or issue is required.",
-          },
-          issue: {
-            type: "number",
-            description: "Issue number. Exactly one of pr or issue is required.",
-          },
-          repo: {
-            type: "string",
-            description: "owner/name repository (default: gh/git inference).",
-          },
+          ...ghTargetProps("Comment on"),
           workspace: workspaceProp,
         },
         additionalProperties: false,

@@ -174,6 +174,15 @@ export function createUploadsClient(config: UploadsClientConfig) {
     return (await res.json()) as T;
   }
 
+  async function list(opts: ListOptions = {}): Promise<ListResult> {
+    const params = new URLSearchParams();
+    if (opts.prefix) params.set("prefix", opts.prefix);
+    if (opts.limit != null) params.set("limit", String(opts.limit));
+    if (opts.cursor) params.set("cursor", opts.cursor);
+    const qs = params.toString();
+    return request<ListResult>("GET", `${filesBase(config)}${qs ? `?${qs}` : ""}`);
+  }
+
   return {
     async put(body: Uint8Array, opts: PutOptions & { filename: string }): Promise<PutResult> {
       const key =
@@ -210,13 +219,20 @@ export function createUploadsClient(config: UploadsClientConfig) {
       return { ...result, url: result.url };
     },
 
-    async list(opts: ListOptions = {}): Promise<ListResult> {
-      const params = new URLSearchParams();
-      if (opts.prefix) params.set("prefix", opts.prefix);
-      if (opts.limit != null) params.set("limit", String(opts.limit));
-      if (opts.cursor) params.set("cursor", opts.cursor);
-      const qs = params.toString();
-      return request<ListResult>("GET", `${filesBase(config)}${qs ? `?${qs}` : ""}`);
+    list,
+
+    /** Follow cursors (optionally starting from one) and return every remaining item. */
+    async listAll(
+      opts: Omit<ListOptions, "cursor"> & { cursor?: string } = {},
+    ): Promise<ListItem[]> {
+      const items: ListItem[] = [];
+      let cursor: string | undefined = opts.cursor;
+      do {
+        const page = await list({ ...opts, cursor });
+        items.push(...page.items);
+        cursor = page.cursor ?? undefined;
+      } while (cursor);
+      return items;
     },
 
     async delete(key: string): Promise<DeleteResult> {
