@@ -1,5 +1,5 @@
 /**
- * Remote MCP server for uploads.sh — a standalone worker on mcp.uploads.sh.
+ * Remote MCP server for uploads.sh — a standalone worker on agents.uploads.sh (alternate: mcp.uploads.sh).
  *
  * Stateless MCP Streamable HTTP: each POST carries one JSON-RPC message and
  * gets its response (or 202 for notifications) in the same HTTP exchange. No
