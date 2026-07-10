@@ -9,31 +9,41 @@
  * `createMcpServer`, shared verbatim.
  */
 import { createMcpServer } from "@buildinternet/uploads/mcp";
-import { workspaceAuth, type WorkspaceVars } from "@uploads/api/workspace";
-import { Hono } from "hono";
+import { tokenWorkspaceAuth, workspaceAuth, type WorkspaceVars } from "@uploads/api/workspace";
+import { Hono, type Context } from "hono";
 import pkg from "../package.json";
 import { createRemoteTools } from "./tools";
 
+async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
+  const body = await c.req.text();
+  const server = createMcpServer({
+    serverInfo: { name: "uploads-mcp", version: pkg.version },
+    tools: createRemoteTools({
+      env: c.env,
+      workspace: c.get("workspace"),
+      workspaceName: c.get("workspaceName"),
+      authScopes: c.get("authScopes"),
+    }),
+  });
+  const result = await server.handleLine(body);
+  // Notifications and client responses get no JSON-RPC reply: 202, empty.
+  if (result === undefined) return c.body(null, 202);
+  return c.body(result, 200, { "Content-Type": "application/json" });
+}
+
+const methodNotAllowed = (c: Context<WorkspaceVars>) =>
+  c.json({ error: "method not allowed" }, 405);
+
 const app = new Hono<WorkspaceVars>()
   .get("/health", (c) => c.json({ ok: true }))
+  // Primary endpoint: the workspace is inferred from the bearer token
+  // (up_<workspace>_…), so clients only need the URL and the token.
+  .post("/mcp", tokenWorkspaceAuth, handleMcp)
+  .on(["GET", "DELETE"], "/mcp", methodNotAllowed)
+  // Workspace-prefixed alternate, kept for existing clients.
   .use("/:workspace/*", workspaceAuth)
-  .post("/:workspace/mcp", async (c) => {
-    const body = await c.req.text();
-    const server = createMcpServer({
-      serverInfo: { name: "uploads-mcp", version: pkg.version },
-      tools: createRemoteTools({
-        env: c.env,
-        workspace: c.get("workspace"),
-        workspaceName: c.get("workspaceName"),
-        authScopes: c.get("authScopes"),
-      }),
-    });
-    const result = await server.handleLine(body);
-    // Notifications and client responses get no JSON-RPC reply: 202, empty.
-    if (result === undefined) return c.body(null, 202);
-    return c.body(result, 200, { "Content-Type": "application/json" });
-  })
-  .on(["GET", "DELETE"], "/:workspace/mcp", (c) => c.json({ error: "method not allowed" }, 405))
+  .post("/:workspace/mcp", handleMcp)
+  .on(["GET", "DELETE"], "/:workspace/mcp", methodNotAllowed)
   .onError((err, c) => {
     console.error(JSON.stringify({ message: err.message, stack: err.stack }));
     return c.json({ error: "internal error" }, 500);

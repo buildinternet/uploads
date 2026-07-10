@@ -274,6 +274,10 @@ uploads --api-url http://localhost:8787 doctor
   Every tool also accepts a per-call `workspace` argument to override the configured
   workspace (mirrors `--workspace`).
   E.g. `claude mcp add uploads -- uploads --env-file /path/to/.env mcp`.
+  There is also a hosted MCP server at `https://agents.uploads.sh/mcp` (workspace
+  inferred from the bearer token; `mcp.uploads.sh` is an alternate hostname).
+  `uploads install` sets up both this skill (via `npx skills`) and the hosted MCP
+  server in Claude Code; `uploads install --dry-run` prints the commands instead.
 - **Agents on the Worker side:** the package also exports
   `createUploadsWorkerFileTools()` from `@buildinternet/uploads/agent` for exposing
   upload/list/delete as AI-SDK tools inside the Worker — separate from this CLI, and

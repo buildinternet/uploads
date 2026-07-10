@@ -40,7 +40,7 @@ Config layers (first match wins): CLI flags → env vars → `--env-file` → `~
 
 Or with `UPLOADS_TOKEN`/`UPLOADS_WORKSPACE` in the environment or user config. Claude Code: `claude mcp add uploads -- uploads --env-file /path/to/.env mcp`.
 
-For HTTP clients there's also a hosted variant at `https://agents.uploads.sh/<workspace>/mcp` (alternate: `mcp.uploads.sh`) (put/list/delete/health, same bearer tokens as the REST API — see `apps/mcp` in the repo). Its `put` takes no content type: the stored type is sniffed server-side from the bytes and checked against the workspace allowlist, and writes are rate limited per workspace.
+For HTTP clients there's also a hosted variant at `https://agents.uploads.sh/mcp` — the workspace is inferred from the bearer token, so only the URL and token are needed (`https://agents.uploads.sh/<workspace>/mcp` and the `mcp.uploads.sh` hostname also work). Tools: put/list/delete/health, same bearer tokens as the REST API — see `apps/mcp` in the repo. `uploads install` registers it with Claude Code (and installs the agent skill) in one step. Its `put` takes no content type: the stored type is sniffed server-side from the bytes and checked against the workspace allowlist, and writes are rate limited per workspace.
 
 ## Programmatic use
 

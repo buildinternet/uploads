@@ -60,45 +60,68 @@ export function workspaceTokenHashes(record: WorkspaceRecord): string[] {
   return record.tokens?.map((t) => t.hash) ?? (record.tokenHash ? [record.tokenHash] : []);
 }
 
+function bearerToken(header: string | undefined): string {
+  return header?.startsWith("Bearer ") ? header.slice(7) : "";
+}
+
+/** Workspace name encoded in a bearer token (`up_<name>_…`), if well-formed. */
+export function workspaceNameFromToken(token: string): string | undefined {
+  const match = /^up_([a-z0-9][a-z0-9-]{1,62})_./.exec(token);
+  return match?.[1];
+}
+
 /**
- * Resolves `:workspace` from the path, verifies the bearer token against the
- * workspace's stored token hash, and puts the record on the context.
- * 404 for unknown workspaces only after the token check, so probing for
- * workspace names requires no fewer requests than probing tokens.
+ * Verifies the bearer token against the named workspace's stored token
+ * hashes and puts the record on the context. 401 for unknown workspaces only
+ * after the token check, so probing for workspace names requires no fewer
+ * requests than probing tokens. `nameOf` supplies the workspace name —
+ * from the path for the REST API, or from the token itself for endpoints
+ * without a workspace segment (the remote MCP worker's `/mcp`).
  */
-export const workspaceAuth: MiddlewareHandler<WorkspaceVars> = async (c, next) => {
-  const name = c.req.param("workspace");
-  const header = c.req.header("Authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+function workspaceAuthWith(
+  nameOf: (c: Parameters<MiddlewareHandler<WorkspaceVars>>[0]) => string | undefined,
+): MiddlewareHandler<WorkspaceVars> {
+  return async (c, next) => {
+    const name = nameOf(c);
+    const token = bearerToken(c.req.header("Authorization"));
 
-  const record =
-    name && WS_NAME_RE.test(name)
-      ? await c.env.REGISTRY.get<WorkspaceRecord>(`ws:${name}`, { type: "json", cacheTtl: 60 })
-      : null;
+    const record =
+      name && WS_NAME_RE.test(name)
+        ? await c.env.REGISTRY.get<WorkspaceRecord>(`ws:${name}`, { type: "json", cacheTtl: 60 })
+        : null;
 
-  const providedHash = await sha256Hex(token);
-  const providedBytes = hexToBytes(providedHash);
-  const candidates = record ? workspaceTokenHashes(record) : [];
-  // Compare against every candidate hash (no early break) so match position isn't timing-visible.
-  // Note: total work scales with token count — acceptable for this throwaway PoC; a leaked
-  // token-count signal goes away with the real auth system.
-  const toCheck = candidates.length > 0 ? candidates : [providedHash.replace(/./g, "0")];
-  let matched = false;
-  for (const hash of toCheck) {
-    if (crypto.subtle.timingSafeEqual(providedBytes, hexToBytes(hash))) matched = true;
-  }
-  const legacyOk = record !== null && token.length > 0 && candidates.length > 0 && matched;
-  const d1Token = record && name && token ? await findActiveToken(c.env.DB, name, token) : null;
-  const ok = legacyOk || d1Token !== null;
+    const providedHash = await sha256Hex(token);
+    const providedBytes = hexToBytes(providedHash);
+    const candidates = record ? workspaceTokenHashes(record) : [];
+    // Compare against every candidate hash (no early break) so match position isn't timing-visible.
+    // Note: total work scales with token count — acceptable for this throwaway PoC; a leaked
+    // token-count signal goes away with the real auth system.
+    const toCheck = candidates.length > 0 ? candidates : [providedHash.replace(/./g, "0")];
+    let matched = false;
+    for (const hash of toCheck) {
+      if (crypto.subtle.timingSafeEqual(providedBytes, hexToBytes(hash))) matched = true;
+    }
+    const legacyOk = record !== null && token.length > 0 && candidates.length > 0 && matched;
+    const d1Token = record && name && token ? await findActiveToken(c.env.DB, name, token) : null;
+    const ok = legacyOk || d1Token !== null;
 
-  if (!ok || !record || !name) return c.json({ error: "unauthorized" }, 401);
+    if (!ok || !record || !name) return c.json({ error: "unauthorized" }, 401);
 
-  c.set("workspace", record);
-  c.set("workspaceName", name);
-  c.set("authScopes", d1Token ? parseScopes(d1Token.scopes) : [...FILE_SCOPES]);
-  c.set("authSource", d1Token ? "d1" : "legacy");
-  await next();
-};
+    c.set("workspace", record);
+    c.set("workspaceName", name);
+    c.set("authScopes", d1Token ? parseScopes(d1Token.scopes) : [...FILE_SCOPES]);
+    c.set("authSource", d1Token ? "d1" : "legacy");
+    await next();
+  };
+}
+
+/** Resolves `:workspace` from the path (the REST API's routes). */
+export const workspaceAuth = workspaceAuthWith((c) => c.req.param("workspace"));
+
+/** Resolves the workspace from the bearer token itself (`up_<name>_…`). */
+export const tokenWorkspaceAuth = workspaceAuthWith((c) =>
+  workspaceNameFromToken(bearerToken(c.req.header("Authorization"))),
+);
 
 export function requireScope(scope: FileScope): MiddlewareHandler<WorkspaceVars> {
   return async (c, next) => {
