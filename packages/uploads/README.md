@@ -40,6 +40,8 @@ Config layers (first match wins): CLI flags → env vars → `--env-file` → `~
 
 Or with `UPLOADS_TOKEN`/`UPLOADS_WORKSPACE` in the environment or user config. Claude Code: `claude mcp add uploads -- uploads --env-file /path/to/.env mcp`.
 
+For HTTP clients there's also a hosted variant at `https://mcp.uploads.sh/<workspace>/mcp` (put/list/delete/health, same bearer tokens as the REST API — see `apps/mcp` in the repo).
+
 ## Programmatic use
 
 ```ts

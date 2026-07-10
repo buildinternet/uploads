@@ -1,0 +1,45 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "uploads-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "pattern": "mcp.uploads.sh",
+      "custom_domain": true,
+    },
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+  },
+  // Shared with uploads-api (apps/api/wrangler.jsonc): both workers serve the
+  // same tenant registry — keep the id in sync.
+  "kv_namespaces": [
+    {
+      "binding": "REGISTRY",
+      "id": "808bc1c3a86a4675b134e11b6dca303d",
+    },
+  ],
+  // Shared with uploads-api; migrations are managed from apps/api.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "uploads-production",
+      "database_id": "5f73946b-edd5-414c-856c-8f9bd3c644ba",
+    },
+  ],
+  // Shared with uploads-api: same buckets, so workspace records that name an
+  // R2 binding resolve identically on both workers.
+  "r2_buckets": [
+    {
+      "binding": "UPLOADS",
+      "bucket_name": "buildinternet-dev",
+    },
+    {
+      "binding": "UPLOADS_DEFAULT",
+      "bucket_name": "uploads-default",
+    },
+  ],
+}

@@ -7,11 +7,11 @@ import { requireScope, type WorkspaceVars } from "../workspace";
 // max-age caps how long Camo serves a stale copy before revalidating against the
 // (now-overwritten) origin. Without it, R2's custom-domain default (max-age=14400)
 // kept replaced images stale for hours.
-const UPLOAD_CACHE_CONTROL = "public, max-age=60";
+export const UPLOAD_CACHE_CONTROL = "public, max-age=60";
 
 const KEY_RE = /^[\w!*'()./-]+$/;
 
-function badKey(key: string): boolean {
+export function badKey(key: string): boolean {
   return (
     !KEY_RE.test(key) ||
     key.length > 1024 ||

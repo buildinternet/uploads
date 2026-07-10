@@ -1,9 +1,9 @@
 # Roadmap
 
-- **MCP server** — a local stdio server now ships in the CLI (`uploads mcp`,
-  tools mirror the CLI commands). Remaining: the remote/hosted variant —
-  Cloudflare's `McpAgent` on the same worker, or a sibling worker on
-  `mcp.uploads.sh`, authenticated per workspace like REST.
+- **MCP server** — shipped in both variants: a local stdio server in the CLI
+  (`uploads mcp`, tools mirror the CLI commands) and a remote worker on
+  `mcp.uploads.sh` (`apps/mcp`, standalone worker, per-workspace bearer auth
+  like REST, put/list/delete/health).
 - **Presigned upload URLs** (`POST /v1/sign`) via files-sdk `signedUploadUrl()`
   — needs the hybrid-mode HTTP credentials above; lets clients PUT large files
   straight to the bucket.
