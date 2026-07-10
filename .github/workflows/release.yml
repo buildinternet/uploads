@@ -33,7 +33,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Check tag matches package version
         shell: bash
-        run: test "${GITHUB_REF_NAME}" = "uploads-v$(node -p \"require('./packages/uploads/package.json').version\")"
+        run: |
+          version="$(node -p "require('./packages/uploads/package.json').version")"
+          test "${GITHUB_REF_NAME}" = "uploads-v${version}"
       - name: Test and verify package
         run: pnpm --filter @buildinternet/uploads test && pnpm --filter @buildinternet/uploads run build && pnpm --filter @buildinternet/uploads run pack:check
       - name: Publish to npm with provenance
