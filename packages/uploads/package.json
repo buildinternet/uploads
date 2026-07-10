@@ -21,7 +21,7 @@
     }
   },
   "bin": {
-    "uploads": "./bin/uploads.js"
+    "uploads": "bin/uploads.js"
   },
   "files": [
     "bin",
