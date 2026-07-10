@@ -32,11 +32,12 @@
       "migrations_dir": "migrations",
     },
   ],
-  // Per-workspace write rate limit (uploads + deletes). The Rate Limiting API
-  // is an `unsafe` binding: not typed by `wrangler types`, read defensively in
-  // guards.ts (writeRateLimit). Keyed by workspace name; `period` must be 10 or
-  // 60. 60 writes/min/workspace is generous for legit screenshot flows and
-  // blunts a runaway client. Per-colo, not globally exact.
+  // Per-workspace write rate limit (uploads + deletes), enforced by the
+  // writeRateLimit middleware in guards.ts. The Rate Limiting API is an
+  // `unsafe` binding but `wrangler types` still emits it as `WRITE_LIMITER:
+  // RateLimit`. Keyed by workspace name; `period` must be 10 or 60. 60
+  // writes/min/workspace is generous for legit screenshot flows and blunts a
+  // runaway client. Per-colo, not globally exact.
   "unsafe": {
     "bindings": [
       {

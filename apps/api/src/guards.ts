@@ -27,6 +27,8 @@ export const DEFAULT_ALLOWED_CONTENT_TYPES: readonly string[] = [
   "video/webm",
 ];
 
+const DEFAULT_ALLOWED_SET = new Set(DEFAULT_ALLOWED_CONTENT_TYPES);
+
 export interface UploadPolicy {
   maxBytes: number;
   allowed: Set<string>;
@@ -45,14 +47,9 @@ export function resolveUploadPolicy(record: UploadPolicyOverrides): UploadPolicy
       : DEFAULT_MAX_UPLOAD_BYTES;
   const allowed =
     record.allowedContentTypes && record.allowedContentTypes.length > 0
-      ? record.allowedContentTypes
-      : DEFAULT_ALLOWED_CONTENT_TYPES;
-  return { maxBytes, allowed: new Set(allowed) };
-}
-
-/** Strip parameters (`; charset=…`) and normalize case for header comparison. */
-export function normalizeContentType(value: string | undefined): string {
-  return (value ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+      ? new Set(record.allowedContentTypes)
+      : DEFAULT_ALLOWED_SET;
+  return { maxBytes, allowed };
 }
 
 function matches(bytes: Uint8Array, signature: number[], offset = 0): boolean {
@@ -97,23 +94,34 @@ export function detectContentType(bytes: Uint8Array): string | null {
   return null;
 }
 
-export type UploadInspection =
-  | { ok: true; contentType: string }
-  | { ok: false; status: 413 | 415; body: Record<string, unknown> };
+export type UploadRejection = { ok: false; status: 413 | 415; body: Record<string, unknown> };
+export type UploadInspection = { ok: true; contentType: string } | UploadRejection;
+
+function tooLarge(maxBytes: number): UploadRejection {
+  return { ok: false, status: 413, body: { error: "payload too large", maxBytes } };
+}
 
 /**
- * Validate a fully-buffered upload body against the policy. Size is checked
- * again here (the pre-buffer Content-Length check can be absent or lying), then
- * the sniffed type must be on the allowlist.
+ * Pre-buffer size gate: reject on a declared `Content-Length` over the cap
+ * before the body is read into isolate memory. Returns `null` when the header
+ * is absent or within range — `inspectUpload` is the authoritative backstop for
+ * missing or dishonest lengths.
+ */
+export function checkDeclaredLength(
+  contentLength: string | undefined,
+  policy: UploadPolicy,
+): UploadRejection | null {
+  const declared = Number(contentLength);
+  if (Number.isFinite(declared) && declared > policy.maxBytes) return tooLarge(policy.maxBytes);
+  return null;
+}
+
+/**
+ * Validate a fully-buffered upload body against the policy: size (the
+ * authoritative check) then the sniffed type against the allowlist.
  */
 export function inspectUpload(bytes: Uint8Array, policy: UploadPolicy): UploadInspection {
-  if (bytes.byteLength > policy.maxBytes) {
-    return {
-      ok: false,
-      status: 413,
-      body: { error: "payload too large", maxBytes: policy.maxBytes },
-    };
-  }
+  if (bytes.byteLength > policy.maxBytes) return tooLarge(policy.maxBytes);
   const detected = detectContentType(bytes);
   if (detected === null || !policy.allowed.has(detected)) {
     return {
@@ -126,23 +134,14 @@ export function inspectUpload(bytes: Uint8Array, policy: UploadPolicy): UploadIn
 }
 
 /**
- * The Rate Limiting API binding (configured under `unsafe.bindings` in
- * wrangler.jsonc). Unsafe bindings aren't emitted by `wrangler types`, so we
- * describe the shape locally and read it off `env` defensively — when the
- * binding is absent (some local/dev setups, tests) the middleware no-ops.
- */
-interface RateLimiter {
-  limit(options: { key: string }): Promise<{ success: boolean }>;
-}
-
-/**
  * Per-workspace rate limit for mutating requests. Keyed by workspace name so
- * one tenant's traffic can't exhaust another's budget. The window and quota
- * are fixed in wrangler.jsonc (the binding is a fixed sliding window); it's
+ * one tenant's traffic can't exhaust another's budget. The window and quota are
+ * fixed in wrangler.jsonc (`WRITE_LIMITER`, a fixed sliding window); it's
  * per-colo rather than globally exact — enough to blunt abuse, not billing.
+ * Fails open when the binding is absent (some local/dev setups, tests).
  */
 export const writeRateLimit: MiddlewareHandler<WorkspaceVars> = async (c, next) => {
-  const limiter = (c.env as { WRITE_LIMITER?: RateLimiter }).WRITE_LIMITER;
+  const limiter = c.env.WRITE_LIMITER;
   if (limiter) {
     const { success } = await limiter.limit({ key: c.get("workspaceName") });
     if (!success) return c.json({ error: "rate limit exceeded" }, 429);

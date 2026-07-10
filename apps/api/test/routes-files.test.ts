@@ -55,18 +55,26 @@ async function makeEnv(
   return { env, bucket };
 }
 
+/** PUT the standard test key with auth, letting each test vary body/headers/env. */
+function putShot(
+  env: Parameters<typeof app.request>[2],
+  { body = PNG as BodyInit, headers = {} as Record<string, string> } = {},
+) {
+  return app.request(
+    "/v1/default/files/shot.png",
+    {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png", ...headers },
+      body,
+    },
+    env,
+  );
+}
+
 describe("PUT /v1/:workspace/files upload guardrails", () => {
   it("stores a valid image with the sniffed content type", async () => {
     const { env, bucket } = await makeEnv();
-    const res = await app.request(
-      "/v1/default/files/shot.png",
-      {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png" },
-        body: PNG,
-      },
-      env,
-    );
+    const res = await putShot(env);
     expect(res.status).toBe(201);
     const json = (await res.json()) as { contentType: string; url: string };
     expect(json.contentType).toBe("image/png");
@@ -76,90 +84,38 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
 
   it("overrides a lying Content-Type header with the sniffed type", async () => {
     const { env, bucket } = await makeEnv();
-    const res = await app.request(
-      "/v1/default/files/shot.png",
-      {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/svg+xml" },
-        body: PNG,
-      },
-      env,
-    );
+    const res = await putShot(env, { headers: { "Content-Type": "image/svg+xml" } });
     expect(res.status).toBe(201);
     expect(bucket.store.get("default/shot.png")?.contentType).toBe("image/png");
   });
 
   it("rejects a non-image payload with 415", async () => {
     const { env } = await makeEnv();
-    const res = await app.request(
-      "/v1/default/files/shot.png",
-      {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png" },
-        body: new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x00]), // zip
-      },
-      env,
-    );
+    const res = await putShot(env, { body: new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x00]) }); // zip
     expect(res.status).toBe(415);
   });
 
   it("rejects an oversized body with 413", async () => {
     const { env } = await makeEnv({ maxUploadBytes: 4 });
-    const res = await app.request(
-      "/v1/default/files/shot.png",
-      {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png" },
-        body: PNG,
-      },
-      env,
-    );
+    const res = await putShot(env);
     expect(res.status).toBe(413);
   });
 
   it("rejects on an oversized Content-Length before buffering", async () => {
     const { env } = await makeEnv({ maxUploadBytes: 4 });
-    const res = await app.request(
-      "/v1/default/files/shot.png",
-      {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${TOKEN}`,
-          "Content-Type": "image/png",
-          "Content-Length": "999999",
-        },
-        body: PNG,
-      },
-      env,
-    );
+    const res = await putShot(env, { headers: { "Content-Length": "999999" } });
     expect(res.status).toBe(413);
   });
 
   it("rejects an empty body with 400", async () => {
     const { env } = await makeEnv();
-    const res = await app.request(
-      "/v1/default/files/shot.png",
-      {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png" },
-        body: new Uint8Array(0),
-      },
-      env,
-    );
+    const res = await putShot(env, { body: new Uint8Array(0) });
     expect(res.status).toBe(400);
   });
 
   it("returns 429 when the write rate limit is exceeded", async () => {
     const { env } = await makeEnv({}, { rateLimitOk: false });
-    const res = await app.request(
-      "/v1/default/files/shot.png",
-      {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png" },
-        body: PNG,
-      },
-      env,
-    );
+    const res = await putShot(env);
     expect(res.status).toBe(429);
   });
 });

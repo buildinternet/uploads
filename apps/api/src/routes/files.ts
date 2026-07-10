@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { publicUrl, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
-import { inspectUpload, resolveUploadPolicy, writeRateLimit } from "../guards";
+import { checkDeclaredLength, inspectUpload, resolveUploadPolicy, writeRateLimit } from "../guards";
 
 // The freshness floor on overwrite for every bucket. This is the operative lever
 // for GitHub embeds: they're proxied through GitHub's Camo/Fastly cache, and
@@ -30,13 +30,10 @@ export const files = new Hono<WorkspaceVars>()
 
     const policy = resolveUploadPolicy(c.get("workspace"));
 
-    // Reject oversized uploads on the declared length before buffering the
-    // body into isolate memory. The post-buffer check in inspectUpload is the
-    // authoritative backstop for missing or dishonest Content-Length headers.
-    const declaredLength = Number(c.req.header("Content-Length"));
-    if (Number.isFinite(declaredLength) && declaredLength > policy.maxBytes) {
-      return c.json({ error: "payload too large", maxBytes: policy.maxBytes }, 413);
-    }
+    // Reject oversized uploads on the declared length before buffering the body
+    // into isolate memory; inspectUpload re-checks the actual size below.
+    const declared = checkDeclaredLength(c.req.header("Content-Length"), policy);
+    if (declared) return c.json(declared.body, declared.status);
 
     const body = await c.req.arrayBuffer();
     if (body.byteLength === 0) return c.json({ error: "empty body" }, 400);

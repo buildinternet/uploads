@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  checkDeclaredLength,
   DEFAULT_ALLOWED_CONTENT_TYPES,
   DEFAULT_MAX_UPLOAD_BYTES,
   detectContentType,
   inspectUpload,
-  normalizeContentType,
   resolveUploadPolicy,
 } from "../src/guards";
 
@@ -48,10 +48,17 @@ describe("detectContentType", () => {
   });
 });
 
-describe("normalizeContentType", () => {
-  it("strips parameters and lowercases", () => {
-    expect(normalizeContentType("Image/PNG; charset=binary")).toBe("image/png");
-    expect(normalizeContentType(undefined)).toBe("");
+describe("checkDeclaredLength", () => {
+  const policy = resolveUploadPolicy({ maxUploadBytes: 100 });
+
+  it("rejects a Content-Length over the cap with 413", () => {
+    expect(checkDeclaredLength("999", policy)?.status).toBe(413);
+  });
+
+  it("passes (null) when the header is within range, absent, or unparseable", () => {
+    expect(checkDeclaredLength("50", policy)).toBeNull();
+    expect(checkDeclaredLength(undefined, policy)).toBeNull();
+    expect(checkDeclaredLength("not-a-number", policy)).toBeNull();
   });
 });
 
