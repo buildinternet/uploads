@@ -45,6 +45,19 @@ interface StepResult {
   output?: string;
 }
 
+/**
+ * Masks the configured token (and any Bearer credential) in text destined
+ * for stdout/stderr/JSON — command echoes, child-process output, and error
+ * messages can all embed it.
+ */
+function redactor(token: string | undefined): (text: string) => string {
+  return (text) => {
+    let out = text.replace(/Bearer \S+/g, "Bearer ***");
+    if (token) out = out.split(token).join("***");
+    return out;
+  };
+}
+
 function runStep(run: CommandRunner, command: string[]): StepResult {
   try {
     const output = run(command[0], command.slice(1)).trim();
@@ -81,6 +94,7 @@ export async function runInstall(
   const run = opts.runner ?? execRunner;
 
   const results: Record<string, StepResult> = {};
+  let redact = redactor(undefined);
 
   if (target === "skill" || target === "all") {
     const command = ["npx", "-y", "skills", "add", SKILL_SOURCE, "--skill", SKILL_NAME];
@@ -96,6 +110,7 @@ export async function runInstall(
       requireToken: !dryRun,
     });
     const bearer = config.token || "<token>";
+    redact = redactor(config.token || undefined);
     const command = [
       "claude",
       "mcp",
@@ -113,11 +128,17 @@ export async function runInstall(
   const failed = Object.values(results).some((r) => !r.ok);
 
   if (opts.json) {
-    // Never echo the token in structured output.
+    // Never echo the token in structured output — commands, child output,
+    // and error text can all embed it.
     const redacted = Object.fromEntries(
       Object.entries(results).map(([key, r]) => [
         key,
-        { ...r, command: r.command.map((part) => part.replace(/Bearer up_\S+/, "Bearer ***")) },
+        {
+          ...r,
+          command: r.command.map(redact),
+          output: r.output === undefined ? undefined : redact(r.output),
+          error: r.error === undefined ? undefined : redact(r.error),
+        },
       ]),
     );
     process.stdout.write(JSON.stringify({ ok: !failed, steps: redacted }, null, 2) + "\n");
@@ -125,12 +146,12 @@ export async function runInstall(
   }
 
   for (const [step, r] of Object.entries(results)) {
-    const shown = r.command.map((part) => part.replace(/Bearer up_\S+/, "Bearer ***")).join(" ");
+    const shown = redact(r.command.join(" "));
     if (r.skipped) process.stdout.write(`${step}: would run — ${shown}\n`);
     else if (r.ok) {
       process.stdout.write(`${step}: ok — ${shown}\n`);
-      if (r.output) process.stdout.write(`  ${r.output.split("\n").join("\n  ")}\n`);
-    } else process.stderr.write(`${step}: failed — ${r.error}\n`);
+      if (r.output) process.stdout.write(`  ${redact(r.output).split("\n").join("\n  ")}\n`);
+    } else process.stderr.write(`${step}: failed — ${redact(r.error ?? "")}\n`);
   }
   if (!failed && !dryRun) {
     process.stderr.write("hint: restart your agent session to pick up the new skill/server\n");

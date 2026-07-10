@@ -79,11 +79,11 @@ export function workspaceNameFromToken(token: string): string | undefined {
  * without a workspace segment (the remote MCP worker's `/mcp`).
  */
 function workspaceAuthWith(
-  nameOf: (c: Parameters<MiddlewareHandler<WorkspaceVars>>[0]) => string | undefined,
+  nameOf: (c: Parameters<MiddlewareHandler<WorkspaceVars>>[0], token: string) => string | undefined,
 ): MiddlewareHandler<WorkspaceVars> {
   return async (c, next) => {
-    const name = nameOf(c);
     const token = bearerToken(c.req.header("Authorization"));
+    const name = nameOf(c, token);
 
     const record =
       name && WS_NAME_RE.test(name)
@@ -102,8 +102,15 @@ function workspaceAuthWith(
       if (crypto.subtle.timingSafeEqual(providedBytes, hexToBytes(hash))) matched = true;
     }
     const legacyOk = record !== null && token.length > 0 && candidates.length > 0 && matched;
-    const d1Token = record && name && token ? await findActiveToken(c.env.DB, name, token) : null;
-    const ok = legacyOk || d1Token !== null;
+    // Always pay the D1 round-trip, with dummy inputs when the workspace is
+    // unknown or the token empty, so response latency doesn't reveal whether
+    // a workspace name exists (uniform-401 guarantee above).
+    const d1Token = await findActiveToken(
+      c.env.DB,
+      record && name ? name : "__unknown__",
+      token || "__unknown__",
+    );
+    const ok = legacyOk || (record !== null && d1Token !== null);
 
     if (!ok || !record || !name) return c.json({ error: "unauthorized" }, 401);
 
@@ -119,9 +126,7 @@ function workspaceAuthWith(
 export const workspaceAuth = workspaceAuthWith((c) => c.req.param("workspace"));
 
 /** Resolves the workspace from the bearer token itself (`up_<name>_…`). */
-export const tokenWorkspaceAuth = workspaceAuthWith((c) =>
-  workspaceNameFromToken(bearerToken(c.req.header("Authorization"))),
-);
+export const tokenWorkspaceAuth = workspaceAuthWith((_c, token) => workspaceNameFromToken(token));
 
 export function requireScope(scope: FileScope): MiddlewareHandler<WorkspaceVars> {
   return async (c, next) => {

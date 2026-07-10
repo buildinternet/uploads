@@ -96,14 +96,24 @@ describe("uploads install", () => {
     ).rejects.toThrow(/UPLOADS_TOKEN|token/i);
   });
 
-  it("reports a missing binary with a manual-command hint and exits 1", async () => {
+  it("reports a missing binary with a manual-command hint, redacted, and exits 1", async () => {
     const enoent: CommandRunner = () => {
       const err = new Error("spawn claude ENOENT") as NodeJS.ErrnoException;
       err.code = "ENOENT";
       throw err;
     };
+    const errChunks: string[] = [];
+    vi.mocked(process.stderr.write).mockImplementation((chunk) => {
+      errChunks.push(String(chunk));
+      return true;
+    });
     const code = await runInstall(["mcp"], { globals: GLOBALS, runner: enoent });
     expect(code).toBe(1);
+    const printed = errChunks.join("");
+    // The manual-command hint embeds the full command — token must be masked.
+    expect(printed).toContain("claude not found on PATH");
+    expect(printed).not.toContain("up_acme_secret");
+    expect(printed).toContain("Bearer ***");
   });
 
   it("rejects unknown targets", async () => {

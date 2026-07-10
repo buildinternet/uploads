@@ -21,7 +21,7 @@ pnpm uploads put ./after.png --pr 123 --comment --env-file .env
 pnpm uploads doctor --env-file .env
 ```
 
-Commands: `attach`, `put`, `comment`, `list`, `delete`, `setup`, `config`, `doctor`, `health`, `mcp`.
+Commands: `attach`, `put`, `comment`, `list`, `delete`, `setup`, `install`, `config`, `doctor`, `health`, `mcp`.
 
 `attach` is the agent-friendly default for GitHub media. It accepts one or more files,
 infers the pull request for the current branch via `gh`, uploads stable URLs, and creates
