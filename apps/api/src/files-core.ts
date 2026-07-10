@@ -4,6 +4,7 @@
  * storage I/O, and result shapes. Validation failures throw FileOpError;
  * each surface maps it (HTTP 400 / MCP tool error).
  */
+import { inspectUpload, resolveUploadPolicy } from "./guards";
 import { publicUrl, storage, storageConfig } from "./storage";
 import type { WorkspaceRecord } from "./workspace";
 
@@ -24,28 +25,53 @@ export function badKey(key: string): boolean {
   );
 }
 
-/** Invalid input to a file operation (always a caller error, never a storage failure). */
+/**
+ * Rejected input to a file operation (always a caller error, never a storage
+ * failure). Carries the REST status and error body so both surfaces report the
+ * same policy: HTTP responds with them; MCP renders `message` in the tool error.
+ */
 export class FileOpError extends Error {
-  constructor(message: string) {
+  readonly status: 400 | 413 | 415;
+  readonly body: Record<string, unknown>;
+
+  constructor(message: string, status: 400 | 413 | 415 = 400, extra?: Record<string, unknown>) {
     super(message);
     this.name = "FileOpError";
+    this.status = status;
+    this.body = { error: message, ...extra };
   }
 }
 
+/**
+ * Upload with the workspace's guardrails applied: size cap and content-type
+ * allowlist, the stored content type sniffed from the bytes rather than taken
+ * from the caller — see guards.ts.
+ */
 export async function putObject(
   env: Env,
   ws: WorkspaceRecord,
   key: string,
   bytes: Uint8Array,
-  contentType: string,
 ): Promise<{ key: string; url: string | null; size: number; contentType: string }> {
   if (badKey(key)) throw new FileOpError("invalid key");
   if (bytes.byteLength === 0) throw new FileOpError("empty body");
+
+  const inspection = inspectUpload(bytes, resolveUploadPolicy(ws));
+  if (!inspection.ok) {
+    const { error, ...extra } = inspection.body as { error: string } & Record<string, unknown>;
+    throw new FileOpError(error, inspection.status, extra);
+  }
+
   await storage(env, ws).upload(key, bytes, {
-    contentType,
+    contentType: inspection.contentType,
     cacheControl: UPLOAD_CACHE_CONTROL,
   });
-  return { key, url: publicUrl(storageConfig(env, ws), key), size: bytes.byteLength, contentType };
+  return {
+    key,
+    url: publicUrl(storageConfig(env, ws), key),
+    size: bytes.byteLength,
+    contentType: inspection.contentType,
+  };
 }
 
 export async function listObjects(
@@ -53,7 +79,7 @@ export async function listObjects(
   ws: WorkspaceRecord,
   opts: { prefix?: string; limit?: number; cursor?: string } = {},
 ) {
-  const limit = Math.min(opts.limit ?? 100, 1000);
+  const limit = Math.min(Math.max(opts.limit ?? 100, 1), 1000);
   const result = await storage(env, ws).list({ prefix: opts.prefix, limit, cursor: opts.cursor });
   const cfg = storageConfig(env, ws);
   return {

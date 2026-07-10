@@ -93,6 +93,14 @@ records; any future global secrets go through `wrangler secret put` (prod) or
   `apps/api/src/workspace.ts`.
 - Object keys are validated (`badKey` in `routes/files.ts`); URL parsing
   normalizes dot segments before handlers run.
+- Upload guardrails live in `apps/api/src/guards.ts`: a byte cap (default 25 MiB)
+  enforced on `Content-Length` and post-buffer, and a content-type allowlist
+  (images + mp4/webm, no SVG) verified by magic-byte sniffing — the stored
+  content type comes from the bytes, never the client header. Defaults are
+  overridable per workspace via `maxUploadBytes` / `allowedContentTypes` on the
+  record. Mutating routes carry the `writeRateLimit` middleware, keyed by
+  workspace against the `WRITE_LIMITER` Rate Limiting binding (`unsafe.bindings`
+  in `wrangler.jsonc`); it no-ops when the binding is absent.
 - Follow Cloudflare Workers best practices: no floating promises, no
   module-level request state, secrets never in config or source.
 

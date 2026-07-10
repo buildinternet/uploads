@@ -26,6 +26,10 @@ export interface WorkspaceRecord {
   accountId?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
+  /** Max bytes for a single upload. Falls back to DEFAULT_MAX_UPLOAD_BYTES. */
+  maxUploadBytes?: number;
+  /** Allowed (sniffed) content types. Falls back to DEFAULT_ALLOWED_CONTENT_TYPES. */
+  allowedContentTypes?: string[];
 }
 
 export type WorkspaceVars = {

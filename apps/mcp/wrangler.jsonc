@@ -30,6 +30,23 @@
       "database_id": "5f73946b-edd5-414c-856c-8f9bd3c644ba",
     },
   ],
+  // Per-workspace write rate limit for the put/delete tools — this worker's
+  // own budget (distinct namespace_id from uploads-api's), with the same
+  // semantics as uploads-api's WRITE_LIMITER: keyed by workspace name,
+  // 60 writes/min, per-colo, fail-open when absent. See apps/api/src/guards.ts.
+  "unsafe": {
+    "bindings": [
+      {
+        "name": "WRITE_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1002",
+        "simple": {
+          "limit": 60,
+          "period": 60,
+        },
+      },
+    ],
+  },
   // Shared with uploads-api: same buckets, so workspace records that name an
   // R2 binding resolve identically on both workers.
   "r2_buckets": [

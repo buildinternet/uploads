@@ -10,9 +10,10 @@ import type { CommandRunner } from "../src/github-gh.js";
 import { createMcpServer, type McpServer } from "../src/mcp/server.js";
 import { createUploadsMcpTools } from "../src/mcp/tools.js";
 
-/** Fake client factory capturing every resolved config and put() call. */
+/** Fake client factory capturing every resolved config and put()/delete() call. */
 function fakeFactory() {
   const puts: Array<{ key?: string; filename: string; contentType?: string }> = [];
+  const deletes: string[] = [];
   const configs: UploadsClientConfig[] = [];
   const list = async ({ prefix }: { prefix?: string } = {}) => ({
     items: puts
@@ -27,8 +28,10 @@ function fakeFactory() {
         body: Uint8Array,
         opts: { filename: string; key?: string; contentType?: string },
       ) => {
-        puts.push({ key: opts.key, filename: opts.filename, contentType: opts.contentType });
+        // Record the effective key, so list()'s prefix filter (and key
+        // assertions) see what a real client would have stored.
         const key = opts.key ?? "generated/key.png";
+        puts.push({ key, filename: opts.filename, contentType: opts.contentType });
         return {
           workspace: config.workspace,
           key,
@@ -39,14 +42,17 @@ function fakeFactory() {
       },
       list,
       listAll: async (opts: { prefix?: string } = {}) => (await list(opts)).items,
-      delete: async (key: string) => ({ key, deleted: true }),
+      delete: async (key: string) => {
+        deletes.push(key);
+        return { key, deleted: true };
+      },
       head: async () => {
         throw new Error("unexpected head");
       },
       health: async () => ({ ok: true }),
     } as unknown as UploadsClient;
   };
-  return { factory, puts, configs };
+  return { factory, puts, deletes, configs };
 }
 
 function ghRunner() {
@@ -70,7 +76,7 @@ function serverWith(overrides?: {
   runner?: CommandRunner;
   factory?: (config: UploadsClientConfig) => UploadsClient;
 }) {
-  const { factory, puts, configs } = fakeFactory();
+  const { factory, puts, deletes, configs } = fakeFactory();
   const server = createMcpServer({
     serverInfo: { name: "uploads", version: "0.0.0-test" },
     tools: createUploadsMcpTools({
@@ -79,7 +85,7 @@ function serverWith(overrides?: {
       clientFactory: overrides?.factory ?? factory,
     }),
   });
-  return { server, puts, configs };
+  return { server, puts, deletes, configs };
 }
 
 async function rpc(
@@ -319,14 +325,18 @@ describe("tools/call list, delete, comment", () => {
   });
 
   it("deletes by key and honors dryRun", async () => {
-    const { server } = serverWith();
+    const { server, deletes } = serverWith();
     const dry = await rpc(server, "tools/call", {
       name: "delete",
       arguments: { key: "a/b.png", dryRun: true },
     });
     expect(dry.result.structuredContent).toEqual({ key: "a/b.png", deleted: false, dryRun: true });
+    // Dry run must not reach the client at all.
+    expect(deletes).toEqual([]);
     const res = await rpc(server, "tools/call", { name: "delete", arguments: { key: "a/b.png" } });
     expect(res.result.structuredContent).toEqual({ key: "a/b.png", deleted: true });
+    // The real delete forwards exactly the requested key, once.
+    expect(deletes).toEqual(["a/b.png"]);
   });
 
   it("rejects delete without a key as a tool error", async () => {

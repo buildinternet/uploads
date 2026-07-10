@@ -1,7 +1,8 @@
 /**
- * Minimal in-memory stand-in for a Workers R2Bucket binding — just enough
- * surface for the files-sdk r2 adapter's binding-mode I/O. `store` is exposed
- * so tests can assert on the RAW keys actually written to the bucket.
+ * Minimal in-memory R2 binding stand-in for the route tests — just the surface
+ * the files-sdk r2 adapter touches. A local copy (rather than importing the
+ * storage package's fixture) keeps it inside the API's DOM-free lib, where
+ * `BlobPart` and friends don't exist. `store` exposes the raw written keys.
  */
 interface StoredObject {
   data: Uint8Array;
@@ -37,21 +38,7 @@ export class FakeR2Bucket {
     else if (value instanceof ArrayBuffer) data = new Uint8Array(value);
     else if (value && ArrayBuffer.isView(value))
       data = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-    else if (value) {
-      const chunks: Uint8Array[] = [];
-      const reader = value.getReader();
-      for (;;) {
-        const { done, value: chunk } = await reader.read();
-        if (done) break;
-        chunks.push(chunk);
-      }
-      data = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0));
-      let offset = 0;
-      for (const c of chunks) {
-        data.set(c, offset);
-        offset += c.byteLength;
-      }
-    } else data = new Uint8Array(0);
+    else data = new Uint8Array(0);
 
     const httpMetadata = opts?.httpMetadata;
     const contentType =
@@ -85,14 +72,6 @@ export class FakeR2Bucket {
       async text() {
         return new TextDecoder().decode(data);
       },
-      async json() {
-        return JSON.parse(new TextDecoder().decode(data));
-      },
-      async blob() {
-        // Cast keeps this typechecking under every consumer's lib config —
-        // apps/mcp has no BlobPart (Workers types own globals there).
-        return new Blob([data as unknown as ArrayBuffer]);
-      },
     };
   }
 
@@ -105,7 +84,7 @@ export class FakeR2Bucket {
     for (const k of Array.isArray(keys) ? keys : [keys]) this.store.delete(k);
   }
 
-  async list(opts?: { prefix?: string; limit?: number; cursor?: string; delimiter?: string }) {
+  async list(opts?: { prefix?: string }) {
     const prefix = opts?.prefix ?? "";
     const keys = [...this.store.keys()].filter((k) => k.startsWith(prefix)).sort();
     return {

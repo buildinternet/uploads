@@ -271,6 +271,8 @@ uploads --api-url http://localhost:8787 doctor
 - **MCP server:** the CLI can also be exposed to agents as a local stdio MCP server —
   `uploads mcp` — with tools mirroring the commands described here (`put`, `attach`,
   `list`, `delete`, `comment`, `health`, `doctor`) under the same config resolution.
+  Every tool also accepts a per-call `workspace` argument to override the configured
+  workspace (mirrors `--workspace`).
   E.g. `claude mcp add uploads -- uploads --env-file /path/to/.env mcp`.
 - **Agents on the Worker side:** the package also exports
   `createUploadsWorkerFileTools()` from `@buildinternet/uploads/agent` for exposing

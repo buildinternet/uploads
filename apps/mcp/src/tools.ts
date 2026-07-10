@@ -5,9 +5,10 @@
  * becomes an isError tool result rather than a JSON-RPC error. Tools needing
  * a filesystem or the gh CLI (attach, comment, doctor) stay stdio-only.
  */
-import { buildMarkdown, buildScreenshotKey, inferContentType } from "@buildinternet/uploads";
+import { buildMarkdown, buildScreenshotKey } from "@buildinternet/uploads";
 import { optPosInt, optString, usage, type McpTool } from "@buildinternet/uploads/mcp";
 import { deleteObject, listObjects, putObject } from "@uploads/api/files";
+import { allowWrite, resolveUploadPolicy } from "@uploads/api/guards";
 import type { FileScope, WorkspaceRecord } from "@uploads/api/workspace";
 
 export interface RemoteToolContext {
@@ -17,7 +18,14 @@ export interface RemoteToolContext {
   authScopes: readonly FileScope[];
 }
 
-function decodeBase64(value: string): Uint8Array {
+function decodeBase64(value: string, maxBytes: number): Uint8Array {
+  // Pre-decode size gate: base64 encodes 3 bytes per 4 chars, so a string
+  // longer than this cannot decode to a within-limit payload. Rejecting here
+  // avoids materializing an oversized body in isolate memory; putObject's
+  // inspectUpload remains the authoritative post-decode check.
+  if (value.length > Math.ceil(maxBytes / 3) * 4 + 4) {
+    usage(`contentBase64 exceeds the workspace upload limit (${maxBytes} bytes)`);
+  }
   let binary: string;
   try {
     binary = atob(value);
@@ -35,11 +43,17 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     if (!ctx.authScopes.includes(scope)) throw new Error(`forbidden: requires ${scope} scope`);
   }
 
+  async function requireWriteBudget(): Promise<void> {
+    // Mirrors the REST API's writeRateLimit middleware (guards.ts): plain
+    // Error, not usage() — over-budget is not a caller mistake.
+    if (!(await allowWrite(env, workspaceName))) throw new Error("rate limit exceeded");
+  }
+
   return [
     {
       name: "put",
       description:
-        "Upload base64-encoded content to the workspace and get a public URL plus GitHub-ready embed markdown (the returned `markdown` is ready to paste into a PR or issue). The key defaults to <prefix>/<repo>/<ref>/<name>-<hash>.<ext>; pass `key` for an explicit path instead.",
+        "Upload base64-encoded content to the workspace and get a public URL plus GitHub-ready embed markdown (the returned `markdown` is ready to paste into a PR or issue). The key defaults to <prefix>/<repo>/<ref>/<name>-<hash>.<ext>; pass `key` for an explicit path instead. The stored content type is sniffed from the bytes and restricted to the workspace's allowlist (images plus mp4/webm by default).",
       inputSchema: {
         type: "object",
         properties: {
@@ -68,10 +82,6 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             type: "string",
             description: "PR/issue/branch key segment for the default key layout (default: today).",
           },
-          contentType: {
-            type: "string",
-            description: "Override the Content-Type (default: inferred from filename).",
-          },
           alt: { type: "string", description: "Alt text for the markdown (default: filename)." },
           width: {
             type: "number",
@@ -83,6 +93,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       },
       async handler(args) {
         requireScope("files:write");
+        await requireWriteBudget();
         const contentBase64 = optString(args, "contentBase64");
         const filename = optString(args, "filename");
         if (!contentBase64) usage("contentBase64 is required");
@@ -96,7 +107,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           usage("key cannot be combined with prefix/repo/ref");
         }
 
-        const bytes = decodeBase64(contentBase64);
+        const bytes = decodeBase64(contentBase64, resolveUploadPolicy(workspace).maxBytes);
 
         const key =
           explicitKey ??
@@ -110,9 +121,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             deriveRepoFromGit: false,
           }));
 
-        const contentType = optString(args, "contentType") ?? inferContentType(filename);
-        // Key and empty-body validation live in putObject, shared with the REST API.
-        const result = await putObject(env, workspace, key, bytes, contentType);
+        // Key/body validation and the size/type guardrails live in putObject,
+        // shared with the REST API — the stored content type is sniffed there.
+        const result = await putObject(env, workspace, key, bytes);
         const markdown =
           result.url === null
             ? undefined
@@ -158,6 +169,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       },
       async handler(args) {
         requireScope("files:delete");
+        await requireWriteBudget();
         const key = optString(args, "key");
         if (!key) usage("key is required");
         return deleteObject(env, workspace, key);

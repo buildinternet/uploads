@@ -29,17 +29,20 @@ beforeAll(() => {
 
 /**
  * Fake bindings following apps/api/test/routes-auth.test.ts: KV returns the
- * workspace record, D1 returns a token row only when configured (otherwise
- * the legacy KV token-hash path authenticates), R2 is an in-memory bucket.
+ * workspace record (only for the test-ws key), D1 returns a token row only
+ * when configured AND the query is bound to test-ws (otherwise the legacy KV
+ * token-hash path authenticates), R2 is an in-memory bucket. WRITE_LIMITER is
+ * only bound when `rateLimitOk` is set, so most tests exercise the fail-open
+ * path (mirrors apps/api/test/routes-files.test.ts).
  */
 async function makeEnv(
-  options: { d1?: { tokenHash: string; scopes: string } } = {},
+  options: { d1?: { tokenHash: string; scopes: string }; rateLimitOk?: boolean } = {},
 ): Promise<{ env: Env; bucket: FakeR2Bucket }> {
   const record: WorkspaceRecord = { ...workspace, tokenHash: await sha256Hex(TOKEN) };
   const bucket = new FakeR2Bucket();
   const env = {
     REGISTRY: {
-      get: async () => record,
+      get: async (key: string) => (key === "ws:test-ws" ? record : null),
       put: async () => undefined,
     },
     DB: {
@@ -51,9 +54,9 @@ async function makeEnv(
             return this;
           },
           async first() {
-            const [, hash] = values as string[];
+            const [ws, hash] = values as string[];
             const token = options.d1;
-            if (token && token.tokenHash === hash) {
+            if (ws === "test-ws" && token && token.tokenHash === hash) {
               return {
                 id: "token-id",
                 workspace: "test-ws",
@@ -71,13 +74,21 @@ async function makeEnv(
       },
     },
     UPLOADS: bucket,
+    ...(options.rateLimitOk === undefined
+      ? {}
+      : { WRITE_LIMITER: { limit: async () => ({ success: options.rateLimitOk }) } }),
   } as unknown as Env;
   return { env, bucket };
 }
 
-async function rpc(env: Env, body: unknown, token = TOKEN): Promise<Response> {
+async function rpc(
+  env: Env,
+  body: unknown,
+  token = TOKEN,
+  path = "/test-ws/mcp",
+): Promise<Response> {
   return app.request(
-    "/test-ws/mcp",
+    path,
     {
       method: "POST",
       body: typeof body === "string" ? body : JSON.stringify(body),
@@ -100,8 +111,10 @@ async function callTool(env: Env, name: string, args: Record<string, unknown>, t
   return body.result;
 }
 
-// "hello world" — 11 bytes.
-const HELLO_B64 = btoa("hello world");
+// A sniffable payload: the 8-byte PNG signature plus 3 filler bytes — 11 bytes.
+// putObject sniffs the stored content type from these bytes (guards.ts).
+const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+const PNG_B64 = btoa(String.fromCharCode(...PNG_BYTES));
 
 describe("mcp worker", () => {
   it("rejects a wrong token with a uniform 401 before any MCP handling", async () => {
@@ -143,7 +156,7 @@ describe("mcp worker", () => {
   it("uploads base64 content and returns url + markdown", async () => {
     const { env, bucket } = await makeEnv();
     const result = await callTool(env, "put", {
-      contentBase64: HELLO_B64,
+      contentBase64: PNG_B64,
       filename: "shot.png",
       key: "shots/shot.png",
     });
@@ -157,15 +170,14 @@ describe("mcp worker", () => {
       markdown: "![shot.png](https://storage.example.com/shots/shot.png)",
     });
     expect(bucket.store.has("shots/shot.png")).toBe(true);
-    expect(bucket.store.get("shots/shot.png")?.data).toEqual(
-      new TextEncoder().encode("hello world"),
-    );
+    expect(bucket.store.get("shots/shot.png")?.data).toEqual(PNG_BYTES);
+    expect(bucket.store.get("shots/shot.png")?.contentType).toBe("image/png");
   });
 
   it("computes the default screenshot key without git derivation", async () => {
     const { env, bucket } = await makeEnv();
     const result = await callTool(env, "put", {
-      contentBase64: HELLO_B64,
+      contentBase64: PNG_B64,
       filename: "shot.png",
       repo: "acme/site",
       ref: "pr-7",
@@ -179,7 +191,7 @@ describe("mcp worker", () => {
   it("lists uploaded objects with public urls, then deletes them", async () => {
     const { env, bucket } = await makeEnv();
     await callTool(env, "put", {
-      contentBase64: HELLO_B64,
+      contentBase64: PNG_B64,
       filename: "shot.png",
       key: "shots/shot.png",
     });
@@ -205,7 +217,7 @@ describe("mcp worker", () => {
     const result = await callTool(
       env,
       "put",
-      { contentBase64: HELLO_B64, filename: "shot.png" },
+      { contentBase64: PNG_B64, filename: "shot.png" },
       token,
     );
     expect(result.isError).toBe(true);
@@ -223,12 +235,56 @@ describe("mcp worker", () => {
   it("rejects an invalid explicit key as a tool error", async () => {
     const { env } = await makeEnv();
     const result = await callTool(env, "put", {
-      contentBase64: HELLO_B64,
+      contentBase64: PNG_B64,
       filename: "shot.png",
       key: "../escape.png",
     });
     expect(result.isError).toBe(true);
     expect(result.content).toEqual([{ type: "text", text: "invalid key" }]);
+  });
+
+  it("rejects unsupported bytes as a tool error (sniffed, not filename-trusted)", async () => {
+    const { env, bucket } = await makeEnv();
+    const result = await callTool(env, "put", {
+      contentBase64: btoa("just some plain text"),
+      filename: "shot.png",
+      key: "shots/shot.png",
+    });
+    expect(result.isError).toBe(true);
+    expect((result.content[0] as { text: string }).text).toContain("unsupported media type");
+    expect(bucket.store.size).toBe(0);
+  });
+
+  it("rejects put with a rate-limit tool error when the write budget is spent", async () => {
+    const { env, bucket } = await makeEnv({ rateLimitOk: false });
+    const result = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/shot.png",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([{ type: "text", text: "rate limit exceeded" }]);
+    expect(bucket.store.size).toBe(0);
+  });
+
+  it("uploads when the WRITE_LIMITER binding allows the write", async () => {
+    const { env, bucket } = await makeEnv({ rateLimitOk: true });
+    const result = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/shot.png",
+    });
+    expect(result.isError).toBe(false);
+    expect(bucket.store.has("shots/shot.png")).toBe(true);
+  });
+
+  it("rejects the same token against a different workspace path with 401", async () => {
+    const { env } = await makeEnv();
+    for (const path of ["/default/mcp", "/other-ws/mcp"]) {
+      const response = await rpc(env, { jsonrpc: "2.0", id: 1, method: "initialize" }, TOKEN, path);
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: "unauthorized" });
+    }
   });
 
   it("answers health without a scope", async () => {
