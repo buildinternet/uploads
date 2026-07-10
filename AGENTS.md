@@ -12,6 +12,7 @@ apps/api            Hono worker — REST API, deploys to api.uploads.sh
 apps/web            Astro placeholder — future browse/manage UI (separate deploy)
 packages/storage    @uploads/storage — files-sdk adapter factory
 packages/uploads    @buildinternet/uploads — CLI + client for GitHub image embeds
+                    (also ships `uploads mcp`, a stdio MCP server mirroring the CLI commands)
 skills/uploads-cli  Agent skill for driving the CLI (host a file → embed in a PR/issue)
 ```
 

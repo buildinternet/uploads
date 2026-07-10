@@ -21,7 +21,7 @@ pnpm uploads put ./after.png --pr 123 --comment --env-file .env
 pnpm uploads doctor --env-file .env
 ```
 
-Commands: `attach`, `put`, `comment`, `list`, `delete`, `setup`, `config`, `doctor`, `health`.
+Commands: `attach`, `put`, `comment`, `list`, `delete`, `setup`, `config`, `doctor`, `health`, `mcp`.
 
 `attach` is the agent-friendly default for GitHub media. It accepts one or more files,
 infers the pull request for the current branch via `gh`, uploads stable URLs, and creates
@@ -30,13 +30,23 @@ the target explicitly, or `--no-comment` to upload without changing GitHub comme
 
 Config layers (first match wins): CLI flags → env vars → `--env-file` → `~/.config/buildinternet/config`. See `config.example` for keys.
 
+## MCP server
+
+`uploads mcp` serves the Model Context Protocol over stdio (newline-delimited JSON-RPC, no extra dependencies). Tools mirror the CLI commands one-to-one — `put`, `attach`, `list`, `delete`, `comment`, `health`, `doctor` — with the same config resolution and defaults, plus a per-call `workspace` argument. Interactive/credential commands (`setup`, `login`, `admin`, `config`) are not exposed. A token isn't required to start the server; auth errors surface per tool call (`health` needs no auth).
+
+```json
+{ "command": "uploads", "args": ["--env-file", "/path/to/.env", "mcp"] }
+```
+
+Or with `UPLOADS_TOKEN`/`UPLOADS_WORKSPACE` in the environment or user config. Claude Code: `claude mcp add uploads -- uploads --env-file /path/to/.env mcp`.
+
 ## Programmatic use
 
 ```ts
 import { createUploadsClient } from "@buildinternet/uploads";
 ```
 
-Agent/MCP helpers: `@buildinternet/uploads/agent` (`createUploadsWorkerFileTools` for Workers).
+Agent/MCP helpers: `@buildinternet/uploads/agent` (`createUploadsWorkerFileTools` for Workers); for local stdio MCP, use `uploads mcp` (above).
 
 ## Layout
 
@@ -44,6 +54,8 @@ Agent/MCP helpers: `@buildinternet/uploads/agent` (`createUploadsWorkerFileTools
 src/
   cli.ts            Entry + help
   commands.ts       put, list, delete, comment, …
+  commands/mcp.ts   `mcp` command entry
+  mcp/              Stdio MCP server (server.ts, tools.ts)
   client.ts         HTTP client for the API
   github.ts         PR/issue key paths + attachment comments
   embed.ts          Markdown image output
