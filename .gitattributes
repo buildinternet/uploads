@@ -1,0 +1,11 @@
+* text=auto eol=lf
+
+# Preserve binary assets byte-for-byte.
+*.gif binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.webp binary
+*.woff binary
+*.woff2 binary

@@ -55,6 +55,63 @@ export interface HealthResult {
   ok: boolean;
 }
 
+export interface EnrollmentExchangeResult {
+  apiUrl?: string;
+  workspace: string;
+  token: string;
+  scopes?: Array<"files:read" | "files:write" | "files:delete">;
+  expiresAt?: string;
+}
+
+export interface EnrollmentCreateResult {
+  code: string;
+  expiresAt: string;
+  tokenExpiresAt: string;
+}
+
+async function jsonRequest<T>(url: string, init: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch (err) {
+    throw new UploadsError(
+      err instanceof Error ? err.message : "network request failed",
+      "NETWORK",
+    );
+  }
+  if (!res.ok) throw await parseErrorResponse(res);
+  return (await res.json()) as T;
+}
+
+export function exchangeEnrollment(
+  apiUrl: string,
+  code: string,
+): Promise<EnrollmentExchangeResult> {
+  return jsonRequest(`${apiUrl.replace(/\/$/, "")}/auth/enrollments/exchange`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+}
+
+export function createEnrollment(
+  apiUrl: string,
+  adminToken: string,
+  input: {
+    workspace?: string;
+    label?: string;
+    enrollmentSeconds?: number;
+    tokenExpiresInSeconds?: number;
+    scopes?: Array<"files:read" | "files:write" | "files:delete">;
+  },
+): Promise<EnrollmentCreateResult> {
+  return jsonRequest(`${apiUrl.replace(/\/$/, "")}/admin/enrollments`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${adminToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
 function encodeKeyPath(key: string): string {
   return key.split("/").map(encodeURIComponent).join("/");
 }

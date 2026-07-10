@@ -24,6 +24,14 @@
       "id": "808bc1c3a86a4675b134e11b6dca303d",
     },
   ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "uploads-production",
+      "database_id": "5f73946b-edd5-414c-856c-8f9bd3c644ba",
+      "migrations_dir": "migrations",
+    },
+  ],
   // One binding per same-account bucket a workspace wants binding-mode I/O on.
   // Workspaces reference these by name; workspaces without a binding fall back
   // to their S3 credentials over HTTP.

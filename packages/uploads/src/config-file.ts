@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
 import type { UploadsClientConfig } from "./config.js";
@@ -171,6 +171,9 @@ export function writeConfigKeys(
   opts?: { force?: boolean },
 ): { path: string; created: boolean; updated: string[] } {
   const entries = Object.entries(keys).filter(([, v]) => v !== undefined && v !== "");
+  for (const [key, value] of entries) {
+    if (/[\r\n]/.test(value!)) throw new Error(`invalid newline in ${key}`);
+  }
   if (entries.length === 0) {
     throw new Error("no config values to write");
   }
@@ -198,7 +201,14 @@ export function writeConfigKeys(
     }
   }
 
-  writeFileSync(path, lines.join("\n").replace(/\n*$/, "\n"), "utf8");
+  const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
+  writeFileSync(tmp, lines.join("\n").replace(/\n*$/, "\n"), { encoding: "utf8", mode: 0o600 });
+  renameSync(tmp, path);
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    /* Windows/filesystems may not support modes. */
+  }
   return { path, created: !existed, updated };
 }
 

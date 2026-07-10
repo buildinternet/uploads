@@ -20,6 +20,8 @@ import {
 } from "./commands.js";
 import { runConfig } from "./commands/config.js";
 import { runSetup } from "./commands/setup.js";
+import { runLogin } from "./commands/login.js";
+import { runAdmin } from "./commands/admin-enrollment.js";
 
 const ROOT_HELP = `uploads — CLI for uploads.sh (GitHub image embeds)
 
@@ -51,7 +53,9 @@ Commands:
   comment             Create/update a PR/issue attachments comment (via gh)
   list                List objects
   delete <key>        Delete object
-  setup               Guided config + token minting steps
+  setup               Inspect/configure advanced CLI settings
+  login               Exchange an enrollment code and configure credentials
+  admin               Admin enrollment management
   config              Show path, init, or set shared config
   doctor              Health + auth + workspace checks
   health              API liveness (no auth)
@@ -146,6 +150,10 @@ export async function runCli(argv: string[]): Promise<number> {
         return runConfig(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
       case "setup":
         return runSetup(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
+      case "login":
+        return runLogin(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);
+      case "admin":
+        return runAdmin(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);
       case "attach":
       case "put":
       case "list":

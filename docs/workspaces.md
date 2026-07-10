@@ -4,9 +4,16 @@ Every request is scoped to a **workspace** — a tenant with its own credentials
 and bearer token. Workspace records live in the `REGISTRY` KV namespace
 (`ws:<name>`). Each record carries the storage provider, bucket, optional R2
 binding name, optional public base URL, S3-style credentials if needed, and the
-SHA-256 hash of the workspace's token (the token itself is never stored).
+SHA-256 hashes and metadata for the workspace's tokens (raw tokens are never stored).
 
 Nothing in the code treats any workspace as special.
+
+New enrollment-issued tokens are stored in D1 and carry an expiry and explicit scopes.
+Workspace configuration and legacy tokens remain in `REGISTRY` KV. The routine-agent
+default is `files:read` plus `files:write`, which is sufficient for upload, listing,
+metadata, and managed attachment comments. Deletion requires `files:delete`. Existing
+tokens without scope or expiry metadata retain their legacy full-access behavior so
+deployment does not invalidate installed clients.
 
 ## Default model
 

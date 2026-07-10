@@ -8,7 +8,8 @@
     "deploy": "node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
     "types": "wrangler types",
     "workspace:add": "node --env-file-if-exists=../../.env scripts/add-workspace.mjs",
-    "typecheck": "wrangler types && tsc --noEmit"
+    "typecheck": "wrangler types && tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@uploads/storage": "workspace:^",
@@ -17,6 +18,7 @@
   "devDependencies": {
     "@types/node": "^26.1.0",
     "typescript": "^6.0.3",
+    "vitest": "^4.1.10",
     "wrangler": "^4.107.0"
   }
 }

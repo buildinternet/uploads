@@ -49,7 +49,12 @@ propagate within ~a minute).
 ## Prerequisites
 
 - **Node.js ≥ 22.**
-- **The CLI.** Inside this repo, run it via pnpm — the root `uploads` script builds
+- **The CLI.** Install globally for repeated agent use, or run a pinned version:
+  ```bash
+  npm install --global @buildinternet/uploads
+  npx @buildinternet/uploads@0.1.0 --help
+  ```
+  Inside this repo, run it via pnpm — the root `uploads` script builds
   the package first, so it always reflects local source:
   ```bash
   pnpm uploads <command> [args]        # from the repo root
@@ -75,32 +80,33 @@ Resolution is **per key, first match wins**: CLI flags (`--api-url`, `--token`,
 `$BUILDINTERNET_CONFIG` → the shared config file. For a one-off against a different
 API or workspace, just export the var or pass `--env-file`.
 
-The fastest path is the guided wizard, which prints exactly what's missing and how to
-fix it:
+The fastest path is enrollment. Ask an uploads.sh administrator for a short-lived
+enrollment code, then run:
 
 ```bash
-uploads setup          # shows status + next steps; run it again anytime
+uploads login          # prompts without echoing the code, saves config, runs doctor
 ```
 
-You need a **bearer token** for a workspace. Tokens are minted by an admin endpoint
-guarded by `ADMIN_TOKEN` (ask the uploads.sh admin, or set it locally in
-`apps/api/.dev.vars`). Mint one (defaults to the `default` workspace):
+For a non-interactive agent, pass the short-lived code through the environment rather
+than a process-list-visible command argument:
 
 ```bash
-curl -XPOST https://api.uploads.sh/admin/tokens \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
-# → { "workspace": "default", "token": "up_default_…", … }   (shown once)
+UPLOADS_ENROLLMENT_CODE=upe_<workspace>_… uploads login
 ```
 
-Then save it and verify:
+Routine agents never need `ADMIN_TOKEN`. Enrollment codes expire after 10 minutes and
+can be redeemed once. The resulting token defaults to 90 days and `files:read` plus
+`files:write`; it cannot delete files unless an administrator explicitly grants
+`files:delete`. Verify or inspect setup at any time:
 
 ```bash
-uploads setup --token up_default_… --check     # writes config, runs doctor
+uploads setup                                  # shows effective configuration
 uploads doctor                                 # health + auth + workspace checks
 ```
 
 Tokens encode their workspace (`up_<workspace>_…`), so the CLI infers `--workspace`
-from the token when you don't set it. See "Config commands" for setting put defaults
+when you don't set it. Legacy administrator-minted tokens remain valid. See "Config
+commands" for setting put defaults
 (default repo, prefix, image width) once instead of per-command.
 
 ## Core workflow: `uploads put`

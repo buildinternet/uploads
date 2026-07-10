@@ -27,7 +27,7 @@ With flags: saves provided values, then optionally verifies with doctor.
 Options:
   --api-url <url>       API base (default: ${DEFAULT_API_URL})
   --workspace, -w <name>
-  --token <token>       Bearer token (mint via admin endpoint — see below)
+  --token <token>       Existing bearer token (or use uploads login)
   --prefix <path>       Default key prefix for put/list (default: screenshots)
   --repo <owner/repo>   Default repo segment for put
   --ref <id>            Default ref segment for put (PR/issue/branch/date)
@@ -66,17 +66,6 @@ function buildStatus(envFile?: string): SetupStatus {
   };
 }
 
-function mintTokenCommand(apiUrl: string, workspace?: string): string {
-  const body =
-    workspace && workspace !== DEFAULT_WORKSPACE
-      ? ` \\\n  -H "Content-Type: application/json" \\\n  -d '{"workspace":"${workspace}","label":"cli"}'`
-      : "";
-  return [
-    `curl -XPOST ${apiUrl}/admin/tokens \\`,
-    `  -H "Authorization: Bearer $ADMIN_TOKEN"${body}`,
-  ].join("\n");
-}
-
 function formatWizard(status: SetupStatus): string {
   const lines: string[] = ["uploads setup", ""];
 
@@ -97,13 +86,10 @@ function formatWizard(status: SetupStatus): string {
   lines.push("");
 
   if (!status.token) {
-    lines.push("Step 1 — Mint a token");
-    lines.push(
-      "  You need ADMIN_TOKEN for the API (ask your uploads.sh admin, or set it locally in apps/api/.dev.vars).",
-    );
-    lines.push("  Mint:");
-    lines.push(`    ${mintTokenCommand(status.apiUrl, status.workspace)}`);
-    lines.push("  Save:");
+    lines.push("Step 1 — Sign in");
+    lines.push("  Ask your uploads.sh administrator for a one-time enrollment code, then run:");
+    lines.push("    uploads login");
+    lines.push("  If you already have a bearer token:");
     lines.push("    uploads setup --token up_<workspace>_…");
     lines.push("");
   } else {
@@ -267,7 +253,7 @@ export async function runSetup(
   } else if (token || checkExplicit) {
     process.stderr.write("hint: run uploads doctor to verify\n");
   } else {
-    process.stderr.write("hint: run uploads setup to see minting instructions\n");
+    process.stderr.write("hint: run uploads login with an admin-provided enrollment code\n");
   }
 
   return doctorOk === false ? 1 : 0;
