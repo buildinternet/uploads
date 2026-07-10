@@ -29,6 +29,17 @@ uploads.sh API (Cloudflare R2 behind a Hono Worker), which returns a stable
 browser, no repo bloat, no SigV4 by hand. For PRs and issues it can also create and
 maintain a single "attachments" comment for you via your local `gh` auth.
 
+For the common case, use `uploads attach <file...>`. It infers the current branch's PR,
+uploads every file under stable attachment keys, and maintains the comment by default:
+
+```bash
+uploads attach ./before.png ./after.png
+uploads attach ./shot.png --issue 45 --repo buildinternet/uploads
+```
+
+Pass `--no-comment` when only stable URLs are wanted. Use `put` for lower-level naming
+and output control.
+
 The killer feature for GitHub: `--pr`/`--issue` produce **hash-free, stable keys**
 (`gh/<owner>/<repo>/pull/<num>/<name>`), so re-uploading the same filename overwrites
 in place and the URL never changes — you can update a screenshot after review and the
