@@ -32,6 +32,24 @@
       "migrations_dir": "migrations",
     },
   ],
+  // Per-workspace write rate limit (uploads + deletes). The Rate Limiting API
+  // is an `unsafe` binding: not typed by `wrangler types`, read defensively in
+  // guards.ts (writeRateLimit). Keyed by workspace name; `period` must be 10 or
+  // 60. 60 writes/min/workspace is generous for legit screenshot flows and
+  // blunts a runaway client. Per-colo, not globally exact.
+  "unsafe": {
+    "bindings": [
+      {
+        "name": "WRITE_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1001",
+        "simple": {
+          "limit": 60,
+          "period": 60,
+        },
+      },
+    ],
+  },
   // One binding per same-account bucket a workspace wants binding-mode I/O on.
   // Workspaces reference these by name; workspaces without a binding fall back
   // to their S3 credentials over HTTP.

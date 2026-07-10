@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { publicUrl, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
+import { inspectUpload, resolveUploadPolicy, writeRateLimit } from "../guards";
 
 // The freshness floor on overwrite for every bucket. This is the operative lever
 // for GitHub embeds: they're proxied through GitHub's Camo/Fastly cache, and
@@ -21,16 +22,32 @@ function badKey(key: string): boolean {
 
 export const files = new Hono<WorkspaceVars>()
 
-  // Upload: raw body PUT. Content-Type header becomes the stored content type.
-  .put("/:key{.+}", requireScope("files:write"), async (c) => {
+  // Upload: raw body PUT. The stored content type is sniffed from the bytes,
+  // not taken from the client header — see guards.ts.
+  .put("/:key{.+}", writeRateLimit, requireScope("files:write"), async (c) => {
     const key = c.req.param("key");
     if (badKey(key)) return c.json({ error: "invalid key" }, 400);
+
+    const policy = resolveUploadPolicy(c.get("workspace"));
+
+    // Reject oversized uploads on the declared length before buffering the
+    // body into isolate memory. The post-buffer check in inspectUpload is the
+    // authoritative backstop for missing or dishonest Content-Length headers.
+    const declaredLength = Number(c.req.header("Content-Length"));
+    if (Number.isFinite(declaredLength) && declaredLength > policy.maxBytes) {
+      return c.json({ error: "payload too large", maxBytes: policy.maxBytes }, 413);
+    }
+
     const body = await c.req.arrayBuffer();
     if (body.byteLength === 0) return c.json({ error: "empty body" }, 400);
 
+    const bytes = new Uint8Array(body);
+    const inspection = inspectUpload(bytes, policy);
+    if (!inspection.ok) return c.json(inspection.body, inspection.status);
+
     const ws = c.get("workspace");
-    const contentType = c.req.header("Content-Type") ?? "application/octet-stream";
-    await storage(c.env, ws).upload(key, new Uint8Array(body), {
+    const contentType = inspection.contentType;
+    await storage(c.env, ws).upload(key, bytes, {
       contentType,
       cacheControl: UPLOAD_CACHE_CONTROL,
     });
@@ -70,7 +87,7 @@ export const files = new Hono<WorkspaceVars>()
   })
 
   // Delete
-  .delete("/:key{.+}", requireScope("files:delete"), async (c) => {
+  .delete("/:key{.+}", writeRateLimit, requireScope("files:delete"), async (c) => {
     const key = c.req.param("key");
     if (badKey(key)) return c.json({ error: "invalid key" }, 400);
     await storage(c.env, c.get("workspace")).delete(key);
