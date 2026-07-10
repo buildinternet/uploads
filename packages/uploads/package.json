@@ -1,6 +1,6 @@
 {
   "name": "@buildinternet/uploads",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "CLI and client for uploads.sh — workspace-scoped image hosting for GitHub embeds",
   "type": "module",
   "license": "MIT",
