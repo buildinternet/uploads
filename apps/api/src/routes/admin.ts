@@ -1,72 +1,202 @@
 import { Hono } from "hono";
 import { adminAuth } from "../admin";
-import { sha256Hex, type WorkspaceRecord } from "../workspace";
+import {
+  DEFAULT_ENROLLMENT_SECONDS,
+  DEFAULT_TOKEN_SECONDS,
+  FILE_SCOPES,
+  MAX_TOKEN_SECONDS,
+  createEnrollment,
+  createToken,
+  listTokens,
+  parseScopes,
+  revokeToken,
+  validateScopes,
+} from "../auth-db";
+import type { WorkspaceRecord } from "../workspace";
 
 const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const HASH_PREFIX_LEN = 8;
+const MAX_ENROLLMENT_SECONDS = 60 * 60;
+const SECONDS_PER_DAY = 24 * 60 * 60;
+
+interface LegacyToken {
+  hash: string;
+  label?: string;
+  createdAt: string;
+}
 
 /** Token list for a record, migrating a legacy `tokenHash`-only record into the list shape. */
-function migrateTokens(
-  record: WorkspaceRecord,
-): { hash: string; label?: string; createdAt: string }[] {
+function legacyTokens(record: WorkspaceRecord): LegacyToken[] {
   return (
     record.tokens ??
     (record.tokenHash ? [{ hash: record.tokenHash, createdAt: new Date(0).toISOString() }] : [])
   );
 }
 
+async function workspace(c: { env: Env }, name: string): Promise<WorkspaceRecord | null> {
+  return c.env.REGISTRY.get<WorkspaceRecord>(`ws:${name}`, { type: "json" });
+}
+
+function validInteger(value: unknown, min: number, max: number): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
+}
+
+function labelValue(value: unknown): string | undefined | null {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") return null;
+  const label = value.trim();
+  return label.length >= 1 && label.length <= 100 ? label : null;
+}
+
 export const admin = new Hono<{ Bindings: Env }>()
   .use("/*", adminAuth)
 
-  // Mint a bearer token for an existing workspace (defaults to "default").
+  // Mint a scoped bearer token for an existing workspace (defaults to "default").
+  // New credentials live in D1; legacy KV credentials remain readable/revocable.
   .post("/tokens", async (c) => {
     const body = await c.req
-      .json<{ workspace?: string; label?: string }>()
-      .catch(() => ({}) as { workspace?: string; label?: string });
+      .json<{
+        workspace?: string;
+        label?: string;
+        scopes?: unknown;
+        expiresInDays?: number;
+      }>()
+      .catch(
+        () =>
+          ({}) as {
+            workspace?: string;
+            label?: string;
+            scopes?: unknown;
+            expiresInDays?: number;
+          },
+      );
     const name = body.workspace?.trim() || "default";
-    const label = body.label?.trim() || undefined;
+    const label = labelValue(body.label);
     if (!WS_NAME_RE.test(name)) return c.json({ error: "invalid workspace" }, 400);
+    if (label === null) return c.json({ error: "label must be between 1 and 100 characters" }, 400);
+    if (!(await workspace(c, name))) return c.json({ error: "workspace not found" }, 404);
 
-    // Read-modify-write, no locking: concurrent mints for the same workspace can race (last put wins, dropping a token). Acceptable for this admin-only PoC endpoint.
-    const record = await c.env.REGISTRY.get<WorkspaceRecord>(`ws:${name}`, { type: "json" });
-    if (!record) return c.json({ error: "workspace not found" }, 404);
+    const scopes = validateScopes(body.scopes, [...FILE_SCOPES]);
+    if (!scopes) return c.json({ error: "invalid scopes" }, 400);
+    if (
+      body.expiresInDays !== undefined &&
+      !validInteger(body.expiresInDays, 1, MAX_TOKEN_SECONDS / SECONDS_PER_DAY)
+    ) {
+      return c.json(
+        { error: `expiresInDays must be between 1 and ${MAX_TOKEN_SECONDS / SECONDS_PER_DAY}` },
+        400,
+      );
+    }
 
-    const token = `up_${name}_${btoa(
-      String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24))),
-    )
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "")}`;
-    const entry = { hash: await sha256Hex(token), label, createdAt: new Date().toISOString() };
-
-    const tokens = migrateTokens(record);
-    tokens.push(entry);
-    const { tokenHash: _drop, ...rest } = record;
-    await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify({ ...rest, tokens }));
-
-    return c.json({ workspace: name, token, label: label ?? null }, 201);
+    const expiresAt = body.expiresInDays
+      ? new Date(Date.now() + body.expiresInDays * 24 * 60 * 60 * 1000)
+      : undefined;
+    const created = await createToken(c.env.DB, {
+      workspace: name,
+      label,
+      scopes,
+      expiresAt,
+    });
+    return c.json(
+      {
+        workspace: name,
+        token: created.token,
+        label: label ?? null,
+        scopes,
+        expiresAt: created.record.expires_at,
+      },
+      201,
+    );
   })
 
-  // List a workspace's tokens (defaults to "default"). Never returns the full
-  // hash or raw token — only the 8-char hashPrefix, which is the revoke handle.
+  // Create a one-time login code. The code itself is returned once and only its
+  // hash is persisted. Exchanged tokens default to 90 days and read/write.
+  .post("/enrollments", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const body = await c.req
+      .json<{
+        workspace?: string;
+        label?: string;
+        scopes?: unknown;
+        enrollmentSeconds?: number;
+        tokenExpiresInSeconds?: number;
+      }>()
+      .catch(
+        () =>
+          ({}) as {
+            workspace?: string;
+            label?: string;
+            scopes?: unknown;
+            enrollmentSeconds?: number;
+            tokenExpiresInSeconds?: number;
+          },
+      );
+    const name = body.workspace?.trim() || "default";
+    const label = labelValue(body.label);
+    if (!WS_NAME_RE.test(name)) return c.json({ error: "invalid workspace" }, 400);
+    if (label === null) return c.json({ error: "label must be between 1 and 100 characters" }, 400);
+    if (!(await workspace(c, name))) return c.json({ error: "workspace not found" }, 404);
+
+    const scopes = validateScopes(body.scopes, ["files:read", "files:write"]);
+    if (!scopes) return c.json({ error: "invalid scopes" }, 400);
+    if (
+      body.enrollmentSeconds !== undefined &&
+      !validInteger(body.enrollmentSeconds, 60, MAX_ENROLLMENT_SECONDS)
+    ) {
+      return c.json(
+        { error: `enrollmentSeconds must be between 60 and ${MAX_ENROLLMENT_SECONDS}` },
+        400,
+      );
+    }
+    if (
+      body.tokenExpiresInSeconds !== undefined &&
+      !validInteger(body.tokenExpiresInSeconds, 60, MAX_TOKEN_SECONDS)
+    ) {
+      return c.json(
+        { error: `tokenExpiresInSeconds must be between 60 and ${MAX_TOKEN_SECONDS}` },
+        400,
+      );
+    }
+
+    const enrollment = await createEnrollment(c.env.DB, {
+      workspace: name,
+      label,
+      scopes,
+      enrollmentSeconds: body.enrollmentSeconds ?? DEFAULT_ENROLLMENT_SECONDS,
+      tokenSeconds: body.tokenExpiresInSeconds ?? DEFAULT_TOKEN_SECONDS,
+    });
+    return c.json({ workspace: name, label: label ?? null, scopes, ...enrollment }, 201);
+  })
+
+  // Lists D1 credentials and legacy KV credentials without exposing secrets.
   .get("/tokens", async (c) => {
     const name = c.req.query("workspace")?.trim() || "default";
     if (!WS_NAME_RE.test(name)) return c.json({ error: "invalid workspace" }, 400);
-
-    const record = await c.env.REGISTRY.get<WorkspaceRecord>(`ws:${name}`, { type: "json" });
+    const record = await workspace(c, name);
     if (!record) return c.json({ error: "workspace not found" }, 404);
 
-    const tokens = migrateTokens(record).map((t) => ({
-      label: t.label ?? null,
-      createdAt: t.createdAt,
-      hashPrefix: t.hash.slice(0, HASH_PREFIX_LEN),
+    const d1 = (await listTokens(c.env.DB, name)).map((token) => ({
+      label: token.label,
+      createdAt: token.created_at,
+      hashPrefix: token.token_hash.slice(0, HASH_PREFIX_LEN),
+      scopes: parseScopes(token.scopes),
+      expiresAt: token.expires_at,
+      revokedAt: token.revoked_at,
+      source: "d1" as const,
     }));
-    return c.json({ workspace: name, tokens });
+    const legacy = legacyTokens(record).map((token) => ({
+      label: token.label ?? null,
+      createdAt: token.createdAt,
+      hashPrefix: token.hash.slice(0, HASH_PREFIX_LEN),
+      scopes: [...FILE_SCOPES],
+      expiresAt: null,
+      revokedAt: null,
+      source: "legacy" as const,
+    }));
+    return c.json({ workspace: name, tokens: [...legacy, ...d1] });
   })
 
-  // Revoke a token by { hashPrefix } or { label }. Migrates a legacy
-  // tokenHash-only record into tokens[] first, then removes the match.
-  // 404 when nothing matches, 409 when the selector is ambiguous.
+  // Revoke an active D1 or legacy KV token by hash prefix or label.
   .delete("/tokens", async (c) => {
     const body = await c.req
       .json<{ workspace?: string; hashPrefix?: string; label?: string }>()
@@ -77,22 +207,37 @@ export const admin = new Hono<{ Bindings: Env }>()
     if (!WS_NAME_RE.test(name)) return c.json({ error: "invalid workspace" }, 400);
     if (!hashPrefix && !label) return c.json({ error: "hashPrefix or label required" }, 400);
 
-    // Read-modify-write, no locking: a concurrent mint/revoke on the same workspace can race (last put wins). Acceptable for this admin-only PoC endpoint.
-    const record = await c.env.REGISTRY.get<WorkspaceRecord>(`ws:${name}`, { type: "json" });
+    const record = await workspace(c, name);
     if (!record) return c.json({ error: "workspace not found" }, 404);
-
-    const tokens = migrateTokens(record);
-    const matches = tokens.filter((t) =>
-      hashPrefix ? t.hash.startsWith(hashPrefix) : t.label === label,
+    const kv = legacyTokens(record);
+    const kvMatches = kv.filter((token) =>
+      hashPrefix ? token.hash.startsWith(hashPrefix) : token.label === label,
     );
-    if (matches.length === 0) return c.json({ error: "no matching token" }, 404);
-    if (matches.length > 1) return c.json({ error: "selector matches multiple tokens" }, 409);
+    const activeD1 = (await listTokens(c.env.DB, name)).filter(
+      (token) =>
+        token.revoked_at === null &&
+        (hashPrefix ? token.token_hash.startsWith(hashPrefix) : token.label === label),
+    );
+    const count = kvMatches.length + activeD1.length;
+    if (count === 0) return c.json({ error: "no matching token" }, 404);
+    if (count > 1) return c.json({ error: "selector matches multiple tokens" }, 409);
 
-    const revoked = matches[0];
-    const remaining = tokens.filter((t) => t !== revoked);
+    if (activeD1.length === 1) {
+      const result = await revokeToken(c.env.DB, name, { hashPrefix, label });
+      if (!result.match) return c.json({ error: "no matching token" }, 404);
+      return c.json({
+        workspace: name,
+        revoked: {
+          label: result.match.label,
+          hashPrefix: result.match.token_hash.slice(0, HASH_PREFIX_LEN),
+        },
+      });
+    }
+
+    const revoked = kvMatches[0];
+    const remaining = kv.filter((token) => token !== revoked);
     const { tokenHash: _drop, ...rest } = record;
     await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify({ ...rest, tokens: remaining }));
-
     return c.json({
       workspace: name,
       revoked: { label: revoked.label ?? null, hashPrefix: revoked.hash.slice(0, HASH_PREFIX_LEN) },

@@ -11,13 +11,19 @@ Lightweight file-hosting backend on Cloudflare Workers, built on
 
 ## Agent quick start
 
-Install/run the CLI, save a workspace token once, then attach media from a
-checked-out PR branch:
+Install the CLI, enroll once, then attach media from a checked-out PR branch:
 
 ```bash
-npx @buildinternet/uploads setup --token up_<workspace>_...
-npx @buildinternet/uploads doctor
-npx @buildinternet/uploads attach ./before.png ./after.png
+npm install --global @buildinternet/uploads
+uploads login
+uploads attach ./before.png ./after.png
+```
+
+For a one-off or pinned run without a global install:
+
+```bash
+npx @buildinternet/uploads@0.1.0 login
+npx @buildinternet/uploads@0.1.0 attach ./before.png ./after.png
 ```
 
 `attach` detects the GitHub repository and current PR through `gh`, uploads all
@@ -25,8 +31,9 @@ files, and creates or updates one managed attachments comment. Use
 `--pr <number>` or `--issue <number>` when inference is not possible, and
 `--no-comment` when only the public URLs and Markdown are wanted.
 
-An uploads.sh administrator must mint the workspace token. See
-[admin tokens](docs/admin-tokens.md); agents never need the admin credential.
+An uploads.sh administrator creates a short-lived, single-use enrollment code;
+`uploads login` exchanges it and saves the resulting workspace token. Routine
+agents never receive or need `ADMIN_TOKEN`. See [enrollment](docs/enrollment.md).
 Hosted files are public, including media attached to private repositories. Do
 not upload secrets or sensitive UI.
 
@@ -131,6 +138,7 @@ plus peer deps, no API changes.
 | Doc                                          | Contents                                     |
 | -------------------------------------------- | -------------------------------------------- |
 | [workspaces](docs/workspaces.md)             | Multi-tenant model, registration, BYO-bucket |
+| [enrollment](docs/enrollment.md)             | Agent login, scopes, expiry, and migration   |
 | [admin-tokens](docs/admin-tokens.md)         | Minting, listing, and revoking upload tokens |
 | [api](docs/api.md)                           | REST routes and CLI usage                    |
 | [deploy](docs/deploy.md)                     | Cloudflare setup and production deploy       |

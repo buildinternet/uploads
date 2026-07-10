@@ -1,8 +1,9 @@
 # Admin tokens
 
-Upload tokens are minted by an admin endpoint guarded by the `ADMIN_TOKEN`
-secret. The workspace must already exist (`pnpm workspace:add …`); this
-endpoint issues tokens, it does not create workspaces.
+`ADMIN_TOKEN` is a server-administration credential. Routine agents must never
+receive it. The normal onboarding path is for an administrator to create a
+short-lived enrollment code and for the agent to exchange it with `uploads login`.
+The workspace must already exist (`pnpm workspace:add …`).
 
 ## Setup
 
@@ -14,7 +15,14 @@ Set `ADMIN_TOKEN` once per environment:
 cd apps/api && pnpm exec wrangler secret put ADMIN_TOKEN
 ```
 
+The admin CLI reads `ADMIN_TOKEN` as its primary environment variable;
+`UPLOADS_ADMIN_TOKEN` may be accepted as a compatibility alias. Do not place either
+value in routine-agent configuration.
+
 ## Mint a token
+
+Direct minting is retained for CI, migration, and break-glass use. Interactive and
+routine agent setup should use [enrollment](enrollment.md) instead.
 
 Defaults to the `default` workspace:
 

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { publicUrl, storage, storageConfig } from "../storage";
-import type { WorkspaceVars } from "../workspace";
+import { requireScope, type WorkspaceVars } from "../workspace";
 
 // The freshness floor on overwrite for every bucket. This is the operative lever
 // for GitHub embeds: they're proxied through GitHub's Camo/Fastly cache, and
@@ -22,7 +22,7 @@ function badKey(key: string): boolean {
 export const files = new Hono<WorkspaceVars>()
 
   // Upload: raw body PUT. Content-Type header becomes the stored content type.
-  .put("/:key{.+}", async (c) => {
+  .put("/:key{.+}", requireScope("files:write"), async (c) => {
     const key = c.req.param("key");
     if (badKey(key)) return c.json({ error: "invalid key" }, 400);
     const body = await c.req.arrayBuffer();
@@ -43,7 +43,7 @@ export const files = new Hono<WorkspaceVars>()
   })
 
   // List
-  .get("/", async (c) => {
+  .get("/", requireScope("files:read"), async (c) => {
     const { prefix, cursor } = c.req.query();
     const limit = Math.min(Number(c.req.query("limit") ?? 100) || 100, 1000);
     const ws = c.get("workspace");
@@ -59,7 +59,7 @@ export const files = new Hono<WorkspaceVars>()
   })
 
   // Metadata
-  .get("/:key{.+}", async (c) => {
+  .get("/:key{.+}", requireScope("files:read"), async (c) => {
     const key = c.req.param("key");
     if (badKey(key)) return c.json({ error: "invalid key" }, 400);
     const ws = c.get("workspace");
@@ -70,7 +70,7 @@ export const files = new Hono<WorkspaceVars>()
   })
 
   // Delete
-  .delete("/:key{.+}", async (c) => {
+  .delete("/:key{.+}", requireScope("files:delete"), async (c) => {
     const key = c.req.param("key");
     if (badKey(key)) return c.json({ error: "invalid key" }, 400);
     await storage(c.env, c.get("workspace")).delete(key);

@@ -1,5 +1,6 @@
 import type { MiddlewareHandler } from "hono";
 import type { StorageProvider } from "@uploads/storage";
+import { FILE_SCOPES, findActiveToken, parseScopes, type FileScope } from "./auth-db";
 
 /**
  * A workspace is a tenant: its own bucket, credentials, and auth token.
@@ -26,7 +27,12 @@ export interface WorkspaceRecord {
 }
 
 export type WorkspaceVars = {
-  Variables: { workspace: WorkspaceRecord; workspaceName: string };
+  Variables: {
+    workspace: WorkspaceRecord;
+    workspaceName: string;
+    authScopes: FileScope[];
+    authSource: "d1" | "legacy";
+  };
   Bindings: Env;
 };
 
@@ -75,11 +81,22 @@ export const workspaceAuth: MiddlewareHandler<WorkspaceVars> = async (c, next) =
   for (const hash of toCheck) {
     if (crypto.subtle.timingSafeEqual(providedBytes, hexToBytes(hash))) matched = true;
   }
-  const ok = record !== null && token.length > 0 && candidates.length > 0 && matched;
+  const legacyOk = record !== null && token.length > 0 && candidates.length > 0 && matched;
+  const d1Token = record && name && token ? await findActiveToken(c.env.DB, name, token) : null;
+  const ok = legacyOk || d1Token !== null;
 
   if (!ok || !record || !name) return c.json({ error: "unauthorized" }, 401);
 
   c.set("workspace", record);
   c.set("workspaceName", name);
+  c.set("authScopes", d1Token ? parseScopes(d1Token.scopes) : [...FILE_SCOPES]);
+  c.set("authSource", d1Token ? "d1" : "legacy");
   await next();
 };
+
+export function requireScope(scope: FileScope): MiddlewareHandler<WorkspaceVars> {
+  return async (c, next) => {
+    if (!c.get("authScopes").includes(scope)) return c.json({ error: "forbidden" }, 403);
+    await next();
+  };
+}
