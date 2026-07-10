@@ -22,6 +22,7 @@ import { runConfig } from "./commands/config.js";
 import { runSetup } from "./commands/setup.js";
 import { runLogin } from "./commands/login.js";
 import { runAdmin } from "./commands/admin-enrollment.js";
+import { runMcp } from "./commands/mcp.js";
 
 const ROOT_HELP = `uploads — CLI for uploads.sh (GitHub image embeds)
 
@@ -59,6 +60,7 @@ Commands:
   config              Show path, init, or set shared config
   doctor              Health + auth + workspace checks
   health              API liveness (no auth)
+  mcp                 Serve MCP over stdio (tools mirror the CLI)
 
 Put/list defaults (config file or env):
   UPLOADS_DEFAULT_PREFIX, UPLOADS_DEFAULT_REPO, UPLOADS_DEFAULT_REF
@@ -71,7 +73,8 @@ Examples:
   uploads put ./shot.png --ref 42
   uploads doctor
 
-Agent/MCP: use createUploadsWorkerFileTools() from @buildinternet/uploads/agent on the Worker.
+Agent/MCP: run \`uploads mcp\` for local stdio, or use createUploadsWorkerFileTools()
+from @buildinternet/uploads/agent on the Worker.
 `;
 
 function createContext(
@@ -154,6 +157,8 @@ export async function runCli(argv: string[]): Promise<number> {
         return runLogin(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);
       case "admin":
         return runAdmin(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);
+      case "mcp":
+        return runMcp(cmdArgs, { globals: parsed.globals }, showHelp);
       case "attach":
       case "put":
       case "list":

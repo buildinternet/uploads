@@ -94,15 +94,15 @@ function ghTargetFromFlags(flags: CommandFlags["flags"], run: CommandRunner): Gh
  * managed comment. Throws on gh failure — callers decide whether that is
  * fatal (`comment` command) or a warning (`put --comment`).
  */
-async function syncAttachmentsComment(
-  ctx: CliContext,
+export async function syncAttachmentsComment(
+  client: UploadsClient,
   target: GhTarget,
   run: CommandRunner,
 ): Promise<{ action: "created" | "updated" | "skipped"; count: number }> {
   const items: AttachmentItem[] = [];
   let cursor: string | undefined;
   do {
-    const page = await ctx.client.list({ prefix: ghKeyPrefix(target), cursor });
+    const page = await client.list({ prefix: ghKeyPrefix(target), cursor });
     items.push(...page.items.map(({ key, url }) => ({ key, url })));
     cursor = page.cursor ?? undefined;
   } while (cursor);
@@ -176,7 +176,7 @@ export async function runAttach(
   let commentError: string | undefined;
   if (!parsed.flags.has("--no-comment")) {
     try {
-      comment = await syncAttachmentsComment(ctx, target, run);
+      comment = await syncAttachmentsComment(ctx.client, target, run);
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);
       process.stderr.write(
@@ -297,7 +297,7 @@ export async function runPut(
 
   if (wantComment && ghTarget) {
     try {
-      const sync = await syncAttachmentsComment(ctx, ghTarget, run);
+      const sync = await syncAttachmentsComment(ctx.client, ghTarget, run);
       if (!ctx.quiet && format === "human") {
         process.stderr.write(`>> attachments comment ${sync.action}\n`);
       }
@@ -429,7 +429,7 @@ export async function runComment(
   const target = ghTargetFromFlags(parsed.flags, run);
   if (!target) throw new UsageError("comment requires --pr or --issue");
 
-  const result = await syncAttachmentsComment(ctx, target, run);
+  const result = await syncAttachmentsComment(ctx.client, target, run);
   if (ctx.json) {
     await writeJson({ ...target, ...result });
   } else if (!ctx.quiet) {
@@ -482,24 +482,36 @@ Examples:
   uploads --workspace acme --env-file .env doctor
 `;
 
-export async function runDoctor(ctx: CliContext, args: string[], help = false): Promise<number> {
-  if (help || parseCommandArgs(args).help) {
-    process.stderr.write(DOCTOR_HELP);
-    return 0;
-  }
+export interface DoctorReport {
+  ok: boolean;
+  apiUrl: string;
+  workspace: string;
+  workspaceSource: ResolvedConfig["workspaceSource"];
+  workspaceFromToken: string | undefined;
+  configPath: string;
+  configExists: boolean;
+  health: { ok: boolean };
+  auth: { ok: boolean; error: string | undefined };
+  hints: string[];
+}
 
-  const mismatch = workspaceMismatch(ctx.config);
+/** Doctor's health + auth + workspace checks, shared by the CLI and the MCP tool. */
+export async function buildDoctorReport(
+  config: ResolvedConfig,
+  client: UploadsClient,
+): Promise<DoctorReport> {
+  const mismatch = workspaceMismatch(config);
   const hints: string[] = [];
   if (mismatch) hints.push(mismatch);
-  if (ctx.config.apiUrl.includes("localhost") || ctx.config.apiUrl.includes("127.0.0.1")) {
+  if (config.apiUrl.includes("localhost") || config.apiUrl.includes("127.0.0.1")) {
     hints.push("local API uses dev KV — prod tokens won't work unless minted with --local");
   }
 
-  const health = await ctx.client.health();
+  const health = await client.health();
   let authOk = false;
   let authError: string | undefined;
   try {
-    await ctx.client.list({ limit: 1 });
+    await client.list({ limit: 1 });
     authOk = true;
   } catch (err) {
     authError = err instanceof UploadsError ? err.message : String(err);
@@ -510,36 +522,46 @@ export async function runDoctor(ctx: CliContext, args: string[], help = false): 
     }
   }
 
-  if (!ctx.config.configExists && !ctx.config.token) {
-    hints.push(`run uploads setup to configure ${ctx.config.configPath}`);
+  if (!config.configExists && !config.token) {
+    hints.push(`run uploads setup to configure ${config.configPath}`);
   }
 
-  const report = {
+  return {
     ok: health.ok && authOk,
-    apiUrl: ctx.config.apiUrl,
-    workspace: ctx.config.workspace,
-    workspaceSource: ctx.config.workspaceSource,
-    workspaceFromToken: workspaceFromToken(ctx.config.token),
-    configPath: ctx.config.configPath,
-    configExists: ctx.config.configExists,
+    apiUrl: config.apiUrl,
+    workspace: config.workspace,
+    workspaceSource: config.workspaceSource,
+    workspaceFromToken: workspaceFromToken(config.token),
+    configPath: config.configPath,
+    configExists: config.configExists,
     health,
     auth: { ok: authOk, error: authError },
     hints,
   };
+}
+
+export async function runDoctor(ctx: CliContext, args: string[], help = false): Promise<number> {
+  if (help || parseCommandArgs(args).help) {
+    process.stderr.write(DOCTOR_HELP);
+    return 0;
+  }
+
+  const report = await buildDoctorReport(ctx.config, ctx.client);
 
   if (ctx.json) {
     await writeJson(report);
     return report.ok ? 0 : 1;
   }
 
+  const mismatch = workspaceMismatch(ctx.config);
   const lines = [
-    `config:    ${ctx.config.configPath}${ctx.config.configExists ? "" : " (missing)"}`,
-    `api:       ${ctx.config.apiUrl} (${health.ok ? "ok" : "failed"})`,
-    `workspace: ${ctx.config.workspace}`,
-    `auth:      ${authOk ? "ok" : `failed — ${authError ?? "no token"}`}`,
+    `config:    ${report.configPath}${report.configExists ? "" : " (missing)"}`,
+    `api:       ${report.apiUrl} (${report.health.ok ? "ok" : "failed"})`,
+    `workspace: ${report.workspace}`,
+    `auth:      ${report.auth.ok ? "ok" : `failed — ${report.auth.error ?? "no token"}`}`,
   ];
   if (mismatch) lines.push(`warning:   ${mismatch}`);
-  for (const h of hints) if (h !== mismatch) lines.push(`hint:      ${h}`);
+  for (const h of report.hints) if (h !== mismatch) lines.push(`hint:      ${h}`);
   await writeStdout(lines.join("\n") + "\n");
   return report.ok ? 0 : 1;
 }

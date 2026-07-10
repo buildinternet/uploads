@@ -1,0 +1,15 @@
+// Covers test files (excluded from the build tsconfig, whose rootDir is src)
+// so tsc and oxlint's type-aware rules resolve node/vitest types for them.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [".", "../src"]
+}

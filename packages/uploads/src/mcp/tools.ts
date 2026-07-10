@@ -1,0 +1,437 @@
+/**
+ * MCP tool set mirroring the CLI commands (put, attach, list, delete,
+ * comment, health, doctor). Config is resolved fresh per tool call so a
+ * per-call `workspace` argument behaves like the CLI's --workspace flag, and
+ * a missing token surfaces as a tool error rather than a startup failure.
+ */
+import { readFileSync } from "node:fs";
+import { basename } from "node:path";
+import type { GlobalFlags } from "../cli-args.js";
+import { createUploadsClient, type ListItem, type UploadsClient } from "../client.js";
+import { buildDoctorReport, syncAttachmentsComment } from "../commands.js";
+import {
+  resolveConfig,
+  resolvePutDefaults,
+  type ResolvedConfig,
+  type UploadsClientConfig,
+} from "../config.js";
+import { buildMarkdown } from "../embed.js";
+import { UploadsError } from "../errors.js";
+import { ghAttachmentKey, ghKeyPrefix, type GhTarget } from "../github.js";
+import {
+  execRunner,
+  resolveCurrentPullRequest,
+  resolveRepo,
+  type CommandRunner,
+} from "../github-gh.js";
+import type { McpTool } from "./server.js";
+
+type ToolArgs = Record<string, unknown>;
+
+function usage(msg: string): never {
+  throw new UploadsError(msg, "USAGE");
+}
+
+function optString(args: ToolArgs, name: string): string | undefined {
+  const v = args[name];
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== "string") usage(`${name} must be a string`);
+  return v;
+}
+
+function optPosInt(args: ToolArgs, name: string): number | undefined {
+  const v = args[name];
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== "number" || !Number.isInteger(v) || v <= 0) {
+    usage(`${name} must be a positive integer`);
+  }
+  return v;
+}
+
+function optBool(args: ToolArgs, name: string): boolean {
+  const v = args[name];
+  if (v === undefined || v === null) return false;
+  if (typeof v !== "boolean") usage(`${name} must be a boolean`);
+  return v;
+}
+
+function optStringArray(args: ToolArgs, name: string): string[] | undefined {
+  const v = args[name];
+  if (v === undefined || v === null) return undefined;
+  if (!Array.isArray(v) || v.some((item) => typeof item !== "string")) {
+    usage(`${name} must be an array of strings`);
+  }
+  return v as string[];
+}
+
+/** Reads pr/issue (+ repo) into a GhTarget; undefined when neither is present. */
+function ghTargetFromArgs(args: ToolArgs, run: CommandRunner): GhTarget | undefined {
+  const pr = optPosInt(args, "pr");
+  const issue = optPosInt(args, "issue");
+  if (pr === undefined && issue === undefined) return undefined;
+  if (pr !== undefined && issue !== undefined) usage("pr and issue are mutually exclusive");
+  const repo = resolveRepo(optString(args, "repo"), run);
+  return { repo, kind: pr !== undefined ? "pull" : "issues", num: (pr ?? issue) as number };
+}
+
+const workspaceProp = {
+  type: "string",
+  description: "Override the workspace for this call (like the CLI's --workspace flag).",
+};
+
+export function createUploadsMcpTools(opts: {
+  globals: GlobalFlags;
+  runner?: CommandRunner;
+  clientFactory?: (config: UploadsClientConfig) => UploadsClient;
+}): McpTool[] {
+  const { globals } = opts;
+  const run = opts.runner ?? execRunner;
+  const clientFactory = opts.clientFactory ?? createUploadsClient;
+
+  function clientFor(
+    args: ToolArgs,
+    requireToken = true,
+  ): { config: ResolvedConfig; client: UploadsClient } {
+    const config = resolveConfig({
+      apiUrl: globals.apiUrl,
+      token: globals.token,
+      envFile: globals.envFile,
+      workspace: optString(args, "workspace") ?? globals.workspace,
+      requireToken,
+    });
+    return { config, client: clientFactory(config) };
+  }
+
+  const syncComment = async (client: UploadsClient, target: GhTarget) => {
+    let comment: { action: "created" | "updated" | "skipped"; count: number } | undefined;
+    let commentError: string | undefined;
+    try {
+      comment = await syncAttachmentsComment(client, target, run);
+    } catch (err) {
+      // Uploads already succeeded; the comment is best-effort by design.
+      commentError = err instanceof Error ? err.message : String(err);
+    }
+    return { comment, commentError };
+  };
+
+  return [
+    {
+      name: "put",
+      description:
+        "Upload a file to uploads.sh and get a public URL plus GitHub-ready embed markdown (the returned `markdown` is ready to paste into a PR or issue). Pass `file` (a local path) or `contentBase64` + `filename` for in-memory content; with `pr`/`issue` the key is stable (same filename → same URL) and `comment` syncs the managed attachments comment.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          file: {
+            type: "string",
+            description:
+              "Path of the file to upload. Exactly one of file or contentBase64 is required.",
+          },
+          contentBase64: {
+            type: "string",
+            description: "Base64-encoded file content for in-memory uploads; requires filename.",
+          },
+          filename: {
+            type: "string",
+            description: "Filename for contentBase64 content (drives the key and content type).",
+          },
+          key: {
+            type: "string",
+            description:
+              "Explicit object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>). Cannot be combined with pr/issue.",
+          },
+          prefix: {
+            type: "string",
+            description:
+              "Key prefix (default: screenshots, or UPLOADS_DEFAULT_PREFIX). Cannot be combined with pr/issue.",
+          },
+          repo: {
+            type: "string",
+            description: "owner/name repo segment (default: git remote, or UPLOADS_DEFAULT_REPO).",
+          },
+          ref: {
+            type: "string",
+            description:
+              "PR/issue/branch key segment (default: today, or UPLOADS_DEFAULT_REF). Cannot be combined with pr/issue.",
+          },
+          alt: { type: "string", description: "Alt text for the markdown (default: filename)." },
+          width: {
+            type: "number",
+            description: "Emit <img width=…> markdown instead of a plain image embed.",
+          },
+          contentType: { type: "string", description: "Override the Content-Type." },
+          noGit: { type: "boolean", description: "Don't derive the repo segment from git." },
+          pr: {
+            type: "number",
+            description:
+              "Attach to this pull request with a stable key gh/<owner>/<repo>/pull/<num>/<name>. Mutually exclusive with issue.",
+          },
+          issue: {
+            type: "number",
+            description:
+              "Attach to this issue with a stable key gh/<owner>/<repo>/issues/<num>/<name>. Mutually exclusive with pr.",
+          },
+          comment: {
+            type: "boolean",
+            description:
+              "With pr/issue: create or update the managed attachments comment via local gh auth (best-effort).",
+          },
+          workspace: workspaceProp,
+        },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const file = optString(args, "file");
+        const contentBase64 = optString(args, "contentBase64");
+        if ((file === undefined) === (contentBase64 === undefined)) {
+          usage("exactly one of file or contentBase64 is required");
+        }
+        const filenameArg = optString(args, "filename");
+        if (contentBase64 !== undefined && !filenameArg) {
+          usage("filename is required with contentBase64");
+        }
+
+        const target = ghTargetFromArgs(args, run);
+        const wantComment = optBool(args, "comment");
+        const key = optString(args, "key");
+        const prefixArg = optString(args, "prefix");
+        const refArg = optString(args, "ref");
+        if (wantComment && !target) usage("comment requires pr or issue");
+        if (target) {
+          if (key) usage("key cannot be combined with pr/issue");
+          if (refArg) usage("ref cannot be combined with pr/issue");
+          if (prefixArg) usage("prefix cannot be combined with pr/issue");
+        }
+
+        const { client } = clientFor(args);
+        const bytes =
+          file !== undefined
+            ? new Uint8Array(readFileSync(file))
+            : new Uint8Array(Buffer.from(contentBase64!, "base64"));
+        const filename = file !== undefined ? (filenameArg ?? basename(file)) : filenameArg!;
+
+        const defaults = resolvePutDefaults({ envFile: globals.envFile });
+        const noGit = optBool(args, "noGit") || defaults.noGit === true;
+        const result = await client.put(bytes, {
+          filename,
+          key: target ? ghAttachmentKey(target, filename) : key,
+          prefix: prefixArg ?? defaults.prefix,
+          repo: optString(args, "repo") ?? defaults.repo,
+          ref: refArg ?? defaults.ref,
+          contentType: optString(args, "contentType"),
+          deriveRepoFromGit: !noGit,
+        });
+        const markdown = buildMarkdown(result.url, {
+          alt: optString(args, "alt") ?? filename,
+          width: optPosInt(args, "width") ?? defaults.width,
+        });
+
+        if (wantComment && target) {
+          const { comment, commentError } = await syncComment(client, target);
+          return { ...result, markdown, comment, commentError };
+        }
+        return { ...result, markdown };
+      },
+    },
+    {
+      name: "attach",
+      description:
+        "Upload one or more files as stable PR/issue attachments and maintain a single managed GitHub comment listing them (each upload's `markdown` is ready to paste into GitHub). With no pr/issue, targets the pull request for the current branch.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          files: {
+            type: "array",
+            items: { type: "string" },
+            description: "Paths of the files to upload (at least one).",
+          },
+          pr: {
+            type: "number",
+            description: "Attach to this pull request. Mutually exclusive with issue.",
+          },
+          issue: {
+            type: "number",
+            description: "Attach to this issue. Mutually exclusive with pr.",
+          },
+          repo: {
+            type: "string",
+            description: "owner/name repository (default: gh/git inference).",
+          },
+          noComment: {
+            type: "boolean",
+            description: "Upload only; don't create/update the managed comment.",
+          },
+          contentType: {
+            type: "string",
+            description: "Override the Content-Type (applied to every file).",
+          },
+          workspace: workspaceProp,
+        },
+        required: ["files"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const files = optStringArray(args, "files");
+        if (!files || files.length === 0) usage("files must be a non-empty array of paths");
+
+        const explicitTarget = ghTargetFromArgs(args, run);
+        const target =
+          explicitTarget ??
+          resolveCurrentPullRequest(resolveRepo(optString(args, "repo"), run), run);
+        const { client } = clientFor(args);
+        const contentType = optString(args, "contentType");
+
+        const uploads = [];
+        for (const file of files) {
+          const filename = basename(file);
+          const result = await client.put(new Uint8Array(readFileSync(file)), {
+            filename,
+            key: ghAttachmentKey(target, filename),
+            contentType,
+          });
+          uploads.push({ ...result, markdown: buildMarkdown(result.url, { alt: filename }) });
+        }
+
+        if (optBool(args, "noComment")) return { target, uploads };
+        const { comment, commentError } = await syncComment(client, target);
+        return { target, uploads, comment, commentError };
+      },
+    },
+    {
+      name: "list",
+      description:
+        "List uploaded objects in the workspace, filtered by key prefix or by a PR/issue's attachments. Paginate with cursor, or set all to fetch every page.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          prefix: {
+            type: "string",
+            description:
+              "Key prefix filter (default: UPLOADS_DEFAULT_PREFIX + '/'). Cannot be combined with pr/issue.",
+          },
+          pr: {
+            type: "number",
+            description: "List this pull request's attachments. Mutually exclusive with issue.",
+          },
+          issue: {
+            type: "number",
+            description: "List this issue's attachments. Mutually exclusive with pr.",
+          },
+          repo: {
+            type: "string",
+            description: "owner/name repository (default: gh/git inference).",
+          },
+          limit: { type: "number", description: "Page size." },
+          cursor: { type: "string", description: "Pagination cursor from a previous call." },
+          all: { type: "boolean", description: "Follow cursors and return every page." },
+          workspace: workspaceProp,
+        },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const defaults = resolvePutDefaults({ envFile: globals.envFile });
+        const prefixArg = optString(args, "prefix");
+        let prefix = prefixArg ?? (defaults.prefix ? `${defaults.prefix}/` : undefined);
+        const target = ghTargetFromArgs(args, run);
+        if (target) {
+          if (prefixArg) usage("prefix cannot be combined with pr/issue");
+          prefix = ghKeyPrefix(target);
+        }
+        const limit = optPosInt(args, "limit");
+        const cursor = optString(args, "cursor");
+        const { client } = clientFor(args);
+
+        if (optBool(args, "all")) {
+          const items: ListItem[] = [];
+          let next: string | null | undefined = cursor;
+          do {
+            const page = await client.list({ prefix, limit, cursor: next ?? undefined });
+            items.push(...page.items);
+            next = page.cursor;
+          } while (next);
+          return { items, cursor: null };
+        }
+        return client.list({ prefix, limit, cursor });
+      },
+    },
+    {
+      name: "delete",
+      description: "Delete an uploaded object by key. Set dryRun to preview without deleting.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "Object key to delete." },
+          dryRun: {
+            type: "boolean",
+            description: "Report what would be deleted without deleting.",
+          },
+          workspace: workspaceProp,
+        },
+        required: ["key"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const key = optString(args, "key");
+        if (!key) usage("key is required");
+        if (optBool(args, "dryRun")) return { key, deleted: false, dryRun: true };
+        const { client } = clientFor(args);
+        return client.delete(key);
+      },
+    },
+    {
+      name: "comment",
+      description:
+        "Create or update the managed attachments comment on a GitHub PR or issue, listing everything uploaded for it. Uses local gh auth; edits its own prior comment in place and never touches other comments.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          pr: {
+            type: "number",
+            description: "Pull request number. Exactly one of pr or issue is required.",
+          },
+          issue: {
+            type: "number",
+            description: "Issue number. Exactly one of pr or issue is required.",
+          },
+          repo: {
+            type: "string",
+            description: "owner/name repository (default: gh/git inference).",
+          },
+          workspace: workspaceProp,
+        },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const target = ghTargetFromArgs(args, run);
+        if (!target) usage("comment requires pr or issue");
+        const { client } = clientFor(args);
+        const result = await syncAttachmentsComment(client, target, run);
+        return { ...target, ...result };
+      },
+    },
+    {
+      name: "health",
+      description: "Check uploads.sh API liveness. No auth or arguments required.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      async handler(args) {
+        const { config, client } = clientFor(args, false);
+        const result = await client.health();
+        return { ...result, apiUrl: config.apiUrl };
+      },
+    },
+    {
+      name: "doctor",
+      description:
+        "Diagnose the configuration: API health, token auth, and workspace/token alignment. Returns the same report as `uploads doctor --json`, including hints.",
+      inputSchema: {
+        type: "object",
+        properties: { workspace: workspaceProp },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const { config, client } = clientFor(args);
+        return buildDoctorReport(config, client);
+      },
+    },
+  ];
+}
