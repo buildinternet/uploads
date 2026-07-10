@@ -10,6 +10,7 @@ import {
 } from "./cli-args.js";
 import {
   runPut,
+  runAttach,
   runList,
   runDelete,
   runHealth,
@@ -45,6 +46,7 @@ Other globals (before command):
   --quiet
 
 Commands:
+  attach <file...>     Attach media to the current PR (stable URLs + managed comment)
   put <file>          Upload (+ URL + markdown for GitHub)
   comment             Create/update a PR/issue attachments comment (via gh)
   list                List objects
@@ -61,6 +63,7 @@ Put/list defaults (config file or env):
 Examples:
   uploads setup
   uploads setup --token up_default_… --repo myorg/myapp
+  uploads attach ./before.png ./after.png
   uploads put ./shot.png --ref 42
   uploads doctor
 
@@ -143,6 +146,7 @@ export async function runCli(argv: string[]): Promise<number> {
         return runConfig(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
       case "setup":
         return runSetup(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
+      case "attach":
       case "put":
       case "list":
       case "delete":
@@ -150,6 +154,8 @@ export async function runCli(argv: string[]): Promise<number> {
       case "comment": {
         const ctx = createContext(parsed.globals, !showHelp, cmdArgs);
         switch (parsed.command) {
+          case "attach":
+            return runAttach(ctx, cmdArgs, showHelp);
           case "put":
             return runPut(ctx, cmdArgs, showHelp);
           case "comment":

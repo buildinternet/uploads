@@ -6,14 +6,27 @@ CLI and client for **uploads.sh** — upload files, get public URLs, and produce
 
 Binary: `uploads` (also `pnpm uploads` from repo root after `pnpm install`).
 
+Install globally or run a pinned version without installing:
+
+```bash
+npm install --global @buildinternet/uploads
+npx @buildinternet/uploads@0.1.0 --help
+```
+
 ```bash
 pnpm uploads setup --env-file .env
+pnpm uploads attach ./before.png ./after.png --env-file .env
 pnpm uploads put ./shot.png --env-file .env
 pnpm uploads put ./after.png --pr 123 --comment --env-file .env
 pnpm uploads doctor --env-file .env
 ```
 
-Commands: `put`, `comment`, `list`, `delete`, `setup`, `config`, `doctor`, `health`.
+Commands: `attach`, `put`, `comment`, `list`, `delete`, `setup`, `config`, `doctor`, `health`.
+
+`attach` is the agent-friendly default for GitHub media. It accepts one or more files,
+infers the pull request for the current branch via `gh`, uploads stable URLs, and creates
+or updates one managed attachments comment. Use `--pr`, `--issue`, and `--repo` to select
+the target explicitly, or `--no-comment` to upload without changing GitHub comments.
 
 Config layers (first match wins): CLI flags → env vars → `--env-file` → `~/.config/buildinternet/config`. See `config.example` for keys.
 
@@ -43,6 +56,9 @@ bin/uploads.js      Bin shim
 pnpm build        # tsc → dist/
 pnpm typecheck
 pnpm test
+pnpm pack:check   # verify the npm tarball contents
 ```
+
+Maintainer release instructions: [`docs/releasing.md`](../../docs/releasing.md).
 
 Agent-oriented usage: [`skills/uploads-cli/SKILL.md`](../../skills/uploads-cli/SKILL.md). REST details: [`docs/api.md`](../../docs/api.md).

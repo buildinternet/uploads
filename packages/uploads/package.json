@@ -1,7 +1,6 @@
 {
   "name": "@buildinternet/uploads",
   "version": "0.1.0",
-  "private": true,
   "description": "CLI and client for uploads.sh — workspace-scoped image hosting for GitHub embeds",
   "type": "module",
   "license": "MIT",
@@ -27,13 +26,14 @@
   "files": [
     "bin",
     "dist",
-    "src"
+    "README.md"
   ],
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "build": "tsc",
-    "prepublishOnly": "pnpm run build"
+    "pack:check": "node ./scripts/check-pack.mjs",
+    "prepublishOnly": "npm run build"
   },
   "engines": {
     "node": ">=22"
@@ -54,6 +54,7 @@
     "vitest": "^4.1.10"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   }
 }

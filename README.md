@@ -9,7 +9,34 @@ Lightweight file-hosting backend on Cloudflare Workers, built on
 > the open and its APIs (including auth) will change without notice. Don't rely
 > on it for anything you can't afford to lose or re-key.
 
-## Quick start
+## Agent quick start
+
+Install/run the CLI, save a workspace token once, then attach media from a
+checked-out PR branch:
+
+```bash
+npx @buildinternet/uploads setup --token up_<workspace>_...
+npx @buildinternet/uploads doctor
+npx @buildinternet/uploads attach ./before.png ./after.png
+```
+
+`attach` detects the GitHub repository and current PR through `gh`, uploads all
+files, and creates or updates one managed attachments comment. Use
+`--pr <number>` or `--issue <number>` when inference is not possible, and
+`--no-comment` when only the public URLs and Markdown are wanted.
+
+An uploads.sh administrator must mint the workspace token. See
+[admin tokens](docs/admin-tokens.md); agents never need the admin credential.
+Hosted files are public, including media attached to private repositories. Do
+not upload secrets or sensitive UI.
+
+For agent runtimes, install the checked-in skill as well:
+
+```bash
+npx skills add buildinternet/uploads --skill uploads-cli
+```
+
+## Local development quick start
 
 ```bash
 pnpm install
@@ -101,12 +128,13 @@ plus peer deps, no API changes.
 
 ## Docs
 
-| Doc                                  | Contents                                     |
-| ------------------------------------ | -------------------------------------------- |
-| [workspaces](docs/workspaces.md)     | Multi-tenant model, registration, BYO-bucket |
-| [admin-tokens](docs/admin-tokens.md) | Minting, listing, and revoking upload tokens |
-| [api](docs/api.md)                   | REST routes and CLI usage                    |
-| [deploy](docs/deploy.md)             | Cloudflare setup and production deploy       |
-| [roadmap](docs/roadmap.md)           | Planned features                             |
+| Doc                                          | Contents                                     |
+| -------------------------------------------- | -------------------------------------------- |
+| [workspaces](docs/workspaces.md)             | Multi-tenant model, registration, BYO-bucket |
+| [admin-tokens](docs/admin-tokens.md)         | Minting, listing, and revoking upload tokens |
+| [api](docs/api.md)                           | REST routes and CLI usage                    |
+| [deploy](docs/deploy.md)                     | Cloudflare setup and production deploy       |
+| [contract testing](docs/contract-testing.md) | Deployed smoke checks and release gate       |
+| [roadmap](docs/roadmap.md)                   | Planned features                             |
 
 Agent and contributor conventions live in [AGENTS.md](AGENTS.md).

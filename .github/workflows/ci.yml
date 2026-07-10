@@ -68,3 +68,6 @@ jobs:
 
       - name: Run tests
         run: pnpm --filter @uploads/storage test && pnpm --filter @buildinternet/uploads test
+
+      - name: Verify npm package
+        run: pnpm --filter @buildinternet/uploads run build && pnpm --filter @buildinternet/uploads run pack:check

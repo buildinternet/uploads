@@ -47,6 +47,30 @@ export function resolveRepo(explicit: string | undefined, run: CommandRunner = e
   throw new UsageError("could not infer repository from git — pass --repo owner/name");
 }
 
+/** Resolve the pull request associated with the current branch. */
+export function resolveCurrentPullRequest(repo: string, run: CommandRunner = execRunner): GhTarget {
+  try {
+    const out = run("gh", [
+      "pr",
+      "view",
+      "--repo",
+      repo,
+      "--json",
+      "number",
+      "--jq",
+      ".number",
+    ]).trim();
+    if (/^\d+$/.test(out) && Number(out) > 0) {
+      return { repo, kind: "pull", num: Number.parseInt(out, 10) };
+    }
+  } catch {
+    // Normalize gh's varying errors into a stable, actionable CLI message.
+  }
+  throw new UsageError(
+    "could not infer a pull request for the current branch — pass --pr <num> or --issue <num>",
+  );
+}
+
 interface GhComment {
   id: number;
   body: string;

@@ -26,6 +26,7 @@ import {
 } from "./github.js";
 import {
   resolveRepo,
+  resolveCurrentPullRequest,
   execRunner,
   upsertAttachmentsComment,
   type CommandRunner,
@@ -111,6 +112,88 @@ async function syncAttachmentsComment(
   const body = attachmentsCommentBody(items);
   const { created } = upsertAttachmentsComment(target, body, run);
   return { action: created ? "created" : "updated", count: items.length };
+}
+
+// --- attach ---
+
+const ATTACH_HELP = `uploads attach <file...> [options]
+
+Upload one or more stable PR/issue attachments and maintain a single GitHub
+comment. With no target, uses the pull request for the current branch.
+
+Options:
+  --pr <num>            Attach to this pull request
+  --issue <num>         Attach to this issue
+  --repo <owner/repo>   Repository (default: gh/git inference)
+  --no-comment          Upload only; don't create/update the managed comment
+  --content-type <mime> Override Content-Type (applied to every file)
+  --workspace, -w <name>  Override workspace
+
+Examples:
+  uploads attach ./before.png ./after.png
+  uploads attach ./shot.png --pr 123 --repo myorg/myapp
+  uploads attach ./artifact.zip --issue 45 --no-comment
+`;
+
+export async function runAttach(
+  ctx: CliContext,
+  args: string[],
+  help = false,
+  run: CommandRunner = execRunner,
+): Promise<number> {
+  const parsed = parseCommandArgs(args);
+  if (help || parsed.help) {
+    process.stderr.write(ATTACH_HELP);
+    return 0;
+  }
+  if (parsed.positionals.length === 0) {
+    process.stderr.write(ATTACH_HELP);
+    return 2;
+  }
+  if (parsed.flags.has("--no-comment") && typeof parsed.flags.get("--no-comment") === "string") {
+    throw new UsageError("--no-comment takes no value — place it after the file arguments");
+  }
+
+  const explicitTarget = ghTargetFromFlags(parsed.flags, run);
+  const target =
+    explicitTarget ??
+    resolveCurrentPullRequest(resolveRepo(flagString(parsed.flags, "--repo"), run), run);
+  const results = [];
+  for (const file of parsed.positionals) {
+    if (file === "-")
+      throw new UsageError("attach does not support stdin; pass one or more file paths");
+    const filename = basename(file);
+    if (!ctx.quiet && !ctx.json) process.stderr.write(`>> uploading ${file}\n`);
+    const result = await ctx.client.put(new Uint8Array(readFileSync(file)), {
+      filename,
+      key: ghAttachmentKey(target, filename),
+      contentType: flagString(parsed.flags, "--content-type"),
+    });
+    results.push({ ...result, markdown: buildMarkdown(result.url, { alt: filename }) });
+  }
+
+  let comment: { action: "created" | "updated" | "skipped"; count: number } | undefined;
+  let commentError: string | undefined;
+  if (!parsed.flags.has("--no-comment")) {
+    try {
+      comment = await syncAttachmentsComment(ctx, target, run);
+    } catch (err) {
+      commentError = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `warning: uploads succeeded but the GitHub comment failed (is gh installed and authenticated?): ${commentError}\n`,
+      );
+    }
+  }
+
+  if (ctx.json) {
+    await writeJson({ target, uploads: results, comment, commentError });
+  } else {
+    for (const result of results) {
+      await writeStdout(`URL: ${result.url}\nMARKDOWN: ${result.markdown}\n`);
+    }
+    if (!ctx.quiet && comment) process.stderr.write(`>> attachments comment ${comment.action}\n`);
+  }
+  return 0;
 }
 
 export async function runPut(
