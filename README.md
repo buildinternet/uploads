@@ -22,8 +22,8 @@ uploads attach ./before.png ./after.png
 For a one-off or pinned run without a global install:
 
 ```bash
-npx @buildinternet/uploads@0.1.0 login
-npx @buildinternet/uploads@0.1.0 attach ./before.png ./after.png
+npx @buildinternet/uploads@0.3.0 login
+npx @buildinternet/uploads@0.3.0 attach ./before.png ./after.png
 ```
 
 `attach` detects the GitHub repository and current PR through `gh`, uploads all
@@ -64,14 +64,17 @@ curl -X PUT http://localhost:8787/v1/default/files/test.txt \
 ### CLI
 
 The `@buildinternet/uploads` package wraps the API for scripting and GitHub
-image embeds. `pnpm workspace:add` prints a bearer token once — save it to
-`.env` (from `.env.example`) or run `pnpm uploads setup --token <token>`.
+image embeds. Product examples use the global `uploads` binary (same as after
+`npm install -g`). `pnpm workspace:add` prints a bearer token once — save it
+with `uploads setup --token <token>` or into `.env` / user config.
 
 ```bash
-cp .env.example .env   # fill in UPLOADS_TOKEN from workspace:add output
-pnpm uploads put ./shot.png --env-file .env
+uploads put ./shot.png
 # stdout: public URL + ready-to-paste markdown; stderr: human summary
 ```
+
+Inside this monorepo only, `pnpm uploads …` builds the package first so you
+pick up local source.
 
 **How keys work:** default `put` lands under `screenshots/…`. Prefer
 `--destination screenshots` (or `gh` with `--pr`/`--issue`) over inventing roots —
@@ -81,8 +84,9 @@ hash-free GitHub keys; use `--key` only for an exact path under an allowed root.
 More output control:
 
 ```bash
-pnpm uploads put ./shot.png --format url --env-file .env
-pnpm uploads put ./shot.png --repo myorg/myapp --ref 1722 --width 700 --env-file .env
+uploads put ./shot.png --format url
+uploads put ./shot.png --repo myorg/myapp --ref 1722 --width 700
+uploads put ./mobile.png --frame phone
 ```
 
 ### GitHub embeds
@@ -95,7 +99,7 @@ markdown you can drop into a PR or issue.
 re-uploading the same filename overwrites in place and the URL never changes:
 
 ```bash
-pnpm uploads put ./after.png --pr 123 --alt "Dashboard after" --env-file .env
+uploads put ./after.png --pr 123 --alt "Dashboard after"
 # key: gh/<owner>/<repo>/pull/123/after.png
 ```
 
@@ -104,8 +108,8 @@ creates or updates a single comment listing every file attached to that
 PR/issue — the upload still succeeds if `gh` is unavailable:
 
 ```bash
-pnpm uploads put ./after.png --pr 123 --comment --env-file .env
-pnpm uploads comment --pr 123 --env-file .env   # re-sync without uploading
+uploads put ./after.png --pr 123 --comment
+uploads comment --pr 123   # re-sync without uploading
 ```
 
 > **Privacy:** Hosted files are served from a public CDN with no link to GitHub
