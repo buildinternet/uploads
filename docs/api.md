@@ -30,25 +30,28 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 
 ## Routes
 
-| Route                                             | Description                                                                                      |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `GET /health`                                     | Liveness (no auth)                                                                               |
-| `PUT /v1/:workspace/files/:key`                   | Upload raw body (sniffed type). Bare keys → `f/<id>/<name>`. Optional provenance headers (below) |
-| `POST /v1/:workspace/files/sign`                  | Presigned upload (`signedUploadUrl`); needs HTTP S3 credentials on the workspace                 |
-| `GET /v1/:workspace/files?prefix=&limit=&cursor=` | List objects                                                                                     |
-| `GET /v1/:workspace/files/:key`                   | Object metadata (includes allowlisted `metadata` when set)                                       |
-| `DELETE /v1/:workspace/files/:key`                | Delete object                                                                                    |
-| `GET /v1/:workspace/usage`                        | Workspace usage snapshot (`bytes`, `objects`, `uploadsInPeriod`, …); requires `files:read`       |
-| `POST /v1/:workspace/usage/reconcile`             | Rebuild `bytes`/`objects` from storage; requires `files:write`                                   |
-| `POST /v1/:workspace/usage/purge-expired`         | Delete objects older than `retentionDays`, then reconcile; requires `files:delete`               |
-| `POST /v1/:workspace/galleries`                   | Create an empty public gallery; requires `files:write`                                           |
-| `GET /v1/:workspace/galleries`                    | List workspace galleries with opaque cursor pagination; requires `files:read`                    |
-| `GET /v1/:workspace/galleries/:id`                | Read one owned gallery; requires `files:read`                                                    |
-| `PATCH/DELETE /v1/:workspace/galleries/:id`       | Update or soft-delete gallery metadata; requires `files:write`                                   |
-| `POST /v1/:workspace/galleries/:id/items`         | Add one existing, publicly served workspace object; requires `files:write`                       |
-| `PUT /v1/:workspace/galleries/:id/items/order`    | Replace the complete item order; requires `files:write`                                          |
-| `DELETE /v1/:workspace/galleries/:id/items/:item` | Remove a gallery membership without deleting its object; requires `files:write`                  |
-| `GET /public/galleries/:id`                       | Exact-ID public gallery read; no workspace listing or authentication                             |
+| Route                                                                | Description                                                                                      |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `GET /health`                                                        | Liveness (no auth)                                                                               |
+| `PUT /v1/:workspace/files/:key`                                      | Upload raw body (sniffed type). Bare keys → `f/<id>/<name>`. Optional provenance headers (below) |
+| `POST /v1/:workspace/files/sign`                                     | Presigned upload (`signedUploadUrl`); needs HTTP S3 credentials on the workspace                 |
+| `GET /v1/:workspace/files?prefix=&limit=&cursor=`                    | List objects                                                                                     |
+| `GET /v1/:workspace/files/:key`                                      | Object metadata (includes allowlisted `metadata` when set)                                       |
+| `DELETE /v1/:workspace/files/:key`                                   | Delete object                                                                                    |
+| `GET /v1/:workspace/usage`                                           | Workspace usage snapshot (`bytes`, `objects`, `uploadsInPeriod`, …); requires `files:read`       |
+| `POST /v1/:workspace/usage/reconcile`                                | Rebuild `bytes`/`objects` from storage; requires `files:write`                                   |
+| `POST /v1/:workspace/usage/purge-expired`                            | Delete objects older than `retentionDays`, then reconcile; requires `files:delete`               |
+| `POST /v1/:workspace/galleries`                                      | Create an empty public gallery; requires `files:write`                                           |
+| `GET /v1/:workspace/galleries`                                       | List workspace galleries with opaque cursor pagination; requires `files:read`                    |
+| `GET /v1/:workspace/galleries/:id`                                   | Read one owned gallery; requires `files:read`                                                    |
+| `PATCH/DELETE /v1/:workspace/galleries/:id`                          | Update or soft-delete gallery metadata; requires `files:write`                                   |
+| `POST /v1/:workspace/galleries/:id/items`                            | Add one existing, publicly served workspace object; requires `files:write`                       |
+| `PUT /v1/:workspace/galleries/:id/items/order`                       | Replace the complete item order; requires `files:write`                                          |
+| `DELETE /v1/:workspace/galleries/:id/items/:item`                    | Remove a gallery membership without deleting its object; requires `files:write`                  |
+| `GET /public/galleries/:id`                                          | Exact-ID public gallery read; no workspace listing or authentication                             |
+| `GET /v1/:workspace/galleries/by-reference`                          | Find linked gallery summaries by provider coordinate; requires `files:read`                      |
+| `GET/POST /v1/:workspace/galleries/:id/external-references`          | List or link coordinates; writes require `files:write`                                           |
+| `DELETE /v1/:workspace/galleries/:id/external-references/:reference` | Unlink a coordinate; requires `files:write`                                                      |
 
 `url` in responses is the public URL when the workspace has a
 `publicBaseUrl`, otherwise `null`.
@@ -73,8 +76,16 @@ the JSON body. A stale version returns HTTP 409 with the current version in
 new membership returns HTTP 201. Adding checks the context-derived workspace's
 storage and rejects missing objects or objects without a public URL.
 
-This first API slice deliberately excludes item metadata PATCH, batch add,
-external-reference routes, and upload-and-add convenience endpoints.
+This first API slice deliberately excludes item metadata PATCH, batch add, and
+upload-and-add convenience endpoints.
+
+External-reference inputs currently support only
+`{ "provider": "github", "coordinate": "owner/repo#123" }`. The server
+normalizes casing and derives the locator, normalized identity, and fixed
+GitHub issues URL; clients cannot submit those derived fields. Reverse lookup
+is authenticated, tenant-scoped, cursor-paginated, and returns gallery
+summaries without probing storage. References are deliberately not included in
+the public gallery response yet.
 
 ### Object provenance metadata
 

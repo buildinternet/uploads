@@ -51,6 +51,8 @@ export const ERROR_CODES = [
   "gallery_object_not_found",
   "gallery_object_not_public",
   "gallery_storage_unavailable",
+  "gallery_reference_not_found",
+  "gallery_invalid_reference",
 
   // Admin
   "invalid_workspace",

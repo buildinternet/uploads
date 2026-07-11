@@ -346,6 +346,125 @@ describe("gallery routes with SQLite D1", () => {
     expect(probes).toBe(0);
   });
 
+  it("supports GitHub alias lifecycle and paginated many-to-many lookup", async () => {
+    const gallery = await create();
+    const linked = await request(`/v1/alpha/galleries/${gallery.id}/external-references`, {
+      method: "POST",
+      body: JSON.stringify({
+        expectedVersion: 1,
+        provider: "github",
+        coordinate: "BuildInternet/Uploads#123",
+      }),
+    });
+    expect(linked.status).toBe(201);
+    const reference = (await linked.json()) as {
+      id: string;
+      coordinate: string;
+      canonicalUrl: string;
+    };
+    expect(reference).toMatchObject({
+      coordinate: "buildinternet/uploads#123",
+      canonicalUrl: "https://github.com/buildinternet/uploads/issues/123",
+    });
+    const newAlias = await request(`/v1/alpha/galleries/${gallery.id}/external-references`, {
+      method: "POST",
+      body: JSON.stringify({
+        expectedVersion: 2,
+        provider: "github",
+        coordinate: "buildinternet/new-uploads#123",
+      }),
+    });
+    expect(newAlias.status).toBe(201);
+    const secondGallery = await create();
+    expect(
+      (
+        await request(`/v1/alpha/galleries/${secondGallery.id}/external-references`, {
+          method: "POST",
+          body: JSON.stringify({
+            expectedVersion: 1,
+            provider: "github",
+            coordinate: "buildinternet/uploads#123",
+          }),
+        })
+      ).status,
+    ).toBe(201);
+    const reverse = await request(
+      "/v1/alpha/galleries/by-reference?provider=github&coordinate=BUILDINTERNET%2FUPLOADS%23123&limit=1",
+    );
+    expect(reverse.status).toBe(200);
+    const firstPage = (await reverse.json()) as {
+      galleries: { id: string }[];
+      nextCursor: string;
+    };
+    expect(firstPage.galleries).toHaveLength(1);
+    expect(firstPage.nextCursor).toEqual(expect.any(String));
+    const next = await request(
+      `/v1/alpha/galleries/by-reference?provider=github&coordinate=buildinternet%2Fuploads%23123&limit=1&cursor=${encodeURIComponent(firstPage.nextCursor)}`,
+    );
+    const secondPage = (await next.json()) as { galleries: { id: string }[] };
+    expect(
+      new Set([...firstPage.galleries, ...secondPage.galleries].map((entry) => entry.id)),
+    ).toEqual(new Set([gallery.id, secondGallery.id]));
+    const other = await request(
+      "/v1/beta/galleries/by-reference?provider=github&coordinate=buildinternet%2Fuploads%23123",
+    );
+    expect(((await other.json()) as { galleries: unknown[] }).galleries).toEqual([]);
+    const foreignRemove = await request(
+      `/v1/beta/galleries/${gallery.id}/external-references/${reference.id}`,
+      { method: "DELETE", body: JSON.stringify({ expectedVersion: 3 }) },
+    );
+    expect(await foreignRemove.json()).toMatchObject({
+      error: { code: "gallery_not_found", type: "not_found" },
+    });
+    const removed = await request(
+      `/v1/alpha/galleries/${gallery.id}/external-references/${reference.id}`,
+      { method: "DELETE", body: JSON.stringify({ expectedVersion: 3 }) },
+    );
+    expect(removed.status).toBe(200);
+    const newReverse = await request(
+      "/v1/alpha/galleries/by-reference?provider=github&coordinate=buildinternet%2Fnew-uploads%23123",
+    );
+    expect(((await newReverse.json()) as { galleries: { id: string }[] }).galleries).toEqual([
+      expect.objectContaining({ id: gallery.id }),
+    ]);
+    const oldReverse = await request(
+      "/v1/alpha/galleries/by-reference?provider=github&coordinate=buildinternet%2Fuploads%23123",
+    );
+    expect(((await oldReverse.json()) as { galleries: { id: string }[] }).galleries).toEqual([
+      expect.objectContaining({ id: secondGallery.id }),
+    ]);
+    const missing = await request(
+      `/v1/alpha/galleries/${gallery.id}/external-references/${reference.id}`,
+      { method: "DELETE", body: JSON.stringify({ expectedVersion: 4 }) },
+    );
+    expect(missing.status).toBe(404);
+    expect(((await missing.json()) as { error: { code: string } }).error.code).toBe(
+      "gallery_reference_not_found",
+    );
+  });
+
+  it("resolves the parent before validating a reference input", async () => {
+    const gallery = await create();
+    const foreign = await request(`/v1/beta/galleries/${gallery.id}/external-references`, {
+      method: "POST",
+      body: JSON.stringify({ expectedVersion: 1, provider: "bad", coordinate: "bad" }),
+    });
+    expect(await foreign.json()).toMatchObject({
+      error: { code: "gallery_not_found", type: "not_found" },
+    });
+    const owned = await request(`/v1/alpha/galleries/${gallery.id}/external-references`, {
+      method: "POST",
+      body: JSON.stringify({ expectedVersion: 1, provider: "bad", coordinate: "bad" }),
+    });
+    expect(await owned.json()).toEqual({
+      error: {
+        code: "gallery_invalid_reference",
+        type: "validation",
+        message: "provider must be github",
+      },
+    });
+  });
+
   it("distinguishes a missing gallery from a missing item without changing version", async () => {
     const gallery = await create();
     const foreign = await request(`/v1/beta/galleries/${gallery.id}/items/missing`, {

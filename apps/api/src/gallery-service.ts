@@ -7,6 +7,7 @@ import {
 import {
   type GalleryCursor,
   type GalleryItemRecord,
+  type GalleryExternalReferenceRecord,
   type GalleryRecord,
   type MutationResult,
   type PublicGallery,
@@ -61,6 +62,30 @@ export interface GallerySummaryDto {
   updatedAt: string;
 }
 export type PublicGalleryDto = PublicGallery & { items: PublicGalleryItemDto[] };
+export interface ExternalReferenceDto {
+  id: string;
+  provider: string;
+  resourceType: string;
+  coordinate: string;
+  canonicalUrl: string | null;
+  createdAt: string;
+}
+
+export function referenceDto(record: GalleryExternalReferenceRecord): ExternalReferenceDto {
+  const locator = JSON.parse(record.locator_json) as {
+    owner: string;
+    repository: string;
+    number: number;
+  };
+  return {
+    id: record.id,
+    provider: record.provider,
+    resourceType: record.resource_type,
+    coordinate: `${locator.owner}/${locator.repository}#${locator.number}`,
+    canonicalUrl: record.canonical_url,
+    createdAt: record.created_at,
+  };
+}
 
 export function mutationError(
   result: Exclude<MutationResult<unknown>, { status: "ok" | "unchanged" }>,
@@ -68,9 +93,18 @@ export function mutationError(
   switch (result.status) {
     case "not_found":
       throw new NotFoundError(
-        result.entity === "item" ? "Gallery item not found." : "Gallery not found.",
+        result.entity === "item"
+          ? "Gallery item not found."
+          : result.entity === "reference"
+            ? "Gallery reference not found."
+            : "Gallery not found.",
         {
-          code: result.entity === "item" ? "gallery_item_not_found" : "gallery_not_found",
+          code:
+            result.entity === "item"
+              ? "gallery_item_not_found"
+              : result.entity === "reference"
+                ? "gallery_reference_not_found"
+                : "gallery_not_found",
         },
       );
     case "conflict":

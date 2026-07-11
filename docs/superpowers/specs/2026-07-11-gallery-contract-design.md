@@ -150,6 +150,11 @@ edit. Partial reorder lists and unknown/duplicate item IDs are rejected.
 
 ## External references
 
+Issue #62 exposes external references only through authenticated owner and
+reverse-lookup APIs. Projecting references into the unauthenticated gallery
+response is explicitly deferred to issue #60 and the public gallery UI, where
+the disclosure and presentation policy can be designed together.
+
 The public input/output shape is provider-neutral:
 
 ```json
@@ -271,10 +276,11 @@ Response:
 Owner responses include `workspace` and `objectKey`. The public response omits
 both, along with provenance, hashes, uploader identity, raw provider metadata,
 and precise object timestamps. It returns item ID, display filename, media type,
-public URL, availability status, caption/alt text, and gallery metadata. Public
-external references are included because linking a gallery explicitly makes
-those associations part of the gallery; callers must be warned not to link a
-sensitive private-repository coordinate.
+public URL, availability status, caption/alt text, and gallery metadata.
+External references remain omitted from this public response until issue #60
+defines their explicit projection and disclosure UX; authenticated owner APIs
+already return them. Callers must still be warned not to link a sensitive
+private-repository coordinate.
 
 All errors use `AppError` subclasses and the existing nested wire envelope.
 Mutations use the workspace write-rate limiter. Owner list and reverse-reference

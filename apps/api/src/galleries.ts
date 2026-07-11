@@ -652,15 +652,34 @@ export async function findGalleriesByReference(
   db: D1Database,
   workspace: string,
   normalizedKey: string,
-): Promise<GalleryRecord[]> {
+  options: { limit?: number; cursor?: GalleryCursor } = {},
+): Promise<GalleryPage> {
+  const limit = Math.max(1, Math.min(MAX_GALLERY_PAGE_SIZE, Math.floor(options.limit ?? 50)));
+  const cursor = options.cursor;
   const result = await db
     .prepare(
       `SELECT g.id, g.workspace, g.title, g.description, g.visibility, g.cover_item_id, g.version,
             g.created_at, g.updated_at, g.deleted_at
      FROM galleries g JOIN gallery_external_references r ON r.gallery_id = g.id
-     WHERE r.normalized_key = ? AND g.workspace = ? AND g.deleted_at IS NULL ORDER BY g.created_at DESC, g.id DESC`,
+     WHERE r.normalized_key = ? AND g.workspace = ? AND g.deleted_at IS NULL
+       AND (? IS NULL OR g.created_at < ? OR (g.created_at = ? AND g.id < ?))
+     ORDER BY g.created_at DESC, g.id DESC LIMIT ?`,
     )
-    .bind(normalizedKey, workspace)
+    .bind(
+      normalizedKey,
+      workspace,
+      cursor?.createdAt ?? null,
+      cursor?.createdAt ?? null,
+      cursor?.createdAt ?? null,
+      cursor?.id ?? null,
+      limit + 1,
+    )
     .all<GalleryRecord>();
-  return result.results;
+  const galleries = result.results.slice(0, limit);
+  const last = galleries.at(-1);
+  return {
+    galleries,
+    nextCursor:
+      result.results.length > limit && last ? { createdAt: last.created_at, id: last.id } : null,
+  };
 }

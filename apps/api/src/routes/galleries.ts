@@ -8,11 +8,15 @@ import { Hono, type Context } from "hono";
 import { badKey } from "../files-core";
 import {
   addGalleryItem,
+  addExternalReference,
   createGallery,
   getGallery,
   listGalleries,
   listGalleryItems,
+  listExternalReferences,
+  findGalleriesByReference,
   removeGalleryItem,
+  removeExternalReference,
   reorderGalleryItems,
   softDeleteGallery,
   updateGallery,
@@ -24,9 +28,11 @@ import {
   hydrateOwnerGallery,
   mutationError,
   requireExpectedVersion,
+  referenceDto,
   unwrapMutation,
 } from "../gallery-service";
 import { writeRateLimit } from "../guards";
+import { parseExternalReference } from "../external-references";
 import { publicUrl, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
 
@@ -71,6 +77,25 @@ export const galleries = new Hono<WorkspaceVars>()
     const result = page.galleries.map(gallerySummary);
     return c.json({
       galleries: result,
+      nextCursor: page.nextCursor ? encodeGalleryCursor(page.nextCursor) : null,
+    });
+  })
+  .get("/by-reference", requireScope("files:read"), async (c) => {
+    const parsed = parseExternalReference(c.req.query("provider"), c.req.query("coordinate"));
+    if (!parsed.ok)
+      throw new ValidationError(parsed.message, { code: "gallery_invalid_reference" });
+    const rawLimit = c.req.query("limit");
+    const limit = rawLimit === undefined ? 50 : Number(rawLimit);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+      throw new ValidationError("limit must be an integer from 1 to 100.");
+    const page = await findGalleriesByReference(
+      c.env.DB,
+      c.get("workspaceName"),
+      parsed.value.normalizedKey,
+      { limit, cursor: decodeGalleryCursor(c.req.query("cursor")) },
+    );
+    return c.json({
+      galleries: page.galleries.map(gallerySummary),
       nextCursor: page.nextCursor ? encodeGalleryCursor(page.nextCursor) : null,
     });
   })
@@ -198,4 +223,45 @@ export const galleries = new Hono<WorkspaceVars>()
     );
     if (result.status !== "ok" && result.status !== "unchanged") mutationError(result);
     return c.json({ deleted: true, id: c.req.param("itemId") });
-  });
+  })
+  .get("/:id/external-references", requireScope("files:read"), async (c) => {
+    const gallery = await getGallery(c.env.DB, c.get("workspaceName"), c.req.param("id"));
+    if (!gallery) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
+    return c.json({
+      references: (await listExternalReferences(c.env.DB, c.get("workspaceName"), gallery.id)).map(
+        referenceDto,
+      ),
+    });
+  })
+  .post("/:id/external-references", writeRateLimit, requireScope("files:write"), async (c) => {
+    const body = await jsonBody(c);
+    const gallery = await getGallery(c.env.DB, c.get("workspaceName"), c.req.param("id"));
+    if (!gallery) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
+    const parsed = parseExternalReference(body.provider, body.coordinate);
+    if (!parsed.ok)
+      throw new ValidationError(parsed.message, { code: "gallery_invalid_reference" });
+    const result = unwrapMutation(
+      await addExternalReference(c.env.DB, c.get("workspaceName"), c.req.param("id"), {
+        expectedVersion: requireExpectedVersion(body.expectedVersion),
+        ...parsed.value,
+      }),
+    );
+    return c.json(referenceDto(result.value), result.unchanged ? 200 : 201);
+  })
+  .delete(
+    "/:id/external-references/:referenceId",
+    writeRateLimit,
+    requireScope("files:write"),
+    async (c) => {
+      const body = await jsonBody(c);
+      const result = await removeExternalReference(
+        c.env.DB,
+        c.get("workspaceName"),
+        c.req.param("id"),
+        c.req.param("referenceId"),
+        requireExpectedVersion(body.expectedVersion),
+      );
+      if (result.status !== "ok" && result.status !== "unchanged") mutationError(result);
+      return c.json({ deleted: true, id: c.req.param("referenceId") });
+    },
+  );
