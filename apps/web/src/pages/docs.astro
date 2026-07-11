@@ -1,0 +1,469 @@
+---
+// uploads.sh — docs. A single linkable page that walks through the same setup
+// the GitHub README covers, in plain language with click-to-copy commands.
+// Purpose-first: getting media onto GitHub PRs, issues, and code reviews.
+const REPO = "https://github.com/buildinternet/uploads";
+const FAVICON =
+	"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23120d1e'/%3E%3Cg fill='none' stroke='%23b794ff' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 12.5 L16 5 L24 12.5'/%3E%3Cpath d='M8 19.5 L16 12 L24 19.5' opacity='.55'/%3E%3Cpath d='M8 26.5 L16 19 L24 26.5' opacity='.28'/%3E%3C/g%3E%3C/svg%3E";
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Docs · uploads.sh</title>
+    <meta
+      name="description"
+      content="How to put screenshots and other media on GitHub PRs, issues, and code reviews with one command — install, attach, and agent setup."
+    />
+    <link rel="canonical" href="https://uploads.sh/docs" />
+    <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://uploads.sh/docs" />
+    <meta property="og:title" content="Docs · uploads.sh" />
+    <meta
+      property="og:description"
+      content="How to put screenshots and other media on GitHub PRs, issues, and code reviews with one command."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Docs · uploads.sh" />
+    <meta
+      name="twitter:description"
+      content="How to put screenshots and other media on GitHub PRs, issues, and code reviews with one command."
+    />
+    <link rel="icon" href={FAVICON} />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0813;
+        --panel: #120d1e;
+        --line: #2b1f46;
+        --bezel: #251a3d;
+        --fg: #e6dff5;
+        --body: #beb5d6;
+        --muted: #8e86a5;
+        --purple: #b794ff;
+        --purple-dim: #8262c9;
+        --purple-faint: #53407e;
+        --cyan: #7dcfff;
+        --green-ok: #9ece6a;
+        --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      @media (prefers-reduced-motion: reduce) {
+        html { scroll-behavior: auto; }
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        background: radial-gradient(100% 60% at 50% 0%, #150e24, var(--bg) 55%);
+        color: var(--fg);
+        font: 15px/1.75 var(--mono);
+        padding: 48px 24px 64px;
+      }
+      main { width: min(720px, 100%); margin: 0 auto; }
+      .home {
+        color: var(--purple);
+        text-decoration: none;
+        font-size: 13px;
+        letter-spacing: 0.08em;
+      }
+      .home:hover, .home:focus-visible { text-decoration: underline; outline: none; }
+      h1 { font-size: clamp(26px, 5vw, 34px); line-height: 1.25; margin: 20px 0 4px; }
+      .tagline { color: var(--muted); font-size: 14px; margin: 0 0 28px; }
+
+      /* on-page nav */
+      nav.toc {
+        background: var(--panel);
+        border: 1px solid var(--bezel);
+        border-radius: 10px;
+        padding: 14px 18px;
+        font-size: 13px;
+        margin-bottom: 12px;
+      }
+      nav.toc .head {
+        color: var(--purple-dim);
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        margin: 0 0 8px;
+      }
+      nav.toc ol {
+        margin: 0;
+        padding-left: 22px;
+        columns: 2;
+        column-gap: 28px;
+      }
+      nav.toc li { margin: 3px 0; break-inside: avoid; }
+      @media (max-width: 560px) {
+        nav.toc ol { columns: 1; }
+      }
+
+      a {
+        color: var(--cyan);
+        text-decoration: underline;
+        text-decoration-color: var(--purple-faint);
+        text-underline-offset: 3px;
+      }
+      a:hover, a:focus-visible { background: rgba(125, 207, 255, 0.12); outline: none; }
+
+      section h2 {
+        font-size: 19px;
+        margin: 44px 0 10px;
+        padding-top: 24px;
+        border-top: 1px solid var(--line);
+        scroll-margin-top: 24px;
+        position: relative;
+      }
+      section h2 .anchor {
+        color: var(--purple-faint);
+        text-decoration: none;
+        margin-left: 8px;
+        font-weight: 400;
+      }
+      section h2 .anchor:hover,
+      section h2 .anchor:focus-visible { color: var(--purple); background: none; }
+      p, li { color: var(--body); }
+      strong { color: var(--fg); }
+      ul { padding-left: 22px; }
+      li { margin: 8px 0; }
+      code {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 1px 6px;
+        font-size: 0.92em;
+      }
+
+      /* copyable command rows */
+      .cmd {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 12px;
+        background: var(--panel);
+        border: 1px solid var(--bezel);
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin: 12px 0;
+        font-size: 13.5px;
+      }
+      .cmd .text {
+        color: var(--fg);
+        overflow-x: auto;
+        white-space: nowrap;
+        scrollbar-width: none;
+      }
+      .cmd .text::before { content: "$ "; color: var(--purple); }
+      .cmd .text .url { color: var(--cyan); }
+      .cmd .text .cm { color: var(--muted); }
+      .cmd button {
+        font: 11px var(--mono);
+        letter-spacing: 0.06em;
+        color: var(--purple);
+        background: rgba(183, 148, 255, 0.08);
+        border: 1px solid #38295c;
+        border-radius: 6px;
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      .cmd button:hover,
+      .cmd button:focus-visible {
+        background: rgba(183, 148, 255, 0.18);
+        outline: none;
+        border-color: var(--purple-faint);
+      }
+      .cmd button.done { color: var(--green-ok); border-color: #3c4a2e; }
+
+      /* multi-line output block (not copyable) */
+      .block {
+        background: var(--panel);
+        border: 1px solid var(--bezel);
+        border-radius: 8px;
+        padding: 12px 14px;
+        margin: 12px 0;
+        font-size: 13px;
+        color: var(--muted);
+        overflow-x: auto;
+      }
+      .block .ok { color: var(--green-ok); }
+      .block .v { color: var(--cyan); }
+      .block pre { margin: 0; white-space: pre; }
+
+      .note {
+        border-left: 3px solid var(--purple-faint);
+        padding: 2px 0 2px 14px;
+        margin: 16px 0;
+        color: var(--muted);
+        font-size: 13.5px;
+      }
+
+      footer {
+        margin-top: 56px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+        color: #6f6787;
+        font-size: 12px;
+      }
+      footer a { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="home" href="/">← uploads.sh</a>
+      <h1>Docs</h1>
+      <p class="tagline">
+        Put screenshots and other media on GitHub — PRs, issues, code reviews — with one command.
+      </p>
+
+      <nav class="toc" aria-label="On this page">
+        <p class="head"># on this page</p>
+        <ol>
+          <li><a href="#what-it-does">What it does</a></li>
+          <li><a href="#install">Install &amp; sign in</a></li>
+          <li><a href="#attach">Attach files to a PR</a></li>
+          <li><a href="#put">Get a URL for any file</a></li>
+          <li><a href="#agents">Set up your agent</a></li>
+          <li><a href="#manage">Manage what you uploaded</a></li>
+          <li><a href="#good-to-know">Good to know</a></li>
+        </ol>
+      </nav>
+
+      <section id="what-it-does">
+        <h2>What it does <a class="anchor" href="#what-it-does" aria-label="Link to this section">#</a></h2>
+        <p>
+          Getting an image into a GitHub comment is easy for a person — you drag it in. For an
+          agent or a script, there is no drag-and-drop. uploads.sh fills that gap: it hosts your
+          file at a stable public URL and posts it to the right place on GitHub for you.
+        </p>
+        <p>The everyday flow is two commands:</p>
+        <div class="cmd">
+          <span class="text">uploads attach ./before.png ./after.png</span>
+          <button type="button" data-copy="uploads attach ./before.png ./after.png">copy</button>
+        </div>
+        <div class="block" aria-label="Example output">
+          <pre><span class="ok">✓</span> uploaded 2 files → <span class="v">https://storage.uploads.sh/…</span>
+<span class="ok">✓</span> attachments comment updated on PR #123</pre>
+        </div>
+        <p>
+          That's it. The CLI figures out which repo and pull request you're on, uploads the files,
+          and keeps one tidy "Attachments" comment on the PR up to date. Run it again with new
+          files and the same comment updates — no pile-up.
+        </p>
+      </section>
+
+      <section id="install">
+        <h2>Install &amp; sign in <a class="anchor" href="#install" aria-label="Link to this section">#</a></h2>
+        <p>Install the CLI globally, then sign in once:</p>
+        <div class="cmd">
+          <span class="text">npm install -g @buildinternet/uploads</span>
+          <button type="button" data-copy="npm install -g @buildinternet/uploads">copy</button>
+        </div>
+        <div class="cmd">
+          <span class="text">uploads login</span>
+          <button type="button" data-copy="uploads login">copy</button>
+        </div>
+        <p>
+          <code>uploads login</code> asks for an enrollment code. Access is by invitation — an
+          uploads.sh administrator sends you a short-lived, single-use code (usually as a link).
+          The CLI trades it for a workspace token and saves it, so you only do this once per
+          machine.
+        </p>
+        <p>Prefer not to install anything? Every command works as a one-off with <code>npx</code>:</p>
+        <div class="cmd">
+          <span class="text">npx @buildinternet/uploads attach ./after.png</span>
+          <button type="button" data-copy="npx @buildinternet/uploads attach ./after.png">copy</button>
+        </div>
+        <p>To check that everything is wired up:</p>
+        <div class="cmd">
+          <span class="text">uploads doctor</span>
+          <button type="button" data-copy="uploads doctor">copy</button>
+        </div>
+      </section>
+
+      <section id="attach">
+        <h2>Attach files to a PR <a class="anchor" href="#attach" aria-label="Link to this section">#</a></h2>
+        <p>
+          <code>attach</code> is the command you'll use most. From a checked-out branch with an
+          open pull request, it needs no arguments beyond the files:
+        </p>
+        <div class="cmd">
+          <span class="text">uploads attach ./screenshot.png</span>
+          <button type="button" data-copy="uploads attach ./screenshot.png">copy</button>
+        </div>
+        <p>
+          It uses the <code>gh</code> CLI to find the current repo and PR. If you're not on a PR
+          branch — or you want a different target — say so explicitly:
+        </p>
+        <div class="cmd">
+          <span class="text">uploads attach ./shot.png --pr 123</span>
+          <button type="button" data-copy="uploads attach ./shot.png --pr 123">copy</button>
+        </div>
+        <div class="cmd">
+          <span class="text">uploads attach ./shot.png --issue 45</span>
+          <button type="button" data-copy="uploads attach ./shot.png --issue 45">copy</button>
+        </div>
+        <div class="cmd">
+          <span class="text">uploads attach ./shot.png --repo owner/name --pr 123</span>
+          <button type="button" data-copy="uploads attach ./shot.png --repo owner/name --pr 123">copy</button>
+        </div>
+        <p>
+          Want the URLs and ready-to-paste Markdown without touching any GitHub comment — say, to
+          drop an image into a PR description yourself?
+        </p>
+        <div class="cmd">
+          <span class="text">uploads attach ./shot.png --no-comment</span>
+          <button type="button" data-copy="uploads attach ./shot.png --no-comment">copy</button>
+        </div>
+      </section>
+
+      <section id="put">
+        <h2>Get a URL for any file <a class="anchor" href="#put" aria-label="Link to this section">#</a></h2>
+        <p>
+          <code>put</code> is the simpler building block: upload one file, get back a public URL
+          and Markdown you can paste anywhere.
+        </p>
+        <div class="cmd">
+          <span class="text">uploads put ./shot.png</span>
+          <button type="button" data-copy="uploads put ./shot.png">copy</button>
+        </div>
+        <p>A few useful variations:</p>
+        <div class="cmd">
+          <span class="text">uploads put ./shot.png --pr 123 --comment <span class="cm"># also post to the PR</span></span>
+          <button type="button" data-copy="uploads put ./shot.png --pr 123 --comment">copy</button>
+        </div>
+        <div class="cmd">
+          <span class="text">uploads put ./shot.png --no-optimize <span class="cm"># upload the original bytes</span></span>
+          <button type="button" data-copy="uploads put ./shot.png --no-optimize">copy</button>
+        </div>
+        <div class="cmd">
+          <span class="text">uploads put ./mobile.png --frame phone <span class="cm"># add device chrome</span></span>
+          <button type="button" data-copy="uploads put ./mobile.png --frame phone">copy</button>
+        </div>
+        <p>
+          By default, images are re-encoded to WebP (capped size, high quality) so GitHub embeds
+          stay fast, and <strong>EXIF metadata is stripped</strong>. Use <code>--keep-exif</code>
+          to keep metadata, or <code>--no-optimize</code> to skip all processing.
+        </p>
+      </section>
+
+      <section id="agents">
+        <h2>Set up your agent <a class="anchor" href="#agents" aria-label="Link to this section">#</a></h2>
+        <p>
+          If you use Claude Code or another agent runtime, one command installs both the agent
+          skill and the hosted MCP server:
+        </p>
+        <div class="cmd">
+          <span class="text">uploads install</span>
+          <button type="button" data-copy="uploads install">copy</button>
+        </div>
+        <p>Or set up each piece yourself:</p>
+        <div class="cmd">
+          <span class="text">npx skills add buildinternet/uploads --skill uploads-cli</span>
+          <button type="button" data-copy="npx skills add buildinternet/uploads --skill uploads-cli">copy</button>
+        </div>
+        <div class="cmd">
+          <span class="text">claude mcp add --transport http uploads <span class="url">https://agents.uploads.sh/mcp</span></span>
+          <button type="button" data-copy="claude mcp add --transport http uploads https://agents.uploads.sh/mcp">copy</button>
+        </div>
+        <p>
+          The <strong>skill</strong> teaches the agent when and how to use the CLI — for example,
+          attaching before/after screenshots to the PR it just opened. The <strong>MCP
+          server</strong> gives agents the same tools (<code>put</code>, <code>attach</code>,
+          <code>list</code>, <code>delete</code>, and more) over HTTP, using the same token as the
+          CLI. There's also a local stdio variant if you prefer:
+        </p>
+        <div class="cmd">
+          <span class="text">claude mcp add uploads -- uploads mcp</span>
+          <button type="button" data-copy="claude mcp add uploads -- uploads mcp">copy</button>
+        </div>
+      </section>
+
+      <section id="manage">
+        <h2>Manage what you uploaded <a class="anchor" href="#manage" aria-label="Link to this section">#</a></h2>
+        <div class="cmd">
+          <span class="text">uploads list <span class="cm"># see your files</span></span>
+          <button type="button" data-copy="uploads list">copy</button>
+        </div>
+        <div class="cmd">
+          <span class="text">uploads delete &lt;key&gt; <span class="cm"># remove a file</span></span>
+          <button type="button" data-copy="uploads delete">copy</button>
+        </div>
+        <div class="cmd">
+          <span class="text">uploads usage <span class="cm"># storage used by your workspace</span></span>
+          <button type="button" data-copy="uploads usage">copy</button>
+        </div>
+        <div class="cmd">
+          <span class="text">uploads --help <span class="cm"># everything else</span></span>
+          <button type="button" data-copy="uploads --help">copy</button>
+        </div>
+      </section>
+
+      <section id="good-to-know">
+        <h2>Good to know <a class="anchor" href="#good-to-know" aria-label="Link to this section">#</a></h2>
+        <ul>
+          <li>
+            <strong>Hosted files are public.</strong> Anyone with the URL can view them — even
+            media attached to private repositories. Don't upload secrets or sensitive UI.
+          </li>
+          <li>
+            <strong>Access is by invitation.</strong> There's no self-serve signup right now. If
+            you'd like in, reach out via <a href={REPO}>the GitHub repo</a>.
+          </li>
+          <li>
+            <strong>Everything lands in your workspace.</strong> Files are stored under a prefix
+            for your workspace, and PR/issue attachments get stable, predictable paths — so
+            re-attaching an updated screenshot replaces the old URL's spot instead of littering.
+          </li>
+          <li>
+            <strong>Still early.</strong> uploads.sh is built in the open and APIs may change
+            without notice. Don't depend on it for anything you can't afford to re-key.
+          </li>
+        </ul>
+        <div class="note">
+          Looking for deeper material — the REST API, enrollment internals, self-hosting, or
+          operator docs? It all lives in <a href={REPO}>the GitHub repository</a>. Agents can also
+          read <a href="/llms.txt">/llms.txt</a> for a machine-friendly index.
+        </div>
+      </section>
+
+      <footer>
+        uploads.sh · a <a href="https://buildinternet.com">Build Internet</a> project ·
+        <a href={REPO}>source</a> · <a href="/terms">terms</a> · <a href="/privacy">privacy</a>
+      </footer>
+    </main>
+
+    <script>
+      for (const btn of document.querySelectorAll(".cmd button")) {
+        btn.addEventListener("click", async () => {
+          const text = btn.getAttribute("data-copy") ?? "";
+          let ok = false;
+          try {
+            await navigator.clipboard.writeText(text);
+            ok = true;
+          } catch {
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+              ok = document.execCommand("copy");
+            } catch {
+              ok = false;
+            }
+            ta.remove();
+          }
+          btn.textContent = ok ? "copied ✓" : "copy failed";
+          btn.classList.toggle("done", ok);
+          setTimeout(() => {
+            btn.textContent = "copy";
+            btn.classList.remove("done");
+          }, 1500);
+        });
+      }
+    </script>
+  </body>
+</html>
