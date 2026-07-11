@@ -1,5 +1,29 @@
 # @buildinternet/uploads
 
+## 0.5.0
+
+### Minor Changes
+
+- 97a2e3c: `uploads admin invite create --email <address>` now delivers the invite magic link
+  by email instead of printing it. The API sends from `invites@uploads.sh` via
+  Cloudflare Email Sending; delivery is rate-limited per recipient and audit-logged
+  without the code or link. On success the CLI confirms delivery and does not print the
+  secret; if delivery fails the invite is still created and the CLI prints the link as a
+  fallback.
+- 97a2e3c: `uploads admin invite create` now prints a single self-contained magic link by
+  default. The one-time code rides in the link's URL fragment (`…/invite?id=…#code=…`),
+  which browsers never send to a server, so the invite page can offer a one-click login
+  command while the code stays out of query strings, server logs, and referrers—and
+  opening the page neither logs nor consumes it. Pass `--separate-code` for the previous
+  two-channel output (a non-secret page URL plus a code you deliver separately). The
+  invite page also now shows which workspace the invitation is for.
+- 2245f63: Add `uploads admin invite create` as the user-facing invitation command and return a separate, non-secret onboarding page URL alongside the one-time login code. Alternate deployments can derive the page origin from `--api-url` or set it explicitly with `--web-url`; the previous `admin enrollment create` spelling remains supported.
+- 29c7e83: Parse the nested API error envelope (`error.code` / `error.message`) while still accepting the legacy flat `{ error: string }` shape.
+
+### Patch Changes
+
+- ff5495a: Warn in CLI and agent tool help that uploads and predictable PR/issue attachment keys remain public for private and internal repositories.
+
 ## 0.4.0
 
 ### Minor Changes
