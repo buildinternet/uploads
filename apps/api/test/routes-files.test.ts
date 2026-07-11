@@ -38,7 +38,7 @@ async function makeEnv(
   const bucket = new FakeR2Bucket();
   const env = {
     REGISTRY: { get: async () => record, put: async () => undefined },
-    // No D1 token: force the legacy token path.
+    // No D1 token: force the legacy token path. run/batch no-op for usage metering.
     DB: {
       prepare: () => ({
         bind() {
@@ -47,7 +47,13 @@ async function makeEnv(
         async first() {
           return null;
         },
+        async run() {
+          return { success: true, meta: { changes: 0 }, results: [] };
+        },
       }),
+      async batch(stmts: { run: () => Promise<unknown> }[]) {
+        return Promise.all(stmts.map((s) => s.run()));
+      },
     },
     UPLOADS_DEFAULT: bucket,
     WRITE_LIMITER: { limit: async () => ({ success: opts.rateLimitOk ?? true }) },

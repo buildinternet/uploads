@@ -26,7 +26,13 @@ export const files = new Hono<WorkspaceVars>()
 
     const body = await c.req.arrayBuffer();
     try {
-      const result = await putObject(c.env, c.get("workspace"), key, new Uint8Array(body));
+      const result = await putObject(
+        c.env,
+        c.get("workspace"),
+        key,
+        new Uint8Array(body),
+        c.get("workspaceName"),
+      );
       return c.json({ workspace: c.get("workspaceName"), ...result }, 201);
     } catch (err) {
       return mapFileOpError(c, err);
@@ -54,7 +60,9 @@ export const files = new Hono<WorkspaceVars>()
   // Delete
   .delete("/:key{.+}", writeRateLimit, requireScope("files:delete"), async (c) => {
     try {
-      return c.json(await deleteObject(c.env, c.get("workspace"), c.req.param("key")));
+      return c.json(
+        await deleteObject(c.env, c.get("workspace"), c.req.param("key"), c.get("workspaceName")),
+      );
     } catch (err) {
       return mapFileOpError(c, err);
     }

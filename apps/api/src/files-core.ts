@@ -4,8 +4,10 @@
  * storage I/O, and result shapes. Validation failures throw FileOpError;
  * each surface maps it (HTTP 400 / MCP tool error).
  */
+import type { Files } from "@uploads/storage";
 import { inspectUpload, resolveUploadPolicy } from "./guards";
 import { publicUrl, storage, storageConfig } from "./storage";
+import { recordUsageSafe } from "./usage";
 import type { WorkspaceRecord } from "./workspace";
 
 // The freshness floor on overwrite for every bucket. This is the operative lever
@@ -42,16 +44,30 @@ export class FileOpError extends Error {
   }
 }
 
+/** Size of an existing object, or `null` if missing / unreadable (metering may drift). */
+async function existingSize(store: Files, key: string): Promise<number | null> {
+  try {
+    const meta = await store.head(key);
+    return meta.size ?? 0;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Upload with the workspace's guardrails applied: size cap and content-type
  * allowlist, the stored content type sniffed from the bytes rather than taken
  * from the caller — see guards.ts.
+ *
+ * After a successful write, updates the workspace usage ledger (overwrite-aware).
+ * Metering is best-effort and never fails the upload.
  */
 export async function putObject(
   env: Env,
   ws: WorkspaceRecord,
   key: string,
   bytes: Uint8Array,
+  workspaceName: string,
 ): Promise<{ key: string; url: string | null; size: number; contentType: string }> {
   if (badKey(key)) throw new FileOpError("invalid key");
   if (bytes.byteLength === 0) throw new FileOpError("empty body");
@@ -62,14 +78,25 @@ export async function putObject(
     throw new FileOpError(error, inspection.status, extra);
   }
 
-  await storage(env, ws).upload(key, bytes, {
+  const store = storage(env, ws);
+  const prev = await existingSize(store, key);
+  const newSize = bytes.byteLength;
+
+  await store.upload(key, bytes, {
     contentType: inspection.contentType,
     cacheControl: UPLOAD_CACHE_CONTROL,
   });
+
+  await recordUsageSafe(env.DB, workspaceName, {
+    bytes: prev === null ? newSize : newSize - prev,
+    objects: prev === null ? 1 : 0,
+    uploads: 1,
+  });
+
   return {
     key,
     url: publicUrl(storageConfig(env, ws), key),
-    size: bytes.byteLength,
+    size: newSize,
     contentType: inspection.contentType,
   };
 }
@@ -91,12 +118,27 @@ export async function listObjects(
   };
 }
 
+/** Delete an object and decrement the workspace ledger when size was known. */
 export async function deleteObject(
   env: Env,
   ws: WorkspaceRecord,
   key: string,
+  workspaceName: string,
 ): Promise<{ key: string; deleted: true }> {
   if (badKey(key)) throw new FileOpError("invalid key");
-  await storage(env, ws).delete(key);
+
+  const store = storage(env, ws);
+  const prev = await existingSize(store, key);
+
+  await store.delete(key);
+
+  if (prev !== null) {
+    await recordUsageSafe(env.DB, workspaceName, {
+      bytes: -prev,
+      objects: -1,
+      uploads: 0,
+    });
+  }
+
   return { key, deleted: true };
 }

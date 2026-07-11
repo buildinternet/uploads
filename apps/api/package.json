@@ -12,7 +12,8 @@
   },
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
+    "migrate:d1": "node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js d1 migrations apply DB --remote",
+    "deploy": "pnpm run migrate:d1 && node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
     "types": "wrangler types",
     "workspace:add": "node --env-file-if-exists=../../.env scripts/add-workspace.mjs",
     "typecheck": "wrangler types && tsc --noEmit",
