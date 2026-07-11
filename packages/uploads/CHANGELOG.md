@@ -1,5 +1,15 @@
 # @buildinternet/uploads
 
+## 0.4.0
+
+### Minor Changes
+
+- 383c7e9: Send allowlisted object provenance on put (`X-Uploads-Meta-*`: client, version, optimize/frame flags, source name). Put/head return `metadata`, including server-computed `content-sha256` of the stored body.
+
+### Patch Changes
+
+- cea6cd6: Mark the package `sideEffects: false` so Workers that import helpers from the main entry (e.g. the remote MCP worker) can tree-shake Node-only image code (`sharp` / optimize / frame) and deploy cleanly.
+
 ## 0.3.0
 
 ### Minor Changes
