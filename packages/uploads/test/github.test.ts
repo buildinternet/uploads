@@ -62,15 +62,35 @@ describe("ghKeyPrefix / ghAttachmentKey", () => {
 });
 
 describe("attachmentsCommentBody", () => {
-  it("starts with the marker and renders images inline, other files as links", () => {
+  it("starts with the marker and renders images with a width cap, other files as links", () => {
     const body = attachmentsCommentBody([
       { key: "gh/o/r/pull/1/notes.txt", url: "https://x.test/gh/o/r/pull/1/notes.txt" },
       { key: "gh/o/r/pull/1/after.png", url: "https://x.test/gh/o/r/pull/1/after.png" },
     ]);
     expect(body.startsWith(ATTACHMENTS_MARKER)).toBe(true);
-    expect(body).toContain("![after.png](https://x.test/gh/o/r/pull/1/after.png)");
+    expect(body).toContain(
+      '<img width="400" alt="after.png" src="https://x.test/gh/o/r/pull/1/after.png">',
+    );
+    expect(body).not.toContain("![after.png]");
     expect(body).toContain("- [notes.txt](https://x.test/gh/o/r/pull/1/notes.txt)");
     expect(body).toContain('<a href="https://uploads.sh">uploads.sh</a>');
+  });
+
+  it("uses a narrower width for phone-like filenames", () => {
+    const body = attachmentsCommentBody([
+      {
+        key: "gh/o/r/pull/1/demo-mobile-iphone.webp",
+        url: "https://x.test/iphone.webp",
+      },
+    ]);
+    expect(body).toContain('<img width="280" alt="demo-mobile-iphone.webp"');
+  });
+
+  it("uses a wider width for browser-like filenames", () => {
+    const body = attachmentsCommentBody([
+      { key: "gh/o/r/pull/1/demo-web-browser.webp", url: "https://x.test/browser.webp" },
+    ]);
+    expect(body).toContain('<img width="640" alt="demo-web-browser.webp"');
   });
 
   it("sorts deterministically by key so repeated runs produce identical bodies", () => {

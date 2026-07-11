@@ -320,8 +320,8 @@ export async function applyFrame(
       /* optional */
     }
 
-    // Keep remote frames manageable before WebP optimize.
-    const maxEdge = 1600;
+    // Keep remote frames light for PR embeds (display width is capped separately).
+    const maxEdge = 1000;
     const s = Math.min(1, maxEdge / Math.max(tpl.frameSize.width, tpl.frameSize.height));
     const frameSize = {
       width: Math.round(tpl.frameSize.width * s),
