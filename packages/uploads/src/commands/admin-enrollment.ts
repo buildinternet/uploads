@@ -1,9 +1,11 @@
 import { createEnrollment } from "../client.js";
 import { flagInt, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
 
-const HELP = `uploads admin enrollment create [options]
+const HELP = `uploads admin invite create [options]
 
-Admin-only: create a short-lived, one-time enrollment code.
+Admin-only: create a short-lived invitation for an existing workspace.
+The invitation page ID is not a credential; share its URL and the one-time code
+as separate fields. The legacy "admin enrollment create" spelling is accepted.
 
 Options:
   --admin-token <token>  Or ADMIN_TOKEN (UPLOADS_ADMIN_TOKEN is a legacy alias)
@@ -43,8 +45,11 @@ export async function runAdmin(
     process.stderr.write(HELP);
     return 0;
   }
-  if (parsed.positionals[0] !== "enrollment" || parsed.positionals[1] !== "create")
-    throw new UsageError("expected: uploads admin enrollment create");
+  if (
+    !["invite", "enrollment"].includes(parsed.positionals[0] ?? "") ||
+    parsed.positionals[1] !== "create"
+  )
+    throw new UsageError("expected: uploads admin invite create");
   const adminToken =
     flagString(parsed.flags, "--admin-token") ??
     process.env.ADMIN_TOKEN ??
@@ -66,7 +71,7 @@ export async function runAdmin(
     );
   else
     process.stdout.write(
-      `Enrollment code (share once): ${result.code}\nworkspace: ${workspace}\nexpires: ${result.expiresAt}\n`,
+      `Invite page: https://uploads.sh/invite?id=${result.pageId}\nOne-time code (share separately): ${result.code}\nworkspace: ${workspace}\nexpires: ${result.expiresAt}\n`,
     );
   return 0;
 }

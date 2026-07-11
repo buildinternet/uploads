@@ -1,8 +1,8 @@
-# Agent enrollment and `uploads login`
+# Invitations and `uploads login`
 
-Routine agents authenticate through short-lived enrollment codes. They never receive
+Early adopters authenticate through short-lived invitation codes. They never receive
 the API's `ADMIN_TOKEN`. An administrator authorizes an existing workspace, shares the
-single-use code, and the agent runs `uploads login` to exchange it for a scoped,
+single-use code, and the adopter runs `uploads login` to exchange it for a scoped,
 expiring workspace token.
 
 ## Agent login
@@ -34,7 +34,7 @@ On success, the CLI saves `UPLOADS_API_URL`, `UPLOADS_WORKSPACE`, and
 the raw workspace token. Use `--force` only when intentionally replacing an existing
 configured token.
 
-## Administrator: create an enrollment
+## Administrator: create an invitation
 
 Enrollment creation remains behind `ADMIN_TOKEN`; only an administrator runs this
 request. Do not paste the admin credential into agent prompts, configuration, issues,
@@ -50,7 +50,7 @@ curl -X POST https://api.uploads.sh/admin/enrollments \
 The admin CLI provides the same operation:
 
 ```bash
-ADMIN_TOKEN=<admin-credential> uploads admin enrollment create \
+ADMIN_TOKEN=<admin-credential> uploads admin invite create \
   --workspace default --label codex-cli
 ```
 
@@ -58,9 +58,12 @@ ADMIN_TOKEN=<admin-credential> uploads admin enrollment create \
 workflow. `UPLOADS_ADMIN_TOKEN` may be accepted as a compatibility alias. Neither
 belongs in routine-agent configuration.
 
-The response shows the enrollment code once. Transfer only that code to the routine
-agent. It expires after 10 minutes and is consumed by a successful exchange. Invalid,
-expired, and consumed codes receive the same public error shape.
+The response includes a non-secret onboarding URL such as
+`https://uploads.sh/invite?id=upi_…` and shows the invitation code once. Send them as
+separate fields. The URL exposes only expiry and used status; it cannot mint credentials.
+The code expires after 10 minutes and is consumed by a successful exchange. Invalid, expired, and consumed codes receive the same public error shape. The invite page is
+served without analytics or third-party assets and requests `no-store`, `no-referrer`, and
+`noindex` handling so the code never needs to appear in a URL.
 
 Enrollment creation accepts `files:delete` only when the administrator explicitly
 includes it in `scopes`. Keep the default read/write scopes for routine agents;

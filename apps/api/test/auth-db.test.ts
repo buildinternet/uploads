@@ -5,6 +5,7 @@ import {
   createEnrollment,
   exchangeEnrollment,
   findActiveToken,
+  findEnrollmentPage,
   parseScopes,
 } from "../src/auth-db";
 
@@ -43,6 +44,13 @@ class FakeD1 {
 
   first(statement: FakeStatement): Row | null {
     const { sql, values } = statement;
+    if (sql.startsWith("SELECT expires_at, used_at")) {
+      const [pageId, now] = values as string[];
+      const enrollment = this.enrollments.find(
+        (row) => row.page_id === pageId && (row.expires_at as string) > now,
+      );
+      return enrollment ? { expires_at: enrollment.expires_at, used_at: enrollment.used_at } : null;
+    }
     if (sql.startsWith("SELECT id, workspace, code_hash")) {
       const [hash, now] = values as string[];
       return (
@@ -70,7 +78,8 @@ class FakeD1 {
   run(statement: FakeStatement): { meta: { changes: number }; success: true; results: never[] } {
     const { sql, values } = statement;
     if (sql.startsWith("INSERT INTO auth_enrollments")) {
-      const [id, workspace, codeHash, label, scopes, createdAt, expiresAt, tokenExpiresAt] = values;
+      const [id, workspace, codeHash, label, scopes, createdAt, expiresAt, tokenExpiresAt, pageId] =
+        values;
       this.enrollments.push({
         id,
         workspace,
@@ -81,6 +90,7 @@ class FakeD1 {
         expires_at: expiresAt,
         token_expires_at: tokenExpiresAt,
         used_at: null,
+        page_id: pageId,
       });
       return result(1);
     }
@@ -157,6 +167,8 @@ describe("D1 enrollment exchange", () => {
     });
 
     expect(enrollment.code).toMatch(/^upe_/);
+    expect(enrollment.pageId).toMatch(/^upi_[A-Za-z0-9_-]{16}$/);
+    expect(fake.enrollments[0]?.page_id).toBe(enrollment.pageId);
     expect(JSON.stringify(fake.enrollments)).not.toContain(enrollment.code);
     expect(Date.parse(enrollment.expiresAt) - now.getTime()).toBe(
       DEFAULT_ENROLLMENT_SECONDS * 1000,
@@ -164,6 +176,22 @@ describe("D1 enrollment exchange", () => {
     expect(Date.parse(enrollment.tokenExpiresAt) - now.getTime()).toBe(
       DEFAULT_TOKEN_SECONDS * 1000,
     );
+  });
+
+  it("looks up only safe page status by its non-secret identifier", async () => {
+    const fake = new FakeD1();
+    const now = new Date("2026-07-10T12:00:00.000Z");
+    const enrollment = await createEnrollment(database(fake), {
+      workspace: "default",
+      scopes: ["files:read", "files:write"],
+      now,
+    });
+
+    await expect(findEnrollmentPage(database(fake), enrollment.pageId, now)).resolves.toEqual({
+      expiresAt: enrollment.expiresAt,
+      used: false,
+    });
+    await expect(findEnrollmentPage(database(fake), "upi_invalid", now)).resolves.toBeNull();
   });
 
   it("atomically exchanges once and creates a scoped, expiring token", async () => {

@@ -133,6 +133,7 @@ describe("admin enrollment", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       response(
         {
+          pageId: "upi_abcdefghijklmnop",
           code: "upe_abcdefghijklmnopqrstuvwxyz012345",
           expiresAt: "2030-01-01T00:00:00Z",
           tokenExpiresAt: "2030-02-01T00:00:00Z",
@@ -144,7 +145,7 @@ describe("admin enrollment", () => {
     expect(
       await runAdmin(
         [
-          "enrollment",
+          "invite",
           "create",
           "--workspace",
           "default",
@@ -174,6 +175,7 @@ describe("admin enrollment", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       response(
         {
+          pageId: "upi_abcdefghijklmnop",
           code: "upe_abcdefghijklmnopqrstuvwxyz012345",
           expiresAt: "2030-01-01T00:00:00Z",
           tokenExpiresAt: "2030-02-01T00:00:00Z",

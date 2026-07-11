@@ -22,6 +22,7 @@ beforeAll(() => {
 function env(
   options: {
     legacyHash?: string;
+    inviteAllowed?: boolean;
     d1?: {
       tokenHash: string;
       scopes: string;
@@ -33,6 +34,10 @@ function env(
   const record = options.legacyHash ? { ...workspace, tokenHash: options.legacyHash } : workspace;
   return {
     ADMIN_TOKEN: "admin-secret",
+    INVITE_LIMITER:
+      options.inviteAllowed === undefined
+        ? undefined
+        : { limit: async () => ({ success: options.inviteAllowed }) },
     REGISTRY: {
       get: async () => record,
       put: async () => undefined,
@@ -160,6 +165,17 @@ describe("auth routes", () => {
       responses.every((response) => response.headers.get("Cache-Control") === "no-store"),
     ).toBe(true);
     expect(new Set(bodies.map((body) => JSON.stringify(body))).size).toBe(1);
+  });
+
+  it("rate limits public invitation routes independently", async () => {
+    const response = await app.request(
+      "/auth/enrollments/exchange",
+      { method: "POST", body: JSON.stringify({ code: `upe_${"a".repeat(24)}` }) },
+      env({ inviteAllowed: false }),
+    );
+    expect(response.status).toBe(429);
+    const body = (await response.json()) as { error: { type: string } };
+    expect(body.error.type).toBe("rate_limited");
   });
 
   it("keeps legacy KV credentials fully scoped", async () => {
