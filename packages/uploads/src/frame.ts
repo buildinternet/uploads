@@ -1,11 +1,11 @@
 /**
- * Optional device/browser frames for put/attach.
+ * Optional device/browser frames for put/attach (default off).
  *
- * Default off. Procedural `phone` / `browser` ship with no third-party assets.
- * Named device presets fetch frame+mask from the open
- * [device-frames-media](https://github.com/jonnyjackson26/device-frames-media)
- * set (cached under the user cache dir) — not redistributed in the npm tarball
- * until license redistributability is clearer.
+ * - `phone` / `browser` — procedural (no third-party assets)
+ * - `iphone-16-pro` — fetches frame+mask from device-frames-media once,
+ *   cached under ~/.cache/uploads/frames (not bundled in the npm package)
+ *
+ * @see https://github.com/jonnyjackson26/device-frames-media
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -16,14 +16,11 @@ import sharp from "sharp";
 export type FrameFit = "cover" | "contain";
 
 export interface FrameOptions {
-  /** Preset id: phone | browser | iphone-16-pro | … */
   id: string;
   fit?: FrameFit;
-  /** Optional URL shown in the procedural browser chrome. */
+  /** Address bar text for procedural `browser`. */
   browserUrl?: string;
-  /** Injected for tests (skip network). */
   fetchImpl?: typeof fetch;
-  /** Override cache root (tests). */
   cacheDir?: string;
 }
 
@@ -36,68 +33,30 @@ export interface FrameResult {
   skippedReason?: string;
 }
 
-interface ScreenRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+type ScreenRect = { x: number; y: number; width: number; height: number };
+type Size = { width: number; height: number };
 
-interface RemoteDevicePreset {
-  kind: "remote";
-  label: string;
-  /** Directory URL (no trailing slash) hosting frame.png + mask.png */
-  assetBase: string;
-  screen: ScreenRect;
-  frameSize: { width: number; height: number };
-  attribution: string;
-}
+type FramePreset =
+  | { kind: "procedural"; label: string }
+  | {
+      kind: "remote";
+      label: string;
+      /** Directory URL with frame.png, mask.png, template.json */
+      assetBase: string;
+    };
 
-interface ProceduralPreset {
-  kind: "procedural";
-  label: string;
-}
+const DEVICE_FRAMES_BASE =
+  "https://raw.githubusercontent.com/jonnyjackson26/device-frames-media/main/device-frames-output";
 
-type FramePreset = ProceduralPreset | RemoteDevicePreset;
-
-/**
- * Built-in frame catalog. Remote presets use community PNGs at fetch time.
- * @see https://github.com/jonnyjackson26/device-frames-media
- */
 export const FRAME_PRESETS: Record<string, FramePreset> = {
-  phone: { kind: "procedural", label: "Generic phone bezel (procedural)" },
-  browser: { kind: "procedural", label: "Generic browser chrome (procedural)" },
+  phone: { kind: "procedural", label: "Generic phone bezel" },
+  browser: { kind: "procedural", label: "Generic browser chrome" },
   "iphone-16-pro": {
     kind: "remote",
-    label: "iPhone 16 Pro (Black Titanium)",
-    assetBase:
-      "https://raw.githubusercontent.com/jonnyjackson26/device-frames-media/main/device-frames-output/Apple%20iPhone/16%20Pro/Black%20Titanium",
-    screen: { x: 102, y: 100, width: 1206, height: 2622 },
-    frameSize: { width: 1406, height: 2822 },
-    attribution: "Frame art from jonnyjackson26/device-frames-media (fetched at use; not bundled).",
-  },
-  "iphone-15-pro-max": {
-    kind: "remote",
-    label: "iPhone 15 Pro Max (Black Titanium)",
-    assetBase:
-      "https://raw.githubusercontent.com/jonnyjackson26/device-frames-media/main/device-frames-output/Apple%20iPhone/15%20Pro%20Max/Black%20Titanium",
-    screen: { x: 100, y: 100, width: 1290, height: 2796 },
-    frameSize: { width: 1490, height: 2996 },
-    attribution: "Frame art from jonnyjackson26/device-frames-media (fetched at use; not bundled).",
-  },
-  "pixel-9-pro": {
-    kind: "remote",
-    label: "Pixel 9 Pro (Obsidian)",
-    assetBase:
-      "https://raw.githubusercontent.com/jonnyjackson26/device-frames-media/main/device-frames-output/Android%20Phone/Pixel%209%20Pro/Obsidian",
-    screen: { x: 170, y: 142, width: 1280, height: 2856 },
-    frameSize: { width: 1620, height: 3136 },
-    attribution: "Frame art from jonnyjackson26/device-frames-media (fetched at use; not bundled).",
+    label: "iPhone 16 Pro (community frame art)",
+    assetBase: `${DEVICE_FRAMES_BASE}/Apple%20iPhone/16%20Pro/Black%20Titanium`,
   },
 };
-
-// Catalog screen/frameSize are fallbacks; resolveRemoteScreen() prefers
-// template.json from the asset base when download succeeds.
 
 export function listFramePresets(): Array<{ id: string; label: string; kind: string }> {
   return Object.entries(FRAME_PRESETS).map(([id, p]) => ({
@@ -108,67 +67,49 @@ export function listFramePresets(): Array<{ id: string; label: string; kind: str
 }
 
 export function resolveFrameId(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
+  if (!raw?.trim()) return undefined;
   const id = raw.trim().toLowerCase();
-  if (!id) return undefined;
   if (!(id in FRAME_PRESETS)) {
-    const known = Object.keys(FRAME_PRESETS).join(", ");
-    throw new Error(`unknown frame "${raw}" (known: ${known})`);
+    throw new Error(`unknown frame "${raw}" (known: ${Object.keys(FRAME_PRESETS).join(", ")})`);
   }
   return id;
 }
 
-function defaultCacheDir(): string {
-  const xdg = process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache");
-  return join(xdg, "uploads", "frames");
+function cacheDirDefault(): string {
+  return join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "uploads", "frames");
 }
 
-async function loadRemoteAsset(
+async function cachedFetch(
   url: string,
   cacheDir: string,
   fetchImpl: typeof fetch,
 ): Promise<Buffer> {
-  const hash = createHash("sha256").update(url).digest("hex").slice(0, 16);
-  const ext = url.includes("mask") ? "mask.png" : url.endsWith(".json") ? "json" : "frame.png";
-  const path = join(cacheDir, `${hash}-${ext}`);
+  const name = `${createHash("sha256").update(url).digest("hex").slice(0, 16)}-${url.split("/").pop() ?? "bin"}`;
+  const path = join(cacheDir, name);
   if (existsSync(path)) return readFileSync(path);
-
   mkdirSync(cacheDir, { recursive: true });
   const res = await fetchImpl(url);
-  if (!res.ok) {
-    throw new Error(`failed to download frame asset (${res.status}): ${url}`);
-  }
+  if (!res.ok) throw new Error(`frame download failed (${res.status}): ${url}`);
   const buf = Buffer.from(await res.arrayBuffer());
   writeFileSync(path, buf);
   return buf;
 }
 
-async function resolveRemoteScreen(
-  preset: RemoteDevicePreset,
-  cacheDir: string,
-  fetchImpl: typeof fetch,
-): Promise<{ screen: ScreenRect; frameSize: { width: number; height: number } }> {
-  try {
-    const tplBuf = await loadRemoteAsset(`${preset.assetBase}/template.json`, cacheDir, fetchImpl);
-    const tpl = JSON.parse(tplBuf.toString("utf8")) as {
-      screen?: ScreenRect;
-      frameSize?: { width: number; height: number };
-    };
-    if (tpl.screen && tpl.frameSize) {
-      return { screen: tpl.screen, frameSize: tpl.frameSize };
-    }
-  } catch {
-    /* fall back to catalog geometry */
-  }
-  return { screen: preset.screen, frameSize: preset.frameSize };
+function scaleRect(r: ScreenRect, s: number): ScreenRect {
+  return {
+    x: Math.round(r.x * s),
+    y: Math.round(r.y * s),
+    width: Math.round(r.width * s),
+    height: Math.round(r.height * s),
+  };
 }
 
-async function compositeWithDeviceFrame(
+async function compositeDevice(
   screenshot: Uint8Array,
   framePng: Buffer,
-  maskPng: Buffer | null,
+  maskPng: Buffer | undefined,
   screen: ScreenRect,
-  frameSize: { width: number; height: number },
+  frameSize: Size,
   fit: FrameFit,
 ): Promise<Buffer> {
   const fitted = await sharp(screenshot)
@@ -182,8 +123,7 @@ async function compositeWithDeviceFrame(
     .png()
     .toBuffer();
 
-  // Full-canvas screenshot layer (transparent outside the screen rect).
-  let screenLayer = await sharp({
+  let layer = await sharp({
     create: {
       width: frameSize.width,
       height: frameSize.height,
@@ -196,25 +136,14 @@ async function compositeWithDeviceFrame(
     .toBuffer();
 
   if (maskPng) {
-    // mask: white = screen. dest-in keeps screenshot only where mask is opaque.
-    screenLayer = await sharp(screenLayer)
+    layer = await sharp(layer)
       .composite([{ input: maskPng, blend: "dest-in" }])
       .png()
       .toBuffer();
   }
 
-  return sharp({
-    create: {
-      width: frameSize.width,
-      height: frameSize.height,
-      channels: 4,
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    },
-  })
-    .composite([
-      { input: screenLayer, left: 0, top: 0 },
-      { input: framePng, left: 0, top: 0 },
-    ])
+  return sharp(layer)
+    .composite([{ input: framePng, left: 0, top: 0 }])
     .png()
     .toBuffer();
 }
@@ -223,11 +152,10 @@ async function proceduralPhone(screenshot: Uint8Array, fit: FrameFit): Promise<B
   const screenW = 390;
   const screenH = 844;
   const bezel = 14;
-  const topChrome = 36;
-  const bottomChrome = 18;
+  const top = 36;
+  const bottom = 18;
   const outerW = screenW + bezel * 2;
-  const outerH = screenH + topChrome + bottomChrome;
-  const radius = 48;
+  const outerH = screenH + top + bottom;
 
   const fitted = await sharp(screenshot)
     .rotate()
@@ -239,29 +167,34 @@ async function proceduralPhone(screenshot: Uint8Array, fit: FrameFit): Promise<B
     .png()
     .toBuffer();
 
-  // Rounded-rect mask for the screen
-  const maskSvg = Buffer.from(
-    `<svg width="${screenW}" height="${screenH}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="0" y="0" width="${screenW}" height="${screenH}" rx="36" ry="36" fill="white"/>
-    </svg>`,
-  );
-  const roundedScreen = await sharp(fitted)
-    .ensureAlpha()
-    .composite([{ input: await sharp(maskSvg).png().toBuffer(), blend: "dest-in" }])
+  const roundMask = await sharp(
+    Buffer.from(
+      `<svg width="${screenW}" height="${screenH}" xmlns="http://www.w3.org/2000/svg"><rect width="${screenW}" height="${screenH}" rx="36" fill="white"/></svg>`,
+    ),
+  )
     .png()
     .toBuffer();
 
-  const shellSvg = Buffer.from(
-    `<svg width="${outerW}" height="${outerH}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="1" y="1" width="${outerW - 2}" height="${outerH - 2}" rx="${radius}" ry="${radius}"
-            fill="#1c1c1e" stroke="#3a3a3c" stroke-width="2"/>
-      <rect x="${bezel + 70}" y="12" width="${screenW - 140}" height="22" rx="11" ry="11" fill="#0a0a0a"/>
-      <circle cx="${outerW / 2}" cy="${outerH - 10}" r="4" fill="#3a3a3c"/>
-    </svg>`,
-  );
+  const screen = await sharp(fitted)
+    .ensureAlpha()
+    .composite([{ input: roundMask, blend: "dest-in" }])
+    .png()
+    .toBuffer();
 
-  return sharp(await sharp(shellSvg).png().toBuffer())
-    .composite([{ input: roundedScreen, left: bezel, top: topChrome }])
+  const shell = await sharp(
+    Buffer.from(
+      `<svg width="${outerW}" height="${outerH}" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="${outerW - 2}" height="${outerH - 2}" rx="48" fill="#1c1c1e" stroke="#3a3a3c" stroke-width="2"/>
+        <rect x="${bezel + 70}" y="12" width="${screenW - 140}" height="22" rx="11" fill="#0a0a0a"/>
+        <circle cx="${outerW / 2}" cy="${outerH - 10}" r="4" fill="#3a3a3c"/>
+      </svg>`,
+    ),
+  )
+    .png()
+    .toBuffer();
+
+  return sharp(shell)
+    .composite([{ input: screen, left: bezel, top }])
     .png()
     .toBuffer();
 }
@@ -273,13 +206,10 @@ async function proceduralBrowser(
 ): Promise<Buffer> {
   const chromeH = 72;
   const pad = 12;
-  const maxContentW = 1200;
-  const maxContentH = 800;
-
   const meta = await sharp(screenshot).rotate().metadata();
   const srcW = meta.width ?? 800;
   const srcH = meta.height ?? 600;
-  const scale = Math.min(1, maxContentW / srcW, maxContentH / srcH);
+  const scale = Math.min(1, 1200 / srcW, 800 / srcH);
   const contentW = Math.max(320, Math.round(srcW * scale));
   const contentH = Math.max(200, Math.round(srcH * scale));
   const outerW = contentW + pad * 2;
@@ -295,53 +225,52 @@ async function proceduralBrowser(
     .png()
     .toBuffer();
 
-  const safeUrl = escapeXml(url.slice(0, 80));
-  const chromeSvg = Buffer.from(
-    `<svg width="${outerW}" height="${outerH}" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#f6f6f7"/>
-          <stop offset="100%" stop-color="#e8e8ea"/>
-        </linearGradient>
-      </defs>
-      <rect x="0.5" y="0.5" width="${outerW - 1}" height="${outerH - 1}" rx="12" ry="12"
-            fill="url(#g)" stroke="#c7c7cc" stroke-width="1"/>
-      <circle cx="22" cy="22" r="6" fill="#ff5f57"/>
-      <circle cx="42" cy="22" r="6" fill="#febc2e"/>
-      <circle cx="62" cy="22" r="6" fill="#28c840"/>
-      <rect x="84" y="12" width="${Math.max(120, outerW - 100)}" height="28" rx="8" ry="8"
-            fill="#ffffff" stroke="#d1d1d6" stroke-width="1"/>
-      <text x="96" y="31" font-family="ui-sans-serif, system-ui, sans-serif" font-size="12"
-            fill="#6e6e73">${safeUrl}</text>
-      <rect x="${pad}" y="${chromeH}" width="${contentW}" height="${contentH}" fill="#ffffff"/>
-    </svg>`,
-  );
+  const safe = url
+    .slice(0, 80)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 
-  return sharp(await sharp(chromeSvg).png().toBuffer())
+  const chrome = await sharp(
+    Buffer.from(
+      `<svg width="${outerW}" height="${outerH}" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0.5" y="0.5" width="${outerW - 1}" height="${outerH - 1}" rx="12" fill="#f0f0f2" stroke="#c7c7cc"/>
+        <circle cx="22" cy="22" r="6" fill="#ff5f57"/>
+        <circle cx="42" cy="22" r="6" fill="#febc2e"/>
+        <circle cx="62" cy="22" r="6" fill="#28c840"/>
+        <rect x="84" y="12" width="${Math.max(120, outerW - 100)}" height="28" rx="8" fill="#fff" stroke="#d1d1d6"/>
+        <text x="96" y="31" font-family="system-ui,sans-serif" font-size="12" fill="#6e6e73">${safe}</text>
+        <rect x="${pad}" y="${chromeH}" width="${contentW}" height="${contentH}" fill="#fff"/>
+      </svg>`,
+    ),
+  )
+    .png()
+    .toBuffer();
+
+  return sharp(chrome)
     .composite([{ input: fitted, left: pad, top: chromeH }])
     .png()
     .toBuffer();
 }
 
-function escapeXml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function withPngExtension(filename: string): string {
+function asPngName(filename: string): string {
   const base = filename.includes("/") ? filename.slice(filename.lastIndexOf("/") + 1) : filename;
   const dot = base.lastIndexOf(".");
-  const stem = dot >= 0 ? base.slice(0, dot) : base;
-  return `${stem}.png`;
+  return `${dot >= 0 ? base.slice(0, dot) : base}.png`;
 }
 
-/**
- * Apply a named frame. Non-images pass through unchanged.
- * Output is PNG; callers typically run optimizeImageForUpload next.
- */
+function skip(
+  bytes: Uint8Array,
+  filename: string,
+  frameId: string,
+  reason: string,
+  contentType = "application/octet-stream",
+): FrameResult {
+  return { bytes, filename, contentType, framed: false, frameId, skippedReason: reason };
+}
+
+/** Apply a named frame. Non-images pass through. Output PNG for the optimize step. */
 export async function applyFrame(
   bytes: Uint8Array,
   filename: string,
@@ -349,99 +278,71 @@ export async function applyFrame(
 ): Promise<FrameResult> {
   const id = opts.id.toLowerCase();
   const preset = FRAME_PRESETS[id];
-  if (!preset) {
-    throw new Error(`unknown frame "${opts.id}"`);
-  }
+  if (!preset) throw new Error(`unknown frame "${opts.id}"`);
 
-  // Quick reject for obvious non-images (optimize will also skip).
   try {
     const meta = await sharp(bytes, { failOn: "none" }).metadata();
-    if (!meta.format || meta.format === "svg") {
-      return {
-        bytes,
-        filename,
-        contentType: "application/octet-stream",
-        framed: false,
-        frameId: id,
-        skippedReason: "not_image",
-      };
-    }
+    if (!meta.format || meta.format === "svg") return skip(bytes, filename, id, "not_image");
     if ((meta.pages ?? 1) > 1) {
-      return {
+      return skip(
         bytes,
         filename,
-        contentType: meta.format === "gif" ? "image/gif" : "image/webp",
-        framed: false,
-        frameId: id,
-        skippedReason: "animated",
-      };
+        id,
+        "animated",
+        meta.format === "gif" ? "image/gif" : "image/webp",
+      );
     }
   } catch {
-    return {
-      bytes,
-      filename,
-      contentType: "application/octet-stream",
-      framed: false,
-      frameId: id,
-      skippedReason: "not_image",
-    };
+    return skip(bytes, filename, id, "not_image");
   }
 
   const fit: FrameFit = opts.fit ?? "cover";
   let out: Buffer;
 
   if (preset.kind === "procedural") {
-    if (id === "browser") {
-      out = await proceduralBrowser(bytes, fit, opts.browserUrl ?? "https://app.example");
-    } else {
-      out = await proceduralPhone(bytes, fit);
-    }
+    out =
+      id === "browser"
+        ? await proceduralBrowser(bytes, fit, opts.browserUrl ?? "https://app.example")
+        : await proceduralPhone(bytes, fit);
   } else {
     const fetchImpl = opts.fetchImpl ?? fetch;
-    const cacheDir = opts.cacheDir ?? defaultCacheDir();
-    const { screen, frameSize } = await resolveRemoteScreen(preset, cacheDir, fetchImpl);
-    const framePng = await loadRemoteAsset(`${preset.assetBase}/frame.png`, cacheDir, fetchImpl);
-    let maskPng: Buffer | null = null;
+    const cacheDir = opts.cacheDir ?? cacheDirDefault();
+    const tpl = JSON.parse(
+      (await cachedFetch(`${preset.assetBase}/template.json`, cacheDir, fetchImpl)).toString(
+        "utf8",
+      ),
+    ) as { screen: ScreenRect; frameSize: Size };
+    const framePng = await cachedFetch(`${preset.assetBase}/frame.png`, cacheDir, fetchImpl);
+    let maskPng: Buffer | undefined;
     try {
-      maskPng = await loadRemoteAsset(`${preset.assetBase}/mask.png`, cacheDir, fetchImpl);
+      maskPng = await cachedFetch(`${preset.assetBase}/mask.png`, cacheDir, fetchImpl);
     } catch {
-      maskPng = null;
+      /* optional */
     }
-    // Downscale huge device frames so WebP optimize stays snappy.
+
+    // Keep remote frames manageable before WebP optimize.
     const maxEdge = 1600;
-    const scale = Math.min(1, maxEdge / Math.max(frameSize.width, frameSize.height));
-    const scaledScreen: ScreenRect = {
-      x: Math.round(screen.x * scale),
-      y: Math.round(screen.y * scale),
-      width: Math.round(screen.width * scale),
-      height: Math.round(screen.height * scale),
+    const s = Math.min(1, maxEdge / Math.max(tpl.frameSize.width, tpl.frameSize.height));
+    const frameSize = {
+      width: Math.round(tpl.frameSize.width * s),
+      height: Math.round(tpl.frameSize.height * s),
     };
-    const scaledSize = {
-      width: Math.round(frameSize.width * scale),
-      height: Math.round(frameSize.height * scale),
-    };
-    const scaledFrame =
-      scale < 1
-        ? await sharp(framePng).resize(scaledSize.width, scaledSize.height).png().toBuffer()
+    const screen = scaleRect(tpl.screen, s);
+    const frame =
+      s < 1
+        ? await sharp(framePng).resize(frameSize.width, frameSize.height).png().toBuffer()
         : framePng;
-    const scaledMask =
-      maskPng && scale < 1
-        ? await sharp(maskPng).resize(scaledSize.width, scaledSize.height).png().toBuffer()
+    const mask =
+      maskPng && s < 1
+        ? await sharp(maskPng).resize(frameSize.width, frameSize.height).png().toBuffer()
         : maskPng;
 
-    out = await compositeWithDeviceFrame(
-      bytes,
-      scaledFrame,
-      scaledMask,
-      scaledScreen,
-      scaledSize,
-      fit,
-    );
+    out = await compositeDevice(bytes, frame, mask, screen, frameSize, fit);
   }
 
   return {
     bytes: new Uint8Array(out),
-    filename: withPngExtension(filename),
+    filename: asPngName(filename),
     contentType: "image/png",
     framed: true,
     frameId: id,

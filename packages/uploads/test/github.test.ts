@@ -70,6 +70,7 @@ describe("attachmentsCommentBody", () => {
     expect(body.startsWith(ATTACHMENTS_MARKER)).toBe(true);
     expect(body).toContain("![after.png](https://x.test/gh/o/r/pull/1/after.png)");
     expect(body).toContain("- [notes.txt](https://x.test/gh/o/r/pull/1/notes.txt)");
+    expect(body).toContain('<a href="https://uploads.sh">uploads.sh</a>');
   });
 
   it("sorts deterministically by key so repeated runs produce identical bodies", () => {

@@ -60,7 +60,7 @@ export function attachmentsCommentBody(items: AttachmentItem[]): string {
   }
   lines.push(
     "",
-    "<sub>Maintained by uploads.sh — re-uploading a file with the same name updates it everywhere it is embedded.</sub>",
+    '<sub>Maintained by <a href="https://uploads.sh">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>',
   );
   return lines.join("\n");
 }

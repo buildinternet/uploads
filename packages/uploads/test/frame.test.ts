@@ -19,9 +19,7 @@ async function solidPng(width: number, height: number): Promise<Uint8Array> {
 describe("resolveFrameId / listFramePresets", () => {
   it("lists built-in presets", () => {
     const ids = listFramePresets().map((p) => p.id);
-    expect(ids).toContain("phone");
-    expect(ids).toContain("browser");
-    expect(ids).toContain("iphone-16-pro");
+    expect(ids).toEqual(["phone", "browser", "iphone-16-pro"]);
   });
 
   it("normalizes ids and rejects unknown", () => {

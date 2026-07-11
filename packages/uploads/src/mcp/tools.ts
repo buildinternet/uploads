@@ -94,16 +94,15 @@ function mcpFrameOptions(args: ToolArgs): {
 const frameProps = {
   frame: {
     type: "string",
-    description:
-      "Optional device/browser frame before optimize: phone | browser | iphone-16-pro | iphone-15-pro-max | pixel-9-pro.",
+    description: "Optional frame before optimize: phone | browser | iphone-16-pro.",
   },
   frameUrl: {
     type: "string",
-    description: "URL shown in procedural browser chrome (with frame=browser).",
+    description: "Address bar text for frame=browser.",
   },
   frameFit: {
     type: "string",
-    description: "cover (default) or contain — how the screenshot fills the screen.",
+    description: "cover (default) or contain.",
   },
 };
 

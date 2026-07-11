@@ -45,11 +45,10 @@ capped, high quality) before upload so GitHub embeds stay small, and **EXIF is
 stripped**. Pass `--keep-exif` / `UPLOADS_KEEP_EXIF=1` to preserve image metadata, or
 `--no-optimize` / `UPLOADS_NO_OPTIMIZE=1` to upload originals unchanged.
 
-**Frames (opt-in):** `--frame phone|browser|iphone-16-pro|…` composites device or
-browser chrome **before** optimize. Procedural frames need no download; named
-devices fetch PNGs from
-[device-frames-media](https://github.com/jonnyjackson26/device-frames-media) into
-`~/.cache/uploads/frames` (not shipped in the npm package).
+**Frames (opt-in):** `--frame phone|browser|iphone-16-pro` composites chrome
+**before** optimize. `phone`/`browser` are procedural; `iphone-16-pro` fetches
+community art from [device-frames-media](https://github.com/jonnyjackson26/device-frames-media)
+into `~/.cache/uploads/frames` (not bundled).
 
 Config layers (first match wins): CLI flags → env vars → `--env-file` → `~/.config/buildinternet/config`. See `config.example` for keys.
 

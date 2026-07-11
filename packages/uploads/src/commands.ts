@@ -39,7 +39,7 @@ import {
   type OptimizeImageOptions,
   type OptimizeImageResult,
 } from "./optimize.js";
-import { applyFrame, listFramePresets, resolveFrameId, type FrameResult } from "./frame.js";
+import { applyFrame, resolveFrameId, type FrameResult } from "./frame.js";
 import type { PutDefaults } from "./config-file.js";
 
 export interface CliContext {
@@ -73,9 +73,9 @@ Options:
   --alt <text>          Alt text (default: filename)
   --width <px>          <img width=…> markdown (or UPLOADS_DEFAULT_WIDTH)
   --content-type <mime> Override Content-Type (ignored when optimize rewrites the body)
-  --frame <id>          Device/browser frame before optimize (phone|browser|iphone-16-pro|…)
-  --frame-url <url>     Address shown in procedural browser chrome (with --frame browser)
-  --frame-fit cover|contain  How the screenshot fills the screen (default: cover)
+  --frame <id>          Device/browser frame before optimize (phone|browser|iphone-16-pro)
+  --frame-url <url>     Address bar text for --frame browser
+  --frame-fit cover|contain  How the shot fills the screen (default: cover)
   --no-optimize         Skip client-side image optimization (or UPLOADS_NO_OPTIMIZE=1)
   --optimize-max-edge <px>  Max long edge when optimizing (default: 2400)
   --optimize-quality <1-100>  WebP quality (default: 85)
@@ -91,19 +91,7 @@ Examples:
   uploads put ./shot.png --repo myorg/myapp --ref 1722 --alt "New cards" --width 700
   uploads put ./mobile.png --frame phone
   uploads put ./ui.png --frame browser --frame-url "https://app.example/settings"
-  uploads put ./mobile.png --frame iphone-16-pro
   uploads put ./shot.png --destination screenshots
-  uploads put ./shot.png --no-optimize
-`;
-
-const FRAMES_HELP = `Built-in --frame ids:
-
-${listFramePresets()
-  .map((p) => `  ${p.id.padEnd(18)} ${p.label} (${p.kind})`)
-  .join("\n")}
-
-Procedural frames need no download. Device frames are fetched once from
-device-frames-media and cached under ~/.cache/uploads/frames (not bundled).
 `;
 
 /**
@@ -229,10 +217,7 @@ function frameOptionsFromFlags(flags: CommandFlags["flags"]): {
   }
   if (frameFit && !frameId) throw new UsageError("--frame-fit requires --frame");
   const frameUrl = flagString(flags, "--frame-url");
-  if (frameUrl && frameId !== "browser") {
-    // Allow anyway for future chrome frames; warn via usage only if no frame.
-    if (!frameId) throw new UsageError("--frame-url requires --frame browser");
-  }
+  if (frameUrl && !frameId) throw new UsageError("--frame-url requires --frame");
   return { frameId, frameUrl, frameFit };
 }
 
@@ -273,9 +258,9 @@ Options:
   --repo <owner/repo>   Repository (default: gh/git inference)
   --no-comment          Upload only; don't create/update the managed comment
   --content-type <mime> Override Content-Type (applied to every file; ignored when optimize rewrites)
-  --frame <id>          Device/browser frame before optimize (phone|browser|iphone-16-pro|…)
-  --frame-url <url>     Address shown in procedural browser chrome
-  --frame-fit cover|contain  Screenshot fit inside the frame (default: cover)
+  --frame <id>          Device/browser frame before optimize (phone|browser|iphone-16-pro)
+  --frame-url <url>     Address bar text for --frame browser
+  --frame-fit cover|contain  How the shot fills the screen (default: cover)
   --no-optimize         Skip client-side image optimization (or UPLOADS_NO_OPTIMIZE=1)
   --optimize-max-edge <px>  Max long edge when optimizing (default: 2400)
   --optimize-quality <1-100>  WebP quality (default: 85)
@@ -382,13 +367,11 @@ export async function runPut(
 ): Promise<number> {
   if (help) {
     process.stderr.write(PUT_HELP);
-    process.stderr.write(`\n${FRAMES_HELP}`);
     return 0;
   }
   const parsed = parseCommandArgs(args);
   if (parsed.help) {
     process.stderr.write(PUT_HELP);
-    process.stderr.write(`\n${FRAMES_HELP}`);
     return 0;
   }
 
