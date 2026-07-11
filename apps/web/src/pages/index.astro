@@ -322,10 +322,10 @@ const FAVICON =
         </div>
       </section>
 
-      <p class="flow-note hidden"><span class="arrow">└─▶</span> which lands on your pull request as:</p>
+      <p class="flow-note"><span class="arrow">└─▶</span> which lands on your pull request as:</p>
 
       <section
-        class="ghc hidden"
+        class="ghc"
         role="img"
         aria-label="Wireframe of the managed GitHub attachments comment with two inline images"
       >
@@ -366,7 +366,7 @@ const FAVICON =
         </div>
       </section>
 
-      <section class="install hidden" aria-label="Install commands">
+      <section class="install" aria-label="Install commands">
         <p class="head"># get set up — click to copy</p>
         <div class="rows">
           <div class="cmdrow">
@@ -401,16 +401,15 @@ const FAVICON =
     </main>
 
     <script>
-      // Reveal like a session replaying; no per-char typing to keep it calm.
+      // Replay the terminal session; content below the fold-line is static.
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const hidden = document.querySelectorAll(".hidden");
+      const hidden = document.querySelectorAll(".screen .hidden");
       if (!reduced) {
         let t = 350;
         for (const el of hidden) {
           const isCmd = el.matches(".line") && el.querySelector(".cmd") !== null;
-          const isBlock = !el.matches(".line");
           setTimeout(() => el.classList.remove("hidden"), t);
-          t += isBlock ? 420 : isCmd ? 620 : 240;
+          t += isCmd ? 620 : 240;
         }
       } else {
         hidden.forEach((el) => el.classList.remove("hidden"));
