@@ -141,6 +141,22 @@ records; any future global secrets go through `wrangler secret put` (prod) or
 - Follow Cloudflare Workers best practices: no floating promises, no
   module-level request state, secrets never in config or source.
 
+## Codex subagents
+
+Use project-scoped custom agents for independently parallel, bounded work:
+
+- `uploads_explorer` for read-only architecture, code-path, and test discovery.
+- `uploads_reviewer` for read-only review of correctness, tenant isolation,
+  upload security, and release risks.
+- `uploads_implementer` for one isolated code change after the scope is clear.
+
+For investigations and reviews, split independent questions between the
+explorer and reviewer, wait for both, then consolidate their evidence before
+changing code. Do not delegate routine small edits. Do not run concurrent
+implementers against the same area; use a single implementer or partition
+non-overlapping files explicitly. The root agent remains responsible for final
+integration, tests, and user-facing decisions.
+
 ## Pull requests
 
 Write PR descriptions for humans first, not only for reviewers who already
