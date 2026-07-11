@@ -126,4 +126,52 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
     const res = await putShot(env);
     expect(res.status).toBe(429);
   });
+
+  it("stores allowlisted provenance metadata and returns it on put + head", async () => {
+    const { env, bucket } = await makeEnv();
+    const res = await putShot(env, {
+      headers: {
+        "X-Uploads-Meta-Client": "uploads-cli",
+        "X-Uploads-Meta-Client-Version": "0.3.0",
+        "X-Uploads-Meta-Optimized": "1",
+        "X-Uploads-Meta-Frame": "phone",
+        "X-Uploads-Meta-Secret": "should-drop",
+        "X-Uploads-Meta-Content-Sha256": "0".repeat(64),
+      },
+    });
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { metadata?: Record<string, string> };
+    expect(json.metadata).toMatchObject({
+      client: "uploads-cli",
+      "client-version": "0.3.0",
+      optimized: "1",
+      frame: "phone",
+    });
+    expect(json.metadata?.["content-sha256"]).toMatch(/^[0-9a-f]{64}$/);
+    expect(json.metadata?.["content-sha256"]).not.toBe("0".repeat(64));
+    expect(bucket.store.get("default/screenshots/shot.png")?.customMetadata).toEqual(json.metadata);
+
+    const head = await app.request(
+      "/v1/default/files/screenshots/shot.png",
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(head.status).toBe(200);
+    const headJson = (await head.json()) as {
+      contentType: string;
+      metadata?: Record<string, string>;
+      key: string;
+    };
+    expect(headJson.key).toBe("screenshots/shot.png");
+    expect(headJson.contentType).toBe("image/png");
+    expect(headJson.metadata).toEqual(json.metadata);
+  });
+
+  it("always sets content-sha256 even without client provenance headers", async () => {
+    const { env } = await makeEnv();
+    const res = await putShot(env);
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { metadata?: Record<string, string> };
+    expect(json.metadata?.["content-sha256"]).toMatch(/^[0-9a-f]{64}$/);
+  });
 });

@@ -26,6 +26,7 @@ import { buildMarkdown } from "../embed.js";
 import { resolvePutPrefix } from "../destinations.js";
 import { ghAttachmentKey, ghKeyPrefix, type GhTarget } from "../github.js";
 import { rewriteKeyExtension, type OptimizeImageOptions } from "../optimize.js";
+import { buildCliProvenance } from "../provenance.js";
 import {
   execRunner,
   resolveCurrentPullRequest,
@@ -302,9 +303,11 @@ export function createUploadsMcpTools(opts: {
         const sourceName = file !== undefined ? (filenameArg ?? basename(file)) : filenameArg!;
 
         const defaults = resolvePutDefaults({ envFile: globals.envFile });
+        const frameOpts = mcpFrameOptions(args);
+        const optimizeOpts = mcpOptimizeOptions(args, defaults);
         const prepared = await prepareImageForUpload(bytes, sourceName, {
-          ...mcpFrameOptions(args),
-          optimize: mcpOptimizeOptions(args, defaults),
+          ...frameOpts,
+          optimize: optimizeOpts,
         });
         const filename = prepared.filename;
         let key = target ? ghAttachmentKey(target, filename) : keyArg;
@@ -318,6 +321,13 @@ export function createUploadsMcpTools(opts: {
           ref: refArg ?? defaults.ref,
           contentType: prepared.optimized ? prepared.contentType : optString(args, "contentType"),
           deriveRepoFromGit: !noGit,
+          provenance: buildCliProvenance({
+            sourceName,
+            client: "uploads-mcp",
+            optimized: prepared.optimized,
+            frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
+            keepExif: optimizeOpts.keepExif === true,
+          }),
         });
         const markdown = buildMarkdown(result.url, {
           alt: optString(args, "alt") ?? sourceName,
@@ -410,6 +420,13 @@ export function createUploadsMcpTools(opts: {
             filename: prepared.filename,
             key: ghAttachmentKey(target, prepared.filename),
             contentType: prepared.optimized ? prepared.contentType : contentType,
+            provenance: buildCliProvenance({
+              sourceName,
+              client: "uploads-mcp",
+              optimized: prepared.optimized,
+              frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
+              keepExif: optimizeOpts.keepExif === true,
+            }),
           });
           uploads.push({
             ...result,
