@@ -113,6 +113,7 @@ export interface EnrollmentExchangeResult {
 }
 
 export interface EnrollmentCreateResult {
+  pageId: string;
   code: string;
   expiresAt: string;
   tokenExpiresAt: string;

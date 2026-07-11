@@ -28,6 +28,7 @@ interface EnrollmentRecord {
   expires_at: string;
   token_expires_at: string;
   used_at: string | null;
+  page_id: string | null;
 }
 
 export function parseScopes(value: string): FileScope[] {
@@ -132,7 +133,7 @@ export async function createEnrollment(
     tokenSeconds?: number;
     now?: Date;
   },
-): Promise<{ code: string; expiresAt: string; tokenExpiresAt: string }> {
+): Promise<{ pageId: string; code: string; expiresAt: string; tokenExpiresAt: string }> {
   const now = input.now ?? new Date();
   const expiresAt = new Date(
     now.getTime() + (input.enrollmentSeconds ?? DEFAULT_ENROLLMENT_SECONDS) * 1000,
@@ -141,11 +142,13 @@ export async function createEnrollment(
     now.getTime() + (input.tokenSeconds ?? DEFAULT_TOKEN_SECONDS) * 1000,
   );
   const code = randomSecret("upe_", 18);
+  const pageId = randomSecret("upi_", 12);
   await db
     .prepare(
       `INSERT INTO auth_enrollments
-       (id, workspace, code_hash, label, scopes, created_at, expires_at, token_expires_at, used_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+       (id, workspace, code_hash, label, scopes, created_at, expires_at, token_expires_at, used_at,
+        page_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
     )
     .bind(
       id(),
@@ -156,9 +159,31 @@ export async function createEnrollment(
       now.toISOString(),
       expiresAt.toISOString(),
       tokenExpiresAt.toISOString(),
+      pageId,
     )
     .run();
-  return { code, expiresAt: expiresAt.toISOString(), tokenExpiresAt: tokenExpiresAt.toISOString() };
+  return {
+    pageId,
+    code,
+    expiresAt: expiresAt.toISOString(),
+    tokenExpiresAt: tokenExpiresAt.toISOString(),
+  };
+}
+
+export async function findEnrollmentPage(
+  db: D1Database,
+  pageId: string,
+  now = new Date(),
+): Promise<{ expiresAt: string; used: boolean } | null> {
+  if (!/^upi_[A-Za-z0-9_-]{16}$/.test(pageId)) return null;
+  const record = await db
+    .prepare(
+      `SELECT expires_at, used_at FROM auth_enrollments
+       WHERE page_id = ? AND expires_at > ? LIMIT 1`,
+    )
+    .bind(pageId, now.toISOString())
+    .first<Pick<EnrollmentRecord, "expires_at" | "used_at">>();
+  return record ? { expiresAt: record.expires_at, used: record.used_at !== null } : null;
 }
 
 export async function exchangeEnrollment(

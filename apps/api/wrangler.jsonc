@@ -36,20 +36,27 @@
       "migrations_dir": "migrations",
     },
   ],
-  // Per-workspace write rate limit (uploads + deletes), enforced by the
-  // writeRateLimit middleware in guards.ts. The Rate Limiting API is an
-  // `unsafe` binding but `wrangler types` still emits it as `WRITE_LIMITER:
-  // RateLimit`. Keyed by workspace name; `period` must be 10 or 60. 60
-  // writes/min/workspace is generous for legit screenshot flows and blunts a
-  // runaway client. Per-colo, not globally exact.
+  // Rate limits use separate namespaces so public invite traffic cannot consume
+  // a workspace's write quota. Both are per-colo rather than globally exact.
   "unsafe": {
     "bindings": [
       {
+        // Authenticated uploads + deletes, keyed by workspace.
         "name": "WRITE_LIMITER",
         "type": "ratelimit",
         "namespace_id": "1001",
         "simple": {
           "limit": 60,
+          "period": 60,
+        },
+      },
+      {
+        // Public invite status + exchange, keyed by Cloudflare client IP.
+        "name": "INVITE_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1002",
+        "simple": {
+          "limit": 30,
           "period": 60,
         },
       },

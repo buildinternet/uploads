@@ -64,7 +64,7 @@ Commands:
   setup               Inspect/configure advanced CLI settings
   install             Install the agent skill + register the remote MCP server
   login               Exchange an enrollment code and configure credentials
-  admin               Admin enrollment management
+  admin               Admin invitation management
   config              Show path, init, or set shared config
   doctor              Health + auth + workspace checks
   health              API liveness (no auth)

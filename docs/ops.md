@@ -39,6 +39,28 @@ uploads purge-expired      # needs retentionDays
 
 The API worker also runs a **daily cron** (`0 6 * * *` UTC) that purges every workspace with `retentionDays` set. Logs: `retention_sweep` JSON.
 
+## Invitations
+
+Invitation creation is an operator-only action behind `ADMIN_TOKEN`. Keep that secret
+in the operator environment; never place it in agent configuration, prompts, issues,
+or commands shared with adopters. Create an invitation for an existing workspace with:
+
+```bash
+ADMIN_TOKEN=<admin-credential> uploads admin invite create \
+  --workspace default --label early-adopter
+```
+
+The admin API at `POST /admin/enrollments` provides the same operation. Its response
+contains a non-secret onboarding URL and a one-time code. Share them as separate
+fields; the URL exposes only expiry and used status and cannot mint credentials.
+Invitation codes default to a 10-minute expiry (configurable at creation) and are
+consumed by one successful exchange. Unknown, expired, and consumed codes return the
+same public error shape.
+
+The invite page loads no analytics or third-party assets. Response controls request
+`no-store`, `no-referrer`, `noindex`, a restrictive CSP, and disabled browser
+permissions. The one-time code never belongs in the URL.
+
 ## Secrets
 
 | Secret                           | Purpose                                                               |

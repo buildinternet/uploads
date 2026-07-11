@@ -1,9 +1,11 @@
 import { createEnrollment } from "../client.js";
 import { flagInt, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
 
-const HELP = `uploads admin enrollment create [options]
+const HELP = `uploads admin invite create [options]
 
-Admin-only: create a short-lived, one-time enrollment code.
+Admin-only: create a short-lived invitation for an existing workspace.
+The invitation page ID is not a credential; share its URL and the one-time code
+as separate fields. The legacy "admin enrollment create" spelling is accepted.
 
 Options:
   --admin-token <token>  Or ADMIN_TOKEN (UPLOADS_ADMIN_TOKEN is a legacy alias)
@@ -13,10 +15,26 @@ Options:
   --token-expires-in <seconds>  Upload token lifetime (default: server policy)
   --scopes <list>        Comma-separated files:read,files:write,files:delete
   --api-url <url>        Default: https://api.uploads.sh
+  --web-url <url>        Invite-page origin (defaults from --api-url)
 `;
 
 type FileScope = "files:read" | "files:write" | "files:delete";
 const FILE_SCOPES = new Set<FileScope>(["files:read", "files:write", "files:delete"]);
+
+export function invitePageUrl(apiUrl: string, pageId: string, webUrl?: string): string {
+  let url: URL;
+  try {
+    url = new URL(webUrl ?? apiUrl);
+  } catch {
+    throw new UsageError("invalid invite web URL");
+  }
+  if (!webUrl && url.hostname.startsWith("api.")) url.hostname = url.hostname.slice(4);
+  url.pathname = "/invite";
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("id", pageId);
+  return url.toString();
+}
 
 export function parseScopes(raw: string | undefined): FileScope[] | undefined {
   if (raw === undefined) return undefined;
@@ -43,14 +61,18 @@ export async function runAdmin(
     process.stderr.write(HELP);
     return 0;
   }
-  if (parsed.positionals[0] !== "enrollment" || parsed.positionals[1] !== "create")
-    throw new UsageError("expected: uploads admin enrollment create");
+  if (
+    !["invite", "enrollment"].includes(parsed.positionals[0] ?? "") ||
+    parsed.positionals[1] !== "create"
+  )
+    throw new UsageError("expected: uploads admin invite create");
   const adminToken =
     flagString(parsed.flags, "--admin-token") ??
     process.env.ADMIN_TOKEN ??
     process.env.UPLOADS_ADMIN_TOKEN;
   if (!adminToken) throw new UsageError("ADMIN_TOKEN is required for admin enrollment creation");
   const apiUrl = flagString(parsed.flags, "--api-url") ?? opts.apiUrl ?? "https://api.uploads.sh";
+  const webUrl = flagString(parsed.flags, "--web-url");
   const workspace = flagString(parsed.flags, "--workspace") ?? "default";
   const label = flagString(parsed.flags, "--label");
   const result = await createEnrollment(apiUrl, adminToken, {
@@ -66,7 +88,7 @@ export async function runAdmin(
     );
   else
     process.stdout.write(
-      `Enrollment code (share once): ${result.code}\nworkspace: ${workspace}\nexpires: ${result.expiresAt}\n`,
+      `Invite page: ${invitePageUrl(apiUrl, result.pageId, webUrl)}\nOne-time code (share separately): ${result.code}\nworkspace: ${workspace}\nexpires: ${result.expiresAt}\n`,
     );
   return 0;
 }
