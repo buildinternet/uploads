@@ -73,7 +73,7 @@ const FAVICON =
       h1 { font-size: clamp(26px, 5vw, 34px); line-height: 1.25; margin: 20px 0 4px; }
       .tagline { color: var(--muted); font-size: 14px; margin: 0 0 28px; }
 
-      /* on-page nav */
+      /* on-page nav — in-flow box on narrow screens, sticky rail on wide */
       nav.toc {
         background: var(--panel);
         border: 1px solid var(--bezel);
@@ -98,6 +98,32 @@ const FAVICON =
       nav.toc li { margin: 3px 0; break-inside: avoid; }
       @media (max-width: 560px) {
         nav.toc ol { columns: 1; }
+      }
+      @media (min-width: 1200px) {
+        nav.toc {
+          position: fixed;
+          top: 48px;
+          left: calc(50% - 360px - 250px);
+          width: 210px;
+          background: none;
+          border: none;
+          border-left: 1px solid var(--line);
+          border-radius: 0;
+          padding: 4px 0 4px 18px;
+          margin: 0;
+        }
+        nav.toc ol {
+          columns: 1;
+          list-style: none;
+          padding-left: 0;
+        }
+        nav.toc a {
+          color: var(--muted);
+          text-decoration: none;
+        }
+        nav.toc a:hover,
+        nav.toc a:focus-visible { color: var(--fg); background: none; }
+        nav.toc a[aria-current="true"] { color: var(--purple); }
       }
 
       a {
@@ -191,6 +217,93 @@ const FAVICON =
       .block .v { color: var(--cyan); }
       .block pre { margin: 0; white-space: pre; }
 
+      /* ---------- wireframe github comment (same treatment as the landing page) ---------- */
+      .ghc {
+        display: grid;
+        grid-template-columns: 40px 1fr;
+        gap: 12px;
+        margin: 18px 0;
+        font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      .ghc .avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #21262e;
+        border: 1px solid #30363d;
+      }
+      .ghc .bubble {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        overflow: hidden;
+        position: relative;
+      }
+      .ghc .bubble::before {
+        content: "";
+        position: absolute;
+        left: -6px;
+        top: 14px;
+        width: 10px;
+        height: 10px;
+        background: #1c2129;
+        border-left: 1px solid #30363d;
+        border-bottom: 1px solid #30363d;
+        transform: rotate(45deg);
+      }
+      .ghc .head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        background: #1c2129;
+        border-bottom: 1px solid #30363d;
+        padding: 8px 14px;
+        color: #8b949e;
+      }
+      .ghc .head .user { color: #e6edf3; font-weight: 600; }
+      .ghc .head .badge {
+        font: 11px var(--mono);
+        color: #8b949e;
+        border: 1px solid #30363d;
+        border-radius: 999px;
+        padding: 1px 8px;
+        margin-left: auto;
+      }
+      .ghc .body { padding: 14px; }
+      .ghc .md-title { color: #e6edf3; font-weight: 600; margin: 0 0 10px; }
+      .ghc .imgs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+      .ghc figure { margin: 0; }
+      .ghc .ph {
+        aspect-ratio: 16 / 10;
+        border: 1.5px dashed #444c56;
+        border-radius: 6px;
+        background: linear-gradient(135deg, rgba(139, 148, 158, 0.06) 0%, rgba(139, 148, 158, 0.02) 100%);
+        display: grid;
+        place-items: center;
+        color: #545d68;
+      }
+      .ghc .ph svg { width: 42px; height: 42px; }
+      .ghc figcaption {
+        font: 11px var(--mono);
+        color: #8b949e;
+        margin-top: 6px;
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .ghc figcaption .host { color: #58a6ff; }
+      .skel { height: 8px; border-radius: 4px; background: #2d333b; margin: 8px 0; }
+      .skel.w70 { width: 70%; }
+      .skel.w45 { width: 45%; }
+      @media (max-width: 560px) {
+        .ghc .imgs { grid-template-columns: 1fr; }
+      }
       .note {
         border-left: 3px solid var(--purple-faint);
         padding: 2px 0 2px 14px;
@@ -248,8 +361,7 @@ const FAVICON =
         </div>
         <p>
           That's it. The CLI figures out which repo and pull request you're on, uploads the files,
-          and keeps one tidy "Attachments" comment on the PR up to date. Run it again with new
-          files and the same comment updates — no pile-up.
+          and keeps one tidy "Attachments" comment on the PR up to date.
         </p>
       </section>
 
@@ -292,6 +404,42 @@ const FAVICON =
           <span class="text">uploads attach ./screenshot.png</span>
           <button type="button" data-copy="uploads attach ./screenshot.png">copy</button>
         </div>
+        <p>…which lands on the pull request as one managed comment:</p>
+        <div
+          class="ghc"
+          role="img"
+          aria-label="Wireframe of the managed GitHub attachments comment with an inline image"
+        >
+          <div class="avatar"></div>
+          <div class="bubble">
+            <div class="head">
+              <span class="user">you</span>
+              <span>commented just now</span>
+              <span class="badge">managed by uploads</span>
+            </div>
+            <div class="body">
+              <p class="md-title">Attachments</p>
+              <div class="imgs">
+                <figure>
+                  <div class="ph" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+                      <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+                      <circle cx="9" cy="10" r="1.8"></circle>
+                      <path d="M3 17 L9.5 12.5 L13.5 15.5 L17 13 L21 16"></path>
+                    </svg>
+                  </div>
+                  <figcaption><span>screenshot.png</span><span class="host">storage.uploads.sh</span></figcaption>
+                </figure>
+              </div>
+              <div class="skel w70"></div>
+              <div class="skel w45"></div>
+            </div>
+          </div>
+        </div>
+        <p>
+          Run <code>attach</code> again with new files and this same comment updates in place —
+          your PR doesn't collect a trail of stale screenshot comments.
+        </p>
         <p>
           It uses the <code>gh</code> CLI to find the current repo and PR. If you're not on a PR
           branch — or you want a different target — say so explicitly:
@@ -327,6 +475,10 @@ const FAVICON =
         <div class="cmd">
           <span class="text">uploads put ./shot.png</span>
           <button type="button" data-copy="uploads put ./shot.png">copy</button>
+        </div>
+        <div class="block" aria-label="Example output">
+          <pre>URL: <span class="v">https://storage.uploads.sh/…/shot.webp</span>
+MARKDOWN: ![shot](<span class="v">https://storage.uploads.sh/…/shot.webp</span>)</pre>
         </div>
         <p>A few useful variations:</p>
         <div class="cmd">
@@ -435,6 +587,25 @@ const FAVICON =
     </main>
 
     <script>
+      // Scroll-spy for the wide-screen TOC rail: highlight the section in view.
+      const tocLinks = new Map(
+        [...document.querySelectorAll("nav.toc a")].map((a) => [a.getAttribute("href")?.slice(1), a]),
+      );
+      const spy = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            for (const link of tocLinks.values()) link.removeAttribute("aria-current");
+            tocLinks.get(entry.target.id)?.setAttribute("aria-current", "true");
+          }
+        },
+        { rootMargin: "0px 0px -70% 0px" },
+      );
+      for (const id of tocLinks.keys()) {
+        const section = id && document.getElementById(id);
+        if (section) spy.observe(section);
+      }
+
       for (const btn of document.querySelectorAll(".cmd button")) {
         btn.addEventListener("click", async () => {
           const text = btn.getAttribute("data-copy") ?? "";
