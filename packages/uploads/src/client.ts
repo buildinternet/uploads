@@ -175,19 +175,19 @@ function usageBase(config: UploadsClientConfig): string {
 
 function mapApiError(status: number, error: string, code?: string): UploadsError {
   const normalized = error.toLowerCase();
-  if (status === 401 || normalized === "unauthorized") {
+  if (status === 401 || code === "unauthorized" || normalized === "unauthorized") {
     return new UploadsError(error, "UNAUTHORIZED", status);
   }
-  if (status === 404 || normalized === "not found") {
+  if (status === 404 || code === "not_found" || normalized === "not found") {
     return new UploadsError(error, "NOT_FOUND", status);
   }
-  if (status === 400 && normalized === "invalid key") {
+  if (code === "invalid_key" || (status === 400 && normalized === "invalid key")) {
     return new UploadsError(error, "INVALID_KEY", status);
   }
   if (code === "key_prefix_not_allowed" || code === "key_too_deep") {
     return new UploadsError(error, "KEY_POLICY", status);
   }
-  // Prefer stable body.code — bare 429 is also used for write rate limits.
+  // Prefer stable body code — bare 429 is also used for write rate limits.
   if (status === 507 || code === "storage_quota_exceeded") {
     return new UploadsError(error, "STORAGE_QUOTA", status);
   }
@@ -197,17 +197,36 @@ function mapApiError(status: number, error: string, code?: string): UploadsError
   return new UploadsError(error, "API_ERROR", status);
 }
 
+/**
+ * Parse API error bodies. Prefers the nested envelope
+ * `{ error: { code, type, message, details? } }`; still accepts the legacy
+ * flat `{ error: string, code?: string }` shape.
+ */
+function extractErrorFields(body: unknown): { message: string; code?: string } {
+  if (typeof body === "object" && body && "error" in body) {
+    const err = (body as { error: unknown }).error;
+    if (typeof err === "object" && err && "message" in err) {
+      const nested = err as { message?: unknown; code?: unknown };
+      return {
+        message: typeof nested.message === "string" ? nested.message : "request failed",
+        code: typeof nested.code === "string" ? nested.code : undefined,
+      };
+    }
+    if (typeof err === "string") {
+      const code =
+        "code" in body && typeof (body as { code: unknown }).code === "string"
+          ? (body as { code: string }).code
+          : undefined;
+      return { message: err, code };
+    }
+  }
+  return { message: "request failed" };
+}
+
 async function parseErrorResponse(res: Response): Promise<UploadsError> {
   const body = await res.json().catch(() => ({}));
-  const message =
-    typeof body === "object" && body && "error" in body && typeof body.error === "string"
-      ? body.error
-      : res.statusText || "request failed";
-  const code =
-    typeof body === "object" && body && "code" in body && typeof body.code === "string"
-      ? body.code
-      : undefined;
-  return mapApiError(res.status, message, code);
+  const { message, code } = extractErrorFields(body);
+  return mapApiError(res.status, message || res.statusText || "request failed", code);
 }
 
 export function createUploadsClient(config: UploadsClientConfig) {

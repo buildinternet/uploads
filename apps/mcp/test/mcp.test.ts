@@ -128,7 +128,13 @@ describe("mcp worker", () => {
     const { env } = await makeEnv();
     const response = await rpc(env, { jsonrpc: "2.0", id: 1, method: "initialize" }, "wrong");
     expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: "unauthorized" });
+    expect(await response.json()).toEqual({
+      error: {
+        code: "unauthorized",
+        type: "unauthorized",
+        message: "Authentication required.",
+      },
+    });
   });
 
   it("answers the initialize handshake", async () => {
@@ -293,7 +299,13 @@ describe("mcp worker", () => {
     for (const path of ["/default/mcp", "/other-ws/mcp"]) {
       const response = await rpc(env, { jsonrpc: "2.0", id: 1, method: "initialize" }, TOKEN, path);
       expect(response.status).toBe(401);
-      expect(await response.json()).toEqual({ error: "unauthorized" });
+      expect(await response.json()).toEqual({
+        error: {
+          code: "unauthorized",
+          type: "unauthorized",
+          message: "Authentication required.",
+        },
+      });
     }
   });
 
@@ -319,7 +331,13 @@ describe("mcp worker", () => {
         env,
       );
       expect(response.status).toBe(405);
-      expect(await response.json()).toEqual({ error: "method not allowed" });
+      expect(await response.json()).toEqual({
+        error: {
+          code: "method_not_allowed",
+          type: "method_not_allowed",
+          message: "Method not allowed.",
+        },
+      });
     }
   });
 

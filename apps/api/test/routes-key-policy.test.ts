@@ -73,9 +73,11 @@ describe("PUT key policy", () => {
     const { env } = await makeEnv({ allowedKeyPrefixes: ["screenshots", "gh"] });
     const res = await putKey(env, "tmp/shot.png");
     expect(res.status).toBe(400);
-    const json = (await res.json()) as { code: string; allowedKeyPrefixes: string[] };
-    expect(json.code).toBe("key_prefix_not_allowed");
-    expect(json.allowedKeyPrefixes).toContain("screenshots/");
+    const json = (await res.json()) as {
+      error: { code: string; details: { allowedKeyPrefixes: string[] } };
+    };
+    expect(json.error.code).toBe("key_prefix_not_allowed");
+    expect(json.error.details.allowedKeyPrefixes).toContain("screenshots/");
   });
 
   it("allows keys under an allowed destination", async () => {
@@ -89,9 +91,11 @@ describe("PUT key policy", () => {
     const { env } = await makeEnv({ maxKeyDepth: 2 });
     const res = await putKey(env, "screenshots/a/b/shot.png");
     expect(res.status).toBe(400);
-    const json = (await res.json()) as { code: string; maxKeyDepth: number };
-    expect(json.code).toBe("key_too_deep");
-    expect(json.maxKeyDepth).toBe(2);
+    const json = (await res.json()) as {
+      error: { code: string; details: { maxKeyDepth: number } };
+    };
+    expect(json.error.code).toBe("key_too_deep");
+    expect(json.error.details.maxKeyDepth).toBe(2);
   });
 
   it("auto-prefix bare keys still works with f/ allowlist", async () => {

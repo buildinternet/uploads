@@ -1,3 +1,4 @@
+import { ConflictError, NotFoundError, ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
 import { adminAuth } from "../admin";
 import {
@@ -49,6 +50,20 @@ function labelValue(value: unknown): string | undefined | null {
   return label.length >= 1 && label.length <= 100 ? label : null;
 }
 
+function requireWorkspaceName(name: string): void {
+  if (!WS_NAME_RE.test(name)) {
+    throw new ValidationError("invalid workspace", { code: "invalid_workspace" });
+  }
+}
+
+function requireLabel(label: string | undefined | null): asserts label is string | undefined {
+  if (label === null) {
+    throw new ValidationError("label must be between 1 and 100 characters", {
+      code: "invalid_label",
+    });
+  }
+}
+
 export const admin = new Hono<{ Bindings: Env }>()
   .use("/*", adminAuth)
 
@@ -73,19 +88,21 @@ export const admin = new Hono<{ Bindings: Env }>()
       );
     const name = body.workspace?.trim() || "default";
     const label = labelValue(body.label);
-    if (!WS_NAME_RE.test(name)) return c.json({ error: "invalid workspace" }, 400);
-    if (label === null) return c.json({ error: "label must be between 1 and 100 characters" }, 400);
-    if (!(await workspace(c, name))) return c.json({ error: "workspace not found" }, 404);
+    requireWorkspaceName(name);
+    requireLabel(label);
+    if (!(await workspace(c, name))) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
 
     const scopes = validateScopes(body.scopes, [...FILE_SCOPES]);
-    if (!scopes) return c.json({ error: "invalid scopes" }, 400);
+    if (!scopes) throw new ValidationError("invalid scopes", { code: "invalid_scopes" });
     if (
       body.expiresInDays !== undefined &&
       !validInteger(body.expiresInDays, 1, MAX_TOKEN_SECONDS / SECONDS_PER_DAY)
     ) {
-      return c.json(
-        { error: `expiresInDays must be between 1 and ${MAX_TOKEN_SECONDS / SECONDS_PER_DAY}` },
-        400,
+      throw new ValidationError(
+        `expiresInDays must be between 1 and ${MAX_TOKEN_SECONDS / SECONDS_PER_DAY}`,
+        { code: "invalid_expires" },
       );
     }
 
@@ -134,28 +151,30 @@ export const admin = new Hono<{ Bindings: Env }>()
       );
     const name = body.workspace?.trim() || "default";
     const label = labelValue(body.label);
-    if (!WS_NAME_RE.test(name)) return c.json({ error: "invalid workspace" }, 400);
-    if (label === null) return c.json({ error: "label must be between 1 and 100 characters" }, 400);
-    if (!(await workspace(c, name))) return c.json({ error: "workspace not found" }, 404);
+    requireWorkspaceName(name);
+    requireLabel(label);
+    if (!(await workspace(c, name))) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
 
     const scopes = validateScopes(body.scopes, ["files:read", "files:write"]);
-    if (!scopes) return c.json({ error: "invalid scopes" }, 400);
+    if (!scopes) throw new ValidationError("invalid scopes", { code: "invalid_scopes" });
     if (
       body.enrollmentSeconds !== undefined &&
       !validInteger(body.enrollmentSeconds, 60, MAX_ENROLLMENT_SECONDS)
     ) {
-      return c.json(
-        { error: `enrollmentSeconds must be between 60 and ${MAX_ENROLLMENT_SECONDS}` },
-        400,
+      throw new ValidationError(
+        `enrollmentSeconds must be between 60 and ${MAX_ENROLLMENT_SECONDS}`,
+        { code: "invalid_expires" },
       );
     }
     if (
       body.tokenExpiresInSeconds !== undefined &&
       !validInteger(body.tokenExpiresInSeconds, 60, MAX_TOKEN_SECONDS)
     ) {
-      return c.json(
-        { error: `tokenExpiresInSeconds must be between 60 and ${MAX_TOKEN_SECONDS}` },
-        400,
+      throw new ValidationError(
+        `tokenExpiresInSeconds must be between 60 and ${MAX_TOKEN_SECONDS}`,
+        { code: "invalid_expires" },
       );
     }
 
@@ -172,9 +191,11 @@ export const admin = new Hono<{ Bindings: Env }>()
   // Lists D1 credentials and legacy KV credentials without exposing secrets.
   .get("/tokens", async (c) => {
     const name = c.req.query("workspace")?.trim() || "default";
-    if (!WS_NAME_RE.test(name)) return c.json({ error: "invalid workspace" }, 400);
+    requireWorkspaceName(name);
     const record = await workspace(c, name);
-    if (!record) return c.json({ error: "workspace not found" }, 404);
+    if (!record) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
 
     const d1 = (await listTokens(c.env.DB, name)).map((token) => ({
       label: token.label,
@@ -205,11 +226,17 @@ export const admin = new Hono<{ Bindings: Env }>()
     const name = body.workspace?.trim() || "default";
     const hashPrefix = body.hashPrefix?.trim();
     const label = body.label?.trim();
-    if (!WS_NAME_RE.test(name)) return c.json({ error: "invalid workspace" }, 400);
-    if (!hashPrefix && !label) return c.json({ error: "hashPrefix or label required" }, 400);
+    requireWorkspaceName(name);
+    if (!hashPrefix && !label) {
+      throw new ValidationError("hashPrefix or label required", {
+        code: "hash_prefix_or_label_required",
+      });
+    }
 
     const record = await workspace(c, name);
-    if (!record) return c.json({ error: "workspace not found" }, 404);
+    if (!record) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
     const kv = legacyTokens(record);
     const kvMatches = kv.filter((token) =>
       hashPrefix ? token.hash.startsWith(hashPrefix) : token.label === label,
@@ -220,12 +247,12 @@ export const admin = new Hono<{ Bindings: Env }>()
         (hashPrefix ? token.token_hash.startsWith(hashPrefix) : token.label === label),
     );
     const count = kvMatches.length + activeD1.length;
-    if (count === 0) return c.json({ error: "no matching token" }, 404);
-    if (count > 1) return c.json({ error: "selector matches multiple tokens" }, 409);
+    if (count === 0) throw new NotFoundError("no matching token");
+    if (count > 1) throw new ConflictError("selector matches multiple tokens");
 
     if (activeD1.length === 1) {
       const result = await revokeToken(c.env.DB, name, { hashPrefix, label });
-      if (!result.match) return c.json({ error: "no matching token" }, 404);
+      if (!result.match) throw new NotFoundError("no matching token");
       return c.json({
         workspace: name,
         revoked: {
@@ -261,6 +288,6 @@ export const admin = new Hono<{ Bindings: Env }>()
       return c.json(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return c.json({ error: message }, 400);
+      throw new ValidationError(message, { cause: err });
     }
   });

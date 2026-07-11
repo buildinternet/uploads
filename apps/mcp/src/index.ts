@@ -9,8 +9,10 @@
  * `createMcpServer`, shared verbatim.
  */
 import { createMcpServer } from "@buildinternet/uploads/mcp";
+import { AppError, isAppError, MethodNotAllowedError, NotFoundError } from "@uploads/errors";
 import { tokenWorkspaceAuth, workspaceAuth, type WorkspaceVars } from "@uploads/api/workspace";
 import { Hono, type Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import pkg from "../package.json";
 import { createRemoteTools } from "./tools";
 
@@ -31,8 +33,24 @@ async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
   return c.body(result, 200, { "Content-Type": "application/json" });
 }
 
-const methodNotAllowed = (c: Context<WorkspaceVars>) =>
-  c.json({ error: "method not allowed" }, 405);
+function respondError(c: Context, err: unknown): Response {
+  const appErr = isAppError(err) ? err : AppError.from(err);
+  if (!appErr.expose || appErr.type === "internal") {
+    console.error(
+      JSON.stringify({
+        message: appErr.message,
+        code: appErr.code,
+        type: appErr.type,
+        stack: appErr.stack,
+      }),
+    );
+  }
+  return c.json(appErr.toWire(), appErr.status as ContentfulStatusCode);
+}
+
+const methodNotAllowed = (_c: Context<WorkspaceVars>) => {
+  throw new MethodNotAllowedError();
+};
 
 const app = new Hono<WorkspaceVars>()
   .get("/health", (c) => c.json({ ok: true }))
@@ -44,10 +62,7 @@ const app = new Hono<WorkspaceVars>()
   .use("/:workspace/*", workspaceAuth)
   .post("/:workspace/mcp", handleMcp)
   .on(["GET", "DELETE"], "/:workspace/mcp", methodNotAllowed)
-  .onError((err, c) => {
-    console.error(JSON.stringify({ message: err.message, stack: err.stack }));
-    return c.json({ error: "internal error" }, 500);
-  })
-  .notFound((c) => c.json({ error: "not found" }, 404));
+  .onError((err, c) => respondError(c, err))
+  .notFound((c) => respondError(c, new NotFoundError()));
 
 export default app;

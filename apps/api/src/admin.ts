@@ -1,3 +1,4 @@
+import { UnauthorizedError } from "@uploads/errors";
 import type { MiddlewareHandler } from "hono";
 import { hexToBytes, sha256Hex } from "./workspace";
 
@@ -17,6 +18,6 @@ export const adminAuth: MiddlewareHandler<{ Bindings: Env }> = async (c, next) =
     token.length > 0 &&
     crypto.subtle.timingSafeEqual(hexToBytes(providedHash), hexToBytes(expectedHash));
 
-  if (!ok) return c.json({ error: "unauthorized" }, 401);
+  if (!ok) throw new UnauthorizedError();
   await next();
 };
