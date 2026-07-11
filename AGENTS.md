@@ -40,9 +40,21 @@ pnpm workspace:add <name> [--bucket <bucket>] [--binding X] [--local] \
 pnpm workspace:limits <name> [--max-storage …] [--max-video-bytes …] \
   [--allowed-prefixes default|f,screenshots,gh] [--max-key-depth 8] \
   [--clear-max-storage] [--clear-allowed-prefixes] […]
-pnpm uploads put <file> --env-file .env   # CLI (builds package first)
-pnpm uploads put <file> --pr <num> --comment   # PR attachment + managed GitHub comment
+pnpm uploads put <file> --env-file .env   # monorepo only: builds package first
+pnpm uploads put <file> --pr <num> --comment
 ```
+
+**CLI examples — installed binary vs monorepo:** product-facing examples
+(PR “how to try it”, skill docs, issue comments, user-facing README snippets)
+use the global binary as someone who already installed the CLI would:
+
+```bash
+uploads put ./shot.png
+uploads put ./after.png --pr 123 --comment
+```
+
+Reserve `pnpm uploads …` for **in-repo** development (build-from-source via the
+root script). Do not assume readers have the monorepo checked out.
 
 Use `pnpm run deploy` (not bare `pnpm deploy` — that's pnpm's built-in).
 `deploy:api` applies pending D1 migrations (`migrate:d1`) before
@@ -136,10 +148,14 @@ know the code. Prefer plain language over dense bullet dumps of identifiers.
    type names, or flag lists.
 2. **What it does / what it is not** — a few concrete bullets; call out
    opt-in vs breaking, and anything deliberately deferred.
-3. **How to try it** — only when useful (commands, operator flags).
+3. **How to try it** — only when useful. Show the **installed** CLI
+   (`uploads …`), not `pnpm uploads …`, unless the step is explicitly
+   monorepo-only (e.g. running package tests). Same for issue comments and
+   other post-merge “once this ships” examples.
 4. **Technical notes** — optional short section for implementers (modules,
    error codes, test commands). Keep it secondary to the plain summary.
-5. **Test plan** — checkboxes for what was run / what remains.
+5. **Test plan** — checkboxes for what was run / what remains. Filter-style
+   `pnpm --filter … test` is fine here (repo CI context).
 
 **Titles:** conventional-commit type prefix + plain-language subject, e.g.
 `feat: organize upload paths (typed destinations + optional folder rules)`.

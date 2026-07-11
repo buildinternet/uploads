@@ -54,13 +54,9 @@ propagate within ~a minute).
   npm install --global @buildinternet/uploads
   npx @buildinternet/uploads@0.1.0 --help
   ```
-  Inside this repo, run it via pnpm — the root `uploads` script builds
-  the package first, so it always reflects local source:
-  ```bash
-  pnpm uploads <command> [args]        # from the repo root
-  ```
-  If `@buildinternet/uploads` is installed/linked elsewhere, the binary is just
-  `uploads`. Every example below uses `uploads …`; prefix with `pnpm ` in-repo.
+  Every example in this skill uses the **global** `uploads …` binary (as after
+  install). Inside the uploads monorepo only, `pnpm uploads …` builds from
+  local source first — do not write product/PR examples that way.
 - **A configured token** (one-time — see below). Check with `uploads doctor`.
 - **`gh` CLI, authenticated** — only for the `--comment` / `comment` features that
   write to a PR/issue. Plain uploads don't need it.
