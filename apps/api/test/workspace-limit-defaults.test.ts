@@ -12,9 +12,10 @@ describe("workspace-limit-defaults.json", () => {
       maxUploadsPerPeriod: 10_000,
       maxUploadBytes: 25_000_000,
       maxVideoUploadBytes: 8_000_000,
-      retentionDays: 90,
       allowedKeyPrefixes: ["f", "screenshots", "gh"],
       maxKeyDepth: 8,
     });
+    // Retention is opt-in (GitHub embeds should not vanish after N days).
+    expect(template).not.toHaveProperty("retentionDays");
   });
 });

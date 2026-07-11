@@ -9,7 +9,7 @@
  *     [--binding UPLOADS] [--public-base-url https://media.example.com] \
  *     [--account-id ...] [--access-key-id ...] [--secret-access-key ...] \
  *     [--max-storage 25GB] [--max-uploads-per-month 10000] [--max-upload-bytes 25MB] \
- *     [--max-video-bytes 8MB] [--retention-days 90] \
+ *     [--max-video-bytes 8MB] [--retention-days N] \
  *     [--allowed-prefixes default|f,screenshots,gh] [--max-key-depth 8] \
  *     [--no-default-limits] # skip shared/agent template (start unlimited)
  *     [--local]             # write to wrangler dev's local KV instead of prod

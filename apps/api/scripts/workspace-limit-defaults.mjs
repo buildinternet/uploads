@@ -18,7 +18,6 @@ export function sharedAgentLimitFields() {
     maxUploadsPerPeriod: template.maxUploadsPerPeriod,
     maxUploadBytes: template.maxUploadBytes,
     maxVideoUploadBytes: template.maxVideoUploadBytes,
-    retentionDays: template.retentionDays,
     allowedKeyPrefixes: [...template.allowedKeyPrefixes],
     maxKeyDepth: template.maxKeyDepth,
   };
