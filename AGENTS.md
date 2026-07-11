@@ -141,10 +141,13 @@ know the code. Prefer plain language over dense bullet dumps of identifiers.
    error codes, test commands). Keep it secondary to the plain summary.
 5. **Test plan** — checkboxes for what was run / what remains.
 
-Do **not** auto-request CodeRabbit on every PR (org policy: on-demand only).
-Do **not** invent conventional-commit title rules; keep titles short and
-descriptive. User-visible `@buildinternet/uploads` changes still need a
-changeset; do not merge “version packages” PRs unless shipping is intentional.
+**Titles:** conventional-commit type prefix + plain-language subject, e.g.
+`feat: organize upload paths (typed destinations + optional folder rules)`.
+Common types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`. Keep the
+subject readable (outcome first); avoid stuffing every flag/module into the
+title. Do **not** auto-request CodeRabbit on every PR (org policy: on-demand
+only). User-visible `@buildinternet/uploads` changes still need a changeset;
+do not merge “version packages” PRs unless shipping is intentional.
 
 ## Environment files
 
