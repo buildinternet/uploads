@@ -37,8 +37,8 @@ configured token.
 ## Administrator overview
 
 Administrators issue invitations for existing workspaces. Invitation codes are
-single-use and default to a 10-minute expiry; issued tokens default to read/write
-scope without delete access. See the [operator runbook](ops.md#invitations) for
+single-use and default to a 2-hour expiry (override with `--expires-in`, up to 24
+hours); issued tokens default to read/write scope without delete access. See the [operator runbook](ops.md#invitations) for
 commands, secret handling, delivery, and troubleshooting.
 
 ## Token policy

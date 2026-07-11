@@ -88,8 +88,8 @@ than a process-list-visible command argument:
 UPLOADS_ENROLLMENT_CODE=upe_<workspace>_… uploads login
 ```
 
-Routine agents never need `ADMIN_TOKEN`. Enrollment codes expire after 10 minutes and
-can be redeemed once. The resulting token defaults to 90 days and `files:read` plus
+Routine agents never need `ADMIN_TOKEN`. Enrollment codes expire after 2 hours by
+default (up to 24 hours) and can be redeemed once. The resulting token defaults to 90 days and `files:read` plus
 `files:write`; it cannot delete files unless an administrator explicitly grants
 `files:delete`. Verify or inspect setup at any time:
 

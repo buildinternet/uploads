@@ -157,7 +157,7 @@ function database(fake: FakeD1): D1Database {
 }
 
 describe("D1 enrollment exchange", () => {
-  it("stores only a hash and applies the 10 minute / 90 day defaults", async () => {
+  it("stores only a hash and applies the 2 hour / 90 day defaults", async () => {
     const fake = new FakeD1();
     const now = new Date("2026-07-10T12:00:00.000Z");
     const enrollment = await createEnrollment(database(fake), {

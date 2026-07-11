@@ -18,8 +18,10 @@ import type { WorkspaceRecord } from "../workspace";
 
 const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const HASH_PREFIX_LEN = 8;
-const MAX_ENROLLMENT_SECONDS = 60 * 60;
 const SECONDS_PER_DAY = 24 * 60 * 60;
+// Ceiling for --expires-in. 24h caps how long a single-use invite secret can
+// live; the floor stays 60s at the validation site below.
+const MAX_ENROLLMENT_SECONDS = SECONDS_PER_DAY;
 
 interface LegacyToken {
   hash: string;
