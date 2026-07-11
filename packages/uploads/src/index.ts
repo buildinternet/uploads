@@ -40,6 +40,10 @@ export {
   type HeadResult,
   type DeleteResult,
   type HealthResult,
+  type UsageResult,
+  type ReconcileResult,
+  type PurgeExpiredResult,
+  type PurgeExpiredResponse,
 } from "./client.js";
 export {
   ATTACHMENTS_MARKER,

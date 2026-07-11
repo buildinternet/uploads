@@ -55,6 +55,41 @@ export interface HealthResult {
   ok: boolean;
 }
 
+export interface UsageResult {
+  workspace: string;
+  bytes: number;
+  objects: number;
+  uploadsInPeriod: number;
+  periodStart: string;
+  updatedAt: string;
+  maxStorageBytes?: number;
+  storageRemainingBytes?: number;
+  maxUploadsPerPeriod?: number;
+  uploadsRemaining?: number;
+}
+
+export interface ReconcileResult {
+  workspace: string;
+  bytes: number;
+  objects: number;
+  previous: { bytes: number; objects: number };
+  changed: boolean;
+  usage: UsageResult;
+}
+
+export interface PurgeExpiredResult {
+  workspace: string;
+  retentionDays: number;
+  cutoff: string;
+  deleted: number;
+  freedBytes: number;
+  keys: string[];
+  keysTruncated: boolean;
+  reconcile: ReconcileResult;
+}
+
+export type PurgeExpiredResponse = PurgeExpiredResult | { skipped: true; reason: string };
+
 export interface EnrollmentExchangeResult {
   apiUrl?: string;
   workspace: string;
@@ -120,7 +155,11 @@ function filesBase(config: UploadsClientConfig): string {
   return `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/files`;
 }
 
-function mapApiError(status: number, error: string): UploadsError {
+function usageBase(config: UploadsClientConfig): string {
+  return `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/usage`;
+}
+
+function mapApiError(status: number, error: string, code?: string): UploadsError {
   const normalized = error.toLowerCase();
   if (status === 401 || normalized === "unauthorized") {
     return new UploadsError(error, "UNAUTHORIZED", status);
@@ -131,6 +170,13 @@ function mapApiError(status: number, error: string): UploadsError {
   if (status === 400 && normalized === "invalid key") {
     return new UploadsError(error, "INVALID_KEY", status);
   }
+  // Prefer stable body.code — bare 429 is also used for write rate limits.
+  if (status === 507 || code === "storage_quota_exceeded") {
+    return new UploadsError(error, "STORAGE_QUOTA", status);
+  }
+  if (code === "upload_budget_exceeded") {
+    return new UploadsError(error, "UPLOAD_BUDGET", status);
+  }
   return new UploadsError(error, "API_ERROR", status);
 }
 
@@ -140,7 +186,11 @@ async function parseErrorResponse(res: Response): Promise<UploadsError> {
     typeof body === "object" && body && "error" in body && typeof body.error === "string"
       ? body.error
       : res.statusText || "request failed";
-  return mapApiError(res.status, message);
+  const code =
+    typeof body === "object" && body && "code" in body && typeof body.code === "string"
+      ? body.code
+      : undefined;
+  return mapApiError(res.status, message, code);
 }
 
 export function createUploadsClient(config: UploadsClientConfig) {
@@ -245,6 +295,21 @@ export function createUploadsClient(config: UploadsClientConfig) {
 
     async health(): Promise<HealthResult> {
       return request<HealthResult>("GET", `${config.apiUrl}/health`, { auth: false });
+    },
+
+    /** Workspace storage / upload counters (+ limits when configured). */
+    async usage(): Promise<UsageResult> {
+      return request<UsageResult>("GET", usageBase(config));
+    },
+
+    /** Rebuild ledger bytes/objects from storage (source of truth). */
+    async reconcile(): Promise<ReconcileResult> {
+      return request<ReconcileResult>("POST", `${usageBase(config)}/reconcile`);
+    },
+
+    /** Delete objects past retentionDays (if set), then reconcile. */
+    async purgeExpired(): Promise<PurgeExpiredResponse> {
+      return request<PurgeExpiredResponse>("POST", `${usageBase(config)}/purge-expired`);
     },
   };
 }
