@@ -107,4 +107,40 @@ describe("optimizeImageForUpload", () => {
     expect(result.outputBytes).toBeLessThanOrEqual(result.originalBytes);
     if (!result.optimized) expect(result.skippedReason).toBe("not_smaller");
   });
+
+  it("strips EXIF by default and preserves it with keepExif", async () => {
+    const jpeg = new Uint8Array(
+      await sharp({
+        create: {
+          width: 400,
+          height: 300,
+          channels: 3,
+          background: { r: 90, g: 40, b: 20 },
+        },
+      })
+        .jpeg({ quality: 95 })
+        .withMetadata({
+          exif: {
+            IFD0: {
+              Copyright: "uploads-exif-fixture",
+              Software: "uploads-test",
+            },
+          },
+        })
+        .toBuffer(),
+    );
+    const withExif = await sharp(jpeg).metadata();
+    expect(withExif.exif).toBeTruthy();
+
+    const stripped = await optimizeImageForUpload(jpeg, "photo.jpg");
+    expect(stripped.optimized).toBe(true);
+    const strippedMeta = await sharp(stripped.bytes).metadata();
+    expect(strippedMeta.exif).toBeUndefined();
+
+    const kept = await optimizeImageForUpload(jpeg, "photo.jpg", { keepExif: true });
+    expect(kept.optimized).toBe(true);
+    const keptMeta = await sharp(kept.bytes).metadata();
+    expect(keptMeta.exif).toBeTruthy();
+    expect(Buffer.from(kept.bytes).includes(Buffer.from("uploads-exif-fixture"))).toBe(true);
+  });
 });

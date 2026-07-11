@@ -51,7 +51,7 @@ function optStringArray(args: ToolArgs, name: string): string[] | undefined {
 
 function mcpOptimizeOptions(
   args: ToolArgs,
-  defaults: { noOptimize?: boolean },
+  defaults: { noOptimize?: boolean; keepExif?: boolean },
 ): OptimizeImageOptions {
   const quality = optPosInt(args, "optimizeQuality");
   if (quality !== undefined && quality > 100) usage("optimizeQuality must be 1–100");
@@ -59,6 +59,7 @@ function mcpOptimizeOptions(
     enabled: !(optBool(args, "noOptimize") || defaults.noOptimize === true),
     maxEdge: optPosInt(args, "optimizeMaxEdge"),
     quality,
+    keepExif: optBool(args, "keepExif") || defaults.keepExif === true,
   };
 }
 
@@ -199,6 +200,11 @@ export function createUploadsMcpTools(opts: {
             type: "number",
             description: "WebP quality 1–100 when optimizing (default: 85).",
           },
+          keepExif: {
+            type: "boolean",
+            description:
+              "Keep EXIF/XMP/ICC when optimizing (default: strip for privacy on public embeds).",
+          },
           noGit: { type: "boolean", description: "Don't derive the repo segment from git." },
           comment: {
             type: "boolean",
@@ -320,6 +326,11 @@ export function createUploadsMcpTools(opts: {
           optimizeQuality: {
             type: "number",
             description: "WebP quality 1–100 when optimizing (default: 85).",
+          },
+          keepExif: {
+            type: "boolean",
+            description:
+              "Keep EXIF/XMP/ICC when optimizing (default: strip for privacy on public embeds).",
           },
           workspace: workspaceProp,
         },

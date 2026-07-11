@@ -131,6 +131,7 @@ Key options (`uploads put --help` for all):
 | `--no-optimize`                       | Skip client-side image optimization (default: still images → WebP). Or `UPLOADS_NO_OPTIMIZE=1`.    |
 | `--optimize-max-edge <px>`            | Max long edge when optimizing (default: 2400).                                                     |
 | `--optimize-quality <1-100>`          | WebP quality when optimizing (default: 85).                                                        |
+| `--keep-exif`                         | Keep EXIF/XMP/ICC when optimizing (default: **strip** for privacy). Or `UPLOADS_KEEP_EXIF=1`.      |
 | `--no-git`                            | Don't derive `--repo` from the git remote (or `UPLOADS_NO_GIT=1`).                                 |
 | `--format human\|url\|markdown\|json` | Control stdout. `--json` (global) forces json.                                                     |
 | `-w, --workspace <name>`              | Override workspace (wins over env and token inference).                                            |
@@ -138,9 +139,10 @@ Key options (`uploads put --help` for all):
 **Image optimization (default on):** PNG/JPEG and similar still images are re-encoded to
 WebP (long edge capped at 2400px, quality 85) before upload so PR/issue embeds stay
 lean. The object key/filename extension follows the output (e.g. `shot.png` →
-`…/shot.webp`). Animated GIF, SVG, video, and non-images are left alone; if the
-optimized payload is not smaller, the original is uploaded. Use `--no-optimize` when
-you need lossless originals.
+`…/shot.webp`). **EXIF/XMP is stripped by default** (public URLs + privacy); pass
+`--keep-exif` when the discussion needs the embedded image metadata. Animated GIF,
+SVG, video, and non-images are left alone; if the optimized payload is not smaller,
+the original is uploaded. Use `--no-optimize` when you need lossless originals.
 
 **How keys work** — three paths, no extra naming modes:
 
@@ -259,7 +261,7 @@ uploads config init --api-url http://localhost:8787 --workspace default --token 
 
 Recognized keys: `UPLOADS_API_URL`, `UPLOADS_WORKSPACE`, `UPLOADS_TOKEN`,
 `UPLOADS_DEFAULT_PREFIX`, `UPLOADS_DEFAULT_REPO`, `UPLOADS_DEFAULT_REF`,
-`UPLOADS_DEFAULT_WIDTH`, `UPLOADS_NO_GIT`, `UPLOADS_NO_OPTIMIZE`.
+`UPLOADS_DEFAULT_WIDTH`, `UPLOADS_NO_GIT`, `UPLOADS_NO_OPTIMIZE`, `UPLOADS_KEEP_EXIF`.
 
 ## Local development
 

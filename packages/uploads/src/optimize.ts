@@ -21,6 +21,12 @@ export interface OptimizeImageOptions {
   format?: OptimizeOutputFormat;
   maxEdge?: number;
   quality?: number;
+  /**
+   * When true, preserve EXIF/XMP/ICC (and related) from the input via sharp
+   * `withMetadata()`. Default false — strip for privacy and smaller embeds.
+   * Orientation is still applied so pixels match what the user saw.
+   */
+  keepExif?: boolean;
 }
 
 export interface OptimizeImageResult {
@@ -169,6 +175,11 @@ export async function optimizeImageForUpload(
 
   // Apply EXIF orientation so stored pixels match what users saw.
   image = image.rotate();
+  // Default: strip metadata (privacy + size). Opt in to keep EXIF/etc. for
+  // cases where image metadata is part of the discussion (e.g. photo forensics).
+  if (opts.keepExif) {
+    image = image.withMetadata();
+  }
 
   let encoded: Buffer;
   try {

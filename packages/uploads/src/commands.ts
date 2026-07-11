@@ -56,8 +56,9 @@ const PUT_HELP = `uploads put <file> [options]
 Upload an image for GitHub embeds. Use "-" for stdin.
 
 Still images (PNG/JPEG/…) are optimized to WebP by default (long edge capped,
-high quality) so GitHub embeds stay lean. Original bytes are kept when they are
-already smaller, animated, or not an image. Use --no-optimize to upload as-is.
+high quality; EXIF stripped) so GitHub embeds stay lean. Original bytes are kept
+when they are already smaller, animated, or not an image. Use --no-optimize to
+upload as-is, or --keep-exif when image metadata matters for the discussion.
 
 Options:
   --key <key>           Object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>)
@@ -71,6 +72,7 @@ Options:
   --no-optimize         Skip client-side image optimization (or UPLOADS_NO_OPTIMIZE=1)
   --optimize-max-edge <px>  Max long edge when optimizing (default: 2400)
   --optimize-quality <1-100>  WebP quality (default: 85)
+  --keep-exif           Keep EXIF/XMP/ICC when optimizing (default: strip for privacy)
   --no-git              Don't derive --repo from git (or UPLOADS_NO_GIT=1)
   --workspace, -w <name>  Override workspace (wins over UPLOADS_WORKSPACE and token inference)
   --format human|url|markdown|json
@@ -122,6 +124,9 @@ export function optimizeOptionsFromFlags(
   if (flags.has("--no-optimize") && typeof flags.get("--no-optimize") === "string") {
     throw new UsageError("--no-optimize takes no value");
   }
+  if (flags.has("--keep-exif") && typeof flags.get("--keep-exif") === "string") {
+    throw new UsageError("--keep-exif takes no value");
+  }
   const quality = flagInt(flags, "--optimize-quality", "--optimize-quality");
   if (quality !== undefined && quality > 100) {
     throw new UsageError("invalid --optimize-quality: must be 1–100");
@@ -130,6 +135,7 @@ export function optimizeOptionsFromFlags(
     enabled: !(flagBool(flags, "--no-optimize") || defaults.noOptimize === true),
     maxEdge: flagInt(flags, "--optimize-max-edge", "--optimize-max-edge"),
     quality,
+    keepExif: flagBool(flags, "--keep-exif") || defaults.keepExif === true,
   };
 }
 
@@ -183,6 +189,7 @@ Options:
   --no-optimize         Skip client-side image optimization (or UPLOADS_NO_OPTIMIZE=1)
   --optimize-max-edge <px>  Max long edge when optimizing (default: 2400)
   --optimize-quality <1-100>  WebP quality (default: 85)
+  --keep-exif           Keep EXIF/XMP/ICC when optimizing (default: strip for privacy)
   --workspace, -w <name>  Override workspace
 
 Examples:

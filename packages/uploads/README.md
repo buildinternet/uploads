@@ -39,8 +39,9 @@ use `gh/…`. Workspaces may restrict put/sign to those roots via
 `allowedKeyPrefixes` (see [workspaces](../../docs/workspaces.md)).
 
 **Image optimization:** by default, still images are re-encoded to WebP (long edge
-capped, high quality) before upload so GitHub embeds stay small. Pass `--no-optimize`
-or set `UPLOADS_NO_OPTIMIZE=1` to upload originals.
+capped, high quality) before upload so GitHub embeds stay small, and **EXIF is
+stripped**. Pass `--keep-exif` / `UPLOADS_KEEP_EXIF=1` to preserve image metadata, or
+`--no-optimize` / `UPLOADS_NO_OPTIMIZE=1` to upload originals unchanged.
 
 Config layers (first match wins): CLI flags → env vars → `--env-file` → `~/.config/buildinternet/config`. See `config.example` for keys.
 

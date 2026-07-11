@@ -45,3 +45,7 @@ UPLOADS_DEFAULT_PREFIX=screenshots
 # Skip client-side image optimization on put/attach (default: optimize still
 # images to WebP for leaner GitHub embeds).
 # UPLOADS_NO_OPTIMIZE=1
+
+# Keep EXIF/XMP/ICC when optimizing (default: strip for privacy on public URLs).
+# Prefer for discussion-critical photo metadata; otherwise leave unset.
+# UPLOADS_KEEP_EXIF=1
