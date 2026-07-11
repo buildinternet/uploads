@@ -34,12 +34,15 @@ X-Uploads-Meta-frame: phone
 X-Uploads-Meta-keep-exif: 1
 ```
 
-**Allowlist only** (others dropped): `client`, `client-version`, `source-name`,
+**Client allowlist** (others dropped): `client`, `client-version`, `source-name`,
 `optimized`, `frame`, `keep-exif`. Values are printable ASCII, max 128 chars.
 Never send tokens, workspace secrets, or PII.
 
-Put and head responses include a `metadata` object when any allowlisted field
-was stored. The CLI/`uploads mcp` set these automatically from optimize/frame
+**Server-only:** every put also stores `content-sha256` (lowercase hex SHA-256 of
+the **final stored body**). Client-supplied `content-sha256` headers are ignored.
+
+Put and head responses always include `metadata` with at least `content-sha256`.
+The CLI/`uploads mcp` set the client fields automatically from optimize/frame
 options.
 
 ### Usage ledger and budgets

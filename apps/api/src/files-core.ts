@@ -8,7 +8,12 @@ import type { Files } from "@uploads/storage";
 import { checkPutBudget } from "./budget";
 import { inspectUpload, resolveUploadPolicy } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
-import { provenanceForResponse, sanitizeProvenance, type ProvenanceMap } from "./provenance";
+import {
+  contentSha256Hex,
+  provenanceForResponse,
+  sanitizeProvenance,
+  type ProvenanceMap,
+} from "./provenance";
 import { publicUrl, storage, storageConfig } from "./storage";
 import { getWorkspaceUsage, recordUsageSafe } from "./usage";
 import type { WorkspaceRecord } from "./workspace";
@@ -147,12 +152,17 @@ export async function putObject(
   const denial = checkPutBudget(usage, ws, { bytes: deltaBytes, uploads: 1 });
   if (denial) throw new FileOpError(denial.message, denial.status, denial.detail);
 
-  const metadata = sanitizeProvenance(opts?.provenance);
+  // Client headers first; always attach content-sha256 of the final stored body
+  // (never trust a client-supplied hash).
+  const metadata: ProvenanceMap = {
+    ...sanitizeProvenance(opts?.provenance, { clientOnly: true }),
+    "content-sha256": await contentSha256Hex(bytes),
+  };
 
   await store.upload(finalKey, bytes, {
     contentType: inspection.contentType,
     cacheControl: UPLOAD_CACHE_CONTROL,
-    ...(metadata ? { metadata } : {}),
+    metadata,
   });
 
   await recordUsageSafe(env.DB, workspaceName, {
@@ -166,7 +176,7 @@ export async function putObject(
     url: publicUrl(await storageConfig(env, ws), finalKey),
     size: newSize,
     contentType: inspection.contentType,
-    ...(metadata ? { metadata } : {}),
+    metadata,
   };
 }
 

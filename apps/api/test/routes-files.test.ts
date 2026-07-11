@@ -136,16 +136,19 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
         "X-Uploads-Meta-Optimized": "1",
         "X-Uploads-Meta-Frame": "phone",
         "X-Uploads-Meta-Secret": "should-drop",
+        "X-Uploads-Meta-Content-Sha256": "0".repeat(64),
       },
     });
     expect(res.status).toBe(201);
     const json = (await res.json()) as { metadata?: Record<string, string> };
-    expect(json.metadata).toEqual({
+    expect(json.metadata).toMatchObject({
       client: "uploads-cli",
       "client-version": "0.3.0",
       optimized: "1",
       frame: "phone",
     });
+    expect(json.metadata?.["content-sha256"]).toMatch(/^[0-9a-f]{64}$/);
+    expect(json.metadata?.["content-sha256"]).not.toBe("0".repeat(64));
     expect(bucket.store.get("default/screenshots/shot.png")?.customMetadata).toEqual(json.metadata);
 
     const head = await app.request(
@@ -164,10 +167,11 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
     expect(headJson.metadata).toEqual(json.metadata);
   });
 
-  it("omits metadata when no provenance headers are sent", async () => {
+  it("always sets content-sha256 even without client provenance headers", async () => {
     const { env } = await makeEnv();
     const res = await putShot(env);
-    const json = (await res.json()) as { metadata?: unknown };
-    expect(json.metadata).toBeUndefined();
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { metadata?: Record<string, string> };
+    expect(json.metadata?.["content-sha256"]).toMatch(/^[0-9a-f]{64}$/);
   });
 });

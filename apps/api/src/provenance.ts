@@ -15,7 +15,8 @@ export const PROVENANCE_VALUE_MAX = 128;
 export const PROVENANCE_KEY_MAX = 16;
 
 /**
- * Allowlisted keys (stored lower-case). Keep short for R2 metadata budget.
+ * Client-supplied allowlisted keys (stored lower-case). Keep short for R2
+ * metadata budget. `content-sha256` is server-computed only (not from headers).
  *
  * | key            | meaning                                      |
  * |----------------|----------------------------------------------|
@@ -25,8 +26,9 @@ export const PROVENANCE_KEY_MAX = 16;
  * | optimized      | "1" if client re-encoded before put          |
  * | frame          | frame id when used (phone, browser, …)       |
  * | keep-exif      | "1" if client preserved EXIF on optimize     |
+ * | content-sha256 | SHA-256 of stored body (server-set)          |
  */
-export const PROVENANCE_KEYS = [
+export const PROVENANCE_CLIENT_KEYS = [
   "client",
   "client-version",
   "source-name",
@@ -35,9 +37,13 @@ export const PROVENANCE_KEYS = [
   "keep-exif",
 ] as const;
 
+export const PROVENANCE_KEYS = [...PROVENANCE_CLIENT_KEYS, "content-sha256"] as const;
+
 export type ProvenanceKey = (typeof PROVENANCE_KEYS)[number];
+export type ProvenanceClientKey = (typeof PROVENANCE_CLIENT_KEYS)[number];
 
 const ALLOWED = new Set<string>(PROVENANCE_KEYS);
+const CLIENT_ALLOWED = new Set<string>(PROVENANCE_CLIENT_KEYS);
 
 const KEY_RE = /^[a-z][a-z0-9-]{0,31}$/;
 const VALUE_SAFE_RE = /^[\x20-\x7E]+$/; // printable ASCII only
@@ -54,17 +60,21 @@ function sanitizeValue(raw: string): string | null {
 /**
  * Keep only allowlisted keys with safe values. Unknown keys are ignored.
  * Returns undefined when the filtered map is empty.
+ *
+ * @param opts.clientOnly — drop server-only keys (e.g. content-sha256 from headers)
  */
 export function sanitizeProvenance(
   input: Record<string, string> | undefined | null,
+  opts?: { clientOnly?: boolean },
 ): ProvenanceMap | undefined {
   if (!input) return undefined;
+  const allowed = opts?.clientOnly ? CLIENT_ALLOWED : ALLOWED;
   const out: ProvenanceMap = {};
   let n = 0;
   for (const [rawKey, rawVal] of Object.entries(input)) {
     if (n >= PROVENANCE_KEY_MAX) break;
     const key = rawKey.trim().toLowerCase();
-    if (!KEY_RE.test(key) || !ALLOWED.has(key)) continue;
+    if (!KEY_RE.test(key) || !allowed.has(key)) continue;
     if (typeof rawVal !== "string") continue;
     const value = sanitizeValue(rawVal);
     if (!value) continue;
@@ -75,18 +85,25 @@ export function sanitizeProvenance(
 }
 
 /**
- * Read `X-Uploads-Meta-<key>: <value>` request headers into a raw map
- * (pre-sanitize). Header names are case-insensitive.
+ * Read client `X-Uploads-Meta-<key>: <value>` headers (never content-sha256).
  */
 export function provenanceFromHeaders(
   getHeader: (name: string) => string | undefined,
 ): Record<string, string> {
   const raw: Record<string, string> = {};
-  for (const key of PROVENANCE_KEYS) {
+  for (const key of PROVENANCE_CLIENT_KEYS) {
     const v = getHeader(`x-uploads-meta-${key}`);
     if (v !== undefined && v !== "") raw[key] = v;
   }
   return raw;
+}
+
+/** Lowercase hex SHA-256 of the stored object body. */
+export async function contentSha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 /** Convert stored metadata to a plain string map for JSON responses. */
