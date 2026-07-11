@@ -38,7 +38,7 @@ Config (first match wins, per key):
   environment         UPLOADS_API_URL, UPLOADS_TOKEN, UPLOADS_WORKSPACE
   --env-file <path>
   $BUILDINTERNET_CONFIG
-  ~/.config/buildinternet/config   (shared with github-screenshots)
+  ~/.config/buildinternet/config
 
 Workspace (within config layers):
   --workspace, -w     override — global (before command) or per-command (after)

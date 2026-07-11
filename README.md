@@ -2,8 +2,7 @@
 
 Lightweight file-hosting backend on Cloudflare Workers, built on
 [files-sdk](https://files-sdk.dev) so the storage layer is provider-agnostic
-(R2 today; any files-sdk adapter later). Successor to the R2 upload scripts in
-`buildinternet-skills/github-screenshots`.
+(R2 today; any files-sdk adapter later).
 
 > **Active development — not production-ready.** uploads.sh is being built in
 > the open and its APIs (including auth) will change without notice. Don't rely

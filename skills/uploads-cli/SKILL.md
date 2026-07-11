@@ -1,17 +1,16 @@
 ---
 name: uploads-cli
 description: >-
-  Host a file on uploads.sh (Cloudflare R2 behind an API) and get a stable, public
-  URL — then embed it in a GitHub PR or issue. Use this whenever you want to put a
-  screenshot, diagram, before/after image, GIF, or any binary into a PR description,
-  issue body, or PR/issue comment, or whenever you just need a durable public link to
-  a local file. Triggers include "upload this", "host this image", "attach a
-  screenshot to the PR", "add a before/after to the issue", "give me a public URL for
-  this file", "put this in the PR comment", or having just built/changed something
-  visual that a shot would make clearer. Reach for this instead of drag-and-drop or
-  the GitHub API (an agent can't upload to github.com/user-attachments) and instead of
-  hand-rolling R2/SigV4 uploads. This is the API-backed successor to the
-  github-screenshots skill's bundled R2 scripts.
+  Host a file on uploads.sh and get a stable, public URL — then embed it in a
+  GitHub PR or issue. Use this whenever you want to put a screenshot, diagram,
+  before/after image, GIF, or any binary into a PR description, issue body, or
+  PR/issue comment, or whenever you just need a durable public link to a local
+  file. Triggers include "upload this", "host this image", "attach a screenshot
+  to the PR", "add a before/after to the issue", "give me a public URL for this
+  file", "put this in the PR comment", or having just built/changed something
+  visual that a shot would make clearer. Reach for this instead of drag-and-drop
+  or the GitHub API (an agent can't upload to github.com/user-attachments) and
+  instead of hand-rolling cloud storage uploads.
 ---
 
 # Uploading files to uploads.sh and embedding in GitHub
@@ -24,21 +23,22 @@ for it. So any image URL you put in a PR/issue body written with `gh … --body-
 must already point at something publicly hosted.
 
 This skill solves that with the **`uploads` CLI**: it PUTs a local file to the
-uploads.sh API (Cloudflare R2 behind a Hono Worker), which returns a stable
-`https://storage.uploads.sh/<key>` URL you can drop straight into markdown. No
-browser, no repo bloat, no SigV4 by hand. For PRs and issues it can also create and
-maintain a single "attachments" comment for you via your local `gh` auth.
+uploads.sh API, which returns a stable public URL you can drop straight into
+markdown. No browser, no repo bloat, no signing by hand. For PRs and issues it can
+also create and maintain a single "attachments" comment for you via your local
+`gh` auth.
 
-For the common case, use `uploads attach <file...>`. It infers the current branch's PR,
-uploads every file under stable attachment keys, and maintains the comment by default:
+For the common case, use `uploads attach <file...>`. It infers the current branch's
+PR, uploads every file under stable attachment keys, and maintains the comment by
+default:
 
 ```bash
 uploads attach ./before.png ./after.png
 uploads attach ./shot.png --issue 45 --repo buildinternet/uploads
 ```
 
-Pass `--no-comment` when only stable URLs are wanted. Use `put` for lower-level naming
-and output control.
+Pass `--no-comment` when only stable URLs are wanted. Use `put` for lower-level
+naming and output control.
 
 The killer feature for GitHub: `--pr`/`--issue` produce **hash-free, stable keys**
 (`gh/<owner>/<repo>/pull/<num>/<name>`), so re-uploading the same filename overwrites
@@ -63,9 +63,7 @@ propagate within ~a minute).
 
 ## One-time setup
 
-Config lives in a shared, user-owned file so it survives skill reinstalls and is
-shared with `github-screenshots` and other buildinternet skills (each reads only its
-own prefixed keys):
+Config lives in a user-owned file so it survives skill reinstalls:
 
 ```
 ~/.config/buildinternet/config        # or $XDG_CONFIG_HOME/buildinternet/config
@@ -287,7 +285,7 @@ uploads --api-url http://localhost:8787 doctor
   a shot — crop/redact first.
 - **Edge cache:** responses carry `Cache-Control: max-age=60`, so an overwrite or a
   delete can keep serving the old bytes from the edge for up to ~a minute. The object
-  in R2 changes immediately.
+  in storage changes immediately.
 - **Exit codes** (useful in scripts): `2` usage/missing-token, `3` unauthorized or
   not-found, `4` network, `1` other. `--json` also emits `{error,code,status}`.
 - **MCP server:** the CLI can also be exposed to agents as a local stdio MCP server —
@@ -303,5 +301,5 @@ uploads --api-url http://localhost:8787 doctor
   server in Claude Code; `uploads install --dry-run` prints the commands instead.
 - **Agents on the Worker side:** the package also exports
   `createUploadsWorkerFileTools()` from `@buildinternet/uploads/agent` for exposing
-  upload/list/delete as AI-SDK tools inside the Worker — separate from this CLI, and
-  only relevant if you're building the agent tooling itself, not embedding images.
+  upload/list/delete as AI-SDK tools inside a Worker — only relevant if you're
+  building agent tooling that runs on the server, not for everyday PR embeds.
