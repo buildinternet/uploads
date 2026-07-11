@@ -5,20 +5,42 @@ Unknown workspaces and bad tokens are indistinguishable (both 401).
 
 ## Routes
 
-| Route                                             | Description                                                                                          |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `GET /health`                                     | Liveness (no auth)                                                                                   |
-| `PUT /v1/:workspace/files/:key`                   | Upload raw body (sniffed type). Bare keys → `f/<id>/<name>`. Returns `{ workspace, key, url, size }` |
-| `POST /v1/:workspace/files/sign`                  | Presigned upload (`signedUploadUrl`); needs HTTP S3 credentials on the workspace                     |
-| `GET /v1/:workspace/files?prefix=&limit=&cursor=` | List objects                                                                                         |
-| `GET /v1/:workspace/files/:key`                   | Object metadata                                                                                      |
-| `DELETE /v1/:workspace/files/:key`                | Delete object                                                                                        |
-| `GET /v1/:workspace/usage`                        | Workspace usage snapshot (`bytes`, `objects`, `uploadsInPeriod`, …); requires `files:read`           |
-| `POST /v1/:workspace/usage/reconcile`             | Rebuild `bytes`/`objects` from storage; requires `files:write`                                       |
-| `POST /v1/:workspace/usage/purge-expired`         | Delete objects older than `retentionDays`, then reconcile; requires `files:delete`                   |
+| Route                                             | Description                                                                                      |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `GET /health`                                     | Liveness (no auth)                                                                               |
+| `PUT /v1/:workspace/files/:key`                   | Upload raw body (sniffed type). Bare keys → `f/<id>/<name>`. Optional provenance headers (below) |
+| `POST /v1/:workspace/files/sign`                  | Presigned upload (`signedUploadUrl`); needs HTTP S3 credentials on the workspace                 |
+| `GET /v1/:workspace/files?prefix=&limit=&cursor=` | List objects                                                                                     |
+| `GET /v1/:workspace/files/:key`                   | Object metadata (includes allowlisted `metadata` when set)                                       |
+| `DELETE /v1/:workspace/files/:key`                | Delete object                                                                                    |
+| `GET /v1/:workspace/usage`                        | Workspace usage snapshot (`bytes`, `objects`, `uploadsInPeriod`, …); requires `files:read`       |
+| `POST /v1/:workspace/usage/reconcile`             | Rebuild `bytes`/`objects` from storage; requires `files:write`                                   |
+| `POST /v1/:workspace/usage/purge-expired`         | Delete objects older than `retentionDays`, then reconcile; requires `files:delete`               |
 
 `url` in responses is the public URL when the workspace has a
 `publicBaseUrl`, otherwise `null`.
+
+### Object provenance metadata
+
+Optional operational labels stored as R2 **custom metadata** (not EXIF, not on
+the public CDN response body). Clients may send:
+
+```http
+X-Uploads-Meta-client: uploads-cli
+X-Uploads-Meta-client-version: 0.3.0
+X-Uploads-Meta-source-name: shot.png
+X-Uploads-Meta-optimized: 1
+X-Uploads-Meta-frame: phone
+X-Uploads-Meta-keep-exif: 1
+```
+
+**Allowlist only** (others dropped): `client`, `client-version`, `source-name`,
+`optimized`, `frame`, `keep-exif`. Values are printable ASCII, max 128 chars.
+Never send tokens, workspace secrets, or PII.
+
+Put and head responses include a `metadata` object when any allowlisted field
+was stored. The CLI/`uploads mcp` set these automatically from optimize/frame
+options.
 
 ### Usage ledger and budgets
 

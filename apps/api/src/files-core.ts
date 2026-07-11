@@ -8,6 +8,7 @@ import type { Files } from "@uploads/storage";
 import { checkPutBudget } from "./budget";
 import { inspectUpload, resolveUploadPolicy } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
+import { provenanceForResponse, sanitizeProvenance, type ProvenanceMap } from "./provenance";
 import { publicUrl, storage, storageConfig } from "./storage";
 import { getWorkspaceUsage, recordUsageSafe } from "./usage";
 import type { WorkspaceRecord } from "./workspace";
@@ -120,7 +121,14 @@ export async function putObject(
   key: string,
   bytes: Uint8Array,
   workspaceName: string,
-): Promise<{ key: string; url: string | null; size: number; contentType: string }> {
+  opts?: { provenance?: Record<string, string> },
+): Promise<{
+  key: string;
+  url: string | null;
+  size: number;
+  contentType: string;
+  metadata?: ProvenanceMap;
+}> {
   const finalKey = finalizeUploadKey(key, ws);
   if (bytes.byteLength === 0) throw new FileOpError("empty body");
 
@@ -139,9 +147,12 @@ export async function putObject(
   const denial = checkPutBudget(usage, ws, { bytes: deltaBytes, uploads: 1 });
   if (denial) throw new FileOpError(denial.message, denial.status, denial.detail);
 
+  const metadata = sanitizeProvenance(opts?.provenance);
+
   await store.upload(finalKey, bytes, {
     contentType: inspection.contentType,
     cacheControl: UPLOAD_CACHE_CONTROL,
+    ...(metadata ? { metadata } : {}),
   });
 
   await recordUsageSafe(env.DB, workspaceName, {
@@ -155,6 +166,29 @@ export async function putObject(
     url: publicUrl(await storageConfig(env, ws), finalKey),
     size: newSize,
     contentType: inspection.contentType,
+    ...(metadata ? { metadata } : {}),
+  };
+}
+
+/** Shape HEAD/list-friendly metadata for API JSON. */
+export function headObjectJson(
+  key: string,
+  meta: {
+    size?: number;
+    type?: string;
+    lastModified?: number;
+    metadata?: Record<string, string>;
+  },
+  url: string | null,
+) {
+  const provenance = provenanceForResponse(meta.metadata ?? undefined);
+  return {
+    key,
+    size: meta.size ?? 0,
+    contentType: meta.type ?? "application/octet-stream",
+    ...(meta.lastModified != null ? { uploaded: new Date(meta.lastModified).toISOString() } : {}),
+    url,
+    ...(provenance ? { metadata: provenance } : {}),
   };
 }
 

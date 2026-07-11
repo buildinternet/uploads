@@ -40,6 +40,7 @@ import {
   type OptimizeImageResult,
 } from "./optimize.js";
 import { applyFrame, resolveFrameId, type FrameResult } from "./frame.js";
+import { buildCliProvenance } from "./provenance.js";
 import type { PutDefaults } from "./config-file.js";
 
 export interface CliContext {
@@ -320,6 +321,12 @@ export async function runAttach(
       filename: prepared.filename,
       key: ghAttachmentKey(target, prepared.filename),
       contentType: prepared.optimized ? prepared.contentType : contentTypeOverride,
+      provenance: buildCliProvenance({
+        sourceName,
+        optimized: prepared.optimized,
+        frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
+        keepExif: optimizeOpts.keepExif === true,
+      }),
     });
     results.push({
       ...result,
@@ -460,6 +467,12 @@ export async function runPut(
     ref: flagString(parsed.flags, "--ref") ?? defaults.ref,
     contentType: prepared.optimized ? prepared.contentType : contentTypeOverride,
     deriveRepoFromGit: !noGit,
+    provenance: buildCliProvenance({
+      sourceName,
+      optimized: prepared.optimized,
+      frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
+      keepExif: optimizeOpts.keepExif === true,
+    }),
   });
 
   const markdown = buildMarkdown(result.url, { alt, width });

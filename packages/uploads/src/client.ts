@@ -3,6 +3,16 @@ import type { UploadsClientConfig } from "./config.js";
 import { UploadsError } from "./errors.js";
 import { buildScreenshotKey } from "./keys.js";
 
+/** Allowlisted object provenance (maps to X-Uploads-Meta-* on put). */
+export type ProvenanceInput = {
+  client?: string;
+  "client-version"?: string;
+  "source-name"?: string;
+  optimized?: "0" | "1";
+  frame?: string;
+  "keep-exif"?: "0" | "1";
+};
+
 export interface PutOptions {
   key?: string;
   contentType?: string;
@@ -10,6 +20,8 @@ export interface PutOptions {
   repo?: string;
   ref?: string;
   deriveRepoFromGit?: boolean;
+  /** Stored as R2 custom metadata; echoed on put/head. */
+  provenance?: ProvenanceInput;
 }
 
 export interface ListOptions {
@@ -24,6 +36,7 @@ export interface PutResult {
   url: string;
   size: number;
   contentType: string;
+  metadata?: Record<string, string>;
 }
 
 export interface ListItem {
@@ -44,6 +57,7 @@ export interface HeadResult {
   size: number;
   contentType: string;
   uploaded?: string;
+  metadata?: Record<string, string>;
 }
 
 export interface DeleteResult {
@@ -249,6 +263,12 @@ export function createUploadsClient(config: UploadsClientConfig) {
           deriveRepoFromGit: opts.deriveRepoFromGit,
         }));
       const contentType = opts.contentType ?? inferContentType(opts.filename);
+      const headers: Record<string, string> = { "Content-Type": contentType };
+      if (opts.provenance) {
+        for (const [k, v] of Object.entries(opts.provenance)) {
+          if (v !== undefined && v !== "") headers[`X-Uploads-Meta-${k}`] = v;
+        }
+      }
 
       const result = await request<{
         workspace: string;
@@ -256,9 +276,10 @@ export function createUploadsClient(config: UploadsClientConfig) {
         url: string | null;
         size: number;
         contentType: string;
+        metadata?: Record<string, string>;
       }>("PUT", `${filesBase(config)}/${encodeKeyPath(key)}`, {
         body,
-        headers: { "Content-Type": contentType },
+        headers,
       });
 
       if (result.url == null) {

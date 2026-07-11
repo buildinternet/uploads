@@ -4,9 +4,11 @@ import {
   badKey,
   deleteObject,
   finalizeUploadKey,
+  headObjectJson,
   listObjects,
   putObject,
 } from "../files-core";
+import { provenanceFromHeaders } from "../provenance";
 import { publicUrl, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { checkDeclaredLength, resolveUploadPolicy, writeRateLimit } from "../guards";
@@ -110,6 +112,7 @@ export const files = new Hono<WorkspaceVars>()
         key,
         new Uint8Array(body),
         c.get("workspaceName"),
+        { provenance: provenanceFromHeaders((n) => c.req.header(n)) },
       );
       return c.json({ workspace: c.get("workspaceName"), ...result }, 201);
     } catch (err) {
@@ -130,7 +133,7 @@ export const files = new Hono<WorkspaceVars>()
     const store = await storage(c.env, ws);
     if (!(await store.exists(key))) return c.json({ error: "not found" }, 404);
     const meta = await store.head(key);
-    return c.json({ ...meta, url: publicUrl(await storageConfig(c.env, ws), key) });
+    return c.json(headObjectJson(key, meta, publicUrl(await storageConfig(c.env, ws), key)));
   })
 
   .delete("/:key{.+}", writeRateLimit, requireScope("files:delete"), async (c) => {

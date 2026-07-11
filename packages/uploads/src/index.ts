@@ -41,6 +41,7 @@ export {
   createUploadsClient,
   type UploadsClient,
   type PutOptions,
+  type ProvenanceInput,
   type ListOptions,
   type PutResult,
   type ListItem,
@@ -53,6 +54,7 @@ export {
   type PurgeExpiredResult,
   type PurgeExpiredResponse,
 } from "./client.js";
+export { buildCliProvenance } from "./provenance.js";
 export {
   ATTACHMENTS_MARKER,
   attachmentsCommentBody,
