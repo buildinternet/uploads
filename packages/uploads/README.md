@@ -8,7 +8,7 @@ Binary: **`uploads`**. Install globally (or use a pinned `npx` one-shot):
 
 ```bash
 npm install --global @buildinternet/uploads
-npx @buildinternet/uploads@0.1.0 --help
+npx @buildinternet/uploads@0.4.0 --help
 ```
 
 ```bash

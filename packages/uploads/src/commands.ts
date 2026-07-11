@@ -65,6 +65,10 @@ upload as-is, or --keep-exif when image metadata matters for the discussion.
 Optional --frame wraps the image in a device/browser chrome before optimize
 (default off). See: uploads put --help frames
 
+Uploads are public. --pr/--issue keys include the repo, number, and filename and
+remain public even for private/internal GitHub repositories. Upload only media
+that is safe at a predictable public URL.
+
 Options:
   --key <key>           Object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>)
   --destination <id>    Typed root: screenshots | gh | f (sets --prefix)
@@ -249,6 +253,10 @@ const ATTACH_HELP = `uploads attach <file...> [options]
 
 Upload one or more stable PR/issue attachments and maintain a single GitHub
 comment. With no target, uses the pull request for the current branch.
+
+Attachments are public and their repo/number/filename keys are predictable.
+Private/internal GitHub repository visibility does not restrict access; upload
+only media that is safe at a public URL.
 
 Still images are optimized to WebP by default (same as put). Use --no-optimize
 to upload originals. Optional --frame wraps images in device/browser chrome.

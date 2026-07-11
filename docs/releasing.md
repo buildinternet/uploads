@@ -1,8 +1,8 @@
 # Releasing `@buildinternet/uploads`
 
 The CLI/client package is published with **changesets** + npm **trusted
-publishing** (OIDC — no long-lived `NPM_TOKEN`). Version `0.1.1` is already on
-npm; later versions are cut by the **Release** workflow on `main`.
+publishing** (OIDC — no long-lived `NPM_TOKEN`). Published versions are cut by
+the **Release** workflow on `main`.
 
 ## Trusted-publishing configuration
 

@@ -57,6 +57,24 @@ as repository secrets, limit their scopes, use a single disposable repository,
 and serialize runs to prevent comment races. Keep that job separate from pull
 request CI so untrusted changes never receive the secrets.
 
+## Remote MCP lifecycle
+
+The manual **Remote MCP smoke** workflow exercises the deployed enrollment and
+stateless MCP boundary. Protect its `remote-mcp-smoke` GitHub Environment with
+required reviewers and restrict its deployment branches/tags to `main`. Store
+`ADMIN_TOKEN` only as an environment secret, and configure `UPLOADS_API_URL` and
+`UPLOADS_MCP_URL` as environment variables. Run it only against an existing
+disposable workspace. The job also rejects non-`main` workflow refs before loading
+the protected environment.
+
+The test creates a five-minute, single-use enrollment and exchanges it for a
+15-minute read/write/delete token. It then runs `initialize`, `tools/list`, put,
+list, and delete before revoking the token and confirming it receives 401. Generated
+credentials are masked immediately; response bodies, tokens, and public object URLs
+are never printed. Object cleanup and token revocation run in `finally` blocks.
+The workflow is manual-only and never exposes its administrator credential to pull
+request code or routine agents.
+
 ## Release gate
 
 A release is ready for the agent workflow when a clean environment can:

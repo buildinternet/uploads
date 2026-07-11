@@ -23,7 +23,7 @@ export function createUploadsWorkerFileTools(
     overrides: {
       uploadFile: {
         description:
-          "Upload a file for public hosting (e.g. GitHub embeds). Prefer keys under screenshots/.",
+          "Upload a non-sensitive file for public hosting (e.g. GitHub embeds). GitHub repository visibility does not restrict access; prefer keys under screenshots/.",
       },
       ...overrides,
     },

@@ -76,3 +76,6 @@ jobs:
 
       - name: Verify npm package
         run: pnpm --filter @buildinternet/uploads run build && pnpm --filter @buildinternet/uploads run pack:check
+
+      - name: Bundle remote MCP Worker
+        run: pnpm --filter @uploads/mcp run bundle:check

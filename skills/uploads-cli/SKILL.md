@@ -52,7 +52,7 @@ propagate within ~a minute).
 - **The CLI.** Install globally for repeated agent use, or run a pinned version:
   ```bash
   npm install --global @buildinternet/uploads
-  npx @buildinternet/uploads@0.1.0 --help
+  npx @buildinternet/uploads@0.4.0 --help
   ```
   Every example in this skill uses the **global** `uploads …` binary (as after
   install). Inside the uploads monorepo only, `pnpm uploads …` builds from
@@ -192,6 +192,12 @@ uploads put ./after.png --pr 123 --alt "Dashboard after"
 from `--repo` or the git remote. `--pr`/`--issue` can't be combined with `--key`,
 `--ref`, or `--prefix` (the key layout is fixed), and are mutually exclusive.
 
+These keys are deliberately predictable: they include the owner, repository, PR or
+issue number, and filename. uploads.sh does not check GitHub visibility, so a private
+or internal repository does **not** make the uploaded file private. Before using this
+mode, confirm the media is safe for a public, guessable URL; otherwise redact it or do
+not upload it.
+
 Then reference the URL in the PR/issue markdown you write with `gh`:
 
 ```markdown
@@ -280,9 +286,11 @@ uploads --api-url http://localhost:8787 doctor
 
 ## Notes and cautions
 
-- **Uploads are public and effectively permanent** until deleted. Never upload
-  secrets, tokens, internal dashboards with sensitive data, or customer PII visible in
-  a shot — crop/redact first.
+- **Uploads are public and effectively permanent** until deleted. GitHub repository
+  visibility is not an access control: private/internal PR and issue attachments remain
+  public, and `gh/<owner>/<repo>/pull|issues/<num>/<filename>` keys are predictable.
+  Never upload secrets, tokens, internal dashboards with sensitive data, or customer
+  PII visible in a shot — crop/redact first.
 - **Edge cache:** responses carry `Cache-Control: max-age=60`, so an overwrite or a
   delete can keep serving the old bytes from the edge for up to ~a minute. The object
   in storage changes immediately.

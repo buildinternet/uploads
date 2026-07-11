@@ -27,7 +27,7 @@ the public CDN response body). Clients may send:
 
 ```http
 X-Uploads-Meta-client: uploads-cli
-X-Uploads-Meta-client-version: 0.3.0
+X-Uploads-Meta-client-version: 0.4.0
 X-Uploads-Meta-source-name: shot.png
 X-Uploads-Meta-optimized: 1
 X-Uploads-Meta-frame: phone
