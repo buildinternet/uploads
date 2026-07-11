@@ -28,20 +28,40 @@ function ok(step) {
   process.stdout.write(`ok ${step}\n`);
 }
 
-async function jsonRequest(url, options, expected = [200]) {
+function errorCode(body) {
+  if (typeof body?.error === "string") return body.error;
+  return typeof body?.error?.code === "string" ? body.error.code : undefined;
+}
+
+function failureHint(code) {
+  switch (code) {
+    case "workspace_not_found":
+      return `verify that workspace ${JSON.stringify(workspace)} exists`;
+    case "unauthorized":
+      return "verify the protected environment credential is current";
+    case "invalid_scopes":
+      return "verify the deployed API accepts the smoke-test scopes";
+    default:
+      return undefined;
+  }
+}
+
+async function jsonRequest(url, options, expected = [200], operation = "HTTP request") {
   const response = await fetch(url, options);
-  if (!expected.includes(response.status)) {
-    throw new Error(
-      `${options.method ?? "GET"} request expected ${expected.join("/")}, got ${response.status}`,
-    );
-  }
+  let body;
   try {
-    return { status: response.status, body: await response.json() };
+    body = await response.json();
   } catch {
+    throw new Error(`${operation} returned non-JSON status ${response.status}`);
+  }
+  if (!expected.includes(response.status)) {
+    const code = errorCode(body);
+    const hint = failureHint(code);
     throw new Error(
-      `${options.method ?? "GET"} request returned non-JSON status ${response.status}`,
+      `${operation} expected HTTP ${expected.join("/")}, got ${response.status}${code ? ` (${code})` : ""}${hint ? `; ${hint}` : ""}`,
     );
   }
+  return { status: response.status, body };
 }
 
 function headers(token) {
@@ -62,6 +82,7 @@ async function mcp(method, params, expected = [200]) {
       }),
     },
     expected,
+    `MCP ${method}`,
   );
 }
 
@@ -80,6 +101,7 @@ async function revoke() {
       body: JSON.stringify({ workspace, label }),
     },
     [200],
+    "revoke smoke token",
   );
 }
 
@@ -98,6 +120,7 @@ try {
       }),
     },
     [201],
+    "create enrollment",
   );
   const code = enrollment.body.code;
   if (typeof code !== "string") throw new Error("enrollment response missing code");
@@ -112,6 +135,7 @@ try {
       body: JSON.stringify({ code }),
     },
     [201],
+    "exchange enrollment",
   );
   if (exchange.body.workspace !== workspace || typeof exchange.body.token !== "string") {
     throw new Error("enrollment exchange returned invalid credentials");
@@ -159,5 +183,7 @@ try {
 }
 
 const rejected = await mcp("tools/list", undefined, [401]);
-if (rejected.body.error !== "unauthorized") throw new Error("revoked token was not rejected");
+if (errorCode(rejected.body) !== "unauthorized") {
+  throw new Error("revoked token returned an unexpected authentication error");
+}
 ok("revoked token");
