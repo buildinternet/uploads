@@ -11,7 +11,8 @@ export const auth = new Hono<{ Bindings: Env }>()
     const limiter = c.env.INVITE_LIMITER;
     if (limiter) {
       const address = c.req.header("CF-Connecting-IP") ?? "unknown";
-      const { success } = await limiter.limit({ key: `invite:${address}` });
+      const operation = c.req.path.endsWith("/exchange") ? "exchange" : "lookup";
+      const { success } = await limiter.limit({ key: `invite:${operation}:${address}` });
       if (!success) throw new RateLimitedError("invitation rate limit exceeded");
     }
     await next();
@@ -29,16 +30,23 @@ export const auth = new Hono<{ Bindings: Env }>()
     if (contentLength > MAX_EXCHANGE_BODY_BYTES) throw INVALID_ENROLLMENT();
     const bytes = await c.req.arrayBuffer();
     if (bytes.byteLength > MAX_EXCHANGE_BODY_BYTES) throw INVALID_ENROLLMENT();
-    let body: Record<string, unknown>;
+    let parsed: unknown;
     try {
-      body = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+      parsed = JSON.parse(new TextDecoder().decode(bytes));
     } catch {
       throw INVALID_ENROLLMENT();
     }
-    if (Object.keys(body).length !== 1 || typeof body.code !== "string") {
+    if (
+      parsed === null ||
+      Array.isArray(parsed) ||
+      typeof parsed !== "object" ||
+      !("code" in parsed) ||
+      Object.keys(parsed).length !== 1 ||
+      typeof parsed.code !== "string"
+    ) {
       throw INVALID_ENROLLMENT();
     }
-    const code = body.code.trim();
+    const code = parsed.code.trim();
     if (!/^upe_[A-Za-z0-9_-]{20,}$/.test(code)) throw INVALID_ENROLLMENT();
     const result = await exchangeEnrollment(c.env.DB, code);
     if (!result) throw INVALID_ENROLLMENT();

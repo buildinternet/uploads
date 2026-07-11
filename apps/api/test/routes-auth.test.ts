@@ -23,6 +23,7 @@ function env(
   options: {
     legacyHash?: string;
     inviteAllowed?: boolean;
+    inviteKeys?: string[];
     d1?: {
       tokenHash: string;
       scopes: string;
@@ -37,7 +38,12 @@ function env(
     INVITE_LIMITER:
       options.inviteAllowed === undefined
         ? undefined
-        : { limit: async () => ({ success: options.inviteAllowed }) },
+        : {
+            limit: async ({ key }: { key: string }) => {
+              options.inviteKeys?.push(key);
+              return { success: options.inviteAllowed };
+            },
+          },
     REGISTRY: {
       get: async () => record,
       put: async () => undefined,
@@ -145,6 +151,7 @@ describe("auth routes", () => {
   it("uses one uniform, non-cacheable public exchange error", async () => {
     const responses = await Promise.all([
       app.request("/auth/enrollments/exchange", { method: "POST", body: "{}" }, env()),
+      app.request("/auth/enrollments/exchange", { method: "POST", body: "null" }, env()),
       app.request(
         "/auth/enrollments/exchange",
         { method: "POST", body: JSON.stringify({ code: "upe_bad" }) },
@@ -160,11 +167,26 @@ describe("auth routes", () => {
       ),
     ]);
     const bodies = await Promise.all(responses.map((response) => response.json()));
-    expect(responses.map((response) => response.status)).toEqual([400, 400, 400]);
+    expect(responses.map((response) => response.status)).toEqual([400, 400, 400, 400]);
     expect(
       responses.every((response) => response.headers.get("Cache-Control") === "no-store"),
     ).toBe(true);
     expect(new Set(bodies.map((body) => JSON.stringify(body))).size).toBe(1);
+  });
+
+  it("uses separate address-scoped quotas for lookup and exchange", async () => {
+    const keys: string[] = [];
+    const bindings = env({ inviteAllowed: true, inviteKeys: keys });
+    const headers = { "CF-Connecting-IP": "203.0.113.7" };
+
+    await app.request("/auth/enrollments/upi_abcdefghijklmnop", { headers }, bindings);
+    await app.request(
+      "/auth/enrollments/exchange",
+      { method: "POST", headers, body: "{}" },
+      bindings,
+    );
+
+    expect(keys).toEqual(["invite:lookup:203.0.113.7", "invite:exchange:203.0.113.7"]);
   });
 
   it("rate limits public invitation routes independently", async () => {

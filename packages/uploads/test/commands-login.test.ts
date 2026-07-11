@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveEnrollmentCode, runLogin, validateEnrollmentCode } from "../src/commands/login.js";
-import { parseScopes, runAdmin } from "../src/commands/admin-enrollment.js";
+import { invitePageUrl, parseScopes, runAdmin } from "../src/commands/admin-enrollment.js";
 import { parseCommandArgs } from "../src/cli-args.js";
 import { loadConfigFile, writeConfigKeys } from "../src/config-file.js";
 
@@ -188,6 +188,18 @@ describe("admin enrollment", () => {
     expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))).toEqual({
       workspace: "default",
     });
+  });
+
+  it("derives or overrides the invite page origin", () => {
+    expect(invitePageUrl("https://api.uploads.sh", "upi_abcdefghijklmnop")).toBe(
+      "https://uploads.sh/invite?id=upi_abcdefghijklmnop",
+    );
+    expect(invitePageUrl("https://api.staging.example.com/v1", "upi_abcdefghijklmnop")).toBe(
+      "https://staging.example.com/invite?id=upi_abcdefghijklmnop",
+    );
+    expect(
+      invitePageUrl("http://localhost:8787", "upi_abcdefghijklmnop", "http://localhost:4321/setup"),
+    ).toBe("http://localhost:4321/invite?id=upi_abcdefghijklmnop");
   });
 
   it("validates scopes locally", () => {

@@ -15,10 +15,26 @@ Options:
   --token-expires-in <seconds>  Upload token lifetime (default: server policy)
   --scopes <list>        Comma-separated files:read,files:write,files:delete
   --api-url <url>        Default: https://api.uploads.sh
+  --web-url <url>        Invite-page origin (defaults from --api-url)
 `;
 
 type FileScope = "files:read" | "files:write" | "files:delete";
 const FILE_SCOPES = new Set<FileScope>(["files:read", "files:write", "files:delete"]);
+
+export function invitePageUrl(apiUrl: string, pageId: string, webUrl?: string): string {
+  let url: URL;
+  try {
+    url = new URL(webUrl ?? apiUrl);
+  } catch {
+    throw new UsageError("invalid invite web URL");
+  }
+  if (!webUrl && url.hostname.startsWith("api.")) url.hostname = url.hostname.slice(4);
+  url.pathname = "/invite";
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("id", pageId);
+  return url.toString();
+}
 
 export function parseScopes(raw: string | undefined): FileScope[] | undefined {
   if (raw === undefined) return undefined;
@@ -56,6 +72,7 @@ export async function runAdmin(
     process.env.UPLOADS_ADMIN_TOKEN;
   if (!adminToken) throw new UsageError("ADMIN_TOKEN is required for admin enrollment creation");
   const apiUrl = flagString(parsed.flags, "--api-url") ?? opts.apiUrl ?? "https://api.uploads.sh";
+  const webUrl = flagString(parsed.flags, "--web-url");
   const workspace = flagString(parsed.flags, "--workspace") ?? "default";
   const label = flagString(parsed.flags, "--label");
   const result = await createEnrollment(apiUrl, adminToken, {
@@ -71,7 +88,7 @@ export async function runAdmin(
     );
   else
     process.stdout.write(
-      `Invite page: https://uploads.sh/invite?id=${result.pageId}\nOne-time code (share separately): ${result.code}\nworkspace: ${workspace}\nexpires: ${result.expiresAt}\n`,
+      `Invite page: ${invitePageUrl(apiUrl, result.pageId, webUrl)}\nOne-time code (share separately): ${result.code}\nworkspace: ${workspace}\nexpires: ${result.expiresAt}\n`,
     );
   return 0;
 }
