@@ -1,0 +1,24 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+  "protocolVersion": "2025-06-18",
+  "serverInfo": {
+    "name": "uploads-mcp",
+    "version": "0.5.0",
+    "description": "Host files on uploads.sh from an agent — put, attach, list, delete, usage, and GitHub attachment comments.",
+    "homepage": "https://uploads.sh/"
+  },
+  "transport": {
+    "type": "streamable-http",
+    "endpoint": "https://agents.uploads.sh/mcp"
+  },
+  "capabilities": {
+    "tools": true,
+    "resources": false,
+    "prompts": false
+  },
+  "authentication": {
+    "required": true,
+    "schemes": ["bearer"],
+    "description": "Per-workspace bearer token (Authorization: Bearer up_<workspace>_…). Obtain via invitation + `uploads login`. See https://uploads.sh/auth.md"
+  }
+}

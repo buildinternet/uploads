@@ -52,8 +52,40 @@ const methodNotAllowed = (_c: Context<WorkspaceVars>) => {
   throw new MethodNotAllowedError();
 };
 
+/** SEP-1649-style discovery document for HTTP MCP clients probing this origin. */
+function mcpServerCard() {
+  return {
+    $schema: "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+    protocolVersion: "2025-06-18",
+    serverInfo: {
+      name: "uploads-mcp",
+      version: pkg.version,
+      description:
+        "Host files on uploads.sh from an agent — put, attach, list, delete, usage, and GitHub attachment comments.",
+      homepage: "https://uploads.sh/",
+    },
+    transport: {
+      type: "streamable-http",
+      endpoint: "https://agents.uploads.sh/mcp",
+    },
+    capabilities: {
+      tools: true,
+      resources: false,
+      prompts: false,
+    },
+    authentication: {
+      required: true,
+      schemes: ["bearer"],
+      description:
+        "Per-workspace bearer token (Authorization: Bearer up_<workspace>_…). Obtain via invitation + `uploads login`. See https://uploads.sh/auth.md",
+    },
+  };
+}
+
 const app = new Hono<WorkspaceVars>()
   .get("/health", (c) => c.json({ ok: true }))
+  // Public discovery — registered before /:workspace/* so ".well-known" is not a tenant.
+  .get("/.well-known/mcp/server-card.json", (c) => c.json(mcpServerCard()))
   // Primary endpoint: the workspace is inferred from the bearer token
   // (up_<workspace>_…), so clients only need the URL and the token.
   .post("/mcp", tokenWorkspaceAuth, handleMcp)

@@ -7,8 +7,8 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "deploy": "astro build && node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
-    "typecheck": "astro check"
+    "deploy": "pnpm run build && node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
+    "typecheck": "astro check && tsc -p tsconfig.worker.json --noEmit"
   },
   "dependencies": {
     "astro": "^7.0.6"
