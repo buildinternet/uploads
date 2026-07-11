@@ -25,7 +25,8 @@ public/auth.md                       Agent enrollment / bearer auth (not OAuth)
 public/.well-known/api-catalog       RFC 9727 linkset
 public/.well-known/openapi.json      Summary OpenAPI for the REST API
 public/.well-known/mcp/              MCP server card (points at agents.uploads.sh)
-public/.well-known/agent-skills/     Skills discovery index + uploads-cli skill
+public/.well-known/agent-skills/     **Generated** — do not commit (see below)
+scripts/generate-agent-skills.mjs    Copies skills/*/SKILL.md + writes index digests
 astro.config.mjs                     site = https://uploads.sh
 wrangler.jsonc                       Workers static assets deploy
 ```
@@ -64,16 +65,27 @@ rules there.
 | Agent skills    | `/.well-known/agent-skills/index.json`   |
 | Auth for agents | `/auth.md` (bearer / invite — not OAuth) |
 
-### Keeping the skill digest in sync
+### Agent skills — no hand-copied drift
 
-When `skills/uploads-cli/SKILL.md` changes, refresh the web copy and digest:
+Canonical skill files live only under the monorepo root:
 
-```bash
-cp skills/uploads-cli/SKILL.md \
-  apps/web/public/.well-known/agent-skills/uploads-cli/SKILL.md
-DIGEST=$(shasum -a 256 apps/web/public/.well-known/agent-skills/uploads-cli/SKILL.md | awk '{print $1}')
-# set digest to sha256:$DIGEST in apps/web/public/.well-known/agent-skills/index.json
 ```
+skills/uploads-cli/SKILL.md
+```
+
+`pnpm --filter @uploads/web generate:agent-skills` (also `predev` / `prebuild`)
+rewrites the gitignored tree:
+
+```
+apps/web/public/.well-known/agent-skills/
+  index.json                 # $schema + name/description/url/sha256 digest
+  uploads-cli/SKILL.md       # byte-identical copy of the source skill
+```
+
+Description and name come from the skill’s YAML frontmatter; the digest is
+`sha256` of the raw skill file bytes. Deploy always goes through `pnpm run build`,
+so production never ships a stale hand-copied skill. To add another skill, append
+an entry in `scripts/generate-agent-skills.mjs` (`SKILLS` array).
 
 ### Intentionally not implemented (yet)
 

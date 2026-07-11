@@ -11,3 +11,5 @@ worker-configuration.d.ts
 # Local agent notes, private plans, pricing scratch (not for the public repo)
 .context/
 .claude/worktrees/
+# Generated from skills/*/SKILL.md on web predev/prebuild — do not hand-edit
+apps/web/public/.well-known/agent-skills/

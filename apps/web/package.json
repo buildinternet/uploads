@@ -4,10 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "generate:agent-skills": "node ./scripts/generate-agent-skills.mjs",
+    "predev": "pnpm run generate:agent-skills",
+    "prebuild": "pnpm run generate:agent-skills",
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "deploy": "astro build && node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
+    "deploy": "pnpm run build && node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
     "typecheck": "astro check"
   },
   "dependencies": {
