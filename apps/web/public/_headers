@@ -6,6 +6,12 @@
   Content-Security-Policy: default-src 'none'; connect-src https://api.uploads.sh; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
   Permissions-Policy: camera=(), microphone=(), geolocation=()
 
+# Operator browser console — not a public product surface
+/console*
+  X-Robots-Tag: noindex, nofollow, noarchive
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+
 # Astro status pages — noindex; short cache on 404, no-store on app errors
 /404
   Cache-Control: public, max-age=60

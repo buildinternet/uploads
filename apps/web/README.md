@@ -18,9 +18,23 @@ From the repo root: `pnpm dev:web` / `pnpm run deploy:web`.
 src/layouts/      Shared shells (error pages)
 src/pages/        Astro pages (index, console, invite, 404, 500)
 public/_headers   Per-path response headers for Workers assets
-astro.config.mjs
+public/robots.txt Crawl policy (disallow invite + console)
+public/sitemap.xml Public URL list (landing only)
+public/llms.txt   Agent-oriented site map / product summary
+astro.config.mjs  site = https://uploads.sh
 wrangler.jsonc    Workers static assets deploy
 ```
+
+## Crawl / index policy
+
+Only the landing page is meant for search engines and agent discovery:
+
+| Path          | Indexable | Notes                                                       |
+| ------------- | --------- | ----------------------------------------------------------- |
+| `/`           | yes       | Listed in `sitemap.xml`; linked from `llms.txt`             |
+| `/invite`     | **no**    | Magic-link enrollment; `robots.txt` + meta + `X-Robots-Tag` |
+| `/console`    | **no**    | Operator scaffold; same triple coverage as invite           |
+| `/404`,`/500` | **no**    | Status pages; disallowed + `noindex`                        |
 
 ## Error pages
 

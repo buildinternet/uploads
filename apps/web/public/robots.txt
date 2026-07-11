@@ -1,0 +1,17 @@
+# https://uploads.sh — public marketing surface only.
+# Invite magic links and the operator console must not be crawled or indexed.
+
+User-agent: *
+Allow: /
+
+# Single-use enrollment pages (also noindex via meta + X-Robots-Tag).
+Disallow: /invite
+
+# Browser operator scaffold; not a public product surface.
+Disallow: /console
+
+# Status pages are not useful in search results.
+Disallow: /404
+Disallow: /500
+
+Sitemap: https://uploads.sh/sitemap.xml
