@@ -117,6 +117,8 @@ export interface EnrollmentCreateResult {
   code: string;
   expiresAt: string;
   tokenExpiresAt: string;
+  // Present only when an --email recipient was requested: whether delivery succeeded.
+  emailed?: boolean;
 }
 
 async function jsonRequest<T>(url: string, init: RequestInit): Promise<T> {
@@ -150,6 +152,7 @@ export function createEnrollment(
   input: {
     workspace?: string;
     label?: string;
+    email?: string;
     enrollmentSeconds?: number;
     tokenExpiresInSeconds?: number;
     scopes?: Array<"files:read" | "files:write" | "files:delete">;

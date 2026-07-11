@@ -231,6 +231,50 @@ describe("admin enrollment", () => {
     expect(output.out()).not.toContain("#code=");
   });
 
+  it("emails the invite and confirms delivery without printing the code", async () => {
+    process.env.ADMIN_TOKEN = "admin-secret";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      response(
+        {
+          pageId: "upi_abcdefghijklmnop",
+          code: "upe_abcdefghijklmnopqrstuvwxyz012345",
+          expiresAt: "2030-01-01T00:00:00Z",
+          tokenExpiresAt: "2030-02-01T00:00:00Z",
+          emailed: true,
+        },
+        201,
+      ),
+    );
+    const output = captureOutput();
+    expect(await runAdmin(["invite", "create", "--email", "adopter@example.com"], {})).toBe(0);
+    expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))).toMatchObject({
+      email: "adopter@example.com",
+    });
+    expect(output.out()).toContain("Invite emailed to adopter@example.com");
+    expect(output.out()).not.toContain("#code=");
+    expect(output.out()).not.toContain("upe_abcdefghijklmnopqrstuvwxyz012345");
+  });
+
+  it("warns and prints the link as a fallback when email delivery fails", async () => {
+    process.env.ADMIN_TOKEN = "admin-secret";
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      response(
+        {
+          pageId: "upi_abcdefghijklmnop",
+          code: "upe_abcdefghijklmnopqrstuvwxyz012345",
+          expiresAt: "2030-01-01T00:00:00Z",
+          tokenExpiresAt: "2030-02-01T00:00:00Z",
+          emailed: false,
+        },
+        201,
+      ),
+    );
+    const output = captureOutput();
+    expect(await runAdmin(["invite", "create", "--email", "adopter@example.com"], {})).toBe(0);
+    expect(output.err()).toContain("email delivery failed");
+    expect(output.out()).toContain("#code=upe_abcdefghijklmnopqrstuvwxyz012345");
+  });
+
   it("carries the one-time code in the magic link fragment", () => {
     expect(
       inviteMagicLink(

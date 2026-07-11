@@ -19,11 +19,21 @@ beforeAll(() => {
   }
 });
 
+interface SentEmail {
+  to: unknown;
+  from: unknown;
+  subject: string;
+  text?: string;
+  html?: string;
+}
+
 function env(
   options: {
     legacyHash?: string;
     inviteAllowed?: boolean;
     inviteKeys?: string[];
+    emailOutbox?: SentEmail[];
+    emailThrows?: boolean;
     d1?: {
       tokenHash: string;
       scopes: string;
@@ -35,6 +45,16 @@ function env(
   const record = options.legacyHash ? { ...workspace, tokenHash: options.legacyHash } : workspace;
   return {
     ADMIN_TOKEN: "admin-secret",
+    EMAIL: options.emailOutbox
+      ? {
+          send: async (message: SentEmail) => {
+            if (options.emailThrows)
+              throw Object.assign(new Error("send failed"), { code: "E_DELIVERY_FAILED" });
+            options.emailOutbox?.push(message);
+            return { messageId: "test-message-id" };
+          },
+        }
+      : undefined,
     INVITE_LIMITER:
       options.inviteAllowed === undefined
         ? undefined
@@ -146,6 +166,74 @@ describe("auth routes", () => {
       label: "routine-agent",
       scopes: ["files:read", "files:write"],
     });
+  });
+
+  it("emails the invite magic link when a recipient is provided", async () => {
+    const emailOutbox: SentEmail[] = [];
+    const response = await app.request(
+      "/admin/enrollments",
+      {
+        method: "POST",
+        headers: { Authorization: "Bearer admin-secret", "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "adopter@example.com" }),
+      },
+      env({ emailOutbox }),
+    );
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ emailed: true });
+    expect(emailOutbox).toHaveLength(1);
+    const sent = emailOutbox[0]!;
+    expect(sent.to).toBe("adopter@example.com");
+    expect(sent.from).toMatchObject({ email: "invites@uploads.sh" });
+    // The magic link (with the code fragment) is delivered, but the raw code is
+    // never logged; the email body carries the single-use link.
+    expect(sent.text).toContain("#code=");
+    expect(sent.text).toContain("/invite?id=");
+  });
+
+  it("reports emailed:false when delivery fails but still creates the invite", async () => {
+    const response = await app.request(
+      "/admin/enrollments",
+      {
+        method: "POST",
+        headers: { Authorization: "Bearer admin-secret", "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "adopter@example.com" }),
+      },
+      env({ emailOutbox: [], emailThrows: true }),
+    );
+    expect(response.status).toBe(201);
+    const json = (await response.json()) as { emailed: boolean; pageId: string };
+    expect(json.emailed).toBe(false);
+    expect(json.pageId).toMatch(/^upi_/);
+  });
+
+  it("rejects an invalid recipient email", async () => {
+    const response = await app.request(
+      "/admin/enrollments",
+      {
+        method: "POST",
+        headers: { Authorization: "Bearer admin-secret", "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "not-an-email" }),
+      },
+      env({ emailOutbox: [] }),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: "invalid_email" } });
+  });
+
+  it("rate-limits invitation emails per recipient", async () => {
+    const inviteKeys: string[] = [];
+    const response = await app.request(
+      "/admin/enrollments",
+      {
+        method: "POST",
+        headers: { Authorization: "Bearer admin-secret", "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "Adopter@Example.com" }),
+      },
+      env({ emailOutbox: [], inviteAllowed: false, inviteKeys }),
+    );
+    expect(response.status).toBe(429);
+    expect(inviteKeys).toContain("invite:email:adopter@example.com");
   });
 
   it("uses one uniform, non-cacheable public exchange error", async () => {

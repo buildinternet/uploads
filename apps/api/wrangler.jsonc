@@ -4,6 +4,11 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-06",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    // Origin of the invite page that magic links point at. Defaults to the API
+    // host without the `api.` prefix; set explicitly for other deployments.
+    "WEB_ORIGIN": "https://uploads.sh",
+  },
   "routes": [
     {
       "pattern": "api.uploads.sh",
@@ -62,6 +67,10 @@
       },
     ],
   },
+  // Transactional email (Cloudflare Email Sending). uploads.sh is onboarded for
+  // sending; invites are delivered from invites@uploads.sh. Add "remote": true
+  // here to route real sends through `wrangler dev` (remove before deploy).
+  "send_email": [{ "name": "EMAIL" }],
   // One binding per same-account bucket a workspace wants binding-mode I/O on.
   // Workspaces reference these by name; workspaces without a binding fall back
   // to their S3 credentials over HTTP.

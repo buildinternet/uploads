@@ -1,4 +1,4 @@
-import { ConflictError, NotFoundError, ValidationError } from "@uploads/errors";
+import { ConflictError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
 import { adminAuth } from "../admin";
 import {
@@ -22,6 +22,51 @@ const SECONDS_PER_DAY = 24 * 60 * 60;
 // Ceiling for --expires-in. 24h caps how long a single-use invite secret can
 // live; the floor stays 60s at the validation site below.
 const MAX_ENROLLMENT_SECONDS = SECONDS_PER_DAY;
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Invitations are delivered from this address; uploads.sh is onboarded for
+// Cloudflare Email Sending, so any @uploads.sh sender works.
+const INVITE_FROM = { name: "uploads.sh", email: "invites@uploads.sh" } as const;
+
+// The invite page lives on the web origin, which mirrors the API host without
+// the `api.` prefix (api.uploads.sh -> uploads.sh), matching the CLI default.
+function deriveWebOrigin(requestUrl: string): string {
+  const url = new URL(requestUrl);
+  url.hostname = url.hostname.replace(/^api\./, "");
+  return url.origin;
+}
+
+// Self-contained magic link: the single-use code rides in the URL fragment, which
+// browsers never send to a server, so it stays out of logs and referrers.
+function inviteMagicLink(webOrigin: string, pageId: string, code: string): string {
+  return `${webOrigin}/invite?id=${encodeURIComponent(pageId)}#code=${encodeURIComponent(code)}`;
+}
+
+function renderInviteEmail(to: string, workspaceName: string, link: string, expiresAt: string) {
+  const expires = new Date(expiresAt).toUTCString();
+  const text = [
+    `You've been invited to the "${workspaceName}" workspace on uploads.sh.`,
+    "",
+    "1. Install the CLI:",
+    "   npm install --global @buildinternet/uploads",
+    "",
+    "2. Open your invitation and run the one-click login command it shows:",
+    `   ${link}`,
+    "",
+    "This link includes a single-use code — treat it like a password. It can be",
+    `used once and expires ${expires}.`,
+  ].join("\n");
+  const html =
+    `<div style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.6;color:#1a1523">` +
+    `<h1 style="font-size:20px">Your uploads.sh invitation</h1>` +
+    `<p>You've been invited to the <strong>${workspaceName}</strong> workspace on uploads.sh.</p>` +
+    `<ol><li>Install the CLI: <code>npm install --global @buildinternet/uploads</code></li>` +
+    `<li>Open your invitation and run the one-click login command it shows:<br>` +
+    `<a href="${link}">Open invitation</a></li></ol>` +
+    `<p style="color:#6b6478;font-size:13px">This link includes a single-use code — treat it like ` +
+    `a password. It can be used once and expires ${expires}.</p></div>`;
+  return { to, from: INVITE_FROM, subject: "Your uploads.sh invitation", text, html };
+}
 
 interface LegacyToken {
   hash: string;
@@ -140,6 +185,7 @@ export const admin = new Hono<{ Bindings: Env }>()
         scopes?: unknown;
         enrollmentSeconds?: number;
         tokenExpiresInSeconds?: number;
+        email?: string;
       }>()
       .catch(
         () =>
@@ -149,6 +195,7 @@ export const admin = new Hono<{ Bindings: Env }>()
             scopes?: unknown;
             enrollmentSeconds?: number;
             tokenExpiresInSeconds?: number;
+            email?: string;
           },
       );
     const name = body.workspace?.trim() || "default";
@@ -180,6 +227,20 @@ export const admin = new Hono<{ Bindings: Env }>()
       );
     }
 
+    const email = typeof body.email === "string" ? body.email.trim() : undefined;
+    if (email !== undefined && !EMAIL_RE.test(email)) {
+      throw new ValidationError("invalid email address", { code: "invalid_email" });
+    }
+    if (email) {
+      // Rate-limit per recipient so invitations cannot be used to email-bomb a
+      // victim, even with a valid admin token. Reuses the invite limiter namespace.
+      const limiter = c.env.INVITE_LIMITER;
+      if (limiter) {
+        const { success } = await limiter.limit({ key: `invite:email:${email.toLowerCase()}` });
+        if (!success) throw new RateLimitedError("invitation email rate limit exceeded");
+      }
+    }
+
     const enrollment = await createEnrollment(c.env.DB, {
       workspace: name,
       label,
@@ -187,7 +248,38 @@ export const admin = new Hono<{ Bindings: Env }>()
       enrollmentSeconds: body.enrollmentSeconds ?? DEFAULT_ENROLLMENT_SECONDS,
       tokenSeconds: body.tokenExpiresInSeconds ?? DEFAULT_TOKEN_SECONDS,
     });
-    return c.json({ workspace: name, label: label ?? null, scopes, ...enrollment }, 201);
+
+    let emailed: boolean | undefined;
+    if (email) {
+      const webOrigin = c.env.WEB_ORIGIN || deriveWebOrigin(c.req.url);
+      const link = inviteMagicLink(webOrigin, enrollment.pageId, enrollment.code);
+      try {
+        await c.env.EMAIL.send(renderInviteEmail(email, name, link, enrollment.expiresAt));
+        emailed = true;
+        // Audit only non-secret metadata — never the code, magic link, or URL.
+        console.log(
+          JSON.stringify({
+            event: "invite_emailed",
+            workspace: name,
+            recipient: email,
+            pageId: enrollment.pageId,
+          }),
+        );
+      } catch (error) {
+        emailed = false;
+        console.log(
+          JSON.stringify({
+            event: "invite_email_failed",
+            workspace: name,
+            recipient: email,
+            pageId: enrollment.pageId,
+            error: (error as { code?: string }).code ?? (error as Error).message,
+          }),
+        );
+      }
+    }
+
+    return c.json({ workspace: name, label: label ?? null, scopes, emailed, ...enrollment }, 201);
   })
 
   // Lists D1 credentials and legacy KV credentials without exposing secrets.

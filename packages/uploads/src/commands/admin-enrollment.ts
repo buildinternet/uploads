@@ -16,6 +16,7 @@ Options:
   --expires-in <seconds> Default: server policy
   --token-expires-in <seconds>  Upload token lifetime (default: server policy)
   --scopes <list>        Comma-separated files:read,files:write,files:delete
+  --email <address>      Email the invite link to this recipient (from invites@uploads.sh)
   --separate-code        Two-channel output: non-secret page URL + separate code
   --api-url <url>        Default: https://api.uploads.sh
   --web-url <url>        Invite-page origin (defaults from --api-url)
@@ -85,9 +86,11 @@ export async function runAdmin(
   const webUrl = flagString(parsed.flags, "--web-url");
   const workspace = flagString(parsed.flags, "--workspace") ?? "default";
   const label = flagString(parsed.flags, "--label");
+  const email = flagString(parsed.flags, "--email");
   const result = await createEnrollment(apiUrl, adminToken, {
     workspace,
     label,
+    email,
     enrollmentSeconds: flagInt(parsed.flags, "--expires-in", "--expires-in"),
     tokenExpiresInSeconds: flagInt(parsed.flags, "--token-expires-in", "--token-expires-in"),
     scopes: parseScopes(flagString(parsed.flags, "--scopes")),
@@ -102,6 +105,12 @@ export async function runAdmin(
     );
     return 0;
   }
+  if (email && result.emailed) {
+    process.stdout.write(`Invite emailed to ${email}\n${footer}`);
+    return 0;
+  }
+  if (email && result.emailed === false)
+    process.stderr.write("warning: email delivery failed; share this link instead\n");
   if (separateCode)
     process.stdout.write(
       `Invite page: ${pageUrl}\nOne-time code (share separately): ${result.code}\n${footer}`,
