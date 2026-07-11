@@ -1,29 +1,71 @@
 # Releasing `@buildinternet/uploads`
 
-The CLI is published from `.github/workflows/release.yml` using npm trusted publishing, without a long-lived npm token. Version `0.1.0` is already published and the trusted publisher is configured; do not manually publish later releases.
+The CLI/client package is published with **changesets** + npm **trusted
+publishing** (OIDC — no long-lived `NPM_TOKEN`). Version `0.1.1` is already on
+npm; later versions are cut by the **Release** workflow on `main`.
 
 ## Trusted-publishing configuration
 
-The npm package is configured with a GitHub Actions trusted publisher for organization `buildinternet`, repository `uploads`, workflow `release.yml`, no environment, and allowed action `npm publish`. No `NPM_TOKEN` GitHub secret is needed.
+On npmjs.com the package needs a GitHub Actions trusted publisher for:
 
-Keep maintainer 2FA enabled. The workflow pins npm 11.18.0 because trusted publishing requires npm 11.5.1 or newer and Node 22.14 or newer.
+- Organization: `buildinternet`
+- Repository: `uploads`
+- Workflow: **`release.yml`**
+- No environment
+- Allowed action: `npm publish`
 
-## Release
+Keep maintainer 2FA enabled. The workflow pins npm 11.18.0 (trusted publishing
+requires npm ≥ 11.5.1 and Node ≥ 22.14).
 
-1. From `packages/uploads`, choose the next semantic version and update the manifest without creating a tag:
+## Day-to-day (feature PRs)
+
+1. Make user-visible changes under `packages/uploads` (and keep
+   `skills/uploads-cli` in sync when commands change).
+2. Add a changeset:
 
    ```bash
-   npm version 0.2.0 --no-git-tag-version
+   pnpm changeset
+   # or write .changeset/<slug>.md by hand
    ```
 
-2. Run the package tests and tarball check, then open a PR containing the version change. Merge it to `main` before tagging.
-3. Update local `main`, verify `packages/uploads/package.json` contains the intended version, and tag that exact merge commit:
+   Header lists only the published package:
 
-   ```bash
-   git tag uploads-v0.2.0
-   git push origin uploads-v0.2.0
+   ```md
+   ---
+   "@buildinternet/uploads": minor
+   ---
+
+   User-facing description.
    ```
 
-4. Confirm the **Release npm package** workflow succeeds, then verify the new version and provenance on npm.
+3. Merge the feature PR to `main` (with the `.changeset/*.md` file).
 
-The tag must be new and must exactly match the package version; never move or reuse a release tag. The workflow rejects mismatches and npm rejects versions that are already published.
+**Never hand-edit** `packages/uploads/package.json` `version` for a release —
+`changeset version` owns it.
+
+Private packages (`@uploads/api`, `@uploads/mcp`, …) are ignored by changesets;
+they deploy via Workers Builds.
+
+## Cut a release
+
+1. After one or more feature PRs land with pending changesets, the **Release**
+   workflow opens or updates a **`chore: version packages`** PR. That PR runs
+   `changeset version`: bumps the version, writes
+   `packages/uploads/CHANGELOG.md`, and removes consumed changeset files.
+2. Review and merge the version PR.
+3. The same workflow re-runs on `main` with **no pending changesets**, then:
+   - tests / builds / pack-checks the package
+   - runs `changeset publish` (OIDC provenance)
+   - creates a GitHub release tagged `uploads-v<version>` (same prefix as before)
+
+Verify the version and provenance on npm after the workflow succeeds.
+
+## Manual / recovery
+
+```bash
+pnpm changeset              # add a pending bump
+pnpm run changeset:version  # apply pending → version + CHANGELOG (local only)
+pnpm run changeset:publish  # npm publish packages that need it (needs auth)
+```
+
+Do not re-use or move a published version or release tag.

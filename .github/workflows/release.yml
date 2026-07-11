@@ -1,43 +1,107 @@
-name: Release npm package
+# Version or publish @buildinternet/uploads via changesets.
+#
+# Prior art: buildinternet/releases-cli (.github/workflows/release.yml).
+# - Pending .changeset/* → open/update "chore: version packages" PR
+# - No pending changesets (version PR just merged) → npm publish via OIDC
+#
+# npm trusted publisher must allow this workflow (release.yml) on
+# buildinternet/uploads. No NPM_TOKEN secret.
+
+name: Release
 
 on:
   push:
-    tags:
-      - "uploads-v*"
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
+  id-token: write # OIDC trusted publishing (no NPM_TOKEN)
 
 jobs:
-  publish:
-    name: Publish @buildinternet/uploads
+  release:
+    name: Version or Publish
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      id-token: write
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          persist-credentials: false
+          # Full history so changesets can find the last release commit.
+          fetch-depth: 0
+
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      # OIDC trusted publishing needs npm >= 11.5.1 / Node >= 22.14. Pin npm
+      # the same way the previous tag-based release workflow did.
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
-          registry-url: https://registry.npmjs.org
+
       - name: Install trusted-publishing npm version
         run: npm install --global npm@11.18.0
+
       - name: Verify npm version
         run: test "$(npm --version)" = "11.18.0"
+
       - run: pnpm install --frozen-lockfile
-      - name: Check tag matches package version
-        shell: bash
-        run: |
-          version="$(node -p "require('./packages/uploads/package.json').version")"
-          test "${GITHUB_REF_NAME}" = "uploads-v${version}"
+
+      # Versioning only. With changesets present this opens/updates the
+      # "Version Packages" PR; with none it no-ops. We deliberately do NOT pass
+      # `publish:` here — changesets/action writes a token-based ~/.npmrc, which
+      # is incompatible with OIDC. Publish runs as its own step below.
+      - name: Create Release PR
+        id: changesets
+        uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf # v1.7.0
+        with:
+          version: pnpm run changeset:version
+          commit: "chore: version packages"
+          title: "chore: version packages"
+          createGithubReleases: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Publish when the version PR was just merged (no pending changesets left).
       - name: Test and verify package
-        run: pnpm --filter @buildinternet/uploads test && pnpm --filter @buildinternet/uploads run build && pnpm --filter @buildinternet/uploads run pack:check
-      - name: Publish to npm with provenance
-        working-directory: packages/uploads
-        run: npm publish --access public --provenance
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        run: >
+          pnpm --filter @buildinternet/uploads test
+          && pnpm --filter @buildinternet/uploads run build
+          && pnpm --filter @buildinternet/uploads run pack:check
+
+      - name: Publish to npm (OIDC trusted publishing)
+        id: publish
+        if: steps.changesets.outputs.hasChangesets == 'false'
+        run: |
+          set -o pipefail
+          pnpm run changeset:publish | tee publish.log
+          if grep -q "New tag:" publish.log; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub release
+        if: steps.publish.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="$(node -p "require('./packages/uploads/package.json').version")"
+          NOTES="$(awk -v v="## ${VERSION}" '
+            $0 == v { found=1; next }
+            found && /^## / { exit }
+            found { print }
+          ' packages/uploads/CHANGELOG.md 2>/dev/null || true)"
+
+          # Keep the historical uploads-v* tag prefix for continuity with prior releases.
+          if gh release view "uploads-v${VERSION}" >/dev/null 2>&1; then
+            echo "Release uploads-v${VERSION} already exists — skipping"
+          else
+            gh release create "uploads-v${VERSION}" \
+              --title "uploads-v${VERSION}" \
+              --notes "${NOTES:-@buildinternet/uploads ${VERSION}}"
+          fi

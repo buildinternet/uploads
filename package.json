@@ -26,10 +26,14 @@
     "workspace:limits": "pnpm --filter @uploads/api run workspace:limits",
     "preuploads": "pnpm --filter @buildinternet/uploads run build",
     "uploads": "pnpm exec uploads",
+    "changeset": "changeset",
+    "changeset:version": "changeset version && pnpm install --lockfile-only",
+    "changeset:publish": "changeset publish",
     "prepare": "husky"
   },
   "devDependencies": {
     "@buildinternet/uploads": "workspace:*",
+    "@changesets/cli": "^2.31.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.8",
     "oxfmt": "^0.57.0",

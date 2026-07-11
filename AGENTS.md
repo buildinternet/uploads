@@ -49,6 +49,15 @@ also applies remote migrations when `apps/api/migrations/**` changes
 (secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`). Production
 worker deploys normally happen via Workers Builds on push to main.
 
+### Releasing `@buildinternet/uploads` (changesets)
+
+User-visible CLI/client/MCP package changes need a `.changeset/*.md` file
+(`pnpm changeset` or hand-written). Only
+`"@buildinternet/uploads": patch|minor|major` goes in the header — private
+`@uploads/*` packages are ignored. Never hand-edit that package's `version`.
+On merge to `main`, `.github/workflows/release.yml` opens a version PR, then
+publishes to npm via OIDC after that PR merges. See [docs/releasing.md](docs/releasing.md).
+
 Run `wrangler types` (or `pnpm --filter @uploads/api types`) after any
 `wrangler.jsonc` change — `Env` is generated into `worker-configuration.d.ts`,
 never hand-written.
