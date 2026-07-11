@@ -26,8 +26,12 @@ export interface WorkspaceRecord {
   accountId?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
-  /** Max bytes for a single upload. Falls back to DEFAULT_MAX_UPLOAD_BYTES. */
+  /** Max bytes for a single image upload. Falls back to DEFAULT_MAX_UPLOAD_BYTES. */
   maxUploadBytes?: number;
+  /**
+   * Max bytes for video/mp4 and video/webm. When unset, videos use maxUploadBytes.
+   */
+  maxVideoUploadBytes?: number;
   /** Allowed (sniffed) content types. Falls back to DEFAULT_ALLOWED_CONTENT_TYPES. */
   allowedContentTypes?: string[];
   /**
@@ -44,6 +48,11 @@ export interface WorkspaceRecord {
    * purge-expired runs. Omit to skip retention. Configure via workspace:limits.
    */
   retentionDays?: number;
+  /**
+   * When true/undefined, bare keys (no `/`) become `f/<id>/<name>`. Set false
+   * to allow root basenames (not recommended on shared buckets).
+   */
+  autoPrefixBareKeys?: boolean;
 }
 
 export type WorkspaceVars = {

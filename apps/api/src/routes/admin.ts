@@ -12,6 +12,7 @@ import {
   revokeToken,
   validateScopes,
 } from "../auth-db";
+import { reencryptRegistryCredentials } from "../reencrypt-registry";
 import type { WorkspaceRecord } from "../workspace";
 
 const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
@@ -242,4 +243,24 @@ export const admin = new Hono<{ Bindings: Env }>()
       workspace: name,
       revoked: { label: revoked.label ?? null, hashPrefix: revoked.hash.slice(0, HASH_PREFIX_LEN) },
     });
+  })
+
+  /**
+   * Re-seal BYO S3 credentials under WORKSPACE_SECRETS_KEY (current).
+   * Decrypt tries current then WORKSPACE_SECRETS_KEY_PREVIOUS.
+   * Prefer this over a laptop script so the KEK never leaves the worker.
+   * Query: ?dryRun=1
+   */
+  .post("/credentials/reencrypt", async (c) => {
+    const dryRun =
+      c.req.query("dryRun") === "1" ||
+      c.req.query("dryRun") === "true" ||
+      c.req.query("dry_run") === "1";
+    try {
+      const result = await reencryptRegistryCredentials(c.env, { dryRun });
+      return c.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: message }, 400);
+    }
   });

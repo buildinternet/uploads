@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import app from "../src/index";
+import { app } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 
 const workspace: WorkspaceRecord = { provider: "r2", bucket: "test" };

@@ -2,11 +2,10 @@ import type { MiddlewareHandler } from "hono";
 import type { WorkspaceVars } from "./workspace";
 
 /**
- * Upload guardrails for the hosted API: a byte cap and a content-type
+ * Upload guardrails for the hosted API: byte caps and a content-type
  * allowlist backed by magic-byte sniffing, plus a per-workspace write rate
  * limit. Defaults live here; per-workspace overrides ride on the
- * `WorkspaceRecord` (`maxUploadBytes` / `allowedContentTypes`) and are merged
- * in `resolveUploadPolicy`.
+ * `WorkspaceRecord` and are merged in `resolveUploadPolicy`.
  */
 
 /** Default ceiling on a single upload. Covers screenshots and short clips. */
@@ -29,27 +28,40 @@ export const DEFAULT_ALLOWED_CONTENT_TYPES: readonly string[] = [
 
 const DEFAULT_ALLOWED_SET = new Set(DEFAULT_ALLOWED_CONTENT_TYPES);
 
+const VIDEO_TYPES = new Set(["video/mp4", "video/webm"]);
+
 export interface UploadPolicy {
+  /** Max for images (and as fallback when maxVideoBytes is unset). */
   maxBytes: number;
+  /** Max for video/* when set; otherwise maxBytes. */
+  maxVideoBytes: number;
   allowed: Set<string>;
 }
 
 /** Fields a workspace record may carry to override the default upload policy. */
 export interface UploadPolicyOverrides {
   maxUploadBytes?: number;
+  /** Cap for video/mp4 and video/webm. When unset, videos use maxUploadBytes. */
+  maxVideoUploadBytes?: number;
   allowedContentTypes?: string[];
 }
 
+function positiveBytes(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
 export function resolveUploadPolicy(record: UploadPolicyOverrides): UploadPolicy {
-  const maxBytes =
-    typeof record.maxUploadBytes === "number" && record.maxUploadBytes > 0
-      ? record.maxUploadBytes
-      : DEFAULT_MAX_UPLOAD_BYTES;
+  const maxBytes = positiveBytes(record.maxUploadBytes) ?? DEFAULT_MAX_UPLOAD_BYTES;
+  const maxVideoBytes = positiveBytes(record.maxVideoUploadBytes) ?? maxBytes;
   const allowed =
     record.allowedContentTypes && record.allowedContentTypes.length > 0
       ? new Set(record.allowedContentTypes)
       : DEFAULT_ALLOWED_SET;
-  return { maxBytes, allowed };
+  return { maxBytes, maxVideoBytes, allowed };
+}
+
+export function maxBytesForContentType(policy: UploadPolicy, contentType: string): number {
+  return VIDEO_TYPES.has(contentType) ? policy.maxVideoBytes : policy.maxBytes;
 }
 
 /** True when `bytes` contains `signature` at `offset` (bounds-checked). */
@@ -100,31 +112,42 @@ export type UploadRejection = { ok: false; status: 413 | 415; body: Record<strin
 export type UploadInspection = { ok: true; contentType: string } | UploadRejection;
 
 /** The shared 413 rejection for both the pre-buffer and post-buffer size checks. */
-function tooLarge(maxBytes: number): UploadRejection {
-  return { ok: false, status: 413, body: { error: "payload too large", maxBytes } };
+function tooLarge(
+  maxBytes: number,
+  extra?: { contentType?: string; kind?: "image" | "video" },
+): UploadRejection {
+  return {
+    ok: false,
+    status: 413,
+    body: {
+      error: "payload too large",
+      code: "upload_too_large",
+      maxBytes,
+      ...extra,
+    },
+  };
 }
 
 /**
- * Pre-buffer size gate: reject on a declared `Content-Length` over the cap
- * before the body is read into isolate memory. Returns `null` when the header
- * is absent or within range — `inspectUpload` is the authoritative backstop for
- * missing or dishonest lengths.
+ * Pre-buffer size gate: reject on a declared `Content-Length` over the larger
+ * of image/video caps before the body is read into isolate memory.
+ * `inspectUpload` is the authoritative backstop for type-specific limits.
  */
 export function checkDeclaredLength(
   contentLength: string | undefined,
   policy: UploadPolicy,
 ): UploadRejection | null {
   const declared = Number(contentLength);
-  if (Number.isFinite(declared) && declared > policy.maxBytes) return tooLarge(policy.maxBytes);
+  const ceiling = Math.max(policy.maxBytes, policy.maxVideoBytes);
+  if (Number.isFinite(declared) && declared > ceiling) return tooLarge(ceiling);
   return null;
 }
 
 /**
- * Validate a fully-buffered upload body against the policy: size (the
- * authoritative check) then the sniffed type against the allowlist.
+ * Validate a fully-buffered upload body against the policy: sniffed type
+ * against the allowlist, then the type-specific size cap.
  */
 export function inspectUpload(bytes: Uint8Array, policy: UploadPolicy): UploadInspection {
-  if (bytes.byteLength > policy.maxBytes) return tooLarge(policy.maxBytes);
   const detected = detectContentType(bytes);
   if (detected === null || !policy.allowed.has(detected)) {
     return {
@@ -132,6 +155,11 @@ export function inspectUpload(bytes: Uint8Array, policy: UploadPolicy): UploadIn
       status: 415,
       body: { error: "unsupported media type", allowed: [...policy.allowed] },
     };
+  }
+  const maxBytes = maxBytesForContentType(policy, detected);
+  const kind = VIDEO_TYPES.has(detected) ? ("video" as const) : ("image" as const);
+  if (bytes.byteLength > maxBytes) {
+    return tooLarge(maxBytes, { contentType: detected, kind });
   }
   return { ok: true, contentType: detected };
 }

@@ -21,6 +21,7 @@
     "types": "wrangler types",
     "workspace:add": "node --env-file-if-exists=../../.env scripts/add-workspace.mjs",
     "workspace:limits": "node --env-file-if-exists=../../.env scripts/set-workspace-limits.mjs",
+    "workspace:reencrypt-secrets": "node --env-file-if-exists=../../.env scripts/reencrypt-workspace-secrets.mjs",
     "typecheck": "wrangler types && tsc --noEmit",
     "test": "vitest run"
   },

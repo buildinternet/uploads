@@ -4,8 +4,10 @@ import { files } from "./routes/files";
 import { usage } from "./routes/usage";
 import { admin } from "./routes/admin";
 import { auth } from "./routes/auth";
+import { runRetentionSweep } from "./retention-sweep";
 
-const app = new Hono<WorkspaceVars>()
+/** Hono app — also re-exported for vitest (`app.request`). */
+export const app = new Hono<WorkspaceVars>()
   .get("/health", (c) => c.json({ ok: true }))
   .route("/admin", admin)
   .route("/auth", auth)
@@ -18,4 +20,19 @@ const app = new Hono<WorkspaceVars>()
   })
   .notFound((c) => c.json({ error: "not found" }, 404));
 
-export default app;
+/** Worker entry: fetch + daily retention cron. */
+export default {
+  fetch: app.fetch.bind(app),
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(
+      runRetentionSweep(env).catch((err) => {
+        console.error(
+          JSON.stringify({
+            message: "retention_sweep_failed",
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      }),
+    );
+  },
+};

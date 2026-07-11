@@ -64,7 +64,7 @@ export async function purgeExpiredObjects(
   }
 
   const cutoff = retentionCutoff(days, now);
-  const store = storage(env, ws);
+  const store = await storage(env, ws);
   const sampleKeys: string[] = [];
   let deleted = 0;
   let freedBytes = 0;

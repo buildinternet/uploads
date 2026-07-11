@@ -125,6 +125,7 @@ const before = {
   maxStorageBytes: record.maxStorageBytes,
   maxUploadsPerPeriod: record.maxUploadsPerPeriod,
   maxUploadBytes: record.maxUploadBytes,
+  maxVideoUploadBytes: record.maxVideoUploadBytes,
   retentionDays: record.retentionDays,
 };
 
@@ -144,6 +145,12 @@ if (clears.has("max-upload-bytes") || opts["max-upload-bytes"] !== undefined) {
     ? null
     : parseBytes(opts["max-upload-bytes"], "max-upload-bytes");
   patch.maxUploadBytes = v;
+}
+if (clears.has("max-video-bytes") || opts["max-video-bytes"] !== undefined) {
+  const v = clears.has("max-video-bytes")
+    ? null
+    : parseBytes(opts["max-video-bytes"], "max-video-bytes");
+  patch.maxVideoUploadBytes = v;
 }
 if (clears.has("retention-days") || opts["retention-days"] !== undefined) {
   const v = clears.has("retention-days")
@@ -175,6 +182,7 @@ const after = {
   maxStorageBytes: record.maxStorageBytes,
   maxUploadsPerPeriod: record.maxUploadsPerPeriod,
   maxUploadBytes: record.maxUploadBytes,
+  maxVideoUploadBytes: record.maxVideoUploadBytes,
   retentionDays: record.retentionDays,
 };
 
