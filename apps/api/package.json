@@ -26,6 +26,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@uploads/errors": "workspace:^",
     "@uploads/storage": "workspace:^",
     "hono": "^4.12.28"
   },

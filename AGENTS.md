@@ -11,6 +11,7 @@ scripts in `buildinternet-skills/github-screenshots`.
 apps/api            Hono worker — REST API, deploys to api.uploads.sh
 apps/mcp            Hono worker — remote MCP server, deploys to agents.uploads.sh (alt: mcp.uploads.sh)
 apps/web            Astro placeholder — future browse/manage UI (separate deploy)
+packages/errors     @uploads/errors — typed AppError hierarchy + nested wire envelope
 packages/storage    @uploads/storage — files-sdk adapter factory
 packages/uploads    @buildinternet/uploads — CLI + client for GitHub image embeds
                     (also ships `uploads mcp`, a stdio MCP server mirroring the CLI commands)
@@ -123,6 +124,10 @@ records; any future global secrets go through `wrangler secret put` (prod) or
 - Auth is per-workspace bearer tokens, hashed + timing-safe compare, with
   uniform 401s so workspace names can't be enumerated — see
   `apps/api/src/workspace.ts`.
+- HTTP errors: throw `AppError` subclasses from `@uploads/errors` and let
+  `respondError` / Hono `onError` serialize the nested envelope
+  `{ error: { code, type, message, details? } }`. Never hand-roll
+  `c.json({ error: "…" })`. Status is derived from `type` via `STATUS_BY_TYPE`.
 - Object keys are validated (`badKey` in `routes/files.ts`); URL parsing
   normalizes dot segments before handlers run.
 - Upload guardrails live in `apps/api/src/guards.ts`: a byte cap (default 25 MiB)

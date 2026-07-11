@@ -1,6 +1,6 @@
-import { Hono, type Context } from "hono";
+import { NotFoundError, ValidationError } from "@uploads/errors";
+import { Hono } from "hono";
 import {
-  FileOpError,
   badKey,
   deleteObject,
   finalizeUploadKey,
@@ -12,14 +12,6 @@ import { provenanceFromHeaders } from "../provenance";
 import { publicUrl, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { checkDeclaredLength, resolveUploadPolicy, writeRateLimit } from "../guards";
-
-/** Maps a core validation failure to the REST error shape; rethrows anything else. */
-function mapFileOpError(c: Context, err: unknown): Response {
-  if (err instanceof FileOpError) {
-    return c.json(err.body, err.status as 400 | 413 | 415 | 429 | 507);
-  }
-  throw err;
-}
 
 export const files = new Hono<WorkspaceVars>()
 
@@ -43,15 +35,10 @@ export const files = new Hono<WorkspaceVars>()
       );
 
     const rawKey = typeof body.key === "string" ? body.key : "";
-    if (!rawKey) return c.json({ error: "invalid key" }, 400);
+    if (!rawKey) throw new ValidationError("invalid key", { code: "invalid_key" });
 
     const ws = c.get("workspace");
-    let key: string;
-    try {
-      key = finalizeUploadKey(rawKey, ws);
-    } catch (err) {
-      return mapFileOpError(c, err);
-    }
+    const key = finalizeUploadKey(rawKey, ws);
 
     const policy = resolveUploadPolicy(ws);
     const ceiling = Math.max(policy.maxBytes, policy.maxVideoBytes);
@@ -83,13 +70,9 @@ export const files = new Hono<WorkspaceVars>()
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(JSON.stringify({ message: "presign failed", error: message }));
-      return c.json(
-        {
-          error:
-            "presign unavailable for this workspace (needs S3 HTTP credentials; binding-only cannot sign)",
-          detail: message,
-        },
-        400,
+      throw new ValidationError(
+        "presign unavailable for this workspace (needs S3 HTTP credentials; binding-only cannot sign)",
+        { code: "presign_unavailable", details: { detail: message }, cause: err },
       );
     }
   })
@@ -99,25 +82,21 @@ export const files = new Hono<WorkspaceVars>()
   // files-core's putObject (shared with the MCP worker); see guards.ts.
   .put("/:key{.+}", writeRateLimit, requireScope("files:write"), async (c) => {
     const key = c.req.param("key");
-    if (badKey(key)) return c.json({ error: "invalid key" }, 400);
+    if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
     const policy = resolveUploadPolicy(c.get("workspace"));
     const declared = checkDeclaredLength(c.req.header("Content-Length"), policy);
-    if (declared) return c.json(declared.body, declared.status);
+    if (declared) throw declared.error;
 
     const body = await c.req.arrayBuffer();
-    try {
-      const result = await putObject(
-        c.env,
-        c.get("workspace"),
-        key,
-        new Uint8Array(body),
-        c.get("workspaceName"),
-        { provenance: provenanceFromHeaders((n) => c.req.header(n)) },
-      );
-      return c.json({ workspace: c.get("workspaceName"), ...result }, 201);
-    } catch (err) {
-      return mapFileOpError(c, err);
-    }
+    const result = await putObject(
+      c.env,
+      c.get("workspace"),
+      key,
+      new Uint8Array(body),
+      c.get("workspaceName"),
+      { provenance: provenanceFromHeaders((n) => c.req.header(n)) },
+    );
+    return c.json({ workspace: c.get("workspaceName"), ...result }, 201);
   })
 
   .get("/", requireScope("files:read"), async (c) => {
@@ -128,20 +107,16 @@ export const files = new Hono<WorkspaceVars>()
 
   .get("/:key{.+}", requireScope("files:read"), async (c) => {
     const key = c.req.param("key");
-    if (badKey(key)) return c.json({ error: "invalid key" }, 400);
+    if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
     const ws = c.get("workspace");
     const store = await storage(c.env, ws);
-    if (!(await store.exists(key))) return c.json({ error: "not found" }, 404);
+    if (!(await store.exists(key))) throw new NotFoundError();
     const meta = await store.head(key);
     return c.json(headObjectJson(key, meta, publicUrl(await storageConfig(c.env, ws), key)));
   })
 
   .delete("/:key{.+}", writeRateLimit, requireScope("files:delete"), async (c) => {
-    try {
-      return c.json(
-        await deleteObject(c.env, c.get("workspace"), c.req.param("key"), c.get("workspaceName")),
-      );
-    } catch (err) {
-      return mapFileOpError(c, err);
-    }
+    return c.json(
+      await deleteObject(c.env, c.get("workspace"), c.req.param("key"), c.get("workspaceName")),
+    );
   });

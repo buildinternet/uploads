@@ -1,3 +1,4 @@
+import { ValidationError } from "@uploads/errors";
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_ALLOWED_PREFIXES,
@@ -6,7 +7,7 @@ import {
   normalizeKeyPrefix,
   resolveKeyPolicy,
 } from "../src/key-policy";
-import { finalizeUploadKey, FileOpError, governUploadKey } from "../src/files-core";
+import { finalizeUploadKey, governUploadKey } from "../src/files-core";
 
 describe("normalizeKeyPrefix", () => {
   it("normalizes roots with or without trailing slash", () => {
@@ -73,13 +74,13 @@ describe("finalizeUploadKey", () => {
 
   it("enforces allowed prefixes after governance", () => {
     expect(() => finalizeUploadKey("tmp/x.png", { allowedKeyPrefixes: ["screenshots"] })).toThrow(
-      FileOpError,
+      ValidationError,
     );
     try {
       finalizeUploadKey("tmp/x.png", { allowedKeyPrefixes: ["screenshots"] });
     } catch (err) {
-      expect(err).toBeInstanceOf(FileOpError);
-      expect((err as FileOpError).body.code).toBe("key_prefix_not_allowed");
+      expect(err).toBeInstanceOf(ValidationError);
+      expect((err as ValidationError).code).toBe("key_prefix_not_allowed");
     }
   });
 

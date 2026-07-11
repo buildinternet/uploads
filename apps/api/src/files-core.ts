@@ -1,9 +1,11 @@
 /**
  * Workspace file operations shared by the REST routes (routes/files.ts) and
  * the remote MCP worker (apps/mcp) — one code path for key/body validation,
- * storage I/O, and result shapes. Validation failures throw FileOpError;
- * each surface maps it (HTTP 400 / MCP tool error).
+ * storage I/O, and result shapes. Validation failures throw AppError subclasses
+ * from `@uploads/errors`; REST serializes via `respondError`, MCP surfaces
+ * `message` in the tool error.
  */
+import { InsufficientStorageError, RateLimitedError, ValidationError } from "@uploads/errors";
 import type { Files } from "@uploads/storage";
 import { checkPutBudget } from "./budget";
 import { inspectUpload, resolveUploadPolicy } from "./guards";
@@ -71,35 +73,14 @@ export type KeyPolicyRecord = Pick<
  */
 export function finalizeUploadKey(key: string, ws: KeyPolicyRecord): string {
   const finalKey = governUploadKey(key, ws.autoPrefixBareKeys !== false);
-  if (badKey(finalKey)) throw new FileOpError("invalid key");
+  if (badKey(finalKey)) throw new ValidationError("invalid key", { code: "invalid_key" });
 
   const violation = checkKeyPolicy(finalKey, resolveKeyPolicy(ws));
   if (violation) {
     const { message, code, ...extra } = violation;
-    throw new FileOpError(message, 400, { code, ...extra });
+    throw new ValidationError(message, { code, details: extra });
   }
   return finalKey;
-}
-
-/**
- * Rejected input to a file operation (always a caller error, never a storage
- * failure). Carries the REST status and error body so both surfaces report the
- * same policy: HTTP responds with them; MCP renders `message` in the tool error.
- */
-export class FileOpError extends Error {
-  readonly status: 400 | 413 | 415 | 429 | 507;
-  readonly body: Record<string, unknown>;
-
-  constructor(
-    message: string,
-    status: 400 | 413 | 415 | 429 | 507 = 400,
-    extra?: Record<string, unknown>,
-  ) {
-    super(message);
-    this.name = "FileOpError";
-    this.status = status;
-    this.body = { error: message, ...extra };
-  }
 }
 
 /** Size of an existing object, or `null` if missing / unreadable (metering may drift). */
@@ -135,13 +116,10 @@ export async function putObject(
   metadata?: ProvenanceMap;
 }> {
   const finalKey = finalizeUploadKey(key, ws);
-  if (bytes.byteLength === 0) throw new FileOpError("empty body");
+  if (bytes.byteLength === 0) throw new ValidationError("empty body", { code: "empty_body" });
 
   const inspection = inspectUpload(bytes, resolveUploadPolicy(ws));
-  if (!inspection.ok) {
-    const { error, ...extra } = inspection.body as { error: string } & Record<string, unknown>;
-    throw new FileOpError(error, inspection.status, extra);
-  }
+  if (!inspection.ok) throw inspection.error;
 
   const store = await storage(env, ws);
   const prev = await existingSize(store, finalKey);
@@ -150,7 +128,18 @@ export async function putObject(
 
   const usage = await getWorkspaceUsage(env.DB, workspaceName);
   const denial = checkPutBudget(usage, ws, { bytes: deltaBytes, uploads: 1 });
-  if (denial) throw new FileOpError(denial.message, denial.status, denial.detail);
+  if (denial) {
+    if (denial.status === 507) {
+      throw new InsufficientStorageError(denial.message, {
+        code: denial.code,
+        details: denial.detail,
+      });
+    }
+    throw new RateLimitedError(denial.message, {
+      code: denial.code,
+      details: denial.detail,
+    });
+  }
 
   // Client headers first; always attach content-sha256 of the final stored body
   // (never trust a client-supplied hash).
@@ -227,7 +216,7 @@ export async function deleteObject(
   key: string,
   workspaceName: string,
 ): Promise<{ key: string; deleted: true }> {
-  if (badKey(key)) throw new FileOpError("invalid key");
+  if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
 
   const store = await storage(env, ws);
   const prev = await existingSize(store, key);

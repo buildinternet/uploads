@@ -64,9 +64,12 @@ describe("workspace budget enforcement", () => {
     const { env } = await makeEnv({ maxStorageBytes: PNG.byteLength - 1 });
     const res = await put(env);
     expect(res.status).toBe(507);
-    const body = (await res.json()) as { code: string; maxStorageBytes: number };
-    expect(body.code).toBe("storage_quota_exceeded");
-    expect(body.maxStorageBytes).toBe(PNG.byteLength - 1);
+    const body = (await res.json()) as {
+      error: { code: string; type: string; message: string; details: { maxStorageBytes: number } };
+    };
+    expect(body.error.code).toBe("storage_quota_exceeded");
+    expect(body.error.type).toBe("insufficient_storage");
+    expect(body.error.details.maxStorageBytes).toBe(PNG.byteLength - 1);
   });
 
   it("returns 429 when monthly upload budget is spent", async () => {
@@ -76,8 +79,9 @@ describe("workspace budget enforcement", () => {
 
     const res = await put(env, "b.png");
     expect(res.status).toBe(429);
-    const body = (await res.json()) as { code: string };
-    expect(body.code).toBe("upload_budget_exceeded");
+    const body = (await res.json()) as { error: { code: string; type: string } };
+    expect(body.error.code).toBe("upload_budget_exceeded");
+    expect(body.error.type).toBe("rate_limited");
   });
 
   it("surfaces limits on GET /usage", async () => {

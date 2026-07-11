@@ -3,6 +3,31 @@
 All `/v1` routes require the workspace's `Authorization: Bearer <token>`.
 Unknown workspaces and bad tokens are indistinguishable (both 401).
 
+## Errors
+
+Every non-2xx response uses one nested envelope (same shape as either/releases):
+
+```json
+{
+  "error": {
+    "code": "storage_quota_exceeded",
+    "type": "insufficient_storage",
+    "message": "storage quota exceeded (…)",
+    "details": { "maxStorageBytes": 1000 }
+  }
+}
+```
+
+| Field     | Role                                                                         |
+| --------- | ---------------------------------------------------------------------------- |
+| `type`    | Coarse category; pins HTTP status (`validation` → 400, `not_found` → 404, …) |
+| `code`    | Stable machine string clients branch on                                      |
+| `message` | Human-readable; may change; never parse this                                 |
+| `details` | Optional structured context for select codes                                 |
+
+Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
+`onError` serializes them. See `packages/errors`.
+
 ## Routes
 
 | Route                                             | Description                                                                                      |
@@ -54,14 +79,14 @@ size delta; deletes free bytes/objects but not the monthly upload count.
 
 When the workspace record sets budgets (`maxStorageBytes`,
 `maxUploadsPerPeriod`), the response also includes those caps and remaining
-headroom. Puts that would exceed them fail with:
+headroom. Puts that would exceed them fail with (fields on `error`):
 
-| HTTP | `code`                   | Meaning                                              |
-| ---- | ------------------------ | ---------------------------------------------------- |
-| 507  | `storage_quota_exceeded` | Net stored bytes would exceed `maxStorageBytes`      |
-| 429  | `upload_budget_exceeded` | Monthly put count would exceed `maxUploadsPerPeriod` |
-| 400  | `key_prefix_not_allowed` | Key not under `allowedKeyPrefixes` (put/sign)        |
-| 400  | `key_too_deep`           | Key path segments exceed `maxKeyDepth`               |
+| HTTP | `type`                 | `code`                   | Meaning                                              |
+| ---- | ---------------------- | ------------------------ | ---------------------------------------------------- |
+| 507  | `insufficient_storage` | `storage_quota_exceeded` | Net stored bytes would exceed `maxStorageBytes`      |
+| 429  | `rate_limited`         | `upload_budget_exceeded` | Monthly put count would exceed `maxUploadsPerPeriod` |
+| 400  | `validation`           | `key_prefix_not_allowed` | Key not under `allowedKeyPrefixes` (put/sign)        |
+| 400  | `validation`           | `key_too_deep`           | Key path segments exceed `maxKeyDepth`               |
 
 Configure limits with `pnpm workspace:limits <name> …` (see
 [workspaces](workspaces.md)). Bare keys are rewritten to `f/<id>/<name>` before

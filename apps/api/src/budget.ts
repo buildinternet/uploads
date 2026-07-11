@@ -61,7 +61,6 @@ export function checkPutBudget(
         status: 429,
         message: `upload budget exceeded (${usage.uploadsInPeriod}/${maxUploadsPerPeriod} this period)`,
         detail: {
-          code: "upload_budget_exceeded",
           uploadsInPeriod: usage.uploadsInPeriod,
           maxUploadsPerPeriod,
           periodStart: usage.periodStart,
@@ -78,7 +77,6 @@ export function checkPutBudget(
         status: 507,
         message: `storage quota exceeded (${usage.bytes} + ${delta.bytes} > ${maxStorageBytes} bytes)`,
         detail: {
-          code: "storage_quota_exceeded",
           bytes: usage.bytes,
           deltaBytes: delta.bytes,
           maxStorageBytes,

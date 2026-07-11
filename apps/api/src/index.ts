@@ -1,4 +1,6 @@
+import { AppError, NotFoundError } from "@uploads/errors";
 import { Hono } from "hono";
+import { respondError } from "./error-response";
 import { workspaceAuth, type WorkspaceVars } from "./workspace";
 import { files } from "./routes/files";
 import { usage } from "./routes/usage";
@@ -14,11 +16,8 @@ export const app = new Hono<WorkspaceVars>()
   .use("/v1/:workspace/*", workspaceAuth)
   .route("/v1/:workspace/files", files)
   .route("/v1/:workspace/usage", usage)
-  .onError((err, c) => {
-    console.error(JSON.stringify({ message: err.message, stack: err.stack }));
-    return c.json({ error: "internal error" }, 500);
-  })
-  .notFound((c) => c.json({ error: "not found" }, 404));
+  .onError((err, c) => respondError(c, err))
+  .notFound((c) => respondError(c, new NotFoundError()));
 
 /** Worker entry: fetch + daily retention cron. */
 export default {
@@ -26,10 +25,12 @@ export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(
       runRetentionSweep(env).catch((err) => {
+        const appErr = AppError.from(err);
         console.error(
           JSON.stringify({
             message: "retention_sweep_failed",
-            error: err instanceof Error ? err.message : String(err),
+            error: appErr.message,
+            code: appErr.code,
           }),
         );
       }),

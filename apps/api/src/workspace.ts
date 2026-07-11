@@ -1,3 +1,4 @@
+import { InsufficientScopeError, UnauthorizedError } from "@uploads/errors";
 import type { MiddlewareHandler } from "hono";
 import type { StorageProvider } from "@uploads/storage";
 import { FILE_SCOPES, findActiveToken, parseScopes, type FileScope } from "./auth-db";
@@ -146,7 +147,7 @@ function workspaceAuthWith(
     );
     const ok = legacyOk || (record !== null && d1Token !== null);
 
-    if (!ok || !record || !name) return c.json({ error: "unauthorized" }, 401);
+    if (!ok || !record || !name) throw new UnauthorizedError();
 
     c.set("workspace", record);
     c.set("workspaceName", name);
@@ -164,7 +165,9 @@ export const tokenWorkspaceAuth = workspaceAuthWith((_c, token) => workspaceName
 
 export function requireScope(scope: FileScope): MiddlewareHandler<WorkspaceVars> {
   return async (c, next) => {
-    if (!c.get("authScopes").includes(scope)) return c.json({ error: "forbidden" }, 403);
+    if (!c.get("authScopes").includes(scope)) {
+      throw new InsufficientScopeError(scope, "forbidden");
+    }
     await next();
   };
 }

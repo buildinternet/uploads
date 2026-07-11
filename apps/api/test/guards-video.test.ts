@@ -17,9 +17,8 @@ describe("per-type upload size", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(413);
-      expect(result.body.code).toBe("upload_too_large");
-      expect(result.body.kind).toBe("video");
-      expect(result.body.maxBytes).toBe(4);
+      expect(result.error.code).toBe("upload_too_large");
+      expect(result.error.details).toMatchObject({ kind: "video", maxBytes: 4 });
     }
   });
 

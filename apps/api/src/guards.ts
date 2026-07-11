@@ -1,3 +1,9 @@
+import {
+  PayloadTooLargeError,
+  RateLimitedError,
+  UnsupportedMediaTypeError,
+  type AppError,
+} from "@uploads/errors";
 import type { MiddlewareHandler } from "hono";
 import type { WorkspaceVars } from "./workspace";
 
@@ -108,7 +114,11 @@ export function detectContentType(bytes: Uint8Array): string | null {
   return null;
 }
 
-export type UploadRejection = { ok: false; status: 413 | 415; body: Record<string, unknown> };
+export type UploadRejection = {
+  ok: false;
+  status: 413 | 415;
+  error: AppError;
+};
 export type UploadInspection = { ok: true; contentType: string } | UploadRejection;
 
 /** The shared 413 rejection for both the pre-buffer and post-buffer size checks. */
@@ -119,12 +129,10 @@ function tooLarge(
   return {
     ok: false,
     status: 413,
-    body: {
-      error: "payload too large",
+    error: new PayloadTooLargeError("payload too large", {
       code: "upload_too_large",
-      maxBytes,
-      ...extra,
-    },
+      details: { maxBytes, ...extra },
+    }),
   };
 }
 
@@ -153,7 +161,9 @@ export function inspectUpload(bytes: Uint8Array, policy: UploadPolicy): UploadIn
     return {
       ok: false,
       status: 415,
-      body: { error: "unsupported media type", allowed: [...policy.allowed] },
+      error: new UnsupportedMediaTypeError("unsupported media type", {
+        details: { allowed: [...policy.allowed] },
+      }),
     };
   }
   const maxBytes = maxBytesForContentType(policy, detected);
@@ -173,7 +183,7 @@ export function inspectUpload(bytes: Uint8Array, policy: UploadPolicy): UploadIn
  */
 export const writeRateLimit: MiddlewareHandler<WorkspaceVars> = async (c, next) => {
   if (!(await allowWrite(c.env, c.get("workspaceName")))) {
-    return c.json({ error: "rate limit exceeded" }, 429);
+    throw new RateLimitedError("rate limit exceeded");
   }
   await next();
 };
