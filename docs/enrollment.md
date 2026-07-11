@@ -15,10 +15,10 @@ uploads login
 uploads doctor
 ```
 
-Or use a pinned package without a global install:
+Or run it once without a global install:
 
 ```bash
-npx @buildinternet/uploads@0.4.0 login
+npx @buildinternet/uploads login
 ```
 
 Interactive login prompts without echoing the enrollment code. For automation, use an

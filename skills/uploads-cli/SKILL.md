@@ -49,10 +49,10 @@ propagate within ~a minute).
 ## Prerequisites
 
 - **Node.js ≥ 22.**
-- **The CLI.** Install globally for repeated agent use, or run a pinned version:
+- **The CLI.** Install globally for repeated agent use, or run it once with `npx`:
   ```bash
   npm install --global @buildinternet/uploads
-  npx @buildinternet/uploads@0.4.0 --help
+  npx @buildinternet/uploads --help
   ```
   Every example in this skill uses the **global** `uploads …` binary (as after
   install). Inside the uploads monorepo only, `pnpm uploads …` builds from
