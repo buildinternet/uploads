@@ -3,6 +3,7 @@
   "version": "0.3.0",
   "description": "CLI and client for uploads.sh — workspace-scoped image hosting for GitHub embeds",
   "type": "module",
+  "sideEffects": false,
   "license": "MIT",
   "repository": {
     "type": "git",
