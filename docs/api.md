@@ -66,14 +66,16 @@ curl -X PUT https://api.uploads.sh/v1/default/files/screenshots/myapp/42/shot.pn
 
 ## CLI
 
-The `@buildinternet/uploads` package wraps the API for GitHub image embeds:
+The `@buildinternet/uploads` package wraps the API for GitHub image embeds.
+Examples assume the CLI is installed globally (`uploads`); use
+`pnpm uploads …` only when developing inside this monorepo.
 
 ```bash
-pnpm uploads put <file> --env-file .env
-pnpm uploads put <file> --pr <num> --comment   # PR attachment + managed GitHub comment
-pnpm uploads usage --env-file .env
-pnpm uploads reconcile --env-file .env
-pnpm uploads purge-expired --env-file .env
+uploads put <file>
+uploads put <file> --pr <num> --comment   # PR attachment + managed GitHub comment
+uploads usage
+uploads reconcile
+uploads purge-expired
 ```
 
 See `skills/uploads-cli/SKILL.md` for agent-oriented usage.

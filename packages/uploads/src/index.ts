@@ -65,6 +65,16 @@ export {
   type GhTargetKind,
 } from "./github.js";
 export {
+  DEFAULT_OPTIMIZE_MAX_EDGE,
+  DEFAULT_OPTIMIZE_QUALITY,
+  optimizeImageForUpload,
+  rewriteKeyExtension,
+  withImageExtension,
+  type OptimizeImageOptions,
+  type OptimizeImageResult,
+  type OptimizeOutputFormat,
+} from "./optimize.js";
+export {
   execRunner,
   resolveRepo,
   upsertAttachmentsComment,

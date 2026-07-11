@@ -4,9 +4,7 @@ CLI and client for **uploads.sh** — upload files, get public URLs, and produce
 
 ## CLI
 
-Binary: `uploads` (also `pnpm uploads` from repo root after `pnpm install`).
-
-Install globally or run a pinned version without installing:
+Binary: **`uploads`**. Install globally (or use a pinned `npx` one-shot):
 
 ```bash
 npm install --global @buildinternet/uploads
@@ -14,13 +12,18 @@ npx @buildinternet/uploads@0.1.0 --help
 ```
 
 ```bash
-pnpm uploads setup --env-file .env
-pnpm uploads attach ./before.png ./after.png --env-file .env
-pnpm uploads put ./shot.png --env-file .env
-pnpm uploads put ./shot.png --destination screenshots --env-file .env
-pnpm uploads put ./after.png --pr 123 --comment --env-file .env
-pnpm uploads doctor --env-file .env
+uploads setup
+uploads attach ./before.png ./after.png
+uploads put ./shot.png
+uploads put ./shot.png --destination screenshots
+uploads put ./shot.png --no-optimize
+uploads put ./after.png --pr 123 --comment
+uploads doctor
 ```
+
+Inside this monorepo only, `pnpm uploads …` builds the package first so you pick
+up local source; product docs and PR “how to try it” examples should use the
+global `uploads` form above.
 
 Commands: `attach`, `put`, `comment`, `list`, `delete`, `usage`, `reconcile`,
 `purge-expired`, `setup`, `install`, `config`, `doctor`, `health`, `mcp`.
@@ -34,6 +37,11 @@ the target explicitly, or `--no-comment` to upload without changing GitHub comme
 (`--destination screenshots|gh|f`, MCP `destination`) set the root; `--pr`/`--issue`
 use `gh/…`. Workspaces may restrict put/sign to those roots via
 `allowedKeyPrefixes` (see [workspaces](../../docs/workspaces.md)).
+
+**Image optimization:** by default, still images are re-encoded to WebP (long edge
+capped, high quality) before upload so GitHub embeds stay small, and **EXIF is
+stripped**. Pass `--keep-exif` / `UPLOADS_KEEP_EXIF=1` to preserve image metadata, or
+`--no-optimize` / `UPLOADS_NO_OPTIMIZE=1` to upload originals unchanged.
 
 Config layers (first match wins): CLI flags → env vars → `--env-file` → `~/.config/buildinternet/config`. See `config.example` for keys.
 

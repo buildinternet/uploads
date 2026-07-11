@@ -12,6 +12,8 @@ export const UPLOADS_CONFIG_KEYS = [
   "UPLOADS_DEFAULT_REF",
   "UPLOADS_DEFAULT_WIDTH",
   "UPLOADS_NO_GIT",
+  "UPLOADS_NO_OPTIMIZE",
+  "UPLOADS_KEEP_EXIF",
 ] as const;
 
 export type UploadsConfigKey = (typeof UPLOADS_CONFIG_KEYS)[number];
@@ -24,6 +26,10 @@ export interface PutDefaults {
   ref?: string;
   width?: number;
   noGit?: boolean;
+  /** When true, put/attach skip client-side image optimization. */
+  noOptimize?: boolean;
+  /** When true, optimize keeps EXIF/XMP/ICC (default strips). */
+  keepExif?: boolean;
 }
 
 const PUT_DEFAULT_KEY_MAP: Record<keyof PutDefaults, UploadsConfigKey> = {
@@ -32,7 +38,15 @@ const PUT_DEFAULT_KEY_MAP: Record<keyof PutDefaults, UploadsConfigKey> = {
   ref: "UPLOADS_DEFAULT_REF",
   width: "UPLOADS_DEFAULT_WIDTH",
   noGit: "UPLOADS_NO_GIT",
+  noOptimize: "UPLOADS_NO_OPTIMIZE",
+  keepExif: "UPLOADS_KEEP_EXIF",
 };
+
+function isTruthyConfigFlag(value: string | undefined): boolean {
+  if (!value) return false;
+  const v = value.toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
 
 export function putDefaultsToConfigValues(defaults: PutDefaults): UploadsConfigValues {
   const out: UploadsConfigValues = {};
@@ -41,6 +55,8 @@ export function putDefaultsToConfigValues(defaults: PutDefaults): UploadsConfigV
   if (defaults.ref) out.UPLOADS_DEFAULT_REF = defaults.ref;
   if (defaults.width != null) out.UPLOADS_DEFAULT_WIDTH = String(defaults.width);
   if (defaults.noGit) out.UPLOADS_NO_GIT = "1";
+  if (defaults.noOptimize) out.UPLOADS_NO_OPTIMIZE = "1";
+  if (defaults.keepExif) out.UPLOADS_KEEP_EXIF = "1";
   return out;
 }
 
@@ -53,9 +69,9 @@ function parsePutDefaultsFromRaw(raw: UploadsConfigValues): PutDefaults {
     const n = Number.parseInt(raw.UPLOADS_DEFAULT_WIDTH, 10);
     if (Number.isFinite(n) && n > 0) out.width = n;
   }
-  if (raw.UPLOADS_NO_GIT === "1" || raw.UPLOADS_NO_GIT?.toLowerCase() === "true") {
-    out.noGit = true;
-  }
+  if (isTruthyConfigFlag(raw.UPLOADS_NO_GIT)) out.noGit = true;
+  if (isTruthyConfigFlag(raw.UPLOADS_NO_OPTIMIZE)) out.noOptimize = true;
+  if (isTruthyConfigFlag(raw.UPLOADS_KEEP_EXIF)) out.keepExif = true;
   return out;
 }
 
@@ -68,6 +84,8 @@ function parsePutDefaultsFromEnv(): PutDefaults {
   if (process.env.UPLOADS_DEFAULT_WIDTH)
     raw.UPLOADS_DEFAULT_WIDTH = process.env.UPLOADS_DEFAULT_WIDTH;
   if (process.env.UPLOADS_NO_GIT) raw.UPLOADS_NO_GIT = process.env.UPLOADS_NO_GIT;
+  if (process.env.UPLOADS_NO_OPTIMIZE) raw.UPLOADS_NO_OPTIMIZE = process.env.UPLOADS_NO_OPTIMIZE;
+  if (process.env.UPLOADS_KEEP_EXIF) raw.UPLOADS_KEEP_EXIF = process.env.UPLOADS_KEEP_EXIF;
   return parsePutDefaultsFromRaw(raw);
 }
 
@@ -130,6 +148,8 @@ export function mergePutDefaults(...layers: PutDefaults[]): PutDefaults {
     if (layer.ref) out.ref = layer.ref;
     if (layer.width != null) out.width = layer.width;
     if (layer.noGit != null) out.noGit = layer.noGit;
+    if (layer.noOptimize != null) out.noOptimize = layer.noOptimize;
+    if (layer.keepExif != null) out.keepExif = layer.keepExif;
   }
   return out;
 }
