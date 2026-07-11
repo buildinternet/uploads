@@ -1,0 +1,16 @@
+---
+/**
+ * Missing route — Astro builds dist/404.html.
+ * Workers static assets serve it for unknown paths when not_found_handling is
+ * "404-page" (wrangler.jsonc). Different from 500 (application failure).
+ * @see https://docs.astro.build/en/basics/astro-pages/#custom-404-error-page
+ */
+import ErrorLayout from "../layouts/ErrorLayout.astro";
+---
+
+<ErrorLayout
+  status={404}
+  title="Not found"
+  message="That path doesn’t exist on uploads.sh — it may have moved, or the URL is wrong."
+  hint="Check the address, or head home and start over."
+/>

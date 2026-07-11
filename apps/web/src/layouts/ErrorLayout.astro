@@ -1,0 +1,188 @@
+---
+/**
+ * Shared shell for Astro status pages (404 missing route, 500 application error).
+ * Matches the landing terminal palette so failures still feel on-brand.
+ */
+interface Props {
+  status: number;
+  title: string;
+  message: string;
+  /** Optional one-line hint under the message */
+  hint?: string;
+}
+
+const { status, title, message, hint } = Astro.props;
+
+const FAVICON =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23120d1e'/%3E%3Cg fill='none' stroke='%23b794ff' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 12.5 L16 5 L24 12.5'/%3E%3Cpath d='M8 19.5 L16 12 L24 19.5' opacity='.55'/%3E%3Cpath d='M8 26.5 L16 19 L24 26.5' opacity='.28'/%3E%3C/g%3E%3C/svg%3E";
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+    <meta name="description" content={`${status} ${title} — uploads.sh`} />
+    <title>{status} · {title} · uploads.sh</title>
+    <link rel="icon" href={FAVICON} />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0813;
+        --screen: #120d1e;
+        --bezel: #251a3d;
+        --fg: #e6dff5;
+        --purple: #b794ff;
+        --purple-dim: #8262c9;
+        --purple-faint: #53407e;
+        --neutral: #726d8c;
+        --cyan: #7dcfff;
+        --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+          monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        background:
+          radial-gradient(120% 90% at 50% 0%, #150e24 0%, var(--bg) 60%),
+          var(--bg);
+        color: var(--fg);
+        font: 15px/1.65 var(--mono);
+        display: grid;
+        place-items: center;
+        padding: 40px 24px 56px;
+      }
+      main {
+        width: min(420px, 100%);
+      }
+      .card {
+        background: var(--screen);
+        border: 1px solid var(--bezel);
+        border-radius: 10px;
+        box-shadow:
+          0 0 0 1px #000,
+          0 24px 80px rgba(0, 0, 0, 0.55),
+          0 0 100px rgba(183, 148, 255, 0.06);
+        overflow: hidden;
+      }
+      .titlebar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        background: var(--bezel);
+        color: var(--purple-dim);
+        font-size: 12px;
+        letter-spacing: 0.08em;
+      }
+      .titlebar .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #382a58;
+      }
+      .titlebar .label {
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .body {
+        padding: 28px 22px 26px;
+      }
+      .status {
+        margin: 0 0 6px;
+        font-size: clamp(2.4rem, 8vw, 3.2rem);
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: var(--purple);
+        line-height: 1.1;
+        text-shadow: 0 0 24px rgba(183, 148, 255, 0.25);
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--fg);
+        letter-spacing: 0.02em;
+      }
+      p {
+        margin: 0;
+        color: var(--neutral);
+        font-size: 0.92rem;
+      }
+      .hint {
+        margin-top: 10px;
+        font-size: 0.85rem;
+        color: var(--purple-dim);
+      }
+      .actions {
+        margin-top: 22px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      a {
+        color: var(--cyan);
+        text-decoration: underline;
+        text-decoration-color: var(--purple-faint);
+        text-underline-offset: 3px;
+      }
+      a:hover,
+      a:focus-visible {
+        background: rgba(125, 207, 255, 0.12);
+        outline: none;
+      }
+      .home {
+        display: inline-block;
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        color: var(--purple);
+        background: rgba(183, 148, 255, 0.08);
+        border: 1px solid #38295c;
+        border-radius: 6px;
+        padding: 8px 14px;
+        text-decoration: none;
+      }
+      .home:hover,
+      .home:focus-visible {
+        background: rgba(183, 148, 255, 0.18);
+        border-color: var(--purple-faint);
+        outline: none;
+      }
+      .foot {
+        margin-top: 14px;
+        padding-left: 4px;
+        font-size: 12px;
+        color: var(--neutral);
+      }
+      .foot a {
+        color: var(--cyan);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="card" aria-labelledby="error-title">
+        <div class="titlebar" aria-hidden="true">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="label">uploads.sh — error</span>
+        </div>
+        <div class="body">
+          <p class="status" aria-hidden="true">{status}</p>
+          <h1 id="error-title">{title}</h1>
+          <p>{message}</p>
+          {hint ? <p class="hint">{hint}</p> : null}
+          <div class="actions">
+            <a class="home" href="/">← home</a>
+          </div>
+        </div>
+      </section>
+      <p class="foot">
+        <a href="https://github.com/buildinternet/uploads">source</a>
+        {" · "}file hosting for agents &amp; humans
+      </p>
+    </main>
+  </body>
+</html>
