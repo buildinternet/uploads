@@ -282,6 +282,13 @@ const FAVICON =
       .cmdrow button.done { color: var(--green-ok); border-color: #3c4a2e; }
       .install .foot { color: var(--neutral); margin: 10px 2px 0; font-size: 12px; }
       .install .foot a { color: var(--cyan); }
+      .site-foot {
+        color: #575271;
+        font-size: 11.5px;
+        text-align: center;
+        margin-top: 10px;
+      }
+      .site-foot a { color: var(--neutral); }
       a {
         color: var(--cyan);
         text-decoration: underline;
@@ -384,10 +391,13 @@ const FAVICON =
           </div>
         </div>
         <p class="foot">
-          access by invitation · `uploads install` covers the skill + mcp rows ·
-          <a href={REPO}>source &amp; roadmap</a>
+          access by invitation · `uploads install` covers the skill + mcp rows · <a href={REPO}>source &amp; roadmap</a>
         </p>
       </section>
+
+      <footer class="site-foot">
+        a <a href="https://buildinternet.com">Build Internet</a> project · <a href="/terms">terms</a> · <a href="/privacy">privacy</a>
+      </footer>
     </main>
 
     <script>
