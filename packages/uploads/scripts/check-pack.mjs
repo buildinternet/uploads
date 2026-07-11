@@ -44,6 +44,14 @@ try {
   );
   assert.equal(manifest.private, undefined, "package must not be marked private");
   assert.equal(manifest.publishConfig?.access, "public");
+  // Workers (apps/mcp) import helpers from the main entry; without this, esbuild
+  // keeps the optimize/frame re-exports and bundles native `sharp`, which fails
+  // Cloudflare startup validation (createRequire / path undefined).
+  assert.equal(
+    manifest.sideEffects,
+    false,
+    "package must set sideEffects: false for Worker tree-shaking",
+  );
   assert.equal(
     manifest.bin?.uploads?.replace(/^\.\//, ""),
     "bin/uploads.js",
