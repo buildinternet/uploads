@@ -48,27 +48,33 @@ pnpm exec wrangler secret put WORKSPACE_SECRETS_KEY
 
 ### Rotating `WORKSPACE_SECRETS_KEY`
 
-1. Generate a new key: `openssl rand -base64 32` → keep both OLD and NEW.
-2. Set previous = old (while the worker still has the old value as current):
+**Putting secrets** is always `wrangler secret put` (the Worker config).
+**Re-sealing records** is an **admin API** so the KEK stays on the worker (not in shell history).
+
+1. Generate a new key: `openssl rand -base64 32` → keep OLD and NEW.
+2. Install both on the worker (from `apps/api`):
    ```bash
    pnpm exec wrangler secret put WORKSPACE_SECRETS_KEY_PREVIOUS   # paste OLD
    pnpm exec wrangler secret put WORKSPACE_SECRETS_KEY            # paste NEW
    ```
-3. Re-seal every registry record that has BYO credentials under the **new** key:
+3. Re-seal registry credentials under the **current** key:
    ```bash
-   WORKSPACE_SECRETS_KEY='<NEW>' WORKSPACE_SECRETS_KEY_PREVIOUS='<OLD>' \
-     pnpm exec node scripts/reencrypt-workspace-secrets.mjs --dry-run
-   WORKSPACE_SECRETS_KEY='<NEW>' WORKSPACE_SECRETS_KEY_PREVIOUS='<OLD>' \
-     pnpm exec node scripts/reencrypt-workspace-secrets.mjs
+   # dry-run
+   curl -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
+     'https://api.uploads.sh/admin/credentials/reencrypt?dryRun=1'
+   # live
+   curl -XPOST -H "Authorization: Bearer $ADMIN_TOKEN" \
+     https://api.uploads.sh/admin/credentials/reencrypt
+   # or: pnpm workspace:reencrypt-secrets --dry-run
    ```
-4. Verify BYO workspaces (presign / put). Logs may show
-   `credential_decrypted_with_previous_key` until re-seal finishes.
-5. Remove the previous secret so only the new KEK remains:
+4. Verify BYO / presign. Logs may show `credential_decrypted_with_previous_key`
+   until re-seal finishes.
+5. Drop the previous secret:
    ```bash
    pnpm exec wrangler secret delete WORKSPACE_SECRETS_KEY_PREVIOUS
    ```
 
-Do **not** delete PREVIOUS before re-encrypt completes, or ciphertext sealed only with OLD becomes unreadable.
+Do **not** delete PREVIOUS before re-encrypt completes.
 
 ## Presign
 
