@@ -21,7 +21,8 @@ pnpm uploads put ./after.png --pr 123 --comment --env-file .env
 pnpm uploads doctor --env-file .env
 ```
 
-Commands: `attach`, `put`, `comment`, `list`, `delete`, `setup`, `install`, `config`, `doctor`, `health`, `mcp`.
+Commands: `attach`, `put`, `comment`, `list`, `delete`, `usage`, `reconcile`,
+`purge-expired`, `setup`, `install`, `config`, `doctor`, `health`, `mcp`.
 
 `attach` is the agent-friendly default for GitHub media. It accepts one or more files,
 infers the pull request for the current branch via `gh`, uploads stable URLs, and creates
@@ -32,7 +33,7 @@ Config layers (first match wins): CLI flags → env vars → `--env-file` → `~
 
 ## MCP server
 
-`uploads mcp` serves the Model Context Protocol over stdio (newline-delimited JSON-RPC, no extra dependencies). Tools mirror the CLI commands one-to-one — `put`, `attach`, `list`, `delete`, `comment`, `health`, `doctor` — with the same config resolution and defaults, plus a per-call `workspace` argument. Interactive/credential commands (`setup`, `login`, `admin`, `config`) are not exposed. A token isn't required to start the server; auth errors surface per tool call (`health` needs no auth).
+`uploads mcp` serves the Model Context Protocol over stdio (newline-delimited JSON-RPC, no extra dependencies). Tools mirror the CLI commands one-to-one — `put`, `attach`, `list`, `delete`, `usage`, `reconcile`, `purge_expired`, `comment`, `health`, `doctor` — with the same config resolution and defaults, plus a per-call `workspace` argument. Interactive/credential commands (`setup`, `login`, `admin`, `config`) are not exposed. A token isn't required to start the server; auth errors surface per tool call (`health` needs no auth).
 
 ```json
 { "command": "uploads", "args": ["--env-file", "/path/to/.env", "mcp"] }
