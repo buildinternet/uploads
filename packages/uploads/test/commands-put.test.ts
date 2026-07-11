@@ -9,15 +9,15 @@ import { join } from "node:path";
 
 /** Fake client capturing put() calls; other methods throw if reached. */
 function fakeClient() {
-  const puts: { key?: string; filename: string; prefix?: string }[] = [];
+  const puts: { key?: string; filename: string; prefix?: string; body: Uint8Array }[] = [];
   const client = {
-    put: async (_body: Uint8Array, opts: { filename: string; key?: string; prefix?: string }) => {
-      puts.push({ key: opts.key, filename: opts.filename, prefix: opts.prefix });
+    put: async (body: Uint8Array, opts: { filename: string; key?: string; prefix?: string }) => {
+      puts.push({ key: opts.key, filename: opts.filename, prefix: opts.prefix, body });
       return {
         workspace: "test",
         key: opts.key ?? "generated/key.png",
         url: `https://x.test/${opts.key ?? "generated/key.png"}`,
-        size: 3,
+        size: body.byteLength,
         contentType: "image/png",
       };
     },
@@ -119,6 +119,27 @@ describe("runPut --pr/--issue", () => {
     const { client, puts } = fakeClient();
     await runPut(ctxWith(client), [tmpFile(), "--repo", "myapp", "--no-git"], false, noRun);
     expect(puts[0].key).toBeUndefined(); // client falls back to buildScreenshotKey
+  });
+
+  it("uploads non-image bytes unchanged when optimize cannot help", async () => {
+    const { client, puts } = fakeClient();
+    // tmpFile writes the text "png" — not a real image; optimize passes through.
+    await runPut(ctxWith(client), [tmpFile(), "--pr", "9", "--repo", "o/r"], false, noRun);
+    expect(puts[0].filename).toBe("shot.png");
+    expect(puts[0].key).toBe("gh/o/r/pull/9/shot.png");
+    expect(new TextDecoder().decode(puts[0].body)).toBe("png");
+  });
+
+  it("honors --no-optimize", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "9", "--repo", "o/r", "--no-optimize"],
+      false,
+      noRun,
+    );
+    expect(puts[0].filename).toBe("shot.png");
+    expect(puts[0].key).toBe("gh/o/r/pull/9/shot.png");
   });
 });
 

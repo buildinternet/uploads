@@ -41,3 +41,7 @@ UPLOADS_DEFAULT_PREFIX=screenshots
 # Default markdown width and git behavior.
 # UPLOADS_DEFAULT_WIDTH=700
 # UPLOADS_NO_GIT=1
+
+# Skip client-side image optimization on put/attach (default: optimize still
+# images to WebP for leaner GitHub embeds).
+# UPLOADS_NO_OPTIMIZE=1

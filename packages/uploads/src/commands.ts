@@ -33,6 +33,13 @@ import {
   type CommandRunner,
 } from "./github-gh.js";
 import { resolvePutPrefix } from "./destinations.js";
+import {
+  optimizeImageForUpload,
+  rewriteKeyExtension,
+  type OptimizeImageOptions,
+  type OptimizeImageResult,
+} from "./optimize.js";
+import type { PutDefaults } from "./config-file.js";
 
 export interface CliContext {
   config: ResolvedConfig;
@@ -48,6 +55,10 @@ const PUT_HELP = `uploads put <file> [options]
 
 Upload an image for GitHub embeds. Use "-" for stdin.
 
+Still images (PNG/JPEG/…) are optimized to WebP by default (long edge capped,
+high quality) so GitHub embeds stay lean. Original bytes are kept when they are
+already smaller, animated, or not an image. Use --no-optimize to upload as-is.
+
 Options:
   --key <key>           Object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>)
   --destination <id>    Typed root: screenshots | gh | f (sets --prefix)
@@ -56,7 +67,10 @@ Options:
   --ref <id>            PR/issue/branch segment (default: today, or UPLOADS_DEFAULT_REF)
   --alt <text>          Alt text (default: filename)
   --width <px>          <img width=…> markdown (or UPLOADS_DEFAULT_WIDTH)
-  --content-type <mime> Override Content-Type
+  --content-type <mime> Override Content-Type (ignored when optimize rewrites the body)
+  --no-optimize         Skip client-side image optimization (or UPLOADS_NO_OPTIMIZE=1)
+  --optimize-max-edge <px>  Max long edge when optimizing (default: 2400)
+  --optimize-quality <1-100>  WebP quality (default: 85)
   --no-git              Don't derive --repo from git (or UPLOADS_NO_GIT=1)
   --workspace, -w <name>  Override workspace (wins over UPLOADS_WORKSPACE and token inference)
   --format human|url|markdown|json
@@ -67,6 +81,7 @@ Options:
 Examples:
   uploads put ./shot.png --repo myorg/myapp --ref 1722 --alt "New cards" --width 700
   uploads put ./shot.png --destination screenshots
+  uploads put ./shot.png --no-optimize
   uploads --env-file .env put ./shot.png
   uploads --env-file .env put ./after.png --pr 123 --comment
 `;
@@ -99,6 +114,35 @@ function ghTargetFromFlags(flags: CommandFlags["flags"], run: CommandRunner): Gh
   );
 }
 
+/** Shared put/attach optimize flags + UPLOADS_NO_OPTIMIZE default. */
+export function optimizeOptionsFromFlags(
+  flags: CommandFlags["flags"],
+  defaults: PutDefaults,
+): OptimizeImageOptions {
+  if (flags.has("--no-optimize") && typeof flags.get("--no-optimize") === "string") {
+    throw new UsageError("--no-optimize takes no value");
+  }
+  const quality = flagInt(flags, "--optimize-quality", "--optimize-quality");
+  if (quality !== undefined && quality > 100) {
+    throw new UsageError("invalid --optimize-quality: must be 1–100");
+  }
+  return {
+    enabled: !(flagBool(flags, "--no-optimize") || defaults.noOptimize === true),
+    maxEdge: flagInt(flags, "--optimize-max-edge", "--optimize-max-edge"),
+    quality,
+  };
+}
+
+function formatOptimizeNote(opt: OptimizeImageResult): string | undefined {
+  if (opt.optimized) {
+    return `optimized ${opt.originalBytes} → ${opt.outputBytes} bytes (${opt.filename})`;
+  }
+  if (opt.skippedReason && opt.skippedReason !== "disabled") {
+    return `optimize skipped (${opt.skippedReason})`;
+  }
+  return undefined;
+}
+
 /**
  * List every attachment under the target's prefix and create/update the
  * managed comment. Throws on gh failure — callers decide whether that is
@@ -127,12 +171,18 @@ const ATTACH_HELP = `uploads attach <file...> [options]
 Upload one or more stable PR/issue attachments and maintain a single GitHub
 comment. With no target, uses the pull request for the current branch.
 
+Still images are optimized to WebP by default (same as put). Use --no-optimize
+to upload originals.
+
 Options:
   --pr <num>            Attach to this pull request
   --issue <num>         Attach to this issue
   --repo <owner/repo>   Repository (default: gh/git inference)
   --no-comment          Upload only; don't create/update the managed comment
-  --content-type <mime> Override Content-Type (applied to every file)
+  --content-type <mime> Override Content-Type (applied to every file; ignored when optimize rewrites)
+  --no-optimize         Skip client-side image optimization (or UPLOADS_NO_OPTIMIZE=1)
+  --optimize-max-edge <px>  Max long edge when optimizing (default: 2400)
+  --optimize-quality <1-100>  WebP quality (default: 85)
   --workspace, -w <name>  Override workspace
 
 Examples:
@@ -164,18 +214,38 @@ export async function runAttach(
   const target =
     explicitTarget ??
     resolveCurrentPullRequest(resolveRepo(flagString(parsed.flags, "--repo"), run), run);
+  const defaults = resolvePutDefaults({ envFile: ctx.envFile });
+  const optimizeOpts = optimizeOptionsFromFlags(parsed.flags, defaults);
+  const contentTypeOverride = flagString(parsed.flags, "--content-type");
   const results = [];
   for (const file of parsed.positionals) {
     if (file === "-")
       throw new UsageError("attach does not support stdin; pass one or more file paths");
-    const filename = basename(file);
+    const sourceName = basename(file);
     if (!ctx.quiet && !ctx.json) process.stderr.write(`>> uploading ${file}\n`);
-    const result = await ctx.client.put(new Uint8Array(readFileSync(file)), {
-      filename,
-      key: ghAttachmentKey(target, filename),
-      contentType: flagString(parsed.flags, "--content-type"),
+    const prepared = await optimizeImageForUpload(
+      new Uint8Array(readFileSync(file)),
+      sourceName,
+      optimizeOpts,
+    );
+    const note = formatOptimizeNote(prepared);
+    if (note && !ctx.quiet && !ctx.json) process.stderr.write(`>> ${note}\n`);
+    const result = await ctx.client.put(prepared.bytes, {
+      filename: prepared.filename,
+      key: ghAttachmentKey(target, prepared.filename),
+      contentType: prepared.optimized ? prepared.contentType : contentTypeOverride,
     });
-    results.push({ ...result, markdown: buildMarkdown(result.url, { alt: filename }) });
+    results.push({
+      ...result,
+      markdown: buildMarkdown(result.url, { alt: sourceName }),
+      optimize: {
+        optimized: prepared.optimized,
+        skippedReason: prepared.skippedReason,
+        originalBytes: prepared.originalBytes,
+        outputBytes: prepared.outputBytes,
+        filename: prepared.filename,
+      },
+    });
   }
 
   let comment: { action: "created" | "updated" | "skipped"; count: number } | undefined;
@@ -253,7 +323,7 @@ export async function runPut(
   }
   const bytes =
     fileArg === "-" ? new Uint8Array(readFileSync(0)) : new Uint8Array(readFileSync(fileArg));
-  const filename =
+  const sourceName =
     fileArg === "-" ? (keyHint ? basename(keyHint) : "stdin.bin") : basename(fileArg);
 
   const format = ctx.json
@@ -266,7 +336,11 @@ export async function runPut(
       })();
 
   const defaults = resolvePutDefaults({ envFile: ctx.envFile });
-  const alt = flagString(parsed.flags, "--alt") ?? basename(filename);
+  const optimizeOpts = optimizeOptionsFromFlags(parsed.flags, defaults);
+  const prepared = await optimizeImageForUpload(bytes, sourceName, optimizeOpts);
+  const filename = prepared.filename;
+  const contentTypeOverride = flagString(parsed.flags, "--content-type");
+  const alt = flagString(parsed.flags, "--alt") ?? basename(sourceName);
   const widthRaw = flagString(parsed.flags, "--width");
   const width =
     widthRaw && /^\d+$/.test(widthRaw) && Number(widthRaw) > 0
@@ -279,20 +353,31 @@ export async function runPut(
 
   if (!ctx.quiet && format === "human") {
     process.stderr.write(`>> uploading ${fileArg === "-" ? "stdin" : fileArg}\n`);
+    const note = formatOptimizeNote(prepared);
+    if (note) process.stderr.write(`>> ${note}\n`);
   }
 
   const noGit = flagBool(parsed.flags, "--no-git") || defaults.noGit === true;
-  const result = await ctx.client.put(bytes, {
+  let key = ghTarget ? ghAttachmentKey(ghTarget, filename) : keyHint;
+  if (key && prepared.optimized) key = rewriteKeyExtension(key, filename);
+  const result = await ctx.client.put(prepared.bytes, {
     filename,
-    key: ghTarget ? ghAttachmentKey(ghTarget, filename) : keyHint,
+    key,
     prefix: resolvedPrefix ?? defaults.prefix,
     repo: flagString(parsed.flags, "--repo") ?? defaults.repo,
     ref: flagString(parsed.flags, "--ref") ?? defaults.ref,
-    contentType: flagString(parsed.flags, "--content-type"),
+    contentType: prepared.optimized ? prepared.contentType : contentTypeOverride,
     deriveRepoFromGit: !noGit,
   });
 
   const markdown = buildMarkdown(result.url, { alt, width });
+  const optimizeMeta = {
+    optimized: prepared.optimized,
+    skippedReason: prepared.skippedReason,
+    originalBytes: prepared.originalBytes,
+    outputBytes: prepared.outputBytes,
+    filename: prepared.filename,
+  };
 
   if (!ctx.quiet && format === "human") {
     process.stderr.write(`>> key: ${result.key}\n\n`);
@@ -300,7 +385,7 @@ export async function runPut(
 
   switch (format) {
     case "json":
-      await writeJson({ ...result, markdown });
+      await writeJson({ ...result, markdown, optimize: optimizeMeta });
       break;
     case "url":
       await writeStdout(`${result.url}\n`);

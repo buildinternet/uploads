@@ -20,6 +20,11 @@ import { buildMarkdown } from "../embed.js";
 import { resolvePutPrefix } from "../destinations.js";
 import { ghAttachmentKey, ghKeyPrefix, type GhTarget } from "../github.js";
 import {
+  optimizeImageForUpload,
+  rewriteKeyExtension,
+  type OptimizeImageOptions,
+} from "../optimize.js";
+import {
   execRunner,
   resolveCurrentPullRequest,
   resolveRepo,
@@ -42,6 +47,19 @@ function optStringArray(args: ToolArgs, name: string): string[] | undefined {
     usage(`${name} must be an array of strings`);
   }
   return v as string[];
+}
+
+function mcpOptimizeOptions(
+  args: ToolArgs,
+  defaults: { noOptimize?: boolean },
+): OptimizeImageOptions {
+  const quality = optPosInt(args, "optimizeQuality");
+  if (quality !== undefined && quality > 100) usage("optimizeQuality must be 1–100");
+  return {
+    enabled: !(optBool(args, "noOptimize") || defaults.noOptimize === true),
+    maxEdge: optPosInt(args, "optimizeMaxEdge"),
+    quality,
+  };
 }
 
 /** Reads pr/issue (+ repo) into a GhTarget; undefined when neither is present. */
@@ -164,7 +182,23 @@ export function createUploadsMcpTools(opts: {
             type: "number",
             description: "Emit <img width=…> markdown instead of a plain image embed.",
           },
-          contentType: { type: "string", description: "Override the Content-Type." },
+          contentType: {
+            type: "string",
+            description: "Override the Content-Type (ignored when optimize rewrites the body).",
+          },
+          noOptimize: {
+            type: "boolean",
+            description:
+              "Skip client-side image optimization (default: optimize still images to WebP).",
+          },
+          optimizeMaxEdge: {
+            type: "number",
+            description: "Max long edge in pixels when optimizing (default: 2400).",
+          },
+          optimizeQuality: {
+            type: "number",
+            description: "WebP quality 1–100 when optimizing (default: 85).",
+          },
           noGit: { type: "boolean", description: "Don't derive the repo segment from git." },
           comment: {
             type: "boolean",
@@ -188,13 +222,13 @@ export function createUploadsMcpTools(opts: {
 
         const target = ghTargetFromArgs(args, run);
         const wantComment = optBool(args, "comment");
-        const key = optString(args, "key");
+        const keyArg = optString(args, "key");
         const destArg = optString(args, "destination");
         const prefixArg = optString(args, "prefix");
         const refArg = optString(args, "ref");
         if (wantComment && !target) usage("comment requires pr or issue");
         if (target) {
-          if (key) usage("key cannot be combined with pr/issue");
+          if (keyArg) usage("key cannot be combined with pr/issue");
           if (refArg) usage("ref cannot be combined with pr/issue");
           if (prefixArg) usage("prefix cannot be combined with pr/issue");
         }
@@ -203,7 +237,7 @@ export function createUploadsMcpTools(opts: {
           resolvedPrefix = resolvePutPrefix({
             destination: destArg,
             prefix: prefixArg,
-            key,
+            key: keyArg,
             ghAttachment: Boolean(target),
           });
         } catch (err) {
@@ -215,29 +249,41 @@ export function createUploadsMcpTools(opts: {
           file !== undefined
             ? new Uint8Array(readFileSync(file))
             : new Uint8Array(Buffer.from(contentBase64!, "base64"));
-        const filename = file !== undefined ? (filenameArg ?? basename(file)) : filenameArg!;
+        const sourceName = file !== undefined ? (filenameArg ?? basename(file)) : filenameArg!;
 
         const defaults = resolvePutDefaults({ envFile: globals.envFile });
+        const optimizeOpts = mcpOptimizeOptions(args, defaults);
+        const prepared = await optimizeImageForUpload(bytes, sourceName, optimizeOpts);
+        const filename = prepared.filename;
+        let key = target ? ghAttachmentKey(target, filename) : keyArg;
+        if (key && prepared.optimized) key = rewriteKeyExtension(key, filename);
         const noGit = optBool(args, "noGit") || defaults.noGit === true;
-        const result = await client.put(bytes, {
+        const result = await client.put(prepared.bytes, {
           filename,
-          key: target ? ghAttachmentKey(target, filename) : key,
+          key,
           prefix: resolvedPrefix ?? defaults.prefix,
           repo: optString(args, "repo") ?? defaults.repo,
           ref: refArg ?? defaults.ref,
-          contentType: optString(args, "contentType"),
+          contentType: prepared.optimized ? prepared.contentType : optString(args, "contentType"),
           deriveRepoFromGit: !noGit,
         });
         const markdown = buildMarkdown(result.url, {
-          alt: optString(args, "alt") ?? filename,
+          alt: optString(args, "alt") ?? sourceName,
           width: optPosInt(args, "width") ?? defaults.width,
         });
+        const optimize = {
+          optimized: prepared.optimized,
+          skippedReason: prepared.skippedReason,
+          originalBytes: prepared.originalBytes,
+          outputBytes: prepared.outputBytes,
+          filename: prepared.filename,
+        };
 
         if (wantComment && target) {
           const { comment, commentError } = await syncComment(client, target);
-          return { ...result, markdown, comment, commentError };
+          return { ...result, markdown, optimize, comment, commentError };
         }
-        return { ...result, markdown };
+        return { ...result, markdown, optimize };
       },
     },
     {
@@ -259,7 +305,21 @@ export function createUploadsMcpTools(opts: {
           },
           contentType: {
             type: "string",
-            description: "Override the Content-Type (applied to every file).",
+            description:
+              "Override the Content-Type (applied to every file; ignored when optimize rewrites).",
+          },
+          noOptimize: {
+            type: "boolean",
+            description:
+              "Skip client-side image optimization (default: optimize still images to WebP).",
+          },
+          optimizeMaxEdge: {
+            type: "number",
+            description: "Max long edge in pixels when optimizing (default: 2400).",
+          },
+          optimizeQuality: {
+            type: "number",
+            description: "WebP quality 1–100 when optimizing (default: 85).",
           },
           workspace: workspaceProp,
         },
@@ -276,16 +336,33 @@ export function createUploadsMcpTools(opts: {
           resolveCurrentPullRequest(resolveRepo(optString(args, "repo"), run), run);
         const { client } = clientFor(args);
         const contentType = optString(args, "contentType");
+        const defaults = resolvePutDefaults({ envFile: globals.envFile });
+        const optimizeOpts = mcpOptimizeOptions(args, defaults);
 
         const uploads = [];
         for (const file of files) {
-          const filename = basename(file);
-          const result = await client.put(new Uint8Array(readFileSync(file)), {
-            filename,
-            key: ghAttachmentKey(target, filename),
-            contentType,
+          const sourceName = basename(file);
+          const prepared = await optimizeImageForUpload(
+            new Uint8Array(readFileSync(file)),
+            sourceName,
+            optimizeOpts,
+          );
+          const result = await client.put(prepared.bytes, {
+            filename: prepared.filename,
+            key: ghAttachmentKey(target, prepared.filename),
+            contentType: prepared.optimized ? prepared.contentType : contentType,
           });
-          uploads.push({ ...result, markdown: buildMarkdown(result.url, { alt: filename }) });
+          uploads.push({
+            ...result,
+            markdown: buildMarkdown(result.url, { alt: sourceName }),
+            optimize: {
+              optimized: prepared.optimized,
+              skippedReason: prepared.skippedReason,
+              originalBytes: prepared.originalBytes,
+              outputBytes: prepared.outputBytes,
+              filename: prepared.filename,
+            },
+          });
         }
 
         if (optBool(args, "noComment")) return { target, uploads };

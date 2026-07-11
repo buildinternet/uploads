@@ -60,5 +60,8 @@
   "publishConfig": {
     "access": "public",
     "provenance": true
+  },
+  "dependencies": {
+    "sharp": "^0.35.3"
   }
 }
