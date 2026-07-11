@@ -16,6 +16,21 @@ const FAVICON =
       name="description"
       content="File hosting for agents & humans — CLI, agent skill, and MCP server on Cloudflare Workers."
     />
+    <link rel="canonical" href="https://uploads.sh/" />
+    <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://uploads.sh/" />
+    <meta property="og:title" content="uploads.sh" />
+    <meta
+      property="og:description"
+      content="File hosting for agents & humans — CLI, agent skill, and MCP server on Cloudflare Workers."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="uploads.sh" />
+    <meta
+      name="twitter:description"
+      content="File hosting for agents & humans — CLI, agent skill, and MCP server on Cloudflare Workers."
+    />
     <link rel="icon" href={FAVICON} />
     <style>
       :root {
@@ -267,6 +282,13 @@ const FAVICON =
       .cmdrow button.done { color: var(--green-ok); border-color: #3c4a2e; }
       .install .foot { color: var(--neutral); margin: 10px 2px 0; font-size: 12px; }
       .install .foot a { color: var(--cyan); }
+      .site-foot {
+        color: #575271;
+        font-size: 11.5px;
+        text-align: center;
+        margin-top: 10px;
+      }
+      .site-foot a { color: var(--neutral); }
       a {
         color: var(--cyan);
         text-decoration: underline;
@@ -300,10 +322,10 @@ const FAVICON =
         </div>
       </section>
 
-      <p class="flow-note hidden"><span class="arrow">└─▶</span> which lands on your pull request as:</p>
+      <p class="flow-note"><span class="arrow">└─▶</span> which lands on your pull request as:</p>
 
       <section
-        class="ghc hidden"
+        class="ghc"
         role="img"
         aria-label="Wireframe of the managed GitHub attachments comment with two inline images"
       >
@@ -344,7 +366,7 @@ const FAVICON =
         </div>
       </section>
 
-      <section class="install hidden" aria-label="Install commands">
+      <section class="install" aria-label="Install commands">
         <p class="head"># get set up — click to copy</p>
         <div class="rows">
           <div class="cmdrow">
@@ -369,23 +391,25 @@ const FAVICON =
           </div>
         </div>
         <p class="foot">
-          access by invitation · `uploads install` covers the skill + mcp rows ·
-          <a href={REPO}>source &amp; roadmap</a>
+          access by invitation · `uploads install` covers the skill + mcp rows · <a href="/docs">docs</a> · <a href={REPO}>source &amp; roadmap</a>
         </p>
       </section>
+
+      <footer class="site-foot">
+        a <a href="https://buildinternet.com">Build Internet</a> project · <a href="/terms">terms</a> · <a href="/privacy">privacy</a>
+      </footer>
     </main>
 
     <script>
-      // Reveal like a session replaying; no per-char typing to keep it calm.
+      // Replay the terminal session; content below the fold-line is static.
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const hidden = document.querySelectorAll(".hidden");
+      const hidden = document.querySelectorAll(".screen .hidden");
       if (!reduced) {
         let t = 350;
         for (const el of hidden) {
           const isCmd = el.matches(".line") && el.querySelector(".cmd") !== null;
-          const isBlock = !el.matches(".line");
           setTimeout(() => el.classList.remove("hidden"), t);
-          t += isBlock ? 420 : isCmd ? 620 : 240;
+          t += isCmd ? 620 : 240;
         }
       } else {
         hidden.forEach((el) => el.classList.remove("hidden"));

@@ -1,0 +1,100 @@
+---
+// Shared shell for the static legal pages (/terms, /privacy). Same dark
+// terminal palette as the landing page, tuned for long-form prose.
+interface Props {
+	title: string;
+	description: string;
+	path: string;
+}
+const { title, description, path } = Astro.props;
+const FAVICON =
+	"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23120d1e'/%3E%3Cpath d='M8 19 L16 11 L24 19' fill='none' stroke='%23b794ff' stroke-width='3.2'/%3E%3C/svg%3E";
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} · uploads.sh</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={`https://uploads.sh${path}`} />
+    <link rel="icon" href={FAVICON} />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0813;
+        --panel: #120d1e;
+        --line: #2b1f46;
+        --fg: #e6dff5;
+        --muted: #8e86a5;
+        --purple: #b794ff;
+        --cyan: #7dcfff;
+        --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        background: radial-gradient(100% 60% at 50% 0%, #150e24, var(--bg) 55%);
+        color: var(--fg);
+        font: 15px/1.75 var(--mono);
+        padding: 48px 24px 64px;
+      }
+      main { width: min(680px, 100%); margin: 0 auto; }
+      .home {
+        color: var(--purple);
+        text-decoration: none;
+        font-size: 13px;
+        letter-spacing: 0.08em;
+      }
+      .home:hover, .home:focus-visible { text-decoration: underline; outline: none; }
+      h1 { font-size: clamp(26px, 5vw, 34px); line-height: 1.25; margin: 20px 0 4px; }
+      .effective { color: var(--muted); font-size: 13px; margin: 0 0 36px; }
+      article h2 {
+        font-size: 18px;
+        margin: 40px 0 10px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+      }
+      article h3 { font-size: 15px; color: var(--purple); margin: 24px 0 6px; }
+      article p, article li { color: #beb5d6; }
+      article strong { color: var(--fg); }
+      article ul { padding-left: 22px; }
+      article li { margin: 8px 0; }
+      article a {
+        color: var(--cyan);
+        text-decoration: underline;
+        text-decoration-color: #53407e;
+        text-underline-offset: 3px;
+      }
+      article a:hover, article a:focus-visible { background: rgba(125, 207, 255, 0.12); outline: none; }
+      article code {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 1px 6px;
+        font-size: 0.92em;
+      }
+      footer {
+        margin-top: 56px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+        color: #6f6787;
+        font-size: 12px;
+      }
+      footer a { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="home" href="/">← uploads.sh</a>
+      <article>
+        <slot />
+      </article>
+      <footer>
+        uploads.sh · a <a href="https://buildinternet.com">Build Internet</a> project ·
+        <a href="/terms">terms</a> · <a href="/privacy">privacy</a>
+      </footer>
+    </main>
+  </body>
+</html>

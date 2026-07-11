@@ -124,6 +124,22 @@ const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a
 const PNG_B64 = btoa(String.fromCharCode(...PNG_BYTES));
 
 describe("mcp worker", () => {
+  it("serves an unauthenticated MCP server card for discovery", async () => {
+    const { env } = await makeEnv();
+    const response = await app.request("/.well-known/mcp/server-card.json", { method: "GET" }, env);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      serverInfo: { name: string; version: string };
+      transport: { type: string; endpoint: string };
+      authentication: { required: boolean };
+    };
+    expect(body.serverInfo.name).toBe("uploads-mcp");
+    expect(body.serverInfo.version).toBeTruthy();
+    expect(body.transport.type).toBe("streamable-http");
+    expect(body.transport.endpoint).toBe("https://agents.uploads.sh/mcp");
+    expect(body.authentication.required).toBe(true);
+  });
+
   it("rejects a wrong token with a uniform 401 before any MCP handling", async () => {
     const { env } = await makeEnv();
     const response = await rpc(env, { jsonrpc: "2.0", id: 1, method: "initialize" }, "wrong");

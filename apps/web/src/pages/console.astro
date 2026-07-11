@@ -8,6 +8,7 @@ const API_DEFAULT = "https://api.uploads.sh";
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
     <title>uploads.sh console</title>
     <style>
       :root {
@@ -95,14 +96,17 @@ const API_DEFAULT = "https://api.uploads.sh";
       <pre id="out">Ready.</pre>
     </main>
     <script>
-      const out = document.getElementById("out") as HTMLPreElement;
-      const input = (id: string) => document.getElementById(id) as HTMLInputElement;
-      const button = (id: string) => document.getElementById(id) as HTMLButtonElement;
+      function el<T extends HTMLElement>(id: string): T {
+        const node = document.getElementById(id);
+        if (!node) throw new Error(`console page is missing #${id}`);
+        return node as T;
+      }
+      const out = el<HTMLPreElement>("out");
       function cfg() {
         return {
-          api: input("api").value.replace(/\/$/, ""),
-          ws: input("ws").value.trim(),
-          token: input("token").value.trim(),
+          api: el<HTMLInputElement>("api").value.replace(/\/$/, ""),
+          ws: el<HTMLInputElement>("ws").value.trim(),
+          token: el<HTMLInputElement>("token").value.trim(),
         };
       }
       async function call(path: string, method = "GET") {
@@ -127,9 +131,9 @@ const API_DEFAULT = "https://api.uploads.sh";
           out.textContent = String(e);
         }
       }
-      button("btn-usage").addEventListener("click", () => call("/usage"));
-      button("btn-list").addEventListener("click", () => call("/files?limit=50"));
-      button("btn-reconcile").addEventListener("click", () => call("/usage/reconcile", "POST"));
+      el<HTMLButtonElement>("btn-usage").onclick = () => call("/usage");
+      el<HTMLButtonElement>("btn-list").onclick = () => call("/files?limit=50");
+      el<HTMLButtonElement>("btn-reconcile").onclick = () => call("/usage/reconcile", "POST");
     </script>
   </body>
 </html>
