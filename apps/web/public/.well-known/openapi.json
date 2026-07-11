@@ -1,0 +1,171 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "uploads.sh API",
+    "version": "1.0.0",
+    "description": "Workspace-scoped file hosting for agents and humans. Auth is a per-workspace bearer token (invitation enrollment via `uploads login`), not browser OAuth. Full narrative docs: https://github.com/buildinternet/uploads/blob/main/docs/api.md",
+    "contact": {
+      "url": "https://github.com/buildinternet/uploads"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://github.com/buildinternet/uploads/blob/main/LICENSE"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.uploads.sh",
+      "description": "Production API"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "Liveness probe",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Worker is up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/{workspace}/files/{key}": {
+      "parameters": [
+        {
+          "name": "workspace",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" }
+        },
+        {
+          "name": "key",
+          "in": "path",
+          "required": true,
+          "schema": { "type": "string" },
+          "description": "Object key (may include slashes)"
+        }
+      ],
+      "put": {
+        "operationId": "putFile",
+        "summary": "Upload a file (raw body)",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "Content-Type",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Client hint; stored type is sniffed from magic bytes"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": { "type": "string", "format": "binary" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Uploaded; body includes key, url, size, contentType" },
+          "401": { "description": "Missing or invalid workspace token" },
+          "413": { "description": "Payload too large" }
+        }
+      },
+      "get": {
+        "operationId": "headFile",
+        "summary": "Object metadata",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Metadata JSON (includes public url when configured)" },
+          "401": { "description": "Missing or invalid workspace token" },
+          "404": { "description": "Not found" }
+        }
+      },
+      "delete": {
+        "operationId": "deleteFile",
+        "summary": "Delete an object",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "204": { "description": "Deleted" },
+          "401": { "description": "Missing or invalid workspace token" },
+          "403": { "description": "Token lacks files:delete" }
+        }
+      }
+    },
+    "/v1/{workspace}/files": {
+      "get": {
+        "operationId": "listFiles",
+        "summary": "List objects",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "workspace",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "prefix",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Paginated object list" },
+          "401": { "description": "Missing or invalid workspace token" }
+        }
+      }
+    },
+    "/v1/{workspace}/usage": {
+      "get": {
+        "operationId": "getUsage",
+        "summary": "Workspace usage snapshot",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "workspace",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Usage counters and limits" },
+          "401": { "description": "Missing or invalid workspace token" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Workspace token from `uploads login` (format up_<workspace>_…). See /auth.md and docs/enrollment.md."
+      }
+    }
+  }
+}

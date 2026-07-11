@@ -1,3 +1,15 @@
+# Homepage — RFC 8288 Link discovery for agents
+/
+  Link: </.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"
+  Link: </.well-known/openapi.json>; rel="service-desc"; type="application/vnd.oai.openapi+json"
+  Link: <https://github.com/buildinternet/uploads/blob/main/docs/api.md>; rel="service-doc"; type="text/markdown"
+  Link: </llms.txt>; rel="describedby"; type="text/plain"
+  Link: </auth.md>; rel="describedby"; type="text/markdown"
+  Link: </.well-known/mcp/server-card.json>; rel="alternate"; type="application/json"
+  Link: </.well-known/agent-skills/index.json>; rel="alternate"; type="application/json"
+  Link: </sitemap.xml>; rel="sitemap"; type="application/xml"
+  X-Content-Type-Options: nosniff
+
 /invite*
   Cache-Control: no-store
   Referrer-Policy: no-referrer
@@ -24,3 +36,45 @@
   X-Robots-Tag: noindex, nofollow, noarchive
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
+
+# Machine-readable discovery documents
+/robots.txt
+  Content-Type: text/plain; charset=utf-8
+  Cache-Control: public, max-age=300
+
+/sitemap.xml
+  Content-Type: application/xml; charset=utf-8
+  Cache-Control: public, max-age=300
+
+/llms.txt
+  Content-Type: text/plain; charset=utf-8
+  Cache-Control: public, max-age=300
+
+/auth.md
+  Content-Type: text/markdown; charset=utf-8
+  Cache-Control: public, max-age=300
+
+/.well-known/api-catalog
+  Content-Type: application/linkset+json
+  Cache-Control: public, max-age=300
+  Access-Control-Allow-Origin: *
+
+/.well-known/openapi.json
+  Content-Type: application/vnd.oai.openapi+json;version=3.1
+  Cache-Control: public, max-age=300
+  Access-Control-Allow-Origin: *
+
+/.well-known/mcp/server-card.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=300
+  Access-Control-Allow-Origin: *
+
+/.well-known/agent-skills/index.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=300
+  Access-Control-Allow-Origin: *
+
+/.well-known/agent-skills/uploads-cli/SKILL.md
+  Content-Type: text/markdown; charset=utf-8
+  Cache-Control: public, max-age=300
+  Access-Control-Allow-Origin: *

@@ -7,10 +7,12 @@ Access is by invitation. Hosted files are public (including media attached to pr
 ## Start here
 
 - [Home](https://uploads.sh/): product overview and copyable install commands
+- [Auth for agents](https://uploads.sh/auth.md): invitation enrollment and bearer tokens
 - [Source & docs](https://github.com/buildinternet/uploads): repository, roadmap, and operator docs
-- [Enrollment](https://github.com/buildinternet/uploads/blob/main/docs/enrollment.md): invitation-based `uploads login`
+- [Enrollment](https://github.com/buildinternet/uploads/blob/main/docs/enrollment.md): how `uploads login` works
 - [API](https://github.com/buildinternet/uploads/blob/main/docs/api.md): REST surface for workspace-scoped files
-- [CLI skill](https://github.com/buildinternet/uploads/tree/main/skills/uploads-cli): host a file and embed it in a PR/issue
+- [OpenAPI (summary)](https://uploads.sh/.well-known/openapi.json): machine-readable API surface
+- [CLI skill](https://uploads.sh/.well-known/agent-skills/uploads-cli/SKILL.md): host a file and embed it in a PR/issue
 
 ## Install
 
@@ -32,6 +34,13 @@ claude mcp add --transport http uploads https://agents.uploads.sh/mcp
 - API: https://api.uploads.sh
 - Agents / MCP: https://agents.uploads.sh/mcp
 - Public storage: https://storage.uploads.sh
+
+## Machine-readable discovery
+
+- API catalog: https://uploads.sh/.well-known/api-catalog
+- MCP server card: https://uploads.sh/.well-known/mcp/server-card.json
+- Agent skills index: https://uploads.sh/.well-known/agent-skills/index.json
+- robots / sitemap: https://uploads.sh/robots.txt · https://uploads.sh/sitemap.xml
 
 ## Do not crawl
 

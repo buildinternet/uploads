@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
+  "skills": [
+    {
+      "name": "uploads-cli",
+      "type": "skill-md",
+      "description": "Host a file on uploads.sh and get a stable public URL — then embed it in a GitHub PR or issue. Use for screenshots, diagrams, before/after images, or any binary that needs a durable public link.",
+      "url": "/.well-known/agent-skills/uploads-cli/SKILL.md",
+      "digest": "sha256:2b774744b97ab5f0280fcb442e9c85063475385ab6570885d26c9a083f79c864"
+    }
+  ]
+}
