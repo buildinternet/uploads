@@ -17,13 +17,24 @@ Unknown workspaces and bad tokens are indistinguishable (both 401).
 `url` in responses is the public URL when the workspace has a
 `publicBaseUrl`, otherwise `null`.
 
-### Usage ledger
+### Usage ledger and budgets
 
 `GET /v1/:workspace/usage` returns durable workspace counters (`bytes`,
 `objects`, `uploadsInPeriod` for the UTC calendar month), updated best-effort
-after put/delete. Observe-first — not enforced yet. Keyed by workspace, not
-token. Overwrites adjust `bytes` by size delta; deletes free bytes/objects but
-not the monthly upload count.
+after put/delete. Keyed by workspace, not token. Overwrites adjust `bytes` by
+size delta; deletes free bytes/objects but not the monthly upload count.
+
+When the workspace record sets budgets (`maxStorageBytes`,
+`maxUploadsPerPeriod`), the response also includes those caps and remaining
+headroom. Puts that would exceed them fail with:
+
+| HTTP | `code`                   | Meaning                                              |
+| ---- | ------------------------ | ---------------------------------------------------- |
+| 507  | `storage_quota_exceeded` | Net stored bytes would exceed `maxStorageBytes`      |
+| 429  | `upload_budget_exceeded` | Monthly put count would exceed `maxUploadsPerPeriod` |
+
+Configure limits with `pnpm workspace:limits <name> …` (see
+[workspaces](workspaces.md)).
 
 ## Example
 

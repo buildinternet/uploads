@@ -5,9 +5,10 @@
  * each surface maps it (HTTP 400 / MCP tool error).
  */
 import type { Files } from "@uploads/storage";
+import { checkPutBudget } from "./budget";
 import { inspectUpload, resolveUploadPolicy } from "./guards";
 import { publicUrl, storage, storageConfig } from "./storage";
-import { recordUsageSafe } from "./usage";
+import { getWorkspaceUsage, recordUsageSafe } from "./usage";
 import type { WorkspaceRecord } from "./workspace";
 
 // The freshness floor on overwrite for every bucket. This is the operative lever
@@ -33,10 +34,14 @@ export function badKey(key: string): boolean {
  * same policy: HTTP responds with them; MCP renders `message` in the tool error.
  */
 export class FileOpError extends Error {
-  readonly status: 400 | 413 | 415;
+  readonly status: 400 | 413 | 415 | 429 | 507;
   readonly body: Record<string, unknown>;
 
-  constructor(message: string, status: 400 | 413 | 415 = 400, extra?: Record<string, unknown>) {
+  constructor(
+    message: string,
+    status: 400 | 413 | 415 | 429 | 507 = 400,
+    extra?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = "FileOpError";
     this.status = status;
@@ -81,6 +86,12 @@ export async function putObject(
   const store = storage(env, ws);
   const prev = await existingSize(store, key);
   const newSize = bytes.byteLength;
+  const deltaBytes = prev === null ? newSize : newSize - prev;
+
+  // Enforce workspace budgets before writing (omit limits on the record = unlimited).
+  const usage = await getWorkspaceUsage(env.DB, workspaceName);
+  const denial = checkPutBudget(usage, ws, { bytes: deltaBytes, uploads: 1 });
+  if (denial) throw new FileOpError(denial.message, denial.status, denial.detail);
 
   await store.upload(key, bytes, {
     contentType: inspection.contentType,
@@ -88,7 +99,7 @@ export async function putObject(
   });
 
   await recordUsageSafe(env.DB, workspaceName, {
-    bytes: prev === null ? newSize : newSize - prev,
+    bytes: deltaBytes,
     objects: prev === null ? 1 : 0,
     uploads: 1,
   });

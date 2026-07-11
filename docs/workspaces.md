@@ -8,12 +8,46 @@ SHA-256 hashes and metadata for the workspace's tokens (raw tokens are never sto
 
 Nothing in the code treats any workspace as special.
 
-## Usage accounting
+## Usage accounting and budgets
 
 D1 table `workspace_usage` tracks net `bytes` / `objects` and monthly
 `uploads_in_period` per workspace (not per token). Updated best-effort from
 `files-core` put/delete; read via `GET /v1/:workspace/usage` (`files:read`).
-Observe-first — no budget enforcement yet.
+
+Optional **budgets** live on the workspace registry record (KV), same as
+`maxUploadBytes`:
+
+| Field                 | Meaning                                       |
+| --------------------- | --------------------------------------------- |
+| `maxStorageBytes`     | Cap on net stored bytes                       |
+| `maxUploadsPerPeriod` | Cap on puts in the current UTC calendar month |
+| `maxUploadBytes`      | Cap on a single object (default 25 MiB)       |
+
+Omit a field for unlimited. Puts that would exceed storage return **507** with
+`code: "storage_quota_exceeded"`; monthly upload budget returns **429** with
+`code: "upload_budget_exceeded"`. `GET …/usage` includes the caps and remaining
+when set.
+
+### Configure limits
+
+Create with flags:
+
+```bash
+pnpm workspace:add my-ws --max-storage 25GB --max-uploads-per-month 10000 --max-upload-bytes 25MB
+```
+
+Change later without re-minting tokens:
+
+```bash
+pnpm workspace:limits my-ws                          # show current
+pnpm workspace:limits my-ws --max-storage 50GB
+pnpm workspace:limits my-ws --max-uploads-per-month 20000
+pnpm workspace:limits my-ws --clear-max-storage      # back to unlimited
+pnpm workspace:limits my-ws --local                  # local KV for wrangler dev
+```
+
+Sizes accept `25MB`, `1GiB`, or raw byte counts. KV is cached ~60s on the
+Worker — new limits apply on the next request after that.
 
 New enrollment-issued tokens are stored in D1 and carry an expiry and explicit scopes.
 Workspace configuration and legacy tokens remain in `REGISTRY` KV. The routine-agent

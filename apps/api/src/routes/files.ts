@@ -6,7 +6,9 @@ import { checkDeclaredLength, resolveUploadPolicy, writeRateLimit } from "../gua
 
 /** Maps a core validation failure to the REST error shape; rethrows anything else. */
 function mapFileOpError(c: Context, err: unknown): Response {
-  if (err instanceof FileOpError) return c.json(err.body, err.status);
+  if (err instanceof FileOpError) {
+    return c.json(err.body, err.status as 400 | 413 | 415 | 429 | 507);
+  }
   throw err;
 }
 
