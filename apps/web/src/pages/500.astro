@@ -1,0 +1,19 @@
+---
+/**
+ * Application error page — distinct from 404 (missing route).
+ *
+ * Astro builds this to dist/500.html. Today the site is fully static, so this is
+ * a branded page at /500 (and a ready target if we ever map app failures here).
+ * When pages move to on-demand rendering (admin dashboard, etc.), Astro will use
+ * this file for SSR render failures and can pass an `error` prop — see
+ * https://docs.astro.build/en/basics/astro-pages/#custom-500-error-page
+ */
+import ErrorLayout from "../layouts/ErrorLayout.astro";
+---
+
+<ErrorLayout
+  status={500}
+  title="Something went wrong"
+  message="An application error stopped this page from loading. This isn’t a missing URL — something failed on our side."
+  hint="Try again in a moment. If it keeps happening, open an issue on the repo."
+/>
