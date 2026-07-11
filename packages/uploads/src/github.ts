@@ -81,9 +81,11 @@ export function attachmentsCommentBody(items: AttachmentItem[]): string {
     const name = item.key.slice(item.key.lastIndexOf("/") + 1);
     if (item.url && inferContentType(name).startsWith("image/")) {
       // Markdown ![]() has no width control — phone frames become full-column giants.
+      // Link to the asset so a click opens the full image (no "open in new tab" hunt).
       const w = attachmentImageWidth(name);
       const alt = escapeHtmlAttr(name);
-      lines.push(`<img width="${w}" alt="${alt}" src="${item.url}">`);
+      const href = escapeHtmlAttr(item.url);
+      lines.push(`<a href="${href}"><img width="${w}" alt="${alt}" src="${href}"></a>`);
       lines.push("");
     } else if (item.url) {
       lines.push(`- [${name}](${item.url})`);

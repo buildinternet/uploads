@@ -69,7 +69,7 @@ describe("attachmentsCommentBody", () => {
     ]);
     expect(body.startsWith(ATTACHMENTS_MARKER)).toBe(true);
     expect(body).toContain(
-      '<img width="400" alt="after.png" src="https://x.test/gh/o/r/pull/1/after.png">',
+      '<a href="https://x.test/gh/o/r/pull/1/after.png"><img width="400" alt="after.png" src="https://x.test/gh/o/r/pull/1/after.png"></a>',
     );
     expect(body).not.toContain("![after.png]");
     expect(body).toContain("- [notes.txt](https://x.test/gh/o/r/pull/1/notes.txt)");
@@ -83,14 +83,18 @@ describe("attachmentsCommentBody", () => {
         url: "https://x.test/iphone.webp",
       },
     ]);
-    expect(body).toContain('<img width="280" alt="demo-mobile-iphone.webp"');
+    expect(body).toContain(
+      '<a href="https://x.test/iphone.webp"><img width="280" alt="demo-mobile-iphone.webp"',
+    );
   });
 
   it("uses a wider width for browser-like filenames", () => {
     const body = attachmentsCommentBody([
       { key: "gh/o/r/pull/1/demo-web-browser.webp", url: "https://x.test/browser.webp" },
     ]);
-    expect(body).toContain('<img width="640" alt="demo-web-browser.webp"');
+    expect(body).toContain(
+      '<a href="https://x.test/browser.webp"><img width="640" alt="demo-web-browser.webp"',
+    );
   });
 
   it("sorts deterministically by key so repeated runs produce identical bodies", () => {
