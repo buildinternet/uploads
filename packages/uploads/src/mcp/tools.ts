@@ -1,6 +1,7 @@
 /**
  * MCP tool set mirroring the CLI commands (put, attach, list, delete,
- * comment, health, doctor). Config is resolved fresh per tool call so a
+ * usage, reconcile, purge_expired, comment, health, doctor). Config is
+ * resolved fresh per tool call so a
  * per-call `workspace` argument behaves like the CLI's --workspace flag, and
  * a missing token surfaces as a tool error rather than a startup failure.
  */
@@ -336,6 +337,48 @@ export function createUploadsMcpTools(opts: {
         if (optBool(args, "dryRun")) return { key, deleted: false, dryRun: true };
         const { client } = clientFor(args);
         return client.delete(key);
+      },
+    },
+    {
+      name: "usage",
+      description:
+        "Workspace storage and monthly upload counters (and remaining headroom when budgets are configured). Same as `uploads usage`.",
+      inputSchema: {
+        type: "object",
+        properties: { workspace: workspaceProp },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const { client } = clientFor(args);
+        return client.usage();
+      },
+    },
+    {
+      name: "reconcile",
+      description:
+        "Rebuild usage ledger bytes/objects from storage (source of truth). Preserves the monthly upload counter. Requires files:write. Same as `uploads reconcile`.",
+      inputSchema: {
+        type: "object",
+        properties: { workspace: workspaceProp },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const { client } = clientFor(args);
+        return client.reconcile();
+      },
+    },
+    {
+      name: "purge_expired",
+      description:
+        "Delete objects older than the workspace retentionDays setting, then reconcile. Skips if retention is unset. Requires files:delete. Same as `uploads purge-expired`.",
+      inputSchema: {
+        type: "object",
+        properties: { workspace: workspaceProp },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const { client } = clientFor(args);
+        return client.purgeExpired();
       },
     },
     {

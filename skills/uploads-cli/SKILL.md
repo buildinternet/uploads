@@ -224,8 +224,11 @@ uploads list --pr 123                      # everything attached to a PR
 uploads list --all --json                  # paginate fully, machine-readable
 uploads delete <key>                       # remove an object
 uploads delete <key> --dry-run             # show what would be deleted
+uploads usage                              # storage / monthly upload counters (+ limits)
+uploads reconcile                          # rebuild ledger from storage
+uploads purge-expired                      # delete past retentionDays (if set)
 uploads health                             # API liveness (no auth)
-uploads doctor                             # health + auth + workspace alignment
+uploads doctor                             # health + auth + workspace + usage
 ```
 
 `doctor` is the first thing to run when something's off — it distinguishes a down
@@ -270,7 +273,8 @@ uploads --api-url http://localhost:8787 doctor
   not-found, `4` network, `1` other. `--json` also emits `{error,code,status}`.
 - **MCP server:** the CLI can also be exposed to agents as a local stdio MCP server —
   `uploads mcp` — with tools mirroring the commands described here (`put`, `attach`,
-  `list`, `delete`, `comment`, `health`, `doctor`) under the same config resolution.
+  `list`, `delete`, `usage`, `reconcile`, `purge_expired`, `comment`, `health`,
+  `doctor`) under the same config resolution.
   Every tool also accepts a per-call `workspace` argument to override the configured
   workspace (mirrors `--workspace`).
   E.g. `claude mcp add uploads -- uploads --env-file /path/to/.env mcp`.

@@ -440,6 +440,98 @@ export async function runComment(
   return 0;
 }
 
+// --- usage / reconcile / purge ---
+
+const USAGE_HELP = `uploads usage [--workspace <name>]
+
+Show workspace storage and monthly upload counters (and limits when set).
+
+Examples:
+  uploads --env-file .env usage
+  uploads usage --json
+`;
+
+export async function runUsage(ctx: CliContext, args: string[], help = false): Promise<number> {
+  if (help || parseCommandArgs(args).help) {
+    process.stderr.write(USAGE_HELP);
+    return 0;
+  }
+  const result = await ctx.client.usage();
+  if (ctx.json) {
+    await writeJson(result);
+    return 0;
+  }
+  const lines = [
+    `workspace: ${result.workspace}`,
+    `bytes:     ${result.bytes}${result.maxStorageBytes != null ? ` / ${result.maxStorageBytes} (${result.storageRemainingBytes} remaining)` : ""}`,
+    `objects:   ${result.objects}`,
+    `uploads:   ${result.uploadsInPeriod} this period (${result.periodStart})${result.maxUploadsPerPeriod != null ? ` / ${result.maxUploadsPerPeriod} (${result.uploadsRemaining} remaining)` : ""}`,
+    `updated:   ${result.updatedAt}`,
+  ];
+  await writeStdout(lines.join("\n") + "\n");
+  return 0;
+}
+
+const RECONCILE_HELP = `uploads reconcile [--workspace <name>]
+
+Rebuild ledger bytes/objects from storage (source of truth). Preserves the
+monthly upload counter. Requires files:write.
+
+Examples:
+  uploads --env-file .env reconcile
+`;
+
+export async function runReconcile(ctx: CliContext, args: string[], help = false): Promise<number> {
+  if (help || parseCommandArgs(args).help) {
+    process.stderr.write(RECONCILE_HELP);
+    return 0;
+  }
+  const result = await ctx.client.reconcile();
+  if (ctx.json) {
+    await writeJson(result);
+    return 0;
+  }
+  await writeStdout(
+    result.changed
+      ? `reconciled ${result.workspace}: ${result.previous.bytes}→${result.bytes} bytes, ${result.previous.objects}→${result.objects} objects\n`
+      : `reconciled ${result.workspace}: unchanged (${result.bytes} bytes, ${result.objects} objects)\n`,
+  );
+  return 0;
+}
+
+const PURGE_HELP = `uploads purge-expired [--workspace <name>]
+
+Delete objects older than the workspace retentionDays setting, then reconcile.
+Skips if retention is unset. Requires files:delete.
+
+Examples:
+  uploads --env-file .env purge-expired
+`;
+
+export async function runPurgeExpired(
+  ctx: CliContext,
+  args: string[],
+  help = false,
+): Promise<number> {
+  if (help || parseCommandArgs(args).help) {
+    process.stderr.write(PURGE_HELP);
+    return 0;
+  }
+  const result = await ctx.client.purgeExpired();
+  if (ctx.json) {
+    await writeJson(result);
+    return 0;
+  }
+  if ("skipped" in result) {
+    await writeStdout(`skipped: ${result.reason}\n`);
+    return 0;
+  }
+  await writeStdout(
+    `purged ${result.deleted} object(s), freed ${result.freedBytes} bytes (retention ${result.retentionDays}d)\n`,
+  );
+  return 0;
+}
+
 // --- health & doctor ---
 
 const HEALTH_HELP = `uploads health
@@ -490,6 +582,14 @@ export interface DoctorReport {
   configExists: boolean;
   health: { ok: boolean };
   auth: { ok: boolean; error: string | undefined };
+  /** Usage snapshot when auth works (optional fields when the endpoint fails). */
+  usage?: {
+    ok: boolean;
+    bytes?: number;
+    objects?: number;
+    uploadsInPeriod?: number;
+    error?: string;
+  };
   /** Workspace/token mismatch warning (also present in hints). */
   warning?: string;
   hints: string[];
@@ -522,6 +622,32 @@ export async function buildDoctorReport(
     }
   }
 
+  let usage:
+    | {
+        ok: boolean;
+        bytes?: number;
+        objects?: number;
+        uploadsInPeriod?: number;
+        error?: string;
+      }
+    | undefined;
+  if (authOk) {
+    try {
+      const snap = await client.usage();
+      usage = {
+        ok: true,
+        bytes: snap.bytes,
+        objects: snap.objects,
+        uploadsInPeriod: snap.uploadsInPeriod,
+      };
+    } catch (err) {
+      usage = {
+        ok: false,
+        error: err instanceof UploadsError ? err.message : String(err),
+      };
+    }
+  }
+
   if (!config.configExists && !config.token) {
     hints.push(`run uploads setup to configure ${config.configPath}`);
   }
@@ -536,6 +662,7 @@ export async function buildDoctorReport(
     configExists: config.configExists,
     health,
     auth: { ok: authOk, error: authError },
+    usage,
     warning: mismatch,
     hints,
   };
@@ -560,6 +687,13 @@ export async function runDoctor(ctx: CliContext, args: string[], help = false): 
     `workspace: ${report.workspace}`,
     `auth:      ${report.auth.ok ? "ok" : `failed — ${report.auth.error ?? "no token"}`}`,
   ];
+  if (report.usage) {
+    lines.push(
+      report.usage.ok
+        ? `usage:     ${report.usage.bytes} bytes, ${report.usage.objects} objects, ${report.usage.uploadsInPeriod} uploads this period`
+        : `usage:     failed — ${report.usage.error ?? "unknown"}`,
+    );
+  }
   if (report.warning) lines.push(`warning:   ${report.warning}`);
   for (const h of report.hints) if (h !== report.warning) lines.push(`hint:      ${h}`);
   await writeStdout(lines.join("\n") + "\n");

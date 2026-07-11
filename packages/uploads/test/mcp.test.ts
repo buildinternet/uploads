@@ -185,7 +185,7 @@ describe("createMcpServer protocol", () => {
 });
 
 describe("tools/list", () => {
-  it("lists all seven CLI-mirroring tools with object schemas", async () => {
+  it("lists all CLI-mirroring tools with object schemas", async () => {
     const { server } = serverWith();
     const res = await rpc(server, "tools/list");
     // oxlint-disable-next-line no-explicit-any
@@ -195,6 +195,9 @@ describe("tools/list", () => {
       "attach",
       "list",
       "delete",
+      "usage",
+      "reconcile",
+      "purge_expired",
       "comment",
       "health",
       "doctor",

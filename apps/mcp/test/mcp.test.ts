@@ -156,7 +156,10 @@ describe("mcp worker", () => {
       "delete",
       "health",
       "list",
+      "purge_expired",
       "put",
+      "reconcile",
+      "usage",
     ]);
   });
 

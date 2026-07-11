@@ -16,6 +16,9 @@ import {
   runHealth,
   runDoctor,
   runComment,
+  runUsage,
+  runReconcile,
+  runPurgeExpired,
   type CliContext,
 } from "./commands.js";
 import { runConfig } from "./commands/config.js";
@@ -55,6 +58,9 @@ Commands:
   comment             Create/update a PR/issue attachments comment (via gh)
   list                List objects
   delete <key>        Delete object
+  usage               Workspace storage / upload counters
+  reconcile           Rebuild usage ledger from storage
+  purge-expired       Delete objects past retentionDays
   setup               Inspect/configure advanced CLI settings
   install             Install the agent skill + register the remote MCP server
   login               Exchange an enrollment code and configure credentials
@@ -112,6 +118,8 @@ function exitCode(err: unknown): number {
         return 2;
       case "UNAUTHORIZED":
       case "NOT_FOUND":
+      case "STORAGE_QUOTA":
+      case "UPLOAD_BUDGET":
         return 3;
       case "NETWORK":
         return 4;
@@ -169,6 +177,9 @@ export async function runCli(argv: string[]): Promise<number> {
       case "put":
       case "list":
       case "delete":
+      case "usage":
+      case "reconcile":
+      case "purge-expired":
       case "doctor":
       case "comment": {
         const ctx = createContext(parsed.globals, !showHelp, cmdArgs);
@@ -183,6 +194,12 @@ export async function runCli(argv: string[]): Promise<number> {
             return runList(ctx, cmdArgs, showHelp);
           case "delete":
             return runDelete(ctx, cmdArgs, showHelp);
+          case "usage":
+            return runUsage(ctx, cmdArgs, showHelp);
+          case "reconcile":
+            return runReconcile(ctx, cmdArgs, showHelp);
+          case "purge-expired":
+            return runPurgeExpired(ctx, cmdArgs, showHelp);
           case "doctor":
             return runDoctor(ctx, cmdArgs, showHelp);
         }

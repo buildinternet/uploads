@@ -9,6 +9,10 @@ import { buildMarkdown, buildScreenshotKey } from "@buildinternet/uploads";
 import { optPosInt, optString, usage, type McpTool } from "@buildinternet/uploads/mcp";
 import { deleteObject, listObjects, putObject } from "@uploads/api/files";
 import { allowWrite, resolveUploadPolicy } from "@uploads/api/guards";
+import { usageWithLimits } from "@uploads/api/budget";
+import { reconcileWorkspaceUsage } from "@uploads/api/reconcile";
+import { purgeExpiredObjects } from "@uploads/api/retention";
+import { getWorkspaceUsage } from "@uploads/api/usage";
 import type { FileScope, WorkspaceRecord } from "@uploads/api/workspace";
 
 export interface RemoteToolContext {
@@ -173,6 +177,51 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         const key = optString(args, "key");
         if (!key) usage("key is required");
         return deleteObject(env, workspace, key, workspaceName);
+      },
+    },
+    {
+      name: "usage",
+      description:
+        "Workspace storage and monthly upload counters (and remaining headroom when budgets are configured).",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      async handler() {
+        requireScope("files:read");
+        const snapshot = await getWorkspaceUsage(env.DB, workspaceName);
+        return usageWithLimits(snapshot, workspace);
+      },
+    },
+    {
+      name: "reconcile",
+      description:
+        "Rebuild usage ledger bytes/objects from storage (source of truth). Preserves the monthly upload counter. Requires files:write.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      async handler() {
+        requireScope("files:write");
+        await requireWriteBudget();
+        const result = await reconcileWorkspaceUsage(env, workspace, workspaceName);
+        return {
+          ...result,
+          usage: usageWithLimits(result.usage, workspace),
+        };
+      },
+    },
+    {
+      name: "purge_expired",
+      description:
+        "Delete objects older than the workspace retentionDays setting, then reconcile. Skips if retention is unset. Requires files:delete.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      async handler() {
+        requireScope("files:delete");
+        await requireWriteBudget();
+        const result = await purgeExpiredObjects(env, workspace, workspaceName);
+        if ("skipped" in result) return result;
+        return {
+          ...result,
+          reconcile: {
+            ...result.reconcile,
+            usage: usageWithLimits(result.reconcile.usage, workspace),
+          },
+        };
       },
     },
     {

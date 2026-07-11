@@ -7,7 +7,8 @@ import { createUploadsMcpTools } from "../mcp/tools.js";
 const MCP_HELP = `uploads [globals] mcp
 
 Serve the Model Context Protocol (MCP) over stdio for agent clients. Tools
-mirror the CLI commands: put, attach, list, delete, comment, health, doctor.
+mirror the CLI commands: put, attach, list, delete, usage, reconcile,
+purge_expired, comment, health, doctor.
 Global flags before "mcp" (--api-url, --token, --workspace, --env-file)
 configure every tool call; a per-call "workspace" argument overrides
 --workspace, like the CLI's per-command flag.

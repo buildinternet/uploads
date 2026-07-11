@@ -4,6 +4,8 @@ export type UploadsErrorCode =
   | "NOT_FOUND"
   | "UNAUTHORIZED"
   | "INVALID_KEY"
+  | "STORAGE_QUOTA"
+  | "UPLOAD_BUDGET"
   | "API_ERROR"
   | "NETWORK"
   | "USAGE";

@@ -8,7 +8,11 @@
     "./workspace": "./src/workspace.ts",
     "./storage": "./src/storage.ts",
     "./files": "./src/files-core.ts",
-    "./guards": "./src/guards.ts"
+    "./guards": "./src/guards.ts",
+    "./budget": "./src/budget.ts",
+    "./usage": "./src/usage.ts",
+    "./reconcile": "./src/reconcile.ts",
+    "./retention": "./src/retention.ts"
   },
   "scripts": {
     "dev": "wrangler dev",
