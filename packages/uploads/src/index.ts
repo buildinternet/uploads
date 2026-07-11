@@ -75,6 +75,15 @@ export {
   type OptimizeOutputFormat,
 } from "./optimize.js";
 export {
+  FRAME_PRESETS,
+  applyFrame,
+  listFramePresets,
+  resolveFrameId,
+  type FrameFit,
+  type FrameOptions,
+  type FrameResult,
+} from "./frame.js";
+export {
   execRunner,
   resolveRepo,
   upsertAttachmentsComment,

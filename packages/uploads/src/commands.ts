@@ -39,6 +39,7 @@ import {
   type OptimizeImageOptions,
   type OptimizeImageResult,
 } from "./optimize.js";
+import { applyFrame, listFramePresets, resolveFrameId, type FrameResult } from "./frame.js";
 import type { PutDefaults } from "./config-file.js";
 
 export interface CliContext {
@@ -60,6 +61,9 @@ high quality; EXIF stripped) so GitHub embeds stay lean. Original bytes are kept
 when they are already smaller, animated, or not an image. Use --no-optimize to
 upload as-is, or --keep-exif when image metadata matters for the discussion.
 
+Optional --frame wraps the image in a device/browser chrome before optimize
+(default off). See: uploads put --help frames
+
 Options:
   --key <key>           Object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>)
   --destination <id>    Typed root: screenshots | gh | f (sets --prefix)
@@ -69,6 +73,9 @@ Options:
   --alt <text>          Alt text (default: filename)
   --width <px>          <img width=…> markdown (or UPLOADS_DEFAULT_WIDTH)
   --content-type <mime> Override Content-Type (ignored when optimize rewrites the body)
+  --frame <id>          Device/browser frame before optimize (phone|browser|iphone-16-pro|…)
+  --frame-url <url>     Address shown in procedural browser chrome (with --frame browser)
+  --frame-fit cover|contain  How the screenshot fills the screen (default: cover)
   --no-optimize         Skip client-side image optimization (or UPLOADS_NO_OPTIMIZE=1)
   --optimize-max-edge <px>  Max long edge when optimizing (default: 2400)
   --optimize-quality <1-100>  WebP quality (default: 85)
@@ -82,10 +89,21 @@ Options:
 
 Examples:
   uploads put ./shot.png --repo myorg/myapp --ref 1722 --alt "New cards" --width 700
+  uploads put ./mobile.png --frame phone
+  uploads put ./ui.png --frame browser --frame-url "https://app.example/settings"
+  uploads put ./mobile.png --frame iphone-16-pro
   uploads put ./shot.png --destination screenshots
   uploads put ./shot.png --no-optimize
-  uploads --env-file .env put ./shot.png
-  uploads --env-file .env put ./after.png --pr 123 --comment
+`;
+
+const FRAMES_HELP = `Built-in --frame ids:
+
+${listFramePresets()
+  .map((p) => `  ${p.id.padEnd(18)} ${p.label} (${p.kind})`)
+  .join("\n")}
+
+Procedural frames need no download. Device frames are fetched once from
+device-frames-media and cached under ~/.cache/uploads/frames (not bundled).
 `;
 
 /**
@@ -149,6 +167,75 @@ function formatOptimizeNote(opt: OptimizeImageResult): string | undefined {
   return undefined;
 }
 
+export type PreparedUpload = OptimizeImageResult & {
+  frame?: Pick<FrameResult, "framed" | "frameId" | "skippedReason">;
+};
+
+/** Frame (optional) then optimize — shared by put/attach/MCP. */
+export async function prepareImageForUpload(
+  bytes: Uint8Array,
+  filename: string,
+  opts: {
+    frameId?: string;
+    frameUrl?: string;
+    frameFit?: "cover" | "contain";
+    optimize: OptimizeImageOptions;
+  },
+): Promise<PreparedUpload> {
+  let currentBytes = bytes;
+  let currentName = filename;
+  let frameMeta: PreparedUpload["frame"];
+
+  if (opts.frameId) {
+    const framed = await applyFrame(currentBytes, currentName, {
+      id: opts.frameId,
+      browserUrl: opts.frameUrl,
+      fit: opts.frameFit,
+    });
+    frameMeta = {
+      framed: framed.framed,
+      frameId: framed.frameId,
+      skippedReason: framed.skippedReason,
+    };
+    if (framed.framed) {
+      currentBytes = framed.bytes;
+      currentName = framed.filename;
+    }
+  }
+
+  const optimized = await optimizeImageForUpload(currentBytes, currentName, opts.optimize);
+  return { ...optimized, frame: frameMeta };
+}
+
+function frameOptionsFromFlags(flags: CommandFlags["flags"]): {
+  frameId?: string;
+  frameUrl?: string;
+  frameFit?: "cover" | "contain";
+} {
+  const raw = flagString(flags, "--frame");
+  let frameId: string | undefined;
+  try {
+    frameId = resolveFrameId(raw);
+  } catch (err) {
+    throw new UsageError(err instanceof Error ? err.message : String(err));
+  }
+  const fitRaw = flagString(flags, "--frame-fit");
+  let frameFit: "cover" | "contain" | undefined;
+  if (fitRaw) {
+    if (fitRaw !== "cover" && fitRaw !== "contain") {
+      throw new UsageError(`invalid --frame-fit: ${fitRaw} (use cover or contain)`);
+    }
+    frameFit = fitRaw;
+  }
+  if (frameFit && !frameId) throw new UsageError("--frame-fit requires --frame");
+  const frameUrl = flagString(flags, "--frame-url");
+  if (frameUrl && frameId !== "browser") {
+    // Allow anyway for future chrome frames; warn via usage only if no frame.
+    if (!frameId) throw new UsageError("--frame-url requires --frame browser");
+  }
+  return { frameId, frameUrl, frameFit };
+}
+
 /**
  * List every attachment under the target's prefix and create/update the
  * managed comment. Throws on gh failure — callers decide whether that is
@@ -178,7 +265,7 @@ Upload one or more stable PR/issue attachments and maintain a single GitHub
 comment. With no target, uses the pull request for the current branch.
 
 Still images are optimized to WebP by default (same as put). Use --no-optimize
-to upload originals.
+to upload originals. Optional --frame wraps images in device/browser chrome.
 
 Options:
   --pr <num>            Attach to this pull request
@@ -186,6 +273,9 @@ Options:
   --repo <owner/repo>   Repository (default: gh/git inference)
   --no-comment          Upload only; don't create/update the managed comment
   --content-type <mime> Override Content-Type (applied to every file; ignored when optimize rewrites)
+  --frame <id>          Device/browser frame before optimize (phone|browser|iphone-16-pro|…)
+  --frame-url <url>     Address shown in procedural browser chrome
+  --frame-fit cover|contain  Screenshot fit inside the frame (default: cover)
   --no-optimize         Skip client-side image optimization (or UPLOADS_NO_OPTIMIZE=1)
   --optimize-max-edge <px>  Max long edge when optimizing (default: 2400)
   --optimize-quality <1-100>  WebP quality (default: 85)
@@ -194,6 +284,7 @@ Options:
 
 Examples:
   uploads attach ./before.png ./after.png
+  uploads attach ./mobile.png --frame phone
   uploads attach ./shot.png --pr 123 --repo myorg/myapp
   uploads attach ./artifact.zip --issue 45 --no-comment
 `;
@@ -223,6 +314,7 @@ export async function runAttach(
     resolveCurrentPullRequest(resolveRepo(flagString(parsed.flags, "--repo"), run), run);
   const defaults = resolvePutDefaults({ envFile: ctx.envFile });
   const optimizeOpts = optimizeOptionsFromFlags(parsed.flags, defaults);
+  const frameOpts = frameOptionsFromFlags(parsed.flags);
   const contentTypeOverride = flagString(parsed.flags, "--content-type");
   const results = [];
   for (const file of parsed.positionals) {
@@ -230,11 +322,13 @@ export async function runAttach(
       throw new UsageError("attach does not support stdin; pass one or more file paths");
     const sourceName = basename(file);
     if (!ctx.quiet && !ctx.json) process.stderr.write(`>> uploading ${file}\n`);
-    const prepared = await optimizeImageForUpload(
-      new Uint8Array(readFileSync(file)),
-      sourceName,
-      optimizeOpts,
-    );
+    const prepared = await prepareImageForUpload(new Uint8Array(readFileSync(file)), sourceName, {
+      ...frameOpts,
+      optimize: optimizeOpts,
+    });
+    if (prepared.frame?.framed && !ctx.quiet && !ctx.json) {
+      process.stderr.write(`>> framed with ${prepared.frame.frameId}\n`);
+    }
     const note = formatOptimizeNote(prepared);
     if (note && !ctx.quiet && !ctx.json) process.stderr.write(`>> ${note}\n`);
     const result = await ctx.client.put(prepared.bytes, {
@@ -252,6 +346,7 @@ export async function runAttach(
         outputBytes: prepared.outputBytes,
         filename: prepared.filename,
       },
+      frame: prepared.frame,
     });
   }
 
@@ -287,11 +382,13 @@ export async function runPut(
 ): Promise<number> {
   if (help) {
     process.stderr.write(PUT_HELP);
+    process.stderr.write(`\n${FRAMES_HELP}`);
     return 0;
   }
   const parsed = parseCommandArgs(args);
   if (parsed.help) {
     process.stderr.write(PUT_HELP);
+    process.stderr.write(`\n${FRAMES_HELP}`);
     return 0;
   }
 
@@ -344,7 +441,11 @@ export async function runPut(
 
   const defaults = resolvePutDefaults({ envFile: ctx.envFile });
   const optimizeOpts = optimizeOptionsFromFlags(parsed.flags, defaults);
-  const prepared = await optimizeImageForUpload(bytes, sourceName, optimizeOpts);
+  const frameOpts = frameOptionsFromFlags(parsed.flags);
+  const prepared = await prepareImageForUpload(bytes, sourceName, {
+    ...frameOpts,
+    optimize: optimizeOpts,
+  });
   const filename = prepared.filename;
   const contentTypeOverride = flagString(parsed.flags, "--content-type");
   const alt = flagString(parsed.flags, "--alt") ?? basename(sourceName);
@@ -360,6 +461,7 @@ export async function runPut(
 
   if (!ctx.quiet && format === "human") {
     process.stderr.write(`>> uploading ${fileArg === "-" ? "stdin" : fileArg}\n`);
+    if (prepared.frame?.framed) process.stderr.write(`>> framed with ${prepared.frame.frameId}\n`);
     const note = formatOptimizeNote(prepared);
     if (note) process.stderr.write(`>> ${note}\n`);
   }
@@ -392,7 +494,7 @@ export async function runPut(
 
   switch (format) {
     case "json":
-      await writeJson({ ...result, markdown, optimize: optimizeMeta });
+      await writeJson({ ...result, markdown, optimize: optimizeMeta, frame: prepared.frame });
       break;
     case "url":
       await writeStdout(`${result.url}\n`);

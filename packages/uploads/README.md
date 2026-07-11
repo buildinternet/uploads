@@ -17,6 +17,8 @@ uploads attach ./before.png ./after.png
 uploads put ./shot.png
 uploads put ./shot.png --destination screenshots
 uploads put ./shot.png --no-optimize
+uploads put ./mobile.png --frame phone
+uploads put ./ui.png --frame browser --frame-url "https://app.example"
 uploads put ./after.png --pr 123 --comment
 uploads doctor
 ```
@@ -42,6 +44,12 @@ use `gh/…`. Workspaces may restrict put/sign to those roots via
 capped, high quality) before upload so GitHub embeds stay small, and **EXIF is
 stripped**. Pass `--keep-exif` / `UPLOADS_KEEP_EXIF=1` to preserve image metadata, or
 `--no-optimize` / `UPLOADS_NO_OPTIMIZE=1` to upload originals unchanged.
+
+**Frames (opt-in):** `--frame phone|browser|iphone-16-pro|…` composites device or
+browser chrome **before** optimize. Procedural frames need no download; named
+devices fetch PNGs from
+[device-frames-media](https://github.com/jonnyjackson26/device-frames-media) into
+`~/.cache/uploads/frames` (not shipped in the npm package).
 
 Config layers (first match wins): CLI flags → env vars → `--env-file` → `~/.config/buildinternet/config`. See `config.example` for keys.
 

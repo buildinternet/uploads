@@ -9,7 +9,13 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { GlobalFlags } from "../cli-args.js";
 import { createUploadsClient, type UploadsClient } from "../client.js";
-import { buildDoctorReport, makeGhTarget, syncAttachmentsComment } from "../commands.js";
+import {
+  buildDoctorReport,
+  makeGhTarget,
+  prepareImageForUpload,
+  syncAttachmentsComment,
+} from "../commands.js";
+import { resolveFrameId } from "../frame.js";
 import {
   resolveConfig,
   resolvePutDefaults,
@@ -19,11 +25,7 @@ import {
 import { buildMarkdown } from "../embed.js";
 import { resolvePutPrefix } from "../destinations.js";
 import { ghAttachmentKey, ghKeyPrefix, type GhTarget } from "../github.js";
-import {
-  optimizeImageForUpload,
-  rewriteKeyExtension,
-  type OptimizeImageOptions,
-} from "../optimize.js";
+import { rewriteKeyExtension, type OptimizeImageOptions } from "../optimize.js";
 import {
   execRunner,
   resolveCurrentPullRequest,
@@ -62,6 +64,48 @@ function mcpOptimizeOptions(
     keepExif: optBool(args, "keepExif") || defaults.keepExif === true,
   };
 }
+
+function mcpFrameOptions(args: ToolArgs): {
+  frameId?: string;
+  frameUrl?: string;
+  frameFit?: "cover" | "contain";
+} {
+  const raw = optString(args, "frame");
+  let frameId: string | undefined;
+  try {
+    frameId = resolveFrameId(raw);
+  } catch (err) {
+    usage(err instanceof Error ? err.message : String(err));
+  }
+  const fitRaw = optString(args, "frameFit");
+  let frameFit: "cover" | "contain" | undefined;
+  if (fitRaw) {
+    if (fitRaw !== "cover" && fitRaw !== "contain") {
+      usage("frameFit must be cover or contain");
+    }
+    frameFit = fitRaw;
+  }
+  if (frameFit && !frameId) usage("frameFit requires frame");
+  const frameUrl = optString(args, "frameUrl");
+  if (frameUrl && !frameId) usage("frameUrl requires frame");
+  return { frameId, frameUrl, frameFit };
+}
+
+const frameProps = {
+  frame: {
+    type: "string",
+    description:
+      "Optional device/browser frame before optimize: phone | browser | iphone-16-pro | iphone-15-pro-max | pixel-9-pro.",
+  },
+  frameUrl: {
+    type: "string",
+    description: "URL shown in procedural browser chrome (with frame=browser).",
+  },
+  frameFit: {
+    type: "string",
+    description: "cover (default) or contain — how the screenshot fills the screen.",
+  },
+};
 
 /** Reads pr/issue (+ repo) into a GhTarget; undefined when neither is present. */
 function ghTargetFromArgs(args: ToolArgs, run: CommandRunner): GhTarget | undefined {
@@ -205,6 +249,7 @@ export function createUploadsMcpTools(opts: {
             description:
               "Keep EXIF/XMP/ICC when optimizing (default: strip for privacy on public embeds).",
           },
+          ...frameProps,
           noGit: { type: "boolean", description: "Don't derive the repo segment from git." },
           comment: {
             type: "boolean",
@@ -258,8 +303,10 @@ export function createUploadsMcpTools(opts: {
         const sourceName = file !== undefined ? (filenameArg ?? basename(file)) : filenameArg!;
 
         const defaults = resolvePutDefaults({ envFile: globals.envFile });
-        const optimizeOpts = mcpOptimizeOptions(args, defaults);
-        const prepared = await optimizeImageForUpload(bytes, sourceName, optimizeOpts);
+        const prepared = await prepareImageForUpload(bytes, sourceName, {
+          ...mcpFrameOptions(args),
+          optimize: mcpOptimizeOptions(args, defaults),
+        });
         const filename = prepared.filename;
         let key = target ? ghAttachmentKey(target, filename) : keyArg;
         if (key && prepared.optimized) key = rewriteKeyExtension(key, filename);
@@ -287,9 +334,9 @@ export function createUploadsMcpTools(opts: {
 
         if (wantComment && target) {
           const { comment, commentError } = await syncComment(client, target);
-          return { ...result, markdown, optimize, comment, commentError };
+          return { ...result, markdown, optimize, frame: prepared.frame, comment, commentError };
         }
-        return { ...result, markdown, optimize };
+        return { ...result, markdown, optimize, frame: prepared.frame };
       },
     },
     {
@@ -332,6 +379,7 @@ export function createUploadsMcpTools(opts: {
             description:
               "Keep EXIF/XMP/ICC when optimizing (default: strip for privacy on public embeds).",
           },
+          ...frameProps,
           workspace: workspaceProp,
         },
         required: ["files"],
@@ -348,15 +396,16 @@ export function createUploadsMcpTools(opts: {
         const { client } = clientFor(args);
         const contentType = optString(args, "contentType");
         const defaults = resolvePutDefaults({ envFile: globals.envFile });
+        const frameOpts = mcpFrameOptions(args);
         const optimizeOpts = mcpOptimizeOptions(args, defaults);
 
         const uploads = [];
         for (const file of files) {
           const sourceName = basename(file);
-          const prepared = await optimizeImageForUpload(
+          const prepared = await prepareImageForUpload(
             new Uint8Array(readFileSync(file)),
             sourceName,
-            optimizeOpts,
+            { ...frameOpts, optimize: optimizeOpts },
           );
           const result = await client.put(prepared.bytes, {
             filename: prepared.filename,
@@ -366,6 +415,7 @@ export function createUploadsMcpTools(opts: {
           uploads.push({
             ...result,
             markdown: buildMarkdown(result.url, { alt: sourceName }),
+            frame: prepared.frame,
             optimize: {
               optimized: prepared.optimized,
               skippedReason: prepared.skippedReason,
