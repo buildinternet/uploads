@@ -8,6 +8,13 @@ SHA-256 hashes and metadata for the workspace's tokens (raw tokens are never sto
 
 Nothing in the code treats any workspace as special.
 
+## Usage accounting
+
+D1 table `workspace_usage` tracks net `bytes` / `objects` and monthly
+`uploads_in_period` per workspace (not per token). Updated best-effort from
+`files-core` put/delete; read via `GET /v1/:workspace/usage` (`files:read`).
+Observe-first — no budget enforcement yet.
+
 New enrollment-issued tokens are stored in D1 and carry an expiry and explicit scopes.
 Workspace configuration and legacy tokens remain in `REGISTRY` KV. The routine-agent
 default is `files:read` plus `files:write`, which is sufficient for upload, listing,

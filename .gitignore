@@ -8,3 +8,5 @@ dist/
 .DS_Store
 worker-configuration.d.ts
 .impeccable/
+# Local agent notes, private plans, pricing scratch (not for the public repo)
+.context/

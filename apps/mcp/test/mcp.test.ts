@@ -46,6 +46,7 @@ async function makeEnv(
       put: async () => undefined,
     },
     DB: {
+      // run() no-op for workspace_usage metering after put/delete.
       prepare: () => {
         let values: unknown[] = [];
         return {
@@ -70,7 +71,13 @@ async function makeEnv(
             }
             return null;
           },
+          async run() {
+            return { success: true, meta: { changes: 0 }, results: [] };
+          },
         };
+      },
+      async batch(stmts: { run: () => Promise<unknown> }[]) {
+        return Promise.all(stmts.map((s) => s.run()));
       },
     },
     UPLOADS: bucket,

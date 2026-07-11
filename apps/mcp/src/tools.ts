@@ -123,7 +123,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
 
         // Key/body validation and the size/type guardrails live in putObject,
         // shared with the REST API — the stored content type is sniffed there.
-        const result = await putObject(env, workspace, key, bytes);
+        const result = await putObject(env, workspace, key, bytes, workspaceName);
         const markdown =
           result.url === null
             ? undefined
@@ -172,7 +172,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         await requireWriteBudget();
         const key = optString(args, "key");
         if (!key) usage("key is required");
-        return deleteObject(env, workspace, key);
+        return deleteObject(env, workspace, key, workspaceName);
       },
     },
     {
