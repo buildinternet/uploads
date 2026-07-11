@@ -34,23 +34,38 @@ subdomain.
 6. Apply D1 migrations remotely **before** deploying API code that depends on
    them, then deploy:
    ```bash
-   cd apps/api
-   pnpm exec wrangler d1 migrations apply uploads-production --remote
-   cd ../..
+   pnpm run deploy:api   # runs migrate:d1 then wrangler deploy
+   # or both workers:
    pnpm run deploy
    ```
-   This ships both workers (`deploy:api` → `api.uploads.sh`,
-   `deploy:web` → the `uploads.sh` apex).
+   `deploy:api` always applies pending migrations first (binding `DB`,
+   database `uploads-production`) so schema lands before new code. Manual-only:
+   `pnpm --filter @uploads/api run migrate:d1`.
 
-D1 owns short-lived enrollment state, redemption, and all new scoped/expiring tokens.
-KV remains the source of truth for workspace storage configuration and legacy tokens.
-Never deploy a Worker that reads a new D1 schema before the corresponding remote
-migration succeeds. Check in every migration and test both `--local` and `--remote`
-ordering in staging.
+D1 owns short-lived enrollment state, redemption, scoped/expiring tokens, and
+the workspace usage ledger. KV remains the source of truth for workspace
+storage configuration and legacy tokens. Never deploy a Worker that reads a
+new D1 schema before the corresponding remote migration succeeds. Check in
+every migration under `apps/api/migrations/`.
+
+### CI: migrations on merge
+
+On push to `main` that touches `apps/api/migrations/**` (or the workflow /
+API wrangler config), the **D1 Migrations** GitHub Actions workflow
+(`.github/workflows/d1-migrations.yml`) runs
+`wrangler d1 migrations apply DB --remote`. It needs repository secrets
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (same as headless deploy;
+token must be allowed to edit D1). Apply is replay-safe. You can also run the
+workflow manually via **Actions → D1 Migrations → Run workflow**.
+
+Workers Builds still deploys each app from its directory on push to main; if
+the API build command is `pnpm run deploy` / `deploy:api`, migrations run in
+that path too. Prefer **additive** migrations so “migrate then deploy” stays
+safe; destructive changes need a deliberate reverse order and should not rely
+on the default pipeline.
 
 Use `pnpm run deploy`, not `pnpm deploy` — the bare form is pnpm's own
-command. In CI, Workers Builds deploys each app from its own directory on
-push to main.
+command.
 
 ## After wrangler.jsonc changes
 

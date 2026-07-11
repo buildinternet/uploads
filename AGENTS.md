@@ -41,7 +41,11 @@ pnpm uploads put <file> --pr <num> --comment   # PR attachment + managed GitHub 
 ```
 
 Use `pnpm run deploy` (not bare `pnpm deploy` — that's pnpm's built-in).
-Production deploys normally happen via Workers Builds on push to main.
+`deploy:api` applies pending D1 migrations (`migrate:d1`) before
+`wrangler deploy`. On merge to main, `.github/workflows/d1-migrations.yml`
+also applies remote migrations when `apps/api/migrations/**` changes
+(secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`). Production
+worker deploys normally happen via Workers Builds on push to main.
 
 Run `wrangler types` (or `pnpm --filter @uploads/api types`) after any
 `wrangler.jsonc` change — `Env` is generated into `worker-configuration.d.ts`,

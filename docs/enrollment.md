@@ -86,13 +86,14 @@ API code:
 ```bash
 cd apps/api
 pnpm exec wrangler d1 create uploads-production
-pnpm exec wrangler d1 migrations apply uploads-production --local
-pnpm exec wrangler d1 migrations apply uploads-production --remote
+pnpm exec wrangler d1 migrations apply DB --local
+pnpm exec wrangler d1 migrations apply DB --remote
+# or: pnpm --filter @uploads/api run migrate:d1
 ```
 
-Bind the database as `DB` in `apps/api/wrangler.jsonc`. Commit migrations, apply
-the remote migration first, and deploy the API only after it succeeds. See
-[deploy](deploy.md) for the complete ordering.
+Bind the database as `DB` in `apps/api/wrangler.jsonc`. Commit migrations under
+`apps/api/migrations/`; remote apply runs via `deploy:api`, the **D1 Migrations**
+GitHub Action on merge to main, or `migrate:d1` manually. See [deploy](deploy.md).
 
 ## Migration and future auth
 
