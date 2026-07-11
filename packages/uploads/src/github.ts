@@ -45,13 +45,48 @@ export interface AttachmentItem {
   url: string | null;
 }
 
+/** Default max width for images in the managed attachments comment (HTML img). */
+export const ATTACHMENT_IMAGE_WIDTH_DEFAULT = 400;
+/** Portrait / device mockups — keep phones readable, not full-column. */
+export const ATTACHMENT_IMAGE_WIDTH_PORTRAIT = 280;
+/** Wide UI / browser chrome. */
+export const ATTACHMENT_IMAGE_WIDTH_WIDE = 640;
+
+/**
+ * Pick a display width for GitHub comment embeds. Filenames are a weak but
+ * practical signal (we don't re-fetch dimensions when rebuilding the comment).
+ */
+export function attachmentImageWidth(filename: string): number {
+  const n = filename.toLowerCase();
+  if (/(?:^|[-_.])(browser|desktop|dashboard|wide)(?:[-_.]|$)/.test(n)) {
+    return ATTACHMENT_IMAGE_WIDTH_WIDE;
+  }
+  if (
+    /(?:^|[-_.])(phone|iphone|ipad|pixel|android|mobile|device)(?:[-_.]|$)/.test(n) ||
+    /iphone|pixel-?\d/.test(n)
+  ) {
+    return ATTACHMENT_IMAGE_WIDTH_PORTRAIT;
+  }
+  return ATTACHMENT_IMAGE_WIDTH_DEFAULT;
+}
+
+function escapeHtmlAttr(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
 export function attachmentsCommentBody(items: AttachmentItem[]): string {
   const sorted = items.toSorted((a, b) => a.key.localeCompare(b.key));
   const lines: string[] = [ATTACHMENTS_MARKER, "### 📎 Attachments", ""];
   for (const item of sorted) {
     const name = item.key.slice(item.key.lastIndexOf("/") + 1);
     if (item.url && inferContentType(name).startsWith("image/")) {
-      lines.push(`![${name}](${item.url})`);
+      // Markdown ![]() has no width control — phone frames become full-column giants.
+      // Link to the asset so a click opens the full image (no "open in new tab" hunt).
+      const w = attachmentImageWidth(name);
+      const alt = escapeHtmlAttr(name);
+      const href = escapeHtmlAttr(item.url);
+      lines.push(`<a href="${href}"><img width="${w}" alt="${alt}" src="${href}"></a>`);
+      lines.push("");
     } else if (item.url) {
       lines.push(`- [${name}](${item.url})`);
     } else {
@@ -59,8 +94,7 @@ export function attachmentsCommentBody(items: AttachmentItem[]): string {
     }
   }
   lines.push(
-    "",
-    "<sub>Maintained by uploads.sh — re-uploading a file with the same name updates it everywhere it is embedded.</sub>",
+    '<sub>Maintained by <a href="https://uploads.sh">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>',
   );
   return lines.join("\n");
 }

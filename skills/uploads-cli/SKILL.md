@@ -128,6 +128,9 @@ Key options (`uploads put --help` for all):
 | `--prefix <path>`                     | Key prefix (default: `screenshots`, or `UPLOADS_DEFAULT_PREFIX`).                                  |
 | `--key <key>`                         | Set the object key explicitly; skips the auto-naming below.                                        |
 | `--content-type <mime>`               | Override the content type (else inferred from extension; ignored when optimize rewrites the body). |
+| `--frame <id>`                        | Opt-in chrome before optimize: `phone`, `browser`, `iphone-16-pro`.                                |
+| `--frame-url <url>`                   | Address bar text for `--frame browser`.                                                            |
+| `--frame-fit cover\|contain`          | How the shot fills the screen (default: `cover`).                                                  |
 | `--no-optimize`                       | Skip client-side image optimization (default: still images → WebP). Or `UPLOADS_NO_OPTIMIZE=1`.    |
 | `--optimize-max-edge <px>`            | Max long edge when optimizing (default: 2400).                                                     |
 | `--optimize-quality <1-100>`          | WebP quality when optimizing (default: 85).                                                        |
@@ -143,6 +146,10 @@ lean. The object key/filename extension follows the output (e.g. `shot.png` →
 `--keep-exif` when the discussion needs the embedded image metadata. Animated GIF,
 SVG, video, and non-images are left alone; if the optimized payload is not smaller,
 the original is uploaded. Use `--no-optimize` when you need lossless originals.
+
+**Frames (opt-in):** `--frame phone` (generic bezel), `--frame browser`, or
+`--frame iphone-16-pro` (community device art, cached under
+`~/.cache/uploads/frames`). Default is **no frame**.
 
 **How keys work** — three paths, no extra naming modes:
 
