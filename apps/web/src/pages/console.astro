@@ -95,15 +95,17 @@ const API_DEFAULT = "https://api.uploads.sh";
       <pre id="out">Ready.</pre>
     </main>
     <script>
-      const out = document.getElementById("out");
+      const out = document.getElementById("out") as HTMLPreElement;
+      const input = (id: string) => document.getElementById(id) as HTMLInputElement;
+      const button = (id: string) => document.getElementById(id) as HTMLButtonElement;
       function cfg() {
         return {
-          api: document.getElementById("api").value.replace(/\/$/, ""),
-          ws: document.getElementById("ws").value.trim(),
-          token: document.getElementById("token").value.trim(),
+          api: input("api").value.replace(/\/$/, ""),
+          ws: input("ws").value.trim(),
+          token: input("token").value.trim(),
         };
       }
-      async function call(path, method = "GET") {
+      async function call(path: string, method = "GET") {
         const { api, ws, token } = cfg();
         if (!token) {
           out.textContent = "Paste a bearer token first.";
@@ -125,9 +127,9 @@ const API_DEFAULT = "https://api.uploads.sh";
           out.textContent = String(e);
         }
       }
-      document.getElementById("btn-usage").onclick = () => call("/usage");
-      document.getElementById("btn-list").onclick = () => call("/files?limit=50");
-      document.getElementById("btn-reconcile").onclick = () => call("/usage/reconcile", "POST");
+      button("btn-usage").addEventListener("click", () => call("/usage"));
+      button("btn-list").addEventListener("click", () => call("/files?limit=50"));
+      button("btn-reconcile").addEventListener("click", () => call("/usage/reconcile", "POST"));
     </script>
   </body>
 </html>

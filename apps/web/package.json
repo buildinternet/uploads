@@ -8,14 +8,19 @@
     "build": "astro build",
     "preview": "astro preview",
     "deploy": "astro build && node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
-    "typecheck": "astro check"
+    "types": "wrangler types",
+    "typecheck": "wrangler types && astro check",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@astrojs/cloudflare": "^14.1.2",
     "astro": "^7.0.6"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
+    "@types/node": "^26.1.0",
     "typescript": "^6.0.3",
-    "wrangler": "^4.107.0"
+    "vitest": "^4.1.10",
+    "wrangler": "^4.110.0"
   }
 }
