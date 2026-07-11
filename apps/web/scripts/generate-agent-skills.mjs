@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 /**
- * Generate apps/web/public/.well-known/agent-skills/ from monorepo skill sources.
+ * Generate apps/web/public/.well-known/agent-skills/index.json from monorepo skills.
  *
- * Single source of truth: skills/<name>/SKILL.md at the repo root.
- * Do not hand-edit the generated public/.well-known/agent-skills tree —
- * it is gitignored and rewritten on every web dev/build.
+ * Per the Agent Skills Discovery RFC, skill `url` values may be absolute. We point
+ * at the canonical SKILL.md on GitHub (raw.githubusercontent.com) so the web
+ * deploy never hosts a second copy. The index still lives on uploads.sh; digests
+ * are sha256 of the local monorepo file (must match the bytes at `url` once that
+ * git ref is on GitHub).
+ *
+ * Ref selection (first match):
+ *   UPLOADS_SKILLS_GITHUB_REF → GITHUB_SHA → git rev-parse HEAD → main
  */
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,8 +22,40 @@ const webRoot = join(__dirname, "..");
 const repoRoot = join(webRoot, "../..");
 const outRoot = join(webRoot, "public/.well-known/agent-skills");
 
+const GITHUB_REPO = process.env.UPLOADS_SKILLS_GITHUB_REPO?.trim() || "buildinternet/uploads";
+
 /** @type {{ sourceRel: string }[]} */
 const SKILLS = [{ sourceRel: "skills/uploads-cli/SKILL.md" }];
+
+/**
+ * @returns {string}
+ */
+function resolveGitRef() {
+  const fromEnv = process.env.UPLOADS_SKILLS_GITHUB_REF?.trim() || process.env.GITHUB_SHA?.trim();
+  if (fromEnv) return fromEnv;
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    }).trim();
+  } catch {
+    return "main";
+  }
+}
+
+/**
+ * Absolute raw.githubusercontent.com URL for a path in this repo at `ref`.
+ * @param {string} ref
+ * @param {string} sourceRel posix-style path from repo root
+ */
+function rawGithubUrl(ref, sourceRel) {
+  const path = sourceRel
+    .split(/[/\\]+/)
+    .filter(Boolean)
+    .map(encodeURIComponent)
+    .join("/");
+  return `https://raw.githubusercontent.com/${GITHUB_REPO}/${encodeURIComponent(ref)}/${path}`;
+}
 
 /**
  * Minimal YAML frontmatter parse for Agent Skills SKILL.md files.
@@ -69,6 +107,7 @@ function parseSkillFrontmatter(markdown) {
 }
 
 async function main() {
+  const ref = resolveGitRef();
   await rm(outRoot, { recursive: true, force: true });
   await mkdir(outRoot, { recursive: true });
 
@@ -79,21 +118,20 @@ async function main() {
     const text = bytes.toString("utf8");
     const { name, description } = parseSkillFrontmatter(text);
     const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
-
-    const skillDir = join(outRoot, name);
-    await mkdir(skillDir, { recursive: true });
-    const outSkill = join(skillDir, "SKILL.md");
-    await writeFile(outSkill, bytes);
+    const url = rawGithubUrl(ref, sourceRel);
 
     skills.push({
       name,
       type: "skill-md",
       description,
-      url: `/.well-known/agent-skills/${name}/SKILL.md`,
+      url,
       digest,
     });
 
-    console.log(`agent-skills: ${name} → ${digest} (from ${sourceRel})`);
+    console.log(`agent-skills: ${name}`);
+    console.log(`  source: ${sourceRel}`);
+    console.log(`  url:    ${url}`);
+    console.log(`  digest: ${digest}`);
   }
 
   const index = {
@@ -102,7 +140,7 @@ async function main() {
   };
   const indexPath = join(outRoot, "index.json");
   await writeFile(indexPath, `${JSON.stringify(index, null, 2)}\n`);
-  console.log(`agent-skills: wrote ${skills.length} skill(s) → ${indexPath}`);
+  console.log(`agent-skills: wrote ${skills.length} skill(s) → ${indexPath} (ref=${ref})`);
 }
 
 main().catch((err) => {

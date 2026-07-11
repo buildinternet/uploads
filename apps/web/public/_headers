@@ -73,8 +73,3 @@
   Content-Type: application/json; charset=utf-8
   Cache-Control: public, max-age=300
   Access-Control-Allow-Origin: *
-
-/.well-known/agent-skills/uploads-cli/SKILL.md
-  Content-Type: text/markdown; charset=utf-8
-  Cache-Control: public, max-age=300
-  Access-Control-Allow-Origin: *

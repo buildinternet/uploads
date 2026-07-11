@@ -25,8 +25,8 @@ public/auth.md                       Agent enrollment / bearer auth (not OAuth)
 public/.well-known/api-catalog       RFC 9727 linkset
 public/.well-known/openapi.json      Summary OpenAPI for the REST API
 public/.well-known/mcp/              MCP server card (points at agents.uploads.sh)
-public/.well-known/agent-skills/     **Generated** — do not commit (see below)
-scripts/generate-agent-skills.mjs    Copies skills/*/SKILL.md + writes index digests
+public/.well-known/agent-skills/     **Generated** index only — do not commit
+scripts/generate-agent-skills.mjs    Writes index.json; skill `url` → GitHub raw
 astro.config.mjs                     site = https://uploads.sh
 wrangler.jsonc                       Workers static assets deploy
 ```
@@ -65,7 +65,7 @@ rules there.
 | Agent skills    | `/.well-known/agent-skills/index.json`   |
 | Auth for agents | `/auth.md` (bearer / invite — not OAuth) |
 
-### Agent skills — no hand-copied drift
+### Agent skills — index on uploads.sh, artifact on GitHub
 
 Canonical skill files live only under the monorepo root:
 
@@ -73,19 +73,28 @@ Canonical skill files live only under the monorepo root:
 skills/uploads-cli/SKILL.md
 ```
 
+Per the [Agent Skills Discovery RFC](https://github.com/cloudflare/agent-skills-discovery-rfc),
+skill `url` values may be absolute. The discovery **index** is on this origin;
+the skill **artifact** is the GitHub raw file (no second copy under `public/`):
+
+```
+apps/web/public/.well-known/agent-skills/index.json   # generated, gitignored
+  → url: https://raw.githubusercontent.com/buildinternet/uploads/<ref>/skills/uploads-cli/SKILL.md
+  → digest: sha256 of the local monorepo SKILL.md bytes
+```
+
 `pnpm --filter @uploads/web generate:agent-skills` (also `predev` / `prebuild`)
-rewrites the gitignored tree:
+reads frontmatter for `name` / `description`, hashes the local file, and writes
+the index. Git ref for the raw URL (first match):
 
-```
-apps/web/public/.well-known/agent-skills/
-  index.json                 # $schema + name/description/url/sha256 digest
-  uploads-cli/SKILL.md       # byte-identical copy of the source skill
-```
+1. `UPLOADS_SKILLS_GITHUB_REF`
+2. `GITHUB_SHA` (CI)
+3. `git rev-parse HEAD`
+4. `main`
 
-Description and name come from the skill’s YAML frontmatter; the digest is
-`sha256` of the raw skill file bytes. Deploy always goes through `pnpm run build`,
-so production never ships a stale hand-copied skill. To add another skill, append
-an entry in `scripts/generate-agent-skills.mjs` (`SKILLS` array).
+Pinning the URL to a commit keeps `url` and `digest` aligned once that commit is
+on GitHub. Override the repo with `UPLOADS_SKILLS_GITHUB_REPO` if needed. To
+publish another skill, append an entry in `scripts/generate-agent-skills.mjs`.
 
 ### Intentionally not implemented (yet)
 

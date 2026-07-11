@@ -12,7 +12,7 @@ Access is by invitation. Hosted files are public (including media attached to pr
 - [Enrollment](https://github.com/buildinternet/uploads/blob/main/docs/enrollment.md): how `uploads login` works
 - [API](https://github.com/buildinternet/uploads/blob/main/docs/api.md): REST surface for workspace-scoped files
 - [OpenAPI (summary)](https://uploads.sh/.well-known/openapi.json): machine-readable API surface
-- [CLI skill](https://uploads.sh/.well-known/agent-skills/uploads-cli/SKILL.md): host a file and embed it in a PR/issue
+- [CLI skill](https://github.com/buildinternet/uploads/tree/main/skills/uploads-cli): host a file and embed it in a PR/issue (artifact URL is in the skills index)
 
 ## Install
 
