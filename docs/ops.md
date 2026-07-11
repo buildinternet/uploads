@@ -18,6 +18,12 @@ pnpm workspace:limits <name> \
 
 Suggested **shared/agent** defaults: 25 GB storage, 10k uploads/month, 25 MB images, 8 MB video, 90-day retention, key prefixes `default` (`f/`, `screenshots/`, `gh/`), max depth 8. **Throwaway**: 1 GB / 1k / 15 MB / 5 MB video / 90 days / same key policy.
 
+**New workspaces** (`pnpm workspace:add`) apply the shared/agent template
+automatically (source: `apps/api/scripts/workspace-limit-defaults.mjs`). Pass
+`--no-default-limits` to start unlimited, or override individual fields with the
+usual `--max-*` flags (`unlimited` clears one field). Existing workspaces are
+unchanged until you run `workspace:limits`.
+
 `--allowed-prefixes default` expands to the typed destinations agents already use. Clear with `--clear-allowed-prefixes` / `--clear-max-key-depth`. Puts outside the allowlist return **400** `key_prefix_not_allowed`; too-deep paths return **400** `key_too_deep`.
 
 KV cache ~60s. Agents: `uploads usage`.

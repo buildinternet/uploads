@@ -44,10 +44,13 @@ cleaned up. Unset policy = any nested path (internal/BYO).
 
 ### Configure limits
 
-Create with flags:
+**Create** applies the shared/agent template by default (25 GB / 10k / 25 MB /
+8 MB video / 90-day retention / `f`+`screenshots`+`gh` / depth 8):
 
 ```bash
-pnpm workspace:add my-ws --max-storage 25GB --max-uploads-per-month 10000 --max-upload-bytes 25MB
+pnpm workspace:add my-ws
+pnpm workspace:add my-ws --max-storage 50GB          # override one field
+pnpm workspace:add my-ws --no-default-limits         # start unlimited
 ```
 
 Change later without re-minting tokens:
