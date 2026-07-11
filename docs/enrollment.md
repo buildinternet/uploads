@@ -1,9 +1,15 @@
 # Invitations and `uploads login`
 
-Early adopters authenticate through short-lived invitation codes. They never receive
-the API's `ADMIN_TOKEN`. An administrator authorizes an existing workspace, shares the
-single-use code, and the adopter runs `uploads login` to exchange it for a scoped,
-expiring workspace token.
+Early adopters authenticate through short-lived invitations. They never receive
+the API's `ADMIN_TOKEN`. An administrator authorizes an existing workspace and shares
+a single-use **magic link**; the adopter opens it and runs the one-click `uploads
+login` command it shows to exchange the code for a scoped, expiring workspace token.
+
+The one-time code travels in the link's URL fragment (`…/invite?id=…#code=…`), which
+browsers never send to a server—so opening the page neither logs nor consumes the
+code; only the CLI's exchange call redeems it. Treat the link like a password. For
+security-sensitive deployments that prefer two channels, `uploads admin invite create
+--separate-code` prints a non-secret page URL plus a code you deliver separately.
 
 ## Agent login
 
@@ -37,8 +43,8 @@ configured token.
 ## Administrator overview
 
 Administrators issue invitations for existing workspaces. Invitation codes are
-single-use and default to a 10-minute expiry; issued tokens default to read/write
-scope without delete access. See the [operator runbook](ops.md#invitations) for
+single-use and default to a 2-hour expiry (override with `--expires-in`, up to 24
+hours); issued tokens default to read/write scope without delete access. See the [operator runbook](ops.md#invitations) for
 commands, secret handling, delivery, and troubleshooting.
 
 ## Token policy

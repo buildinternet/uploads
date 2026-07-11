@@ -3,7 +3,10 @@ import { sha256Hex } from "./workspace";
 export const FILE_SCOPES = ["files:read", "files:write", "files:delete"] as const;
 export type FileScope = (typeof FILE_SCOPES)[number];
 
-export const DEFAULT_ENROLLMENT_SECONDS = 10 * 60;
+// Invite code lifetime. 2h gives a human time to onboard after receiving the
+// link out-of-band, while keeping the single-use secret short-lived. Override
+// per-invite with --expires-in up to MAX_ENROLLMENT_SECONDS (see routes/admin).
+export const DEFAULT_ENROLLMENT_SECONDS = 2 * 60 * 60;
 export const DEFAULT_TOKEN_SECONDS = 90 * 24 * 60 * 60;
 export const MAX_TOKEN_SECONDS = 365 * 24 * 60 * 60;
 
@@ -174,16 +177,18 @@ export async function findEnrollmentPage(
   db: D1Database,
   pageId: string,
   now = new Date(),
-): Promise<{ expiresAt: string; used: boolean } | null> {
+): Promise<{ workspace: string; expiresAt: string; used: boolean } | null> {
   if (!/^upi_[A-Za-z0-9_-]{16}$/.test(pageId)) return null;
   const record = await db
     .prepare(
-      `SELECT expires_at, used_at FROM auth_enrollments
+      `SELECT workspace, expires_at, used_at FROM auth_enrollments
        WHERE page_id = ? AND expires_at > ? LIMIT 1`,
     )
     .bind(pageId, now.toISOString())
-    .first<Pick<EnrollmentRecord, "expires_at" | "used_at">>();
-  return record ? { expiresAt: record.expires_at, used: record.used_at !== null } : null;
+    .first<Pick<EnrollmentRecord, "workspace" | "expires_at" | "used_at">>();
+  return record
+    ? { workspace: record.workspace, expiresAt: record.expires_at, used: record.used_at !== null }
+    : null;
 }
 
 export async function exchangeEnrollment(

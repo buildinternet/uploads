@@ -44,12 +44,18 @@ class FakeD1 {
 
   first(statement: FakeStatement): Row | null {
     const { sql, values } = statement;
-    if (sql.startsWith("SELECT expires_at, used_at")) {
+    if (sql.startsWith("SELECT workspace, expires_at, used_at")) {
       const [pageId, now] = values as string[];
       const enrollment = this.enrollments.find(
         (row) => row.page_id === pageId && (row.expires_at as string) > now,
       );
-      return enrollment ? { expires_at: enrollment.expires_at, used_at: enrollment.used_at } : null;
+      return enrollment
+        ? {
+            workspace: enrollment.workspace,
+            expires_at: enrollment.expires_at,
+            used_at: enrollment.used_at,
+          }
+        : null;
     }
     if (sql.startsWith("SELECT id, workspace, code_hash")) {
       const [hash, now] = values as string[];
@@ -157,7 +163,7 @@ function database(fake: FakeD1): D1Database {
 }
 
 describe("D1 enrollment exchange", () => {
-  it("stores only a hash and applies the 10 minute / 90 day defaults", async () => {
+  it("stores only a hash and applies the 2 hour / 90 day defaults", async () => {
     const fake = new FakeD1();
     const now = new Date("2026-07-10T12:00:00.000Z");
     const enrollment = await createEnrollment(database(fake), {
@@ -188,6 +194,7 @@ describe("D1 enrollment exchange", () => {
     });
 
     await expect(findEnrollmentPage(database(fake), enrollment.pageId, now)).resolves.toEqual({
+      workspace: "default",
       expiresAt: enrollment.expiresAt,
       used: false,
     });

@@ -8,25 +8,24 @@ const FAVICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' vi
   <meta name="robots" content="noindex, nofollow, noarchive" />
   <meta name="referrer" content="no-referrer" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src https://api.uploads.sh; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" />
-  <title>Your uploads.sh invitation</title>
+  <title>Accept your invite · uploads.sh</title>
   <link rel="icon" href={FAVICON} />
   <style>
-    :root{color-scheme:dark;--bg:#0b0813;--panel:#120d1e;--line:#2b1f46;--fg:#e6dff5;--muted:#8e86a5;--purple:#b794ff;--green:#9ece6a;--red:#f7768e}*{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:28px;background:radial-gradient(100% 80% at 50% 0%,#19102b,var(--bg) 62%);color:var(--fg);font:15px/1.6 ui-monospace,"SFMono-Regular",Consolas,monospace}main{width:min(680px,100%);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:clamp(24px,6vw,44px);box-shadow:0 24px 90px #0009}h1{margin:0 0 8px;font-size:clamp(24px,5vw,34px)}p{color:var(--muted)}.status{border-left:3px solid var(--purple);padding:10px 14px;margin:24px 0;background:#0d0a16}.status[data-state=ready]{border-color:var(--green);color:var(--green)}.status[data-state=closed]{border-color:var(--red);color:var(--red)}li{margin:18px 0}.command{display:flex;gap:12px;align-items:center;padding:13px 14px;border:1px solid var(--line);border-radius:8px;background:#09070f;overflow:auto}.command code{flex:1;white-space:nowrap}button{border:1px solid #553c88;border-radius:6px;padding:7px 10px;background:#201534;color:var(--purple);cursor:pointer;font:inherit}.security{margin-top:28px;padding-top:18px;border-top:1px solid var(--line);font-size:13px}[hidden]{display:none!important}
+    :root{color-scheme:dark;--bg:#0b0813;--panel:#120d1e;--line:#2b1f46;--fg:#e6dff5;--muted:#8e86a5;--purple:#b794ff;--green:#9ece6a;--red:#f7768e}*{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:28px;background:radial-gradient(100% 80% at 50% 0%,#19102b,var(--bg) 62%);color:var(--fg);font:15px/1.6 ui-monospace,"SFMono-Regular",Consolas,monospace}main{width:min(640px,100%);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:clamp(24px,6vw,44px);box-shadow:0 24px 90px #0009}h1{margin:0 0 8px;font-size:clamp(23px,5vw,32px)}p{color:var(--muted)}.status{border-left:3px solid var(--purple);padding:9px 14px;margin:24px 0;background:#0d0a16;color:var(--fg)}.status[data-state=ready]{border-color:var(--green)}.status[data-state=closed]{border-color:var(--red);color:var(--red)}ol{padding-left:20px}li{margin:16px 0}.command{display:flex;gap:12px;align-items:center;margin-top:8px;padding:13px 14px;border:1px solid var(--line);border-radius:8px;background:#09070f}.command code{flex:1;min-width:0;white-space:nowrap;overflow-x:auto;display:block}.command button{flex-shrink:0}button{border:1px solid #553c88;border-radius:6px;padding:7px 10px;background:#201534;color:var(--purple);cursor:pointer;font:inherit}.security{margin-top:26px;padding-top:18px;border-top:1px solid var(--line);font-size:13px}[hidden]{display:none!important}
   </style>
 </head>
 <body>
 <main>
-  <h1>Welcome to uploads.sh</h1>
-  <p>This private invitation sets up the CLI for your pre-created workspace.</p>
-  <div class="status" id="status" role="status">Checking this invitation…</div>
+  <h1>Accept your invite to uploads.sh</h1>
+  <p>Host files and screenshots straight from your terminal — upload, get a public link, attach them to a pull request.</p>
+  <div class="status" id="meta" role="status">Checking your invite…</div>
   <section id="instructions" hidden>
     <ol>
-      <li>Install the CLI.<div class="command"><code>npm install --global @buildinternet/uploads</code><button data-copy="npm install --global @buildinternet/uploads">copy</button></div></li>
-      <li>Start login, then paste the separately shared one-time code.<div class="command"><code>uploads login</code><button data-copy="uploads login">copy</button></div></li>
-      <li>Confirm the CLI reports that credentials were saved and the doctor check passed.</li>
+      <li>Install<div class="command"><code>npm install --global @buildinternet/uploads</code><button data-copy="npm install --global @buildinternet/uploads">copy</button></div></li>
+      <li>Log in<div class="command"><code id="login-cmd">uploads login</code><button id="login-copy" data-copy="uploads login">copy</button></div></li>
     </ol>
   </section>
-  <p class="security">This URL contains only a non-secret invitation identifier. It cannot create credentials without the separately delivered one-time code.</p>
+  <p class="security">Treat this link like a password — it's single-use and stops working once you log in.</p>
 </main>
 <script>
   function requireElement<T extends Element>(selector: string): T {
@@ -35,19 +34,38 @@ const FAVICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' vi
     return element;
   }
 
-  const status = requireElement<HTMLElement>("#status");
+  const meta = requireElement<HTMLElement>("#meta");
   const instructions = requireElement<HTMLElement>("#instructions");
-  const pageId = new URL(location.href).searchParams.get("id") ?? "";
+  const loginCmd = requireElement<HTMLElement>("#login-cmd");
+  const loginCopy = requireElement<HTMLButtonElement>("#login-copy");
+
+  const url = new URL(location.href);
+  const pageId = url.searchParams.get("id") ?? "";
+  // The one-time code rides in the URL fragment, which browsers never send to the
+  // server. Read it, then scrub it from the address bar; the CLI still redeems it.
+  const code = new URLSearchParams(url.hash.replace(/^#/, "")).get("code") ?? "";
+  if (url.hash) history.replaceState(null, "", url.pathname + url.search);
+
+  if (/^upe_[A-Za-z0-9_-]{20,}$/.test(code)) {
+    const command = `uploads login --code ${code}`;
+    loginCmd.textContent = command;
+    loginCopy.dataset.copy = command;
+  }
+
   async function checkInvitation() {
     if (!/^upi_[A-Za-z0-9_-]{16}$/.test(pageId)) throw new Error("invalid");
     const response = await fetch(`https://api.uploads.sh/auth/enrollments/${encodeURIComponent(pageId)}`, { cache:"no-store", credentials:"omit", referrerPolicy:"no-referrer" });
     if (!response.ok) throw new Error("invalid");
-    const invitation = (await response.json()) as { used: boolean; expiresAt: string };
-    if (invitation.used) { status.textContent="This invitation has already been used."; status.dataset.state="closed"; return; }
-    status.textContent=`Invitation ready · expires ${new Date(invitation.expiresAt).toLocaleString()}`;
-    status.dataset.state="ready"; instructions.hidden=false;
+    const invitation = (await response.json()) as { used: boolean; expiresAt: string; workspace: string };
+    if (invitation.used) { meta.textContent = "This invite has already been used."; meta.dataset.state = "closed"; return; }
+    const when = new Date(invitation.expiresAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+    const where = invitation.workspace ? `the ${invitation.workspace} workspace` : "uploads.sh";
+    meta.textContent = `You'll join ${where} · expires ${when}`;
+    meta.dataset.state = "ready";
+    instructions.hidden = false;
   }
-  checkInvitation().catch(() => { status.textContent="This invitation is invalid or has expired."; status.dataset.state="closed"; });
+
+  checkInvitation().catch(() => { meta.textContent = "This invite is invalid or has expired."; meta.dataset.state = "closed"; });
   document.querySelectorAll<HTMLButtonElement>("[data-copy]").forEach((button) =>
     button.addEventListener("click", async () => {
       const value = button.dataset.copy;

@@ -50,16 +50,25 @@ ADMIN_TOKEN=<admin-credential> uploads admin invite create \
   --workspace default --label early-adopter
 ```
 
-The admin API at `POST /admin/enrollments` provides the same operation. Its response
-contains a non-secret onboarding URL and a one-time code. Share them as separate
-fields; the URL exposes only expiry and used status and cannot mint credentials.
-Invitation codes default to a 10-minute expiry (configurable at creation) and are
-consumed by one successful exchange. Unknown, expired, and consumed codes return the
-same public error shape.
+By default the command prints one **magic link** (`…/invite?id=…#code=…`): the
+single-use code rides in the URL fragment, so share the link over a single trusted
+channel and treat it like a password. Add `--separate-code` for two-channel output—a
+non-secret page URL plus a code you deliver separately—when a deployment prefers it.
+Pass `--email <address>` to deliver the link by email instead of printing it—sent
+from `invites@uploads.sh` via Cloudflare Email Sending (`uploads.sh` is onboarded).
+Delivery is rate-limited per recipient and audit-logged (`invite_emailed`) with only
+the workspace, recipient, and page id—never the code or link. If delivery fails the
+invite is still created and the CLI prints the link as a fallback.
+The admin API at `POST /admin/enrollments` returns the same fields. Invitation codes
+default to a 2-hour expiry (configurable at creation with `--expires-in`, from 60
+seconds up to 24 hours) and are consumed by one successful exchange. Unknown,
+expired, and consumed codes return the same public error shape.
 
-The invite page loads no analytics or third-party assets. Response controls request
-`no-store`, `no-referrer`, `noindex`, a restrictive CSP, and disabled browser
-permissions. The one-time code never belongs in the URL.
+The invite page shows the target workspace and expiry, and loads no analytics or
+third-party assets. Response controls request `no-store`, `no-referrer`, `noindex`, a
+restrictive CSP, and disabled browser permissions. The code lives only in the URL
+fragment—never the query string—so it stays out of server logs and referrers, and the
+page reads it client-side without sending it anywhere.
 
 ## Secrets
 
