@@ -17,16 +17,17 @@ D1 table `workspace_usage` tracks net `bytes` / `objects` and monthly
 Optional **budgets** live on the workspace registry record (KV), same as
 `maxUploadBytes`:
 
-| Field                 | Meaning                                       |
-| --------------------- | --------------------------------------------- |
-| `maxStorageBytes`     | Cap on net stored bytes                       |
-| `maxUploadsPerPeriod` | Cap on puts in the current UTC calendar month |
-| `maxUploadBytes`      | Cap on a single object (default 25 MiB)       |
+| Field                 | Meaning                                         |
+| --------------------- | ----------------------------------------------- |
+| `maxStorageBytes`     | Cap on net stored bytes                         |
+| `maxUploadsPerPeriod` | Cap on puts in the current UTC calendar month   |
+| `maxUploadBytes`      | Cap on a single object (default 25 MiB)         |
+| `retentionDays`       | Age (days) after which purge-expired may delete |
 
-Omit a field for unlimited. Puts that would exceed storage return **507** with
-`code: "storage_quota_exceeded"`; monthly upload budget returns **429** with
-`code: "upload_budget_exceeded"`. `GET …/usage` includes the caps and remaining
-when set.
+Omit a field for unlimited (or no retention). Puts that would exceed storage
+return **507** with `code: "storage_quota_exceeded"`; monthly upload budget
+returns **429** with `code: "upload_budget_exceeded"`. `GET …/usage` includes
+the caps and remaining when set.
 
 ### Configure limits
 
@@ -43,11 +44,22 @@ pnpm workspace:limits my-ws                          # show current
 pnpm workspace:limits my-ws --max-storage 50GB
 pnpm workspace:limits my-ws --max-uploads-per-month 20000
 pnpm workspace:limits my-ws --clear-max-storage      # back to unlimited
+pnpm workspace:limits my-ws --retention-days 90
+pnpm workspace:limits my-ws --clear-retention-days
 pnpm workspace:limits my-ws --local                  # local KV for wrangler dev
 ```
 
 Sizes accept `25MB`, `1GiB`, or raw byte counts. KV is cached ~60s on the
 Worker — new limits apply on the next request after that.
+
+### Reconcile and retention
+
+- `POST /v1/:ws/usage/reconcile` — re-scan storage, fix ledger drift (`files:write`).
+- `POST /v1/:ws/usage/purge-expired` — delete objects older than `retentionDays`
+  (`files:delete`), then reconcile. No-op skip if retention is unset.
+
+There is no automatic cron yet — run purge from ops/CI when you want expiry.
+Retention uses object last-modified from the store (R2 upload time).
 
 New enrollment-issued tokens are stored in D1 and carry an expiry and explicit scopes.
 Workspace configuration and legacy tokens remain in `REGISTRY` KV. The routine-agent

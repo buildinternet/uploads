@@ -13,6 +13,8 @@ Unknown workspaces and bad tokens are indistinguishable (both 401).
 | `GET /v1/:workspace/files/:key`                   | Object metadata                                                                            |
 | `DELETE /v1/:workspace/files/:key`                | Delete object                                                                              |
 | `GET /v1/:workspace/usage`                        | Workspace usage snapshot (`bytes`, `objects`, `uploadsInPeriod`, …); requires `files:read` |
+| `POST /v1/:workspace/usage/reconcile`             | Rebuild `bytes`/`objects` from storage; requires `files:write`                             |
+| `POST /v1/:workspace/usage/purge-expired`         | Delete objects older than `retentionDays`, then reconcile; requires `files:delete`         |
 
 `url` in responses is the public URL when the workspace has a
 `publicBaseUrl`, otherwise `null`.
@@ -35,6 +37,19 @@ headroom. Puts that would exceed them fail with:
 
 Configure limits with `pnpm workspace:limits <name> …` (see
 [workspaces](workspaces.md)).
+
+**Reconcile** scans every object under the workspace prefix and replaces ledger
+`bytes`/`objects` (monthly upload count is preserved). Use after external
+deletes or if counters look wrong:
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  https://api.uploads.sh/v1/$WS/usage/reconcile
+```
+
+**Purge expired** deletes objects whose store last-modified is older than
+`retentionDays` on the workspace record, then reconciles. Skips with
+`{ "skipped": true }` when retention is unset.
 
 ## Example
 

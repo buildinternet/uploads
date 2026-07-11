@@ -33,20 +33,65 @@ export class UsageFakeD1 {
       },
       run: async () => {
         if (normalized.startsWith("INSERT OR IGNORE INTO workspace_usage")) {
-          const [workspace, period, updatedAt] = values as [string, string, string];
-          if (!this.usage.has(workspace)) {
-            this.usage.set(workspace, {
-              workspace,
-              bytes: 0,
-              objects: 0,
-              uploads_in_period: 0,
-              period_start: period,
-              updated_at: updatedAt,
-            });
+          // applyUsageDelta: (ws, period, updatedAt) with zeros
+          // setUsageTotals: (ws, bytes, objects, period, updatedAt)
+          if (values.length === 3) {
+            const [workspace, period, updatedAt] = values as [string, string, string];
+            if (!this.usage.has(workspace)) {
+              this.usage.set(workspace, {
+                workspace,
+                bytes: 0,
+                objects: 0,
+                uploads_in_period: 0,
+                period_start: period,
+                updated_at: updatedAt,
+              });
+            }
+          } else {
+            const [workspace, bytes, objects, period, updatedAt] = values as [
+              string,
+              number,
+              number,
+              string,
+              string,
+            ];
+            if (!this.usage.has(workspace)) {
+              this.usage.set(workspace, {
+                workspace,
+                bytes,
+                objects,
+                uploads_in_period: 0,
+                period_start: period,
+                updated_at: updatedAt,
+              });
+            }
           }
           return { success: true as const, meta: { changes: 1 }, results: [] };
         }
         if (normalized.startsWith("UPDATE workspace_usage SET")) {
+          // Absolute totals from setUsageTotals: bytes, objects, updated_at, workspace
+          if (
+            normalized.includes("bytes = ?") &&
+            normalized.includes("objects = ?") &&
+            !normalized.includes("bytes +")
+          ) {
+            const [bytes, objects, updatedAt, workspace] = values as [
+              number,
+              number,
+              string,
+              string,
+            ];
+            const row = this.usage.get(workspace);
+            if (!row) throw new Error(`update before insert for ${workspace}`);
+            this.usage.set(workspace, {
+              ...row,
+              bytes,
+              objects,
+              updated_at: updatedAt,
+            });
+            return { success: true as const, meta: { changes: 1 }, results: [] };
+          }
+          // Delta apply from applyUsageDelta
           const [
             dBytes,
             dObjects,

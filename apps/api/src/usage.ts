@@ -146,3 +146,40 @@ export async function recordUsageSafe(
     );
   }
 }
+
+/**
+ * Replace absolute bytes/objects from a storage scan (reconcile).
+ * Preserves uploads_in_period for the current period when the row exists.
+ */
+export async function setUsageTotals(
+  db: D1Database,
+  workspace: string,
+  totals: { bytes: number; objects: number },
+  now = new Date(),
+): Promise<WorkspaceUsage> {
+  const period = usagePeriodStart(now);
+  const updatedAt = now.toISOString();
+  const bytes = Math.max(0, Math.floor(totals.bytes));
+  const objects = Math.max(0, Math.floor(totals.objects));
+
+  await db.batch([
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO workspace_usage
+           (workspace, bytes, objects, uploads_in_period, period_start, updated_at)
+         VALUES (?, ?, ?, 0, ?, ?)`,
+      )
+      .bind(workspace, bytes, objects, period, updatedAt),
+    db
+      .prepare(
+        `UPDATE workspace_usage SET
+           bytes = ?,
+           objects = ?,
+           updated_at = ?
+         WHERE workspace = ?`,
+      )
+      .bind(bytes, objects, updatedAt, workspace),
+  ]);
+
+  return getWorkspaceUsage(db, workspace, now);
+}
