@@ -1,5 +1,5 @@
 import { createStorage, publicUrl, type StorageConfig } from "@uploads/storage";
-import { openCredentialFields } from "./secrets";
+import { openCredentialFields, secretsKeyRingFromEnv } from "./secrets";
 import type { WorkspaceRecord } from "./workspace";
 
 export async function storageConfig(env: Env, ws: WorkspaceRecord): Promise<StorageConfig> {
@@ -11,10 +11,20 @@ export async function storageConfig(env: Env, ws: WorkspaceRecord): Promise<Stor
     }
     binding = candidate as R2Bucket;
   }
-  const opened = await openCredentialFields(env.WORKSPACE_SECRETS_KEY, {
+  const ring = secretsKeyRingFromEnv(env);
+  const opened = await openCredentialFields(ring, {
     accessKeyId: ws.accessKeyId,
     secretAccessKey: ws.secretAccessKey,
   });
+  // During rotation, previous-key decrypts still work; re-seal offline with the script.
+  if (opened.usedPrevious) {
+    console.log(
+      JSON.stringify({
+        message: "credential_decrypted_with_previous_key",
+        hint: "run scripts/reencrypt-workspace-secrets.mjs then remove WORKSPACE_SECRETS_KEY_PREVIOUS",
+      }),
+    );
+  }
   return {
     provider: ws.provider,
     bucket: ws.bucket,

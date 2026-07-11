@@ -2,6 +2,11 @@
 // so `wrangler types` does not generate them. Augment Env here.
 interface Env {
   ADMIN_TOKEN?: string;
-  /** AES master for BYO accessKeyId/secretAccessKey at rest in KV (optional). */
+  /** Current AES master for BYO credentials at rest in KV (optional). */
   WORKSPACE_SECRETS_KEY?: string;
+  /**
+   * Previous master during rotation. Decrypt tries current, then previous.
+   * Remove after reencrypt-workspace-secrets.mjs completes.
+   */
+  WORKSPACE_SECRETS_KEY_PREVIOUS?: string;
 }

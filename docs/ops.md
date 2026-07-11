@@ -30,16 +30,45 @@ The API worker also runs a **daily cron** (`0 6 * * *` UTC) that purges every wo
 
 ## Secrets
 
-| Secret                  | Purpose                                                          |
-| ----------------------- | ---------------------------------------------------------------- |
-| `ADMIN_TOKEN`           | `/admin/*`                                                       |
-| `WORKSPACE_SECRETS_KEY` | Encrypt BYO `accessKeyId` / `secretAccessKey` in KV (`enc:v1:…`) |
+| Secret                           | Purpose                                                               |
+| -------------------------------- | --------------------------------------------------------------------- |
+| `ADMIN_TOKEN`                    | `/admin/*`                                                            |
+| `WORKSPACE_SECRETS_KEY`          | **Current** KEK for BYO credentials in KV (`enc:v1:…`)                |
+| `WORKSPACE_SECRETS_KEY_PREVIOUS` | **Previous** KEK during rotation only (decrypt fallback, then remove) |
 
 ```bash
-openssl rand -base64 32 | wrangler secret put WORKSPACE_SECRETS_KEY
+# Generate
+openssl rand -base64 32
+
+# First-time install (production, from apps/api)
+pnpm exec wrangler secret put WORKSPACE_SECRETS_KEY
 ```
 
-`workspace:add --bucket …` encrypts keys when `WORKSPACE_SECRETS_KEY` is in the env. Plaintext legacy values still work until re-written.
+`workspace:add --bucket …` encrypts keys when `WORKSPACE_SECRETS_KEY` is in the env. Plaintext legacy values still work until re-written. Decrypt tries **current**, then **previous**, so rotation does not brick BYO workspaces mid-cutover.
+
+### Rotating `WORKSPACE_SECRETS_KEY`
+
+1. Generate a new key: `openssl rand -base64 32` → keep both OLD and NEW.
+2. Set previous = old (while the worker still has the old value as current):
+   ```bash
+   pnpm exec wrangler secret put WORKSPACE_SECRETS_KEY_PREVIOUS   # paste OLD
+   pnpm exec wrangler secret put WORKSPACE_SECRETS_KEY            # paste NEW
+   ```
+3. Re-seal every registry record that has BYO credentials under the **new** key:
+   ```bash
+   WORKSPACE_SECRETS_KEY='<NEW>' WORKSPACE_SECRETS_KEY_PREVIOUS='<OLD>' \
+     pnpm exec node scripts/reencrypt-workspace-secrets.mjs --dry-run
+   WORKSPACE_SECRETS_KEY='<NEW>' WORKSPACE_SECRETS_KEY_PREVIOUS='<OLD>' \
+     pnpm exec node scripts/reencrypt-workspace-secrets.mjs
+   ```
+4. Verify BYO workspaces (presign / put). Logs may show
+   `credential_decrypted_with_previous_key` until re-seal finishes.
+5. Remove the previous secret so only the new KEK remains:
+   ```bash
+   pnpm exec wrangler secret delete WORKSPACE_SECRETS_KEY_PREVIOUS
+   ```
+
+Do **not** delete PREVIOUS before re-encrypt completes, or ciphertext sealed only with OLD becomes unreadable.
 
 ## Presign
 
