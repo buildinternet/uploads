@@ -1,5 +1,12 @@
 import { Hono, type Context } from "hono";
-import { FileOpError, badKey, deleteObject, listObjects, putObject } from "../files-core";
+import {
+  FileOpError,
+  badKey,
+  deleteObject,
+  finalizeUploadKey,
+  listObjects,
+  putObject,
+} from "../files-core";
 import { publicUrl, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { checkDeclaredLength, resolveUploadPolicy, writeRateLimit } from "../guards";
@@ -33,10 +40,17 @@ export const files = new Hono<WorkspaceVars>()
           },
       );
 
-    const key = typeof body.key === "string" ? body.key : "";
-    if (!key || badKey(key)) return c.json({ error: "invalid key" }, 400);
+    const rawKey = typeof body.key === "string" ? body.key : "";
+    if (!rawKey) return c.json({ error: "invalid key" }, 400);
 
     const ws = c.get("workspace");
+    let key: string;
+    try {
+      key = finalizeUploadKey(rawKey, ws);
+    } catch (err) {
+      return mapFileOpError(c, err);
+    }
+
     const policy = resolveUploadPolicy(ws);
     const ceiling = Math.max(policy.maxBytes, policy.maxVideoBytes);
     const maxSize =

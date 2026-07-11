@@ -17,6 +17,7 @@ import {
   type UploadsClientConfig,
 } from "../config.js";
 import { buildMarkdown } from "../embed.js";
+import { resolvePutPrefix } from "../destinations.js";
 import { ghAttachmentKey, ghKeyPrefix, type GhTarget } from "../github.js";
 import {
   execRunner,
@@ -137,6 +138,11 @@ export function createUploadsMcpTools(opts: {
             description:
               "Explicit object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>). Cannot be combined with pr/issue.",
           },
+          destination: {
+            type: "string",
+            description:
+              "Typed destination root: screenshots | gh | f. Sets the key prefix; first-class alternative to prefix. With pr/issue must be gh or omitted.",
+          },
           prefix: {
             type: "string",
             description:
@@ -183,6 +189,7 @@ export function createUploadsMcpTools(opts: {
         const target = ghTargetFromArgs(args, run);
         const wantComment = optBool(args, "comment");
         const key = optString(args, "key");
+        const destArg = optString(args, "destination");
         const prefixArg = optString(args, "prefix");
         const refArg = optString(args, "ref");
         if (wantComment && !target) usage("comment requires pr or issue");
@@ -190,6 +197,17 @@ export function createUploadsMcpTools(opts: {
           if (key) usage("key cannot be combined with pr/issue");
           if (refArg) usage("ref cannot be combined with pr/issue");
           if (prefixArg) usage("prefix cannot be combined with pr/issue");
+        }
+        let resolvedPrefix: string | undefined;
+        try {
+          resolvedPrefix = resolvePutPrefix({
+            destination: destArg,
+            prefix: prefixArg,
+            key,
+            ghAttachment: Boolean(target),
+          });
+        } catch (err) {
+          usage(err instanceof Error ? err.message : String(err));
         }
 
         const { client } = clientFor(args);
@@ -204,7 +222,7 @@ export function createUploadsMcpTools(opts: {
         const result = await client.put(bytes, {
           filename,
           key: target ? ghAttachmentKey(target, filename) : key,
-          prefix: prefixArg ?? defaults.prefix,
+          prefix: resolvedPrefix ?? defaults.prefix,
           repo: optString(args, "repo") ?? defaults.repo,
           ref: refArg ?? defaults.ref,
           contentType: optString(args, "contentType"),

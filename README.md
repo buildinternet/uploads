@@ -73,10 +73,10 @@ pnpm uploads put ./shot.png --env-file .env
 # stdout: public URL + ready-to-paste markdown; stderr: human summary
 ```
 
-**How keys work:** default `put` is the fast path — run it with no flags and you get
-a unique public URL (`screenshots/<repo>/<date>/<name>-<hash>.<ext>`). Use `--pr` or
-`--issue` when you need a stable, hash-free filename for a GitHub embed. Use `--key`
-only when you want an exact path.
+**How keys work:** default `put` lands under `screenshots/…`. Prefer
+`--destination screenshots` (or `gh` with `--pr`/`--issue`) over inventing roots —
+workspaces may allowlist only those destinations. Use `--pr`/`--issue` for stable,
+hash-free GitHub keys; use `--key` only for an exact path under an allowed root.
 
 More output control:
 
@@ -135,14 +135,15 @@ plus peer deps, no API changes.
 
 ## Docs
 
-| Doc                                          | Contents                                     |
-| -------------------------------------------- | -------------------------------------------- |
-| [workspaces](docs/workspaces.md)             | Multi-tenant model, registration, BYO-bucket |
-| [enrollment](docs/enrollment.md)             | Agent login, scopes, expiry, and migration   |
-| [admin-tokens](docs/admin-tokens.md)         | Minting, listing, and revoking upload tokens |
-| [api](docs/api.md)                           | REST routes and CLI usage                    |
-| [deploy](docs/deploy.md)                     | Cloudflare setup and production deploy       |
-| [contract testing](docs/contract-testing.md) | Deployed smoke checks and release gate       |
-| [roadmap](docs/roadmap.md)                   | Planned features                             |
+| Doc                                          | Contents                                            |
+| -------------------------------------------- | --------------------------------------------------- |
+| [workspaces](docs/workspaces.md)             | Multi-tenant model, budgets, key policy, BYO-bucket |
+| [ops](docs/ops.md)                           | Operator runbook (limits, retention, secrets)       |
+| [enrollment](docs/enrollment.md)             | Agent login, scopes, expiry, and migration          |
+| [admin-tokens](docs/admin-tokens.md)         | Minting, listing, and revoking upload tokens        |
+| [api](docs/api.md)                           | REST routes and CLI usage                           |
+| [deploy](docs/deploy.md)                     | Cloudflare setup and production deploy              |
+| [contract testing](docs/contract-testing.md) | Deployed smoke checks and release gate              |
+| [roadmap](docs/roadmap.md)                   | Planned features                                    |
 
 Agent and contributor conventions live in [AGENTS.md](AGENTS.md).

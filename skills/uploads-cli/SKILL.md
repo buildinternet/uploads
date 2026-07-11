@@ -128,6 +128,7 @@ Key options (`uploads put --help` for all):
 | `--width <px>`                        | Emit sized `<img width=…>` HTML instead of `![]()` (markdown can't size images). |
 | `--repo <owner/repo>`                 | Repo segment of the auto key (default: git remote, or `UPLOADS_DEFAULT_REPO`).   |
 | `--ref <id>`                          | PR/issue/branch/date segment (default: today, or `UPLOADS_DEFAULT_REF`).         |
+| `--destination <id>`                  | Typed root: `screenshots` \| `gh` \| `f` (sets key prefix).                      |
 | `--prefix <path>`                     | Key prefix (default: `screenshots`, or `UPLOADS_DEFAULT_PREFIX`).                |
 | `--key <key>`                         | Set the object key explicitly; skips the auto-naming below.                      |
 | `--content-type <mime>`               | Override the content type (else inferred from extension).                        |
@@ -137,17 +138,20 @@ Key options (`uploads put --help` for all):
 
 **How keys work** — three paths, no extra naming modes:
 
-| Intent                                | Command                                    |
-| ------------------------------------- | ------------------------------------------ |
-| Just upload it, give me a URL         | `uploads put ./file.png`                   |
-| Stable GitHub embed I might re-upload | `uploads put ./file.png --pr <num>`        |
-| I know exactly where it goes          | `uploads put ./file.png --key my/path.png` |
+| Intent                                | Command                                            |
+| ------------------------------------- | -------------------------------------------------- |
+| Just upload it, give me a URL         | `uploads put ./file.png`                           |
+| Explicit typed destination            | `uploads put ./file.png --destination screenshots` |
+| Stable GitHub embed I might re-upload | `uploads put ./file.png --pr <num>`                |
+| I know exactly where it goes          | `uploads put ./file.png --key screenshots/…/x.png` |
 
 Default `put` is the fast path; you don't need `--key`, `--prefix`, or `--repo`. Without
 `--key`, keys look like
 `<prefix>/<repo-name>/<ref-or-date>/<basename>-<shorthash>.<ext>` — the short hash
-prevents collisions without random names or a separate "preserve name" flag. Override
-with `--key` only when you have a reason.
+prevents collisions without random names or a separate "preserve name" flag. Prefer
+`--destination screenshots` (or `gh` with `--pr`/`--issue`) over inventing roots —
+workspaces may allowlist only those destinations. Override with `--key` only when you
+have a reason, and keep the key under an allowed root.
 
 **Output formats** — pick what you'll consume:
 

@@ -37,7 +37,9 @@ pnpm typecheck           # wrangler types + tsc across workspaces
 pnpm run deploy          # all workers; or deploy:api / deploy:web / deploy:mcp
 pnpm workspace:add <name> [--bucket <bucket>] [--binding X] [--local] \
   [--max-storage 25GB] [--max-uploads-per-month N] [--max-upload-bytes 25MB]
-pnpm workspace:limits <name> [--max-storage …] [--max-video-bytes …] [--clear-max-storage] […]
+pnpm workspace:limits <name> [--max-storage …] [--max-video-bytes …] \
+  [--allowed-prefixes default|f,screenshots,gh] [--max-key-depth 8] \
+  [--clear-max-storage] [--clear-allowed-prefixes] […]
 pnpm uploads put <file> --env-file .env   # CLI (builds package first)
 pnpm uploads put <file> --pr <num> --comment   # PR attachment + managed GitHub comment
 ```
@@ -122,6 +124,31 @@ records; any future global secrets go through `wrangler secret put` (prod) or
 - Follow Cloudflare Workers best practices: no floating promises, no
   module-level request state, secrets never in config or source.
 
+## Pull requests
+
+Write PR descriptions for humans first, not only for reviewers who already
+know the code. Prefer plain language over dense bullet dumps of identifiers.
+
+**Shape (compact):**
+
+1. **In plain terms** — one short paragraph: what this changes and why anyone
+   should care (the problem, the outcome). Avoid leading with file paths,
+   type names, or flag lists.
+2. **What it does / what it is not** — a few concrete bullets; call out
+   opt-in vs breaking, and anything deliberately deferred.
+3. **How to try it** — only when useful (commands, operator flags).
+4. **Technical notes** — optional short section for implementers (modules,
+   error codes, test commands). Keep it secondary to the plain summary.
+5. **Test plan** — checkboxes for what was run / what remains.
+
+**Titles:** conventional-commit type prefix + plain-language subject, e.g.
+`feat: organize upload paths (typed destinations + optional folder rules)`.
+Common types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`. Keep the
+subject readable (outcome first); avoid stuffing every flag/module into the
+title. Do **not** auto-request CodeRabbit on every PR (org policy: on-demand
+only). User-visible `@buildinternet/uploads` changes still need a changeset;
+do not merge “version packages” PRs unless shipping is intentional.
+
 ## Environment files
 
 - `.env.example` (repo root) — client vars (`UPLOADS_API_URL`,
@@ -136,10 +163,10 @@ records; any future global secrets go through `wrangler secret put` (prod) or
 ## Roadmap (see docs/roadmap.md for detail)
 
 MCP server for agent access (primary users are agents); key/path governance
-(auto-prefix bare filenames, typed destinations like `screenshots`,
-per-workspace key policy — arbitrary paths are an internal-audience allowance,
-not the end state); encrypt BYO-bucket S3 credentials in KV records before
-external tenants; presigned upload URLs (`POST /v1/sign`); web UI on
+(auto-prefix bare filenames; typed destinations `screenshots`/`gh`/`f` and
+optional `allowedKeyPrefixes`/`maxKeyDepth` — arbitrary paths remain an
+internal/BYO allowance when policy is unset); encrypt BYO-bucket S3 credentials
+in KV records before external tenants; presigned upload URLs (`POST /v1/sign`); web UI on
 files-sdk's `createFilesRouter` + browser client rather than more hand-rolled
 REST; more providers in `packages/storage`; point the `github-screenshots`
 skill at this API.

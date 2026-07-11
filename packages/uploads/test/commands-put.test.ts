@@ -9,10 +9,10 @@ import { join } from "node:path";
 
 /** Fake client capturing put() calls; other methods throw if reached. */
 function fakeClient() {
-  const puts: { key?: string; filename: string }[] = [];
+  const puts: { key?: string; filename: string; prefix?: string }[] = [];
   const client = {
-    put: async (_body: Uint8Array, opts: { filename: string; key?: string }) => {
-      puts.push({ key: opts.key, filename: opts.filename });
+    put: async (_body: Uint8Array, opts: { filename: string; key?: string; prefix?: string }) => {
+      puts.push({ key: opts.key, filename: opts.filename, prefix: opts.prefix });
       return {
         workspace: "test",
         key: opts.key ?? "generated/key.png",
@@ -119,5 +119,72 @@ describe("runPut --pr/--issue", () => {
     const { client, puts } = fakeClient();
     await runPut(ctxWith(client), [tmpFile(), "--repo", "myapp", "--no-git"], false, noRun);
     expect(puts[0].key).toBeUndefined(); // client falls back to buildScreenshotKey
+  });
+});
+
+describe("runPut --destination", () => {
+  it("sets prefix from destination screenshots", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--destination", "screenshots", "--repo", "myapp", "--no-git"],
+      false,
+      noRun,
+    );
+    expect(puts[0].prefix).toBe("screenshots");
+  });
+
+  it("allows --destination gh with --pr", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "1", "--destination", "gh", "--repo", "o/r"],
+      false,
+      noRun,
+    );
+    expect(puts[0].key).toBe("gh/o/r/pull/1/shot.png");
+  });
+
+  it("rejects --destination screenshots with --pr", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(
+        ctxWith(client),
+        [tmpFile(), "--pr", "1", "--destination", "screenshots", "--repo", "o/r"],
+        false,
+        noRun,
+      ),
+    ).rejects.toThrow(/must be gh/);
+  });
+
+  it("rejects unknown destinations", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), [tmpFile(), "--destination", "tmp"], false, noRun),
+    ).rejects.toThrow(/unknown destination/);
+  });
+
+  it("rejects conflicting --prefix and --destination", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(
+        ctxWith(client),
+        [tmpFile(), "--destination", "screenshots", "--prefix", "other"],
+        false,
+        noRun,
+      ),
+    ).rejects.toThrow(/conflicts/);
+  });
+
+  it("rejects --key outside the destination root", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(
+        ctxWith(client),
+        [tmpFile(), "--destination", "screenshots", "--key", "tmp/a.png"],
+        false,
+        noRun,
+      ),
+    ).rejects.toThrow(/must start with destination root/);
   });
 });

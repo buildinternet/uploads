@@ -53,6 +53,17 @@ export interface WorkspaceRecord {
    * to allow root basenames (not recommended on shared buckets).
    */
   autoPrefixBareKeys?: boolean;
+  /**
+   * When set (non-empty), put/sign keys must start with one of these prefixes
+   * after bare-key governance. Entries may omit the trailing `/`. Operator
+   * tooling accepts `"default"` → `f/`, `screenshots/`, `gh/`. Omit = any path.
+   */
+  allowedKeyPrefixes?: string[];
+  /**
+   * Max `/`-separated path segments on put/sign after governance (e.g. 8).
+   * Omit = only structural key validation (`badKey`).
+   */
+  maxKeyDepth?: number;
 }
 
 export type WorkspaceVars = {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Patch budget / upload limits on an existing workspace registry record.
- * Does not re-mint tokens — only updates limit fields on the KV record.
+ * Patch budget / upload / key-policy limits on an existing workspace registry
+ * record. Does not re-mint tokens — only updates limit fields on the KV record.
  *
  * Usage (from apps/api):
  *   node --env-file=../../.env scripts/set-workspace-limits.mjs <name> \
@@ -9,13 +9,19 @@
  *     [--max-uploads-per-month 10000] \
  *     [--max-upload-bytes 25MB] \
  *     [--retention-days 90] \
+ *     [--allowed-prefixes default|f,screenshots,gh] \
+ *     [--max-key-depth 8] \
  *     [--clear-max-storage] [--clear-max-uploads-per-month] [--clear-max-upload-bytes] \
- *     [--clear-retention-days] \
+ *     [--clear-retention-days] [--clear-allowed-prefixes] [--clear-max-key-depth] \
  *     [--local]
  *
  * Units: bare number = bytes (or count for uploads). Also accepts KB/MB/GB
  * and KiB/MiB/GiB (e.g. 1GB, 25MiB). Use 0 or "unlimited" with a --clear-*
  * flag to remove a cap.
+ *
+ * Key policy: --allowed-prefixes restricts put/sign roots (comma-separated).
+ * The sentinel "default" expands to f/, screenshots/, gh/ (CLI layouts).
+ * --max-key-depth caps path segments after bare-key governance.
  *
  * Show current limits only:
  *   node scripts/set-workspace-limits.mjs <name> [--local]
@@ -89,6 +95,46 @@ function parseCount(raw, label) {
   return n === 0 ? null : n;
 }
 
+/** Parse depth: positive integer, or null for unlimited. */
+function parseDepth(raw, label) {
+  if (raw === undefined || raw === null || raw === "") return undefined;
+  const s = String(raw).trim();
+  if (/^(unlimited|none|off)$/i.test(s)) return null;
+  const n = Number(s);
+  if (!Number.isInteger(n) || n < 1 || n > 64) {
+    fail(`invalid ${label}: ${JSON.stringify(raw)} (use 1–64 or unlimited)`);
+  }
+  return n;
+}
+
+/**
+ * Parse allowed key prefixes. Comma-separated list; "default" → f,screenshots,gh.
+ * Returns string[] or null (clear).
+ */
+function parseAllowedPrefixes(raw, label) {
+  if (raw === undefined || raw === null || raw === "") return undefined;
+  const s = String(raw).trim();
+  if (/^(unlimited|none|off)$/i.test(s)) return null;
+  const parts = s
+    .split(/[,;\s]+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length === 0) fail(`invalid ${label}: empty list`);
+  const out = [];
+  for (const part of parts) {
+    if (/^default$/i.test(part)) {
+      out.push("f", "screenshots", "gh");
+      continue;
+    }
+    const cleaned = part.replace(/^\/+/, "").replace(/\/+$/, "");
+    if (!cleaned || cleaned.includes("..") || !/^[\w.!-]+(?:\/[\w.!-]+)*$/.test(cleaned)) {
+      fail(`invalid ${label} entry: ${JSON.stringify(part)}`);
+    }
+    out.push(cleaned);
+  }
+  return [...new Set(out)];
+}
+
 function wranglerKv(args) {
   return execFileSync(
     "pnpm",
@@ -127,6 +173,8 @@ const before = {
   maxUploadBytes: record.maxUploadBytes,
   maxVideoUploadBytes: record.maxVideoUploadBytes,
   retentionDays: record.retentionDays,
+  allowedKeyPrefixes: record.allowedKeyPrefixes,
+  maxKeyDepth: record.maxKeyDepth,
 };
 
 const patch = {};
@@ -158,6 +206,16 @@ if (clears.has("retention-days") || opts["retention-days"] !== undefined) {
     : parseCount(opts["retention-days"], "retention-days");
   patch.retentionDays = v;
 }
+if (clears.has("allowed-prefixes") || opts["allowed-prefixes"] !== undefined) {
+  const v = clears.has("allowed-prefixes")
+    ? null
+    : parseAllowedPrefixes(opts["allowed-prefixes"], "allowed-prefixes");
+  patch.allowedKeyPrefixes = v;
+}
+if (clears.has("max-key-depth") || opts["max-key-depth"] !== undefined) {
+  const v = clears.has("max-key-depth") ? null : parseDepth(opts["max-key-depth"], "max-key-depth");
+  patch.maxKeyDepth = v;
+}
 
 const changing = Object.keys(patch).length > 0;
 if (!changing) {
@@ -166,6 +224,9 @@ if (!changing) {
   console.log("\nNo flags — nothing updated. Examples:");
   console.log(
     `  node scripts/set-workspace-limits.mjs ${name} --max-storage 25GB --max-uploads-per-month 10000`,
+  );
+  console.log(
+    `  node scripts/set-workspace-limits.mjs ${name} --allowed-prefixes default --max-key-depth 8`,
   );
   console.log(`  node scripts/set-workspace-limits.mjs ${name} --clear-max-storage`);
   process.exit(0);
@@ -184,6 +245,8 @@ const after = {
   maxUploadBytes: record.maxUploadBytes,
   maxVideoUploadBytes: record.maxVideoUploadBytes,
   retentionDays: record.retentionDays,
+  allowedKeyPrefixes: record.allowedKeyPrefixes,
+  maxKeyDepth: record.maxKeyDepth,
 };
 
 console.log(`workspace : ${name} (${opts.local ? "local" : "remote"})`);

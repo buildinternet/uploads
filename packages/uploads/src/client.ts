@@ -170,6 +170,9 @@ function mapApiError(status: number, error: string, code?: string): UploadsError
   if (status === 400 && normalized === "invalid key") {
     return new UploadsError(error, "INVALID_KEY", status);
   }
+  if (code === "key_prefix_not_allowed" || code === "key_too_deep") {
+    return new UploadsError(error, "KEY_POLICY", status);
+  }
   // Prefer stable body.code — bare 429 is also used for write rate limits.
   if (status === 507 || code === "storage_quota_exceeded") {
     return new UploadsError(error, "STORAGE_QUOTA", status);

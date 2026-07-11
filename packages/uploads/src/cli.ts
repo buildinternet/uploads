@@ -118,6 +118,7 @@ function exitCode(err: unknown): number {
         return 2;
       case "UNAUTHORIZED":
       case "NOT_FOUND":
+      case "KEY_POLICY":
       case "STORAGE_QUOTA":
       case "UPLOAD_BUDGET":
         return 3;
@@ -146,6 +147,10 @@ function errorOut(err: unknown, json: boolean): void {
       if (err.code === "STORAGE_QUOTA" || err.code === "UPLOAD_BUDGET") {
         process.stderr.write(
           "hint: run `uploads usage` then delete objects or raise limits (`pnpm workspace:limits`)\n",
+        );
+      } else if (err.code === "KEY_POLICY") {
+        process.stderr.write(
+          "hint: use a typed destination (`--destination screenshots|gh`) or an allowed prefix; operators set allowlists with `pnpm workspace:limits --allowed-prefixes`\n",
         );
       } else if (err.status === 413 || err.message.toLowerCase().includes("too large")) {
         process.stderr.write(
