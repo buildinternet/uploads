@@ -39,6 +39,11 @@ export interface WorkspaceRecord {
    * Cap on successful puts in the current UTC calendar month. Omit for unlimited.
    */
   maxUploadsPerPeriod?: number;
+  /**
+   * Delete objects whose last-modified is older than this many days when
+   * purge-expired runs. Omit to skip retention. Configure via workspace:limits.
+   */
+  retentionDays?: number;
 }
 
 export type WorkspaceVars = {

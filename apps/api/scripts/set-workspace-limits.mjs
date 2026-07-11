@@ -8,7 +8,9 @@
  *     [--max-storage 25GB] \
  *     [--max-uploads-per-month 10000] \
  *     [--max-upload-bytes 25MB] \
+ *     [--retention-days 90] \
  *     [--clear-max-storage] [--clear-max-uploads-per-month] [--clear-max-upload-bytes] \
+ *     [--clear-retention-days] \
  *     [--local]
  *
  * Units: bare number = bytes (or count for uploads). Also accepts KB/MB/GB
@@ -123,6 +125,7 @@ const before = {
   maxStorageBytes: record.maxStorageBytes,
   maxUploadsPerPeriod: record.maxUploadsPerPeriod,
   maxUploadBytes: record.maxUploadBytes,
+  retentionDays: record.retentionDays,
 };
 
 const patch = {};
@@ -141,6 +144,12 @@ if (clears.has("max-upload-bytes") || opts["max-upload-bytes"] !== undefined) {
     ? null
     : parseBytes(opts["max-upload-bytes"], "max-upload-bytes");
   patch.maxUploadBytes = v;
+}
+if (clears.has("retention-days") || opts["retention-days"] !== undefined) {
+  const v = clears.has("retention-days")
+    ? null
+    : parseCount(opts["retention-days"], "retention-days");
+  patch.retentionDays = v;
 }
 
 const changing = Object.keys(patch).length > 0;
@@ -166,6 +175,7 @@ const after = {
   maxStorageBytes: record.maxStorageBytes,
   maxUploadsPerPeriod: record.maxUploadsPerPeriod,
   maxUploadBytes: record.maxUploadBytes,
+  retentionDays: record.retentionDays,
 };
 
 console.log(`workspace : ${name} (${opts.local ? "local" : "remote"})`);

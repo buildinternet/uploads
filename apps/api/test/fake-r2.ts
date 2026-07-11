@@ -7,6 +7,8 @@
 interface StoredObject {
   data: Uint8Array;
   contentType?: string;
+  /** R2 "uploaded" / last-modified; tests can backdate for retention. */
+  uploaded?: Date;
 }
 
 export class FakeR2Bucket {
@@ -18,7 +20,7 @@ export class FakeR2Bucket {
       size: obj.data.byteLength,
       etag: "fake-etag",
       httpEtag: '"fake-etag"',
-      uploaded: new Date(0),
+      uploaded: obj.uploaded ?? new Date(),
       version: "1",
       storageClass: "Standard",
       checksums: {},
@@ -45,9 +47,15 @@ export class FakeR2Bucket {
       httpMetadata instanceof Headers
         ? (httpMetadata.get("content-type") ?? undefined)
         : httpMetadata?.contentType;
-    const obj = { data, contentType };
+    const obj: StoredObject = { data, contentType, uploaded: new Date() };
     this.store.set(key, obj);
     return this.meta(key, obj);
+  }
+
+  /** Test helper: set last-modified for retention purge scenarios. */
+  setUploaded(key: string, uploaded: Date) {
+    const obj = this.store.get(key);
+    if (obj) obj.uploaded = uploaded;
   }
 
   async get(key: string) {
