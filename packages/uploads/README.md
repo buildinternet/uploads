@@ -1,6 +1,6 @@
 # @buildinternet/uploads
 
-CLI and client for **uploads.sh** — upload files, get public URLs, and produce GitHub-ready markdown. Successor to the R2 scripts in `buildinternet-skills/github-screenshots`.
+CLI and client for **uploads.sh** — upload files, get public URLs, and produce GitHub-ready markdown.
 
 ## CLI
 
