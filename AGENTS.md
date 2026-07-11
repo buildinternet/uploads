@@ -36,7 +36,7 @@ pnpm dev:web             # Astro site
 pnpm typecheck           # wrangler types + tsc across workspaces
 pnpm run deploy          # all workers; or deploy:api / deploy:web / deploy:mcp
 pnpm workspace:add <name> [--bucket <bucket>] [--binding X] [--local] \
-  [--max-storage 25GB] [--max-uploads-per-month N] [--max-upload-bytes 25MB]
+  [--no-default-limits] [--max-storage …]   # shared/agent limit template by default
 pnpm workspace:limits <name> [--max-storage …] [--max-video-bytes …] \
   [--allowed-prefixes default|f,screenshots,gh] [--max-key-depth 8] \
   [--clear-max-storage] [--clear-allowed-prefixes] […]

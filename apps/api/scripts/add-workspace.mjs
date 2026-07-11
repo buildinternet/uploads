@@ -9,11 +9,15 @@
  *     [--binding UPLOADS] [--public-base-url https://media.example.com] \
  *     [--account-id ...] [--access-key-id ...] [--secret-access-key ...] \
  *     [--max-storage 25GB] [--max-uploads-per-month 10000] [--max-upload-bytes 25MB] \
+ *     [--max-video-bytes 8MB] [--retention-days N] \
  *     [--allowed-prefixes default|f,screenshots,gh] [--max-key-depth 8] \
+ *     [--no-default-limits] # skip shared/agent template (start unlimited)
  *     [--local]             # write to wrangler dev's local KV instead of prod
  *
- * Limit flags are optional (omit = unlimited / unrestricted keys). Change later
- * with scripts/set-workspace-limits.mjs without re-minting tokens.
+ * By default, new workspaces get the shared/agent limit template (see
+ * workspace-limit-defaults.mjs / docs/ops.md). Explicit --max-* flags override
+ * individual fields; pass unlimited/none/off to clear one. Change later with
+ * scripts/set-workspace-limits.mjs without re-minting tokens.
  *
  * Default (no --bucket): the workspace is a "<name>/" prefix in the shared
  * uploads-default bucket, served at https://storage.uploads.sh/<name>/...
@@ -29,6 +33,7 @@
  */
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
+import { sharedAgentLimitFields } from "./workspace-limit-defaults.mjs";
 
 /** Match apps/api/src/secrets.ts: enc:v1: + base64url(iv || ct || tag). */
 function sealField(master, plaintext) {
@@ -48,8 +53,8 @@ for (let i = 0; i < rest.length; i++) {
   const flag = rest[i];
   if (!flag.startsWith("--")) fail(`unexpected argument: ${flag}`);
   const key = flag.slice(2);
-  if (key === "local") {
-    opts.local = true;
+  if (key === "local" || key === "no-default-limits") {
+    opts[key] = true;
     continue;
   }
   opts[key] = rest[++i];
@@ -60,10 +65,11 @@ function fail(msg) {
   process.exit(1);
 }
 
+/** @returns {number | null | undefined} number, null=clear/unlimited, undefined=flag omitted */
 function parseBytes(raw, label) {
   if (raw === undefined || raw === null || raw === "") return undefined;
   const s = String(raw).trim();
-  if (/^(unlimited|none|off)$/i.test(s)) return undefined;
+  if (/^(unlimited|none|off)$/i.test(s)) return null;
   const m = /^(\d+(?:\.\d+)?)\s*(b|bytes?|k|kb|kib|m|mb|mib|g|gb|gib)?$/i.exec(s);
   if (!m) fail(`invalid ${label}: ${JSON.stringify(raw)}`);
   const n = Number(m[1]);
@@ -87,19 +93,21 @@ function parseBytes(raw, label) {
   return Math.floor(n * mult);
 }
 
+/** @returns {number | null | undefined} */
 function parseCount(raw, label) {
   if (raw === undefined || raw === null || raw === "") return undefined;
   const s = String(raw).trim();
-  if (/^(unlimited|none|off)$/i.test(s)) return undefined;
+  if (/^(unlimited|none|off)$/i.test(s)) return null;
   const n = Number(s);
   if (!Number.isInteger(n) || n <= 0) fail(`invalid ${label}: ${JSON.stringify(raw)}`);
   return n;
 }
 
+/** @returns {number | null | undefined} */
 function parseDepth(raw, label) {
   if (raw === undefined || raw === null || raw === "") return undefined;
   const s = String(raw).trim();
-  if (/^(unlimited|none|off)$/i.test(s)) return undefined;
+  if (/^(unlimited|none|off)$/i.test(s)) return null;
   const n = Number(s);
   if (!Number.isInteger(n) || n < 1 || n > 64) {
     fail(`invalid ${label}: ${JSON.stringify(raw)} (use 1–64)`);
@@ -107,10 +115,11 @@ function parseDepth(raw, label) {
   return n;
 }
 
+/** @returns {string[] | null | undefined} */
 function parseAllowedPrefixes(raw, label) {
   if (raw === undefined || raw === null || raw === "") return undefined;
   const s = String(raw).trim();
-  if (/^(unlimited|none|off)$/i.test(s)) return undefined;
+  if (/^(unlimited|none|off)$/i.test(s)) return null;
   const parts = s
     .split(/[,;\s]+/)
     .map((p) => p.trim())
@@ -129,6 +138,13 @@ function parseAllowedPrefixes(raw, label) {
     out.push(cleaned);
   }
   return [...new Set(out)];
+}
+
+/** Set, clear, or leave alone a limit field (undefined = flag omitted). */
+function applyLimit(record, field, value) {
+  if (value === undefined) return;
+  if (value === null) delete record[field];
+  else record[field] = value;
 }
 
 if (!name || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(name)) {
@@ -176,18 +192,26 @@ const record = opts.bucket
       accessKeyId: opts["access-key-id"],
       secretAccessKey: opts["secret-access-key"],
     };
-const maxStorageBytes = parseBytes(opts["max-storage"], "max-storage");
-const maxUploadsPerPeriod = parseCount(opts["max-uploads-per-month"], "max-uploads-per-month");
-const maxUploadBytes = parseBytes(opts["max-upload-bytes"], "max-upload-bytes");
-const maxVideoUploadBytes = parseBytes(opts["max-video-bytes"], "max-video-bytes");
-const allowedKeyPrefixes = parseAllowedPrefixes(opts["allowed-prefixes"], "allowed-prefixes");
-const maxKeyDepth = parseDepth(opts["max-key-depth"], "max-key-depth");
-if (maxStorageBytes !== undefined) record.maxStorageBytes = maxStorageBytes;
-if (maxUploadsPerPeriod !== undefined) record.maxUploadsPerPeriod = maxUploadsPerPeriod;
-if (maxUploadBytes !== undefined) record.maxUploadBytes = maxUploadBytes;
-if (maxVideoUploadBytes !== undefined) record.maxVideoUploadBytes = maxVideoUploadBytes;
-if (allowedKeyPrefixes !== undefined) record.allowedKeyPrefixes = allowedKeyPrefixes;
-if (maxKeyDepth !== undefined) record.maxKeyDepth = maxKeyDepth;
+// Shared/agent template first; flags override (or --no-default-limits skips it).
+if (!opts["no-default-limits"]) {
+  Object.assign(record, sharedAgentLimitFields());
+}
+
+applyLimit(record, "maxStorageBytes", parseBytes(opts["max-storage"], "max-storage"));
+applyLimit(
+  record,
+  "maxUploadsPerPeriod",
+  parseCount(opts["max-uploads-per-month"], "max-uploads-per-month"),
+);
+applyLimit(record, "maxUploadBytes", parseBytes(opts["max-upload-bytes"], "max-upload-bytes"));
+applyLimit(record, "maxVideoUploadBytes", parseBytes(opts["max-video-bytes"], "max-video-bytes"));
+applyLimit(record, "retentionDays", parseCount(opts["retention-days"], "retention-days"));
+applyLimit(
+  record,
+  "allowedKeyPrefixes",
+  parseAllowedPrefixes(opts["allowed-prefixes"], "allowed-prefixes"),
+);
+applyLimit(record, "maxKeyDepth", parseDepth(opts["max-key-depth"], "max-key-depth"));
 
 const master = process.env.WORKSPACE_SECRETS_KEY;
 if (master && (record.accessKeyId || record.secretAccessKey)) {
@@ -196,6 +220,16 @@ if (master && (record.accessKeyId || record.secretAccessKey)) {
 }
 
 Object.keys(record).forEach((k) => record[k] === undefined && delete record[k]);
+
+const appliedLimits = {
+  maxStorageBytes: record.maxStorageBytes,
+  maxUploadsPerPeriod: record.maxUploadsPerPeriod,
+  maxUploadBytes: record.maxUploadBytes,
+  maxVideoUploadBytes: record.maxVideoUploadBytes,
+  retentionDays: record.retentionDays,
+  allowedKeyPrefixes: record.allowedKeyPrefixes,
+  maxKeyDepth: record.maxKeyDepth,
+};
 
 execFileSync(
   "pnpm",
@@ -214,8 +248,14 @@ execFileSync(
   { stdio: "inherit" },
 );
 
-console.log(`\nworkspace : ${name}`);
+console.log(`\nworkspace : ${name}${opts.local ? " (local)" : ""}`);
 console.log(`token     : ${token}`);
+console.log(
+  "limits    :",
+  opts["no-default-limits"] && !Object.values(appliedLimits).some((v) => v !== undefined)
+    ? "(none — unlimited)"
+    : JSON.stringify(appliedLimits),
+);
 console.log("\nStore the token now — only its hash is kept in KV.");
 console.log(
   `try it    : curl -H "Authorization: Bearer ${token}" https://api.uploads.sh/v1/${name}/files`,

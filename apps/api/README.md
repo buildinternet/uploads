@@ -34,7 +34,8 @@ scripts/
 pnpm dev                              # wrangler dev (:8787)
 pnpm run deploy                       # D1 migrate + production deploy
 pnpm types                            # regenerate worker-configuration.d.ts
-pnpm workspace:add <name> --local     # dev KV registration
+pnpm workspace:add <name> --local     # dev KV; shared/agent limits applied by default
+pnpm workspace:add <name> --no-default-limits --local  # unlimited (legacy create)
 pnpm workspace:limits <name> --allowed-prefixes default --max-key-depth 8
 ```
 

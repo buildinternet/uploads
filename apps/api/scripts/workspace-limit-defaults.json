@@ -1,0 +1,8 @@
+{
+  "maxStorageBytes": 25000000000,
+  "maxUploadsPerPeriod": 10000,
+  "maxUploadBytes": 25000000,
+  "maxVideoUploadBytes": 8000000,
+  "allowedKeyPrefixes": ["f", "screenshots", "gh"],
+  "maxKeyDepth": 8
+}
