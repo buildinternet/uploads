@@ -4,11 +4,11 @@ CLI and client for **uploads.sh** — upload files, get public URLs, and produce
 
 ## CLI
 
-Binary: **`uploads`**. Install globally (or use a pinned `npx` one-shot):
+Binary: **`uploads`**. Install globally (or use an `npx` one-shot):
 
 ```bash
 npm install --global @buildinternet/uploads
-npx @buildinternet/uploads@0.1.0 --help
+npx @buildinternet/uploads --help
 ```
 
 ```bash

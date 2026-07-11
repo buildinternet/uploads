@@ -15,10 +15,10 @@ uploads login
 uploads doctor
 ```
 
-Or use a pinned package without a global install:
+Or run it once without a global install:
 
 ```bash
-npx @buildinternet/uploads@0.1.0 login
+npx @buildinternet/uploads login
 ```
 
 Interactive login prompts without echoing the enrollment code. For automation, use an
@@ -61,6 +61,11 @@ belongs in routine-agent configuration.
 The response shows the enrollment code once. Transfer only that code to the routine
 agent. It expires after 10 minutes and is consumed by a successful exchange. Invalid,
 expired, and consumed codes receive the same public error shape.
+
+Enrollment creation accepts `files:delete` only when the administrator explicitly
+includes it in `scopes`. Keep the default read/write scopes for routine agents;
+reserve delete for short-lived maintenance or smoke-test credentials that clean up
+their own objects.
 
 ## Token policy
 

@@ -18,11 +18,11 @@ uploads login
 uploads attach ./before.png ./after.png
 ```
 
-For a one-off or pinned run without a global install:
+For a one-off run without a global install:
 
 ```bash
-npx @buildinternet/uploads@0.3.0 login
-npx @buildinternet/uploads@0.3.0 attach ./before.png ./after.png
+npx @buildinternet/uploads login
+npx @buildinternet/uploads attach ./before.png ./after.png
 ```
 
 `attach` detects the GitHub repository and current PR through `gh`, uploads all

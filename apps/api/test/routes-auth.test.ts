@@ -67,6 +67,9 @@ function env(
             }
             return null;
           },
+          async run() {
+            return { success: true, meta: { changes: 1 }, results: [] };
+          },
         };
       },
     },
@@ -95,6 +98,43 @@ describe("auth routes", () => {
     );
     expect(response.status).toBe(400);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("allows delete scope when explicitly requested for an enrollment", async () => {
+    const response = await app.request(
+      "/admin/enrollments",
+      {
+        method: "POST",
+        headers: { Authorization: "Bearer admin-secret", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: "remote-mcp-smoke",
+          scopes: ["files:read", "files:write", "files:delete"],
+        }),
+      },
+      env(),
+    );
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({
+      label: "remote-mcp-smoke",
+      scopes: ["files:read", "files:write", "files:delete"],
+    });
+  });
+
+  it("keeps enrollment scopes read/write by default", async () => {
+    const response = await app.request(
+      "/admin/enrollments",
+      {
+        method: "POST",
+        headers: { Authorization: "Bearer admin-secret", "Content-Type": "application/json" },
+        body: JSON.stringify({ label: "routine-agent" }),
+      },
+      env(),
+    );
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({
+      label: "routine-agent",
+      scopes: ["files:read", "files:write"],
+    });
   });
 
   it("uses one uniform, non-cacheable public exchange error", async () => {

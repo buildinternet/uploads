@@ -8,6 +8,7 @@
     "dev": "wrangler dev",
     "predeploy": "pnpm --filter @buildinternet/uploads run build",
     "deploy": "node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
+    "bundle:check": "wrangler deploy --dry-run --outdir .wrangler/bundle-check",
     "types": "wrangler types",
     "typecheck": "wrangler types && tsc --noEmit",
     "pretest": "pnpm --filter @buildinternet/uploads run build",
