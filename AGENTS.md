@@ -124,6 +124,28 @@ records; any future global secrets go through `wrangler secret put` (prod) or
 - Follow Cloudflare Workers best practices: no floating promises, no
   module-level request state, secrets never in config or source.
 
+## Pull requests
+
+Write PR descriptions for humans first, not only for reviewers who already
+know the code. Prefer plain language over dense bullet dumps of identifiers.
+
+**Shape (compact):**
+
+1. **In plain terms** — one short paragraph: what this changes and why anyone
+   should care (the problem, the outcome). Avoid leading with file paths,
+   type names, or flag lists.
+2. **What it does / what it is not** — a few concrete bullets; call out
+   opt-in vs breaking, and anything deliberately deferred.
+3. **How to try it** — only when useful (commands, operator flags).
+4. **Technical notes** — optional short section for implementers (modules,
+   error codes, test commands). Keep it secondary to the plain summary.
+5. **Test plan** — checkboxes for what was run / what remains.
+
+Do **not** auto-request CodeRabbit on every PR (org policy: on-demand only).
+Do **not** invent conventional-commit title rules; keep titles short and
+descriptive. User-visible `@buildinternet/uploads` changes still need a
+changeset; do not merge “version packages” PRs unless shipping is intentional.
+
 ## Environment files
 
 - `.env.example` (repo root) — client vars (`UPLOADS_API_URL`,
