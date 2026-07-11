@@ -28,6 +28,30 @@ export function badKey(key: string): boolean {
   );
 }
 
+/** Sanitize a bare basename for object keys. */
+export function sanitizeKeyBasename(name: string): string {
+  const cleaned = name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return cleaned || "file";
+}
+
+/** Short url-safe id for auto-prefix paths (`f/<id>/…`). */
+export function shortUploadId(bytes = 9): string {
+  return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(bytes))))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+/**
+ * Bare filenames (no `/`) get `f/<shortid>/<name>` so the workspace root doesn't
+ * accumulate loose objects. Nested keys (`screenshots/…`, `gh/…`) pass through.
+ * Default ON; opt out with `WorkspaceRecord.autoPrefixBareKeys === false`.
+ */
+export function governUploadKey(key: string, autoPrefix = true): string {
+  if (!autoPrefix || key.includes("/")) return key;
+  return `f/${shortUploadId()}/${sanitizeKeyBasename(key)}`;
+}
+
 /**
  * Rejected input to a file operation (always a caller error, never a storage
  * failure). Carries the REST status and error body so both surfaces report the
@@ -74,7 +98,8 @@ export async function putObject(
   bytes: Uint8Array,
   workspaceName: string,
 ): Promise<{ key: string; url: string | null; size: number; contentType: string }> {
-  if (badKey(key)) throw new FileOpError("invalid key");
+  const finalKey = governUploadKey(key, ws.autoPrefixBareKeys !== false);
+  if (badKey(finalKey)) throw new FileOpError("invalid key");
   if (bytes.byteLength === 0) throw new FileOpError("empty body");
 
   const inspection = inspectUpload(bytes, resolveUploadPolicy(ws));
@@ -83,17 +108,16 @@ export async function putObject(
     throw new FileOpError(error, inspection.status, extra);
   }
 
-  const store = storage(env, ws);
-  const prev = await existingSize(store, key);
+  const store = await storage(env, ws);
+  const prev = await existingSize(store, finalKey);
   const newSize = bytes.byteLength;
   const deltaBytes = prev === null ? newSize : newSize - prev;
 
-  // Enforce workspace budgets before writing (omit limits on the record = unlimited).
   const usage = await getWorkspaceUsage(env.DB, workspaceName);
   const denial = checkPutBudget(usage, ws, { bytes: deltaBytes, uploads: 1 });
   if (denial) throw new FileOpError(denial.message, denial.status, denial.detail);
 
-  await store.upload(key, bytes, {
+  await store.upload(finalKey, bytes, {
     contentType: inspection.contentType,
     cacheControl: UPLOAD_CACHE_CONTROL,
   });
@@ -105,8 +129,8 @@ export async function putObject(
   });
 
   return {
-    key,
-    url: publicUrl(storageConfig(env, ws), key),
+    key: finalKey,
+    url: publicUrl(await storageConfig(env, ws), finalKey),
     size: newSize,
     contentType: inspection.contentType,
   };
@@ -118,8 +142,9 @@ export async function listObjects(
   opts: { prefix?: string; limit?: number; cursor?: string } = {},
 ) {
   const limit = Math.min(Math.max(opts.limit ?? 100, 1), 1000);
-  const result = await storage(env, ws).list({ prefix: opts.prefix, limit, cursor: opts.cursor });
-  const cfg = storageConfig(env, ws);
+  const store = await storage(env, ws);
+  const result = await store.list({ prefix: opts.prefix, limit, cursor: opts.cursor });
+  const cfg = await storageConfig(env, ws);
   return {
     items: result.items.map((item: { key: string }) => ({
       ...item,
@@ -138,7 +163,7 @@ export async function deleteObject(
 ): Promise<{ key: string; deleted: true }> {
   if (badKey(key)) throw new FileOpError("invalid key");
 
-  const store = storage(env, ws);
+  const store = await storage(env, ws);
   const prev = await existingSize(store, key);
 
   await store.delete(key);

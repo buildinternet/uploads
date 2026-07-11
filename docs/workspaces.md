@@ -17,12 +17,14 @@ D1 table `workspace_usage` tracks net `bytes` / `objects` and monthly
 Optional **budgets** live on the workspace registry record (KV), same as
 `maxUploadBytes`:
 
-| Field                 | Meaning                                         |
-| --------------------- | ----------------------------------------------- |
-| `maxStorageBytes`     | Cap on net stored bytes                         |
-| `maxUploadsPerPeriod` | Cap on puts in the current UTC calendar month   |
-| `maxUploadBytes`      | Cap on a single object (default 25 MiB)         |
-| `retentionDays`       | Age (days) after which purge-expired may delete |
+| Field                 | Meaning                                          |
+| --------------------- | ------------------------------------------------ |
+| `maxStorageBytes`     | Cap on net stored bytes                          |
+| `maxUploadsPerPeriod` | Cap on puts in the current UTC calendar month    |
+| `maxUploadBytes`      | Cap on a single image (default 25 MiB)           |
+| `maxVideoUploadBytes` | Cap on video/mp4\|webm (default: same as images) |
+| `retentionDays`       | Age (days) for purge-expired + daily worker cron |
+| `autoPrefixBareKeys`  | Default true: bare keys become `f/<id>/<name>`   |
 
 Omit a field for unlimited (or no retention). Puts that would exceed storage
 return **507** with `code: "storage_quota_exceeded"`; monthly upload budget

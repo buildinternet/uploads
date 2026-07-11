@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
-import app from "../src/index";
+import { app } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { UsageFakeD1 } from "./usage-fake-d1";
 

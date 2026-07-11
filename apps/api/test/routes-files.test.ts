@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
-import app from "../src/index";
+import { app } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 
 const TOKEN = "secret-token";
@@ -66,8 +66,9 @@ function putShot(
   env: Parameters<typeof app.request>[2],
   { body = PNG as BodyInit, headers = {} as Record<string, string> } = {},
 ) {
+  // Nested key so auto-prefix of bare basenames does not rewrite the path.
   return app.request(
-    "/v1/default/files/shot.png",
+    "/v1/default/files/screenshots/shot.png",
     {
       method: "PUT",
       headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png", ...headers },
@@ -82,17 +83,18 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
     const { env, bucket } = await makeEnv();
     const res = await putShot(env);
     expect(res.status).toBe(201);
-    const json = (await res.json()) as { contentType: string; url: string };
+    const json = (await res.json()) as { contentType: string; url: string; key: string };
     expect(json.contentType).toBe("image/png");
-    expect(json.url).toBe("https://storage.uploads.sh/default/shot.png");
-    expect(bucket.store.has("default/shot.png")).toBe(true);
+    expect(json.key).toBe("screenshots/shot.png");
+    expect(json.url).toBe("https://storage.uploads.sh/default/screenshots/shot.png");
+    expect(bucket.store.has("default/screenshots/shot.png")).toBe(true);
   });
 
   it("overrides a lying Content-Type header with the sniffed type", async () => {
     const { env, bucket } = await makeEnv();
     const res = await putShot(env, { headers: { "Content-Type": "image/svg+xml" } });
     expect(res.status).toBe(201);
-    expect(bucket.store.get("default/shot.png")?.contentType).toBe("image/png");
+    expect(bucket.store.get("default/screenshots/shot.png")?.contentType).toBe("image/png");
   });
 
   it("rejects a non-image payload with 415", async () => {

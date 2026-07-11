@@ -8,3 +8,7 @@
 #   cd apps/api && pnpm exec wrangler secret put ADMIN_TOKEN
 # If unset, /admin/* rejects every request (fails closed).
 ADMIN_TOKEN=
+
+# Optional: encrypt BYO S3 keys in REGISTRY KV (openssl rand -base64 32).
+# Production: wrangler secret put WORKSPACE_SECRETS_KEY
+WORKSPACE_SECRETS_KEY=

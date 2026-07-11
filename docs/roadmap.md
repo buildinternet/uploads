@@ -4,28 +4,18 @@
   (`uploads mcp`, tools mirror the CLI commands) and a remote worker on
   `agents.uploads.sh` (alt `mcp.uploads.sh`) (`apps/mcp`, standalone worker, per-workspace bearer auth
   like REST, put/list/delete/health).
-- **Presigned upload URLs** (`POST /v1/sign`) via files-sdk `signedUploadUrl()`
-  — needs the hybrid-mode HTTP credentials above; lets clients PUT large files
-  straight to the bucket.
-- **Web UI**: files-sdk ships `createFilesRouter` + a browser client
-  (`files-sdk/client`, `files-sdk/hono`) — mount it in the worker and the Astro
-  app gets list/upload/download against the same bucket with per-operation
-  authorization, without hand-rolling more REST.
-- **Key/path governance** — today any authenticated client can write to any
-  key in its workspace's bucket, which is fine for an internal audience but
-  not long-term (especially in `uploads-default`). Future passes:
-  - Bare filenames (no `/`) get an auto-generated unique prefix (e.g.
-    `f/<shortid>/shot.png`) instead of landing in the bucket root — the root
-    should never accumulate a million loose objects.
-  - Typed destinations: a category like `screenshots` routes to its own
-    prefix convention automatically (what the github-screenshots skill does
-    by hand today with `screenshots/<repo>/<ref>/…`).
-  - Per-workspace key policy in the registry record (allowed prefixes,
-    max depth, reserved roots) enforced at upload time.
-- **Encrypt BYO-bucket credentials at rest** — workspace records for external
-  buckets carry S3 keys in KV; before opening to outside tenants, wrap those
-  fields with an encryption key held as a Worker secret so KV read access
-  alone doesn't yield credentials.
+- **Presigned upload URLs** — shipped as `POST /v1/:workspace/files/sign`
+  (files-sdk `signedUploadUrl()`; needs HTTP S3 credentials on the workspace).
+- **Web UI** — lightweight browser console at `/console` on the Astro site;
+  longer-term: files-sdk `createFilesRouter` + browser client for full browse/manage.
+- **Key/path governance** — bare filenames auto-prefix to `f/<shortid>/<name>`
+  (opt out with `autoPrefixBareKeys: false`). Still open:
+  - Typed destinations (`screenshots/…`) as first-class policy
+  - Per-workspace allowed prefixes / max depth / reserved roots
+- **Encrypt BYO-bucket credentials at rest** — shipped when
+  `WORKSPACE_SECRETS_KEY` is set (`enc:v1:…` AES-GCM on access/secret keys).
+  Re-write existing plaintext records to encrypt; rotate key carefully.
+- **Retention cron** — daily Worker cron sweeps workspaces with `retentionDays`.
 - **More providers**: add cases to `packages/storage` (`s3`, `gcs`, …).
 - **Point `github-screenshots` at this API** — replaces its bundled SigV4
   script with one authenticated PUT.

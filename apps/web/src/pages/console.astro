@@ -1,0 +1,133 @@
+---
+// Minimal operator console: paste a bearer token, list usage + files via the public API.
+// No server-side secrets — token stays in the browser. Scaffold toward a fuller files-sdk UI.
+const API_DEFAULT = "https://api.uploads.sh";
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>uploads.sh console</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0813;
+        --panel: #120d1e;
+        --fg: #e6dff5;
+        --muted: #8a84a8;
+        --accent: #b794ff;
+        --border: #2a2240;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14px/1.5 var(--mono);
+        padding: 32px 20px 48px;
+      }
+      main { max-width: 720px; margin: 0 auto; display: grid; gap: 16px; }
+      h1 { font-size: 1.15rem; font-weight: 600; margin: 0; }
+      p.muted { color: var(--muted); margin: 0; font-size: 0.9rem; }
+      label { display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+      input {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--fg);
+        padding: 10px 12px;
+        font: inherit;
+      }
+      .row { display: flex; flex-wrap: wrap; gap: 10px; }
+      button {
+        background: var(--accent);
+        color: #120d1e;
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 14px;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+      pre {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 14px;
+        overflow: auto;
+        max-height: 50vh;
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      a { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>uploads console</h1>
+      <p class="muted">
+        Browser-only scaffold. Token never leaves your machine. Prefer
+        <code>uploads usage</code> / CLI for production ops. See
+        <a href="https://github.com/buildinternet/uploads/blob/main/docs/ops.md">ops runbook</a>.
+      </p>
+      <label>
+        API base
+        <input id="api" type="url" value={API_DEFAULT} autocomplete="off" />
+      </label>
+      <label>
+        Workspace
+        <input id="ws" type="text" value="default" autocomplete="off" />
+      </label>
+      <label>
+        Bearer token
+        <input id="token" type="password" placeholder="up_…" autocomplete="off" />
+      </label>
+      <div class="row">
+        <button type="button" id="btn-usage">GET usage</button>
+        <button type="button" id="btn-list" class="secondary">List files</button>
+        <button type="button" id="btn-reconcile" class="secondary">Reconcile</button>
+      </div>
+      <pre id="out">Ready.</pre>
+    </main>
+    <script>
+      const out = document.getElementById("out");
+      function cfg() {
+        return {
+          api: document.getElementById("api").value.replace(/\/$/, ""),
+          ws: document.getElementById("ws").value.trim(),
+          token: document.getElementById("token").value.trim(),
+        };
+      }
+      async function call(path, method = "GET") {
+        const { api, ws, token } = cfg();
+        if (!token) {
+          out.textContent = "Paste a bearer token first.";
+          return;
+        }
+        out.textContent = "…";
+        try {
+          const res = await fetch(`${api}/v1/${encodeURIComponent(ws)}${path}`, {
+            method,
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const text = await res.text();
+          let body = text;
+          try {
+            body = JSON.stringify(JSON.parse(text), null, 2);
+          } catch {}
+          out.textContent = `HTTP ${res.status}\n${body}`;
+        } catch (e) {
+          out.textContent = String(e);
+        }
+      }
+      document.getElementById("btn-usage").onclick = () => call("/usage");
+      document.getElementById("btn-list").onclick = () => call("/files?limit=50");
+      document.getElementById("btn-reconcile").onclick = () => call("/usage/reconcile", "POST");
+    </script>
+  </body>
+</html>

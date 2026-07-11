@@ -29,6 +29,18 @@
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 
+/** Match apps/api/src/secrets.ts: enc:v1: + base64url(iv || ct || tag). */
+function sealField(master, plaintext) {
+  if (!master || !plaintext || String(plaintext).startsWith("enc:v1:")) return plaintext;
+  if (master.length < 16) fail("WORKSPACE_SECRETS_KEY must be at least 16 characters");
+  const key = crypto.createHash("sha256").update(master).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const enc = Buffer.concat([cipher.update(String(plaintext), "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `enc:v1:${Buffer.concat([iv, enc, tag]).toString("base64url")}`;
+}
+
 const [name, ...rest] = process.argv.slice(2);
 const opts = {};
 for (let i = 0; i < rest.length; i++) {
@@ -131,9 +143,17 @@ const record = opts.bucket
 const maxStorageBytes = parseBytes(opts["max-storage"], "max-storage");
 const maxUploadsPerPeriod = parseCount(opts["max-uploads-per-month"], "max-uploads-per-month");
 const maxUploadBytes = parseBytes(opts["max-upload-bytes"], "max-upload-bytes");
+const maxVideoUploadBytes = parseBytes(opts["max-video-bytes"], "max-video-bytes");
 if (maxStorageBytes !== undefined) record.maxStorageBytes = maxStorageBytes;
 if (maxUploadsPerPeriod !== undefined) record.maxUploadsPerPeriod = maxUploadsPerPeriod;
 if (maxUploadBytes !== undefined) record.maxUploadBytes = maxUploadBytes;
+if (maxVideoUploadBytes !== undefined) record.maxVideoUploadBytes = maxVideoUploadBytes;
+
+const master = process.env.WORKSPACE_SECRETS_KEY;
+if (master && (record.accessKeyId || record.secretAccessKey)) {
+  if (record.accessKeyId) record.accessKeyId = sealField(master, record.accessKeyId);
+  if (record.secretAccessKey) record.secretAccessKey = sealField(master, record.secretAccessKey);
+}
 
 Object.keys(record).forEach((k) => record[k] === undefined && delete record[k]);
 

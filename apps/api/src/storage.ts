@@ -1,7 +1,8 @@
 import { createStorage, publicUrl, type StorageConfig } from "@uploads/storage";
+import { openCredentialFields } from "./secrets";
 import type { WorkspaceRecord } from "./workspace";
 
-export function storageConfig(env: Env, ws: WorkspaceRecord): StorageConfig {
+export async function storageConfig(env: Env, ws: WorkspaceRecord): Promise<StorageConfig> {
   let binding: R2Bucket | undefined;
   if (ws.binding) {
     const candidate: unknown = Reflect.get(env, ws.binding);
@@ -10,6 +11,10 @@ export function storageConfig(env: Env, ws: WorkspaceRecord): StorageConfig {
     }
     binding = candidate as R2Bucket;
   }
+  const opened = await openCredentialFields(env.WORKSPACE_SECRETS_KEY, {
+    accessKeyId: ws.accessKeyId,
+    secretAccessKey: ws.secretAccessKey,
+  });
   return {
     provider: ws.provider,
     bucket: ws.bucket,
@@ -17,13 +22,13 @@ export function storageConfig(env: Env, ws: WorkspaceRecord): StorageConfig {
     publicBaseUrl: ws.publicBaseUrl,
     r2Binding: binding,
     accountId: ws.accountId,
-    accessKeyId: ws.accessKeyId,
-    secretAccessKey: ws.secretAccessKey,
+    accessKeyId: opened.accessKeyId,
+    secretAccessKey: opened.secretAccessKey,
   };
 }
 
-export function storage(env: Env, ws: WorkspaceRecord) {
-  return createStorage(storageConfig(env, ws));
+export async function storage(env: Env, ws: WorkspaceRecord) {
+  return createStorage(await storageConfig(env, ws));
 }
 
 export { publicUrl };

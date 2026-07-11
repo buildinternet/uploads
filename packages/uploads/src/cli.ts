@@ -142,6 +142,17 @@ function errorOut(err: unknown, json: boolean): void {
     const msg = payload.error;
     if (msg.includes("\n")) process.stderr.write(`${msg}\n`);
     else process.stderr.write(`error: ${msg}\n`);
+    if (err instanceof UploadsError) {
+      if (err.code === "STORAGE_QUOTA" || err.code === "UPLOAD_BUDGET") {
+        process.stderr.write(
+          "hint: run `uploads usage` then delete objects or raise limits (`pnpm workspace:limits`)\n",
+        );
+      } else if (err.status === 413 || err.message.toLowerCase().includes("too large")) {
+        process.stderr.write(
+          "hint: file exceeds workspace size policy (images vs video may differ); compress or raise --max-upload-bytes / --max-video-bytes\n",
+        );
+      }
+    }
   }
 }
 

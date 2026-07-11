@@ -33,7 +33,7 @@ export async function reconcileWorkspaceUsage(
   now = new Date(),
 ): Promise<ReconcileResult> {
   const previous = await getWorkspaceUsage(env.DB, workspaceName, now);
-  const store = storage(env, ws);
+  const store = await storage(env, ws);
 
   let bytes = 0;
   let objects = 0;

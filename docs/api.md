@@ -5,16 +5,17 @@ Unknown workspaces and bad tokens are indistinguishable (both 401).
 
 ## Routes
 
-| Route                                             | Description                                                                                |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `GET /health`                                     | Liveness (no auth)                                                                         |
-| `PUT /v1/:workspace/files/:key`                   | Upload raw body; `Content-Type` header is stored. Returns `{ workspace, key, url, size }`  |
-| `GET /v1/:workspace/files?prefix=&limit=&cursor=` | List objects                                                                               |
-| `GET /v1/:workspace/files/:key`                   | Object metadata                                                                            |
-| `DELETE /v1/:workspace/files/:key`                | Delete object                                                                              |
-| `GET /v1/:workspace/usage`                        | Workspace usage snapshot (`bytes`, `objects`, `uploadsInPeriod`, …); requires `files:read` |
-| `POST /v1/:workspace/usage/reconcile`             | Rebuild `bytes`/`objects` from storage; requires `files:write`                             |
-| `POST /v1/:workspace/usage/purge-expired`         | Delete objects older than `retentionDays`, then reconcile; requires `files:delete`         |
+| Route                                             | Description                                                                                          |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `GET /health`                                     | Liveness (no auth)                                                                                   |
+| `PUT /v1/:workspace/files/:key`                   | Upload raw body (sniffed type). Bare keys → `f/<id>/<name>`. Returns `{ workspace, key, url, size }` |
+| `POST /v1/:workspace/files/sign`                  | Presigned upload (`signedUploadUrl`); needs HTTP S3 credentials on the workspace                     |
+| `GET /v1/:workspace/files?prefix=&limit=&cursor=` | List objects                                                                                         |
+| `GET /v1/:workspace/files/:key`                   | Object metadata                                                                                      |
+| `DELETE /v1/:workspace/files/:key`                | Delete object                                                                                        |
+| `GET /v1/:workspace/usage`                        | Workspace usage snapshot (`bytes`, `objects`, `uploadsInPeriod`, …); requires `files:read`           |
+| `POST /v1/:workspace/usage/reconcile`             | Rebuild `bytes`/`objects` from storage; requires `files:write`                                       |
+| `POST /v1/:workspace/usage/purge-expired`         | Delete objects older than `retentionDays`, then reconcile; requires `files:delete`                   |
 
 `url` in responses is the public URL when the workspace has a
 `publicBaseUrl`, otherwise `null`.

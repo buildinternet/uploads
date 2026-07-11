@@ -37,7 +37,7 @@ pnpm typecheck           # wrangler types + tsc across workspaces
 pnpm run deploy          # all workers; or deploy:api / deploy:web / deploy:mcp
 pnpm workspace:add <name> [--bucket <bucket>] [--binding X] [--local] \
   [--max-storage 25GB] [--max-uploads-per-month N] [--max-upload-bytes 25MB]
-pnpm workspace:limits <name> [--max-storage …] [--clear-max-storage] […]
+pnpm workspace:limits <name> [--max-storage …] [--max-video-bytes …] [--clear-max-storage] […]
 pnpm uploads put <file> --env-file .env   # CLI (builds package first)
 pnpm uploads put <file> --pr <num> --comment   # PR attachment + managed GitHub comment
 ```
@@ -48,6 +48,9 @@ Use `pnpm run deploy` (not bare `pnpm deploy` — that's pnpm's built-in).
 also applies remote migrations when `apps/api/migrations/**` changes
 (secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`). Production
 worker deploys normally happen via Workers Builds on push to main.
+
+Operator runbook: [docs/ops.md](docs/ops.md). Daily retention cron on the API
+worker; BYO secrets use `WORKSPACE_SECRETS_KEY`; bare upload keys get `f/<id>/…`.
 
 ### Releasing `@buildinternet/uploads` (changesets)
 

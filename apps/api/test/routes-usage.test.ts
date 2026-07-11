@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
-import app from "../src/index";
+import { app } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { usagePeriodStart } from "../src/usage";
 import { UsageFakeD1 } from "./usage-fake-d1";
@@ -65,7 +65,7 @@ describe("GET /v1/:workspace/usage + put/delete metering", () => {
     const { env } = await makeEnv();
 
     const put = await app.request(
-      "/v1/default/files/shot.png",
+      "/v1/default/files/screenshots/shot.png",
       {
         method: "PUT",
         headers: { ...auth, "Content-Type": "image/png" },
@@ -74,6 +74,7 @@ describe("GET /v1/:workspace/usage + put/delete metering", () => {
       env,
     );
     expect(put.status).toBe(201);
+    const putBody = (await put.json()) as { key: string };
 
     let usage = await (await app.request("/v1/default/usage", { headers: auth }, env)).json();
     expect(usage).toMatchObject({
@@ -83,7 +84,7 @@ describe("GET /v1/:workspace/usage + put/delete metering", () => {
     });
 
     const del = await app.request(
-      "/v1/default/files/shot.png",
+      `/v1/default/files/${putBody.key}`,
       { method: "DELETE", headers: auth },
       env,
     );
