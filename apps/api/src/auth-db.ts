@@ -177,16 +177,18 @@ export async function findEnrollmentPage(
   db: D1Database,
   pageId: string,
   now = new Date(),
-): Promise<{ expiresAt: string; used: boolean } | null> {
+): Promise<{ workspace: string; expiresAt: string; used: boolean } | null> {
   if (!/^upi_[A-Za-z0-9_-]{16}$/.test(pageId)) return null;
   const record = await db
     .prepare(
-      `SELECT expires_at, used_at FROM auth_enrollments
+      `SELECT workspace, expires_at, used_at FROM auth_enrollments
        WHERE page_id = ? AND expires_at > ? LIMIT 1`,
     )
     .bind(pageId, now.toISOString())
-    .first<Pick<EnrollmentRecord, "expires_at" | "used_at">>();
-  return record ? { expiresAt: record.expires_at, used: record.used_at !== null } : null;
+    .first<Pick<EnrollmentRecord, "workspace" | "expires_at" | "used_at">>();
+  return record
+    ? { workspace: record.workspace, expiresAt: record.expires_at, used: record.used_at !== null }
+    : null;
 }
 
 export async function exchangeEnrollment(

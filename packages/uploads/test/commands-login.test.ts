@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveEnrollmentCode, runLogin, validateEnrollmentCode } from "../src/commands/login.js";
-import { invitePageUrl, parseScopes, runAdmin } from "../src/commands/admin-enrollment.js";
+import {
+  inviteMagicLink,
+  invitePageUrl,
+  parseScopes,
+  runAdmin,
+} from "../src/commands/admin-enrollment.js";
 import { parseCommandArgs } from "../src/cli-args.js";
 import { loadConfigFile, writeConfigKeys } from "../src/config-file.js";
 
@@ -188,6 +193,53 @@ describe("admin enrollment", () => {
     expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))).toEqual({
       workspace: "default",
     });
+  });
+
+  const enrollmentResponse = () =>
+    response(
+      {
+        pageId: "upi_abcdefghijklmnop",
+        code: "upe_abcdefghijklmnopqrstuvwxyz012345",
+        expiresAt: "2030-01-01T00:00:00Z",
+        tokenExpiresAt: "2030-02-01T00:00:00Z",
+      },
+      201,
+    );
+
+  it("prints a self-contained magic link by default", async () => {
+    process.env.ADMIN_TOKEN = "admin-secret";
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(enrollmentResponse());
+    const output = captureOutput();
+    expect(await runAdmin(["invite", "create"], {})).toBe(0);
+    expect(output.out()).toContain(
+      "https://uploads.sh/invite?id=upi_abcdefghijklmnop#code=upe_abcdefghijklmnopqrstuvwxyz012345",
+    );
+    expect(output.out()).not.toContain("share separately");
+  });
+
+  it("prints a non-secret page URL and separate code with --separate-code", async () => {
+    process.env.ADMIN_TOKEN = "admin-secret";
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(enrollmentResponse());
+    const output = captureOutput();
+    expect(await runAdmin(["invite", "create", "--separate-code"], {})).toBe(0);
+    expect(output.out()).toContain(
+      "Invite page: https://uploads.sh/invite?id=upi_abcdefghijklmnop",
+    );
+    expect(output.out()).toContain(
+      "One-time code (share separately): upe_abcdefghijklmnopqrstuvwxyz012345",
+    );
+    expect(output.out()).not.toContain("#code=");
+  });
+
+  it("carries the one-time code in the magic link fragment", () => {
+    expect(
+      inviteMagicLink(
+        "https://uploads.sh/invite?id=upi_abcdefghijklmnop",
+        "upe_abcdefghijklmnopqrstuvwxyz012345",
+      ),
+    ).toBe(
+      "https://uploads.sh/invite?id=upi_abcdefghijklmnop#code=upe_abcdefghijklmnopqrstuvwxyz012345",
+    );
   });
 
   it("derives or overrides the invite page origin", () => {

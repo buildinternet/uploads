@@ -1,11 +1,13 @@
 import { createEnrollment } from "../client.js";
-import { flagInt, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
+import { flagBool, flagInt, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
 
 const HELP = `uploads admin invite create [options]
 
 Admin-only: create a short-lived invitation for an existing workspace.
-The invitation page ID is not a credential; share its URL and the one-time code
-as separate fields. The legacy "admin enrollment create" spelling is accepted.
+Prints one magic link whose URL fragment carries the single-use code — treat the
+link like a password. Pass --separate-code for the legacy two-channel output (a
+non-secret page URL plus a code you share separately). The legacy
+"admin enrollment create" spelling is accepted.
 
 Options:
   --admin-token <token>  Or ADMIN_TOKEN (UPLOADS_ADMIN_TOKEN is a legacy alias)
@@ -14,6 +16,7 @@ Options:
   --expires-in <seconds> Default: server policy
   --token-expires-in <seconds>  Upload token lifetime (default: server policy)
   --scopes <list>        Comma-separated files:read,files:write,files:delete
+  --separate-code        Two-channel output: non-secret page URL + separate code
   --api-url <url>        Default: https://api.uploads.sh
   --web-url <url>        Invite-page origin (defaults from --api-url)
 `;
@@ -34,6 +37,13 @@ export function invitePageUrl(apiUrl: string, pageId: string, webUrl?: string): 
   url.hash = "";
   url.searchParams.set("id", pageId);
   return url.toString();
+}
+
+// Compose the self-contained magic link. The one-time code rides in the URL
+// fragment (#code=…), which browsers never send to the server, so opening the
+// page neither leaks nor consumes it — only the CLI's exchange call redeems it.
+export function inviteMagicLink(pageUrl: string, code: string): string {
+  return `${pageUrl}#code=${encodeURIComponent(code)}`;
 }
 
 export function parseScopes(raw: string | undefined): FileScope[] | undefined {
@@ -82,13 +92,23 @@ export async function runAdmin(
     tokenExpiresInSeconds: flagInt(parsed.flags, "--token-expires-in", "--token-expires-in"),
     scopes: parseScopes(flagString(parsed.flags, "--scopes")),
   });
-  if (opts.json)
+  const separateCode = flagBool(parsed.flags, "--separate-code");
+  const pageUrl = invitePageUrl(apiUrl, result.pageId, webUrl);
+  const link = separateCode ? pageUrl : inviteMagicLink(pageUrl, result.code);
+  const footer = `workspace: ${workspace}\nexpires: ${result.expiresAt}\n`;
+  if (opts.json) {
     process.stdout.write(
-      JSON.stringify({ workspace, label: label ?? null, ...result }, null, 2) + "\n",
+      JSON.stringify({ workspace, label: label ?? null, url: link, ...result }, null, 2) + "\n",
+    );
+    return 0;
+  }
+  if (separateCode)
+    process.stdout.write(
+      `Invite page: ${pageUrl}\nOne-time code (share separately): ${result.code}\n${footer}`,
     );
   else
     process.stdout.write(
-      `Invite page: ${invitePageUrl(apiUrl, result.pageId, webUrl)}\nOne-time code (share separately): ${result.code}\nworkspace: ${workspace}\nexpires: ${result.expiresAt}\n`,
+      `Invite link (contains the one-time code — treat like a password):\n${link}\n${footer}`,
     );
   return 0;
 }
