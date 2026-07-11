@@ -16,6 +16,7 @@
     "deploy": "pnpm run migrate:d1 && node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
     "types": "wrangler types",
     "workspace:add": "node --env-file-if-exists=../../.env scripts/add-workspace.mjs",
+    "workspace:limits": "node --env-file-if-exists=../../.env scripts/set-workspace-limits.mjs",
     "typecheck": "wrangler types && tsc --noEmit",
     "test": "vitest run"
   },

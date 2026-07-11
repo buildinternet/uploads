@@ -23,6 +23,7 @@
     "check": "pnpm run lint && pnpm run format:check",
     "typecheck": "pnpm --filter @buildinternet/uploads run build && pnpm -r typecheck",
     "workspace:add": "pnpm --filter @uploads/api run workspace:add",
+    "workspace:limits": "pnpm --filter @uploads/api run workspace:limits",
     "preuploads": "pnpm --filter @buildinternet/uploads run build",
     "uploads": "pnpm exec uploads",
     "prepare": "husky"

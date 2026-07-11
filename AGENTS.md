@@ -35,7 +35,9 @@ pnpm dev                 # API on :8787 (local R2 + KV simulation)
 pnpm dev:web             # Astro site
 pnpm typecheck           # wrangler types + tsc across workspaces
 pnpm run deploy          # all workers; or deploy:api / deploy:web / deploy:mcp
-pnpm workspace:add <name> [--bucket <bucket>] [--binding X] [--local]
+pnpm workspace:add <name> [--bucket <bucket>] [--binding X] [--local] \
+  [--max-storage 25GB] [--max-uploads-per-month N] [--max-upload-bytes 25MB]
+pnpm workspace:limits <name> [--max-storage …] [--clear-max-storage] […]
 pnpm uploads put <file> --env-file .env   # CLI (builds package first)
 pnpm uploads put <file> --pr <num> --comment   # PR attachment + managed GitHub comment
 ```

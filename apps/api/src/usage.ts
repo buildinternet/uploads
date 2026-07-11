@@ -5,7 +5,8 @@
  * requests and does not track net stored size after deletes. This ledger is
  * keyed by workspace (not API token): multiple tokens share one prefix.
  *
- * Observe-first: record failures never fail the storage op. Enforce budgets later.
+ * Metering write failures never fail the storage op. Budget checks read this
+ * ledger before put (see budget.ts) when the workspace record sets caps.
  */
 
 export interface WorkspaceUsage {

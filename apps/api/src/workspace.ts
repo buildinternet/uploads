@@ -30,6 +30,15 @@ export interface WorkspaceRecord {
   maxUploadBytes?: number;
   /** Allowed (sniffed) content types. Falls back to DEFAULT_ALLOWED_CONTENT_TYPES. */
   allowedContentTypes?: string[];
+  /**
+   * Cap on net stored bytes for this workspace. Omit for unlimited.
+   * Enforced on put against the usage ledger (see budget.ts / usage.ts).
+   */
+  maxStorageBytes?: number;
+  /**
+   * Cap on successful puts in the current UTC calendar month. Omit for unlimited.
+   */
+  maxUploadsPerPeriod?: number;
 }
 
 export type WorkspaceVars = {
