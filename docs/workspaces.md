@@ -61,6 +61,13 @@ Worker — new limits apply on the next request after that.
 There is no automatic cron yet — run purge from ops/CI when you want expiry.
 Retention uses object last-modified from the store (R2 upload time).
 
+**files-sdk:** reconcile/purge walk with `listAll()` on the workspace-prefixed
+`Files` instance (metadata only — no body reads). Purge uses bulk
+`delete(keys[])` so R2 can multi-delete. We do **not** use the in-memory
+`usage()` plugin (not durable across Workers), nor the `softDelete` plugin
+(recycle bin, not TTL). Bucket lifecycle via `files.raw` is bucket-wide and
+doesn’t express per-workspace `retentionDays` on a shared bucket.
+
 New enrollment-issued tokens are stored in D1 and carry an expiry and explicit scopes.
 Workspace configuration and legacy tokens remain in `REGISTRY` KV. The routine-agent
 default is `files:read` plus `files:write`, which is sufficient for upload, listing,
