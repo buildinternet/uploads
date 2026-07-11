@@ -42,6 +42,12 @@ claude mcp add --transport http uploads https://agents.uploads.sh/mcp
 - Agent skills index: https://uploads.sh/.well-known/agent-skills/index.json
 - robots / sitemap: https://uploads.sh/robots.txt · https://uploads.sh/sitemap.xml
 
+## Legal
+
+- [Terms of Service](https://uploads.sh/terms): access, acceptable use, and takedowns
+- [Privacy Policy](https://uploads.sh/privacy): what data the service collects and retains
+- Operated by [Build Internet](https://buildinternet.com)
+
 ## Do not crawl
 
 Enrollment invite pages (`/invite`) and the browser console (`/console`) are private operator surfaces. See https://uploads.sh/robots.txt.

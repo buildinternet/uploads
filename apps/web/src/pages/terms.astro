@@ -1,0 +1,126 @@
+---
+import LegalLayout from "../layouts/LegalLayout.astro";
+---
+
+<LegalLayout
+  title="Terms of Service"
+  description="Access, acceptable use, content rules, and takedown policy for the uploads.sh API, CLI, MCP server, and website."
+  path="/terms"
+>
+  <h1>Terms of Service</h1>
+  <p class="effective">Effective July 11, 2026</p>
+
+  <p>
+    These terms cover use of the uploads.sh website, the API, the remote MCP server, and the
+    open-source CLI. By using any of these, you agree to the terms below. If you don't agree,
+    please don't use the service.
+  </p>
+
+  <h2>The service</h2>
+  <p>
+    uploads.sh is a file-hosting service for agents &amp; humans: you upload files from the
+    terminal (or an agent does, on your behalf) and get back public links suitable for embedding
+    in pull requests, issues, and docs. The service is operated by <a href="https://buildinternet.com">Build Internet</a>, is currently invitation-only, and is
+    provided free of charge on a best-effort basis. We may change, rate-limit, suspend, or
+    discontinue any part of the service at any time.
+  </p>
+
+  <h2>Access and credentials</h2>
+  <ul>
+    <li>
+      Access is granted by invitation. An invitation link contains a single-use code — treat it
+      like a password. Redeeming it issues a scoped, expiring workspace token.
+    </li>
+    <li>
+      You are responsible for keeping your invitation links and workspace tokens confidential,
+      and for all activity under your workspace or tokens. Anyone holding a token can act with
+      the access it grants. If you believe a token has been compromised, stop using it and email <a href="mailto:security@uploads.sh">security@uploads.sh</a> so we can revoke it.
+    </li>
+    <li>
+      We may revoke tokens, suspend workspaces, or remove content to protect the service or its
+      users, or for violations of these terms.
+    </li>
+  </ul>
+
+  <h2>Your content</h2>
+  <p>
+    You keep ownership of the files you upload. You grant us the rights needed to store and serve
+    them — that's the whole point of the service. Two things to understand:
+  </p>
+  <ul>
+    <li>
+      <strong>Uploaded files are public by link.</strong> Files are served from public URLs
+      (for example <code>storage.uploads.sh</code>). The URLs are unguessable but not access
+      controlled: anyone who has a link can fetch the file. Don't upload anything that must stay
+      private.
+    </li>
+    <li>
+      <strong>You must have the rights to what you upload.</strong> Only upload content you own
+      or are licensed to share.
+    </li>
+  </ul>
+  <p>
+    Files remain until you delete them or until a retention policy configured for your workspace
+    removes them. We don't guarantee permanent availability — keep your own originals.
+  </p>
+
+  <h2>Acceptable use</h2>
+  <p>When you use the service, you agree not to:</p>
+  <ul>
+    <li>Upload content that is illegal, infringes others' rights, or contains malware.</li>
+    <li>Use the service to harass, deceive, or impersonate others, including hosting content for phishing.</li>
+    <li>Circumvent, disable, or overload rate limits, upload guardrails, authentication, or other protective measures.</li>
+    <li>Share invitation links or tokens with parties they weren't issued to.</li>
+    <li>Use the service in violation of applicable law.</li>
+  </ul>
+  <p>We may block IPs, revoke tokens, remove content, or otherwise restrict access to protect the service or its users.</p>
+
+  <h2>Rate limits and fair use</h2>
+  <p>
+    Uploads and other mutating operations are rate-limited per workspace, and upload size and
+    content-type limits apply. Agents and integrations should handle rate-limit responses with
+    exponential backoff. If you need higher limits for a legitimate use, email <a href="mailto:hi@uploads.sh">hi@uploads.sh</a>.
+  </p>
+
+  <h2>Takedowns</h2>
+  <p>
+    If content hosted on uploads.sh infringes your rights or otherwise shouldn't be here, email <a href="mailto:abuse@uploads.sh">abuse@uploads.sh</a> with the file URL, your relationship to
+    the content, and a brief reason. We aim to acknowledge within 3 business days and honor
+    reasonable requests even when not legally required to.
+  </p>
+
+  <h2>Open source</h2>
+  <p>
+    The CLI and service code are open source under the license in the <a href="https://github.com/buildinternet/uploads">repository</a>. These terms cover the
+    hosted service at uploads.sh, not your own deployment of the code.
+  </p>
+
+  <h2>Disclaimer</h2>
+  <p>
+    The service is provided "as is" and "as available", without warranties of any kind, express
+    or implied, including fitness for a particular purpose, accuracy, availability, or
+    non-infringement. To the fullest extent permitted by law, Build Internet is not liable for
+    any indirect, incidental, or consequential damages arising from your use of the service,
+    including loss of hosted files.
+  </p>
+
+  <h2>Changes to these terms</h2>
+  <p>
+    We may update these terms as the service changes. Material changes will be announced in the
+    project's GitHub repository and reflected in the effective date above. Continued use of the
+    service after a change constitutes acceptance of the updated terms.
+  </p>
+
+  <h2>Contact</h2>
+  <ul>
+    <li>General — <a href="mailto:hi@uploads.sh">hi@uploads.sh</a></li>
+    <li>Takedowns and abuse — <a href="mailto:abuse@uploads.sh">abuse@uploads.sh</a></li>
+    <li>Security reports — <a href="mailto:security@uploads.sh">security@uploads.sh</a></li>
+    <li>Privacy — <a href="mailto:privacy@uploads.sh">privacy@uploads.sh</a></li>
+  </ul>
+
+  <h2>Revision history</h2>
+  <ul>
+    <li><strong>July 11, 2026</strong> — Initial version published.</li>
+  </ul>
+</LegalLayout>

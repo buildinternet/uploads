@@ -1,0 +1,135 @@
+---
+import LegalLayout from "../layouts/LegalLayout.astro";
+---
+
+<LegalLayout
+  title="Privacy Policy"
+  description="How uploads.sh handles data from the API, CLI, MCP server, invitations, and website."
+  path="/privacy"
+>
+  <h1>Privacy Policy</h1>
+  <p class="effective">Effective July 11, 2026</p>
+
+  <p>
+    This page explains what data uploads.sh collects when you use the website, the API, the <a href="https://github.com/buildinternet/uploads">open-source CLI</a>, or the MCP server, and
+    who we share it with. The service is operated by <a href="https://buildinternet.com">Build Internet</a>.
+  </p>
+
+  <h2>What we collect</h2>
+
+  <h3>Website</h3>
+  <p>
+    The site does not run analytics scripts, does not use advertising trackers, and does not set
+    cookies. The invitation page reads its one-time code from the URL fragment, which your browser
+    never sends to a server.
+  </p>
+
+  <h3>Invitations</h3>
+  <p>
+    If an administrator invites you by email, your email address is used to deliver the invitation
+    and to rate-limit invitation sending. It appears in short-lived operational logs but is not
+    stored in the service's database, and we never use it for marketing. Invitation emails are sent
+    through Cloudflare's email-sending service.
+  </p>
+
+  <h3>Workspaces and tokens</h3>
+  <p>For each workspace we store its storage configuration and, for each access token:</p>
+  <ul>
+    <li>A hash of the token — we cannot recover the token itself.</li>
+    <li>An optional label, the scopes granted, and creation, expiry, and revocation times.</li>
+  </ul>
+  <p>
+    Invitation codes are single-use, short-lived, and redeemed atomically; the service stores what
+    it needs to validate and expire them, never the plaintext secrets.
+  </p>
+
+  <h3>Uploaded files</h3>
+  <p>
+    Files you upload are the product, not telemetry: they are stored with our storage provider
+    (Cloudflare R2, or a bucket you bring yourself) and served from public URLs. We store each
+    file's content, key, size, and content type. Anyone with a file's link can fetch it.
+  </p>
+
+  <h3>Request logs</h3>
+  <p>
+    API requests are logged with basic metadata — IP address, user agent, request path, response
+    status, and timing — for operational and abuse-prevention purposes: diagnosing errors,
+    detecting abuse, and enforcing rate limits. Logs are short-lived and are processed only by the
+    infrastructure providers that host and route the service (chiefly Cloudflare).
+  </p>
+
+  <h3>CLI and MCP server</h3>
+  <p>
+    The CLI runs on your machine and stores its configuration (API URL, workspace, token) in a
+    local config file. It sends no telemetry. When you use features that talk to third parties —
+    for example attaching images to a GitHub pull request — the CLI uses your own credentials and
+    talks to that service directly, under that service's privacy policy.
+  </p>
+
+  <h2>How we use data</h2>
+  <ul>
+    <li>To store and serve the files you upload.</li>
+    <li>To deliver invitations and authenticate workspace tokens.</li>
+    <li>To enforce rate limits and prevent abuse.</li>
+    <li>To diagnose errors and operate the service.</li>
+    <li>To respond to your questions and takedown requests.</li>
+  </ul>
+  <p>
+    We do not sell data. We do not use any of it for advertising, and we do not build advertising
+    or marketing profiles.
+  </p>
+
+  <h2>Service providers</h2>
+  <ul>
+    <li>
+      <strong>Cloudflare</strong> — hosts the API, MCP server, and website; stores the database
+      and uploaded files (R2); and sends invitation email. Request metadata passes through
+      Cloudflare as part of normal routing and logging.
+    </li>
+    <li>
+      <strong>Your own storage</strong> — workspaces can bring their own bucket (for example an
+      S3-compatible provider). Files in those workspaces are stored with the provider you chose,
+      under its privacy policy.
+    </li>
+  </ul>
+
+  <h2>Security practices</h2>
+  <p>
+    Traffic is served over HTTPS. Tokens are stored only as hashes and compared in constant time;
+    invitation codes are single-use and expire automatically. Uploads are validated by content
+    (size caps and a content-type allowlist checked against the actual bytes), and sensitive
+    endpoints are rate-limited. Access to production systems is limited to maintainers.
+  </p>
+
+  <h2>Retention</h2>
+  <ul>
+    <li>Uploaded files: kept until you delete them or a retention policy configured for your workspace removes them.</li>
+    <li>Workspace and token records: kept while the workspace is active; tokens expire and can be revoked.</li>
+    <li>Invitation codes: expire automatically (hours, not days) and are unusable after redemption.</li>
+    <li>Request and delivery logs: short-lived, retained for operational purposes only.</li>
+  </ul>
+
+  <h2>Your rights</h2>
+  <p>
+    To delete your files, use the CLI or API. To delete a workspace and the records tied to it, or
+    to ask what data we hold about you, email <a href="mailto:privacy@uploads.sh">privacy@uploads.sh</a>.
+  </p>
+
+  <h2>Changes</h2>
+  <p>
+    We may update this policy as the service changes. Material changes will be announced in the
+    project's GitHub repository and reflected in the effective date above.
+  </p>
+
+  <h2>Contact</h2>
+  <ul>
+    <li>Privacy questions — <a href="mailto:privacy@uploads.sh">privacy@uploads.sh</a></li>
+    <li>Takedowns and abuse — <a href="mailto:abuse@uploads.sh">abuse@uploads.sh</a></li>
+    <li>Security reports — <a href="mailto:security@uploads.sh">security@uploads.sh</a></li>
+  </ul>
+
+  <h2>Revision history</h2>
+  <ul>
+    <li><strong>July 11, 2026</strong> — Initial version published.</li>
+  </ul>
+</LegalLayout>
