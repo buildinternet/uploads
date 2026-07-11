@@ -1,6 +1,14 @@
 export { inferContentType, buildMarkdown } from "./embed.js";
 export { sanitizeKeySegment, sha256Short, deriveRepoFromGit, buildScreenshotKey } from "./keys.js";
 export {
+  BUILTIN_DESTINATIONS,
+  isBuiltinDestination,
+  keyMatchesDestination,
+  resolveDestinationRoot,
+  resolvePutPrefix,
+  type BuiltinDestinationId,
+} from "./destinations.js";
+export {
   DEFAULT_API_URL,
   DEFAULT_WORKSPACE,
   UPLOADS_CONFIG_KEYS,

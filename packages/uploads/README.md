@@ -17,6 +17,7 @@ npx @buildinternet/uploads@0.1.0 --help
 pnpm uploads setup --env-file .env
 pnpm uploads attach ./before.png ./after.png --env-file .env
 pnpm uploads put ./shot.png --env-file .env
+pnpm uploads put ./shot.png --destination screenshots --env-file .env
 pnpm uploads put ./after.png --pr 123 --comment --env-file .env
 pnpm uploads doctor --env-file .env
 ```
@@ -28,6 +29,11 @@ Commands: `attach`, `put`, `comment`, `list`, `delete`, `usage`, `reconcile`,
 infers the pull request for the current branch via `gh`, uploads stable URLs, and creates
 or updates one managed attachments comment. Use `--pr`, `--issue`, and `--repo` to select
 the target explicitly, or `--no-comment` to upload without changing GitHub comments.
+
+**Keys / destinations:** default put uses the `screenshots` layout. Typed destinations
+(`--destination screenshots|gh|f`, MCP `destination`) set the root; `--pr`/`--issue`
+use `gh/…`. Workspaces may restrict put/sign to those roots via
+`allowedKeyPrefixes` (see [workspaces](../../docs/workspaces.md)).
 
 Config layers (first match wins): CLI flags → env vars → `--env-file` → `~/.config/buildinternet/config`. See `config.example` for keys.
 

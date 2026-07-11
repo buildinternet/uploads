@@ -32,6 +32,7 @@ import {
   upsertAttachmentsComment,
   type CommandRunner,
 } from "./github-gh.js";
+import { resolvePutPrefix } from "./destinations.js";
 
 export interface CliContext {
   config: ResolvedConfig;
@@ -49,6 +50,7 @@ Upload an image for GitHub embeds. Use "-" for stdin.
 
 Options:
   --key <key>           Object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>)
+  --destination <id>    Typed root: screenshots | gh | f (sets --prefix)
   --prefix <path>       Key prefix (default: screenshots, or UPLOADS_DEFAULT_PREFIX)
   --repo <owner/repo>   Repo segment (default: git remote, or UPLOADS_DEFAULT_REPO)
   --ref <id>            PR/issue/branch segment (default: today, or UPLOADS_DEFAULT_REF)
@@ -64,6 +66,7 @@ Options:
 
 Examples:
   uploads put ./shot.png --repo myorg/myapp --ref 1722 --alt "New cards" --width 700
+  uploads put ./shot.png --destination screenshots
   uploads --env-file .env put ./shot.png
   uploads --env-file .env put ./after.png --pr 123 --comment
 `;
@@ -222,6 +225,8 @@ export async function runPut(
   }
 
   const keyHint = flagString(parsed.flags, "--key");
+  const destFlag = flagString(parsed.flags, "--destination");
+  const prefixFlag = flagString(parsed.flags, "--prefix");
   const ghTarget = ghTargetFromFlags(parsed.flags, run);
   const wantComment = parsed.flags.has("--comment");
   if (wantComment && typeof parsed.flags.get("--comment") === "string") {
@@ -233,9 +238,18 @@ export async function runPut(
     if (flagString(parsed.flags, "--ref")) {
       throw new UsageError("--ref cannot be combined with --pr/--issue");
     }
-    if (flagString(parsed.flags, "--prefix")) {
-      throw new UsageError("--prefix cannot be combined with --pr/--issue");
-    }
+    if (prefixFlag) throw new UsageError("--prefix cannot be combined with --pr/--issue");
+  }
+  let resolvedPrefix: string | undefined;
+  try {
+    resolvedPrefix = resolvePutPrefix({
+      destination: destFlag,
+      prefix: prefixFlag,
+      key: keyHint,
+      ghAttachment: Boolean(ghTarget),
+    });
+  } catch (err) {
+    throw new UsageError(err instanceof Error ? err.message : String(err));
   }
   const bytes =
     fileArg === "-" ? new Uint8Array(readFileSync(0)) : new Uint8Array(readFileSync(fileArg));
@@ -271,7 +285,7 @@ export async function runPut(
   const result = await ctx.client.put(bytes, {
     filename,
     key: ghTarget ? ghAttachmentKey(ghTarget, filename) : keyHint,
-    prefix: flagString(parsed.flags, "--prefix") ?? defaults.prefix,
+    prefix: resolvedPrefix ?? defaults.prefix,
     repo: flagString(parsed.flags, "--repo") ?? defaults.repo,
     ref: flagString(parsed.flags, "--ref") ?? defaults.ref,
     contentType: flagString(parsed.flags, "--content-type"),

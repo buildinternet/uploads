@@ -25,11 +25,22 @@ Optional **budgets** live on the workspace registry record (KV), same as
 | `maxVideoUploadBytes` | Cap on video/mp4\|webm (default: same as images) |
 | `retentionDays`       | Age (days) for purge-expired + daily worker cron |
 | `autoPrefixBareKeys`  | Default true: bare keys become `f/<id>/<name>`   |
+| `allowedKeyPrefixes`  | Put/sign must start with one of these roots      |
+| `maxKeyDepth`         | Max `/`-separated segments after governance      |
 
-Omit a field for unlimited (or no retention). Puts that would exceed storage
-return **507** with `code: "storage_quota_exceeded"`; monthly upload budget
-returns **429** with `code: "upload_budget_exceeded"`. `GET …/usage` includes
-the caps and remaining when set.
+Omit a field for unlimited (or no retention / unrestricted keys). Puts that
+would exceed storage return **507** with `code: "storage_quota_exceeded"`;
+monthly upload budget returns **429** with `code: "upload_budget_exceeded"`.
+Key policy denials return **400** with `code: "key_prefix_not_allowed"` or
+`key_too_deep`. `GET …/usage` includes the caps and remaining when set.
+
+### Key destinations
+
+CLI/MCP typed destinations map to fixed roots: **`screenshots`**, **`gh`**,
+**`f`** (bare-key auto-prefix). Operators can lock a workspace to those roots
+with `--allowed-prefixes default` (plus optional `--max-key-depth 8`). Put and
+presign enforce the allowlist; list/delete do not, so orphans can still be
+cleaned up. Unset policy = any nested path (internal/BYO).
 
 ### Configure limits
 
@@ -48,6 +59,8 @@ pnpm workspace:limits my-ws --max-uploads-per-month 20000
 pnpm workspace:limits my-ws --clear-max-storage      # back to unlimited
 pnpm workspace:limits my-ws --retention-days 90
 pnpm workspace:limits my-ws --clear-retention-days
+pnpm workspace:limits my-ws --allowed-prefixes default --max-key-depth 8
+pnpm workspace:limits my-ws --clear-allowed-prefixes --clear-max-key-depth
 pnpm workspace:limits my-ws --local                  # local KV for wrangler dev
 ```
 
@@ -60,8 +73,9 @@ Worker — new limits apply on the next request after that.
 - `POST /v1/:ws/usage/purge-expired` — delete objects older than `retentionDays`
   (`files:delete`), then reconcile. No-op skip if retention is unset.
 
-There is no automatic cron yet — run purge from ops/CI when you want expiry.
-Retention uses object last-modified from the store (R2 upload time).
+The API worker also runs a **daily cron** (`0 6 * * *` UTC) that purges every
+workspace with `retentionDays` set. Retention uses object last-modified from
+the store (R2 upload time).
 
 **files-sdk:** reconcile/purge walk with `listAll()` on the workspace-prefixed
 `Files` instance (metadata only — no body reads). Purge uses bulk

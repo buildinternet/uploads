@@ -37,7 +37,9 @@ pnpm typecheck           # wrangler types + tsc across workspaces
 pnpm run deploy          # all workers; or deploy:api / deploy:web / deploy:mcp
 pnpm workspace:add <name> [--bucket <bucket>] [--binding X] [--local] \
   [--max-storage 25GB] [--max-uploads-per-month N] [--max-upload-bytes 25MB]
-pnpm workspace:limits <name> [--max-storage …] [--max-video-bytes …] [--clear-max-storage] […]
+pnpm workspace:limits <name> [--max-storage …] [--max-video-bytes …] \
+  [--allowed-prefixes default|f,screenshots,gh] [--max-key-depth 8] \
+  [--clear-max-storage] [--clear-allowed-prefixes] […]
 pnpm uploads put <file> --env-file .env   # CLI (builds package first)
 pnpm uploads put <file> --pr <num> --comment   # PR attachment + managed GitHub comment
 ```
@@ -136,10 +138,10 @@ records; any future global secrets go through `wrangler secret put` (prod) or
 ## Roadmap (see docs/roadmap.md for detail)
 
 MCP server for agent access (primary users are agents); key/path governance
-(auto-prefix bare filenames, typed destinations like `screenshots`,
-per-workspace key policy — arbitrary paths are an internal-audience allowance,
-not the end state); encrypt BYO-bucket S3 credentials in KV records before
-external tenants; presigned upload URLs (`POST /v1/sign`); web UI on
+(auto-prefix bare filenames; typed destinations `screenshots`/`gh`/`f` and
+optional `allowedKeyPrefixes`/`maxKeyDepth` — arbitrary paths remain an
+internal/BYO allowance when policy is unset); encrypt BYO-bucket S3 credentials
+in KV records before external tenants; presigned upload URLs (`POST /v1/sign`); web UI on
 files-sdk's `createFilesRouter` + browser client rather than more hand-rolled
 REST; more providers in `packages/storage`; point the `github-screenshots`
 skill at this API.

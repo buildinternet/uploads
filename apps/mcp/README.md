@@ -11,10 +11,9 @@ public URL + GitHub-ready markdown), `list`, `delete`, `health`. Filesystem/
 `gh`-dependent tools (attach, comment, doctor) live only in the stdio server
 (`uploads mcp`).
 
-The REST API's upload guardrails apply: the stored content type is sniffed
-server-side from the bytes (no caller override) and checked against the
-workspace's allowlist, uploads are size-capped, and writes (`put`/`delete`)
-are rate limited per workspace.
+The REST API's upload guardrails apply: content type is sniffed server-side,
+size-capped, budget-checked, and subject to optional key policy
+(`allowedKeyPrefixes` / `maxKeyDepth`). Writes are rate limited per workspace.
 
 ## Endpoint
 

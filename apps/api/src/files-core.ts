@@ -7,6 +7,7 @@
 import type { Files } from "@uploads/storage";
 import { checkPutBudget } from "./budget";
 import { inspectUpload, resolveUploadPolicy } from "./guards";
+import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
 import { publicUrl, storage, storageConfig } from "./storage";
 import { getWorkspaceUsage, recordUsageSafe } from "./usage";
 import type { WorkspaceRecord } from "./workspace";
@@ -50,6 +51,28 @@ export function shortUploadId(bytes = 9): string {
 export function governUploadKey(key: string, autoPrefix = true): string {
   if (!autoPrefix || key.includes("/")) return key;
   return `f/${shortUploadId()}/${sanitizeKeyBasename(key)}`;
+}
+
+/** Workspace fields that affect key governance and prefix/depth policy. */
+export type KeyPolicyRecord = Pick<
+  WorkspaceRecord,
+  "autoPrefixBareKeys" | "allowedKeyPrefixes" | "maxKeyDepth"
+>;
+
+/**
+ * Bare-key governance + per-workspace prefix/depth policy. Shared by put and
+ * presign so both surfaces reject the same keys.
+ */
+export function finalizeUploadKey(key: string, ws: KeyPolicyRecord): string {
+  const finalKey = governUploadKey(key, ws.autoPrefixBareKeys !== false);
+  if (badKey(finalKey)) throw new FileOpError("invalid key");
+
+  const violation = checkKeyPolicy(finalKey, resolveKeyPolicy(ws));
+  if (violation) {
+    const { message, code, ...extra } = violation;
+    throw new FileOpError(message, 400, { code, ...extra });
+  }
+  return finalKey;
 }
 
 /**
@@ -98,8 +121,7 @@ export async function putObject(
   bytes: Uint8Array,
   workspaceName: string,
 ): Promise<{ key: string; url: string | null; size: number; contentType: string }> {
-  const finalKey = governUploadKey(key, ws.autoPrefixBareKeys !== false);
-  if (badKey(finalKey)) throw new FileOpError("invalid key");
+  const finalKey = finalizeUploadKey(key, ws);
   if (bytes.byteLength === 0) throw new FileOpError("empty body");
 
   const inspection = inspectUpload(bytes, resolveUploadPolicy(ws));

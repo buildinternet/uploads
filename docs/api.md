@@ -35,9 +35,12 @@ headroom. Puts that would exceed them fail with:
 | ---- | ------------------------ | ---------------------------------------------------- |
 | 507  | `storage_quota_exceeded` | Net stored bytes would exceed `maxStorageBytes`      |
 | 429  | `upload_budget_exceeded` | Monthly put count would exceed `maxUploadsPerPeriod` |
+| 400  | `key_prefix_not_allowed` | Key not under `allowedKeyPrefixes` (put/sign)        |
+| 400  | `key_too_deep`           | Key path segments exceed `maxKeyDepth`               |
 
 Configure limits with `pnpm workspace:limits <name> …` (see
-[workspaces](workspaces.md)).
+[workspaces](workspaces.md)). Bare keys are rewritten to `f/<id>/<name>` before
+policy checks; presign uses the same finalization as put.
 
 **Reconcile** scans every object under the workspace prefix and replaces ledger
 `bytes`/`objects` (monthly upload count is preserved). Use after external

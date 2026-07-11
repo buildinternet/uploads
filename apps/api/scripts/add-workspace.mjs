@@ -9,10 +9,11 @@
  *     [--binding UPLOADS] [--public-base-url https://media.example.com] \
  *     [--account-id ...] [--access-key-id ...] [--secret-access-key ...] \
  *     [--max-storage 25GB] [--max-uploads-per-month 10000] [--max-upload-bytes 25MB] \
+ *     [--allowed-prefixes default|f,screenshots,gh] [--max-key-depth 8] \
  *     [--local]             # write to wrangler dev's local KV instead of prod
  *
- * Limit flags are optional (omit = unlimited). Change later with
- * scripts/set-workspace-limits.mjs without re-minting tokens.
+ * Limit flags are optional (omit = unlimited / unrestricted keys). Change later
+ * with scripts/set-workspace-limits.mjs without re-minting tokens.
  *
  * Default (no --bucket): the workspace is a "<name>/" prefix in the shared
  * uploads-default bucket, served at https://storage.uploads.sh/<name>/...
@@ -95,6 +96,41 @@ function parseCount(raw, label) {
   return n;
 }
 
+function parseDepth(raw, label) {
+  if (raw === undefined || raw === null || raw === "") return undefined;
+  const s = String(raw).trim();
+  if (/^(unlimited|none|off)$/i.test(s)) return undefined;
+  const n = Number(s);
+  if (!Number.isInteger(n) || n < 1 || n > 64) {
+    fail(`invalid ${label}: ${JSON.stringify(raw)} (use 1–64)`);
+  }
+  return n;
+}
+
+function parseAllowedPrefixes(raw, label) {
+  if (raw === undefined || raw === null || raw === "") return undefined;
+  const s = String(raw).trim();
+  if (/^(unlimited|none|off)$/i.test(s)) return undefined;
+  const parts = s
+    .split(/[,;\s]+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length === 0) fail(`invalid ${label}: empty list`);
+  const out = [];
+  for (const part of parts) {
+    if (/^default$/i.test(part)) {
+      out.push("f", "screenshots", "gh");
+      continue;
+    }
+    const cleaned = part.replace(/^\/+/, "").replace(/\/+$/, "");
+    if (!cleaned || cleaned.includes("..") || !/^[\w.!-]+(?:\/[\w.!-]+)*$/.test(cleaned)) {
+      fail(`invalid ${label} entry: ${JSON.stringify(part)}`);
+    }
+    out.push(cleaned);
+  }
+  return [...new Set(out)];
+}
+
 if (!name || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(name)) {
   fail("workspace name must be lowercase alphanumeric/hyphens, 2-63 chars");
 }
@@ -144,10 +180,14 @@ const maxStorageBytes = parseBytes(opts["max-storage"], "max-storage");
 const maxUploadsPerPeriod = parseCount(opts["max-uploads-per-month"], "max-uploads-per-month");
 const maxUploadBytes = parseBytes(opts["max-upload-bytes"], "max-upload-bytes");
 const maxVideoUploadBytes = parseBytes(opts["max-video-bytes"], "max-video-bytes");
+const allowedKeyPrefixes = parseAllowedPrefixes(opts["allowed-prefixes"], "allowed-prefixes");
+const maxKeyDepth = parseDepth(opts["max-key-depth"], "max-key-depth");
 if (maxStorageBytes !== undefined) record.maxStorageBytes = maxStorageBytes;
 if (maxUploadsPerPeriod !== undefined) record.maxUploadsPerPeriod = maxUploadsPerPeriod;
 if (maxUploadBytes !== undefined) record.maxUploadBytes = maxUploadBytes;
 if (maxVideoUploadBytes !== undefined) record.maxVideoUploadBytes = maxVideoUploadBytes;
+if (allowedKeyPrefixes !== undefined) record.allowedKeyPrefixes = allowedKeyPrefixes;
+if (maxKeyDepth !== undefined) record.maxKeyDepth = maxKeyDepth;
 
 const master = process.env.WORKSPACE_SECRETS_KEY;
 if (master && (record.accessKeyId || record.secretAccessKey)) {

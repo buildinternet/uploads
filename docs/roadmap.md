@@ -8,10 +8,10 @@
   (files-sdk `signedUploadUrl()`; needs HTTP S3 credentials on the workspace).
 - **Web UI** — lightweight browser console at `/console` on the Astro site;
   longer-term: files-sdk `createFilesRouter` + browser client for full browse/manage.
-- **Key/path governance** — bare filenames auto-prefix to `f/<shortid>/<name>`
-  (opt out with `autoPrefixBareKeys: false`). Still open:
-  - Typed destinations (`screenshots/…`) as first-class policy
-  - Per-workspace allowed prefixes / max depth / reserved roots
+- **Key/path governance** — bare keys → `f/<shortid>/<name>`; typed destinations
+  (`screenshots` / `gh` / `f`); optional `allowedKeyPrefixes` + `maxKeyDepth` on
+  put/sign. Remaining ideas: destination-specific size rules; expose policy on
+  `usage`/`doctor`.
 - **Encrypt BYO-bucket credentials at rest** — shipped when
   `WORKSPACE_SECRETS_KEY` is set (`enc:v1:…` AES-GCM on access/secret keys).
   Re-write existing plaintext records to encrypt; rotate key carefully.

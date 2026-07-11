@@ -11,10 +11,14 @@ pnpm workspace:limits <name> \
   --max-uploads-per-month 10000 \
   --max-upload-bytes 25MB \
   --max-video-bytes 8MB \
-  --retention-days 90
+  --retention-days 90 \
+  --allowed-prefixes default \
+  --max-key-depth 8
 ```
 
-Suggested **shared/agent** defaults: 25 GB storage, 10k uploads/month, 25 MB images, 8 MB video, 90-day retention. **Throwaway**: 1 GB / 1k / 15 MB / 5 MB video / 90 days.
+Suggested **shared/agent** defaults: 25 GB storage, 10k uploads/month, 25 MB images, 8 MB video, 90-day retention, key prefixes `default` (`f/`, `screenshots/`, `gh/`), max depth 8. **Throwaway**: 1 GB / 1k / 15 MB / 5 MB video / 90 days / same key policy.
+
+`--allowed-prefixes default` expands to the typed destinations agents already use. Clear with `--clear-allowed-prefixes` / `--clear-max-key-depth`. Puts outside the allowlist return **400** `key_prefix_not_allowed`; too-deep paths return **400** `key_too_deep`.
 
 KV cache ~60s. Agents: `uploads usage`.
 
