@@ -41,9 +41,40 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 | `GET /v1/:workspace/usage`                        | Workspace usage snapshot (`bytes`, `objects`, `uploadsInPeriod`, …); requires `files:read`       |
 | `POST /v1/:workspace/usage/reconcile`             | Rebuild `bytes`/`objects` from storage; requires `files:write`                                   |
 | `POST /v1/:workspace/usage/purge-expired`         | Delete objects older than `retentionDays`, then reconcile; requires `files:delete`               |
+| `POST /v1/:workspace/galleries`                   | Create an empty public gallery; requires `files:write`                                           |
+| `GET /v1/:workspace/galleries`                    | List workspace galleries with opaque cursor pagination; requires `files:read`                    |
+| `GET /v1/:workspace/galleries/:id`                | Read one owned gallery; requires `files:read`                                                    |
+| `PATCH/DELETE /v1/:workspace/galleries/:id`       | Update or soft-delete gallery metadata; requires `files:write`                                   |
+| `POST /v1/:workspace/galleries/:id/items`         | Add one existing, publicly served workspace object; requires `files:write`                       |
+| `PUT /v1/:workspace/galleries/:id/items/order`    | Replace the complete item order; requires `files:write`                                          |
+| `DELETE /v1/:workspace/galleries/:id/items/:item` | Remove a gallery membership without deleting its object; requires `files:write`                  |
+| `GET /public/galleries/:id`                       | Exact-ID public gallery read; no workspace listing or authentication                             |
 
 `url` in responses is the public URL when the workspace has a
 `publicBaseUrl`, otherwise `null`.
+
+### Galleries
+
+Gallery IDs are opaque `gal_…` identifiers and do not encode a workspace or
+GitHub coordinate. Owner responses use camelCase and include the workspace;
+the unauthenticated public response uses an explicit allowlist and never emits
+workspace ownership or object keys. Public items contain only `id`, `filename`,
+`position`, `caption`, `altText`, `status`, `url`, and `contentType`. Missing
+stored objects remain ordered tombstones with `status: "missing"` and
+`url: null`.
+
+The owner collection route returns metadata summaries without `items`; it does
+not probe object storage. Fetch an individual gallery to hydrate current item
+status, content type, size, and computed public URL.
+
+All gallery mutations after creation require a positive `expectedVersion` in
+the JSON body. A stale version returns HTTP 409 with the current version in
+`error.details`. Adding an already-present object is idempotent (HTTP 200); a
+new membership returns HTTP 201. Adding checks the context-derived workspace's
+storage and rejects missing objects or objects without a public URL.
+
+This first API slice deliberately excludes item metadata PATCH, batch add,
+external-reference routes, and upload-and-add convenience endpoints.
 
 ### Object provenance metadata
 

@@ -7,13 +7,17 @@ import { usage } from "./routes/usage";
 import { admin } from "./routes/admin";
 import { auth } from "./routes/auth";
 import { runRetentionSweep } from "./retention-sweep";
+import { galleries } from "./routes/galleries";
+import { publicGalleries } from "./routes/public-galleries";
 
 /** Hono app — also re-exported for vitest (`app.request`). */
 export const app = new Hono<WorkspaceVars>()
   .get("/health", (c) => c.json({ ok: true }))
   .route("/admin", admin)
   .route("/auth", auth)
+  .route("/public/galleries", publicGalleries)
   .use("/v1/:workspace/*", workspaceAuth)
+  .route("/v1/:workspace/galleries", galleries)
   .route("/v1/:workspace/files", files)
   .route("/v1/:workspace/usage", usage)
   .onError((err, c) => respondError(c, err))
