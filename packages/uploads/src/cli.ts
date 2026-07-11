@@ -23,6 +23,7 @@ import { runSetup } from "./commands/setup.js";
 import { runLogin } from "./commands/login.js";
 import { runAdmin } from "./commands/admin-enrollment.js";
 import { runMcp } from "./commands/mcp.js";
+import { runInstall } from "./commands/install.js";
 
 const ROOT_HELP = `uploads — CLI for uploads.sh (GitHub image embeds)
 
@@ -55,6 +56,7 @@ Commands:
   list                List objects
   delete <key>        Delete object
   setup               Inspect/configure advanced CLI settings
+  install             Install the agent skill + register the remote MCP server
   login               Exchange an enrollment code and configure credentials
   admin               Admin enrollment management
   config              Show path, init, or set shared config
@@ -73,7 +75,9 @@ Examples:
   uploads put ./shot.png --ref 42
   uploads doctor
 
-Agent/MCP: run \`uploads mcp\` for local stdio, or use createUploadsWorkerFileTools()
+Agent/MCP: \`uploads install\` sets up the agent skill and the hosted MCP server
+(https://agents.uploads.sh/mcp, workspace inferred from the token). Run
+\`uploads mcp\` for local stdio, or use createUploadsWorkerFileTools()
 from @buildinternet/uploads/agent on the Worker.
 `;
 
@@ -159,6 +163,8 @@ export async function runCli(argv: string[]): Promise<number> {
         return runAdmin(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);
       case "mcp":
         return runMcp(cmdArgs, { globals: parsed.globals }, showHelp);
+      case "install":
+        return runInstall(cmdArgs, { globals: parsed.globals, json }, showHelp);
       case "attach":
       case "put":
       case "list":

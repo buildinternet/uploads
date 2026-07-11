@@ -5,6 +5,11 @@
   "compatibility_date": "2026-07-06",
   "compatibility_flags": ["nodejs_compat"],
   "routes": [
+    // Primary domain; mcp.uploads.sh is kept as a working alternate.
+    {
+      "pattern": "agents.uploads.sh",
+      "custom_domain": true,
+    },
     {
       "pattern": "mcp.uploads.sh",
       "custom_domain": true,

@@ -321,3 +321,71 @@ describe("mcp worker", () => {
     expect(body.error.code).toBe(-32600);
   });
 });
+
+describe("token-inferred /mcp endpoint", () => {
+  it("serves tool calls at /mcp with the workspace inferred from the token", async () => {
+    const { env, bucket } = await makeEnv();
+    const result = await (async () => {
+      const response = await rpc(
+        env,
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "put",
+            arguments: { contentBase64: PNG_B64, filename: "shot.png", key: "shots/shot.png" },
+          },
+        },
+        TOKEN,
+        "/mcp",
+      );
+      expect(response.status).toBe(200);
+      return (await response.json()) as {
+        result: { isError: boolean; structuredContent?: Record<string, unknown> };
+      };
+    })();
+    expect(result.result.isError).toBe(false);
+    expect(result.result.structuredContent).toMatchObject({
+      workspace: "test-ws",
+      key: "shots/shot.png",
+    });
+    expect(bucket.store.has("shots/shot.png")).toBe(true);
+  });
+
+  it("rejects /mcp with a token for an unknown workspace", async () => {
+    const { env } = await makeEnv();
+    const response = await rpc(
+      env,
+      { jsonrpc: "2.0", id: 1, method: "initialize" },
+      "up_other-ws_nope",
+      "/mcp",
+    );
+    expect(response.status).toBe(401);
+  });
+
+  it("rejects /mcp with a malformed token (no workspace to infer)", async () => {
+    const { env } = await makeEnv();
+    for (const token of ["", "not-a-token", "up_", "up_test-ws"]) {
+      const response = await rpc(
+        env,
+        { jsonrpc: "2.0", id: 1, method: "initialize" },
+        token,
+        "/mcp",
+      );
+      expect(response.status).toBe(401);
+    }
+  });
+
+  it("rejects GET and DELETE on /mcp", async () => {
+    const { env } = await makeEnv();
+    for (const method of ["GET", "DELETE"]) {
+      const response = await app.request(
+        "/mcp",
+        { method, headers: { Authorization: `Bearer ${TOKEN}` } },
+        env,
+      );
+      expect(response.status).toBe(405);
+    }
+  });
+});
