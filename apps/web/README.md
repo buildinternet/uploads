@@ -25,10 +25,9 @@ public/auth.md                       Agent enrollment / bearer auth (not OAuth)
 public/.well-known/api-catalog       RFC 9727 linkset
 public/.well-known/openapi.json      Summary OpenAPI for the REST API
 public/.well-known/mcp/              MCP server card (points at agents.uploads.sh)
-public/.well-known/agent-skills/     **Generated** index only — do not commit
-scripts/generate-agent-skills.mjs    Writes index.json; skill `url` → GitHub raw
+src/worker.ts                        Dynamic agent-skills index (GitHub main + live digest)
 astro.config.mjs                     site = https://uploads.sh
-wrangler.jsonc                       Workers static assets deploy
+wrangler.jsonc                       Static assets + run_worker_first for skills index
 ```
 
 ## Crawl / index policy
@@ -65,7 +64,7 @@ rules there.
 | Agent skills    | `/.well-known/agent-skills/index.json`   |
 | Auth for agents | `/auth.md` (bearer / invite — not OAuth) |
 
-### Agent skills — index on uploads.sh, artifact on GitHub
+### Agent skills — always track GitHub `main`
 
 Canonical skill files live only under the monorepo root:
 
@@ -75,26 +74,22 @@ skills/uploads-cli/SKILL.md
 
 Per the [Agent Skills Discovery RFC](https://github.com/cloudflare/agent-skills-discovery-rfc),
 skill `url` values may be absolute. The discovery **index** is on this origin;
-the skill **artifact** is the GitHub raw file (no second copy under `public/`):
+the skill **artifact** is always the latest file on GitHub `main`:
 
 ```
-apps/web/public/.well-known/agent-skills/index.json   # generated, gitignored
-  → url: https://raw.githubusercontent.com/buildinternet/uploads/<ref>/skills/uploads-cli/SKILL.md
-  → digest: sha256 of the local monorepo SKILL.md bytes
+GET https://uploads.sh/.well-known/agent-skills/index.json
+  → served by apps/web/src/worker.ts (not a static file)
+  → url:    https://raw.githubusercontent.com/buildinternet/uploads/main/skills/uploads-cli/SKILL.md
+  → digest: sha256 of those bytes, computed when the index is requested
 ```
 
-`pnpm --filter @uploads/web generate:agent-skills` (also `predev` / `prebuild`)
-reads frontmatter for `name` / `description`, hashes the local file, and writes
-the index. Git ref for the raw URL (first match):
+Editing a skill and merging to `main` is enough — no web redeploy is required for
+the index URL or digest to stay correct. Responses cache for 60 seconds. To
+advertise another skill, append its monorepo path in `SKILL_SOURCES` in
+`src/worker.ts` (that _does_ need a web deploy, once).
 
-1. `UPLOADS_SKILLS_GITHUB_REF`
-2. `GITHUB_SHA` (CI)
-3. `git rev-parse HEAD`
-4. `main`
-
-Pinning the URL to a commit keeps `url` and `digest` aligned once that commit is
-on GitHub. Override the repo with `UPLOADS_SKILLS_GITHUB_REPO` if needed. To
-publish another skill, append an entry in `scripts/generate-agent-skills.mjs`.
+Local `astro dev` / `astro preview` do not run the Worker; use
+`pnpm --filter @uploads/web exec wrangler dev` (after `build`) to exercise the index.
 
 ### Intentionally not implemented (yet)
 
