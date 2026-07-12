@@ -2,12 +2,14 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { MAX_GALLERY_ITEMS, MAX_GALLERY_REFERENCES } from "../src/galleries";
 import { app } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { FakeR2Bucket } from "./fake-r2";
 
 const TOKEN = "gallery-token";
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const PNG_REPLACEMENT = new Uint8Array([...PNG, 1, 2, 3, 4]);
 
 class SQLiteStatement {
   values: unknown[] = [];
@@ -78,6 +80,7 @@ beforeAll(() => {
 
 let db: DatabaseSync;
 let bucket: FakeR2Bucket;
+let records: Record<string, WorkspaceRecord>;
 let env: Parameters<typeof app.request>[2];
 
 beforeEach(async () => {
@@ -90,13 +93,21 @@ beforeEach(async () => {
   );
   db.exec(
     readFileSync(
+      fileURLToPath(
+        new NodeURL("../migrations/20260710140000_workspace_usage.sql", import.meta.url),
+      ),
+      "utf8",
+    ),
+  );
+  db.exec(
+    readFileSync(
       fileURLToPath(new NodeURL("../migrations/20260711180000_galleries.sql", import.meta.url)),
       "utf8",
     ),
   );
   bucket = new FakeR2Bucket();
   await bucket.put("alpha/screenshots/one.png", PNG);
-  const records: Record<string, WorkspaceRecord> = {
+  records = {
     alpha: {
       provider: "r2",
       bucket: "shared",
@@ -133,6 +144,30 @@ function request(path: string, init: RequestInit = {}) {
         "Content-Type": "application/json",
         ...init.headers,
       },
+    },
+    env,
+  );
+}
+
+async function expectGalleryLimit(response: Response, limit: number) {
+  expect(response.status).toBe(409);
+  expect(await response.json()).toEqual({
+    error: {
+      code: "gallery_limit_reached",
+      type: "conflict",
+      message: "Gallery limit reached.",
+      details: { limit },
+    },
+  });
+}
+
+function fileRequest(path: string, body: Uint8Array) {
+  return app.request(
+    path,
+    {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png" },
+      body,
     },
     env,
   );
@@ -177,6 +212,46 @@ describe("gallery routes with SQLite D1", () => {
         details: { currentVersion: 2 },
       },
     });
+  });
+
+  it("keeps stable gallery URLs on overwrite with a bounded object cache", async () => {
+    const key = "gh/buildinternet/uploads/pull/82/preview.png";
+    const first = await fileRequest(`/v1/alpha/files/${key}`, PNG);
+    expect(first.status).toBe(201);
+    const firstUpload = (await first.json()) as { url: string };
+    const gallery = await create();
+    const added = await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+      method: "POST",
+      body: JSON.stringify({ expectedVersion: 1, objectKey: key }),
+    });
+    expect(added.status).toBe(201);
+
+    const replacement = await fileRequest(`/v1/alpha/files/${key}`, PNG_REPLACEMENT);
+    expect(replacement.status).toBe(201);
+    const replacementUpload = (await replacement.json()) as { url: string; size: number };
+    expect(replacementUpload.url).toBe(firstUpload.url);
+    expect(replacementUpload.size).toBe(PNG_REPLACEMENT.byteLength);
+    expect(bucket.store.get(`alpha/${key}`)).toMatchObject({
+      data: PNG_REPLACEMENT,
+      cacheControl: "public, max-age=60",
+    });
+
+    const publicGallery = await app.request(`/public/galleries/${gallery.id}`, {}, env);
+    expect(publicGallery.status).toBe(200);
+    expect(await publicGallery.json()).toMatchObject({
+      items: [{ status: "available", url: firstUpload.url }],
+    });
+    const secondGallery = await create();
+    expect(
+      (
+        await request(`/v1/alpha/galleries/${secondGallery.id}/items`, {
+          method: "POST",
+          body: JSON.stringify({ expectedVersion: 1, objectKey: key }),
+        })
+      ).status,
+    ).toBe(201);
+    const usage = await request("/v1/alpha/usage");
+    expect(await usage.json()).toMatchObject({ bytes: PNG_REPLACEMENT.byteLength, objects: 1 });
   });
 
   it("adds only existing public objects and keeps deleted objects as tombstones", async () => {
@@ -229,6 +304,26 @@ describe("gallery routes with SQLite D1", () => {
     });
   });
 
+  it("keeps a gallery public while retention turns its expired object into a tombstone", async () => {
+    const gallery = await create();
+    const added = await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+      method: "POST",
+      body: JSON.stringify({ expectedVersion: 1, objectKey: "screenshots/one.png" }),
+    });
+    const item = (await added.json()) as { id: string };
+    records.alpha.retentionDays = 1;
+    bucket.setUploaded("alpha/screenshots/one.png", new Date("2020-01-01T00:00:00Z"));
+
+    const purged = await request("/v1/alpha/usage/purge-expired", { method: "POST" });
+    expect(purged.status).toBe(200);
+    expect(await purged.json()).toMatchObject({ deleted: 1, keys: ["screenshots/one.png"] });
+    const publicGallery = await app.request(`/public/galleries/${gallery.id}`, {}, env);
+    expect(publicGallery.status).toBe(200);
+    expect(await publicGallery.json()).toMatchObject({
+      items: [{ id: item.id, status: "missing", url: null }],
+    });
+  });
+
   it("replaces the complete order, removes membership, and permits re-add", async () => {
     await bucket.put("alpha/screenshots/two.png", PNG);
     const gallery = await create();
@@ -268,6 +363,58 @@ describe("gallery routes with SQLite D1", () => {
         })
       ).status,
     ).toBe(201);
+  });
+
+  it("maps item and reference limits to stable API conflicts", async () => {
+    const gallery = await create();
+    const now = new Date().toISOString();
+    const insertItem = db.prepare(
+      "INSERT INTO gallery_items (id, gallery_id, object_key, position, created_at) VALUES (?, ?, ?, ?, ?)",
+    );
+    for (let index = 0; index < MAX_GALLERY_ITEMS; index++) {
+      insertItem.run(
+        `item-${index}`,
+        gallery.id,
+        `screenshots/${index}.png`,
+        (index + 1) * 1000,
+        now,
+      );
+    }
+    await bucket.put("alpha/screenshots/overflow.png", PNG);
+    const itemLimit = await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+      method: "POST",
+      body: JSON.stringify({ expectedVersion: 1, objectKey: "screenshots/overflow.png" }),
+    });
+    await expectGalleryLimit(itemLimit, MAX_GALLERY_ITEMS);
+
+    const referenced = await create();
+    const insertReference = db.prepare(
+      "INSERT INTO gallery_external_references (id, gallery_id, provider, resource_type, normalized_key, locator_json, canonical_url, created_at, updated_at) VALUES (?, ?, 'github', 'item', ?, ?, ?, ?, ?)",
+    );
+    for (let index = 0; index < MAX_GALLERY_REFERENCES; index++) {
+      const number = index + 1;
+      insertReference.run(
+        `reference-${index}`,
+        referenced.id,
+        `github:item:buildinternet/uploads#${number}`,
+        JSON.stringify({ owner: "buildinternet", repository: "uploads", number }),
+        `https://github.com/buildinternet/uploads/issues/${number}`,
+        now,
+        now,
+      );
+    }
+    const referenceLimit = await request(
+      `/v1/alpha/galleries/${referenced.id}/external-references`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          expectedVersion: 1,
+          provider: "github",
+          coordinate: "buildinternet/uploads#999",
+        }),
+      },
+    );
+    await expectGalleryLimit(referenceLimit, MAX_GALLERY_REFERENCES);
   });
 
   it("returns an allowlisted public projection and supports JSON deletes", async () => {
