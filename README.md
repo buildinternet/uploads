@@ -97,11 +97,15 @@ Create one and add uploads with the installed CLI:
 uploads gallery create --title "Release screenshots"
 uploads put ./after.png --gallery gal_example
 uploads gallery show gal_example
+uploads gallery link gal_example --github buildinternet/uploads#58
+uploads gallery list --github https://github.com/buildinternet/uploads/pull/58
 ```
 
 > **Privacy:** A gallery is public to anyone with its URL; it does not inherit GitHub or
 > repository visibility. Removing or deleting a gallery does not delete its uploaded media or
 > exempt it from retention.
+
+Use `uploads gallery link <gallery-id> --github <owner/repo#number>` to record an optional GitHub issue or PR reference. `uploads gallery list --github <coordinate-or-github-url>` performs an authenticated reverse lookup. The link does not change gallery identity or visibility.
 
 ### GitHub embeds
 

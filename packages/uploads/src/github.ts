@@ -10,6 +10,12 @@ export interface GhTarget {
   num: number;
 }
 
+/** A normalized GitHub issue/PR coordinate used for gallery references. */
+export interface GithubCoordinate {
+  coordinate: string;
+  canonicalUrl: string;
+}
+
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 export function isValidRepo(repo: string): boolean {
@@ -21,6 +27,48 @@ export function parseRepoFromRemoteUrl(url: string): string | undefined {
   const match = url.trim().match(/[/:]([^/:\s]+\/[^/:\s]+?)(?:\.git)?\/?$/);
   const repo = match?.[1];
   return repo && isValidRepo(repo) ? repo : undefined;
+}
+
+/** Normalize a GitHub issue or pull-request coordinate for gallery linking. */
+export function normalizeGithubCoordinate(value: string): GithubCoordinate | undefined {
+  const input = value.trim();
+  let match = /^([^/\s#]+)\/([^/\s#]+)#([1-9][0-9]*)$/.exec(input);
+  if (!match) {
+    try {
+      const url = new URL(input);
+      if (
+        url.protocol !== "https:" ||
+        url.hostname.toLowerCase() !== "github.com" ||
+        url.port ||
+        url.username ||
+        url.password ||
+        url.search ||
+        url.hash
+      )
+        return undefined;
+      match = /^\/([^/]+)\/([^/]+)\/(?:issues|pull)\/([1-9][0-9]*)\/?$/.exec(url.pathname);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!match) return undefined;
+  const [, ownerRaw, repositoryRaw, numberRaw] = match;
+  const repo = ownerRaw + "/" + repositoryRaw;
+  const number = Number(numberRaw);
+  if (!isValidRepo(repo) || !Number.isSafeInteger(number)) return undefined;
+  const owner = ownerRaw.toLowerCase();
+  const repository = repositoryRaw.toLowerCase();
+  const coordinate = owner + "/" + repository + "#" + number;
+  return {
+    coordinate,
+    canonicalUrl:
+      "https://github.com/" +
+      encodeURIComponent(owner) +
+      "/" +
+      encodeURIComponent(repository) +
+      "/issues/" +
+      number,
+  };
 }
 
 export function ghKeyPrefix(target: GhTarget): string {

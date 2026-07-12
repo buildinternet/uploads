@@ -21,7 +21,28 @@ export function parseExternalReference(
     return { ok: false, message: "provider must be github" };
   if (typeof coordinate !== "string")
     return { ok: false, message: "coordinate must be owner/repo#number" };
-  const match = /^([^/]+)\/([^#]+)#([1-9][0-9]*)$/.exec(coordinate.trim());
+  let normalized = coordinate.trim();
+  if (!normalized.includes("#")) {
+    try {
+      const url = new URL(normalized);
+      if (
+        url.protocol !== "https:" ||
+        url.hostname.toLowerCase() !== "github.com" ||
+        url.port ||
+        url.username ||
+        url.password ||
+        url.search ||
+        url.hash
+      )
+        return { ok: false, message: "coordinate must be owner/repo#number" };
+      const urlMatch = /^\/([^/]+)\/([^/]+)\/(?:issues|pull)\/([1-9][0-9]*)\/?$/.exec(url.pathname);
+      if (!urlMatch) return { ok: false, message: "coordinate must be owner/repo#number" };
+      normalized = urlMatch[1] + "/" + urlMatch[2] + "#" + urlMatch[3];
+    } catch {
+      return { ok: false, message: "coordinate must be owner/repo#number" };
+    }
+  }
+  const match = /^([^/]+)\/([^#]+)#([1-9][0-9]*)$/.exec(normalized);
   if (
     !match ||
     !OWNER.test(match[1]) ||

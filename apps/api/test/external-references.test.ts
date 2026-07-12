@@ -14,6 +14,20 @@ describe("external reference providers", () => {
       },
     });
   });
+  it("accepts strict GitHub issue and pull URLs as the same coordinate", () => {
+    expect(
+      parseExternalReference("github", "https://github.com/BuildInternet/Uploads/pull/123"),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        normalizedKey: "github:item:buildinternet/uploads#123",
+        canonicalUrl: "https://github.com/buildinternet/uploads/issues/123",
+      },
+    });
+    expect(
+      parseExternalReference("github", "https://github.com/buildinternet/uploads/issues/123?x=1"),
+    ).toMatchObject({ ok: false });
+  });
   it("trims input, accepts case-insensitive providers and valid boundary names", () => {
     expect(parseExternalReference(" GitHub ", " a/.github#1 ")).toMatchObject({
       ok: true,
