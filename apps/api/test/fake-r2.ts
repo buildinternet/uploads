@@ -7,6 +7,7 @@
 interface StoredObject {
   data: Uint8Array;
   contentType?: string;
+  cacheControl?: string;
   customMetadata?: Record<string, string>;
   /** R2 "uploaded" / last-modified; tests can backdate for retention. */
   uploaded?: Date;
@@ -25,7 +26,7 @@ export class FakeR2Bucket {
       version: "1",
       storageClass: "Standard",
       checksums: {},
-      httpMetadata: { contentType: obj.contentType },
+      httpMetadata: { contentType: obj.contentType, cacheControl: obj.cacheControl },
       customMetadata: { ...obj.customMetadata },
       writeHttpMetadata() {},
     };
@@ -35,7 +36,7 @@ export class FakeR2Bucket {
     key: string,
     value: ArrayBuffer | ArrayBufferView | string | ReadableStream<Uint8Array> | null,
     opts?: {
-      httpMetadata?: { contentType?: string } | Headers;
+      httpMetadata?: { contentType?: string; cacheControl?: string } | Headers;
       customMetadata?: Record<string, string>;
     },
   ) {
@@ -51,9 +52,14 @@ export class FakeR2Bucket {
       httpMetadata instanceof Headers
         ? (httpMetadata.get("content-type") ?? undefined)
         : httpMetadata?.contentType;
+    const cacheControl =
+      httpMetadata instanceof Headers
+        ? (httpMetadata.get("cache-control") ?? undefined)
+        : httpMetadata?.cacheControl;
     const obj: StoredObject = {
       data,
       contentType,
+      cacheControl,
       customMetadata: opts?.customMetadata ? { ...opts.customMetadata } : undefined,
       uploaded: new Date(),
     };
