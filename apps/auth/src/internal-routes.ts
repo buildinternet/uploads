@@ -4,7 +4,7 @@
  * applied in src/index.ts before this router is even reached).
  */
 import { drizzle } from "drizzle-orm/d1";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { createAuth, type AuthEnv } from "./auth";
 import { sendAuthEmail } from "./email";
@@ -98,8 +98,10 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     const invites = await db
       .select({ id: schema.invitation.id })
       .from(schema.invitation)
-      .where(eq(schema.invitation.organizationId, org.id));
-    const pendingInvites = invites.length; // status filtering happens client-side today; see /invites below for detail
+      .where(
+        and(eq(schema.invitation.organizationId, org.id), eq(schema.invitation.status, "pending")),
+      );
+    const pendingInvites = invites.length;
     return c.json({
       organization: { id: org.id, slug: org.slug, name: org.name },
       memberCount: members.length,
