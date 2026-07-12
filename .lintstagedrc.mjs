@@ -1,6 +1,9 @@
 /**
  * lint-staged config — ESM so we can filter staged files before passing to the tools.
  *
+ * Pre-commit also runs `pnpm types` (see `.husky/pre-commit`) so type-aware
+ * oxlint sees generated `worker-configuration.d.ts` the same way CI does.
+ *
  * Files under an oxlintrc/oxfmtrc ignorePattern are excluded from the matching
  * pass: handing a fully-ignored list to the tool makes it exit non-zero with
  * "No files found to lint" / "Expected at least one target file" when only

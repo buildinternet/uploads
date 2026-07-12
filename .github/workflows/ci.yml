@@ -36,6 +36,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Generates gitignored worker-configuration.d.ts for api, mcp, and web.
+      # Type-aware oxlint needs these (Env, ExportedHandler, bindings).
       - name: Generate Wrangler types
         run: pnpm types
 

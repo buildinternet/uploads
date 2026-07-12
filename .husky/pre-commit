@@ -1,1 +1,5 @@
+# Type-aware oxlint needs generated worker-configuration.d.ts (gitignored).
+# Match CI (`.github/workflows/ci.yml` → "Generate Wrangler types") so missing
+# Env / ExportedHandler fails before push, not only on the PR check.
+pnpm types
 pnpm exec lint-staged

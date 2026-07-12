@@ -76,9 +76,10 @@ User-visible CLI/client/MCP package changes need a `.changeset/*.md` file
 On merge to `main`, `.github/workflows/release.yml` opens a version PR, then
 publishes to npm via OIDC after that PR merges. See [docs/releasing.md](docs/releasing.md).
 
-Run `wrangler types` (or `pnpm --filter @uploads/api types`) after any
+Run `pnpm types` (or `pnpm --filter @uploads/{api,mcp,web} types`) after any
 `wrangler.jsonc` change — `Env` is generated into `worker-configuration.d.ts`,
-never hand-written.
+never hand-written. CI and the pre-commit hook both run `pnpm types` before
+type-aware oxlint for this reason.
 
 ## Workspaces (multi-tenant model)
 
@@ -116,9 +117,10 @@ records; any future global secrets go through `wrangler secret put` (prod) or
 
 - `pnpm check` runs `oxlint` then `oxfmt --check`. Autofix with `pnpm lint:fix`
   / `pnpm format`. CI runs the same gate in the **Lint & Format** job
-  (`.github/workflows/ci.yml`).
-- A Husky pre-commit hook runs `lint-staged` (oxlint + oxfmt on staged files);
-  it's installed via the `prepare` script on `pnpm install`.
+  (`.github/workflows/ci.yml`), after `pnpm types` so gitignored
+  `worker-configuration.d.ts` files exist for type-aware rules.
+- A Husky pre-commit hook runs `pnpm types` then `lint-staged` (oxlint + oxfmt
+  on staged files); it's installed via the `prepare` script on `pnpm install`.
 - TypeScript strict, ESM only, `lib: ["ES2022"]` (no DOM — the Workers types
   own globals like `crypto.subtle.timingSafeEqual`).
 - Auth is per-workspace bearer tokens, hashed + timing-safe compare, with
