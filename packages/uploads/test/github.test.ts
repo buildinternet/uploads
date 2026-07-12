@@ -5,6 +5,7 @@ import {
   ghAttachmentKey,
   ghKeyPrefix,
   isValidRepo,
+  normalizeGithubCoordinate,
   parseRepoFromRemoteUrl,
   type GhTarget,
 } from "../src/github.js";
@@ -19,6 +20,28 @@ describe("isValidRepo", () => {
     expect(isValidRepo("a/b/c")).toBe(false);
     expect(isValidRepo("")).toBe(false);
     expect(isValidRepo("owner/")).toBe(false);
+  });
+});
+
+describe("normalizeGithubCoordinate", () => {
+  it("normalizes owner/repo coordinates and strict GitHub issue or pull URLs", () => {
+    expect(normalizeGithubCoordinate("BuildInternet/Uploads#58")).toMatchObject({
+      coordinate: "buildinternet/uploads#58",
+    });
+    expect(
+      normalizeGithubCoordinate("https://github.com/BuildInternet/Uploads/pull/58"),
+    ).toMatchObject({
+      coordinate: "buildinternet/uploads#58",
+      canonicalUrl: "https://github.com/buildinternet/uploads/issues/58",
+    });
+  });
+  it.each([
+    "http://github.com/o/r/issues/1",
+    "https://github.com/o/r/issues/1?x=1",
+    "https://github.com/o/r/pulls/1",
+    "https://evil.example/o/r/issues/1",
+  ])("rejects non-canonical GitHub URLs: %s", (value) => {
+    expect(normalizeGithubCoordinate(value)).toBeUndefined();
   });
 });
 

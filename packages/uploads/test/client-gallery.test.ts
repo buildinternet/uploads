@@ -76,3 +76,60 @@ describe("gallery client methods", () => {
     expect(fetch.mock.calls[4][0]).toBe("https://api.test/v1/test/galleries/gal_example");
   });
 });
+
+describe("gallery external-reference client methods", () => {
+  it("uses workspace-scoped reference paths and encodes reverse lookup queries", async () => {
+    const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/galleries/gal_example/external-references") && init?.method === "GET")
+        return new Response(JSON.stringify({ references: [] }));
+      if (url.endsWith("/galleries/gal_example/external-references") && init?.method === "POST")
+        return new Response(
+          JSON.stringify({
+            id: "ref-1",
+            provider: "github",
+            resourceType: "item",
+            coordinate: "buildinternet/uploads#58",
+            canonicalUrl: "https://github.com/buildinternet/uploads/issues/58",
+            createdAt: gallery.createdAt,
+          }),
+          { status: 201 },
+        );
+      if (
+        url.endsWith("/galleries/gal_example/external-references/ref-1") &&
+        init?.method === "DELETE"
+      )
+        return new Response(JSON.stringify({ deleted: true, id: "ref-1" }));
+      if (url.includes("/galleries/by-reference?") && init?.method === "GET")
+        return new Response(JSON.stringify({ galleries: [gallery], nextCursor: null }));
+      throw new Error("unexpected URL: " + url);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = createUploadsClient({
+      apiUrl: "https://api.test",
+      workspace: "test",
+      token: "up_test_x",
+    });
+
+    await client.listGalleryExternalReferences("gal_example");
+    await client.linkGalleryExternalReference("gal_example", {
+      expectedVersion: 1,
+      provider: "github",
+      coordinate: "buildinternet/uploads#58",
+    });
+    await client.unlinkGalleryExternalReference("gal_example", "ref-1", { expectedVersion: 2 });
+    await client.findGalleriesByReference({
+      provider: "github",
+      coordinate: "buildinternet/uploads#58",
+      limit: 10,
+      cursor: "next",
+    });
+
+    expect(fetch.mock.calls.map(([input]) => String(input))).toEqual([
+      "https://api.test/v1/test/galleries/gal_example/external-references",
+      "https://api.test/v1/test/galleries/gal_example/external-references",
+      "https://api.test/v1/test/galleries/gal_example/external-references/ref-1",
+      "https://api.test/v1/test/galleries/by-reference?provider=github&coordinate=buildinternet%2Fuploads%2358&limit=10&cursor=next",
+    ]);
+  });
+});

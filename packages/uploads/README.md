@@ -64,11 +64,15 @@ uploads gallery create --title "Release screenshots"
 uploads gallery add gal_example screenshots/myapp/42/after.webp --alt "Updated dashboard"
 uploads put ./before.png --gallery gal_example
 uploads gallery show gal_example
+uploads gallery link gal_example --github buildinternet/uploads#58
+uploads gallery list --github https://github.com/buildinternet/uploads/pull/58
 ```
 
 When adding several keys, `uploads gallery add` processes them sequentially and reports any
 individual failures in `--json` output. Gallery item updates use the API's current version to
 avoid overwriting concurrent changes.
+
+Link a gallery to a GitHub issue or pull request with `gallery link --github`. Coordinates and strict `https://github.com/<owner>/<repo>/issues|pull/<number>` URLs are accepted; `gallery list --github` performs the authenticated reverse lookup. Links never change gallery identity, and GitHub repository visibility does not make the public gallery private.
 
 Config layers (first match wins): CLI flags → env vars → `--env-file` → `~/.config/buildinternet/config`. See `config.example` for keys.
 

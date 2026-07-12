@@ -121,6 +121,36 @@ export interface DeleteGalleryOptions {
   expectedVersion: number;
 }
 
+export interface GalleryExternalReference {
+  id: string;
+  provider: "github";
+  resourceType: "item";
+  coordinate: string;
+  canonicalUrl: string | null;
+  createdAt: string;
+}
+
+export interface GalleryExternalReferenceListResult {
+  references: GalleryExternalReference[];
+}
+
+export interface LinkGalleryExternalReferenceOptions {
+  expectedVersion: number;
+  provider: "github";
+  coordinate: string;
+}
+
+export interface UnlinkGalleryExternalReferenceOptions {
+  expectedVersion: number;
+}
+
+export interface FindGalleriesByReferenceOptions {
+  provider: "github";
+  coordinate: string;
+  limit?: number;
+  cursor?: string;
+}
+
 export interface HealthResult {
   ok: boolean;
 }
@@ -450,6 +480,55 @@ export function createUploadsClient(config: UploadsClientConfig) {
           headers: { "Content-Type": "application/json" },
         },
       );
+    },
+
+    async listGalleryExternalReferences(id: string): Promise<GalleryExternalReferenceListResult> {
+      return request<GalleryExternalReferenceListResult>(
+        "GET",
+        galleriesBase(config) + "/" + encodeURIComponent(id) + "/external-references",
+      );
+    },
+
+    async linkGalleryExternalReference(
+      id: string,
+      opts: LinkGalleryExternalReferenceOptions,
+    ): Promise<GalleryExternalReference> {
+      return request<GalleryExternalReference>(
+        "POST",
+        galleriesBase(config) + "/" + encodeURIComponent(id) + "/external-references",
+        {
+          body: new TextEncoder().encode(JSON.stringify(opts)),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    },
+
+    async unlinkGalleryExternalReference(
+      id: string,
+      referenceId: string,
+      opts: UnlinkGalleryExternalReferenceOptions,
+    ): Promise<{ deleted: boolean; id: string }> {
+      return request<{ deleted: boolean; id: string }>(
+        "DELETE",
+        galleriesBase(config) +
+          "/" +
+          encodeURIComponent(id) +
+          "/external-references/" +
+          encodeURIComponent(referenceId),
+        {
+          body: new TextEncoder().encode(JSON.stringify(opts)),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    },
+
+    async findGalleriesByReference(
+      opts: FindGalleriesByReferenceOptions,
+    ): Promise<GalleryListResult> {
+      const params = new URLSearchParams({ provider: opts.provider, coordinate: opts.coordinate });
+      if (opts.limit != null) params.set("limit", String(opts.limit));
+      if (opts.cursor) params.set("cursor", opts.cursor);
+      return request<GalleryListResult>("GET", galleriesBase(config) + "/by-reference?" + params);
     },
 
     async health(): Promise<HealthResult> {

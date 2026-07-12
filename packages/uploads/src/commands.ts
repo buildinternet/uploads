@@ -24,6 +24,7 @@ import {
   attachmentsCommentBody,
   type GhTarget,
   type AttachmentItem,
+  normalizeGithubCoordinate,
 } from "./github.js";
 import {
   resolveRepo,
@@ -589,12 +590,31 @@ Commands:
   list [--limit <n>] [--cursor <c>] [--all]
   delete <gallery-id>
   add <gallery-id> <object-key...> [--caption <text>] [--alt <text>]
+  link <gallery-id> --github <owner/repo#number|github-url>
+  unlink <gallery-id> --github <owner/repo#number|github-url>
+  list --github <owner/repo#number|github-url> [--limit <n>] [--cursor <c>] [--all]
 
 Examples:
   uploads gallery create --title "Settings redesign"
   uploads gallery add gal_example screenshots/app/after.webp --alt "Updated settings page"
   uploads gallery show gal_example
+  uploads gallery link gal_example --github buildinternet/uploads#58
+  uploads gallery list --github https://github.com/buildinternet/uploads/pull/58
 `;
+
+function githubCoordinateFromFlags(flags: CommandFlags["flags"]): string {
+  const value = flagString(flags, "--github");
+  if (!value)
+    throw new UsageError(
+      "--github requires an owner/repo#number coordinate or GitHub issue/PR URL",
+    );
+  const normalized = normalizeGithubCoordinate(value);
+  if (!normalized)
+    throw new UsageError(
+      "--github must be owner/repo#number or an https://github.com/.../issues|pull/number URL",
+    );
+  return normalized.coordinate;
+}
 
 export async function runGallery(ctx: CliContext, args: string[], help = false): Promise<number> {
   const parsed = parseCommandArgs(args);
@@ -629,11 +649,21 @@ export async function runGallery(ctx: CliContext, args: string[], help = false):
     case "list": {
       const limit = flagInt(parsed.flags, "--limit", "--limit");
       const cursor = flagString(parsed.flags, "--cursor");
+      const github = parsed.flags.has("--github")
+        ? githubCoordinateFromFlags(parsed.flags)
+        : undefined;
       if (flagBool(parsed.flags, "--all")) {
         const galleries = [];
         let nextCursor: string | undefined = cursor;
         do {
-          const page = await ctx.client.listGalleries({ limit, cursor: nextCursor });
+          const page = github
+            ? await ctx.client.findGalleriesByReference({
+                provider: "github",
+                coordinate: github,
+                limit,
+                cursor: nextCursor,
+              })
+            : await ctx.client.listGalleries({ limit, cursor: nextCursor });
           galleries.push(...page.galleries);
           nextCursor = page.nextCursor ?? undefined;
         } while (nextCursor);
@@ -643,13 +673,56 @@ export async function runGallery(ctx: CliContext, args: string[], help = false):
             await writeStdout(`${gallery.id}  ${gallery.url}  ${gallery.title}\n`);
         return 0;
       }
-      const page = await ctx.client.listGalleries({ limit, cursor });
+      const page = github
+        ? await ctx.client.findGalleriesByReference({
+            provider: "github",
+            coordinate: github,
+            limit,
+            cursor,
+          })
+        : await ctx.client.listGalleries({ limit, cursor });
       if (ctx.json) await writeJson(page);
       else {
         for (const gallery of page.galleries)
           await writeStdout(`${gallery.id}  ${gallery.url}  ${gallery.title}\n`);
         if (page.nextCursor) process.stderr.write(`cursor: ${page.nextCursor}\n`);
       }
+      return 0;
+    }
+    case "link": {
+      const id = parsed.positionals[1];
+      if (!id) throw new UsageError("gallery link requires a gallery ID");
+      const coordinate = githubCoordinateFromFlags(parsed.flags);
+      const current = await ctx.client.getGallery(id);
+      const reference = await ctx.client.linkGalleryExternalReference(id, {
+        expectedVersion: current.version,
+        provider: "github",
+        coordinate,
+      });
+      if (ctx.json) await writeJson({ galleryId: id, reference });
+      else await writeStdout((reference.canonicalUrl ?? reference.coordinate) + "\n");
+      return 0;
+    }
+    case "unlink": {
+      const id = parsed.positionals[1];
+      if (!id) throw new UsageError("gallery unlink requires a gallery ID");
+      const coordinate = githubCoordinateFromFlags(parsed.flags);
+      const references = await ctx.client.listGalleryExternalReferences(id);
+      const reference = references.references.find(
+        (entry) => entry.provider === "github" && entry.coordinate === coordinate,
+      );
+      if (!reference) {
+        const output = { galleryId: id, coordinate, deleted: false };
+        if (ctx.json) await writeJson(output);
+        else if (!ctx.quiet) process.stderr.write("GitHub reference was already absent\n");
+        return 0;
+      }
+      const current = await ctx.client.getGallery(id);
+      const result = await ctx.client.unlinkGalleryExternalReference(id, reference.id, {
+        expectedVersion: current.version,
+      });
+      if (ctx.json) await writeJson({ galleryId: id, coordinate, ...result });
+      else if (!ctx.quiet) process.stderr.write("unlinked " + coordinate + "\n");
       return 0;
     }
     case "delete": {

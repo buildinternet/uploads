@@ -101,3 +101,72 @@ describe("runGallery", () => {
     expect(attempted).toEqual(["first.png", "missing.png", "last.png"]);
   });
 });
+
+it("links GitHub coordinates after reading the current gallery version", async () => {
+  const versions: number[] = [];
+  const client = {
+    getGallery: async () => gallery(7),
+    linkGalleryExternalReference: async (
+      _id: string,
+      opts: { expectedVersion: number; coordinate: string },
+    ) => {
+      versions.push(opts.expectedVersion);
+      expect(opts.coordinate).toBe("buildinternet/uploads#58");
+      return {
+        id: "ref-1",
+        provider: "github" as const,
+        resourceType: "item" as const,
+        coordinate: opts.coordinate,
+        canonicalUrl: "https://github.com/buildinternet/uploads/issues/58",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      };
+    },
+  } as unknown as UploadsClient;
+
+  expect(
+    await runGallery(ctxWith(client), [
+      "link",
+      "gal_example",
+      "--github",
+      "https://github.com/BuildInternet/Uploads/pull/58",
+    ]),
+  ).toBe(0);
+  expect(versions).toEqual([7]);
+});
+
+it("treats an absent GitHub reference as an idempotent unlink", async () => {
+  const client = {
+    listGalleryExternalReferences: async () => ({ references: [] }),
+    getGallery: async () => {
+      throw new Error("should not read version when reference is absent");
+    },
+  } as unknown as UploadsClient;
+
+  expect(
+    await runGallery(ctxWith(client), [
+      "unlink",
+      "gal_example",
+      "--github",
+      "buildinternet/uploads#58",
+    ]),
+  ).toBe(0);
+});
+
+it("uses reverse lookup for gallery list --github", async () => {
+  const coordinates: string[] = [];
+  const client = {
+    findGalleriesByReference: async (opts: { coordinate: string }) => {
+      coordinates.push(opts.coordinate);
+      return { galleries: [gallery(1)], nextCursor: null };
+    },
+  } as unknown as UploadsClient;
+
+  expect(
+    await runGallery(ctxWith(client), [
+      "list",
+      "--github",
+      "https://github.com/buildinternet/uploads/issues/58",
+    ]),
+  ).toBe(0);
+  expect(coordinates).toEqual(["buildinternet/uploads#58"]);
+});

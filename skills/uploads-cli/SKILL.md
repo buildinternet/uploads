@@ -186,11 +186,15 @@ uploads gallery create --title "Settings redesign"
 uploads gallery add gal_example screenshots/app/settings-before.webp screenshots/app/settings-after.webp
 uploads put ./after.png --gallery gal_example --alt "Updated settings page"
 uploads gallery show gal_example
+uploads gallery link gal_example --github buildinternet/uploads#58
+uploads gallery list --github https://github.com/buildinternet/uploads/pull/58
 ```
 
 `gallery add` processes keys sequentially so it obtains a current optimistic version before
 each mutation. With `--json`, its stable `added` and `failures` arrays make partial failures
 safe for agents to inspect. Deleting a gallery removes only its gallery record—not the objects.
+
+Optionally link a gallery to a GitHub issue or PR with `uploads gallery link <gallery-id> --github <owner/repo#number>`. The CLI also accepts strict `https://github.com/<owner>/<repo>/issues|pull/<number>` URLs. Use `uploads gallery list --github <coordinate-or-url>` for the authenticated reverse lookup. This is metadata only: it does not make a gallery private or change its opaque identity.
 
 ## Embedding in a GitHub PR or issue
 
