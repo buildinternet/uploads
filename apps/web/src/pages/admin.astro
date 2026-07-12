@@ -1,0 +1,100 @@
+---
+import { env } from "cloudflare:workers";
+
+export const prerender = false;
+
+const authOrigin =
+  env.UPLOADS_AUTH_ORIGIN ??
+  import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ??
+  "https://auth.uploads.sh";
+
+const FAVICON =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23121214'/%3E%3Cg fill='none' stroke='%23b794ff' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 12.5 L16 5 L24 12.5'/%3E%3Cpath d='M8 19.5 L16 12 L24 19.5' opacity='.55'/%3E%3Cpath d='M8 26.5 L16 19 L24 26.5' opacity='.28'/%3E%3C/g%3E%3C/svg%3E";
+---
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow, noarchive" />
+  <meta name="referrer" content="no-referrer" />
+  <meta http-equiv="Content-Security-Policy" content={`default-src 'none'; connect-src ${authOrigin}; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`} />
+  <title>Admin · uploads.sh</title>
+  <link rel="icon" href={FAVICON} />
+  <style>
+    :root{color-scheme:dark;--bg:#0a0a0b;--panel:#121214;--line:#232327;--fg:#ececea;--body:#b3b3ad;--muted:#7d7d77;--accent:#b794ff;--red:#d98a9c;--mono:"Geist Mono Variable",ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100dvh;background:var(--bg);color:var(--fg);font:14px/1.5 var(--mono);padding:32px 20px 48px}
+    main{max-width:720px;margin:0 auto;display:grid;gap:16px}
+    h1{font-size:1.15rem;font-weight:600;margin:0}
+    p.muted{color:var(--muted);margin:0;font-size:.9rem}
+    .status{border-left:3px solid var(--accent);padding:9px 14px;margin:8px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+    .status[data-state=denied]{border-color:var(--red);color:var(--red)}
+    a.button{display:inline-block;margin-top:4px;font:12px var(--mono);color:var(--accent);text-decoration:none;border:1px solid var(--line);border-radius:7px;padding:9px 13px;background:var(--panel)}
+    a.button:hover,a.button:focus-visible{border-color:var(--accent);outline:none}
+    nav.sections{display:grid;gap:10px;margin-top:8px}
+    nav.sections .item{padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--muted)}
+    nav.sections .item strong{color:var(--fg);display:block;font-size:.95rem;margin-bottom:2px}
+    [hidden]{display:none!important}
+  </style>
+</head>
+<body>
+<main>
+  <h1>uploads.sh admin</h1>
+
+  <div id="checking" class="status" role="status">Checking your session…</div>
+
+  <div id="denied" hidden>
+    <div class="status" data-state="denied" role="alert">You need admin access to view this page.</div>
+    <a class="button" href="/login">Sign in</a>
+  </div>
+
+  <div id="dashboard" hidden>
+    <p class="muted">Signed in as <span id="who"></span>.</p>
+    <!--
+      Client-side gating here is a UX affordance ONLY — it just avoids
+      flashing admin nav at a non-admin visitor. It is NOT the security
+      boundary: this page fetches no sensitive data itself in Phase 2. The
+      real boundary is server-side, on apps/api, via requireAdminUser
+      (src/session-auth.ts) checking the session over the AUTH service
+      binding — every admin data endpoint enforces that independently of
+      whatever this page shows or hides.
+    -->
+    <nav class="sections" aria-label="Admin sections">
+      <div class="item"><strong>Workspaces</strong>Coming in Phase 3.</div>
+      <div class="item"><strong>Invites</strong>Coming in Phase 3.</div>
+      <div class="item"><strong>Users</strong>Coming in Phase 3.</div>
+    </nav>
+  </div>
+</main>
+<script define:vars={{ authOrigin }}>
+  window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
+</script>
+<script>
+  import { getSession } from "../lib/auth-client";
+
+  const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string }).__UPLOADS_AUTH_ORIGIN__;
+
+  function requireElement<T extends Element>(selector: string): T {
+    const element = document.querySelector<T>(selector);
+    if (!element) throw new Error(`admin page is missing ${selector}`);
+    return element as T;
+  }
+
+  const checking = requireElement<HTMLElement>("#checking");
+  const denied = requireElement<HTMLElement>("#denied");
+  const dashboard = requireElement<HTMLElement>("#dashboard");
+  const who = requireElement<HTMLElement>("#who");
+
+  getSession(authOrigin).then((result) => {
+    checking.hidden = true;
+    if (!result || result.user.role !== "admin") {
+      denied.hidden = false;
+      return;
+    }
+    who.textContent = result.user.email;
+    dashboard.hidden = false;
+  });
+</script>
+</body>
+</html>
