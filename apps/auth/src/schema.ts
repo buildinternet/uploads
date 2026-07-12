@@ -11,7 +11,10 @@
  * ⚠ footgun: this file and ./migrations/*.sql are hand-synced — there is no
  * generator wired into CI. Each table below is annotated with the migration
  * file that created it; keep that comment current when the schema changes.
+ * Drizzle `relations()` below are TS-only (for experimental.joins) and do not
+ * need a migration.
  */
+import { relations } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 /** Non-null integer `timestamp` column with a JS-side default of "now". */
@@ -206,6 +209,73 @@ export const invitation = sqliteTable(
   },
   (t) => [index("idx_invitation_organization_id").on(t.organizationId)],
 );
+
+/**
+ * Drizzle relations for Better Auth `experimental.joins` (adapter needs these
+ * on the same schema object as the tables). No SQL/migration impact.
+ *
+ * session has two FKs to user (`userId`, `impersonatedBy`) so both sides use
+ * matching `relationName`s — see better-auth drizzle adapter docs.
+ */
+export const userRelations = relations(user, ({ many }) => ({
+  sessions: many(session, { relationName: "session_userId" }),
+  impersonatedSessions: many(session, { relationName: "session_impersonatedBy" }),
+  accounts: many(account),
+  members: many(member),
+  invitations: many(invitation),
+}));
+
+export const sessionRelations = relations(session, ({ one }) => ({
+  user: one(user, {
+    fields: [session.userId],
+    references: [user.id],
+    relationName: "session_userId",
+  }),
+  impersonatedByUser: one(user, {
+    fields: [session.impersonatedBy],
+    references: [user.id],
+    relationName: "session_impersonatedBy",
+  }),
+  activeOrganization: one(organization, {
+    fields: [session.activeOrganizationId],
+    references: [organization.id],
+  }),
+}));
+
+export const accountRelations = relations(account, ({ one }) => ({
+  user: one(user, {
+    fields: [account.userId],
+    references: [user.id],
+  }),
+}));
+
+export const organizationRelations = relations(organization, ({ many }) => ({
+  members: many(member),
+  invitations: many(invitation),
+  sessions: many(session),
+}));
+
+export const memberRelations = relations(member, ({ one }) => ({
+  organization: one(organization, {
+    fields: [member.organizationId],
+    references: [organization.id],
+  }),
+  user: one(user, {
+    fields: [member.userId],
+    references: [user.id],
+  }),
+}));
+
+export const invitationRelations = relations(invitation, ({ one }) => ({
+  organization: one(organization, {
+    fields: [invitation.organizationId],
+    references: [organization.id],
+  }),
+  user: one(user, {
+    fields: [invitation.inviterId],
+    references: [user.id],
+  }),
+}));
 
 export type AuthUser = typeof user.$inferSelect;
 export type AuthSession = typeof session.$inferSelect;
