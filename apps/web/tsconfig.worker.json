@@ -7,7 +7,13 @@
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "noUncheckedIndexedAccess": false
+    "noUncheckedIndexedAccess": false,
+    "types": []
   },
-  "include": ["src/worker.ts"]
+  "include": [
+    "worker-configuration.d.ts",
+    "src/worker.ts",
+    "src/entry.ts",
+    "src/markdown-negotiation.ts"
+  ]
 }

@@ -29,6 +29,8 @@ public/.well-known/api-catalog       RFC 9727 linkset
 public/.well-known/openapi.json      Summary OpenAPI for the REST API
 public/.well-known/mcp/              MCP server card (points at agents.uploads.sh)
 src/worker.ts                        Live agent-skills index implementation
+src/entry.ts                         Worker entry (Astro handler + markdown negotiation)
+src/markdown-negotiation.ts          Accept: text/markdown → HTML→Markdown for agents
 astro.config.mjs                     Site URL + Cloudflare hybrid rendering
 wrangler.jsonc                       Hybrid Worker, static assets, skills index, API origin
 ```
@@ -95,13 +97,31 @@ advertise another skill, append its monorepo path in `SKILL_SOURCES` in
 
 Use Astro dev or preview to exercise the on-demand index locally.
 
+### Markdown for agents (`Accept: text/markdown`)
+
+Zone-level [Markdown for Agents](https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/)
+needs Cloudflare Pro+. This origin implements the same contract in the Worker
+(`src/entry.ts` + `src/markdown-negotiation.ts`) so Free-plan deploys still pass
+agent-readiness checks:
+
+```bash
+curl -sI -H "Accept: text/markdown" https://uploads.sh/
+# content-type: text/markdown; charset=utf-8
+# x-markdown-tokens: <n>
+# vary: Accept
+```
+
+Browsers (no `text/markdown` in `Accept`) still get HTML. Non-HTML responses
+(JSON discovery docs, `/auth.md`, `/llms.txt`) are left alone. Content-Signal on
+converted responses matches `robots.txt` (`search=yes`, `ai-input=yes`,
+`ai-train=no`).
+
 ### Intentionally not implemented (yet)
 
 | Item                            | Why                                                                |
 | ------------------------------- | ------------------------------------------------------------------ |
 | OAuth/OIDC well-known + PRM     | Auth is invitation bearer tokens, not OAuth                        |
 | DNS-AID SVCB records            | DNS / DNSSEC operator work, not this deployable                    |
-| Markdown `Accept` negotiation   | Cloudflare zone “Markdown for Agents” feature                      |
 | WebMCP `navigator.modelContext` | Experimental browser API; no product tools on the landing page yet |
 
 ## Error pages

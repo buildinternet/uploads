@@ -2,7 +2,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "uploads-web",
   "compatibility_date": "2026-07-06",
-  "main": "@astrojs/cloudflare/entrypoints/server",
+  // Custom entry wraps the Astro handler with Accept: text/markdown negotiation
+  // (app-level Markdown for Agents; zone Pro feature not required).
+  "main": "src/entry.ts",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "preview_urls": true,
   "vars": {
@@ -12,7 +14,9 @@
     "binding": "ASSETS",
     "directory": "./dist",
     "not_found_handling": "404-page",
-    "run_worker_first": ["/g/*", "/.well-known/agent-skills/index.json"],
+    // Worker-first so static HTML also goes through markdown negotiation.
+    // Without this, the asset server bypasses the Worker for prerendered pages.
+    "run_worker_first": true,
   },
   "routes": [
     {
