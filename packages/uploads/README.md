@@ -43,7 +43,7 @@ for `uploads mcp`.
 
 `attach` is the agent-friendly default for GitHub media. It accepts one or more files,
 infers the pull request for the current branch via `gh`, uploads stable URLs, and creates
-or updates one marker-owned GitHub comment. It keeps loose `gh/...` attachments and linked public galleries in distinct sections, and updates that same comment in place on every sync. Use `--pr`, `--issue`, and `--repo` to select
+or updates one marker-owned GitHub comment. It keeps loose `gh/...` attachments and linked public galleries in distinct sections, shows up to three available gallery images inline, and updates that same comment in place on every sync. Use `--pr`, `--issue`, and `--repo` to select
 the target explicitly, or `--no-comment` to upload without changing GitHub comments.
 
 **Keys / destinations:** default put uses the `screenshots` layout. Typed destinations

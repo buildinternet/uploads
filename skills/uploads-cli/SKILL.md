@@ -232,7 +232,7 @@ Then reference the URL in the PR/issue markdown you write with `gh`:
 
 ### Option B — managed attachments comment (`--comment` / `comment`)
 
-Add `--comment` to upload **and** create/update a single marker-owned comment on the PR/issue. It keeps loose `gh/...` attachments and every public gallery linked to that PR/issue in clearly separate sections. It finds its own prior comment via a hidden marker and edits it in place — it never touches the description or other comments:
+Add `--comment` to upload **and** create/update a single marker-owned comment on the PR/issue. It keeps loose `gh/...` attachments and every public gallery linked to that PR/issue in clearly separate sections, with up to three available gallery images inline. It finds its own prior comment via a hidden marker and edits it in place — it never touches the description or other comments:
 
 ```bash
 uploads put ./after.png --pr 123 --comment

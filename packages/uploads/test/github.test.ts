@@ -150,6 +150,27 @@ describe("attachmentsCommentBody", () => {
     expect(body).not.toContain("### 📎 Attachments");
   });
 
+  it("renders up to three inline previews that link back to the gallery", () => {
+    const body = attachmentsCommentBody(
+      [],
+      [
+        {
+          title: "Release screenshots",
+          url: "https://uploads.test/g/gal_release",
+          previews: [
+            { url: "https://storage.test/one.webp", alt: "First screen" },
+            { url: "https://storage.test/two.webp", alt: "Second screen" },
+            { url: "https://storage.test/three.webp", alt: "Third screen" },
+          ],
+        },
+      ],
+    );
+    expect(body).toContain(
+      '<a href="https://uploads.test/g/gal_release"><img width="320" alt="First screen" src="https://storage.test/one.webp"></a>',
+    );
+    expect(body).toContain("Open gallery");
+  });
+
   it("keeps galleries and loose attachments in clearly separate sections", () => {
     const body = attachmentsCommentBody(
       [{ key: "gh/o/r/pull/1/after.png", url: "https://x.test/after.png" }],

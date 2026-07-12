@@ -245,7 +245,7 @@ export async function syncAttachmentsComment(
     ({ key, url }) => ({ key, url }),
   );
 
-  const galleries: GalleryCommentItem[] = [];
+  const galleries: (GalleryCommentItem & { id: string })[] = [];
   let cursor: string | undefined;
   do {
     const page = await client.findGalleriesByReference({
@@ -254,15 +254,36 @@ export async function syncAttachmentsComment(
       coordinate: `${target.repo.toLowerCase()}#${target.num}`,
       cursor,
     });
-    galleries.push(...page.galleries.map(({ title, url }) => ({ title, url })));
+    galleries.push(...page.galleries.map(({ id, title, url }) => ({ title, url, id })));
     cursor = page.nextCursor ?? undefined;
   } while (cursor);
 
-  if (items.length === 0 && galleries.length === 0) return { action: "skipped", count: 0 };
+  const previewGalleries = await Promise.all(
+    galleries.map(async ({ id, ...gallery }) => {
+      try {
+        const detail = await client.getGallery(id);
+        return {
+          ...gallery,
+          previews: detail.items
+            .filter(
+              (item) =>
+                item.status === "available" && item.url && item.contentType?.startsWith("image/"),
+            )
+            .slice(0, 3)
+            .map((item) => ({ url: item.url!, alt: item.altText ?? item.objectKey })),
+        };
+      } catch {
+        // A deleted or temporarily unavailable gallery still gets a safe title link.
+        return gallery;
+      }
+    }),
+  );
 
-  const body = attachmentsCommentBody(items, galleries);
+  if (items.length === 0 && previewGalleries.length === 0) return { action: "skipped", count: 0 };
+
+  const body = attachmentsCommentBody(items, previewGalleries);
   const { created } = upsertAttachmentsComment(target, body, run);
-  return { action: created ? "created" : "updated", count: items.length + galleries.length };
+  return { action: created ? "created" : "updated", count: items.length + previewGalleries.length };
 }
 
 // --- attach ---

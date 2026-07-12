@@ -7,7 +7,10 @@ import type { CommandRunner } from "../src/github-gh.js";
 
 function listClient(
   items: { key: string; url: string | null }[],
-  galleryPages: { galleries: { title: string; url: string }[]; nextCursor: string | null }[] = [],
+  galleryPages: {
+    galleries: { id: string; title: string; url: string }[];
+    nextCursor: string | null;
+  }[] = [],
 ) {
   let page = 0;
   return {
@@ -15,6 +18,7 @@ function listClient(
     listAll: async () => items,
     findGalleriesByReference: async () =>
       galleryPages[page++] ?? { galleries: [], nextCursor: null },
+    getGallery: async (id: string) => ({ id, items: [] }),
   } as unknown as UploadsClient;
 }
 
@@ -75,5 +79,50 @@ describe("runComment", () => {
     );
     expect(code).toBe(0);
     expect(calls.length).toBe(0);
+  });
+  it("renders available gallery images inline and falls back for missing media", async () => {
+    const { run, calls } = ghRunner();
+    const client = {
+      ...listClient(
+        [],
+        [
+          {
+            galleries: [
+              { id: "gal_preview", title: "Preview", url: "https://uploads.test/g/gal_preview" },
+            ],
+            nextCursor: null,
+          },
+        ],
+      ),
+      getGallery: async () => ({
+        items: [
+          {
+            status: "available",
+            url: "https://storage.test/one.webp",
+            contentType: "image/webp",
+            altText: "One",
+            objectKey: "one.webp",
+          },
+          {
+            status: "missing",
+            url: null,
+            contentType: null,
+            altText: null,
+            objectKey: "gone.webp",
+          },
+          {
+            status: "available",
+            url: "https://storage.test/movie.mp4",
+            contentType: "video/mp4",
+            altText: null,
+            objectKey: "movie.mp4",
+          },
+        ],
+      }),
+    } as unknown as UploadsClient;
+    await runComment(ctxWith(client), ["--pr", "5", "--repo", "o/r"], false, run);
+    const create = calls.find((call) => call.args.includes("repos/o/r/issues/5/comments"));
+    expect(create?.input).toContain('src="https://storage.test/one.webp"');
+    expect(create?.input).not.toContain("movie.mp4");
   });
 });
