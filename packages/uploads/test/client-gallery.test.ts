@@ -133,3 +133,50 @@ describe("gallery external-reference client methods", () => {
     ]);
   });
 });
+
+describe("gallery client workspace isolation", () => {
+  it("keeps alpha and beta gallery requests under their own workspace paths", async () => {
+    const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const workspace = url.includes("/v1/alpha/") ? "alpha" : "beta";
+      if (url.endsWith("/galleries") && init?.method === "POST") {
+        return new Response(
+          JSON.stringify({
+            ...gallery,
+            id: "gal_" + workspace,
+            workspace,
+            url: "https://uploads.test/g/gal_" + workspace,
+          }),
+          { status: 201 },
+        );
+      }
+      if (url.includes("/galleries?") && init?.method === "GET") {
+        return new Response(JSON.stringify({ galleries: [], nextCursor: null }));
+      }
+      throw new Error("unexpected URL: " + url);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const alpha = createUploadsClient({
+      apiUrl: "https://api.test",
+      workspace: "alpha",
+      token: "up_alpha_test",
+    });
+    const beta = createUploadsClient({
+      apiUrl: "https://api.test",
+      workspace: "beta",
+      token: "up_beta_test",
+    });
+
+    await alpha.createGallery({ title: "Alpha" });
+    await beta.createGallery({ title: "Beta" });
+    await alpha.listGalleries({ limit: 1 });
+    await beta.listGalleries({ limit: 1 });
+
+    expect(fetch.mock.calls.map(([input]) => String(input))).toEqual([
+      "https://api.test/v1/alpha/galleries",
+      "https://api.test/v1/beta/galleries",
+      "https://api.test/v1/alpha/galleries?limit=1",
+      "https://api.test/v1/beta/galleries?limit=1",
+    ]);
+  });
+});

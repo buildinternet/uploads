@@ -2,8 +2,11 @@ import { beforeAll, describe, expect, it } from "vitest";
 import app from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "@uploads/api/workspace";
 import { FakeR2Bucket } from "@uploads/storage/test/fake-r2";
+import { GalleryFakeD1 } from "./gallery-fake-d1";
 
 const TOKEN = "up_test-ws_legacy-token-value";
+const ALPHA_TOKEN = "up_alpha_gallery-test";
+const BETA_TOKEN = "up_beta_gallery-test";
 
 const workspace: WorkspaceRecord = {
   provider: "r2",
@@ -88,6 +91,37 @@ async function makeEnv(
   return { env, bucket };
 }
 
+async function makeGalleryEnv(): Promise<{ env: Env; bucket: FakeR2Bucket }> {
+  const bucket = new FakeR2Bucket();
+  await bucket.put("alpha/screenshots/one.png", PNG_BYTES);
+  const records: Record<string, WorkspaceRecord> = {
+    alpha: {
+      provider: "r2",
+      bucket: "shared",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "alpha/",
+      publicBaseUrl: "https://storage.example.com",
+      tokenHash: await sha256Hex(ALPHA_TOKEN),
+    },
+    beta: {
+      provider: "r2",
+      bucket: "shared",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "beta/",
+      publicBaseUrl: "https://storage.example.com",
+      tokenHash: await sha256Hex(BETA_TOKEN),
+    },
+  };
+  const env = {
+    DB: new GalleryFakeD1(),
+    WEB_ORIGIN: "https://uploads.test",
+    REGISTRY: { get: async (key: string) => records[key.slice(3)] ?? null },
+    UPLOADS_DEFAULT: bucket,
+    WRITE_LIMITER: { limit: async () => ({ success: true }) },
+  } as unknown as Env;
+  return { env, bucket };
+}
+
 async function rpc(
   env: Env,
   body: unknown,
@@ -105,11 +139,18 @@ async function rpc(
   );
 }
 
-async function callTool(env: Env, name: string, args: Record<string, unknown>, token = TOKEN) {
+async function callTool(
+  env: Env,
+  name: string,
+  args: Record<string, unknown>,
+  token = TOKEN,
+  path = "/test-ws/mcp",
+) {
   const response = await rpc(
     env,
     { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } },
     token,
+    path,
   );
   expect(response.status).toBe(200);
   const body = (await response.json()) as {
@@ -122,6 +163,84 @@ async function callTool(env: Env, name: string, args: Record<string, unknown>, t
 // putObject sniffs the stored content type from these bytes (guards.ts).
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 const PNG_B64 = btoa(String.fromCharCode(...PNG_BYTES));
+
+describe("hosted gallery tenant isolation", () => {
+  it("keeps gallery get and reference lookup tenant-scoped while returning alpha canonical URLs", async () => {
+    const { env } = await makeGalleryEnv();
+    const alphaPath = "/alpha/mcp";
+    const betaPath = "/beta/mcp";
+
+    const created = await callTool(
+      env,
+      "gallery_create",
+      { title: "Alpha launch" },
+      ALPHA_TOKEN,
+      alphaPath,
+    );
+    expect(created.isError).toBe(false);
+    const gallery = created.structuredContent as { id: string; url: string; version: number };
+    expect(gallery.url).toBe("https://uploads.test/g/" + gallery.id);
+
+    const added = await callTool(
+      env,
+      "gallery_add",
+      { galleryId: gallery.id, objectKey: "screenshots/one.png" },
+      ALPHA_TOKEN,
+      alphaPath,
+    );
+    expect(added.structuredContent).toMatchObject({
+      objectKey: "screenshots/one.png",
+      url: "https://storage.example.com/alpha/screenshots/one.png",
+    });
+
+    const linked = await callTool(
+      env,
+      "gallery_link",
+      {
+        galleryId: gallery.id,
+        provider: "github",
+        coordinate: "buildinternet/uploads#57",
+      },
+      ALPHA_TOKEN,
+      alphaPath,
+    );
+    expect(linked.structuredContent).toMatchObject({
+      canonicalUrl: "https://github.com/buildinternet/uploads/issues/57",
+    });
+
+    const alphaFound = await callTool(
+      env,
+      "gallery_find_by_reference",
+      { provider: "github", coordinate: "buildinternet/uploads#57" },
+      ALPHA_TOKEN,
+      alphaPath,
+    );
+    expect(alphaFound.structuredContent).toMatchObject({
+      galleries: [{ id: gallery.id, url: gallery.url, version: 3 }],
+      nextCursor: null,
+    });
+
+    const betaGet = await callTool(
+      env,
+      "gallery_get",
+      { galleryId: gallery.id },
+      BETA_TOKEN,
+      betaPath,
+    );
+    expect(betaGet).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: "gallery not found" }],
+    });
+    const betaFound = await callTool(
+      env,
+      "gallery_find_by_reference",
+      { provider: "github", coordinate: "buildinternet/uploads#57" },
+      BETA_TOKEN,
+      betaPath,
+    );
+    expect(betaFound.structuredContent).toEqual({ galleries: [], nextCursor: null });
+  });
+});
 
 describe("mcp worker", () => {
   it("serves an unauthenticated MCP server card for discovery", async () => {
