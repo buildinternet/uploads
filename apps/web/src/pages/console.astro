@@ -1,7 +1,12 @@
 ---
 // Minimal operator console: paste a bearer token, list usage + files via the public API.
 // No server-side secrets — token stays in the browser. Scaffold toward a fuller files-sdk UI.
+import "@fontsource-variable/geist/index.css";
+import "@fontsource-variable/geist-mono/index.css";
+
 const API_DEFAULT = "https://api.uploads.sh";
+const FAVICON =
+	"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23121214'/%3E%3Cg fill='none' stroke='%23b794ff' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 12.5 L16 5 L24 12.5'/%3E%3Cpath d='M8 19.5 L16 12 L24 19.5' opacity='.55'/%3E%3Cpath d='M8 26.5 L16 19 L24 26.5' opacity='.28'/%3E%3C/g%3E%3C/svg%3E";
 ---
 
 <html lang="en">
@@ -10,16 +15,18 @@ const API_DEFAULT = "https://api.uploads.sh";
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex, nofollow, noarchive" />
     <title>uploads.sh console</title>
+    <link rel="icon" href={FAVICON} />
     <style>
       :root {
         color-scheme: dark;
-        --bg: #0b0813;
-        --panel: #120d1e;
-        --fg: #e6dff5;
-        --muted: #8a84a8;
+        --bg: #0a0a0b;
+        --panel: #121214;
+        --line: #232327;
+        --fg: #ececea;
+        --body: #b3b3ad;
+        --muted: #7d7d77;
         --accent: #b794ff;
-        --border: #2a2240;
-        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        --mono: "Geist Mono Variable", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
       }
       * { box-sizing: border-box; }
       body {
@@ -28,35 +35,46 @@ const API_DEFAULT = "https://api.uploads.sh";
         background: var(--bg);
         color: var(--fg);
         font: 14px/1.5 var(--mono);
+        font-variant-ligatures: none;
+        font-feature-settings: "calt" 0, "liga" 0;
         padding: 32px 20px 48px;
       }
       main { max-width: 720px; margin: 0 auto; display: grid; gap: 16px; }
       h1 { font-size: 1.15rem; font-weight: 600; margin: 0; }
       p.muted { color: var(--muted); margin: 0; font-size: 0.9rem; }
-      label { display: grid; gap: 6px; color: var(--muted); font-size: 0.8rem; }
+      label {
+        display: grid;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 10.5px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
       input {
         background: var(--panel);
-        border: 1px solid var(--border);
+        border: 1px solid var(--line);
         border-radius: 8px;
         color: var(--fg);
         padding: 10px 12px;
-        font: inherit;
+        font: 14px var(--mono);
       }
+      input:focus-visible { border-color: var(--accent); outline: none; }
       .row { display: flex; flex-wrap: wrap; gap: 10px; }
       button {
-        background: var(--accent);
-        color: #120d1e;
-        border: 0;
-        border-radius: 8px;
-        padding: 10px 14px;
-        font: inherit;
-        font-weight: 600;
+        font: 12px var(--mono);
+        letter-spacing: 0.04em;
+        color: var(--accent);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 9px 13px;
         cursor: pointer;
       }
-      button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+      button:hover,
+      button:focus-visible { border-color: var(--accent); outline: none; }
       pre {
         background: var(--panel);
-        border: 1px solid var(--border);
+        border: 1px solid var(--line);
         border-radius: 8px;
         padding: 14px;
         overflow: auto;
@@ -64,16 +82,25 @@ const API_DEFAULT = "https://api.uploads.sh";
         margin: 0;
         white-space: pre-wrap;
         word-break: break-word;
+        color: var(--body);
+        font-size: 12.5px;
       }
-      a { color: var(--accent); }
+      a {
+        color: var(--fg);
+        text-decoration: underline;
+        text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+        text-underline-offset: 3px;
+      }
+      a:hover, a:focus-visible { color: var(--accent); outline: none; }
+      code { color: var(--fg); }
     </style>
   </head>
   <body>
     <main>
       <h1>uploads console</h1>
       <p class="muted">
-        Browser-only scaffold. Token never leaves your machine. Prefer
-        <code>uploads usage</code> / CLI for production ops. See
+        Browser-only scaffold. Token never leaves your machine. Prefer&#32;
+        <code>uploads usage</code> / CLI for production ops. See&#32;
         <a href="https://github.com/buildinternet/uploads/blob/main/docs/ops.md">ops runbook</a>.
       </p>
       <label>
@@ -90,8 +117,8 @@ const API_DEFAULT = "https://api.uploads.sh";
       </label>
       <div class="row">
         <button type="button" id="btn-usage">GET usage</button>
-        <button type="button" id="btn-list" class="secondary">List files</button>
-        <button type="button" id="btn-reconcile" class="secondary">Reconcile</button>
+        <button type="button" id="btn-list">List files</button>
+        <button type="button" id="btn-reconcile">Reconcile</button>
       </div>
       <pre id="out">Ready.</pre>
     </main>
