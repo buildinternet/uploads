@@ -93,6 +93,13 @@ export interface AttachmentItem {
   url: string | null;
 }
 
+/** A public gallery linked to the PR or issue whose managed comment is syncing. */
+export interface GalleryCommentItem {
+  title: string;
+  /** Canonical URL returned by the API; callers must not synthesize it. */
+  url: string;
+}
+
 /** Default max width for images in the managed attachments comment (HTML img). */
 export const ATTACHMENT_IMAGE_WIDTH_DEFAULT = 400;
 /** Portrait / device mockups — keep phones readable, not full-column. */
@@ -122,9 +129,31 @@ function escapeHtmlAttr(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
 
-export function attachmentsCommentBody(items: AttachmentItem[]): string {
+function escapeHtmlText(s: string): string {
+  return escapeHtmlAttr(s).replace(/'/g, "&#39;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Render the one marker-owned GitHub comment. When there are no galleries this
+ * intentionally preserves the legacy attachment-only body byte-for-byte.
+ */
+export function attachmentsCommentBody(
+  items: AttachmentItem[],
+  galleries: GalleryCommentItem[] = [],
+): string {
   const sorted = items.toSorted((a, b) => a.key.localeCompare(b.key));
-  const lines: string[] = [ATTACHMENTS_MARKER, "### 📎 Attachments", ""];
+  const sortedGalleries = galleries.toSorted(
+    (a, b) => a.title.localeCompare(b.title) || a.url.localeCompare(b.url),
+  );
+  const lines: string[] = [ATTACHMENTS_MARKER];
+  if (sortedGalleries.length > 0) {
+    lines.push("### 🖼️ Galleries", "");
+    for (const gallery of sortedGalleries) {
+      lines.push(`<a href="${escapeHtmlAttr(gallery.url)}">${escapeHtmlText(gallery.title)}</a>`);
+    }
+    lines.push("");
+  }
+  if (sorted.length > 0 || sortedGalleries.length === 0) lines.push("### 📎 Attachments", "");
   for (const item of sorted) {
     const name = item.key.slice(item.key.lastIndexOf("/") + 1);
     if (item.url && inferContentType(name).startsWith("image/")) {

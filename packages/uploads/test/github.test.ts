@@ -137,4 +137,33 @@ describe("attachmentsCommentBody", () => {
     const body = attachmentsCommentBody([{ key: "gh/o/r/pull/1/x.bin", url: null }]);
     expect(body).toContain("- x.bin");
   });
+
+  it("renders a distinct, safely escaped Galleries section without attachments", () => {
+    const body = attachmentsCommentBody(
+      [],
+      [{ title: `A <gallery> & "quotes"`, url: "https://uploads.test/g/gal_a?x=1&y=2" }],
+    );
+    expect(body).toContain("### 🖼️ Galleries");
+    expect(body).toContain(
+      `<a href="https://uploads.test/g/gal_a?x=1&amp;y=2">A &lt;gallery&gt; &amp; &quot;quotes&quot;</a>`,
+    );
+    expect(body).not.toContain("### 📎 Attachments");
+  });
+
+  it("keeps galleries and loose attachments in clearly separate sections", () => {
+    const body = attachmentsCommentBody(
+      [{ key: "gh/o/r/pull/1/after.png", url: "https://x.test/after.png" }],
+      [{ title: "Release screenshots", url: "https://uploads.test/g/gal_release" }],
+    );
+    expect(body.indexOf("### 🖼️ Galleries")).toBeLessThan(body.indexOf("### 📎 Attachments"));
+    expect(body).toContain("Release screenshots");
+    expect(body).toContain("after.png");
+  });
+
+  it("renders the empty body without either content section", () => {
+    const body = attachmentsCommentBody([], []);
+    expect(body).toContain(ATTACHMENTS_MARKER);
+    expect(body).not.toContain("### 🖼️ Galleries");
+    expect(body).toContain("### 📎 Attachments");
+  });
 });

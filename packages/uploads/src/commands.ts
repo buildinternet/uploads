@@ -24,6 +24,7 @@ import {
   attachmentsCommentBody,
   type GhTarget,
   type AttachmentItem,
+  type GalleryCommentItem,
   normalizeGithubCoordinate,
 } from "./github.js";
 import {
@@ -92,7 +93,7 @@ Options:
   --format human|url|markdown|json
   --pr <num>            Attach to a pull request: key gh/<owner>/<repo>/pull/<num>/<name> (stable URL, no hash)
   --issue <num>         Attach to an issue: key gh/<owner>/<repo>/issues/<num>/<name>
-  --comment             With --pr/--issue: create/update the attachments comment via your local gh auth
+  --comment             With --pr/--issue: update one managed comment with attachments and linked galleries via local gh auth
   --gallery <id>         Add the uploaded object to this public gallery
 
 Examples:
@@ -244,11 +245,24 @@ export async function syncAttachmentsComment(
     ({ key, url }) => ({ key, url }),
   );
 
-  if (items.length === 0) return { action: "skipped", count: 0 };
+  const galleries: GalleryCommentItem[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await client.findGalleriesByReference({
+      provider: "github",
+      // GitHub references intentionally do not distinguish PRs from issues.
+      coordinate: `${target.repo.toLowerCase()}#${target.num}`,
+      cursor,
+    });
+    galleries.push(...page.galleries.map(({ title, url }) => ({ title, url })));
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor);
 
-  const body = attachmentsCommentBody(items);
+  if (items.length === 0 && galleries.length === 0) return { action: "skipped", count: 0 };
+
+  const body = attachmentsCommentBody(items, galleries);
   const { created } = upsertAttachmentsComment(target, body, run);
-  return { action: created ? "created" : "updated", count: items.length };
+  return { action: created ? "created" : "updated", count: items.length + galleries.length };
 }
 
 // --- attach ---

@@ -43,7 +43,7 @@ for `uploads mcp`.
 
 `attach` is the agent-friendly default for GitHub media. It accepts one or more files,
 infers the pull request for the current branch via `gh`, uploads stable URLs, and creates
-or updates one managed attachments comment. Use `--pr`, `--issue`, and `--repo` to select
+or updates one marker-owned GitHub comment. It keeps loose `gh/...` attachments and linked public galleries in distinct sections, and updates that same comment in place on every sync. Use `--pr`, `--issue`, and `--repo` to select
 the target explicitly, or `--no-comment` to upload without changing GitHub comments.
 
 **Keys / destinations:** default put uses the `screenshots` layout. Typed destinations
@@ -66,7 +66,7 @@ into `~/.cache/uploads/frames` (not bundled).
 Create an ordered gallery, then add existing uploads by key. The API returns the canonical
 public URL; the CLI never constructs it. **Anyone who knows that URL can view the gallery and
 its media**—GitHub or repository visibility does not restrict it. Deleting a gallery removes
-only the gallery record, not its uploaded objects or their retention policy.
+only the gallery record, not its uploaded objects or their retention policy. A workspace can hold up to 100 active galleries, each with up to 100 items and 20 external references.
 
 ```bash
 uploads gallery create --title "Release screenshots"
@@ -81,7 +81,7 @@ When adding several keys, `uploads gallery add` processes them sequentially and 
 individual failures in `--json` output. Gallery item updates use the API's current version to
 avoid overwriting concurrent changes.
 
-Link a gallery to a GitHub issue or pull request with `gallery link --github`. Coordinates and strict `https://github.com/<owner>/<repo>/issues|pull/<number>` URLs are accepted; `gallery list --github` performs the authenticated reverse lookup. Links never change gallery identity, and GitHub repository visibility does not make the public gallery private.
+Link a gallery to a GitHub issue or pull request with `gallery link --github`. Run `uploads comment --pr <number>` (or use `put --comment`) to refresh that target’s one managed comment with every linked gallery and loose attachment. Coordinates and strict `https://github.com/<owner>/<repo>/issues|pull/<number>` URLs are accepted; `gallery list --github` performs the authenticated reverse lookup. Links never change gallery identity, and GitHub repository visibility does not make the public gallery private.
 
 Config layers (first match wins): CLI flags → env vars → `--env-file` → `~/.config/buildinternet/config`. See `config.example` for keys.
 

@@ -5,10 +5,16 @@ import { runComment, type CliContext } from "../src/commands.js";
 import { ATTACHMENTS_MARKER } from "../src/github.js";
 import type { CommandRunner } from "../src/github-gh.js";
 
-function listClient(items: { key: string; url: string | null }[]) {
+function listClient(
+  items: { key: string; url: string | null }[],
+  galleryPages: { galleries: { title: string; url: string }[]; nextCursor: string | null }[] = [],
+) {
+  let page = 0;
   return {
     list: async () => ({ items, cursor: null }),
     listAll: async () => items,
+    findGalleriesByReference: async () =>
+      galleryPages[page++] ?? { galleries: [], nextCursor: null },
   } as unknown as UploadsClient;
 }
 
