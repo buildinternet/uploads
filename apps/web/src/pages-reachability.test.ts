@@ -34,6 +34,7 @@ describe.each([
   { path: "/login", title: "Sign in · uploads.sh" },
   { path: "/admin", title: "Admin · uploads.sh" },
   { path: "/accept-invitation/upi_abc123", title: "Accept invitation · uploads.sh" },
+  { path: "/account", title: "Account · uploads.sh" },
 ])("route reachability: $path", ({ path, title }) => {
   it("reaches the page handler (not a static 404) on a browser navigation request", async () => {
     let handlerCalled = false;
