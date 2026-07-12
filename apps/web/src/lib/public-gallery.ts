@@ -30,7 +30,9 @@ function text(value: unknown, max: number): value is string {
   if (typeof value !== "string" || value.length > max) return false;
   return Array.from(value).every((character) => {
     const code = character.codePointAt(0) ?? 0;
-    return (code >= 32 || code === 9 || code === 10 || code === 13) && code !== 127;
+    if (code === 9 || code === 10 || code === 13) return true;
+    if (code < 32 || code === 127 || (code >= 0x80 && code <= 0x9f)) return false;
+    return !/\p{Cf}/u.test(character);
   });
 }
 
@@ -99,7 +101,9 @@ export async function fetchPublicGallery(
     return { status: "unavailable" };
   }
   const loopback =
-    origin.hostname === "localhost" || origin.hostname === "127.0.0.1" || origin.hostname === "::1";
+    origin.hostname === "localhost" ||
+    origin.hostname === "127.0.0.1" ||
+    origin.hostname === "[::1]";
   if (origin.protocol !== "https:" && !(origin.protocol === "http:" && loopback))
     return { status: "unavailable" };
 

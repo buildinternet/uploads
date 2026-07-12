@@ -147,7 +147,7 @@ export async function handleAgentSkillsIndex(request: Request): Promise<Response
     const message = err instanceof Error ? err.message : String(err);
     console.error(JSON.stringify({ event: "agent_skills_index_failed", message }));
     return new Response(
-      `${JSON.stringify({ error: "agent_skills_index_unavailable", message }, null, 2)}\n`,
+      `${JSON.stringify({ error: "agent_skills_index_unavailable" }, null, 2)}\n`,
       {
         status: 502,
         headers: {

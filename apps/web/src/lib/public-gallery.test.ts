@@ -30,6 +30,12 @@ describe("public gallery API", () => {
     expect(isPublicGallery(gallery)).toBe(true);
   });
 
+  it("rejects control, zero-width, and bidirectional formatting characters", () => {
+    expect(isPublicGallery({ ...gallery, title: "spoof\u202etitle" })).toBe(false);
+    expect(isPublicGallery({ ...gallery, title: "zero\u200bwidth" })).toBe(false);
+    expect(isPublicGallery({ ...gallery, title: "c1\u0085control" })).toBe(false);
+  });
+
   it("rejects unsafe URLs, mismatched tombstones, invalid dates, and oversized lists", () => {
     expect(
       isPublicGallery({
@@ -109,6 +115,9 @@ describe("public gallery API", () => {
     ).resolves.toEqual({ status: "unavailable" });
     await expect(
       fetchPublicGallery(ID, { origin: "http://127.0.0.1:8787", fetch: fetcher }),
+    ).resolves.toMatchObject({ status: "ok" });
+    await expect(
+      fetchPublicGallery(ID, { origin: "http://[::1]:8787", fetch: fetcher }),
     ).resolves.toMatchObject({ status: "ok" });
   });
 });

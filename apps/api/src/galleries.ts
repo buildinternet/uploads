@@ -2,6 +2,13 @@ export const MAX_GALLERY_ITEMS = 100;
 export const MAX_GALLERY_REFERENCES = 20;
 export const MAX_GALLERY_PAGE_SIZE = 100;
 
+export function clampGalleryPageLimit(requestedLimit: number | undefined): number {
+  const limit = requestedLimit ?? 50;
+  return Number.isFinite(limit)
+    ? Math.max(1, Math.min(MAX_GALLERY_PAGE_SIZE, Math.floor(limit)))
+    : 50;
+}
+
 export interface GalleryRecord {
   id: string;
   workspace: string;
@@ -195,10 +202,7 @@ export async function listGalleries(
   workspace: string,
   options: { limit?: number; cursor?: GalleryCursor } = {},
 ): Promise<GalleryPage> {
-  const requestedLimit = options.limit ?? 50;
-  const limit = Number.isFinite(requestedLimit)
-    ? Math.max(1, Math.min(MAX_GALLERY_PAGE_SIZE, Math.floor(requestedLimit)))
-    : 50;
+  const limit = clampGalleryPageLimit(options.limit);
   const cursor = options.cursor;
   const result = cursor
     ? await db
@@ -654,7 +658,7 @@ export async function findGalleriesByReference(
   normalizedKey: string,
   options: { limit?: number; cursor?: GalleryCursor } = {},
 ): Promise<GalleryPage> {
-  const limit = Math.max(1, Math.min(MAX_GALLERY_PAGE_SIZE, Math.floor(options.limit ?? 50)));
+  const limit = clampGalleryPageLimit(options.limit);
   const cursor = options.cursor;
   const result = await db
     .prepare(

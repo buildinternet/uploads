@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  clampGalleryPageLimit,
   createGallery,
   getGallery,
   listGalleries,
@@ -157,6 +158,14 @@ async function create(fake: FakeD1, workspace = "alpha", title = "Gallery") {
 }
 
 describe("gallery persistence", () => {
+  it("clamps finite page limits and defaults non-finite values", () => {
+    expect(clampGalleryPageLimit(undefined)).toBe(50);
+    expect(clampGalleryPageLimit(Number.NaN)).toBe(50);
+    expect(clampGalleryPageLimit(Number.POSITIVE_INFINITY)).toBe(50);
+    expect(clampGalleryPageLimit(0)).toBe(1);
+    expect(clampGalleryPageLimit(1000)).toBe(100);
+  });
+
   it("creates opaque 128-bit IDs and isolates owner reads by workspace", async () => {
     const fake = new FakeD1();
     const gallery = await create(fake);
