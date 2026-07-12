@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.2",
+    "@fontsource-variable/geist": "^5.2.9",
+    "@fontsource-variable/geist-mono": "^5.2.8",
     "astro": "^7.0.6"
   },
   "devDependencies": {
