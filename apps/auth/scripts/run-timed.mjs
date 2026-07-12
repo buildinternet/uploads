@@ -127,21 +127,21 @@ async function runDetachedGroup(cmd, args, { timeoutSec }) {
   process.on("SIGINT", onInt);
   process.on("SIGTERM", onTerm);
 
-  const [status, signal] = await new Promise((res) => {
-    child.on("error", () => res([1, null]));
+  const { status, signal, error } = await new Promise((res) => {
+    child.on("error", (err) => res({ status: 1, signal: null, error: err }));
     child.on("exit", (code, sig) => {
       // On the timeout path the child may die from SIGTERM while grandchildren
       // linger, and the unref'd SIGKILL timer would die with this process —
       // force-kill any group stragglers before resolving.
       if (timedOut) killGroup("SIGKILL");
-      res([code, sig]);
+      res({ status: code, signal: sig, error: null });
     });
   });
 
   clearTimeout(timer);
   process.off("SIGINT", onInt);
   process.off("SIGTERM", onTerm);
-  return { status, signal, timedOut };
+  return { status, signal, timedOut, error };
 }
 
 /**

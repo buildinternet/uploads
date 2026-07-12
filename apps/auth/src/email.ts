@@ -66,7 +66,10 @@ export async function sendAuthEmail(env: SendAuthEmailEnv, args: SendAuthEmailAr
   const { subject, text, html } = render(args);
 
   if (!env.EMAIL) {
-    const linkNote = args.template === "magic-link" ? ` Link: ${args.context.url}` : "";
+    // Only log the magic-link URL in dev — logging it in production would
+    // leak a live sign-in link to anywhere console output ends up.
+    const linkNote =
+      isDev(env) && args.template === "magic-link" ? ` Link: ${args.context.url}` : "";
     console.warn(
       `[auth email] no EMAIL binding — not sent. To: ${args.to}. "${subject}".${linkNote}`,
     );

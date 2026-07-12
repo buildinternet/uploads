@@ -380,18 +380,24 @@ its interface contract.
 
 Scope: `deviceAuthorization` + `bearer` plugins + `device_code` migration
 (verify whether the `schema: {}` zod workaround from releases is still needed
-on the installed version); `/device` approval page on `apps/web`;
-`POST /v1/tokens` on `apps/api` per D5 (grants array, single-grant
-validation, minting-user column migration on `auth_tokens`, service-binding
-session + membership checks); CLI: `uploads login` gains the no-code device
-path — prefer plain `fetch` against the stable OAuth-shaped endpoints over
-adding a better-auth client dep to the published package; keep `--code`
-enrollment path; changeset for `@buildinternet/uploads`.
+on the installed version); configure `validateClient` allowlisting only the
+static `uploads-cli` client id (reject unknown client_ids; unit test); note
+that better-auth's `device.code` endpoint accepts `application/json` bodies
+(deviates from strict RFC 8628 form-encoding) — the plain-fetch CLI client
+must send the shape better-auth expects, not the RFC's form-encoded body;
+`/device` approval page on `apps/web`; `POST /v1/tokens` on `apps/api` per D5
+(grants array, single-grant validation, minting-user column migration on
+`auth_tokens`, service-binding session + membership checks); CLI: `uploads
+login` gains the no-code device path — prefer plain `fetch` against the
+stable OAuth-shaped endpoints over adding a better-auth client dep to the
+published package; keep `--code` enrollment path; changeset for
+`@buildinternet/uploads`.
 
 Acceptance: end-to-end `uploads login` → browser approval → workspace token
 saved → `uploads doctor` green; polling honors `slow_down`/
-`authorization_pending`/`expired_token`; `POST /v1/tokens` rejects
-multi-grant requests and non-members; MCP smoke unaffected.
+`authorization_pending`/`expired_token`; `validateClient` rejects unknown
+client_ids (unit test); `POST /v1/tokens` rejects multi-grant requests and
+non-members; MCP smoke unaffected.
 
 ### Phase 5 — migration & cleanup
 

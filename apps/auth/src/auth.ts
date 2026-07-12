@@ -39,6 +39,10 @@ export type BetterAuthInstance = ReturnType<typeof buildAuth>;
  * `api.uploads.sh` (D1's cross-subdomain requirement). Falls back to
  * `undefined` (cross-subdomain cookies disabled) for bare hosts/IPs/localhost
  * where there is no parent domain to share.
+ *
+ * A 2-label apex host (e.g. `uploads.sh`) shares the whole host instead of
+ * stripping the first label — stripping would yield a bare public suffix
+ * (`.sh`), which browsers reject as a cookie domain.
  */
 export function deriveCookieDomain(betterAuthUrl: string | undefined): string | undefined {
   if (!betterAuthUrl) return undefined;
@@ -53,6 +57,7 @@ export function deriveCookieDomain(betterAuthUrl: string | undefined): string | 
   }
   const parts = host.split(".");
   if (parts.length < 2) return undefined;
+  if (parts.length === 2) return "." + host;
   return "." + parts.slice(1).join(".");
 }
 
@@ -144,6 +149,21 @@ function cacheKey(
 
 let cachedKey: string | undefined;
 let cachedInstance: BetterAuthInstance | undefined;
+// Identity of the bindings the cached instance was built with — a stringly
+// equal cacheKey can still hide a *different* DB/EMAIL binding object (e.g.
+// `wrangler dev -c` swapping which D1/email binding is wired up), which would
+// otherwise serve stale binding references from the cached instance.
+let cachedDB: D1Database | undefined;
+let cachedEmail: AuthEnv["EMAIL"] | undefined;
+
+// Secrets Store `.get()` is I/O on every request; secrets rotate rarely and
+// an isolate restart naturally picks up changes, so memoize the *resolved*
+// values per isolate instead of re-fetching on every createAuth() call. Only
+// successful resolutions are cached — an unresolved/failed lookup is retried
+// on the next call rather than getting stuck 503ing for the isolate's whole
+// lifetime on a transient Secrets Store hiccup.
+let cachedSigningSecret: string | undefined;
+let cachedGithub: { clientId: string; clientSecret: string } | null | undefined;
 
 /**
  * Build (or reuse) the Better Auth instance for this isolate. Returns null
@@ -152,15 +172,26 @@ let cachedInstance: BetterAuthInstance | undefined;
  * (see src/index.ts).
  */
 export async function createAuth(env: AuthEnv): Promise<BetterAuthInstance | null> {
-  const signingSecret = await resolveSigningSecret(env);
+  if (cachedSigningSecret === undefined) {
+    const resolved = await resolveSigningSecret(env);
+    if (resolved) cachedSigningSecret = resolved;
+  }
+  const signingSecret = cachedSigningSecret;
   if (!signingSecret) return null;
 
-  const github = await resolveGitHubCredentials(env);
+  if (cachedGithub === undefined) {
+    cachedGithub = await resolveGitHubCredentials(env);
+  }
+  const github = cachedGithub;
   const key = cacheKey(env, signingSecret, github);
 
-  if (cachedInstance && cachedKey === key) return cachedInstance;
+  if (cachedInstance && cachedKey === key && cachedDB === env.DB && cachedEmail === env.EMAIL) {
+    return cachedInstance;
+  }
 
   cachedInstance = buildAuth(env, signingSecret, github);
   cachedKey = key;
+  cachedDB = env.DB;
+  cachedEmail = env.EMAIL;
   return cachedInstance;
 }

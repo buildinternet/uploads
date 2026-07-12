@@ -17,6 +17,21 @@ describe("sendAuthEmail", () => {
     warn.mockRestore();
   });
 
+  it("omits the magic-link URL when EMAIL binding is absent in production", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await sendAuthEmail(
+      { ENVIRONMENT: "production" },
+      {
+        to: "a@example.com",
+        template: "magic-link",
+        context: { url: "https://auth.uploads.sh/secret-link" },
+      },
+    );
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).not.toContain("https://auth.uploads.sh/secret-link");
+    warn.mockRestore();
+  });
+
   it("sends from noreply@uploads.sh when EMAIL binding is present", async () => {
     const send = vi.fn().mockResolvedValue({});
     const EMAIL: EmailBinding = { send };
