@@ -90,10 +90,16 @@ fine for short interactive use, but:
 
 ```bash
 pnpm doctor                    # “is default registered?”
-# or, if you must call wrangler:
-timeout 20s pnpm --filter @uploads/api exec wrangler kv key get ws:default \
+pnpm workspace:limits default --local   # already time-bounded
+pnpm --filter @uploads/api run migrate:d1:local   # 60s cap via run-timed.mjs
+# or, if you must call wrangler by hand (group-kills hung miniflare on deadline):
+node apps/api/scripts/run-timed.mjs 20 -- \
+  pnpm --filter @uploads/api exec wrangler kv key get ws:default \
   --binding REGISTRY --local
 ```
+
+Workspace scripts (`workspace:add`, `workspace:limits`) and local D1 migrate
+use `apps/api/scripts/run-timed.mjs` so a hung miniflare cannot run forever.
 
 **If memory creeps again**, look for orphans first:
 

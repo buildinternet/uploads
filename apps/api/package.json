@@ -20,7 +20,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "migrate:d1": "node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js d1 migrations apply DB --remote",
-    "migrate:d1:local": "CI=1 wrangler d1 migrations apply DB --local",
+    "migrate:d1:local": "CI=1 node scripts/run-timed.mjs 60 -- wrangler d1 migrations apply DB --local",
     "deploy": "pnpm run migrate:d1 && node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
     "types": "wrangler types",
     "workspace:add": "node --env-file-if-exists=../../.env scripts/add-workspace.mjs",
@@ -38,6 +38,6 @@
     "@types/node": "^26.1.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10",
-    "wrangler": "^4.107.0"
+    "wrangler": "^4.110.0"
   }
 }
