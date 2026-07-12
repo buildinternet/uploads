@@ -20,7 +20,17 @@
     "not_found_handling": "404-page",
     // Worker-first so static HTML also goes through markdown negotiation.
     // Without this, the asset server bypasses the Worker for prerendered pages.
-    "run_worker_first": true,
+    // Negations keep Vite-internal module URLs (/src/*, /@vite/*, /@fs/*, …)
+    // out of the Worker during `astro dev`; these paths never occur in production.
+    "run_worker_first": [
+      "/*",
+      "!/src/*",
+      "!/@vite/*",
+      "!/@fs/*",
+      "!/@id/*",
+      "!/node_modules/*",
+      "!/Users/*",
+    ],
   },
   "routes": [
     {
