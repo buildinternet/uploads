@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { fetchPublicGallery, isPublicGallery } from "./public-gallery";
+import {
+  applyPublicGalleryHeaders,
+  fetchPublicGallery,
+  isPublicGallery,
+  PUBLIC_GALLERY_CSP,
+} from "./public-gallery";
 
 const ID = "gal_abcdefghijklmnopqrstuv";
 const gallery = {
@@ -32,6 +37,24 @@ const gallery = {
     },
   ],
 } as const;
+
+describe("public gallery headers", () => {
+  it("allows same-origin stylesheets and Cloudflare Web Analytics (RUM)", () => {
+    // Astro extracts page <style> into /_astro/*.css; 'unsafe-inline' alone blocks that.
+    expect(PUBLIC_GALLERY_CSP).toContain("style-src 'self' 'unsafe-inline'");
+    // Cloudflare injects the RUM beacon; default-src 'none' blocks it without these.
+    expect(PUBLIC_GALLERY_CSP).toContain("script-src https://static.cloudflareinsights.com");
+    expect(PUBLIC_GALLERY_CSP).toContain("connect-src https://cloudflareinsights.com");
+    expect(PUBLIC_GALLERY_CSP).toContain("default-src 'none'");
+    expect(PUBLIC_GALLERY_CSP).toContain("frame-ancestors 'none'");
+
+    const headers = new Headers();
+    applyPublicGalleryHeaders(headers);
+    expect(headers.get("Content-Security-Policy")).toBe(PUBLIC_GALLERY_CSP);
+    expect(headers.get("Cache-Control")).toBe("no-store");
+    expect(headers.get("X-Robots-Tag")).toBe("noindex, nofollow, noarchive");
+  });
+});
 
 describe("public gallery API", () => {
   it("accepts the bounded public DTO including multiline plain text", () => {

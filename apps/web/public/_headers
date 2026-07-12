@@ -10,12 +10,13 @@
   Link: </sitemap.xml>; rel="sitemap"; type="application/xml"
   X-Content-Type-Options: nosniff
 
+# Keep CSP in sync with src/pages/invite.astro (header + meta both apply).
 /invite*
   Cache-Control: no-store
   Referrer-Policy: no-referrer
   X-Robots-Tag: noindex, nofollow, noarchive
   X-Content-Type-Options: nosniff
-  Content-Security-Policy: default-src 'none'; connect-src https://api.uploads.sh; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'none'; connect-src https://api.uploads.sh https://cloudflareinsights.com; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
   Permissions-Policy: camera=(), microphone=(), geolocation=()
 
 # Operator browser console — not a public product surface
