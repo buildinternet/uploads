@@ -170,8 +170,42 @@ function requireLabel(label: string | undefined | null): asserts label is string
   }
 }
 
+const EMAIL_VALID_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export const admin = new Hono<{ Bindings: Env }>()
   .use("/*", adminAuth)
+
+  // D9 fallback: ADMIN_TOKEN-gated first-admin/second-admin promotion,
+  // proxying to the auth worker's internal-only promote-admin endpoint over
+  // the AUTH service binding. Stays on adminAuth (not sessionAuth) — this is
+  // explicitly the ops/CI fallback path, not part of the session-auth admin
+  // UI surface (that's requireAdminUser, added alongside but not wired to any
+  // route yet — see src/session-auth.ts).
+  .post("/users/promote", async (c) => {
+    const body = await c.req.json<{ email?: unknown }>().catch(() => ({}) as { email?: unknown });
+    const email = typeof body.email === "string" ? body.email.trim() : "";
+    if (!email || !EMAIL_VALID_RE.test(email)) {
+      throw new ValidationError("invalid email address", { code: "invalid_email" });
+    }
+
+    // x-uploads-internal marks this as a service-binding call (see
+    // apps/auth/src/internal.ts); cf-connecting-ip is never set on a binding
+    // fetch(), so there is nothing to strip here.
+    const response = await c.env.AUTH.fetch("https://auth.internal/internal/promote-admin", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-uploads-internal": "1" },
+      body: JSON.stringify({ email }),
+    });
+    const payload = await response.json().catch(() => null);
+
+    if (response.status === 404) {
+      throw new NotFoundError("no user with that email", { code: "user_not_found" });
+    }
+    if (!response.ok) {
+      throw new ValidationError("promote-admin failed", { details: payload });
+    }
+    return c.json(payload as object, 200);
+  })
 
   // Mint a scoped bearer token for an existing workspace (defaults to "default").
   // New credentials live in D1; legacy KV credentials remain readable/revocable.
