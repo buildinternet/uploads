@@ -21,7 +21,6 @@ import {
   gallerySummary,
   hydrateOwnerGallery,
   referenceDto,
-  requireExpectedVersion,
   unwrapMutation,
 } from "@uploads/api/gallery-service";
 import { parseExternalReference } from "@uploads/api/external-references";
