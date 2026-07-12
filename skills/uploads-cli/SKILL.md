@@ -319,7 +319,7 @@ uploads --api-url http://localhost:8787 doctor
 - **Exit codes** (useful in scripts): `2` usage/missing-token, `3` unauthorized or
   not-found, `4` network, `1` other. `--json` also emits `{error,code,status}`.
 - **MCP server:** the CLI can also be exposed to agents as a local stdio MCP server —
-  `uploads mcp` — with tools mirroring the commands described here (`put`, `attach`,
+  `uploads mcp` (including gallery_create, gallery_get, gallery_add, gallery_link, and gallery_find_by_reference) — with tools mirroring the commands described here (`put`, `attach`,
   `list`, `delete`, `usage`, `reconcile`, `purge_expired`, `comment`, `health`,
   `doctor`) under the same config resolution.
   Every tool also accepts a per-call `workspace` argument to override the configured

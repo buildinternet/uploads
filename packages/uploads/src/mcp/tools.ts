@@ -117,6 +117,21 @@ function ghTargetFromArgs(args: ToolArgs, run: CommandRunner): GhTarget | undefi
   );
 }
 
+function galleryId(args: ToolArgs): string {
+  const id = optString(args, "galleryId");
+  if (!id) usage("galleryId is required");
+  return id;
+}
+
+function galleryReference(args: ToolArgs): { provider: "github"; coordinate: string } {
+  const provider = optString(args, "provider");
+  const coordinate = optString(args, "coordinate");
+  if (!provider) usage("provider is required");
+  if (!coordinate) usage("coordinate is required");
+  if (provider !== "github") usage("provider must be github");
+  return { provider, coordinate };
+}
+
 const workspaceProp = {
   type: "string",
   description: "Override the workspace for this call (like the CLI's --workspace flag).",
@@ -176,6 +191,130 @@ export function createUploadsMcpTools(opts: {
   };
 
   return [
+    {
+      name: "gallery_create",
+      description:
+        "Create a public ordered media gallery in the workspace. The returned canonical URL is safe to give users, but anyone who knows it can view the gallery and its media.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Gallery title (1–120 characters)." },
+          description: { type: "string", description: "Optional public gallery description." },
+          workspace: workspaceProp,
+        },
+        required: ["title"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const title = optString(args, "title");
+        if (!title) usage("title is required");
+        const { client } = clientFor(args);
+        return client.createGallery({ title, description: optString(args, "description") });
+      },
+    },
+    {
+      name: "gallery_get",
+      description:
+        "Get a workspace-owned gallery, including ordered media and its canonical public URL. Gallery media is public to anyone with the URL.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          galleryId: { type: "string", description: "Opaque gallery ID." },
+          workspace: workspaceProp,
+        },
+        required: ["galleryId"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const { client } = clientFor(args);
+        return client.getGallery(galleryId(args));
+      },
+    },
+    {
+      name: "gallery_add",
+      description:
+        "Add one existing, publicly served workspace object to a gallery. Reads the latest gallery version before writing, so the optimistic API version is handled safely. Does not upload or delete the object.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          galleryId: { type: "string", description: "Opaque gallery ID." },
+          objectKey: { type: "string", description: "Existing public object key to add." },
+          caption: { type: "string", description: "Optional public caption." },
+          altText: { type: "string", description: "Optional public alt text." },
+          workspace: workspaceProp,
+        },
+        required: ["galleryId", "objectKey"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const objectKey = optString(args, "objectKey");
+        if (!objectKey) usage("objectKey is required");
+        const { client } = clientFor(args);
+        const id = galleryId(args);
+        const current = await client.getGallery(id);
+        return client.addGalleryItem(id, objectKey, {
+          expectedVersion: current.version,
+          caption: optString(args, "caption"),
+          altText: optString(args, "altText"),
+        });
+      },
+    },
+    {
+      name: "gallery_link",
+      description:
+        "Link a gallery to an external reference. References use provider-neutral fields; github currently accepts owner/repo#number or a strict GitHub issue/PR URL. No GitHub credentials or API calls are used.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          galleryId: { type: "string", description: "Opaque gallery ID." },
+          provider: { type: "string", description: "External provider (currently github)." },
+          coordinate: {
+            type: "string",
+            description: "Provider-native external reference coordinate.",
+          },
+          workspace: workspaceProp,
+        },
+        required: ["galleryId", "provider", "coordinate"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const { client } = clientFor(args);
+        const id = galleryId(args);
+        const current = await client.getGallery(id);
+        return client.linkGalleryExternalReference(id, {
+          expectedVersion: current.version,
+          ...galleryReference(args),
+        });
+      },
+    },
+    {
+      name: "gallery_find_by_reference",
+      description:
+        "Find workspace galleries linked to an external reference. Returns gallery summaries and canonical public URLs without contacting the provider.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          provider: { type: "string", description: "External provider (currently github)." },
+          coordinate: {
+            type: "string",
+            description: "Provider-native external reference coordinate.",
+          },
+          limit: { type: "number", description: "Page size (default 50, max 100)." },
+          cursor: { type: "string", description: "Pagination cursor from a previous response." },
+          workspace: workspaceProp,
+        },
+        required: ["provider", "coordinate"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const { client } = clientFor(args);
+        return client.findGalleriesByReference({
+          ...galleryReference(args),
+          limit: optPosInt(args, "limit"),
+          cursor: optString(args, "cursor"),
+        });
+      },
+    },
     {
       name: "put",
       description:

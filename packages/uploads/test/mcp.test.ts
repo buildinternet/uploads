@@ -191,6 +191,11 @@ describe("tools/list", () => {
     // oxlint-disable-next-line no-explicit-any
     const tools = res.result.tools as Array<any>;
     expect(tools.map((t) => t.name)).toEqual([
+      "gallery_create",
+      "gallery_get",
+      "gallery_add",
+      "gallery_link",
+      "gallery_find_by_reference",
       "put",
       "attach",
       "list",

@@ -4,6 +4,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-06",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "WEB_ORIGIN": "https://uploads.sh",
+  },
   "routes": [
     // Primary domain; mcp.uploads.sh is kept as a working alternate.
     {

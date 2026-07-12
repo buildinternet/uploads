@@ -12,7 +12,10 @@
     "./budget": "./src/budget.ts",
     "./usage": "./src/usage.ts",
     "./reconcile": "./src/reconcile.ts",
-    "./retention": "./src/retention.ts"
+    "./retention": "./src/retention.ts",
+    "./galleries": "./src/galleries.ts",
+    "./gallery-service": "./src/gallery-service.ts",
+    "./external-references": "./src/external-references.ts"
   },
   "scripts": {
     "dev": "wrangler dev",
