@@ -1,5 +1,18 @@
 # @buildinternet/uploads
 
+## 0.6.0
+
+### Minor Changes
+
+- 930bb4f: Add typed gallery client methods and CLI commands for creating, listing, viewing, deleting, and adding public gallery media.
+
+### Patch Changes
+
+- 44d0849: Hint on stderr when a newer npm release of the CLI is available (cached daily; silence with `--quiet`, `UPLOADS_NO_UPDATE=1`, or `NO_UPDATE_NOTIFIER=1`). Add `--version`/`-V`, include the CLI version on `uploads doctor`, add Examples to login/admin help, and point usage errors at layered `uploads <cmd> --help` instead of dumping the full root manual.
+- a3e7c2f: Show public galleries linked to a GitHub PR or issue in the existing managed attachments comment, alongside legacy loose attachments, with up to three available images previewed inline per gallery.
+- c828210: Add public gallery operations to local and hosted MCP tools.
+- ecb9c33: Add CLI and typed-client support for linking public galleries to GitHub issues and pull requests.
+
 ## 0.5.0
 
 ### Minor Changes
