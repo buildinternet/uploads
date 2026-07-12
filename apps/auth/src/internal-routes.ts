@@ -6,7 +6,7 @@
 import { drizzle } from "drizzle-orm/d1";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
-import { createAuth, type AuthEnv } from "./auth";
+import type { AuthEnv } from "./auth";
 import { sendAuthEmail } from "./email";
 import * as schema from "./schema";
 
@@ -63,19 +63,26 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       );
     }
 
-    const auth = await createAuth(c.env);
-    if (!auth) {
-      return c.json(errorJson("auth_unavailable", "Auth is not configured yet."), 503);
-    }
+    // Implementation choice: direct `organization` insert via drizzle, not
+    // `auth.api.createOrganization`. The plugin's server method authorizes
+    // off a Better Auth session (or an explicit userId) and makes the caller
+    // the org's owner member — but these orgs are admin-provisioned with no
+    // members at all (workspace backfill, invite flow provisioning), and
+    // there is no session on a service-binding call. Same rationale as the
+    // direct insert in POST /invite below.
+    //
     // TOCTOU: two concurrent callers can both pass the `existing` check above
-    // and race to create the same slug — Better Auth enforces the unique
-    // constraint and throws on the loser. Treat that as "already exists"
-    // (re-query and return the winner's row as 200) rather than propagating
-    // a 500 for what is really an idempotent no-op from the caller's POV.
-    let created: Awaited<ReturnType<typeof auth.api.createOrganization>>;
+    // and race to create the same slug — the UNIQUE constraint stops the
+    // loser. Treat that as "already exists" (re-query and return the winner's
+    // row as 200) rather than propagating a 500 for what is really an
+    // idempotent no-op from the caller's POV.
+    const id = crypto.randomUUID();
     try {
-      created = await auth.api.createOrganization({
-        body: { slug, name: name || slug },
+      await db.insert(schema.organization).values({
+        id,
+        slug,
+        name: name || slug,
+        createdAt: new Date(),
       });
     } catch (err) {
       const [winner] = await db
@@ -91,13 +98,7 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       }
       throw err;
     }
-    if (!created) {
-      return c.json(errorJson("create_failed", "failed to create organization"), 500);
-    }
-    return c.json(
-      { organization: { id: created.id, slug: created.slug, name: created.name } },
-      201,
-    );
+    return c.json({ organization: { id, slug, name: name || slug } }, 201);
   })
   // Phase 3 (plan scope B): org lookup + member/invite counts for
   // GET /admin-ui/workspaces on apps/api.
