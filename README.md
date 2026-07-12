@@ -44,14 +44,35 @@ npx skills add buildinternet/uploads --skill uploads-cli
 
 ## Local development quick start
 
+**Prerequisites:** Node ≥24 and pnpm ≥11 (`corepack enable`; versions pinned in
+`package.json` / `.nvmrc`). No Cloudflare account is required for the core
+local loop — `wrangler dev` simulates R2, KV, and D1 on disk.
+
 ```bash
-pnpm install
-cp apps/api/.dev.vars.example apps/api/.dev.vars
-pnpm workspace:add default --local
-pnpm dev            # API on :8787; pnpm dev:web for the site
+pnpm bootstrap        # one-command setup: tooling, deps, env files, types, local D1, default workspace
+pnpm doctor           # diagnose the setup — reports what's missing and how to fix it
+
+pnpm dev              # API on :8787 (local R2 + KV + D1)
+pnpm dev:web          # Astro site
+pnpm check            # lint + format (CI gate)
+pnpm typecheck        # wrangler types + tsc across workspaces
 ```
 
-Upload a file:
+`bootstrap` is idempotent (safe to re-run; never overwrites your env files or
+re-mints an existing local workspace) and `doctor` is read-only. Prefer the
+manual steps?
+
+```bash
+pnpm install
+cp apps/api/.dev.vars.example apps/api/.dev.vars   # set ADMIN_TOKEN to any non-empty string
+cp .env.example .env                               # point UPLOADS_API_URL at http://localhost:8787
+pnpm types
+pnpm --filter @uploads/api run migrate:d1:local
+pnpm workspace:add default --local                 # prints a bearer token once — save to .env
+pnpm dev
+```
+
+Upload a file (with `UPLOADS_TOKEN` from workspace seed in the environment or `.env`):
 
 ```bash
 curl -X PUT http://localhost:8787/v1/default/files/test.txt \

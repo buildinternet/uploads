@@ -21,8 +21,10 @@ subdomain.
    ```
 3. Apply enrollment migrations locally during development:
    ```bash
-   pnpm exec wrangler d1 migrations apply uploads-production --local
+   pnpm --filter @uploads/api run migrate:d1:local
+   # equivalent: CI=1 wrangler d1 migrations apply DB --local  (from apps/api)
    ```
+   Or run the full contributor setup from the monorepo root: `pnpm bootstrap`.
 4. Point `bucket_name` in `apps/api/wrangler.jsonc` at your bucket (the
    default binding expects `uploads-default`), or create one with
    `wrangler r2 bucket create`. Same-account buckets get binding-mode I/O;
