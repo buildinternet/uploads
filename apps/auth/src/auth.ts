@@ -77,6 +77,7 @@ function buildAuth(
   const isProduction = env.ENVIRONMENT === "production";
 
   return betterAuth({
+    appName: "uploads.sh",
     baseURL: betterAuthUrl,
     basePath: "/api/auth",
     secret: signingSecret,
