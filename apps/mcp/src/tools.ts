@@ -7,6 +7,25 @@
  */
 import { buildMarkdown, buildScreenshotKey } from "@buildinternet/uploads";
 import { optPosInt, optString, usage, type McpTool } from "@buildinternet/uploads/mcp";
+import { badKey } from "@uploads/api/files";
+import {
+  addExternalReference,
+  addGalleryItem,
+  createGallery,
+  findGalleriesByReference,
+  getGallery,
+  listGalleryItems,
+} from "@uploads/api/galleries";
+import {
+  encodeGalleryCursor,
+  gallerySummary,
+  hydrateOwnerGallery,
+  referenceDto,
+  requireExpectedVersion,
+  unwrapMutation,
+} from "@uploads/api/gallery-service";
+import { parseExternalReference } from "@uploads/api/external-references";
+import { publicUrl, storage, storageConfig } from "@uploads/api/storage";
 import { deleteObject, listObjects, putObject } from "@uploads/api/files";
 import { allowWrite, resolveUploadPolicy } from "@uploads/api/guards";
 import { usageWithLimits } from "@uploads/api/budget";
@@ -53,7 +72,194 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     if (!(await allowWrite(env, workspaceName))) throw new Error("rate limit exceeded");
   }
 
+  function requiredString(args: Record<string, unknown>, name: string): string {
+    const value = optString(args, name);
+    if (!value) usage(name + " is required");
+    return value;
+  }
+
+  async function ownerGallery(id: string) {
+    const record = await getGallery(env.DB, workspaceName, id);
+    if (!record) throw new Error("gallery not found");
+    return hydrateOwnerGallery(
+      env,
+      workspace,
+      record,
+      await listGalleryItems(env.DB, workspaceName, id),
+    );
+  }
+
   return [
+    {
+      name: "gallery_create",
+      description:
+        "Create a public ordered media gallery in this workspace. The returned canonical URL is suitable for an agent response, but anyone who knows it can view the gallery and its media.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Gallery title (1–120 characters)." },
+          description: { type: "string", description: "Optional public gallery description." },
+        },
+        required: ["title"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:write");
+        await requireWriteBudget();
+        const result = unwrapMutation(
+          await createGallery(env.DB, {
+            workspace: workspaceName,
+            title: requiredString(args, "title"),
+            description: optString(args, "description"),
+          }),
+        );
+        return ownerGallery(result.value.id);
+      },
+    },
+    {
+      name: "gallery_get",
+      description:
+        "Get a workspace-owned gallery, including its ordered media and canonical public URL. Gallery media is public to anyone with the URL.",
+      inputSchema: {
+        type: "object",
+        properties: { galleryId: { type: "string", description: "Opaque gallery ID." } },
+        required: ["galleryId"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:read");
+        return ownerGallery(requiredString(args, "galleryId"));
+      },
+    },
+    {
+      name: "gallery_add",
+      description:
+        "Add one existing, publicly served workspace object to a gallery. The tool reads the current version before writing and does not upload or delete the object.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          galleryId: { type: "string", description: "Opaque gallery ID." },
+          objectKey: { type: "string", description: "Existing public object key to add." },
+          caption: { type: "string", description: "Optional public caption." },
+          altText: { type: "string", description: "Optional public alt text." },
+        },
+        required: ["galleryId", "objectKey"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:write");
+        await requireWriteBudget();
+        const id = requiredString(args, "galleryId");
+        const objectKey = requiredString(args, "objectKey");
+        if (badKey(objectKey)) usage("invalid key");
+        const gallery = await getGallery(env.DB, workspaceName, id);
+        if (!gallery) throw new Error("gallery not found");
+        const existing = (await listGalleryItems(env.DB, workspaceName, id)).find(
+          (item) => item.object_key === objectKey,
+        );
+        if (existing) {
+          const item = (await ownerGallery(id)).items.find((entry) => entry.id === existing.id);
+          if (!item) throw new Error("gallery item not found");
+          return item;
+        }
+        try {
+          const [store, config] = await Promise.all([
+            storage(env, workspace),
+            storageConfig(env, workspace),
+          ]);
+          if (!(await store.exists(objectKey))) throw new Error("object not found");
+          if (publicUrl(config, objectKey) === null) throw new Error("object has no public URL");
+        } catch (err) {
+          if (
+            err instanceof Error &&
+            ["object not found", "object has no public URL"].includes(err.message)
+          ) {
+            throw err;
+          }
+          throw new Error("gallery storage unavailable");
+        }
+        const result = unwrapMutation(
+          await addGalleryItem(env.DB, workspaceName, id, {
+            expectedVersion: gallery.version,
+            objectKey,
+            caption: optString(args, "caption"),
+            altText: optString(args, "altText"),
+          }),
+        );
+        const item = (await ownerGallery(id)).items.find((entry) => entry.id === result.value.id);
+        if (!item) throw new Error("gallery item not found");
+        return item;
+      },
+    },
+    {
+      name: "gallery_link",
+      description:
+        "Link a gallery to an external reference. Uses provider-neutral fields; github currently accepts owner/repo#number or a strict GitHub issue/PR URL. No GitHub credentials or API calls are used.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          galleryId: { type: "string", description: "Opaque gallery ID." },
+          provider: { type: "string", description: "External provider (currently github)." },
+          coordinate: {
+            type: "string",
+            description: "Provider-native external reference coordinate.",
+          },
+        },
+        required: ["galleryId", "provider", "coordinate"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:write");
+        await requireWriteBudget();
+        const id = requiredString(args, "galleryId");
+        const gallery = await getGallery(env.DB, workspaceName, id);
+        if (!gallery) throw new Error("gallery not found");
+        const parsed = parseExternalReference(args.provider, args.coordinate);
+        if (!parsed.ok) usage(parsed.message);
+        const result = unwrapMutation(
+          await addExternalReference(env.DB, workspaceName, id, {
+            expectedVersion: gallery.version,
+            ...parsed.value,
+          }),
+        );
+        return referenceDto(result.value);
+      },
+    },
+    {
+      name: "gallery_find_by_reference",
+      description:
+        "Find galleries in this workspace linked to an external reference. Returns canonical public gallery URLs without contacting the provider.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          provider: { type: "string", description: "External provider (currently github)." },
+          coordinate: {
+            type: "string",
+            description: "Provider-native external reference coordinate.",
+          },
+          limit: { type: "number", description: "Page size (default 50, max 100)." },
+        },
+        required: ["provider", "coordinate"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:read");
+        const parsed = parseExternalReference(args.provider, args.coordinate);
+        if (!parsed.ok) usage(parsed.message);
+        const page = await findGalleriesByReference(
+          env.DB,
+          workspaceName,
+          parsed.value.normalizedKey,
+          {
+            limit: optPosInt(args, "limit"),
+          },
+        );
+        return {
+          galleries: page.galleries.map((gallery) => gallerySummary(env, gallery)),
+          nextCursor: page.nextCursor ? encodeGalleryCursor(page.nextCursor) : null,
+        };
+      },
+    },
     {
       name: "put",
       description:

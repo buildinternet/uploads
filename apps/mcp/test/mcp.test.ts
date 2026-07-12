@@ -176,6 +176,11 @@ describe("mcp worker", () => {
     const body = (await response.json()) as { result: { tools: { name: string }[] } };
     expect(body.result.tools.map((tool) => tool.name).sort()).toEqual([
       "delete",
+      "gallery_add",
+      "gallery_create",
+      "gallery_find_by_reference",
+      "gallery_get",
+      "gallery_link",
       "health",
       "list",
       "purge_expired",

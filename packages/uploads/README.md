@@ -78,7 +78,7 @@ Config layers (first match wins): CLI flags → env vars → `--env-file` → `~
 
 ## MCP server
 
-`uploads mcp` serves the Model Context Protocol over stdio (newline-delimited JSON-RPC, no extra dependencies). Tools mirror the CLI commands one-to-one — `put`, `attach`, `list`, `delete`, `usage`, `reconcile`, `purge_expired`, `comment`, `health`, `doctor` — with the same config resolution and defaults, plus a per-call `workspace` argument. Interactive/credential commands (`setup`, `login`, `admin`, `config`) are not exposed. A token isn't required to start the server; auth errors surface per tool call (`health` needs no auth).
+`uploads mcp` serves the Model Context Protocol over stdio (newline-delimited JSON-RPC, no extra dependencies). Tools include file operations plus public gallery workflows: `gallery_create`, `gallery_get`, `gallery_add`, `gallery_link`, and `gallery_find_by_reference`. Gallery tools return API-provided canonical URLs and never need GitHub credentials. The remaining stdio tools are `put`, `attach`, `list`, `delete`, `usage`, `reconcile`, `purge_expired`, `comment`, `health`, and `doctor` — with the same config resolution and defaults, plus a per-call `workspace` argument. Interactive/credential commands (`setup`, `login`, `admin`, `config`) are not exposed. A token isn't required to start the server; auth errors surface per tool call (`health` needs no auth).
 
 ```json
 { "command": "uploads", "args": ["--env-file", "/path/to/.env", "mcp"] }
@@ -86,7 +86,7 @@ Config layers (first match wins): CLI flags → env vars → `--env-file` → `~
 
 Or with `UPLOADS_TOKEN`/`UPLOADS_WORKSPACE` in the environment or user config. Claude Code: `claude mcp add uploads -- uploads --env-file /path/to/.env mcp`.
 
-For HTTP clients there's also a hosted variant at `https://agents.uploads.sh/mcp` — the workspace is inferred from the bearer token, so only the URL and token are needed (`https://agents.uploads.sh/<workspace>/mcp` and the `mcp.uploads.sh` hostname also work). Tools: put/list/delete/health, same bearer tokens as the REST API — see `apps/mcp` in the repo. `uploads install` registers it with Claude Code (and installs the agent skill) in one step. Its `put` takes no content type: the stored type is sniffed server-side from the bytes and checked against the workspace allowlist, and writes are rate limited per workspace.
+For HTTP clients there's also a hosted variant at `https://agents.uploads.sh/mcp` — the workspace is inferred from the bearer token, so only the URL and token are needed (`https://agents.uploads.sh/<workspace>/mcp` and the `mcp.uploads.sh` hostname also work). Tools: file operations plus `gallery_create`, `gallery_get`, `gallery_add`, `gallery_link`, and `gallery_find_by_reference`; all use the same bearer-token workspace scopes and gallery URLs come from the API — see `apps/mcp` in the repo. `uploads install` registers it with Claude Code (and installs the agent skill) in one step. Its `put` takes no content type: the stored type is sniffed server-side from the bytes and checked against the workspace allowlist, and writes are rate limited per workspace.
 
 ## Programmatic use
 
