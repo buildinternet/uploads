@@ -1,6 +1,6 @@
 import { NotFoundError } from "@uploads/errors";
 import { Hono } from "hono";
-import { listGalleryItems, resolvePublicGallery } from "../galleries";
+import { listExternalReferences, listGalleryItems, resolvePublicGallery } from "../galleries";
 import { hydratePublicGallery } from "../gallery-service";
 import { type WorkspaceRecord, type WorkspaceVars } from "../workspace";
 
@@ -12,6 +12,9 @@ export const publicGalleries = new Hono<WorkspaceVars>().get("/:id", async (c) =
     cacheTtl: 60,
   });
   if (!workspace) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
-  const items = await listGalleryItems(c.env.DB, record.workspace, record.id);
-  return c.json(await hydratePublicGallery(c.env, workspace, record, items));
+  const [items, references] = await Promise.all([
+    listGalleryItems(c.env.DB, record.workspace, record.id),
+    listExternalReferences(c.env.DB, record.workspace, record.id),
+  ]);
+  return c.json(await hydratePublicGallery(c.env, workspace, record, items, references));
 });

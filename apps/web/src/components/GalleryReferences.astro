@@ -1,0 +1,32 @@
+---
+import type { PublicGalleryReference } from "../lib/public-gallery";
+
+interface Props {
+  references: PublicGalleryReference[];
+}
+
+const { references } = Astro.props;
+---
+
+{references.length > 0 && (
+  <aside class="refs">
+    <h2>Connected work items</h2>
+    <ul>
+      {references.map((reference) => (
+        <li>
+          <span class="provider">{reference.provider}</span>
+          {reference.canonicalUrl ? <a href={reference.canonicalUrl} rel="noopener noreferrer">{reference.coordinate}</a> : reference.coordinate}
+        </li>
+      ))}
+    </ul>
+  </aside>
+)}
+
+<style>
+  .refs { margin:30px 0 0; padding:16px 18px; border:1px solid var(--line); border-radius:10px; background:var(--panel); }
+  .refs h2 { margin:0 0 10px; color:var(--muted); font:11px var(--mono); letter-spacing:.14em; text-transform:uppercase; font-weight:600; }
+  .refs ul { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:8px; }
+  .refs li { font:13px var(--mono); color:var(--body); overflow-wrap:anywhere; }
+  .refs .provider { color:var(--muted); margin-right:8px; }
+  a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
+</style>

@@ -270,7 +270,11 @@ export async function syncAttachmentsComment(
                 item.status === "available" && item.url && item.contentType?.startsWith("image/"),
             )
             .slice(0, 3)
-            .map((item) => ({ url: item.url!, alt: item.altText ?? item.objectKey })),
+            .map((item) => ({
+              url: item.url!,
+              alt: item.altText ?? item.objectKey,
+              itemUrl: item.pageUrl,
+            })),
         };
       } catch {
         // A deleted or temporarily unavailable gallery still gets a safe title link.

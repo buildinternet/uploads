@@ -158,7 +158,11 @@ describe("attachmentsCommentBody", () => {
           title: "Release screenshots",
           url: "https://uploads.test/g/gal_release",
           previews: [
-            { url: "https://storage.test/one.webp", alt: "First screen" },
+            {
+              url: "https://storage.test/one.webp",
+              alt: "First screen",
+              itemUrl: "https://uploads.test/g/gal_release/item-1",
+            },
             { url: "https://storage.test/two.webp", alt: "Second screen" },
             { url: "https://storage.test/three.webp", alt: "Third screen" },
           ],
@@ -166,7 +170,10 @@ describe("attachmentsCommentBody", () => {
       ],
     );
     expect(body).toContain(
-      '<a href="https://uploads.test/g/gal_release"><img width="320" alt="First screen" src="https://storage.test/one.webp"></a>',
+      '<a href="https://uploads.test/g/gal_release/item-1"><img width="320" alt="First screen" src="https://storage.test/one.webp"></a>',
+    );
+    expect(body).toContain(
+      '<a href="https://uploads.test/g/gal_release"><img width="320" alt="Second screen" src="https://storage.test/two.webp"></a>',
     );
     expect(body).toContain("Open gallery");
   });

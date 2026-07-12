@@ -1,5 +1,13 @@
 ---
-import { fetchPublicGallery, type PublicGalleryItem } from "../../lib/public-gallery";
+import GalleryReferences from "../../components/GalleryReferences.astro";
+import {
+  applyPublicGalleryHeaders,
+  fetchPublicGallery,
+  galleryItemPath,
+  galleryPath,
+  mediaKind as kind,
+  type PublicGalleryItem,
+} from "../../lib/public-gallery";
 import { env } from "cloudflare:workers";
 
 export const prerender = false;
@@ -11,22 +19,13 @@ const origin =
   "https://api.uploads.sh";
 const result = await fetchPublicGallery(id, { origin });
 
-Astro.response.headers.set("Content-Security-Policy", "default-src 'none'; img-src https: data:; media-src https:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'");
-Astro.response.headers.set("Referrer-Policy", "no-referrer");
-Astro.response.headers.set("X-Content-Type-Options", "nosniff");
-Astro.response.headers.set("X-Frame-Options", "DENY");
-Astro.response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
-Astro.response.headers.set("Cross-Origin-Opener-Policy", "same-origin");
-Astro.response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-Astro.response.headers.set("Cache-Control", "no-store");
+applyPublicGalleryHeaders(Astro.response.headers);
 if (result.status === "not_found") Astro.response.status = 404;
 if (result.status === "unavailable") Astro.response.status = 503;
 
 const gallery = result.status === "ok" ? result.gallery : null;
-const canonical = new URL(`/g/${encodeURIComponent(id)}`, Astro.url.origin).href;
-const imageTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"]);
-const videoTypes = new Set(["video/mp4", "video/webm"]);
-const kind = (item: PublicGalleryItem) => item.status === "missing" ? "missing" : imageTypes.has(item.contentType ?? "") ? "image" : videoTypes.has(item.contentType ?? "") ? "video" : item.contentType === "image/svg+xml" ? "unsupported" : "file";
+const canonical = new URL(galleryPath(id), Astro.url.origin).href;
+const itemPage = (item: PublicGalleryItem) => galleryItemPath(id, item.id);
 ---
 
 <!doctype html>
@@ -55,7 +54,7 @@ const kind = (item: PublicGalleryItem) => item.status === "missing" ? "missing" 
       h1 { margin:10px 0 12px; font-size:clamp(1.7rem,4vw,2.4rem); font-weight:600; line-height:1.2; letter-spacing:-.015em; overflow-wrap:anywhere; }
       .desc { max-width:640px; color:var(--body); font-size:15px; line-height:1.65; white-space:pre-wrap; }
       .meta { display:flex; gap:16px; flex-wrap:wrap; margin-top:18px; color:var(--muted); font:12px var(--mono); }
-      .notice { margin:26px 0; padding:12px 16px; border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:8px; background:var(--panel); color:var(--body); font:13px/1.5 var(--mono); }
+      .notice { margin:22px 2px; color:var(--muted); font:13.5px/1.6 var(--sans); }
       .grid { display:grid; grid-template-columns:repeat(12,1fr); gap:14px; }
       figure { grid-column:span 6; margin:0; background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
       .media { min-height:260px; aspect-ratio:16/10; background:var(--bg); display:grid; place-items:center; overflow:hidden; }
@@ -65,10 +64,11 @@ const kind = (item: PublicGalleryItem) => item.status === "missing" ? "missing" 
       .fallback a { color:var(--fg); overflow-wrap:anywhere; }
       figcaption { padding:14px 16px 16px; border-top:1px solid var(--line); }
       .filename { color:var(--fg); font:600 13px var(--mono); overflow-wrap:anywhere; }
-      .original { display:inline-block; margin-top:10px; color:var(--muted); font:12px var(--mono); }
+      .original { display:inline-block; margin-top:10px; margin-right:14px; color:var(--muted); font:12px var(--mono); }
+      .media-link { display:contents; }
       .original:hover, .original:focus-visible { color:var(--accent); outline:none; }
       .caption { margin-top:8px; color:var(--body); font-size:14px; line-height:1.5; white-space:pre-wrap; }
-      .empty,.error { padding:70px 24px; border:1px dashed var(--line); border-radius:10px; text-align:center; background:var(--panel); color:var(--body); }
+      .empty,.error { padding:70px 24px; border:1px solid var(--line); border-radius:10px; text-align:center; background:var(--panel); color:var(--body); }
       .empty code,.error code { color:var(--accent); font-family:var(--mono); }
       a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
       footer { margin-top:44px; color:var(--muted); font:12px/1.6 var(--mono); }
@@ -92,18 +92,19 @@ const kind = (item: PublicGalleryItem) => item.status === "missing" ? "missing" 
               {gallery.items.map((item) => (
                 <figure>
                   <div class="media">
-                    {kind(item) === "image" && <img src={item.url!} alt={item.altText ?? item.caption ?? item.filename} loading="lazy" decoding="async" />}
+                    {kind(item) === "image" && <a class="media-link" href={itemPage(item)} aria-label={`View ${item.filename}`}><img src={item.url!} alt={item.altText ?? item.caption ?? item.filename} loading="lazy" decoding="async" /></a>}
                     {kind(item) === "video" && <video src={item.url!} controls playsinline preload="metadata" aria-describedby={`caption-${item.id}`}>Your browser cannot play this video.</video>}
                     {kind(item) === "file" && <div class="fallback"><strong>Preview unavailable</strong><a href={item.url!} rel="noopener noreferrer">Open {item.filename}</a></div>}
                     {kind(item) === "unsupported" && <div class="fallback"><strong>Unsupported media type</strong><span>This item cannot be opened inline.</span></div>}
                     {kind(item) === "missing" && <div class="fallback"><strong>Removed or expired</strong><span>This item remains in the gallery to preserve its place.</span></div>}
                   </div>
-                  <figcaption id={`caption-${item.id}`}><div class="filename">{item.filename}</div>{item.caption && <div class="caption">{item.caption}</div>}{item.status === "available" && kind(item) !== "unsupported" && <a class="original" href={item.url!} rel="noopener noreferrer">Open original</a>}</figcaption>
+                  <figcaption id={`caption-${item.id}`}><div class="filename">{item.filename}</div>{item.caption && <div class="caption">{item.caption}</div>}<a class="original" href={itemPage(item)}>View page</a>{item.status === "available" && kind(item) !== "unsupported" && <a class="original" href={item.url!} rel="noopener noreferrer">Open original</a>}</figcaption>
                 </figure>
               ))}
             </section>
           )}
-          <footer>External work-item references are not displayed publicly. · gallery {gallery.id}</footer>
+          <GalleryReferences references={gallery.references} />
+          <footer>gallery {gallery.id}</footer>
         </>
       ) : (
         <section class="error"><code>{result.status === "not_found" ? "gallery.not_found" : "gallery.unavailable"}</code><h1>{result.status === "not_found" ? "Gallery not found" : "Gallery temporarily unavailable"}</h1><p>{result.status === "not_found" ? "Check the link or ask the gallery owner for a current URL." : "The gallery service could not be reached. Please try again shortly."}</p></section>

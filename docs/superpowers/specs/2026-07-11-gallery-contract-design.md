@@ -150,10 +150,16 @@ edit. Partial reorder lists and unknown/duplicate item IDs are rejected.
 
 ## External references
 
-Issue #62 exposes external references only through authenticated owner and
-reverse-lookup APIs. Projecting references into the unauthenticated gallery
-response is explicitly deferred to issue #60 and the public gallery UI, where
-the disclosure and presentation policy can be designed together.
+Issue #62 introduced external references through authenticated owner and
+reverse-lookup APIs. Issue #60 then resolved the public exposure model: the
+unauthenticated gallery response includes a provider-neutral `references`
+array (`provider`, `resourceType`, `coordinate`, `canonicalUrl`) so the public
+gallery and item pages can list connected work items. Reference ids, timestamps,
+and normalized keys stay private. Reverse lookup (coordinate → galleries) is
+the part that remains authenticated-only; discoverability still requires the
+opaque gallery URL. A future workspace-level control may let verified owners opt specific
+repositories into public coordinate-path browsing (e.g. `/pr/owner/repo/123`);
+nothing in this contract should preclude that.
 
 The public input/output shape is provider-neutral:
 
@@ -277,10 +283,11 @@ Owner responses include `workspace` and `objectKey`. The public response omits
 both, along with provenance, hashes, uploader identity, raw provider metadata,
 and precise object timestamps. It returns item ID, display filename, media type,
 public URL, availability status, caption/alt text, and gallery metadata.
-External references remain omitted from this public response until issue #60
-defines their explicit projection and disclosure UX; authenticated owner APIs
-already return them. Callers must still be warned not to link a sensitive
-private-repository coordinate.
+The public response includes a `references` array projecting each external
+reference as `{provider, resourceType, coordinate, canonicalUrl}` (issue #60);
+ids, timestamps, and normalized keys are omitted. Callers must still be warned
+not to link a sensitive private-repository coordinate, since linked coordinates
+are visible to anyone holding the gallery URL.
 
 All errors use `AppError` subclasses and the existing nested wire envelope.
 Mutations use the workspace write-rate limiter. Owner list and reverse-reference

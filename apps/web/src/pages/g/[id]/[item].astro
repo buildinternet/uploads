@@ -1,0 +1,119 @@
+---
+import GalleryReferences from "../../../components/GalleryReferences.astro";
+import {
+  applyPublicGalleryHeaders,
+  fetchPublicGallery,
+  galleryItemPath,
+  galleryPath,
+  mediaKind as kind,
+  type PublicGalleryItem,
+} from "../../../lib/public-gallery";
+import { env } from "cloudflare:workers";
+
+export const prerender = false;
+
+const id = Astro.params.id ?? "";
+const itemId = Astro.params.item ?? "";
+const origin =
+  env.UPLOADS_API_ORIGIN ??
+  import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ??
+  "https://api.uploads.sh";
+const result = await fetchPublicGallery(id, { origin });
+
+applyPublicGalleryHeaders(Astro.response.headers);
+
+const gallery = result.status === "ok" ? result.gallery : null;
+const items = gallery ? gallery.items.toSorted((a, b) => a.position - b.position || a.id.localeCompare(b.id)) : [];
+const index = items.findIndex((entry) => entry.id === itemId);
+const item = index === -1 ? null : items[index];
+if (result.status === "unavailable") Astro.response.status = 503;
+else if (!item) Astro.response.status = 404;
+
+const previous = index > 0 ? items[index - 1] : null;
+const next = index >= 0 && index < items.length - 1 ? items[index + 1] : null;
+const listPath = galleryPath(id);
+const itemPath = (target: PublicGalleryItem) => galleryItemPath(id, target.id);
+const canonical = new URL(item ? itemPath(item) : listPath, Astro.url.origin).href;
+const title = item && gallery ? `${item.filename} · ${gallery.title} · uploads.sh` : "Media unavailable · uploads.sh";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+    <link rel="canonical" href={canonical} />
+    <title>{title}</title>
+    <meta name="description" content={item?.caption ?? gallery?.description ?? "Public media hosted by uploads.sh."} />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={item ? item.filename : "Media unavailable"} />
+    <meta property="og:description" content={item?.caption ?? gallery?.description ?? "Public media hosted by uploads.sh."} />
+    <meta property="og:url" content={canonical} />
+    {item && kind(item) === "image" && <meta property="og:image" content={item.url!} />}
+    <style>
+      :root { color-scheme: dark; --bg:#0a0a0b; --panel:#121214; --line:#232327; --fg:#ececea; --body:#b3b3ad; --muted:#7d7d77; --accent:#b794ff; --danger:#d98a9c; --mono:ui-monospace,"SFMono-Regular",Consolas,monospace; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+      * { box-sizing:border-box; }
+      body { margin:0; min-height:100vh; color:var(--fg); background:var(--bg); font-family:var(--sans); }
+      .shell { width:min(1080px,calc(100% - 48px)); margin:auto; padding:36px 0 64px; }
+      nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:32px; font:13px var(--mono); letter-spacing:.02em; }
+      .brand { color:var(--fg); text-decoration:none; } .brand span { color:var(--accent); }
+      .public { color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:6px 11px; background:var(--panel); }
+      .crumbs { margin-bottom:20px; color:var(--muted); font:13px var(--mono); overflow-wrap:anywhere; }
+      .stage { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+      .media { min-height:320px; max-height:78vh; background:var(--bg); display:grid; place-items:center; overflow:hidden; }
+      img,video { max-width:100%; max-height:78vh; width:auto; height:auto; object-fit:contain; display:block; }
+      .fallback { padding:60px 30px; text-align:center; color:var(--muted); font:13px/1.6 var(--mono); }
+      .fallback strong { display:block; color:var(--danger); margin-bottom:8px; }
+      .fallback a { color:var(--fg); overflow-wrap:anywhere; }
+      .details { padding:18px 20px 20px; border-top:1px solid var(--line); }
+      .filename { color:var(--fg); font:600 14px var(--mono); overflow-wrap:anywhere; }
+      .caption { margin-top:10px; color:var(--body); font-size:15px; line-height:1.6; white-space:pre-wrap; }
+      .original { display:inline-block; margin-top:12px; color:var(--muted); font:12px var(--mono); }
+      .original:hover, .original:focus-visible { color:var(--accent); outline:none; }
+      .pager { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:22px 0 0; font:13px var(--mono); }
+      .pager a, .pager span.disabled { display:inline-block; padding:10px 16px; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--fg); text-decoration:none; }
+      .pager a:hover, .pager a:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
+      .pager span.disabled { color:var(--muted); }
+      .count { color:var(--muted); }
+      .error { padding:70px 24px; border:1px solid var(--line); border-radius:10px; text-align:center; background:var(--panel); color:var(--body); }
+      .error code { color:var(--accent); font-family:var(--mono); }
+      a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
+      footer { margin-top:44px; color:var(--muted); font:12px/1.6 var(--mono); }
+      @media (max-width:760px) { .shell{width:min(100% - 32px,1080px);padding-top:24px} .media{min-height:220px} .pager a,.pager span.disabled{padding:8px 12px} }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <nav><a class="brand" href="/"><span>↑</span> uploads.sh</a><span class="public">public gallery</span></nav>
+      {gallery && item ? (
+        <>
+          <div class="crumbs"><a href={listPath}>{gallery.title}</a> · <span class="count">{index + 1} of {items.length}</span></div>
+          <figure class="stage" style="margin:0">
+            <div class="media">
+              {kind(item) === "image" && <img src={item.url!} alt={item.altText ?? item.caption ?? item.filename} decoding="async" />}
+              {kind(item) === "video" && <video src={item.url!} controls playsinline preload="metadata" aria-describedby="item-caption">Your browser cannot play this video.</video>}
+              {kind(item) === "file" && <div class="fallback"><strong>Preview unavailable</strong><a href={item.url!} rel="noopener noreferrer">Open {item.filename}</a></div>}
+              {kind(item) === "unsupported" && <div class="fallback"><strong>Unsupported media type</strong><span>This item cannot be opened inline.</span></div>}
+              {kind(item) === "missing" && <div class="fallback"><strong>Removed or expired</strong><span>This item remains in the gallery to preserve its place.</span></div>}
+            </div>
+            <figcaption class="details" id="item-caption">
+              <div class="filename">{item.filename}</div>
+              {item.caption && <div class="caption">{item.caption}</div>}
+              {item.status === "available" && kind(item) !== "unsupported" && <a class="original" href={item.url!} rel="noopener noreferrer">Open original</a>}
+            </figcaption>
+          </figure>
+          <nav class="pager" aria-label="Gallery items">
+            {previous ? <a href={itemPath(previous)} rel="prev">← {previous.filename}</a> : <span class="disabled">← Start</span>}
+            <a href={listPath}>All items</a>
+            {next ? <a href={itemPath(next)} rel="next">{next.filename} →</a> : <span class="disabled">End →</span>}
+          </nav>
+          <GalleryReferences references={gallery.references} />
+          <footer>gallery {gallery.id}</footer>
+        </>
+      ) : (
+        <section class="error"><code>{result.status === "unavailable" ? "gallery.unavailable" : "gallery.item_not_found"}</code><h1>{result.status === "unavailable" ? "Gallery temporarily unavailable" : "Media not found"}</h1><p>{result.status === "unavailable" ? "The gallery service could not be reached. Please try again shortly." : "This item may have been removed, or the link is incorrect."}</p>{result.status !== "unavailable" && <p><a href={listPath}>View the gallery</a></p>}</section>
+      )}
+    </main>
+  </body>
+</html>

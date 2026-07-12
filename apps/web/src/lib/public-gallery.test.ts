@@ -23,6 +23,14 @@ const gallery = {
       contentType: "image/png",
     },
   ],
+  references: [
+    {
+      provider: "github",
+      resourceType: "item",
+      coordinate: "buildinternet/uploads#123",
+      canonicalUrl: "https://github.com/buildinternet/uploads/issues/123",
+    },
+  ],
 } as const;
 
 describe("public gallery API", () => {
@@ -56,6 +64,39 @@ describe("public gallery API", () => {
         items: Array.from({ length: 101 }, () => gallery.items[0]),
       }),
     ).toBe(false);
+  });
+
+  it("bounds and sanitizes external references, tolerating their absence", () => {
+    const { references: _references, ...withoutReferences } = gallery;
+    expect(isPublicGallery(withoutReferences)).toBe(true);
+    expect(
+      isPublicGallery({
+        ...gallery,
+        references: [{ ...gallery.references[0], canonicalUrl: "javascript:alert(1)" }],
+      }),
+    ).toBe(false);
+    expect(
+      isPublicGallery({
+        ...gallery,
+        references: [{ ...gallery.references[0], coordinate: "bidi‮evil" }],
+      }),
+    ).toBe(false);
+    expect(
+      isPublicGallery({
+        ...gallery,
+        references: Array.from({ length: 21 }, () => gallery.references[0]),
+      }),
+    ).toBe(false);
+  });
+
+  it("normalizes a missing references field to an empty array", async () => {
+    const { references: _references, ...withoutReferences } = gallery;
+    await expect(
+      fetchPublicGallery(ID, {
+        origin: "https://api.uploads.sh",
+        fetch: async () => Response.json(withoutReferences),
+      }),
+    ).resolves.toEqual({ status: "ok", gallery: { ...withoutReferences, references: [] } });
   });
 
   it("fetches one exact public endpoint without credentials or referrer", async () => {
