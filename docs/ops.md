@@ -92,8 +92,9 @@ fine for short interactive use, but:
 pnpm doctor                    # “is default registered?”
 pnpm workspace:limits default --local   # already time-bounded
 pnpm --filter @uploads/api run migrate:d1:local   # 60s cap via run-timed.mjs
-# or, if you must call wrangler by hand:
-timeout 20s pnpm --filter @uploads/api exec wrangler kv key get ws:default \
+# or, if you must call wrangler by hand (group-kills hung miniflare on deadline):
+node apps/api/scripts/run-timed.mjs 20 -- \
+  pnpm --filter @uploads/api exec wrangler kv key get ws:default \
   --binding REGISTRY --local
 ```
 
