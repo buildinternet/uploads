@@ -9,16 +9,19 @@
  * Library:
  *   import { runTimed, wranglerKvKey } from "./run-timed.mjs";
  *
- * Prefers GNU `timeout` / `gtimeout` (kills the process group). Falls back to
- * Node's spawnSync timeout + SIGKILL.
+ * Prefers GNU/BSD `timeout` / `gtimeout` (kills the process group). Falls back
+ * to a detached spawn where the child leads its own process group and the whole
+ * group gets SIGTERM, then SIGKILL after 5s — a plain child-only SIGKILL would
+ * orphan wrangler/miniflare grandchildren, the exact failure this guards against.
  *
  * Exit codes (CLI): command's status, or 124 on timeout (GNU timeout convention).
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { delimiter, join } from "node:path";
-import { resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+const SELF_PATH = fileURLToPath(import.meta.url);
 
 /**
  * @param {string} cmd
@@ -54,24 +57,79 @@ export function runTimed(cmd, args, opts) {
     };
   }
 
-  const r = spawnSync(cmd, args, {
+  // No timeout binary: re-invoke this script's CLI, which does a detached
+  // process-group spawn + kill(-pgid). spawnSync's own `timeout` option only
+  // SIGKILLs the direct child, orphaning wrangler/miniflare grandchildren.
+  const r = spawnSync(process.execPath, [SELF_PATH, String(timeoutSec), "--", cmd, ...args], {
     stdio,
     encoding: stdio === "inherit" ? undefined : encoding,
     env: env ?? process.env,
     cwd,
-    timeout: Math.round(timeoutSec * 1000),
-    killSignal: "SIGKILL",
     maxBuffer: 20 * 1024 * 1024,
   });
-  const timedOut = r.error?.code === "ETIMEDOUT";
+  const timedOut = r.status === 124;
   return {
-    status: timedOut ? 124 : r.status,
+    status: r.status,
     signal: r.signal,
     stdout: r.stdout,
     stderr: r.stderr,
-    error: timedOut ? null : r.error,
+    error: r.error,
     timedOut,
   };
+}
+
+/**
+ * Async fallback used by the CLI when no `timeout` binary exists. The child is
+ * detached so it leads its own process group; on deadline the whole group gets
+ * SIGTERM, then SIGKILL after a 5s grace, so grandchildren die too. Parent
+ * SIGINT/SIGTERM are forwarded to the group (detached children don't share the
+ * terminal's foreground group, so Ctrl-C wouldn't reach them otherwise).
+ *
+ * @param {string} cmd
+ * @param {string[]} args
+ * @param {{ timeoutSec: number }} opts
+ */
+async function runDetachedGroup(cmd, args, { timeoutSec }) {
+  const child = spawn(cmd, args, {
+    stdio: "inherit",
+    detached: true,
+    env: process.env,
+  });
+
+  const killGroup = (signal) => {
+    try {
+      process.kill(-child.pid, signal);
+    } catch {
+      // group already gone
+    }
+  };
+
+  let timedOut = false;
+  const timer = setTimeout(
+    () => {
+      timedOut = true;
+      killGroup("SIGTERM");
+      setTimeout(() => killGroup("SIGKILL"), 5000).unref();
+    },
+    Math.round(timeoutSec * 1000),
+  );
+  timer.unref();
+
+  const forward = (signal) => () => killGroup(signal);
+  const onInt = forward("SIGINT");
+  const onTerm = forward("SIGTERM");
+  process.on("SIGINT", onInt);
+  process.on("SIGTERM", onTerm);
+
+  const [status, signal] = await new Promise((res) => {
+    child.on("error", () => res([1, null]));
+    child.on("exit", (code, sig) => res([code, sig]));
+  });
+
+  clearTimeout(timer);
+  process.off("SIGINT", onInt);
+  process.off("SIGTERM", onTerm);
+  return { status, signal, timedOut };
 }
 
 /**
@@ -130,6 +188,11 @@ export function wranglerKvKey(opts) {
 }
 
 function findTimeoutBin() {
+  // Windows' System32\timeout.exe is a wait command, not a killer; and the
+  // escape hatch lets tests exercise the detached-group fallback.
+  if (process.platform === "win32" || process.env.RUN_TIMED_FORCE_FALLBACK) {
+    return null;
+  }
   const names = ["timeout", "gtimeout"];
   const pathEnv = process.env.PATH ?? "";
   for (const dir of pathEnv.split(delimiter)) {
@@ -150,7 +213,7 @@ function findTimeoutBin() {
   return null;
 }
 
-function main() {
+async function main() {
   const argv = process.argv.slice(2);
   const sep = argv.indexOf("--");
   if (sep < 1 || sep === argv.length - 1) {
@@ -167,7 +230,9 @@ function main() {
   const cmd = argv[sep + 1];
   const args = argv.slice(sep + 2);
 
-  const result = runTimed(cmd, args, { timeoutSec: seconds, stdio: "inherit" });
+  const result = findTimeoutBin()
+    ? runTimed(cmd, args, { timeoutSec: seconds, stdio: "inherit" })
+    : await runDetachedGroup(cmd, args, { timeoutSec: seconds });
   if (result.timedOut) {
     console.error(`[run-timed] killed after ${seconds}s: ${cmd} ${args.join(" ")}`.trim());
     process.exit(124);
@@ -179,8 +244,7 @@ function main() {
   process.exit(result.status === null ? 1 : result.status);
 }
 
-const isCli =
-  Boolean(process.argv[1]) && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isCli = Boolean(process.argv[1]) && resolve(process.argv[1]) === SELF_PATH;
 if (isCli) {
-  main();
+  await main();
 }
