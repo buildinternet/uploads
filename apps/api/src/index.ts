@@ -1,5 +1,6 @@
 import { AppError, NotFoundError } from "@uploads/errors";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { respondError } from "./error-response";
 import { workspaceAuth, type WorkspaceVars } from "./workspace";
 import { files } from "./routes/files";
@@ -10,9 +11,25 @@ import { runRetentionSweep } from "./retention-sweep";
 import { galleries } from "./routes/galleries";
 import { publicGalleries } from "./routes/public-galleries";
 
+// Lets the browser console on the web origin (and local dev) call the token-
+// authenticated endpoints. CORS is not the security boundary — bearer tokens
+// are — but without these headers the preflight for Authorization fails.
+const consoleCors = cors({
+  origin: (origin, c) => {
+    if (origin === (c.env.WEB_ORIGIN || "https://uploads.sh")) return origin;
+    if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return origin;
+    return null;
+  },
+  allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+  allowHeaders: ["Authorization", "Content-Type"],
+  maxAge: 86400,
+});
+
 /** Hono app — also re-exported for vitest (`app.request`). */
 export const app = new Hono<WorkspaceVars>()
   .get("/health", (c) => c.json({ ok: true }))
+  .use("/admin/*", consoleCors)
+  .use("/v1/*", consoleCors)
   .route("/admin", admin)
   .route("/auth", auth)
   .route("/public/galleries", publicGalleries)
