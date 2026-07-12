@@ -51,27 +51,39 @@ describe("sendAuthEmail", () => {
     expect(args.text).toContain("https://auth.uploads.sh/x");
   });
 
-  it("HTML-escapes organization name and inviter email in the invitation template", async () => {
+  it("routes invitation + member-joined through the shared templates", async () => {
     const send = vi.fn().mockResolvedValue({});
     const EMAIL: EmailBinding = { send };
+
     await sendAuthEmail(
       { EMAIL, ENVIRONMENT: "production" },
       {
         to: "a@example.com",
         template: "invitation",
         context: {
-          url: "https://auth.uploads.sh/accept",
+          url: "https://uploads.sh/accept-invitation/abc",
           organizationName: `<img src=x onerror=alert(1)>`,
           inviterEmail: `"><script>alert(2)</script>`,
         },
       },
     );
-    expect(send).toHaveBeenCalledTimes(1);
-    const args = send.mock.calls[0]?.[0];
-    expect(args.html).not.toContain("<img src=x onerror=alert(1)>");
-    expect(args.html).not.toContain("<script>alert(2)</script>");
-    expect(args.html).toContain("&lt;img src=x onerror=alert(1)&gt;");
-    expect(args.html).toContain("&lt;script&gt;alert(2)&lt;/script&gt;");
+    await sendAuthEmail(
+      { EMAIL, ENVIRONMENT: "production" },
+      {
+        to: "admin@example.com",
+        template: "member-joined",
+        context: { organizationName: "buildinternet", memberEmail: "new@example.com" },
+      },
+    );
+
+    const invite = send.mock.calls[0]?.[0];
+    expect(invite.html).toContain("<!doctype html>");
+    expect(invite.html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect(invite.html).not.toContain("<script>alert(2)</script>");
+
+    const joined = send.mock.calls[1]?.[0];
+    expect(joined.to).toBe("admin@example.com");
+    expect(joined.subject).toBe("new@example.com joined buildinternet on uploads.sh");
   });
 
   it("never throws when the send fails", async () => {

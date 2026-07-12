@@ -11,6 +11,7 @@ scripts in `buildinternet-skills/github-screenshots`.
 apps/api            Hono worker — REST API, deploys to api.uploads.sh
 apps/mcp            Hono worker — remote MCP server, deploys to agents.uploads.sh (alt: mcp.uploads.sh)
 apps/web            Astro placeholder — future browse/manage UI (separate deploy)
+packages/email      @uploads/email — shared invite/notify email card HTML
 packages/errors     @uploads/errors — typed AppError hierarchy + nested wire envelope
 packages/storage    @uploads/storage — files-sdk adapter factory
 packages/uploads    @buildinternet/uploads — CLI + client for GitHub image embeds
