@@ -7,5 +7,5 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["@uploads/api", "@uploads/mcp", "@uploads/web", "@uploads/storage"]
+  "ignore": ["@uploads/api", "@uploads/mcp", "@uploads/web", "@uploads/storage", "@uploads/auth"]
 }

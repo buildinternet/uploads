@@ -1,39 +1,35 @@
-# Apply pending D1 migrations to production on merge to main.
+# Apply pending D1 migrations to production (apps/auth) on merge to main.
 #
-# Prior art: releases (deploy-workers applies migrations before deploy) and
-# room-configurator (deploy scripts run `d1 migrations apply` first).
-# Uploads ships API code via Workers Builds; this workflow is the explicit
-# CI guarantee that schema lands when migration files merge. Replay-safe:
-# wrangler skips rows already recorded in d1_migrations.
+# Split from d1-migrations.yml so auth-only changes don't trigger the apps/api
+# apply job and vice versa — the two apps have independent D1 databases and
+# migration histories. Replay-safe: wrangler skips rows already recorded in
+# d1_migrations.
 #
 # Secrets (same as headless deploy): CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
 # Token needs D1 edit in addition to Workers (Edit Cloudflare Workers template
 # alone is not always enough — add D1 write if apply fails with auth errors).
-#
-# apps/auth has its own migrations workflow (d1-migrations-auth.yml) so
-# auth-only changes don't trigger this apps/api job and vice versa.
 
-name: D1 Migrations
+name: D1 Migrations (auth)
 
 on:
   push:
     branches: [main]
     paths:
-      - "apps/api/migrations/**"
-      - "apps/api/wrangler.jsonc"
-      - ".github/workflows/d1-migrations.yml"
+      - "apps/auth/migrations/**"
+      - "apps/auth/wrangler.jsonc"
+      - ".github/workflows/d1-migrations-auth.yml"
   workflow_dispatch:
 
 concurrency:
-  group: d1-migrations-${{ github.ref }}
+  group: d1-migrations-auth-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  apply:
-    name: Apply D1 migrations (production)
+  apply-auth:
+    name: Apply D1 migrations (auth, production)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -48,13 +44,14 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
-      # Workspace install so apps/api resolves its wrangler devDependency.
+      # Workspace install so apps/auth resolves its wrangler devDependency.
       - run: pnpm install --frozen-lockfile
 
-      # Binding name `DB` (see apps/api/wrangler.jsonc). Non-interactive CI skips
-      # the confirmation prompt; already-applied migrations are no-ops.
+      # Binding name `DB` (see apps/auth/wrangler.jsonc) — a separate D1
+      # database (uploads-auth) from apps/api's, per plan D1. Non-interactive
+      # CI skips the confirmation prompt; already-applied migrations are no-ops.
       - name: Apply D1 migrations
-        working-directory: apps/api
+        working-directory: apps/auth
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

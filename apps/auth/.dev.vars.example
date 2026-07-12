@@ -1,0 +1,31 @@
+# Copy to .dev.vars for local dev.
+
+# Dev-only signing secret fallback. The Secrets Store binding
+# (UPL_BETTER_AUTH_SECRET) exists locally too under `wrangler dev`, but an
+# unpopulated store entry does NOT get overridden by a same-named .dev.vars
+# value (see src/secrets.ts) — that's why this is a distinctly-named var.
+# Without it, /api/auth/* answers 503 locally. Any string >= 32 chars works.
+BETTER_AUTH_SECRET_DEV=
+
+# Local origin for this worker (port pinned in wrangler.jsonc). Use the
+# 127.0.0.1 IP literal, not localhost: GitHub's OAuth docs recommend loopback
+# IP literals for redirect URLs, and Better Auth derives redirect_uri from
+# this value — the dev GitHub app's callback is
+# http://127.0.0.1:8788/api/auth/callback/github. localhost and 127.0.0.1 are
+# also *different sites* for cookies, so keep the web app on 127.0.0.1 too
+# (browse http://127.0.0.1:4321, not localhost:4321) or the session cookie
+# becomes cross-site.
+BETTER_AUTH_URL=http://127.0.0.1:8788
+
+# Web app origin this worker trusts for CORS + magic-link emails.
+WEB_ORIGIN=http://127.0.0.1:4321
+
+# Fail-closed rate limiting is production-only by default; flip this to skip
+# it locally (see src/auth.ts).
+AUTH_RATE_LIMIT_DISABLED=true
+
+# Optional: dev-only GitHub OAuth plain fallbacks (same store-vs-dev-var
+# footgun as the signing secret above). Leave unset to keep GitHub gated off
+# locally — magic link alone is enough for most dev flows.
+# GITHUB_CLIENT_ID=
+# GITHUB_CLIENT_SECRET=
