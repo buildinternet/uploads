@@ -115,7 +115,7 @@ const FAVICON =
   const magicSubmit = requireElement<HTMLButtonElement>("#magic-submit");
   const emailInput = requireElement<HTMLInputElement>("#email");
 
-  const callbackURL = `${location.origin}/console`;
+  const callbackURL = `${location.origin}/account`;
 
   githubBtn.addEventListener("click", async () => {
     errorBox.hidden = true;
