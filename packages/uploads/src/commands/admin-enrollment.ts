@@ -20,6 +20,11 @@ Options:
   --separate-code        Two-channel output: non-secret page URL + separate code
   --api-url <url>        Default: https://api.uploads.sh
   --web-url <url>        Invite-page origin (defaults from --api-url)
+
+Examples:
+  uploads admin invite create --workspace acme --email user@example.com
+  uploads admin invite create --workspace acme --separate-code --json
+  uploads admin invite create --admin-token $ADMIN_TOKEN --workspace acme --label "onboarding"
 `;
 
 type FileScope = "files:read" | "files:write" | "files:delete";

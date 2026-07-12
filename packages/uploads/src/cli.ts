@@ -28,6 +28,8 @@ import { runLogin } from "./commands/login.js";
 import { runAdmin } from "./commands/admin-enrollment.js";
 import { runMcp } from "./commands/mcp.js";
 import { runInstall } from "./commands/install.js";
+import { packageVersion } from "./package-version.js";
+import { maybeHintUpdate } from "./update-check.js";
 
 const ROOT_HELP = `uploads — CLI for uploads.sh (GitHub image embeds)
 
@@ -51,7 +53,8 @@ Other globals (before command):
   --token <token>     or UPLOADS_TOKEN
   --env-file <path>
   --json              JSON on stdout
-  --quiet
+  --quiet             Suppress stderr progress and update hints
+  --version, -V       Print package version and exit
 
 Commands:
   attach <file...>     Attach media to the current PR (stable URLs + managed comment)
@@ -76,6 +79,8 @@ Put/list defaults (config file or env):
   UPLOADS_DEFAULT_PREFIX, UPLOADS_DEFAULT_REPO, UPLOADS_DEFAULT_REF
   UPLOADS_DEFAULT_WIDTH, UPLOADS_NO_GIT
 
+Update hints (stderr, once/day): silence with --quiet / UPLOADS_NO_UPDATE=1 / NO_UPDATE_NOTIFIER=1
+
 Examples:
   uploads setup
   uploads setup --token up_default_… --repo myorg/myapp
@@ -83,6 +88,7 @@ Examples:
   uploads put ./shot.png --ref 42
   uploads gallery create --title "Release screenshots"
   uploads doctor
+  uploads --version
 
 Agent/MCP: \`uploads install\` sets up the agent skill and the hosted MCP server
 (https://agents.uploads.sh/mcp, workspace inferred from the token). Run
@@ -164,10 +170,26 @@ function errorOut(err: unknown, json: boolean): void {
   }
 }
 
+/** Point agents at layered --help instead of dumping the full root manual. */
+function usageHint(argv: string[]): void {
+  try {
+    const cmd = parseArgv(argv).command;
+    process.stderr.write(cmd ? `hint: uploads ${cmd} --help\n` : "hint: uploads --help\n");
+  } catch {
+    process.stderr.write("hint: uploads --help\n");
+  }
+}
+
 export async function runCli(argv: string[]): Promise<number> {
   try {
     const parsed = parseArgv(argv);
     const json = parsed.globals.json ?? false;
+    const quiet = parsed.globals.quiet ?? false;
+
+    if (parsed.globals.version) {
+      process.stdout.write(`${packageVersion()}\n`);
+      return 0;
+    }
 
     if (!parsed.command) {
       process.stderr.write(ROOT_HELP);
@@ -176,22 +198,30 @@ export async function runCli(argv: string[]): Promise<number> {
 
     const cmdArgs = parsed.rest.slice(1);
     const showHelp = parsed.help || cmdArgs.some(isHelpFlag);
+    let code: number;
 
     switch (parsed.command) {
       case "health":
-        return runHealth({ apiUrl: resolveApiUrl(parsed.globals), json }, cmdArgs, showHelp);
+        code = await runHealth({ apiUrl: resolveApiUrl(parsed.globals), json }, cmdArgs, showHelp);
+        break;
       case "config":
-        return runConfig(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
+        code = await runConfig(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
+        break;
       case "setup":
-        return runSetup(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
+        code = await runSetup(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
+        break;
       case "login":
-        return runLogin(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);
+        code = await runLogin(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);
+        break;
       case "admin":
-        return runAdmin(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);
+        code = await runAdmin(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);
+        break;
       case "mcp":
-        return runMcp(cmdArgs, { globals: parsed.globals }, showHelp);
+        code = await runMcp(cmdArgs, { globals: parsed.globals }, showHelp);
+        break;
       case "install":
-        return runInstall(cmdArgs, { globals: parsed.globals, json }, showHelp);
+        code = await runInstall(cmdArgs, { globals: parsed.globals, json }, showHelp);
+        break;
       case "attach":
       case "put":
       case "gallery":
@@ -205,35 +235,51 @@ export async function runCli(argv: string[]): Promise<number> {
         const ctx = createContext(parsed.globals, !showHelp, cmdArgs);
         switch (parsed.command) {
           case "attach":
-            return runAttach(ctx, cmdArgs, showHelp);
+            code = await runAttach(ctx, cmdArgs, showHelp);
+            break;
           case "put":
-            return runPut(ctx, cmdArgs, showHelp);
+            code = await runPut(ctx, cmdArgs, showHelp);
+            break;
           case "gallery":
-            return runGallery(ctx, cmdArgs, showHelp);
+            code = await runGallery(ctx, cmdArgs, showHelp);
+            break;
           case "comment":
-            return runComment(ctx, cmdArgs, showHelp);
+            code = await runComment(ctx, cmdArgs, showHelp);
+            break;
           case "list":
-            return runList(ctx, cmdArgs, showHelp);
+            code = await runList(ctx, cmdArgs, showHelp);
+            break;
           case "delete":
-            return runDelete(ctx, cmdArgs, showHelp);
+            code = await runDelete(ctx, cmdArgs, showHelp);
+            break;
           case "usage":
-            return runUsage(ctx, cmdArgs, showHelp);
+            code = await runUsage(ctx, cmdArgs, showHelp);
+            break;
           case "reconcile":
-            return runReconcile(ctx, cmdArgs, showHelp);
+            code = await runReconcile(ctx, cmdArgs, showHelp);
+            break;
           case "purge-expired":
-            return runPurgeExpired(ctx, cmdArgs, showHelp);
+            code = await runPurgeExpired(ctx, cmdArgs, showHelp);
+            break;
           case "doctor":
-            return runDoctor(ctx, cmdArgs, showHelp);
+            code = await runDoctor(ctx, cmdArgs, showHelp);
+            break;
         }
+        break;
       }
       default:
         process.stderr.write(`unknown command: ${parsed.command}\n\n${ROOT_HELP}`);
         return 2;
     }
+
+    // Best-effort; skipped for mcp, --quiet/--json, and opt-out env vars.
+    if (code === 0 && !showHelp) {
+      await maybeHintUpdate({ quiet: quiet || json, command: parsed.command });
+    }
+    return code;
   } catch (err) {
     errorOut(err, argv.includes("--json"));
-    if (err instanceof UsageError && !argv.includes("--json"))
-      process.stderr.write(`\n${ROOT_HELP}`);
+    if (err instanceof UsageError && !argv.includes("--json")) usageHint(argv);
     return exitCode(err);
   }
 }

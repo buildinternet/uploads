@@ -13,6 +13,7 @@ npx @buildinternet/uploads --help
 
 ```bash
 uploads setup
+uploads --version
 uploads attach ./before.png ./after.png
 uploads put ./shot.png
 uploads put ./shot.png --destination screenshots
@@ -31,6 +32,14 @@ global `uploads` form above.
 
 Commands: `attach`, `put`, `gallery`, `comment`, `list`, `delete`, `usage`, `reconcile`,
 `purge-expired`, `setup`, `install`, `config`, `doctor`, `health`, `mcp`.
+
+**Globals (before the command):** `--api-url`, `--token`, `--workspace` / `-w`,
+`--env-file`, `--json`, `--quiet`, `--version` / `-V`, `-h` / `--help`.
+
+**Update hints:** after a successful run the CLI may print one stderr line when a
+newer npm release is available (at most once/day, `~/.cache/uploads/`). Silence
+with `--quiet`, `--json`, `UPLOADS_NO_UPDATE=1`, or `NO_UPDATE_NOTIFIER=1`. Not used
+for `uploads mcp`.
 
 `attach` is the agent-friendly default for GitHub media. It accepts one or more files,
 infers the pull request for the current branch via `gh`, uploads stable URLs, and creates
@@ -100,14 +109,16 @@ Agent/MCP helpers: `@buildinternet/uploads/agent` (`createUploadsWorkerFileTools
 
 ```
 src/
-  cli.ts            Entry + help
-  commands.ts       put, list, delete, comment, …
-  commands/mcp.ts   `mcp` command entry
-  mcp/              Stdio MCP server (server.ts, tools.ts)
-  client.ts         HTTP client for the API
-  github.ts         PR/issue key paths + attachment comments
-  embed.ts          Markdown image output
-bin/uploads.js      Bin shim
+  cli.ts              Entry + help
+  package-version.ts  Shared version for --version / doctor / headers
+  update-check.ts     Optional npm update hint (stderr)
+  commands.ts         put, list, delete, comment, …
+  commands/mcp.ts     `mcp` command entry
+  mcp/                Stdio MCP server (server.ts, tools.ts)
+  client.ts           HTTP client for the API
+  github.ts           PR/issue key paths + attachment comments
+  embed.ts            Markdown image output
+bin/uploads.js        Bin shim
 ```
 
 ## Commands

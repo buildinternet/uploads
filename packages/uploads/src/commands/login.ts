@@ -22,6 +22,12 @@ Options:
   --path <file>       Config destination
   --force             Replace existing saved credentials
   --no-check          Skip doctor verification
+
+Examples:
+  uploads login --code upe_…
+  uploads login --code-stdin --non-interactive < code.txt
+  printf '%s' upe_… | uploads login --code-stdin --non-interactive
+  uploads login --code upe_… --force --no-check
 `;
 
 export function validateEnrollmentCode(raw: string): string {

@@ -3,21 +3,7 @@
  * API allowlists keys; secrets never go here.
  */
 import type { ProvenanceInput } from "./client.js";
-import { createRequire } from "node:module";
-
-let cachedVersion: string | undefined;
-
-function packageVersion(): string {
-  if (cachedVersion) return cachedVersion;
-  try {
-    const require = createRequire(import.meta.url);
-    const pkg = require("../package.json") as { version?: string };
-    cachedVersion = pkg.version ?? "0.0.0";
-  } catch {
-    cachedVersion = "0.0.0";
-  }
-  return cachedVersion;
-}
+import { packageVersion } from "./package-version.js";
 
 export function buildCliProvenance(opts: {
   sourceName: string;

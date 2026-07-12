@@ -86,7 +86,12 @@ More output control:
 uploads put ./shot.png --format url
 uploads put ./shot.png --repo myorg/myapp --ref 1722 --width 700
 uploads put ./mobile.png --frame phone
+uploads --version
+uploads doctor
 ```
+
+See [`packages/uploads/README.md`](packages/uploads/README.md) for globals
+(`--version`, update hints, quiet/json) and the full command list.
 
 ### Public galleries
 
