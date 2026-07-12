@@ -8,6 +8,8 @@ interface Env {
    * src/secrets.ts and the D7 footgun note there.
    */
   BETTER_AUTH_SECRET_DEV?: string;
+  /** Dev plain fallback for UPL_BETTER_AUTH_API_KEY (mounts `dash()` when set). */
+  BETTER_AUTH_API_KEY?: string;
   /** Dev-only plain fallbacks for GitHub OAuth, gated the same way as the store pair. */
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
