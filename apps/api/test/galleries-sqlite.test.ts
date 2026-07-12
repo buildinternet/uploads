@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
+  MAX_GALLERIES_PER_WORKSPACE,
   MAX_GALLERY_ITEMS,
   addExternalReference,
   addGalleryItem,
@@ -187,6 +188,23 @@ describe("gallery persistence against SQLite", () => {
       await expect(getGallery(database(sqlite), "alpha", created.id)).resolves.toMatchObject({
         version: 5,
       });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("enforces the active-gallery cap atomically per workspace", async () => {
+    const sqlite = new SqliteD1();
+    try {
+      for (let index = 0; index < MAX_GALLERIES_PER_WORKSPACE; index++) {
+        await expect(gallery(sqlite)).resolves.toMatchObject({ workspace: "alpha" });
+      }
+      await expect(
+        createGallery(database(sqlite), { workspace: "alpha", title: "Overflow gallery" }),
+      ).resolves.toEqual({ status: "limit", limit: MAX_GALLERIES_PER_WORKSPACE });
+      await expect(
+        createGallery(database(sqlite), { workspace: "beta", title: "Beta gallery" }),
+      ).resolves.toMatchObject({ status: "ok" });
     } finally {
       sqlite.close();
     }

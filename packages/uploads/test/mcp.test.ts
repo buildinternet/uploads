@@ -42,6 +42,8 @@ function fakeFactory() {
       },
       list,
       listAll: async (opts: { prefix?: string } = {}) => (await list(opts)).items,
+      findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+      getGallery: async () => ({ items: [] }),
       delete: async (key: string) => {
         deletes.push(key);
         return { key, deleted: true };

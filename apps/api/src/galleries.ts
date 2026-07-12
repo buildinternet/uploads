@@ -1,3 +1,5 @@
+/** Per-workspace cap; gallery membership remains independently capped below. */
+export const MAX_GALLERIES_PER_WORKSPACE = 100;
 export const MAX_GALLERY_ITEMS = 100;
 export const MAX_GALLERY_REFERENCES = 20;
 export const MAX_GALLERY_PAGE_SIZE = 100;
@@ -150,14 +152,29 @@ export async function createGallery(
     updated_at: now,
     deleted_at: null,
   };
-  await db
+  // The count check lives in the INSERT so concurrent creates cannot exceed the
+  // tenant quota. Soft-deleted galleries deliberately do not consume a slot.
+  const result = await db
     .prepare(
       `INSERT INTO galleries
       (id, workspace, title, description, visibility, cover_item_id, version, created_at, updated_at, deleted_at)
-     VALUES (?, ?, ?, ?, 'public', NULL, 1, ?, ?, NULL)`,
+     SELECT ?, ?, ?, ?, 'public', NULL, 1, ?, ?, NULL
+     WHERE (SELECT COUNT(*) FROM galleries WHERE workspace = ? AND deleted_at IS NULL) < ?`,
     )
-    .bind(record.id, record.workspace, record.title, record.description, now, now)
+    .bind(
+      record.id,
+      record.workspace,
+      record.title,
+      record.description,
+      now,
+      now,
+      record.workspace,
+      MAX_GALLERIES_PER_WORKSPACE,
+    )
     .run();
+  if ((result.meta.changes ?? 0) === 0) {
+    return { status: "limit", limit: MAX_GALLERIES_PER_WORKSPACE };
+  }
   return { status: "ok", value: record };
 }
 

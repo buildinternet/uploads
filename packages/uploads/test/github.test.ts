@@ -137,4 +137,54 @@ describe("attachmentsCommentBody", () => {
     const body = attachmentsCommentBody([{ key: "gh/o/r/pull/1/x.bin", url: null }]);
     expect(body).toContain("- x.bin");
   });
+
+  it("renders a distinct, safely escaped Galleries section without attachments", () => {
+    const body = attachmentsCommentBody(
+      [],
+      [{ title: `A <gallery> & "quotes"`, url: "https://uploads.test/g/gal_a?x=1&y=2" }],
+    );
+    expect(body).toContain("### 🖼️ Galleries");
+    expect(body).toContain(
+      `<a href="https://uploads.test/g/gal_a?x=1&amp;y=2">A &lt;gallery&gt; &amp; &quot;quotes&quot;</a>`,
+    );
+    expect(body).not.toContain("### 📎 Attachments");
+  });
+
+  it("renders up to three inline previews that link back to the gallery", () => {
+    const body = attachmentsCommentBody(
+      [],
+      [
+        {
+          title: "Release screenshots",
+          url: "https://uploads.test/g/gal_release",
+          previews: [
+            { url: "https://storage.test/one.webp", alt: "First screen" },
+            { url: "https://storage.test/two.webp", alt: "Second screen" },
+            { url: "https://storage.test/three.webp", alt: "Third screen" },
+          ],
+        },
+      ],
+    );
+    expect(body).toContain(
+      '<a href="https://uploads.test/g/gal_release"><img width="320" alt="First screen" src="https://storage.test/one.webp"></a>',
+    );
+    expect(body).toContain("Open gallery");
+  });
+
+  it("keeps galleries and loose attachments in clearly separate sections", () => {
+    const body = attachmentsCommentBody(
+      [{ key: "gh/o/r/pull/1/after.png", url: "https://x.test/after.png" }],
+      [{ title: "Release screenshots", url: "https://uploads.test/g/gal_release" }],
+    );
+    expect(body.indexOf("### 🖼️ Galleries")).toBeLessThan(body.indexOf("### 📎 Attachments"));
+    expect(body).toContain("Release screenshots");
+    expect(body).toContain("after.png");
+  });
+
+  it("renders the empty body without either content section", () => {
+    const body = attachmentsCommentBody([], []);
+    expect(body).toContain(ATTACHMENTS_MARKER);
+    expect(body).not.toContain("### 🖼️ Galleries");
+    expect(body).toContain("### 📎 Attachments");
+  });
 });

@@ -196,7 +196,7 @@ uploads gallery list --github https://github.com/buildinternet/uploads/pull/58
 
 `gallery add` processes keys sequentially so it obtains a current optimistic version before
 each mutation. With `--json`, its stable `added` and `failures` arrays make partial failures
-safe for agents to inspect. Deleting a gallery removes only its gallery record—not the objects.
+safe for agents to inspect. A workspace may have up to 100 active galleries; each gallery permits up to 100 items and 20 linked external references. Deleting a gallery removes only its gallery record—not the objects.
 
 Optionally link a gallery to a GitHub issue or PR with `uploads gallery link <gallery-id> --github <owner/repo#number>`. The CLI also accepts strict `https://github.com/<owner>/<repo>/issues|pull/<number>` URLs. Use `uploads gallery list --github <coordinate-or-url>` for the authenticated reverse lookup. This is metadata only: it does not make a gallery private or change its opaque identity.
 
@@ -232,9 +232,7 @@ Then reference the URL in the PR/issue markdown you write with `gh`:
 
 ### Option B — managed attachments comment (`--comment` / `comment`)
 
-Add `--comment` to upload **and** create/update a single comment on the PR/issue that
-lists every file uploaded for it. It finds its own prior comment via a hidden marker
-and edits it in place — it never touches the description or other comments:
+Add `--comment` to upload **and** create/update a single marker-owned comment on the PR/issue. It keeps loose `gh/...` attachments and every public gallery linked to that PR/issue in clearly separate sections, with up to three available gallery images inline. It finds its own prior comment via a hidden marker and edits it in place — it never touches the description or other comments:
 
 ```bash
 uploads put ./after.png --pr 123 --comment
@@ -242,8 +240,7 @@ uploads put ./after.png --pr 123 --comment
 
 The upload is authoritative; the comment is best-effort — if `gh` is missing or
 unauthenticated, the upload still succeeds and you get a warning. To (re)sync the
-comment without uploading anything (e.g. after several `--pr` uploads), use the
-standalone command:
+comment without uploading anything (e.g. after several `--pr` uploads or gallery links), use the standalone command:
 
 ```bash
 uploads comment --pr 123

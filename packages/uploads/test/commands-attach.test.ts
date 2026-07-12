@@ -37,6 +37,8 @@ function fakeClient() {
     },
     list,
     listAll: async (opts: { prefix?: string } = {}) => (await list(opts)).items,
+    findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+    getGallery: async () => ({ items: [] }),
   } as unknown as UploadsClient;
   return { client, puts };
 }
