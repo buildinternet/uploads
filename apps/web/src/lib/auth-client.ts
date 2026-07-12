@@ -96,3 +96,63 @@ export async function signOut(origin: string): Promise<void> {
     credentials: "include",
   }).catch(() => undefined);
 }
+
+/**
+ * Phase 3 (plan D4/D6): organization-plugin wrappers for the
+ * `/accept-invitation/[id]` page.
+ */
+export interface InvitationInfo {
+  id: string;
+  email: string;
+  status: string;
+  organizationName?: string;
+  organizationId: string;
+}
+
+/**
+ * GET /api/auth/organization/get-invitation?id=. Better Auth's own endpoint
+ * requires an authenticated session whose email matches the invite (it 401s
+ * otherwise) — this page calls it after sign-in to show invite context and
+ * confirm before accepting; it also tolerates the pre-sign-in case by
+ * returning null on any non-2xx rather than throwing.
+ */
+export async function getInvitation(origin: string, id: string): Promise<InvitationInfo | null> {
+  try {
+    const res = await fetch(
+      `${authOrigin(origin)}/api/auth/organization/get-invitation?id=${encodeURIComponent(id)}`,
+      { credentials: "include", cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as InvitationInfo | null;
+    return body ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export type AcceptInvitationResult = { ok: true } | { ok: false; status: number; code?: string };
+
+/**
+ * POST /api/auth/organization/accept-invitation. Requires a valid session.
+ * Returns `{ ok: false, status: 0 }` on a thrown fetch (network error, CSP
+ * block, etc.) rather than throwing — matching getSession/getInvitation's
+ * defensiveness so a caller can always branch on the result.
+ */
+export async function acceptInvitation(
+  origin: string,
+  id: string,
+): Promise<AcceptInvitationResult> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/organization/accept-invitation`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invitationId: id }),
+    });
+    if (res.ok) return { ok: true };
+    const body = (await res.json().catch(() => null)) as { error?: { code?: string } } | null;
+    return { ok: false, status: res.status, code: body?.error?.code };
+  } catch {
+    return { ok: false, status: 0 };
+  }
+}

@@ -1,10 +1,11 @@
 /**
  * Regression coverage for the repo-wide `run_worker_first` static-404 gotcha
- * (apps/web/wrangler.jsonc, plan D6 ⚠) as it applies to the two Phase 2
- * pages: `/login` and `/admin`.
+ * (apps/web/wrangler.jsonc, plan D6 ⚠) as it applies to the Phase 2 pages
+ * (`/login`, `/admin`) and the Phase 3 `/accept-invitation/[id]` page.
  *
- * Scope note: both pages set `export const prerender = false` (see
- * login.astro / admin.astro) — they're SSR routes, always served by
+ * Scope note: all three pages set `export const prerender = false` (see
+ * login.astro / admin.astro / accept-invitation/[id].astro) — they're SSR
+ * routes, always served by
  * `src/entry.ts`'s handler, never prerendered HTML served straight off the
  * `ASSETS` binding. The static-404 failure mode this gotcha describes is
  * specifically about *prerendered* pages bypassing the worker when
@@ -32,6 +33,7 @@ function ssrPageResponse(title: string): Response {
 describe.each([
   { path: "/login", title: "Sign in · uploads.sh" },
   { path: "/admin", title: "Admin · uploads.sh" },
+  { path: "/accept-invitation/upi_abc123", title: "Accept invitation · uploads.sh" },
 ])("route reachability: $path", ({ path, title }) => {
   it("reaches the page handler (not a static 404) on a browser navigation request", async () => {
     let handlerCalled = false;

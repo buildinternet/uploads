@@ -8,7 +8,7 @@
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { betterAuth } from "better-auth";
 import { drizzle } from "drizzle-orm/d1";
-import { admin, magicLink } from "better-auth/plugins";
+import { admin, magicLink, organization } from "better-auth/plugins";
 import { sendAuthEmail } from "./email";
 import * as schema from "./schema";
 import { authTrustedOrigins, isTrustedOrigin } from "./trusted-origins";
@@ -96,6 +96,26 @@ function buildAuth(
       admin({
         defaultRole: "user",
         adminRoles: ["admin"],
+      }),
+      // D3/D4 (Phase 3): orgs, membership, invitations. No `team` support.
+      // No org auto-provisioning hook — workspaces (and their 1:1 orgs) are
+      // admin-provisioned only, via /internal/orgs or the backfill script;
+      // do NOT add a `organizationCreation`/session hook here (see D4).
+      organization({
+        membershipLimit: 100,
+        sendInvitationEmail: async ({ id, email, organization: org, inviter }) => {
+          const webOrigin = env.WEB_ORIGIN || "https://uploads.sh";
+          const url = `${webOrigin}/accept-invitation/${id}`;
+          await sendAuthEmail(env, {
+            to: email,
+            template: "invitation",
+            context: {
+              url,
+              organizationName: org.name,
+              inviterEmail: inviter.user.email,
+            },
+          });
+        },
       }),
     ],
     session: {

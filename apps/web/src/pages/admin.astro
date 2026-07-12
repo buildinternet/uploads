@@ -12,10 +12,14 @@ const authOrigin =
   env.UPLOADS_AUTH_ORIGIN ??
   import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ??
   "https://auth.uploads.sh";
+const apiOrigin =
+  env.UPLOADS_API_ORIGIN ??
+  import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ??
+  "https://api.uploads.sh";
 
 const csp = [
   "default-src 'none'",
-  `connect-src ${authOrigin} ${CF_RUM_CONNECT_SRC}`,
+  `connect-src ${authOrigin} ${apiOrigin} ${CF_RUM_CONNECT_SRC}`,
   `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
   `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
   "img-src data: https:",
@@ -51,6 +55,23 @@ const FAVICON =
     nav.sections{display:grid;gap:10px;margin-top:8px}
     nav.sections .item{padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--muted)}
     nav.sections .item strong{color:var(--fg);display:block;font-size:.95rem;margin-bottom:2px}
+    .workspace{padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--panel);margin-bottom:10px}
+    .workspace summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .workspace summary::-webkit-details-marker{display:none}
+    .workspace .name{color:var(--fg);font-weight:600}
+    .workspace .counts{color:var(--muted);font-size:.85rem}
+    .workspace .detail{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);display:grid;gap:12px}
+    .workspace ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+    .workspace li{font-size:.85rem;color:var(--body);display:flex;justify-content:space-between;gap:8px}
+    .workspace li .role{color:var(--muted)}
+    .invite-form{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+    .invite-form label{display:grid;gap:4px;color:var(--muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+    .invite-form input,.invite-form select{background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--fg);padding:7px 9px;font:12px var(--mono)}
+    .invite-form button{font:11px var(--mono);color:var(--accent);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 12px;cursor:pointer}
+    .invite-form button:hover,.invite-form button:focus-visible{border-color:var(--accent);outline:none}
+    .invite-status{font-size:.8rem;margin-top:4px}
+    .invite-status[data-state=error]{color:var(--red)}
+    .invite-status[data-state=ready]{color:var(--accent)}
     [hidden]{display:none!important}
   </style>
 </head>
@@ -69,27 +90,33 @@ const FAVICON =
     <p class="muted">Signed in as <span id="who"></span>.</p>
     <!--
       Client-side gating here is a UX affordance ONLY — it just avoids
-      flashing admin nav at a non-admin visitor. It is NOT the security
-      boundary: this page fetches no sensitive data itself in Phase 2. The
-      real boundary is server-side, on apps/api, via requireAdminUser
-      (src/session-auth.ts) checking the session over the AUTH service
-      binding — every admin data endpoint enforces that independently of
-      whatever this page shows or hides.
+      flashing admin nav (and firing admin-ui fetches) at a non-admin
+      visitor. It is NOT the security boundary: the workspaces data below is
+      fetched from apps/api's /admin-ui/* surface, which independently
+      enforces requireAdminUser (src/session-auth.ts) over the AUTH service
+      binding on every request, regardless of whatever this page shows or
+      hides.
     -->
     <nav class="sections" aria-label="Admin sections">
-      <div class="item"><strong>Workspaces</strong>Coming in Phase 3.</div>
-      <div class="item"><strong>Invites</strong>Coming in Phase 3.</div>
-      <div class="item"><strong>Users</strong>Coming in Phase 3.</div>
+      <div class="item">
+        <strong>Workspaces</strong>
+        <div id="workspaces-status" class="muted" style="margin-top:6px">Loading…</div>
+        <div id="workspaces-list"></div>
+      </div>
+      <div class="item"><strong>Users</strong>Coming in a later phase.</div>
     </nav>
   </div>
 </main>
-<script define:vars={{ authOrigin }}>
+<script define:vars={{ authOrigin, apiOrigin }}>
   window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
+  window.__UPLOADS_API_ORIGIN__ = apiOrigin;
 </script>
 <script>
   import { getSession } from "../lib/auth-client";
 
-  const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string }).__UPLOADS_AUTH_ORIGIN__;
+  const w = window as unknown as { __UPLOADS_AUTH_ORIGIN__: string; __UPLOADS_API_ORIGIN__: string };
+  const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
+  const apiOrigin = w.__UPLOADS_API_ORIGIN__.replace(/\/$/, "");
 
   function requireElement<T extends Element>(selector: string): T {
     const element = document.querySelector<T>(selector);
@@ -101,6 +128,167 @@ const FAVICON =
   const denied = requireElement<HTMLElement>("#denied");
   const dashboard = requireElement<HTMLElement>("#dashboard");
   const who = requireElement<HTMLElement>("#who");
+  const workspacesStatus = requireElement<HTMLElement>("#workspaces-status");
+  const workspacesList = requireElement<HTMLElement>("#workspaces-list");
+
+  interface WorkspaceSummary {
+    workspace: string;
+    organization: { id: string; slug: string; name: string } | null;
+    memberCount: number;
+    pendingInviteCount: number;
+  }
+  interface Member {
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+  }
+  interface Invite {
+    id: string;
+    email: string;
+    role: string | null;
+    status: string;
+  }
+
+  function escapeHtml(value: string): string {
+    return value.replace(/[&<>"']/g, (ch) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
+    );
+  }
+
+  async function apiGet<T>(path: string): Promise<T> {
+    const res = await fetch(`${apiOrigin}${path}`, { credentials: "include", cache: "no-store" });
+    if (!res.ok) throw new Error(`request failed: ${res.status}`);
+    return (await res.json()) as T;
+  }
+
+  function renderWorkspace(ws: WorkspaceSummary): HTMLElement {
+    const details = document.createElement("details");
+    details.className = "workspace";
+    const org = ws.organization ? ws.organization.name : "no organization yet";
+    details.innerHTML = `
+      <summary>
+        <span class="name">${escapeHtml(ws.workspace)}</span>
+        <span class="counts">${escapeHtml(org)} · ${ws.memberCount} member${ws.memberCount === 1 ? "" : "s"} · ${ws.pendingInviteCount} pending</span>
+      </summary>
+      <div class="detail">
+        <div class="members" data-state="unloaded">Members load when expanded.</div>
+        <div class="invites"></div>
+        ${
+          ws.organization
+            ? `<form class="invite-form" data-workspace="${escapeHtml(ws.workspace)}">
+                <label>Email<input type="email" required class="invite-email" placeholder="you@example.com" /></label>
+                <label>Role
+                  <select class="invite-role">
+                    <option value="member">member</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </label>
+                <button type="submit">Invite</button>
+              </form>
+              <div class="invite-status" hidden></div>`
+            : `<p class="muted">No organization provisioned for this workspace yet — run the org backfill.</p>`
+        }
+      </div>
+    `;
+
+    let loaded = false;
+    details.addEventListener("toggle", async () => {
+      if (!details.open || loaded) return;
+      const membersEl = details.querySelector<HTMLElement>(".members");
+      const invitesEl = details.querySelector<HTMLElement>(".invites");
+      if (!ws.organization) {
+        if (membersEl) membersEl.textContent = "";
+        loaded = true;
+        return;
+      }
+      try {
+        const [{ members }, { invites }] = await Promise.all([
+          apiGet<{ members: Member[] }>(`/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/members`),
+          apiGet<{ invites: Invite[] }>(`/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invites`),
+        ]);
+        if (membersEl) {
+          membersEl.innerHTML = members.length
+            ? `<ul>${members.map((m) => `<li><span>${escapeHtml(m.email)}</span><span class="role">${escapeHtml(m.role)}</span></li>`).join("")}</ul>`
+            : `<p class="muted">No members yet.</p>`;
+        }
+        if (invitesEl) {
+          invitesEl.innerHTML = invites.length
+            ? `<ul>${invites.map((i) => `<li><span>${escapeHtml(i.email)}</span><span class="role">pending</span></li>`).join("")}</ul>`
+            : "";
+        }
+        // Only mark as loaded once the fetch actually succeeded — a failure
+        // leaves `loaded` false so re-toggling the <details> retries instead
+        // of permanently showing "Failed to load members."
+        loaded = true;
+      } catch {
+        if (membersEl) membersEl.textContent = "Failed to load members.";
+      }
+    });
+
+    const form = details.querySelector<HTMLFormElement>(".invite-form");
+    const statusEl = details.querySelector<HTMLElement>(".invite-status");
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const emailInput = form.querySelector<HTMLInputElement>(".invite-email");
+      const roleSelect = form.querySelector<HTMLSelectElement>(".invite-role");
+      const email = emailInput?.value.trim() ?? "";
+      const role = roleSelect?.value ?? "member";
+      const submitBtn = form.querySelector<HTMLButtonElement>("button[type=submit]");
+      if (submitBtn) submitBtn.disabled = true;
+      if (statusEl) statusEl.hidden = true;
+      try {
+        const res = await fetch(`${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invites`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, role }),
+        });
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => null)) as
+            | { error?: { message?: string } }
+            | null;
+          throw new Error(payload?.error?.message || `invite failed: ${res.status}`);
+        }
+        if (statusEl) {
+          statusEl.dataset.state = "ready";
+          statusEl.textContent = `Invited ${email}.`;
+          statusEl.hidden = false;
+        }
+        if (emailInput) emailInput.value = "";
+        loaded = false;
+        details.open = false;
+        details.open = true;
+      } catch (err) {
+        if (statusEl) {
+          statusEl.dataset.state = "error";
+          statusEl.textContent =
+            err instanceof Error && err.message ? err.message : "Couldn't send the invite.";
+          statusEl.hidden = false;
+        }
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+
+    return details;
+  }
+
+  async function loadWorkspaces() {
+    try {
+      const { workspaces } = await apiGet<{ workspaces: WorkspaceSummary[] }>("/admin-ui/workspaces");
+      workspacesStatus.hidden = true;
+      workspacesList.innerHTML = "";
+      if (!workspaces.length) {
+        workspacesStatus.hidden = false;
+        workspacesStatus.textContent = "No workspaces yet.";
+        return;
+      }
+      for (const ws of workspaces) workspacesList.appendChild(renderWorkspace(ws));
+    } catch {
+      workspacesStatus.textContent = "Failed to load workspaces.";
+    }
+  }
 
   getSession(authOrigin).then((result) => {
     checking.hidden = true;
@@ -110,6 +298,7 @@ const FAVICON =
     }
     who.textContent = result.user.email;
     dashboard.hidden = false;
+    loadWorkspaces();
   });
 </script>
 </body>

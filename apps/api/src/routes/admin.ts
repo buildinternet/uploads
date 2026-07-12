@@ -207,6 +207,44 @@ export const admin = new Hono<{ Bindings: Env }>()
     return c.json(payload as object, 200);
   })
 
+  // Phase 3 (plan scope B): one-time/idempotent backfill — creates an org
+  // (slug = workspace name) for every KV workspace that doesn't have one yet.
+  // Mirrors reencrypt-registry.ts's `ws:` KV pagination. ADMIN_TOKEN-gated
+  // (this stays on the ops/CI `/admin` surface, not `/admin-ui`) since it's a
+  // one-off migration operation, not part of the session-authenticated
+  // admin dashboard.
+  .post("/orgs/backfill", async (c) => {
+    const created: string[] = [];
+    const existing: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await c.env.REGISTRY.list({ prefix: "ws:", cursor, limit: 100 });
+      for (const entry of page.keys) {
+        const name = entry.name.startsWith("ws:") ? entry.name.slice(3) : entry.name;
+        if (!name) continue;
+
+        const response = await c.env.AUTH.fetch("https://auth.internal/internal/orgs", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-uploads-internal": "1" },
+          body: JSON.stringify({ slug: name, name }),
+        });
+        if (!response.ok) {
+          throw new ValidationError(`failed to create org for workspace "${name}"`, {
+            details: await response.json().catch(() => null),
+          });
+        }
+        if (response.status === 201) {
+          created.push(name);
+        } else {
+          existing.push(name);
+        }
+      }
+      cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor);
+
+    return c.json({ created, existing });
+  })
+
   // Mint a scoped bearer token for an existing workspace (defaults to "default").
   // New credentials live in D1; legacy KV credentials remain readable/revocable.
   .post("/tokens", async (c) => {

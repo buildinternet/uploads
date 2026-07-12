@@ -51,7 +51,9 @@ export const user = sqliteTable("user", {
  *
  * Paired migrations: `migrations/20260712200000_better_auth_core.sql` (core
  * columns), `migrations/20260712210000_admin_plugin.sql` (`impersonated_by`,
- * written by the `admin` plugin's impersonation feature — Phase 2).
+ * written by the `admin` plugin's impersonation feature — Phase 2),
+ * `migrations/20260712220000_organization.sql` (`active_organization_id`,
+ * written by the `organization` plugin — Phase 3).
  */
 export const session = sqliteTable(
   "session",
@@ -67,6 +69,7 @@ export const session = sqliteTable(
     createdAt: timestampCol("created_at"),
     updatedAt: timestampCol("updated_at"),
     impersonatedBy: text("impersonated_by"),
+    activeOrganizationId: text("active_organization_id"),
   },
   (t) => [index("idx_session_user_id").on(t.userId)],
 );
@@ -134,8 +137,81 @@ export const rateLimit = sqliteTable("rate_limit", {
   lastRequest: integer("last_request").notNull(),
 });
 
+/**
+ * Organizations (plan D4/Phase 3): `organization.slug === workspace name`,
+ * 1:1 for now (see apps/api/src/org-workspaces.ts for the indirection that
+ * keeps this an implementation detail). No `team` support (D3 explicitly
+ * excludes it) and no auto-provisioning hooks — orgs are only created via
+ * `/internal/orgs` (admin-provisioned, per D4) or the backfill script.
+ *
+ * Paired migration: `migrations/20260712220000_organization.sql`.
+ */
+export const organization = sqliteTable("organization", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  logo: text("logo"),
+  createdAt: timestampCol("created_at"),
+  metadata: text("metadata"),
+});
+
+/**
+ * Org membership. `role` here is the org-scoped `owner`/`admin`/`member`
+ * role (stock organization-plugin roles, no custom access control) — distinct
+ * from the global `user.role` written by the `admin` plugin (Phase 2).
+ *
+ * Paired migration: `migrations/20260712220000_organization.sql`.
+ */
+export const member = sqliteTable(
+  "member",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("member"),
+    createdAt: timestampCol("created_at"),
+  },
+  (t) => [
+    index("idx_member_organization_id").on(t.organizationId),
+    index("idx_member_user_id").on(t.userId),
+  ],
+);
+
+/**
+ * Pending org invitations. `sendInvitationEmail` (src/auth.ts) links to
+ * `${WEB_ORIGIN}/accept-invitation/<id>` — this table's `id` is that path
+ * segment.
+ *
+ * Paired migration: `migrations/20260712220000_organization.sql`.
+ */
+export const invitation = sqliteTable(
+  "invitation",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role"),
+    status: text("status").notNull().default("pending"),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    inviterId: text("inviter_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestampCol("created_at"),
+  },
+  (t) => [index("idx_invitation_organization_id").on(t.organizationId)],
+);
+
 export type AuthUser = typeof user.$inferSelect;
 export type AuthSession = typeof session.$inferSelect;
 export type AuthAccount = typeof account.$inferSelect;
 export type AuthVerification = typeof verification.$inferSelect;
 export type AuthRateLimit = typeof rateLimit.$inferSelect;
+export type AuthOrganization = typeof organization.$inferSelect;
+export type AuthMember = typeof member.$inferSelect;
+export type AuthInvitation = typeof invitation.$inferSelect;

@@ -6,6 +6,7 @@ import { workspaceAuth, type WorkspaceVars } from "./workspace";
 import { files } from "./routes/files";
 import { usage } from "./routes/usage";
 import { admin } from "./routes/admin";
+import { adminUi } from "./routes/admin-ui";
 import { auth } from "./routes/auth";
 import { runRetentionSweep } from "./retention-sweep";
 import { galleries } from "./routes/galleries";
@@ -25,12 +26,31 @@ const consoleCors = cors({
   maxAge: 86400,
 });
 
+// /admin-ui/* is session-cookie-authenticated (requireAdminUser, see
+// src/session-auth.ts), so unlike consoleCors above it must be credentialed
+// — same treatment as apps/auth's authCors for the web origin's cross-origin
+// browser calls (uploads.sh -> api.uploads.sh). The ADMIN_TOKEN-gated
+// `/admin/*` surface is bearer-token-only and deliberately untouched.
+const adminUiCors = cors({
+  origin: (origin, c) => {
+    if (origin === (c.env.WEB_ORIGIN || "https://uploads.sh")) return origin;
+    if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return origin;
+    return null;
+  },
+  credentials: true,
+  allowMethods: ["GET", "POST", "OPTIONS"],
+  allowHeaders: ["Content-Type"],
+  maxAge: 86400,
+});
+
 /** Hono app — also re-exported for vitest (`app.request`). */
 export const app = new Hono<WorkspaceVars>()
   .get("/health", (c) => c.json({ ok: true }))
   .use("/admin/*", consoleCors)
+  .use("/admin-ui/*", adminUiCors)
   .use("/v1/*", consoleCors)
   .route("/admin", admin)
+  .route("/admin-ui", adminUi)
   .route("/auth", auth)
   .route("/public/galleries", publicGalleries)
   .use("/v1/:workspace/*", workspaceAuth)
