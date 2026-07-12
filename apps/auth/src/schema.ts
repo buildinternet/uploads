@@ -22,8 +22,10 @@ const timestampCol = (name: string) =>
 
 /**
  * Core identity table. Better Auth writes `role`/`banned`/`banExpires` only
- * once the `admin` plugin is mounted (Phase 2) — the columns exist now so the
- * Phase 2 migration is additive-free for this table.
+ * once the `admin` plugin is mounted (Phase 2, see src/auth.ts) — the columns
+ * were added in Phase 1 anticipating this, so the Phase 2 migration is
+ * additive-free for this table (verified: no ALTER TABLE for `user` in
+ * `migrations/20260712210000_admin_plugin.sql`).
  *
  * Paired migration: `migrations/20260712200000_better_auth_core.sql`.
  */
@@ -47,7 +49,9 @@ export const user = sqliteTable("user", {
  * Signed-in sessions. `cookieCache` (5 min, see src/auth.ts) keeps most
  * `get-session` calls off this table.
  *
- * Paired migration: `migrations/20260712200000_better_auth_core.sql`.
+ * Paired migrations: `migrations/20260712200000_better_auth_core.sql` (core
+ * columns), `migrations/20260712210000_admin_plugin.sql` (`impersonated_by`,
+ * written by the `admin` plugin's impersonation feature — Phase 2).
  */
 export const session = sqliteTable(
   "session",
@@ -62,6 +66,7 @@ export const session = sqliteTable(
     userAgent: text("user_agent"),
     createdAt: timestampCol("created_at"),
     updatedAt: timestampCol("updated_at"),
+    impersonatedBy: text("impersonated_by"),
   },
   (t) => [index("idx_session_user_id").on(t.userId)],
 );

@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { createAuth, type AuthEnv } from "./auth";
+import { internal } from "./internal-routes";
+import { isInternalRequest } from "./internal";
 import { isTrustedOrigin } from "./trusted-origins";
 
 // Credentialed CORS for the web origin (+ dev origins), scoped to /api/auth/*
@@ -15,6 +17,15 @@ const authCors = cors({
 
 export const app = new Hono<{ Bindings: AuthEnv }>()
   .get("/health", (c) => c.json({ ok: true }))
+  // Service-binding-only API (D1/D9): 404 rather than 403 for non-internal
+  // callers so the route's existence isn't leaked to public probing.
+  .use("/internal/*", async (c, next) => {
+    if (!isInternalRequest(c.req.raw)) {
+      return c.json({ error: { code: "not_found", message: "Not found" } }, 404);
+    }
+    await next();
+  })
+  .route("/internal", internal)
   .use("/api/auth/*", authCors)
   .on(["POST", "GET"], "/api/auth/*", async (c) => {
     const auth = await createAuth(c.env);
