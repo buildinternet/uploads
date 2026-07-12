@@ -1,0 +1,86 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "uploads-auth",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "preview_urls": true,
+  "vars": {
+    // Better Auth's own baseURL — also this worker's public origin.
+    "BETTER_AUTH_URL": "https://auth.uploads.sh",
+    // Web app origin; credentialed CORS on /api/auth/* and the magic-link
+    // email template both derive from this.
+    "WEB_ORIGIN": "https://uploads.sh",
+    "ENVIRONMENT": "production",
+  },
+  "routes": [
+    {
+      "pattern": "auth.uploads.sh",
+      "custom_domain": true,
+    },
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+  },
+  // Dedicated D1 database (see docs/superpowers/plans/2026-07-12-better-auth-introduction.md,
+  // decision D1) — auth tables never live in uploads-production. Database
+  // created 2026-07-12 (region ENAM); migrations in ./migrations.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "uploads-auth",
+      "database_id": "24eb8b7f-5dff-46bc-a1a5-fa436810805d",
+      "migrations_dir": "migrations",
+    },
+  ],
+  // Cloudflare Secrets Store, prefixed UPL_ (mirrors room-configurator's RS_
+  // convention — see D7). store_id below is the "releases" store, the only
+  // Secrets Store that already exists on the Build Internet account
+  // (confirmed via `wrangler secrets-store store list --remote`); it's
+  // shared across buildinternet-org repos the same way KV/D1 IDs are noted
+  // inline elsewhere in this repo. Wrangler FAILS a deploy when a declared
+  // secrets_store_secrets entry doesn't exist in the store yet — these three
+  // (UPL_BETTER_AUTH_SECRET, UPL_GITHUB_CLIENT_ID, UPL_GITHUB_CLIENT_SECRET)
+  // are Phase 0 human follow-ups (see plan). Until populated, the worker
+  // boots gated/inert: GitHub stays omitted from socialProviders (D3) and
+  // /api/auth/* answers 503 (see src/secrets.ts) rather than booting on an
+  // ephemeral signing secret.
+  "secrets_store_secrets": [
+    {
+      "binding": "UPL_BETTER_AUTH_SECRET",
+      "store_id": "a887a71cab084105b79706df23380723",
+      "secret_name": "UPL_BETTER_AUTH_SECRET",
+    },
+    {
+      "binding": "UPL_GITHUB_CLIENT_ID",
+      "store_id": "a887a71cab084105b79706df23380723",
+      "secret_name": "UPL_GITHUB_CLIENT_ID",
+    },
+    {
+      "binding": "UPL_GITHUB_CLIENT_SECRET",
+      "store_id": "a887a71cab084105b79706df23380723",
+      "secret_name": "UPL_GITHUB_CLIENT_SECRET",
+    },
+  ],
+  // Magic-link delivery. uploads.sh is onboarded for Cloudflare Email Sending;
+  // all auth mail comes from noreply@uploads.sh (D7).
+  "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["noreply@uploads.sh"] }],
+  // Better Auth's own database-backed rate limiter (storage: "database" in
+  // src/auth.ts) covers /api/auth/* abuse; this namespace is reserved for a
+  // future edge-level limiter in front of it, following apps/api's and
+  // apps/mcp's per-worker namespace_id convention (1001/1002 taken there).
+  "unsafe": {
+    "bindings": [
+      {
+        "name": "AUTH_RATE_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1003",
+        "simple": {
+          "limit": 60,
+          "period": 60,
+        },
+      },
+    ],
+  },
+}
