@@ -53,10 +53,13 @@ propagate within ~a minute).
   ```bash
   npm install --global @buildinternet/uploads
   npx @buildinternet/uploads --help
+  uploads --version
   ```
   Every example in this skill uses the **global** `uploads …` binary (as after
   install). Inside the uploads monorepo only, `pnpm uploads …` builds from
   local source first — do not write product/PR examples that way.
+  Prefer `--json` or `--quiet` for scripted steps (keeps stderr clean and skips
+  optional update-available hints).
 - **A configured token** (one-time — see below). Check with `uploads doctor`.
 - **`gh` CLI, authenticated** — only for the `--comment` / `comment` features that
   write to a PR/issue. Plain uploads don't need it.
@@ -95,7 +98,8 @@ default (up to 24 hours) and can be redeemed once. The resulting token defaults 
 
 ```bash
 uploads setup                                  # shows effective configuration
-uploads doctor                                 # health + auth + workspace checks
+uploads doctor                                 # version + health + auth + workspace
+uploads doctor --json
 ```
 
 Tokens encode their workspace (`up_<workspace>_…`), so the CLI infers `--workspace`
@@ -273,12 +277,17 @@ uploads usage                              # storage / monthly upload counters (
 uploads reconcile                          # rebuild ledger from storage
 uploads purge-expired                      # delete past retentionDays (if set)
 uploads health                             # API liveness (no auth)
-uploads doctor                             # health + auth + workspace + usage
+uploads doctor                             # version + health + auth + workspace + usage
+uploads --version
 ```
 
-`doctor` is the first thing to run when something's off — it distinguishes a down
-API, a bad/missing token, a workspace/token mismatch, and a local-vs-prod URL
-mismatch, and prints targeted hints.
+`doctor` is the first thing to run when something's off — it reports the installed
+CLI version, distinguishes a down API / bad token / workspace mismatch /
+local-vs-prod URL, and prints targeted hints.
+
+**Destructive preview:** `delete` supports `--dry-run`. `purge-expired` does not
+yet ([#78](https://github.com/buildinternet/uploads/issues/78)); preview via
+`list` / `usage` and retention settings.
 
 ## Config commands
 
@@ -318,6 +327,9 @@ uploads --api-url http://localhost:8787 doctor
   in storage changes immediately.
 - **Exit codes** (useful in scripts): `2` usage/missing-token, `3` unauthorized or
   not-found, `4` network, `1` other. `--json` also emits `{error,code,status}`.
+  Usage errors print `hint: uploads <cmd> --help` (not the full root manual).
+- **Update hints (stderr):** successful human runs may note a newer npm release
+  (daily). Silence with `--quiet` / `--json` / `UPLOADS_NO_UPDATE=1`.
 - **MCP server:** the CLI can also be exposed to agents as a local stdio MCP server —
   `uploads mcp` (including gallery_create, gallery_get, gallery_add, gallery_link, and gallery_find_by_reference) — with tools mirroring the commands described here (`put`, `attach`,
   `list`, `delete`, `usage`, `reconcile`, `purge_expired`, `comment`, `health`,

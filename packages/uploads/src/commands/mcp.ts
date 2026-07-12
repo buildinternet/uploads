@@ -1,8 +1,8 @@
-import { createRequire } from "node:module";
 import { parseCommandArgs, type GlobalFlags } from "../cli-args.js";
 import { createMcpServer } from "../mcp/server.js";
 import { serveStdio } from "../mcp/stdio.js";
 import { createUploadsMcpTools } from "../mcp/tools.js";
+import { packageVersion } from "../package-version.js";
 
 const MCP_HELP = `uploads [globals] mcp
 
@@ -24,10 +24,6 @@ Examples:
   uploads --token up_default_… mcp
 `;
 
-// Same relative depth from src/commands/ and dist/commands/, so this works
-// both under vitest (src) and at runtime (dist).
-const { version } = createRequire(import.meta.url)("../../package.json") as { version: string };
-
 export async function runMcp(
   args: string[],
   opts: { globals: GlobalFlags },
@@ -38,7 +34,7 @@ export async function runMcp(
     return 0;
   }
   const server = createMcpServer({
-    serverInfo: { name: "uploads", version },
+    serverInfo: { name: "uploads", version: packageVersion() },
     tools: createUploadsMcpTools({ globals: opts.globals }),
   });
   await serveStdio(server);

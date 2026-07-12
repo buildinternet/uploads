@@ -42,6 +42,7 @@ import {
 } from "./optimize.js";
 import { applyFrame, resolveFrameId, type FrameResult } from "./frame.js";
 import { buildCliProvenance } from "./provenance.js";
+import { packageVersion } from "./package-version.js";
 import type { PutDefaults } from "./config-file.js";
 
 export interface CliContext {
@@ -839,8 +840,13 @@ export async function runList(
 
 const DELETE_HELP = `uploads delete <key> [--dry-run] [--workspace <name>]
 
+Options:
+  --dry-run             Preview without deleting
+  --workspace, -w <name>
+
 Examples:
   uploads delete screenshots/myapp/42/shot-a1b2c3.png
+  uploads delete screenshots/myapp/42/shot-a1b2c3.png --dry-run
 `;
 
 export async function runDelete(ctx: CliContext, args: string[], help = false): Promise<number> {
@@ -1036,10 +1042,13 @@ Checks API health, token auth, and workspace/token alignment.
 Examples:
   uploads --env-file .env doctor
   uploads --workspace acme --env-file .env doctor
+  uploads doctor --json
 `;
 
 export interface DoctorReport {
   ok: boolean;
+  /** Installed @buildinternet/uploads package version. */
+  cliVersion: string;
   apiUrl: string;
   workspace: string;
   workspaceSource: ResolvedConfig["workspaceSource"];
@@ -1120,6 +1129,7 @@ export async function buildDoctorReport(
 
   return {
     ok: health.ok && authOk,
+    cliVersion: packageVersion(),
     apiUrl: config.apiUrl,
     workspace: config.workspace,
     workspaceSource: config.workspaceSource,
@@ -1148,6 +1158,7 @@ export async function runDoctor(ctx: CliContext, args: string[], help = false): 
   }
 
   const lines = [
+    `cli:       @buildinternet/uploads@${report.cliVersion}`,
     `config:    ${report.configPath}${report.configExists ? "" : " (missing)"}`,
     `api:       ${report.apiUrl} (${report.health.ok ? "ok" : "failed"})`,
     `workspace: ${report.workspace}`,

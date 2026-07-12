@@ -5,6 +5,8 @@ export interface GlobalFlags {
   envFile?: string;
   json?: boolean;
   quiet?: boolean;
+  /** `--version` / `-V` — print package version and exit. */
+  version?: boolean;
 }
 
 export interface ParsedArgv {
@@ -46,6 +48,11 @@ export function parseArgv(argv: string[]): ParsedArgv {
     }
     if (arg === "--quiet") {
       globals.quiet = true;
+      i++;
+      continue;
+    }
+    if (arg === "--version" || arg === "-V") {
+      globals.version = true;
       i++;
       continue;
     }
