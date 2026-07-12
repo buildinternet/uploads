@@ -41,6 +41,19 @@ export const ERROR_CODES = [
   // Auth / enrollment
   "invalid_enrollment",
 
+  // Galleries
+  "gallery_not_found",
+  "gallery_item_not_found",
+  "gallery_version_conflict",
+  "gallery_limit_reached",
+  "gallery_invalid_field",
+  "gallery_invalid_cursor",
+  "gallery_object_not_found",
+  "gallery_object_not_public",
+  "gallery_storage_unavailable",
+  "gallery_reference_not_found",
+  "gallery_invalid_reference",
+
   // Admin
   "invalid_workspace",
   "workspace_not_found",

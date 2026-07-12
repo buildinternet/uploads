@@ -1,7 +1,6 @@
 /**
- * Thin Worker in front of static assets. Only runs for agent-skills discovery
- * (see wrangler.jsonc `assets.run_worker_first`) so skill content can track
- * GitHub `main` without a web redeploy.
+ * Live agent-skills discovery handler, mounted by the Astro endpoint so skill
+ * content can track GitHub `main` without a web redeploy.
  *
  * Index lives on uploads.sh; each skill `url` is an absolute raw.githubusercontent.com
  * link (Agent Skills Discovery RFC). Digest is sha256 of the bytes fetched from
@@ -112,53 +111,51 @@ const INDEX_HEADERS = {
   "Access-Control-Allow-Origin": "*",
 } as const;
 
-export default {
-  async fetch(request: Request): Promise<Response> {
-    // Only registered for /.well-known/agent-skills/index.json via run_worker_first.
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-          "Access-Control-Max-Age": "86400",
-        },
-      });
-    }
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      return new Response("Method Not Allowed", {
-        status: 405,
-        headers: { Allow: "GET, HEAD, OPTIONS" },
-      });
-    }
+export async function handleAgentSkillsIndex(request: Request): Promise<Response> {
+  // Mounted only at /.well-known/agent-skills/index.json by the Astro route.
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+        "Access-Control-Max-Age": "86400",
+      },
+    });
+  }
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return new Response("Method Not Allowed", {
+      status: 405,
+      headers: { Allow: "GET, HEAD, OPTIONS" },
+    });
+  }
 
-    try {
-      const index = await buildIndex();
-      const body = `${JSON.stringify(index, null, 2)}\n`;
-      if (request.method === "HEAD") {
-        return new Response(null, {
-          status: 200,
-          headers: {
-            ...INDEX_HEADERS,
-            "Content-Length": String(new TextEncoder().encode(body).byteLength),
-          },
-        });
-      }
-      return new Response(body, { status: 200, headers: INDEX_HEADERS });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error(JSON.stringify({ event: "agent_skills_index_failed", message }));
-      return new Response(
-        `${JSON.stringify({ error: "agent_skills_index_unavailable", message }, null, 2)}\n`,
-        {
-          status: 502,
-          headers: {
-            "Content-Type": "application/json; charset=utf-8",
-            "Cache-Control": "no-store",
-            "Access-Control-Allow-Origin": "*",
-          },
+  try {
+    const index = await buildIndex();
+    const body = `${JSON.stringify(index, null, 2)}\n`;
+    if (request.method === "HEAD") {
+      return new Response(null, {
+        status: 200,
+        headers: {
+          ...INDEX_HEADERS,
+          "Content-Length": String(new TextEncoder().encode(body).byteLength),
         },
-      );
+      });
     }
-  },
-};
+    return new Response(body, { status: 200, headers: INDEX_HEADERS });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(JSON.stringify({ event: "agent_skills_index_failed", message }));
+    return new Response(
+      `${JSON.stringify({ error: "agent_skills_index_unavailable" }, null, 2)}\n`,
+      {
+        status: 502,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+          "Access-Control-Allow-Origin": "*",
+        },
+      },
+    );
+  }
+}
