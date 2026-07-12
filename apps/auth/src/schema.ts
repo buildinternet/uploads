@@ -207,6 +207,43 @@ export const invitation = sqliteTable(
   (t) => [index("idx_invitation_organization_id").on(t.organizationId)],
 );
 
+/**
+ * Device-authorization (RFC 8628) pending requests (plan D5/Phase 4): the
+ * `deviceAuthorization` plugin's store backing `uploads login`. The field set
+ * is mandated by the plugin (see its `schema.mjs`) — note there are NO
+ * created/updated timestamps. `expires_at`/`last_polled_at` use drizzle's
+ * `mode: "timestamp"` (stored as integer epoch *seconds*, not ms): the plugin
+ * writes/reads `Date` objects the adapter serializes, so the round-trip is
+ * second-precision — deliberately not this file's non-null `timestampCol`
+ * helper, since both may be null/absent. Like `rate_limit`, the SQL table name
+ * is snake_case but the drizzle-adapter schema KEY must stay the camelCase
+ * model name `deviceCode`.
+ *
+ * Paired migration: `migrations/20260712230000_device_code.sql`.
+ */
+export const deviceCode = sqliteTable(
+  "device_code",
+  {
+    id: text("id").primaryKey(),
+    deviceCode: text("device_code").notNull(),
+    userCode: text("user_code").notNull(),
+    // null until a signed-in session claims/approves the request (see the
+    // /device page on apps/web and the plugin's device/approve endpoint).
+    userId: text("user_id"),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    // pending | approved | denied
+    status: text("status").notNull(),
+    lastPolledAt: integer("last_polled_at", { mode: "timestamp" }),
+    pollingInterval: integer("polling_interval"),
+    clientId: text("client_id"),
+    scope: text("scope"),
+  },
+  (t) => [
+    index("idx_device_code_device_code").on(t.deviceCode),
+    index("idx_device_code_user_code").on(t.userCode),
+  ],
+);
+
 export type AuthUser = typeof user.$inferSelect;
 export type AuthSession = typeof session.$inferSelect;
 export type AuthAccount = typeof account.$inferSelect;
@@ -215,3 +252,4 @@ export type AuthRateLimit = typeof rateLimit.$inferSelect;
 export type AuthOrganization = typeof organization.$inferSelect;
 export type AuthMember = typeof member.$inferSelect;
 export type AuthInvitation = typeof invitation.$inferSelect;
+export type AuthDeviceCode = typeof deviceCode.$inferSelect;

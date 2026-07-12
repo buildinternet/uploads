@@ -8,7 +8,7 @@
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { betterAuth } from "better-auth";
 import { drizzle } from "drizzle-orm/d1";
-import { admin, magicLink, organization } from "better-auth/plugins";
+import { admin, bearer, deviceAuthorization, magicLink, organization } from "better-auth/plugins";
 import { sendAuthEmail } from "./email";
 import * as schema from "./schema";
 import { authTrustedOrigins, isTrustedOrigin } from "./trusted-origins";
@@ -17,6 +17,16 @@ import {
   resolveSigningSecret,
   type GitHubCredentialsEnv,
 } from "./secrets";
+
+/**
+ * Static OAuth client id for the CLI's device flow (plan D5/Phase 4). The
+ * `deviceAuthorization` plugin accepts ANY `client_id` unless `validateClient`
+ * is supplied, so this is the sole allowlisted id — the CLI
+ * (`@buildinternet/uploads`) sends the same literal when starting a device
+ * flow. The full `oauthProvider` plugin (dynamic third-party clients) is out
+ * of scope for v1 (D3); when it lands, this stays the CLI's reserved id.
+ */
+export const UPLOADS_CLI_CLIENT_ID = "uploads-cli";
 
 export type AuthEnv = GitHubCredentialsEnv & {
   DB: D1Database;
@@ -68,6 +78,7 @@ function buildAuth(
 ) {
   const db = drizzle(env.DB, { schema });
   const betterAuthUrl = env.BETTER_AUTH_URL || "https://auth.uploads.sh";
+  const webOrigin = env.WEB_ORIGIN || "https://uploads.sh";
   const cookieDomain = deriveCookieDomain(betterAuthUrl);
   const isProduction = env.ENVIRONMENT === "production";
 
@@ -104,7 +115,6 @@ function buildAuth(
       organization({
         membershipLimit: 100,
         sendInvitationEmail: async ({ id, email, organization: org, inviter }) => {
-          const webOrigin = env.WEB_ORIGIN || "https://uploads.sh";
           const url = `${webOrigin}/accept-invitation/${id}`;
           await sendAuthEmail(env, {
             to: email,
@@ -116,6 +126,36 @@ function buildAuth(
             },
           });
         },
+      }),
+      // D5/Phase 4: bearer() lets the CLI present the device-flow session token
+      // as `Authorization: Bearer <token>` so apps/api's session verification
+      // (GET /api/auth/get-session over the AUTH binding) honors it instead of
+      // only the cookie. It MUST ride alongside deviceAuthorization(): the
+      // device/token endpoint returns that session token, and POST /v1/tokens
+      // then presents it as a bearer to mint the workspace token.
+      bearer(),
+      // D5/Phase 4: RFC 8628 device flow for `uploads login`.
+      //
+      // verificationUri MUST be an ABSOLUTE URL on the WEB origin — the /device
+      // approval page is served by apps/web (uploads.sh), not this worker
+      // (auth.uploads.sh). The plugin only prefixes baseURL when the value is
+      // relative, so a bare "/device" would resolve to
+      // https://auth.uploads.sh/device and 404. The session cookie is
+      // `.uploads.sh`-scoped (crossSubDomainCookies below) so it rides across
+      // the two subdomains.
+      //
+      // validateClient is a fail-closed allowlist: only the static CLI client
+      // id may start a device flow or exchange a code. Without it the plugin
+      // accepts ANY client_id — an unknown id could never obtain a token
+      // (approval is interactive) but the allowlist is defense in depth.
+      //
+      // No `schema: {}` workaround needed: better-auth 1.6.23 declares the
+      // plugin's `schema` option as `.optional()`, which zod 4.4.3 accepts when
+      // omitted (verified — the releases repo's workaround targeted an older
+      // build whose `schema` field lacked `.optional()`).
+      deviceAuthorization({
+        verificationUri: `${webOrigin}/device`,
+        validateClient: (clientId) => clientId === UPLOADS_CLI_CLIENT_ID,
       }),
     ],
     session: {

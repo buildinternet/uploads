@@ -130,6 +130,71 @@ export async function getInvitation(origin: string, id: string): Promise<Invitat
   }
 }
 
+/**
+ * Phase 4 (plan D5/D6): device-authorization (RFC 8628) wrappers for the
+ * `/device` approval page — the browser half of `uploads login`. The CLI
+ * speaks the `/device/code` + `/device/token` endpoints directly; this page
+ * only needs to look up, approve, or deny a user code.
+ */
+export type DeviceStatus = "pending" | "approved" | "denied";
+export type DeviceLookup = { ok: true; status: DeviceStatus } | { ok: false; code?: string };
+
+/**
+ * GET /api/auth/device?user_code=. Verifies the code and — when a session is
+ * present and the code is still pending+unclaimed — CLAIMS it (binds it to the
+ * signed-in user), which is what makes a subsequent approve succeed. Returns
+ * `{ ok: false, code }` for an invalid/expired code, mirroring the other
+ * helpers' never-throw contract.
+ */
+export async function getDeviceStatus(origin: string, userCode: string): Promise<DeviceLookup> {
+  try {
+    const res = await fetch(
+      `${authOrigin(origin)}/api/auth/device?user_code=${encodeURIComponent(userCode)}`,
+      { credentials: "include", cache: "no-store" },
+    );
+    const body = (await res.json().catch(() => null)) as {
+      status?: DeviceStatus;
+      error?: string;
+    } | null;
+    if (!res.ok) return { ok: false, code: body?.error };
+    const status = body?.status;
+    if (status !== "pending" && status !== "approved" && status !== "denied") return { ok: false };
+    return { ok: true, status };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** POST /api/auth/device/approve — grants the CLI a session. Requires a session. */
+export async function approveDevice(origin: string, userCode: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/device/approve`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userCode }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** POST /api/auth/device/deny — rejects the pending request. Requires a session. */
+export async function denyDevice(origin: string, userCode: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/device/deny`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userCode }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export type AcceptInvitationResult = { ok: true } | { ok: false; status: number; code?: string };
 
 /**
