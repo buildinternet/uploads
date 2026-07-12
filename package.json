@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "bootstrap": "bash scripts/bootstrap.sh",
+    "doctor": "bash scripts/doctor.sh",
     "dev": "pnpm run dev:api",
     "dev:api": "pnpm --filter @uploads/api dev",
     "dev:web": "pnpm --filter @uploads/web dev",

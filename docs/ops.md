@@ -70,6 +70,42 @@ restrictive CSP, and disabled browser permissions. The code lives only in the UR
 fragment—never the query string—so it stays out of server logs and referrers, and the
 page reads it client-side without sending it anywhere.
 
+## Local Wrangler gotchas
+
+`wrangler … --local` starts miniflare against `apps/api/.wrangler/state`. That is
+fine for short interactive use, but:
+
+1. **Agent timeouts orphan the process.** If a coding agent kills only the shell
+   wrapper, the Node/wrangler child reparents to PID 1 and can keep running.
+2. **Hangs can balloon RAM.** A stuck `wrangler kv key get … --local` has been
+   observed past **10–17 GB** while spinning in exception/stack formatting.
+3. **Existence checks do not need wrangler.** Local REGISTRY keys live in
+   miniflare SQLite under
+   `apps/api/.wrangler/state/v3/kv/miniflare-KVNamespaceObject/*.sqlite`
+   (`_mf_entries.key`). `pnpm doctor` / `pnpm bootstrap` use
+   `scripts/lib-local.sh` to read that first, with a **~20s timed** wrangler
+   fallback only when `sqlite3` is missing.
+
+**Do this instead of bare ad-hoc checks:**
+
+```bash
+pnpm doctor                    # “is default registered?”
+# or, if you must call wrangler:
+timeout 20s pnpm --filter @uploads/api exec wrangler kv key get ws:default \
+  --binding REGISTRY --local
+```
+
+**If memory creeps again**, look for orphans first:
+
+```bash
+pgrep -fl 'wrangler.*(kv|d1).*--local'
+# confirm PID, then:
+kill <pid>          # escalate to kill -9 only if needed
+```
+
+Avoid concurrent `wrangler --local` against the same state while one is hung —
+SQLite WAL/SHM files under `.wrangler/state` are what miniflare locks.
+
 ## Secrets
 
 | Secret                           | Purpose                                                               |

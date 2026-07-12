@@ -31,8 +31,10 @@ in `createStorage` plus its files-sdk peer deps.
 ## Commands
 
 ```bash
+pnpm bootstrap           # one-command local setup (tooling, deps, env, types, D1, default workspace)
+pnpm doctor              # read-only diagnose of the local setup
 pnpm install
-pnpm dev                 # API on :8787 (local R2 + KV simulation)
+pnpm dev                 # API on :8787 (local R2 + KV + D1 simulation)
 pnpm dev:web             # Astro site
 pnpm typecheck           # wrangler types + tsc across workspaces
 pnpm run deploy          # all workers; or deploy:api / deploy:web / deploy:mcp
@@ -41,6 +43,7 @@ pnpm workspace:add <name> [--bucket <bucket>] [--binding X] [--local] \
 pnpm workspace:limits <name> [--max-storage …] [--max-video-bytes …] \
   [--allowed-prefixes default|f,screenshots,gh] [--max-key-depth 8] \
   [--clear-max-storage] [--clear-allowed-prefixes] […]
+pnpm --filter @uploads/api run migrate:d1:local   # apply apps/api/migrations to local D1
 pnpm uploads put <file> --env-file .env   # monorepo only: builds package first
 pnpm uploads put <file> --pr <num> --comment
 ```
@@ -66,6 +69,23 @@ worker deploys normally happen via Workers Builds on push to main.
 
 Operator runbook: [docs/ops.md](docs/ops.md). Daily retention cron on the API
 worker; BYO secrets use `WORKSPACE_SECRETS_KEY`; bare upload keys get `f/<id>/…`.
+
+### Local Wrangler / agent hygiene
+
+`wrangler … --local` boots miniflare and can **orphan + balloon RAM** (multi‑GB)
+if the parent shell/agent dies mid-command or the process hangs in an error
+path. Prefer:
+
+- **`pnpm doctor` / `pnpm bootstrap`** for “is local `default` registered?” —
+  they check miniflare’s on-disk SQLite first and only fall back to a
+  **time-bounded** wrangler call (`scripts/lib-local.sh`).
+- When you must run wrangler yourself, wrap it:  
+  `timeout 20s pnpm --filter @uploads/api exec wrangler kv key get ws:default --binding REGISTRY --local`
+- Never leave bare `wrangler kv|d1 … --local` running in the background. If an
+  agent times out a command, **kill the process group** (`pkill -f 'wrangler.*--local'`
+  only after confirming PIDs), not just the shell wrapper.
+
+See [docs/ops.md](docs/ops.md#local-wrangler-gotchas).
 
 ### Releasing `@buildinternet/uploads` (changesets)
 
