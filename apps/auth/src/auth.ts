@@ -85,6 +85,9 @@ function buildAuth(
       provider: "sqlite",
       schema,
     }),
+    // Fetch related rows in one query (session→user, org→members, …). Requires
+    // drizzle `relations()` on the schema object — see schema.ts.
+    experimental: { joins: true },
     // D3: gate GitHub on both id+secret resolving; adding a provider later is
     // just another resolved secret pair, no code change here.
     socialProviders: github ? { github } : {},
