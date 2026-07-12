@@ -31,8 +31,8 @@
  * Env fallbacks apply ONLY in BYO mode — shared-mode records never inherit
  * BYO-bucket credentials from the environment.
  */
-import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
+import { wranglerKvKey } from "./run-timed.mjs";
 import { sharedAgentLimitFields } from "./workspace-limit-defaults.mjs";
 
 /** Match apps/api/src/secrets.ts: enc:v1: + base64url(iv || ct || tag). */
@@ -231,22 +231,14 @@ const appliedLimits = {
   maxKeyDepth: record.maxKeyDepth,
 };
 
-execFileSync(
-  "pnpm",
-  [
-    "exec",
-    "wrangler",
-    "kv",
-    "key",
-    "put",
-    `ws:${name}`,
-    JSON.stringify(record),
-    "--binding",
-    "REGISTRY",
-    opts.local ? "--local" : "--remote",
-  ],
-  { stdio: "inherit" },
-);
+// Bound wall-clock: local miniflare can hang/orphan multi-GB after agent timeouts.
+wranglerKvKey({
+  op: "put",
+  key: `ws:${name}`,
+  value: JSON.stringify(record),
+  local: opts.local,
+  stdio: "inherit",
+});
 
 console.log(`\nworkspace : ${name}${opts.local ? " (local)" : ""}`);
 console.log(`token     : ${token}`);

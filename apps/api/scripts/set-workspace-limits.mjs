@@ -26,7 +26,7 @@
  * Show current limits only:
  *   node scripts/set-workspace-limits.mjs <name> [--local]
  */
-import { execFileSync } from "node:child_process";
+import { wranglerKvKey } from "./run-timed.mjs";
 
 const [name, ...rest] = process.argv.slice(2);
 const opts = { local: false };
@@ -136,27 +136,27 @@ function parseAllowedPrefixes(raw, label) {
 }
 
 function wranglerKv(args) {
-  return execFileSync(
-    "pnpm",
-    [
-      "exec",
-      "wrangler",
-      "kv",
-      "key",
-      ...args,
-      "--binding",
-      "REGISTRY",
-      opts.local ? "--local" : "--remote",
-    ],
-    { encoding: "utf8" },
-  );
+  const [op, key, value] = args;
+  return wranglerKvKey({
+    op,
+    key,
+    value,
+    local: opts.local,
+  });
 }
 
 const key = `ws:${name}`;
 let raw;
 try {
   raw = wranglerKv(["get", key]);
-} catch {
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes("timed out")) {
+    fail(
+      `wrangler kv get timed out for ${key} (${opts.local ? "local" : "remote"}) — ` +
+        `kill orphaned wrangler if memory is climbing (see docs/ops.md#local-wrangler-gotchas)`,
+    );
+  }
   fail(`workspace not found in REGISTRY: ${key} (${opts.local ? "local" : "remote"})`);
 }
 

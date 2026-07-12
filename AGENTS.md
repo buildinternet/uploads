@@ -79,6 +79,9 @@ path. Prefer:
 - **`pnpm doctor` / `pnpm bootstrap`** for “is local `default` registered?” —
   they check miniflare’s on-disk SQLite first and only fall back to a
   **time-bounded** wrangler call (`scripts/lib-local.sh`).
+- **`pnpm workspace:add` / `workspace:limits` / `migrate:d1:local`** go through
+  `apps/api/scripts/run-timed.mjs` (local get/put ~30–60s, D1 migrate 60s).
+  Do not reimplement bare `execFileSync(wrangler … --local)`.
 - When you must run wrangler yourself, wrap it:  
   `timeout 20s pnpm --filter @uploads/api exec wrangler kv key get ws:default --binding REGISTRY --local`
 - Never leave bare `wrangler kv|d1 … --local` running in the background. If an
