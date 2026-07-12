@@ -5,6 +5,12 @@
   "compatibility_date": "2026-07-06",
   "compatibility_flags": ["nodejs_compat"],
   "preview_urls": true,
+  // Pinned so the dev GitHub OAuth app's redirect URI
+  // (http://127.0.0.1:8788/api/auth/callback/github) stays deterministic —
+  // 8787 is taken by apps/api locally. GitHub loosely validates the port for
+  // loopback redirect URLs, but a stable origin keeps BETTER_AUTH_URL and
+  // cookies consistent.
+  "dev": { "port": 8788 },
   "vars": {
     // Better Auth's own baseURL — also this worker's public origin.
     "BETTER_AUTH_URL": "https://auth.uploads.sh",
