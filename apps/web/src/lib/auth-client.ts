@@ -132,18 +132,27 @@ export async function getInvitation(origin: string, id: string): Promise<Invitat
 
 export type AcceptInvitationResult = { ok: true } | { ok: false; status: number; code?: string };
 
-/** POST /api/auth/organization/accept-invitation. Requires a valid session. */
+/**
+ * POST /api/auth/organization/accept-invitation. Requires a valid session.
+ * Returns `{ ok: false, status: 0 }` on a thrown fetch (network error, CSP
+ * block, etc.) rather than throwing — matching getSession/getInvitation's
+ * defensiveness so a caller can always branch on the result.
+ */
 export async function acceptInvitation(
   origin: string,
   id: string,
 ): Promise<AcceptInvitationResult> {
-  const res = await fetch(`${authOrigin(origin)}/api/auth/organization/accept-invitation`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ invitationId: id }),
-  });
-  if (res.ok) return { ok: true };
-  const body = (await res.json().catch(() => null)) as { error?: { code?: string } } | null;
-  return { ok: false, status: res.status, code: body?.error?.code };
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/organization/accept-invitation`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ invitationId: id }),
+    });
+    if (res.ok) return { ok: true };
+    const body = (await res.json().catch(() => null)) as { error?: { code?: string } } | null;
+    return { ok: false, status: res.status, code: body?.error?.code };
+  } catch {
+    return { ok: false, status: 0 };
+  }
 }

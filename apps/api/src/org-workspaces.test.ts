@@ -35,10 +35,9 @@ describe("orgForWorkspace", () => {
     expect(result).toBeNull();
   });
 
-  it("returns null on a non-2xx, non-404 response rather than throwing", async () => {
+  it("throws on a non-2xx, non-404 response instead of masquerading as org_not_found", async () => {
     const auth = stubAuth(() => new Response(null, { status: 500 }));
-    const result = await orgForWorkspace(envWith(auth), "acme");
-    expect(result).toBeNull();
+    await expect(orgForWorkspace(envWith(auth), "acme")).rejects.toThrow();
   });
 
   it("URL-encodes the workspace name", async () => {

@@ -16,6 +16,8 @@
  * database, by design, see plan D1's "ownership boundary").
  */
 
+import { ServiceUnavailableError } from "@uploads/errors";
+
 export interface OrgSummary {
   id: string;
   slug: string;
@@ -40,7 +42,15 @@ export async function orgForWorkspace(env: Env, workspaceName: string): Promise<
     { headers: internalHeaders() },
   );
   if (response.status === 404) return null;
-  if (!response.ok) return null;
+  if (!response.ok) {
+    // Any other non-ok status is an outage/bug in the auth worker, not "no
+    // org for this workspace" — throw so it surfaces as a 5xx via the API's
+    // error middleware instead of silently masquerading as org_not_found.
+    throw new ServiceUnavailableError("auth service returned an unexpected status", {
+      code: "auth_lookup_failed",
+      details: { status: response.status },
+    });
+  }
   const body = (await response.json().catch(() => null)) as { organization?: OrgSummary } | null;
   return body?.organization ?? null;
 }

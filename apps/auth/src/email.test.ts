@@ -51,6 +51,29 @@ describe("sendAuthEmail", () => {
     expect(args.text).toContain("https://auth.uploads.sh/x");
   });
 
+  it("HTML-escapes organization name and inviter email in the invitation template", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const EMAIL: EmailBinding = { send };
+    await sendAuthEmail(
+      { EMAIL, ENVIRONMENT: "production" },
+      {
+        to: "a@example.com",
+        template: "invitation",
+        context: {
+          url: "https://auth.uploads.sh/accept",
+          organizationName: `<img src=x onerror=alert(1)>`,
+          inviterEmail: `"><script>alert(2)</script>`,
+        },
+      },
+    );
+    expect(send).toHaveBeenCalledTimes(1);
+    const args = send.mock.calls[0]?.[0];
+    expect(args.html).not.toContain("<img src=x onerror=alert(1)>");
+    expect(args.html).not.toContain("<script>alert(2)</script>");
+    expect(args.html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+    expect(args.html).toContain("&lt;script&gt;alert(2)&lt;/script&gt;");
+  });
+
   it("never throws when the send fails", async () => {
     const send = vi.fn().mockRejectedValue(new Error("boom"));
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});

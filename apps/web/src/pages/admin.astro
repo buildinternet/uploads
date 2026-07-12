@@ -71,7 +71,7 @@ const FAVICON =
     .invite-form button:hover,.invite-form button:focus-visible{border-color:var(--accent);outline:none}
     .invite-status{font-size:.8rem;margin-top:4px}
     .invite-status[data-state=error]{color:var(--red)}
-    .invite-status[data-state=ready]{color:var(--green)}
+    .invite-status[data-state=ready]{color:var(--accent)}
     [hidden]{display:none!important}
   </style>
 </head>
@@ -195,11 +195,11 @@ const FAVICON =
     let loaded = false;
     details.addEventListener("toggle", async () => {
       if (!details.open || loaded) return;
-      loaded = true;
       const membersEl = details.querySelector<HTMLElement>(".members");
       const invitesEl = details.querySelector<HTMLElement>(".invites");
       if (!ws.organization) {
         if (membersEl) membersEl.textContent = "";
+        loaded = true;
         return;
       }
       try {
@@ -217,6 +217,10 @@ const FAVICON =
             ? `<ul>${invites.map((i) => `<li><span>${escapeHtml(i.email)}</span><span class="role">pending</span></li>`).join("")}</ul>`
             : "";
         }
+        // Only mark as loaded once the fetch actually succeeded — a failure
+        // leaves `loaded` false so re-toggling the <details> retries instead
+        // of permanently showing "Failed to load members."
+        loaded = true;
       } catch {
         if (membersEl) membersEl.textContent = "Failed to load members.";
       }
@@ -240,7 +244,12 @@ const FAVICON =
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, role }),
         });
-        if (!res.ok) throw new Error(`invite failed: ${res.status}`);
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => null)) as
+            | { error?: { message?: string } }
+            | null;
+          throw new Error(payload?.error?.message || `invite failed: ${res.status}`);
+        }
         if (statusEl) {
           statusEl.dataset.state = "ready";
           statusEl.textContent = `Invited ${email}.`;
@@ -250,10 +259,11 @@ const FAVICON =
         loaded = false;
         details.open = false;
         details.open = true;
-      } catch {
+      } catch (err) {
         if (statusEl) {
           statusEl.dataset.state = "error";
-          statusEl.textContent = "Couldn't send the invite.";
+          statusEl.textContent =
+            err instanceof Error && err.message ? err.message : "Couldn't send the invite.";
           statusEl.hidden = false;
         }
       } finally {

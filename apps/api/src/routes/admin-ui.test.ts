@@ -168,6 +168,23 @@ describe("POST /admin-ui/workspaces/:name/invites", () => {
     );
     expect(res.status).toBe(403);
   });
+
+  it("429s when the per-workspace write budget is exhausted", async () => {
+    const env = stubEnv(ADMIN_USER, () => new Response(null, { status: 404 })) as Env & {
+      WRITE_LIMITER: { limit: (opts: { key: string }) => Promise<{ success: boolean }> };
+    };
+    env.WRITE_LIMITER = { limit: async () => ({ success: false }) };
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/invites",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "x@y.com", role: "member" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(429);
+  });
 });
 
 describe("GET /admin-ui/workspaces/:name/members", () => {
@@ -184,5 +201,32 @@ describe("GET /admin-ui/workspaces/:name/members", () => {
     const res = await app().request("/admin-ui/workspaces/acme/members", {}, env);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ members: [{ id: "m1", email: "x@y.com", role: "member" }] });
+  });
+});
+
+describe("GET /admin-ui/workspaces/:name/invites", () => {
+  it("proxies the internal pending-invite list", async () => {
+    const env = stubEnv(ADMIN_USER, (path) => {
+      if (path === "/internal/orgs/acme") {
+        return Response.json({ organization: { id: "org1", slug: "acme", name: "acme" } });
+      }
+      if (path === "/internal/orgs/acme/invites") {
+        return Response.json({
+          invites: [{ id: "inv1", email: "x@y.com", role: "member", status: "pending" }],
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    const res = await app().request("/admin-ui/workspaces/acme/invites", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      invites: [{ id: "inv1", email: "x@y.com", role: "member", status: "pending" }],
+    });
+  });
+
+  it("404s when no org exists for the workspace", async () => {
+    const env = stubEnv(ADMIN_USER, () => new Response(null, { status: 404 }));
+    const res = await app().request("/admin-ui/workspaces/no-org/invites", {}, env);
+    expect(res.status).toBe(404);
   });
 });

@@ -202,6 +202,7 @@ export const invitation = sqliteTable(
     inviterId: text("inviter_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestampCol("created_at"),
   },
   (t) => [index("idx_invitation_organization_id").on(t.organizationId)],
 );

@@ -5,8 +5,9 @@
  * the ops/CI `/admin` surface stays untouched. Backs the /admin page's
  * Workspaces slot on apps/web.
  */
-import { NotFoundError, ValidationError } from "@uploads/errors";
+import { NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
+import { allowWrite } from "../guards";
 import { orgForWorkspace } from "../org-workspaces";
 import {
   requireAdminUser,
@@ -29,7 +30,7 @@ async function orgSummaryForWorkspace(env: Env, name: string): Promise<OrgSummar
     { headers: { "x-uploads-internal": "1" } },
   );
   if (!response.ok) return null;
-  return (await response.json()) as OrgSummary;
+  return (await response.json().catch(() => null)) as OrgSummary | null;
 }
 
 export const adminUi = new Hono<SessionVars>()
@@ -103,6 +104,9 @@ export const adminUi = new Hono<SessionVars>()
   // Invite an email to the org backing this workspace.
   .post("/workspaces/:name/invites", async (c) => {
     const name = c.req.param("name");
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
     const org = await orgForWorkspace(c.env, name);
     if (!org) {
       // KV workspace exists but no org has been provisioned for it yet

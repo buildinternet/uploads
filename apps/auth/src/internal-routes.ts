@@ -67,9 +67,30 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     if (!auth) {
       return c.json(errorJson("auth_unavailable", "Auth is not configured yet."), 503);
     }
-    const created = await auth.api.createOrganization({
-      body: { slug, name: name || slug },
-    });
+    // TOCTOU: two concurrent callers can both pass the `existing` check above
+    // and race to create the same slug — Better Auth enforces the unique
+    // constraint and throws on the loser. Treat that as "already exists"
+    // (re-query and return the winner's row as 200) rather than propagating
+    // a 500 for what is really an idempotent no-op from the caller's POV.
+    let created: Awaited<ReturnType<typeof auth.api.createOrganization>>;
+    try {
+      created = await auth.api.createOrganization({
+        body: { slug, name: name || slug },
+      });
+    } catch (err) {
+      const [winner] = await db
+        .select()
+        .from(schema.organization)
+        .where(eq(schema.organization.slug, slug))
+        .limit(1);
+      if (winner) {
+        return c.json(
+          { organization: { id: winner.id, slug: winner.slug, name: winner.name } },
+          200,
+        );
+      }
+      throw err;
+    }
     if (!created) {
       return c.json(errorJson("create_failed", "failed to create organization"), 500);
     }
@@ -155,8 +176,10 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
         expiresAt: schema.invitation.expiresAt,
       })
       .from(schema.invitation)
-      .where(eq(schema.invitation.organizationId, org.id));
-    return c.json({ invites: rows.filter((r) => r.status === "pending") });
+      .where(
+        and(eq(schema.invitation.organizationId, org.id), eq(schema.invitation.status, "pending")),
+      );
+    return c.json({ invites: rows });
   })
   // Phase 3 (plan scope B): server-side invite creation for
   // POST /admin-ui/workspaces/:name/invites on apps/api.
@@ -224,6 +247,36 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       return c.json(errorJson("inviter_not_found", "no user with that id"), 404);
     }
 
+    // Idempotency: an existing pending invite for this (org, email) is
+    // returned as-is rather than inserting a duplicate row and re-sending
+    // the invitation email (e.g. the admin double-clicks Invite).
+    const [existingInvite] = await db
+      .select()
+      .from(schema.invitation)
+      .where(
+        and(
+          eq(schema.invitation.organizationId, org.id),
+          eq(schema.invitation.email, email),
+          eq(schema.invitation.status, "pending"),
+        ),
+      )
+      .limit(1);
+    if (existingInvite) {
+      return c.json(
+        {
+          invitation: {
+            id: existingInvite.id,
+            organizationId: existingInvite.organizationId,
+            email: existingInvite.email,
+            role: existingInvite.role,
+            status: existingInvite.status,
+            expiresAt: existingInvite.expiresAt,
+          },
+        },
+        200,
+      );
+    }
+
     const id = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7); // 7 days
     await db.insert(schema.invitation).values({
@@ -234,6 +287,7 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       status: "pending",
       expiresAt,
       inviterId: inviter.id,
+      createdAt: new Date(),
     });
 
     const webOrigin = c.env.WEB_ORIGIN || "https://uploads.sh";

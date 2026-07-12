@@ -44,6 +44,14 @@ function isDev(env: SendAuthEmailEnv): boolean {
   return env.ENVIRONMENT !== "production";
 }
 
+/** Escape a string for safe interpolation into an HTML email body. */
+function escapeHtml(value: string): string {
+  return value.replace(
+    /[&<>"']/g,
+    (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
+  );
+}
+
 function renderMagicLink(context: MagicLinkContext): {
   subject: string;
   text: string;
@@ -51,7 +59,8 @@ function renderMagicLink(context: MagicLinkContext): {
 } {
   const subject = "Sign in to uploads.sh";
   const text = `Sign in to uploads.sh by opening this link (expires in 15 minutes):\n\n${context.url}\n\nIf you didn't request this, you can ignore this email.`;
-  const html = `<p>Sign in to uploads.sh by clicking the link below. It expires in 15 minutes.</p><p><a href="${context.url}">Sign in to uploads.sh</a></p><p>If you didn't request this, you can ignore this email.</p>`;
+  const url = escapeHtml(context.url);
+  const html = `<p>Sign in to uploads.sh by clicking the link below. It expires in 15 minutes.</p><p><a href="${url}">Sign in to uploads.sh</a></p><p>If you didn't request this, you can ignore this email.</p>`;
   return { subject, text, html };
 }
 
@@ -62,7 +71,10 @@ function renderInvitation(context: InvitationContext): {
 } {
   const subject = `You've been invited to ${context.organizationName} on uploads.sh`;
   const text = `${context.inviterEmail} invited you to join ${context.organizationName} on uploads.sh.\n\nAccept the invitation:\n\n${context.url}\n\nIf you weren't expecting this, you can ignore this email.`;
-  const html = `<p><strong>${context.inviterEmail}</strong> invited you to join <strong>${context.organizationName}</strong> on uploads.sh.</p><p><a href="${context.url}">Accept invitation</a></p><p>If you weren't expecting this, you can ignore this email.</p>`;
+  const organizationName = escapeHtml(context.organizationName);
+  const inviterEmail = escapeHtml(context.inviterEmail);
+  const url = escapeHtml(context.url);
+  const html = `<p><strong>${inviterEmail}</strong> invited you to join <strong>${organizationName}</strong> on uploads.sh.</p><p><a href="${url}">Accept invitation</a></p><p>If you weren't expecting this, you can ignore this email.</p>`;
   return { subject, text, html };
 }
 

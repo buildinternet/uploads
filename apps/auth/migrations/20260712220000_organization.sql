@@ -35,7 +35,8 @@ CREATE TABLE invitation (
   role TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
   expires_at INTEGER NOT NULL,
-  inviter_id TEXT NOT NULL REFERENCES user (id) ON DELETE CASCADE
+  inviter_id TEXT NOT NULL REFERENCES user (id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL
 );
 
 CREATE INDEX idx_invitation_organization_id ON invitation (organization_id);
