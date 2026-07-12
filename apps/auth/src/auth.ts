@@ -5,6 +5,7 @@
  * after a redeploy, or a different D1 binding under `wrangler dev -c`) never
  * serves a stale instance.
  */
+import { dash } from "@better-auth/infra";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { betterAuth } from "better-auth";
 import { drizzle } from "drizzle-orm/d1";
@@ -13,22 +14,25 @@ import { sendAuthEmail } from "./email";
 import * as schema from "./schema";
 import { authTrustedOrigins, isTrustedOrigin } from "./trusted-origins";
 import {
+  resolveDashApiKey,
   resolveGitHubCredentials,
   resolveSigningSecret,
+  type DashApiKeyEnv,
   type GitHubCredentialsEnv,
 } from "./secrets";
 
-export type AuthEnv = GitHubCredentialsEnv & {
-  DB: D1Database;
-  EMAIL?: import("./email").EmailBinding;
-  BETTER_AUTH_URL?: string;
-  BETTER_AUTH_SECRET_DEV?: string;
-  UPL_BETTER_AUTH_SECRET?: import("./secrets").SecretLike;
-  WEB_ORIGIN?: string;
-  ENVIRONMENT?: string;
-  BETTER_AUTH_TRUSTED_ORIGINS?: string;
-  AUTH_RATE_LIMIT_DISABLED?: string;
-};
+export type AuthEnv = GitHubCredentialsEnv &
+  DashApiKeyEnv & {
+    DB: D1Database;
+    EMAIL?: import("./email").EmailBinding;
+    BETTER_AUTH_URL?: string;
+    BETTER_AUTH_SECRET_DEV?: string;
+    UPL_BETTER_AUTH_SECRET?: import("./secrets").SecretLike;
+    WEB_ORIGIN?: string;
+    ENVIRONMENT?: string;
+    BETTER_AUTH_TRUSTED_ORIGINS?: string;
+    AUTH_RATE_LIMIT_DISABLED?: string;
+  };
 
 export type BetterAuthInstance = ReturnType<typeof buildAuth>;
 
@@ -65,6 +69,7 @@ function buildAuth(
   env: AuthEnv,
   signingSecret: string,
   github: { clientId: string; clientSecret: string } | null,
+  dashApiKey: string | null,
 ) {
   const db = drizzle(env.DB, { schema });
   const betterAuthUrl = env.BETTER_AUTH_URL || "https://auth.uploads.sh";
@@ -117,6 +122,8 @@ function buildAuth(
           });
         },
       }),
+      // Hosted dashboard (`@better-auth/infra`). Omit when the API key is unset.
+      ...(dashApiKey ? [dash({ apiKey: dashApiKey })] : []),
     ],
     session: {
       cookieCache: {
@@ -160,6 +167,7 @@ function cacheKey(
   env: AuthEnv,
   signingSecret: string,
   github: { clientId: string; clientSecret: string } | null,
+  dashApiKey: string | null,
 ): string {
   return JSON.stringify({
     betterAuthUrl: env.BETTER_AUTH_URL,
@@ -170,6 +178,7 @@ function cacheKey(
     signingSecret,
     githubClientId: github?.clientId ?? null,
     githubClientSecret: github?.clientSecret ?? null,
+    dashApiKey,
     hasEmail: Boolean(env.EMAIL),
   });
 }
@@ -191,6 +200,7 @@ let cachedEmail: AuthEnv["EMAIL"] | undefined;
 // lifetime on a transient Secrets Store hiccup.
 let cachedSigningSecret: string | undefined;
 let cachedGithub: { clientId: string; clientSecret: string } | null | undefined;
+let cachedDashApiKey: string | null | undefined;
 
 /**
  * Build (or reuse) the Better Auth instance for this isolate. Returns null
@@ -209,14 +219,19 @@ export async function createAuth(env: AuthEnv): Promise<BetterAuthInstance | nul
   if (cachedGithub === undefined) {
     cachedGithub = await resolveGitHubCredentials(env);
   }
+  if (cachedDashApiKey === undefined) {
+    cachedDashApiKey = await resolveDashApiKey(env);
+  }
   const github = cachedGithub;
-  const key = cacheKey(env, signingSecret, github);
+  const dashApiKey = cachedDashApiKey;
+
+  const key = cacheKey(env, signingSecret, github, dashApiKey);
 
   if (cachedInstance && cachedKey === key && cachedDB === env.DB && cachedEmail === env.EMAIL) {
     return cachedInstance;
   }
 
-  cachedInstance = buildAuth(env, signingSecret, github);
+  cachedInstance = buildAuth(env, signingSecret, github, dashApiKey);
   cachedKey = key;
   cachedDB = env.DB;
   cachedEmail = env.EMAIL;

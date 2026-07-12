@@ -1,11 +1,14 @@
 # @uploads/auth
 
-Dedicated Better Auth worker for uploads.sh (`auth.uploads.sh`). GitHub OAuth
+Dedicated Better Auth worker for uploads.sh (`auth.uploads.sh`). GitHub OAuth +
+magic-link sign-in, its own D1 database (`uploads-auth`), and a small
+`/internal/*` API reachable only via the `AUTH` service binding from
+`apps/api`. See `docs/superpowers/plans/2026-07-12-better-auth-introduction.md`
+for the full design.
 
-- magic-link sign-in, its own D1 database (`uploads-auth`), and a small
-  `/internal/*` API reachable only via the `AUTH` service binding from
-  `apps/api`. See `docs/superpowers/plans/2026-07-12-better-auth-introduction.md`
-  for the full design.
+The Better Auth Infrastructure dashboard (`@better-auth/infra` `dash()`) mounts
+when `UPL_BETTER_AUTH_API_KEY` or local `BETTER_AUTH_API_KEY` resolves. Point the
+project at `https://auth.uploads.sh`.
 
 ## First admin
 

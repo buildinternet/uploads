@@ -24,6 +24,9 @@ WEB_ORIGIN=http://127.0.0.1:4321
 # it locally (see src/auth.ts).
 AUTH_RATE_LIMIT_DISABLED=true
 
+# Optional: infra dashboard API key (plain fallback for UPL_BETTER_AUTH_API_KEY).
+# BETTER_AUTH_API_KEY=
+
 # Optional: dev-only GitHub OAuth plain fallbacks (same store-vs-dev-var
 # footgun as the signing secret above). Leave unset to keep GitHub gated off
 # locally — magic link alone is enough for most dev flows.

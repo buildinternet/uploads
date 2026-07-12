@@ -13,8 +13,8 @@
  * NOT override an unpopulated Secrets Store binding — the binding still
  * "exists" and its `.get()` just rejects/returns empty. That's why the dev
  * fallback vars below are distinctly named (`BETTER_AUTH_SECRET_DEV`,
- * `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`) rather than shadowing the
- * `UPL_`-prefixed binding names.
+ * `BETTER_AUTH_API_KEY`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`) rather
+ * than shadowing the `UPL_`-prefixed binding names.
  */
 
 /** Minimal shape of a Cloudflare Secrets Store binding. */
@@ -77,4 +77,16 @@ export async function resolveGitHubCredentials(
   ]);
   if (!clientId || !clientSecret) return null;
   return { clientId, clientSecret };
+}
+
+export type DashApiKeyEnv = {
+  UPL_BETTER_AUTH_API_KEY?: SecretLike;
+  /** Dev plain fallback (same store-vs-dev-var footgun as the signing secret). */
+  BETTER_AUTH_API_KEY?: string;
+};
+
+/** Infra dashboard API key; null → omit `dash()`. Store wins over plain fallback. */
+export async function resolveDashApiKey(env: DashApiKeyEnv): Promise<string | null> {
+  const fromStore = await resolveSecret(env.UPL_BETTER_AUTH_API_KEY);
+  return fromStore || env.BETTER_AUTH_API_KEY || null;
 }

@@ -46,17 +46,20 @@
   // (confirmed via `wrangler secrets-store store list --remote`); it's
   // shared across buildinternet-org repos the same way KV/D1 IDs are noted
   // inline elsewhere in this repo. Wrangler FAILS a deploy when a declared
-  // secrets_store_secrets entry doesn't exist in the store yet — these three
-  // (UPL_BETTER_AUTH_SECRET, UPL_GITHUB_CLIENT_ID, UPL_GITHUB_CLIENT_SECRET)
-  // are Phase 0 human follow-ups (see plan). Until populated, the worker
-  // boots gated/inert: GitHub stays omitted from socialProviders (D3) and
-  // /api/auth/* answers 503 (see src/secrets.ts) rather than booting on an
-  // ephemeral signing secret.
+  // secrets_store_secrets entry doesn't exist in the store yet. Until
+  // populated: GitHub stays omitted from socialProviders (D3), dash() stays
+  // omitted (no infra API key), and /api/auth/* answers 503 without a signing
+  // secret (see src/secrets.ts) rather than booting on an ephemeral secret.
   "secrets_store_secrets": [
     {
       "binding": "UPL_BETTER_AUTH_SECRET",
       "store_id": "a887a71cab084105b79706df23380723",
       "secret_name": "UPL_BETTER_AUTH_SECRET",
+    },
+    {
+      "binding": "UPL_BETTER_AUTH_API_KEY",
+      "store_id": "a887a71cab084105b79706df23380723",
+      "secret_name": "UPL_BETTER_AUTH_API_KEY",
     },
     {
       "binding": "UPL_GITHUB_CLIENT_ID",

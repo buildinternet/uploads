@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  resolveDashApiKey,
   resolveGitHubCredentials,
   resolveSecret,
   resolveSigningSecret,
@@ -110,5 +111,23 @@ describe("resolveGitHubCredentials", () => {
 
   it("returns null with neither store nor dev vars set", async () => {
     expect(await resolveGitHubCredentials({})).toBeNull();
+  });
+});
+
+describe("resolveDashApiKey", () => {
+  it("prefers the store, falls back to BETTER_AUTH_API_KEY, else null", async () => {
+    expect(
+      await resolveDashApiKey({
+        UPL_BETTER_AUTH_API_KEY: store("store-key"),
+        BETTER_AUTH_API_KEY: "dev-key",
+      }),
+    ).toBe("store-key");
+    expect(
+      await resolveDashApiKey({
+        UPL_BETTER_AUTH_API_KEY: failingStore(),
+        BETTER_AUTH_API_KEY: "dev-key",
+      }),
+    ).toBe("dev-key");
+    expect(await resolveDashApiKey({})).toBeNull();
   });
 });
