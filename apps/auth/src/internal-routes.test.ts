@@ -187,18 +187,12 @@ describe("DB-backed behavior", () => {
   });
 
   describe("POST /internal/orgs", () => {
-    // Discovered by this harness, not by design: Better Auth's
-    // `organization.create` endpoint (better-auth/dist/plugins/organization/
-    // routes/crud-org.mjs) requires either a resolvable session OR an
-    // explicit `body.userId` ("server-only" per its own schema comment) —
-    // but internal-routes.ts's `/internal/orgs` calls
-    // `auth.api.createOrganization({ body: { slug, name } })` with neither,
-    // since admin-provisioned orgs have no natural owner user. That means
-    // creating a genuinely *new* org via this route always throws
-    // UNAUTHORIZED today; only the idempotent existing-slug path (which
-    // never reaches Better Auth) works. Pre-existing bug, out of scope for
-    // this test-harness change — flagged separately rather than fixed here.
-    it("500s creating a brand-new org (pre-existing bug: Better Auth requires a session or body.userId)", async () => {
+    // The success path below only exists because of the direct-insert fix
+    // (PR #99): the original implementation went through Better Auth's
+    // `createOrganization`, which requires a session or `body.userId` and
+    // threw UNAUTHORIZED on every genuinely new org — a bug this harness
+    // surfaced when it was first written.
+    it("creates a brand-new org (201) with the row inserted and created_at set", async () => {
       const slug = `new-org-${crypto.randomUUID()}`;
       const res = await app().request(
         "/internal/orgs",
@@ -209,13 +203,36 @@ describe("DB-backed behavior", () => {
         },
         dbEnv(),
       );
-      expect(res.status).toBe(500);
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as {
+        organization: { id: string; slug: string; name: string };
+      };
+      expect(body.organization).toMatchObject({ slug, name: "New Org" });
 
       const rows = await orm
         .select()
         .from(schema.organization)
         .where(eq(schema.organization.slug, slug));
-      expect(rows).toHaveLength(0);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].id).toBe(body.organization.id);
+      expect(rows[0].name).toBe("New Org");
+      expect(rows[0].createdAt).toBeInstanceOf(Date);
+    });
+
+    it("defaults name to the slug when name is omitted", async () => {
+      const slug = `nameless-${crypto.randomUUID()}`;
+      const res = await app().request(
+        "/internal/orgs",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { organization: { name: string } };
+      expect(body.organization.name).toBe(slug);
     });
 
     it("is idempotent — an existing slug returns 200 with the existing org", async () => {
@@ -242,17 +259,38 @@ describe("DB-backed behavior", () => {
       expect(rows).toHaveLength(1);
     });
 
-    it("treats a concurrent create-race as idempotent (winner already inserted)", async () => {
-      // Simulates the TOCTOU path in internal-routes.ts: the pre-check finds
-      // nothing, but by the time Better Auth's createOrganization tries to
-      // insert, another request has already won the unique-slug race.
+    it("treats a concurrent create-race as idempotent (loser recovers via catch-and-re-query)", async () => {
+      // Genuinely exercises the TOCTOU catch path in internal-routes.ts:
+      // the route's pre-check SELECT is made to see an empty table (as if
+      // the winner hadn't inserted yet), the winner's row is injected right
+      // after, and the route's direct INSERT then hits the UNIQUE slug
+      // constraint — it must recover by re-querying and returning 200 with
+      // the winner's row instead of propagating a 500.
       const slug = `race-${crypto.randomUUID()}`;
-      const winner = await seedOrg({ slug, name: "Winner" });
-      // Insert happened *after* the route's own pre-check would have run in
-      // a real race; here we just assert the catch-and-re-query fallback:
-      // Better Auth's createOrganization will throw on the unique constraint
-      // since `winner` already occupies the slug, and the route should
-      // recover by re-querying and returning 200 with the existing row.
+      const winner = { id: crypto.randomUUID(), slug, name: "Winner" };
+      const realPrepare = db.prepare.bind(db);
+      let raceArmed = true;
+      db.prepare = ((sql: string) => {
+        const stmt = realPrepare(sql);
+        if (raceArmed && /select/i.test(sql) && sql.includes(`"organization"`)) {
+          raceArmed = false;
+          // Empty pre-check result, then the winner lands before the insert.
+          const emptied = Object.create(stmt) as typeof stmt;
+          emptied.bind = (...params: unknown[]) => {
+            db.__sqlite
+              .prepare("INSERT INTO organization (id, name, slug, created_at) VALUES (?, ?, ?, ?)")
+              .run(winner.id, winner.name, winner.slug, Date.now());
+            const bound = stmt.bind(...params);
+            return Object.assign(Object.create(bound), {
+              all: async () => ({ success: true, results: [], meta: {} }),
+              raw: async () => [],
+            });
+          };
+          return emptied;
+        }
+        return stmt;
+      }) as typeof db.prepare;
+
       const res = await app().request(
         "/internal/orgs",
         {
@@ -265,6 +303,14 @@ describe("DB-backed behavior", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as { organization: { id: string; slug: string } };
       expect(body.organization).toMatchObject({ id: winner.id, slug });
+
+      // Only the winner's row exists — the loser's insert was rejected.
+      const rows = await orm
+        .select()
+        .from(schema.organization)
+        .where(eq(schema.organization.slug, slug));
+      expect(rows).toHaveLength(1);
+      expect(rows[0].name).toBe("Winner");
     });
   });
 
