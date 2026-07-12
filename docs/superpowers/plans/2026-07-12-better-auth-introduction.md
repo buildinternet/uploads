@@ -399,7 +399,7 @@ Scope: docs (`docs/admin-tokens.md`, `docs/enrollment.md`,
 `docs/workspaces.md`, AGENTS.md auth section) rewritten around Better Auth;
 deprecate the admin enrollment-creation path in favor of org invitations
 (keep the exchange endpoint until known consumers migrate); decide
-ADMIN_TOKEN fate (recommend: keep for scripts/ops; admin _UI/data_ paths
+ADMIN*TOKEN fate (recommend: keep for scripts/ops; admin \_UI/data* paths
 session-only); retention sweep for expired `device_code`/`verification` rows
 (cron on the auth worker) if Better Auth doesn't self-clean on D1.
 
