@@ -1,0 +1,483 @@
+---
+// uploads.sh — discovery/landing page for the core use case: getting coding
+// agents (Claude Code, Codex, CI jobs, scripts) to upload screenshots and
+// video to GitHub PRs and issues. Prose targets the search question directly;
+// FAQ JSON-LD mirrors the on-page answers.
+import "@fontsource-variable/geist/index.css";
+import "@fontsource-variable/geist-mono/index.css";
+
+const REPO = "https://github.com/buildinternet/uploads";
+const FAVICON =
+	"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23121214'/%3E%3Cg fill='none' stroke='%23b794ff' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 12.5 L16 5 L24 12.5'/%3E%3Cpath d='M8 19.5 L16 12 L24 19.5' opacity='.55'/%3E%3Cpath d='M8 26.5 L16 19 L24 26.5' opacity='.28'/%3E%3C/g%3E%3C/svg%3E";
+
+const FAQ = [
+	{
+		q: "Why can't my agent upload images to GitHub directly?",
+		a: "GitHub's built-in image hosting (github.com/user-attachments) only works from an authenticated browser session — you drag a file into the comment box. There is no gh CLI command or REST API endpoint for it, so agents, scripts, and CI jobs can't use it. Any image in a comment they write must already be hosted at a public URL.",
+	},
+	{
+		q: "Do the image URLs change when I re-upload a screenshot?",
+		a: "No. PR and issue attachments get stable, hash-free keys like gh/owner/repo/pull/123/shot.webp. Re-uploading the same filename overwrites in place, and every embed of that URL shows the new image within about a minute.",
+	},
+	{
+		q: "Can agents upload video to GitHub pull requests?",
+		a: "Yes — MP4, WebM, and other binaries upload unchanged and get a stable public URL. GitHub only inline-plays video hosted on its own CDN, so the managed attachments comment links the file instead of embedding a player; reviewers click through to watch.",
+	},
+	{
+		q: "How do I set up Claude Code to attach screenshots to its pull requests?",
+		a: "Run `uploads install` once. It installs the uploads-cli agent skill (which teaches the agent when to attach before/after screenshots) and registers the hosted MCP server with Claude Code. After that, the agent runs `uploads attach <files>` on its own when it changes something visual.",
+	},
+	{
+		q: "Are uploaded files private?",
+		a: "No — hosted files are public to anyone with the URL, including media attached to private repositories. Don't upload secrets or sensitive UI. Uploading requires an invitation-issued workspace token.",
+	},
+];
+
+const FAQ_JSON_LD = JSON.stringify({
+	"@context": "https://schema.org",
+	"@type": "FAQPage",
+	mainEntity: FAQ.map((item) => ({
+		"@type": "Question",
+		name: item.q,
+		acceptedAnswer: { "@type": "Answer", text: item.a },
+	})),
+});
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>How to get agents to upload screenshots &amp; video to GitHub · uploads.sh</title>
+    <meta
+      name="description"
+      content="Coding agents can't drag-and-drop into GitHub comments. Here's how to give Claude Code, CI jobs, and scripts one command that hosts screenshots and video at stable URLs and posts them to PRs and issues."
+    />
+    <link rel="canonical" href="https://uploads.sh/github-screenshots" />
+    <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="https://uploads.sh/github-screenshots" />
+    <meta property="og:title" content="How to get agents to upload screenshots & video to GitHub" />
+    <meta
+      property="og:description"
+      content="Agents can't drag-and-drop into GitHub comments. Give them one command that hosts media at stable URLs and posts it to PRs and issues."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="How to get agents to upload screenshots & video to GitHub" />
+    <meta
+      name="twitter:description"
+      content="Agents can't drag-and-drop into GitHub comments. Give them one command that hosts media at stable URLs and posts it to PRs and issues."
+    />
+    <link rel="icon" href={FAVICON} />
+    <script type="application/ld+json" set:html={FAQ_JSON_LD} />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0a0a0b;
+        --panel: #121214;
+        --line: #232327;
+        --fg: #ececea;
+        --body: #b3b3ad;
+        --muted: #7d7d77;
+        --accent: #b794ff;
+        --ok: #8fae62;
+        --mono: "Geist Mono Variable", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+        --sans: "Geist Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      @media (prefers-reduced-motion: reduce) {
+        html { scroll-behavior: auto; }
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        background: var(--bg);
+        color: var(--fg);
+        font: 15.5px/1.7 var(--sans);
+        padding: 40px 24px 64px;
+      }
+      main { width: min(680px, 100%); margin: 0 auto; }
+      .top { display: flex; align-items: center; gap: 12px; }
+      .home {
+        color: var(--muted);
+        text-decoration: none;
+        font: 13px var(--mono);
+        letter-spacing: 0.04em;
+      }
+      .home:hover, .home:focus-visible { color: var(--accent); outline: none; }
+      .star-cta {
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--fg);
+        text-decoration: none;
+        font: 12.5px var(--mono);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 6px 11px;
+        background: var(--panel);
+      }
+      .star-cta:hover, .star-cta:focus-visible { border-color: var(--accent); outline: none; }
+      .star-cta svg { width: 14px; height: 14px; fill: currentColor; }
+      .star-cta .count {
+        color: var(--muted);
+        border-left: 1px solid var(--line);
+        padding-left: 7px;
+        font-variant-numeric: tabular-nums;
+      }
+      .star-cta .count:empty { display: none; }
+
+      h1 {
+        font: 600 clamp(25px, 5vw, 34px)/1.22 var(--sans);
+        letter-spacing: -0.015em;
+        margin: 26px 0 8px;
+      }
+      .tagline { color: var(--muted); margin: 0 0 30px; }
+      h2 {
+        font: 600 20px/1.35 var(--sans);
+        letter-spacing: -0.01em;
+        margin: 42px 0 10px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+        scroll-margin-top: 24px;
+      }
+      h3 { font: 600 15px/1.4 var(--sans); margin: 22px 0 6px; }
+      p, li { color: var(--body); }
+      strong { color: var(--fg); }
+      ul, ol { padding-left: 22px; }
+      li { margin: 8px 0; }
+      a {
+        color: var(--fg);
+        text-decoration: underline;
+        text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+        text-underline-offset: 3px;
+      }
+      a:hover, a:focus-visible { color: var(--accent); outline: none; }
+      code {
+        font: 0.88em var(--mono);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 1px 6px;
+      }
+
+      /* copyable command rows */
+      .cmd {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 12px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin: 12px 0;
+        font: 13px var(--mono);
+      }
+      .cmd .text {
+        color: var(--fg);
+        overflow-x: auto;
+        white-space: nowrap;
+        scrollbar-width: none;
+      }
+      .cmd .text::before { content: "$ "; color: var(--accent); }
+      .cmd .text .cm { color: var(--muted); }
+      .cmd button {
+        font: 11px var(--mono);
+        letter-spacing: 0.06em;
+        color: var(--accent);
+        background: none;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      .cmd button:hover, .cmd button:focus-visible { border-color: var(--accent); outline: none; }
+      .cmd button.done { color: var(--ok); border-color: var(--ok); }
+
+      /* multi-line output block (not copyable) */
+      .block {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px 14px;
+        margin: 12px 0;
+        font: 12.5px/1.6 var(--mono);
+        color: var(--muted);
+        overflow-x: auto;
+      }
+      .block .ok { color: var(--ok); }
+      .block .v { color: var(--body); }
+      .block pre { margin: 0; white-space: pre; }
+
+      .note {
+        border-left: 3px solid var(--accent);
+        padding: 2px 0 2px 14px;
+        margin: 16px 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      /* faq */
+      .faq dt { color: var(--fg); font-weight: 600; margin-top: 18px; }
+      .faq dd { margin: 6px 0 0; color: var(--body); }
+
+      footer {
+        margin-top: 56px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font: 12px var(--mono);
+      }
+      footer a { color: var(--muted); }
+      /* Geist Mono merges " --" into a joined dash via calt - keep CLI flags literal.
+         Declared last: the font shorthand in earlier rules resets feature settings. */
+      code, pre, .cmd, .block, .screen, .cmdtext, .cmdrow, .terminal, .feature h3 {
+        font-variant-ligatures: none;
+        font-feature-settings: "calt" 0, "liga" 0;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="top">
+        <a class="home" href="/">← uploads.sh</a>
+        <a class="star-cta" href={REPO} aria-label="Star buildinternet/uploads on GitHub">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"></path>
+          </svg>
+          Star on GitHub
+          <span class="count" id="star-count"></span>
+        </a>
+      </div>
+
+      <h1>How to get agents to upload screenshots &amp; video to GitHub</h1>
+      <p class="tagline">
+        Claude Code, CI jobs, review bots, plain scripts — anything without a browser.
+      </p>
+
+      <section id="problem">
+        <h2>The problem: no drag-and-drop from a terminal</h2>
+        <p>
+          When <em>you</em> put a screenshot on a pull request, you drag the file into the
+          comment box and GitHub hosts it at <code>github.com/user-attachments/…</code>. That
+          hosting is only reachable from an <strong>authenticated browser session</strong> —
+          there is no <code>gh</code> CLI command and no REST API endpoint for it.
+        </p>
+        <p>
+          So a coding agent that just changed your UI has no way to show its work. The usual
+          workarounds all hurt:
+        </p>
+        <ul>
+          <li><strong>Committing images to the repo</strong> bloats history forever for a screenshot that matters for one review.</li>
+          <li><strong>Generic image hosts</strong> hand back random URLs, expire links, or need a browser to upload.</li>
+          <li><strong>Hand-rolled S3/R2 scripts</strong> work — until you want stable URLs, optimization, comment management, and every agent repo carries its own copy.</li>
+        </ul>
+        <p>
+          The fix is a URL the agent can mint itself: host the file somewhere public and
+          stable, then write ordinary Markdown. That's what&#32;
+          <a href="/">uploads.sh</a> does, plus the GitHub-shaped parts around it.
+        </p>
+      </section>
+
+      <section id="setup">
+        <h2>Step 1 — install the CLI and sign in (once)</h2>
+        <div class="cmd">
+          <span class="text">npm install -g @buildinternet/uploads</span>
+          <button type="button" data-copy="npm install -g @buildinternet/uploads">copy</button>
+        </div>
+        <div class="cmd">
+          <span class="text">uploads login</span>
+          <button type="button" data-copy="uploads login">copy</button>
+        </div>
+        <p>
+          <code>uploads login</code> exchanges an invitation code for a workspace token and
+          saves it, so this is a one-time step per machine. Access is currently by invitation —
+          ask via <a href={REPO}>the GitHub repo</a>. Verify with <code>uploads doctor</code>.
+        </p>
+      </section>
+
+      <section id="agents">
+        <h2>Step 2 — teach your agent</h2>
+        <p>One command sets up both integration points for Claude Code:</p>
+        <div class="cmd">
+          <span class="text">uploads install</span>
+          <button type="button" data-copy="uploads install">copy</button>
+        </div>
+        <ul>
+          <li>
+            The <strong>agent skill</strong> teaches the agent when to reach for the CLI —
+            e.g. attaching before/after screenshots to the PR it just opened, or dropping a
+            repro GIF on an issue.
+          </li>
+          <li>
+            The <strong>MCP server</strong> exposes the same operations
+            (<code>put</code>, <code>attach</code>, <code>list</code>, <code>delete</code>, …)
+            as tools, for runtimes that prefer MCP over shelling out.
+          </li>
+        </ul>
+        <p>Or wire each piece up yourself, for other agent runtimes:</p>
+        <div class="cmd">
+          <span class="text">npx skills add buildinternet/uploads --skill uploads-cli</span>
+          <button type="button" data-copy="npx skills add buildinternet/uploads --skill uploads-cli">copy</button>
+        </div>
+        <div class="cmd">
+          <span class="text">claude mcp add --transport http uploads https://agents.uploads.sh/mcp</span>
+          <button type="button" data-copy="claude mcp add --transport http uploads https://agents.uploads.sh/mcp">copy</button>
+        </div>
+      </section>
+
+      <section id="attach">
+        <h2>Step 3 — the agent attaches media with one command</h2>
+        <p>
+          From a branch with an open pull request, <code>attach</code> needs nothing but the
+          files. It finds the PR via <code>gh</code>, uploads each file to a stable URL, and
+          creates or updates a single managed attachments comment:
+        </p>
+        <div class="cmd">
+          <span class="text">uploads attach ./before.png ./after.png</span>
+          <button type="button" data-copy="uploads attach ./before.png ./after.png">copy</button>
+        </div>
+        <div class="block" aria-label="Example output">
+          <pre>&gt;&gt; uploading ./before.png
+&gt;&gt; optimized 421337 → 96412 bytes (before.webp)
+&gt;&gt; uploading ./after.png
+&gt;&gt; optimized 407190 → 91205 bytes (after.webp)
+URL: <span class="v">https://storage.uploads.sh/gh/you/app/pull/123/before.webp</span>
+MARKDOWN: ![before.png](https://storage.uploads.sh/gh/you/app/pull/123/before.webp)
+URL: <span class="v">https://storage.uploads.sh/gh/you/app/pull/123/after.webp</span>
+MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp)
+<span class="ok">&gt;&gt; attachments comment updated</span></pre>
+        </div>
+        <p>Not on a PR branch, or targeting something else? Say so explicitly:</p>
+        <div class="cmd">
+          <span class="text">uploads attach ./repro.gif --issue 45</span>
+          <button type="button" data-copy="uploads attach ./repro.gif --issue 45">copy</button>
+        </div>
+        <div class="cmd">
+          <span class="text">uploads attach ./shot.png --repo owner/name --pr 123</span>
+          <button type="button" data-copy="uploads attach ./shot.png --repo owner/name --pr 123">copy</button>
+        </div>
+        <p>
+          Prefer to place the image yourself — in a PR description, review comment, or README?&#32;
+          <code>--no-comment</code> uploads and prints the URL and ready-to-paste Markdown
+          without touching any GitHub comment. <code>uploads put</code> gives full control over
+          naming and output format.
+        </p>
+        <h3>Why the URLs matter</h3>
+        <p>
+          Attachments get <strong>hash-free, stable keys</strong> —
+          <code>gh/owner/repo/pull/123/shot.webp</code>. Re-upload the same filename after
+          addressing review feedback and the PR re-renders the new image at the same URL within
+          about a minute. No stale screenshots, no edit trail.
+        </p>
+      </section>
+
+      <section id="video">
+        <h2>Video and everything else</h2>
+        <p>
+          Screen recordings are often the clearest way for an agent to prove an interaction
+          works. MP4, WebM, GIFs, zips, logs — anything — upload unchanged:
+        </p>
+        <div class="cmd">
+          <span class="text">uploads attach ./demo.mp4 <span class="cm"># linked from the comment</span></span>
+          <button type="button" data-copy="uploads attach ./demo.mp4">copy</button>
+        </div>
+        <p>
+          One honest caveat: GitHub only inline-plays video hosted on its own CDN, so external
+          video is <strong>linked, not embedded as a player</strong> — the managed comment lists
+          it as a click-through link with a stable URL. Animated GIFs embed inline like images.
+        </p>
+        <p>
+          Still images are optimized by default — re-encoded to WebP with a capped long edge and&#32;
+          <strong>EXIF stripped</strong> so embeds load fast and leak nothing. Opt out per file
+          with <code>--no-optimize</code> or keep metadata with <code>--keep-exif</code>. And&#32;
+          <code>--frame phone|browser|iphone-16-pro</code> wraps raw simulator or viewport shots
+          in device chrome first.
+        </p>
+      </section>
+
+      <section id="faq">
+        <h2>FAQ</h2>
+        <dl class="faq">
+          {FAQ.map((item) => (
+            <>
+              <dt>{item.q}</dt>
+              <dd>{item.a}</dd>
+            </>
+          ))}
+        </dl>
+        <div class="note">
+          More detail — every command, flag, and management operation — is in the&#32;
+          <a href="/docs">docs</a>. Agents can read <a href="/llms.txt">/llms.txt</a> for a
+          machine-friendly index. If this saved you a hand-rolled upload script,&#32;
+          <a href={REPO}>a star on GitHub</a> helps others find it.
+        </div>
+      </section>
+
+      <footer>
+        uploads.sh · a <a href="https://buildinternet.com">Build Internet</a> project ·
+        <a href={REPO}>source</a> · <a href="/docs">docs</a> · <a href="/terms">terms</a> ·
+        <a href="/privacy">privacy</a>
+      </footer>
+    </main>
+
+    <script>
+      // Live star count — cached for an hour, silently absent on failure.
+      (async () => {
+        const el = document.getElementById("star-count");
+        if (!el) return;
+        const show = (n: number) => {
+          el.textContent = n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+        };
+        try {
+          const cached = JSON.parse(localStorage.getItem("gh-stars") ?? "null");
+          if (cached && typeof cached.n === "number" && Date.now() - cached.t < 3_600_000) {
+            show(cached.n);
+            return;
+          }
+          const res = await fetch("https://api.github.com/repos/buildinternet/uploads");
+          if (!res.ok) return;
+          const n = ((await res.json()) as { stargazers_count?: unknown }).stargazers_count;
+          if (typeof n !== "number") return;
+          localStorage.setItem("gh-stars", JSON.stringify({ t: Date.now(), n }));
+          show(n);
+        } catch {
+          /* leave the count empty — the CTA still works */
+        }
+      })();
+
+      for (const btn of document.querySelectorAll(".cmd button")) {
+        btn.addEventListener("click", async () => {
+          const text = btn.getAttribute("data-copy") ?? "";
+          let ok = false;
+          try {
+            await navigator.clipboard.writeText(text);
+            ok = true;
+          } catch {
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+              ok = document.execCommand("copy");
+            } catch {
+              ok = false;
+            }
+            ta.remove();
+          }
+          btn.textContent = ok ? "copied ✓" : "copy failed";
+          btn.classList.toggle("done", ok);
+          setTimeout(() => {
+            btn.textContent = "copy";
+            btn.classList.remove("done");
+          }, 1500);
+        });
+      }
+    </script>
+  </body>
+</html>

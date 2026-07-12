@@ -35,16 +35,18 @@ wrangler.jsonc                       Hybrid Worker, static assets, skills index,
 
 ## Crawl / index policy
 
-Only the landing page is meant for search engines. Agent discovery docs are public
-but not listed in the sitemap.
+The landing page, `/docs`, and the `/github-screenshots` use-case guide are meant
+for search engines. Agent discovery docs are public but not listed in the sitemap.
 
-| Path                                      | Indexable | Notes                                                    |
-| ----------------------------------------- | --------- | -------------------------------------------------------- |
-| `/`                                       | yes       | Listed in `sitemap.xml`; Link headers advertise catalogs |
-| `/invite`                                 | **no**    | Magic-link enrollment; robots + meta + `X-Robots-Tag`    |
-| `/console`                                | **no**    | Operator scaffold; same triple coverage                  |
-| `/404`,`/500`                             | **no**    | Status pages                                             |
-| `/auth.md`, `/llms.txt`, `/.well-known/*` | n/a       | Machine-readable; not in sitemap                         |
+| Path                                      | Indexable | Notes                                                      |
+| ----------------------------------------- | --------- | ---------------------------------------------------------- |
+| `/`                                       | yes       | Listed in `sitemap.xml`; Link headers advertise catalogs   |
+| `/docs`                                   | yes       | Plain-language setup guide; in `sitemap.xml`               |
+| `/github-screenshots`                     | yes       | SEO landing: agents uploading media to GitHub; FAQ JSON-LD |
+| `/invite`                                 | **no**    | Magic-link enrollment; robots + meta + `X-Robots-Tag`      |
+| `/console`                                | **no**    | Operator scaffold; same triple coverage                    |
+| `/404`,`/500`                             | **no**    | Status pages                                               |
+| `/auth.md`, `/llms.txt`, `/.well-known/*` | n/a       | Machine-readable; not in sitemap                           |
 
 `robots.txt` includes explicit `User-agent` blocks for common AI crawlers and
 `Content-Signal` preferences (`search=yes`, `ai-input=yes`, `ai-train=no`).

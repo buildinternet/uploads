@@ -8,6 +8,7 @@ Access is by invitation. Hosted files are public (including media attached to pr
 
 - [Home](https://uploads.sh/): product overview and copyable install commands
 - [Docs](https://uploads.sh/docs): plain-language guide — install, attach media to PRs/issues, agent setup
+- [Agent guide](https://uploads.sh/github-screenshots): how to get coding agents to upload screenshots & video to GitHub PRs and issues
 - [Auth for agents](https://uploads.sh/auth.md): invitation enrollment and bearer tokens
 - [Source & docs](https://github.com/buildinternet/uploads): repository, roadmap, and operator docs
 - [Enrollment](https://github.com/buildinternet/uploads/blob/main/docs/enrollment.md): how `uploads login` works
