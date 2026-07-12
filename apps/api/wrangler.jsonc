@@ -4,6 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-06",
   "compatibility_flags": ["nodejs_compat"],
+  "preview_urls": true,
   "vars": {
     // Origin of the invite page that magic links point at. Defaults to the API
     // host without the `api.` prefix; set explicitly for other deployments.
