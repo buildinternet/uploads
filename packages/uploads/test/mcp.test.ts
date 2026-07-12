@@ -4,7 +4,12 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { GlobalFlags } from "../src/cli-args.js";
-import type { UploadsClient } from "../src/client.js";
+import type {
+  AddGalleryItemOptions,
+  CreateGalleryOptions,
+  LinkGalleryExternalReferenceOptions,
+  UploadsClient,
+} from "../src/client.js";
 import type { UploadsClientConfig } from "../src/config.js";
 import type { CommandRunner } from "../src/github-gh.js";
 import { createMcpServer, type McpServer } from "../src/mcp/server.js";
@@ -55,6 +60,74 @@ function fakeFactory() {
     } as unknown as UploadsClient;
   };
   return { factory, puts, deletes, configs };
+}
+
+/** In-memory gallery API contract used to exercise the MCP mutation workflow. */
+function galleryFactory() {
+  const configs: UploadsClientConfig[] = [];
+  const calls: Array<{ method: string; expectedVersion?: number }> = [];
+  const gallery = {
+    id: "gal_stateful",
+    url: "https://uploads.test/g/gal_stateful",
+    workspace: "alpha",
+    title: "Launch media",
+    description: null,
+    visibility: "public" as const,
+    coverItemId: null,
+    version: 1,
+    createdAt: "2026-07-12T00:00:00.000Z",
+    updatedAt: "2026-07-12T00:00:00.000Z",
+    items: [],
+  };
+  const factory = (config: UploadsClientConfig): UploadsClient => {
+    configs.push(config);
+    return {
+      createGallery: async ({ title, description }: CreateGalleryOptions) => ({
+        ...gallery,
+        title,
+        description: description ?? null,
+      }),
+      getGallery: async () => ({ ...gallery }),
+      addGalleryItem: async (_id: string, objectKey: string, opts: AddGalleryItemOptions) => {
+        calls.push({ method: "add", expectedVersion: opts.expectedVersion });
+        if (opts.expectedVersion !== gallery.version) throw new Error("stale gallery version");
+        gallery.version++;
+        return {
+          id: "item_stateful",
+          objectKey,
+          position: 1000,
+          caption: opts.caption ?? null,
+          altText: opts.altText ?? null,
+          createdAt: gallery.createdAt,
+          status: "available" as const,
+          url: "https://storage.uploads.sh/alpha/screenshots/launch.png",
+          contentType: "image/png",
+          size: 11,
+        };
+      },
+      linkGalleryExternalReference: async (
+        _id: string,
+        opts: LinkGalleryExternalReferenceOptions,
+      ) => {
+        calls.push({ method: "link", expectedVersion: opts.expectedVersion });
+        if (opts.expectedVersion !== gallery.version) throw new Error("stale gallery version");
+        gallery.version++;
+        return {
+          id: "ref_stateful",
+          provider: opts.provider,
+          resourceType: "item",
+          coordinate: opts.coordinate,
+          canonicalUrl: "https://github.com/buildinternet/uploads/issues/57",
+          createdAt: gallery.createdAt,
+        };
+      },
+      findGalleriesByReference: async () => ({
+        galleries: [{ ...gallery }],
+        nextCursor: null,
+      }),
+    } as unknown as UploadsClient;
+  };
+  return { factory, configs, calls };
 }
 
 function ghRunner() {
@@ -215,6 +288,72 @@ describe("tools/list", () => {
       expect(tool.inputSchema.additionalProperties).toBe(false);
       expect(typeof tool.inputSchema.properties).toBe("object");
     }
+  });
+});
+
+describe("gallery tool workflow", () => {
+  it("creates, adds, links, and finds with current versions and canonical URLs", async () => {
+    const state = galleryFactory();
+    const server = createMcpServer({
+      serverInfo: { name: "uploads", version: "0.0.0-test" },
+      tools: createUploadsMcpTools({
+        globals: { apiUrl: "https://api.test", token: "up_alpha_test" },
+        runner: noRun,
+        clientFactory: state.factory,
+      }),
+    });
+
+    const created = await rpc(server, "tools/call", {
+      name: "gallery_create",
+      arguments: { title: "Launch media", workspace: "alpha" },
+    });
+    const id = created.result.structuredContent.id as string;
+    expect(created.result.structuredContent.url).toBe("https://uploads.test/g/gal_stateful");
+
+    const added = await rpc(server, "tools/call", {
+      name: "gallery_add",
+      arguments: { galleryId: id, objectKey: "screenshots/launch.png", workspace: "alpha" },
+    });
+    expect(added.result.structuredContent).toMatchObject({
+      objectKey: "screenshots/launch.png",
+      url: "https://storage.uploads.sh/alpha/screenshots/launch.png",
+    });
+
+    const linked = await rpc(server, "tools/call", {
+      name: "gallery_link",
+      arguments: {
+        galleryId: id,
+        provider: "github",
+        coordinate: "buildinternet/uploads#57",
+        workspace: "alpha",
+      },
+    });
+    expect(linked.result.structuredContent.canonicalUrl).toBe(
+      "https://github.com/buildinternet/uploads/issues/57",
+    );
+
+    const found = await rpc(server, "tools/call", {
+      name: "gallery_find_by_reference",
+      arguments: {
+        provider: "github",
+        coordinate: "buildinternet/uploads#57",
+        workspace: "alpha",
+      },
+    });
+    expect(found.result.structuredContent).toMatchObject({
+      galleries: [{ id, url: "https://uploads.test/g/gal_stateful", version: 3 }],
+      nextCursor: null,
+    });
+    expect(state.calls).toEqual([
+      { method: "add", expectedVersion: 1 },
+      { method: "link", expectedVersion: 2 },
+    ]);
+    expect(state.configs.map((config) => config.workspace)).toEqual([
+      "alpha",
+      "alpha",
+      "alpha",
+      "alpha",
+    ]);
   });
 });
 
