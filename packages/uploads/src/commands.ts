@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
-import { createUploadsClient, type UploadsClient } from "./client.js";
+import { createUploadsClient, type GalleryItem, type UploadsClient } from "./client.js";
 import {
   parseCommandArgs,
   flagString,
@@ -91,12 +91,14 @@ Options:
   --pr <num>            Attach to a pull request: key gh/<owner>/<repo>/pull/<num>/<name> (stable URL, no hash)
   --issue <num>         Attach to an issue: key gh/<owner>/<repo>/issues/<num>/<name>
   --comment             With --pr/--issue: create/update the attachments comment via your local gh auth
+  --gallery <id>         Add the uploaded object to this public gallery
 
 Examples:
   uploads put ./shot.png --repo myorg/myapp --ref 1722 --alt "New cards" --width 700
   uploads put ./mobile.png --frame phone
   uploads put ./ui.png --frame browser --frame-url "https://app.example/settings"
   uploads put ./shot.png --destination screenshots
+  uploads put ./after.png --gallery gal_example
 `;
 
 /**
@@ -401,6 +403,7 @@ export async function runPut(
   const prefixFlag = flagString(parsed.flags, "--prefix");
   const ghTarget = ghTargetFromFlags(parsed.flags, run);
   const wantComment = parsed.flags.has("--comment");
+  const galleryId = flagString(parsed.flags, "--gallery");
   if (wantComment && typeof parsed.flags.get("--comment") === "string") {
     throw new UsageError("--comment takes no value — place it after the file argument");
   }
@@ -484,6 +487,28 @@ export async function runPut(
   });
 
   const markdown = buildMarkdown(result.url, { alt, width });
+  let gallery:
+    | {
+        id: string;
+        url?: string;
+        item?: GalleryItem;
+        error?: { message: string; code?: string; status?: number };
+      }
+    | undefined;
+  if (galleryId) {
+    try {
+      // Gallery mutations use optimistic versions. Fetch immediately before this
+      // mutation so `put --gallery` composes safely with other CLI writers.
+      const current = await ctx.client.getGallery(galleryId);
+      const item = await ctx.client.addGalleryItem(galleryId, result.key, {
+        expectedVersion: current.version,
+        altText: alt,
+      });
+      gallery = { id: galleryId, url: current.url, item };
+    } catch (err) {
+      gallery = { id: galleryId, error: galleryError(err) };
+    }
+  }
   const optimizeMeta = {
     optimized: prepared.optimized,
     skippedReason: prepared.skippedReason,
@@ -498,7 +523,13 @@ export async function runPut(
 
   switch (format) {
     case "json":
-      await writeJson({ ...result, markdown, optimize: optimizeMeta, frame: prepared.frame });
+      await writeJson({
+        ...result,
+        markdown,
+        optimize: optimizeMeta,
+        frame: prepared.frame,
+        gallery,
+      });
       break;
     case "url":
       await writeStdout(`${result.url}\n`);
@@ -507,7 +538,19 @@ export async function runPut(
       await writeStdout(`${markdown}\n`);
       break;
     default:
-      await writeStdout(`URL: ${result.url}\nMARKDOWN: ${markdown}\n`);
+      await writeStdout(
+        `URL: ${result.url}\nMARKDOWN: ${markdown}${gallery?.url ? `\nGALLERY: ${gallery.url}` : ""}\n`,
+      );
+  }
+
+  if (gallery?.url && format !== "human") {
+    process.stderr.write(`gallery: ${gallery.url}\n`);
+  }
+
+  if (gallery?.error) {
+    process.stderr.write(
+      `warning: upload succeeded but adding it to gallery ${gallery.id} failed: ${gallery.error.message}\n`,
+    );
   }
 
   if (wantComment && ghTarget) {
@@ -524,7 +567,145 @@ export async function runPut(
     }
   }
 
-  return 0;
+  return gallery?.error ? 1 : 0;
+}
+
+function galleryError(err: unknown): { message: string; code?: string; status?: number } {
+  if (err instanceof UploadsError)
+    return { message: err.message, code: err.code, status: err.status };
+  return { message: err instanceof Error ? err.message : String(err) };
+}
+
+// --- galleries ---
+
+const GALLERY_HELP = `uploads gallery <command> [args]
+
+Public galleries can be viewed by anyone who knows the URL. Do not add sensitive media.
+Deleting a gallery only removes the gallery record; it never deletes its uploaded objects.
+
+Commands:
+  create --title <title> [--description <text>]
+  show <gallery-id>
+  list [--limit <n>] [--cursor <c>] [--all]
+  delete <gallery-id>
+  add <gallery-id> <object-key...> [--caption <text>] [--alt <text>]
+
+Examples:
+  uploads gallery create --title "Settings redesign"
+  uploads gallery add gal_example screenshots/app/after.webp --alt "Updated settings page"
+  uploads gallery show gal_example
+`;
+
+export async function runGallery(ctx: CliContext, args: string[], help = false): Promise<number> {
+  const parsed = parseCommandArgs(args);
+  const action = parsed.positionals[0];
+  if (help || parsed.help || !action) {
+    process.stderr.write(GALLERY_HELP);
+    return help || parsed.help ? 0 : 2;
+  }
+
+  switch (action) {
+    case "create": {
+      const title = flagString(parsed.flags, "--title");
+      if (!title) throw new UsageError("gallery create requires --title");
+      const gallery = await ctx.client.createGallery({
+        title,
+        description: flagString(parsed.flags, "--description"),
+      });
+      if (ctx.json) await writeJson(gallery);
+      else await writeStdout(`${gallery.url}\n`);
+      if (!ctx.quiet && !ctx.json)
+        process.stderr.write("warning: galleries are public to anyone with the URL\n");
+      return 0;
+    }
+    case "show": {
+      const id = parsed.positionals[1];
+      if (!id) throw new UsageError("gallery show requires a gallery ID");
+      const gallery = await ctx.client.getGallery(id);
+      if (ctx.json) await writeJson(gallery);
+      else await writeStdout(`${gallery.url}\n`);
+      return 0;
+    }
+    case "list": {
+      const limit = flagInt(parsed.flags, "--limit", "--limit");
+      const cursor = flagString(parsed.flags, "--cursor");
+      if (flagBool(parsed.flags, "--all")) {
+        const galleries = [];
+        let nextCursor: string | undefined = cursor;
+        do {
+          const page = await ctx.client.listGalleries({ limit, cursor: nextCursor });
+          galleries.push(...page.galleries);
+          nextCursor = page.nextCursor ?? undefined;
+        } while (nextCursor);
+        if (ctx.json) await writeJson({ galleries, nextCursor: null });
+        else
+          for (const gallery of galleries)
+            await writeStdout(`${gallery.id}  ${gallery.url}  ${gallery.title}\n`);
+        return 0;
+      }
+      const page = await ctx.client.listGalleries({ limit, cursor });
+      if (ctx.json) await writeJson(page);
+      else {
+        for (const gallery of page.galleries)
+          await writeStdout(`${gallery.id}  ${gallery.url}  ${gallery.title}\n`);
+        if (page.nextCursor) process.stderr.write(`cursor: ${page.nextCursor}\n`);
+      }
+      return 0;
+    }
+    case "delete": {
+      const id = parsed.positionals[1];
+      if (!id) throw new UsageError("gallery delete requires a gallery ID");
+      const current = await ctx.client.getGallery(id);
+      const result = await ctx.client.deleteGallery(id, { expectedVersion: current.version });
+      if (ctx.json) await writeJson(result);
+      else if (!ctx.quiet) process.stderr.write(`deleted gallery ${result.id} (objects kept)\n`);
+      return 0;
+    }
+    case "add": {
+      const id = parsed.positionals[1];
+      const keys = parsed.positionals.slice(2);
+      if (!id || keys.length === 0)
+        throw new UsageError("gallery add requires a gallery ID and one or more object keys");
+      const caption = flagString(parsed.flags, "--caption");
+      const altText = flagString(parsed.flags, "--alt");
+      const added: GalleryItem[] = [];
+      let galleryUrl: string | undefined;
+      const failures: Array<{
+        objectKey: string;
+        error: { message: string; code?: string; status?: number };
+      }> = [];
+      for (const objectKey of keys) {
+        try {
+          // Always re-read before the next write: each add increments the version,
+          // and this also avoids stale versions after an independent writer.
+          const current = await ctx.client.getGallery(id);
+          galleryUrl = current.url;
+          added.push(
+            await ctx.client.addGalleryItem(id, objectKey, {
+              expectedVersion: current.version,
+              caption,
+              altText,
+            }),
+          );
+        } catch (err) {
+          failures.push({ objectKey, error: galleryError(err) });
+        }
+      }
+      const output = { galleryId: id, galleryUrl: galleryUrl ?? null, added, failures };
+      if (ctx.json) await writeJson(output);
+      else {
+        if (galleryUrl) await writeStdout(`GALLERY: ${galleryUrl}\n`);
+        for (const item of added) await writeStdout(`${item.objectKey}\n`);
+        for (const failure of failures)
+          process.stderr.write(
+            `warning: could not add ${failure.objectKey}: ${failure.error.message}\n`,
+          );
+      }
+      return failures.length === 0 ? 0 : 1;
+    }
+    default:
+      throw new UsageError(`unknown gallery command: ${action}`);
+  }
 }
 
 // --- list ---

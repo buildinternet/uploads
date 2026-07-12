@@ -20,6 +20,8 @@ uploads put ./shot.png --no-optimize
 uploads put ./mobile.png --frame phone
 uploads put ./ui.png --frame browser --frame-url "https://app.example"
 uploads put ./after.png --pr 123 --comment
+uploads gallery create --title "Release screenshots"
+uploads put ./after.png --gallery gal_example
 uploads doctor
 ```
 
@@ -27,7 +29,7 @@ Inside this monorepo only, `pnpm uploads …` builds the package first so you pi
 up local source; product docs and PR “how to try it” examples should use the
 global `uploads` form above.
 
-Commands: `attach`, `put`, `comment`, `list`, `delete`, `usage`, `reconcile`,
+Commands: `attach`, `put`, `gallery`, `comment`, `list`, `delete`, `usage`, `reconcile`,
 `purge-expired`, `setup`, `install`, `config`, `doctor`, `health`, `mcp`.
 
 `attach` is the agent-friendly default for GitHub media. It accepts one or more files,
@@ -49,6 +51,24 @@ stripped**. Pass `--keep-exif` / `UPLOADS_KEEP_EXIF=1` to preserve image metadat
 **before** optimize. `phone`/`browser` are procedural; `iphone-16-pro` fetches
 community art from [device-frames-media](https://github.com/jonnyjackson26/device-frames-media)
 into `~/.cache/uploads/frames` (not bundled).
+
+## Public galleries
+
+Create an ordered gallery, then add existing uploads by key. The API returns the canonical
+public URL; the CLI never constructs it. **Anyone who knows that URL can view the gallery and
+its media**—GitHub or repository visibility does not restrict it. Deleting a gallery removes
+only the gallery record, not its uploaded objects or their retention policy.
+
+```bash
+uploads gallery create --title "Release screenshots"
+uploads gallery add gal_example screenshots/myapp/42/after.webp --alt "Updated dashboard"
+uploads put ./before.png --gallery gal_example
+uploads gallery show gal_example
+```
+
+When adding several keys, `uploads gallery add` processes them sequentially and reports any
+individual failures in `--json` output. Gallery item updates use the API's current version to
+avoid overwriting concurrent changes.
 
 Config layers (first match wins): CLI flags → env vars → `--env-file` → `~/.config/buildinternet/config`. See `config.example` for keys.
 

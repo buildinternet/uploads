@@ -77,7 +77,12 @@ const encoder = new TextEncoder();
 function hasUnsafePlainText(value: string): boolean {
   return Array.from(value).some((character) => {
     const code = character.codePointAt(0) ?? 0;
-    return (code < 32 && code !== 9 && code !== 10 && code !== 13) || code === 127;
+    return (
+      (code < 32 && code !== 9 && code !== 10 && code !== 13) ||
+      code === 127 ||
+      (code >= 0x80 && code <= 0x9f) ||
+      /\p{Cf}/u.test(character)
+    );
   });
 }
 

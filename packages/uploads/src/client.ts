@@ -65,6 +65,62 @@ export interface DeleteResult {
   deleted: boolean;
 }
 
+/** A workspace-owned, publicly visible ordered media gallery. */
+export interface GalleryItem {
+  id: string;
+  objectKey: string;
+  position: number;
+  caption: string | null;
+  altText: string | null;
+  createdAt: string;
+  status: "available" | "missing";
+  url: string | null;
+  contentType: string | null;
+  size: number | null;
+}
+
+export interface Gallery {
+  id: string;
+  /** Canonical public URL returned by the API; clients must not construct it. */
+  url: string;
+  workspace: string;
+  title: string;
+  description: string | null;
+  visibility: "public";
+  coverItemId: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  items: GalleryItem[];
+}
+
+export type GallerySummary = Omit<Gallery, "items">;
+
+export interface GalleryListOptions {
+  limit?: number;
+  cursor?: string;
+}
+
+export interface GalleryListResult {
+  galleries: GallerySummary[];
+  nextCursor: string | null;
+}
+
+export interface CreateGalleryOptions {
+  title: string;
+  description?: string | null;
+}
+
+export interface AddGalleryItemOptions {
+  expectedVersion: number;
+  caption?: string | null;
+  altText?: string | null;
+}
+
+export interface DeleteGalleryOptions {
+  expectedVersion: number;
+}
+
 export interface HealthResult {
   ok: boolean;
 }
@@ -177,6 +233,10 @@ function usageBase(config: UploadsClientConfig): string {
   return `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/usage`;
 }
 
+function galleriesBase(config: UploadsClientConfig): string {
+  return `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/galleries`;
+}
+
 function mapApiError(status: number, error: string, code?: string): UploadsError {
   const normalized = error.toLowerCase();
   if (status === 401 || code === "unauthorized" || normalized === "unauthorized") {
@@ -273,6 +333,10 @@ export function createUploadsClient(config: UploadsClientConfig) {
     return request<ListResult>("GET", `${filesBase(config)}${qs ? `?${qs}` : ""}`);
   }
 
+  async function getGallery(id: string): Promise<Gallery> {
+    return request<Gallery>("GET", `${galleriesBase(config)}/${encodeURIComponent(id)}`);
+  }
+
   return {
     async put(body: Uint8Array, opts: PutOptions & { filename: string }): Promise<PutResult> {
       const key =
@@ -338,6 +402,54 @@ export function createUploadsClient(config: UploadsClientConfig) {
 
     async head(key: string): Promise<HeadResult> {
       return request<HeadResult>("GET", `${filesBase(config)}/${encodeKeyPath(key)}`);
+    },
+
+    async createGallery(opts: CreateGalleryOptions): Promise<Gallery> {
+      return request<Gallery>("POST", galleriesBase(config), {
+        body: new TextEncoder().encode(JSON.stringify(opts)),
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+
+    async getGallery(id: string): Promise<Gallery> {
+      return getGallery(id);
+    },
+
+    async listGalleries(opts: GalleryListOptions = {}): Promise<GalleryListResult> {
+      const params = new URLSearchParams();
+      if (opts.limit != null) params.set("limit", String(opts.limit));
+      if (opts.cursor) params.set("cursor", opts.cursor);
+      const qs = params.toString();
+      return request<GalleryListResult>("GET", `${galleriesBase(config)}${qs ? `?${qs}` : ""}`);
+    },
+
+    async deleteGallery(
+      id: string,
+      opts: DeleteGalleryOptions,
+    ): Promise<{ deleted: boolean; id: string }> {
+      return request<{ deleted: boolean; id: string }>(
+        "DELETE",
+        `${galleriesBase(config)}/${encodeURIComponent(id)}`,
+        {
+          body: new TextEncoder().encode(JSON.stringify(opts)),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    },
+
+    async addGalleryItem(
+      id: string,
+      objectKey: string,
+      opts: AddGalleryItemOptions,
+    ): Promise<GalleryItem> {
+      return request<GalleryItem>(
+        "POST",
+        `${galleriesBase(config)}/${encodeURIComponent(id)}/items`,
+        {
+          body: new TextEncoder().encode(JSON.stringify({ objectKey, ...opts })),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     },
 
     async health(): Promise<HealthResult> {

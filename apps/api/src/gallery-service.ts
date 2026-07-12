@@ -40,6 +40,7 @@ export interface PublicGalleryItemDto {
 }
 export interface GalleryDto {
   id: string;
+  url: string;
   workspace: string;
   title: string;
   description: string | null;
@@ -52,6 +53,7 @@ export interface GalleryDto {
 }
 export interface GallerySummaryDto {
   id: string;
+  url: string;
   workspace: string;
   title: string;
   description: string | null;
@@ -231,9 +233,18 @@ export async function hydrateGalleryItems(
   });
 }
 
-export function gallerySummary(record: GalleryRecord): GallerySummaryDto {
+export function galleryUrl(env: Env, id: string): string {
+  return (
+    (env.WEB_ORIGIN.endsWith("/") ? env.WEB_ORIGIN.slice(0, -1) : env.WEB_ORIGIN) +
+    "/g/" +
+    encodeURIComponent(id)
+  );
+}
+
+export function gallerySummary(env: Env, record: GalleryRecord): GallerySummaryDto {
   return {
     id: record.id,
+    url: galleryUrl(env, record.id),
     workspace: record.workspace,
     title: record.title,
     description: record.description,
@@ -253,6 +264,7 @@ export async function hydrateOwnerGallery(
 ): Promise<GalleryDto> {
   return {
     id: record.id,
+    url: galleryUrl(env, record.id),
     workspace: record.workspace,
     title: record.title,
     description: record.description,

@@ -19,6 +19,7 @@ import {
   runUsage,
   runReconcile,
   runPurgeExpired,
+  runGallery,
   type CliContext,
 } from "./commands.js";
 import { runConfig } from "./commands/config.js";
@@ -55,6 +56,7 @@ Other globals (before command):
 Commands:
   attach <file...>     Attach media to the current PR (stable URLs + managed comment)
   put <file>          Upload (+ URL + markdown for GitHub)
+  gallery             Create and organize public media galleries
   comment             Create/update a PR/issue attachments comment (via gh)
   list                List objects
   delete <key>        Delete object
@@ -79,6 +81,7 @@ Examples:
   uploads setup --token up_default_… --repo myorg/myapp
   uploads attach ./before.png ./after.png
   uploads put ./shot.png --ref 42
+  uploads gallery create --title "Release screenshots"
   uploads doctor
 
 Agent/MCP: \`uploads install\` sets up the agent skill and the hosted MCP server
@@ -191,6 +194,7 @@ export async function runCli(argv: string[]): Promise<number> {
         return runInstall(cmdArgs, { globals: parsed.globals, json }, showHelp);
       case "attach":
       case "put":
+      case "gallery":
       case "list":
       case "delete":
       case "usage":
@@ -204,6 +208,8 @@ export async function runCli(argv: string[]): Promise<number> {
             return runAttach(ctx, cmdArgs, showHelp);
           case "put":
             return runPut(ctx, cmdArgs, showHelp);
+          case "gallery":
+            return runGallery(ctx, cmdArgs, showHelp);
           case "comment":
             return runComment(ctx, cmdArgs, showHelp);
           case "list":
