@@ -3,9 +3,13 @@
   "configurations": [
     {
       "name": "web",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev:web"],
-      "port": 4321
+      "runtimeExecutable": "zsh",
+      "runtimeArgs": [
+        "-c",
+        "export NVM_DIR=\"${NVM_DIR:-$HOME/.nvm}\"; [ -s \"$NVM_DIR/nvm.sh\" ] && . \"$NVM_DIR/nvm.sh\" && nvm use --silent; pnpm --filter @uploads/web exec astro dev --port ${PORT:-4321}"
+      ],
+      "port": 4321,
+      "autoPort": true
     },
     {
       "name": "web-preview",
