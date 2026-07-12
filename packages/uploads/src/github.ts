@@ -98,8 +98,8 @@ export interface GalleryCommentItem {
   title: string;
   /** Canonical URL returned by the API; callers must not synthesize it. */
   url: string;
-  /** A bounded set of available images, all of which link back to the gallery. */
-  previews?: { url: string; alt: string }[];
+  /** A bounded set of available images; each links to its item page when known, else the gallery. */
+  previews?: { url: string; alt: string; itemUrl?: string }[];
 }
 
 /** Default max width for images in the managed attachments comment (HTML img). */
@@ -154,8 +154,9 @@ export function attachmentsCommentBody(
       const href = escapeHtmlAttr(gallery.url);
       lines.push(`#### <a href="${href}">${escapeHtmlText(gallery.title)}</a>`);
       for (const preview of gallery.previews ?? []) {
+        const previewHref = preview.itemUrl ? escapeHtmlAttr(preview.itemUrl) : href;
         lines.push(
-          `<a href="${href}"><img width="320" alt="${escapeHtmlAttr(preview.alt)}" src="${escapeHtmlAttr(preview.url)}"></a>`,
+          `<a href="${previewHref}"><img width="320" alt="${escapeHtmlAttr(preview.alt)}" src="${escapeHtmlAttr(preview.url)}"></a>`,
         );
       }
       lines.push(`<sub><a href="${href}">Open gallery</a></sub>`, "");

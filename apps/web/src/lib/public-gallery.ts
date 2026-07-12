@@ -9,6 +9,13 @@ export interface PublicGalleryItem {
   contentType: string | null;
 }
 
+export interface PublicGalleryReference {
+  provider: string;
+  resourceType: string;
+  coordinate: string;
+  canonicalUrl: string | null;
+}
+
 export interface PublicGallery {
   id: string;
   title: string;
@@ -19,12 +26,49 @@ export interface PublicGallery {
   createdAt: string;
   updatedAt: string;
   items: PublicGalleryItem[];
+  references: PublicGalleryReference[];
 }
 
 export type GalleryFetchResult =
   | { status: "ok"; gallery: PublicGallery }
   | { status: "not_found" }
   | { status: "unavailable" };
+
+export type MediaKind = "image" | "video" | "file" | "unsupported" | "missing";
+
+const imageTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"]);
+const videoTypes = new Set(["video/mp4", "video/webm"]);
+
+export function mediaKind(item: PublicGalleryItem): MediaKind {
+  if (item.status === "missing") return "missing";
+  if (imageTypes.has(item.contentType ?? "")) return "image";
+  if (videoTypes.has(item.contentType ?? "")) return "video";
+  if (item.contentType === "image/svg+xml") return "unsupported";
+  return "file";
+}
+
+export function galleryPath(galleryId: string): string {
+  return `/g/${encodeURIComponent(galleryId)}`;
+}
+
+export function galleryItemPath(galleryId: string, itemId: string): string {
+  return `${galleryPath(galleryId)}/${encodeURIComponent(itemId)}`;
+}
+
+/** Shared security posture for the public gallery pages: strict CSP, noindex, no-store. */
+export function applyPublicGalleryHeaders(headers: Headers): void {
+  headers.set(
+    "Content-Security-Policy",
+    "default-src 'none'; img-src https: data:; media-src https:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'",
+  );
+  headers.set("Referrer-Policy", "no-referrer");
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Frame-Options", "DENY");
+  headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+  headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  headers.set("Cache-Control", "no-store");
+}
 
 function text(value: unknown, max: number): value is string {
   if (typeof value !== "string" || value.length > max) return false;
@@ -69,6 +113,22 @@ export function isPublicGallery(value: unknown): value is PublicGallery {
     gallery.items.length > 100
   )
     return false;
+
+  // Older API deployments omit references; fetchPublicGallery normalizes to [].
+  if (gallery.references !== undefined) {
+    if (!Array.isArray(gallery.references) || gallery.references.length > 20) return false;
+    const referencesValid = gallery.references.every((entry) => {
+      if (typeof entry !== "object" || entry === null) return false;
+      const reference = entry as Record<string, unknown>;
+      return (
+        text(reference.provider, 40) &&
+        text(reference.resourceType, 40) &&
+        text(reference.coordinate, 200) &&
+        safeUrl(reference.canonicalUrl)
+      );
+    });
+    if (!referencesValid) return false;
+  }
 
   return gallery.items.every((entry) => {
     if (typeof entry !== "object" || entry === null) return false;
@@ -121,7 +181,9 @@ export async function fetchPublicGallery(
     if (response.status === 404) return { status: "not_found" };
     if (!response.ok) return { status: "unavailable" };
     const value: unknown = await response.json();
-    return isPublicGallery(value) ? { status: "ok", gallery: value } : { status: "unavailable" };
+    return isPublicGallery(value)
+      ? { status: "ok", gallery: { ...value, references: value.references ?? [] } }
+      : { status: "unavailable" };
   } catch {
     return { status: "unavailable" };
   } finally {

@@ -25,6 +25,7 @@ export interface GalleryItemDto {
   createdAt: string;
   status: "available" | "missing";
   url: string | null;
+  pageUrl: string;
   contentType: string | null;
   size: number | null;
 }
@@ -63,7 +64,16 @@ export interface GallerySummaryDto {
   createdAt: string;
   updatedAt: string;
 }
-export type PublicGalleryDto = PublicGallery & { items: PublicGalleryItemDto[] };
+export type PublicGalleryDto = PublicGallery & {
+  items: PublicGalleryItemDto[];
+  references: PublicGalleryReferenceDto[];
+};
+export interface PublicGalleryReferenceDto {
+  provider: string;
+  resourceType: string;
+  coordinate: string;
+  canonicalUrl: string | null;
+}
 export interface ExternalReferenceDto {
   id: string;
   provider: string;
@@ -73,19 +83,34 @@ export interface ExternalReferenceDto {
   createdAt: string;
 }
 
-export function referenceDto(record: GalleryExternalReferenceRecord): ExternalReferenceDto {
+function referenceCoordinate(record: GalleryExternalReferenceRecord): string {
   const locator = JSON.parse(record.locator_json) as {
     owner: string;
     repository: string;
     number: number;
   };
+  return `${locator.owner}/${locator.repository}#${locator.number}`;
+}
+
+export function referenceDto(record: GalleryExternalReferenceRecord): ExternalReferenceDto {
   return {
     id: record.id,
     provider: record.provider,
     resourceType: record.resource_type,
-    coordinate: `${locator.owner}/${locator.repository}#${locator.number}`,
+    coordinate: referenceCoordinate(record),
     canonicalUrl: record.canonical_url,
     createdAt: record.created_at,
+  };
+}
+
+export function publicReferenceDto(
+  record: GalleryExternalReferenceRecord,
+): PublicGalleryReferenceDto {
+  return {
+    provider: record.provider,
+    resourceType: record.resource_type,
+    coordinate: referenceCoordinate(record),
+    canonicalUrl: record.canonical_url,
   };
 }
 
@@ -190,7 +215,7 @@ export async function hydrateGalleryItems(
   env: Env,
   workspace: WorkspaceRecord,
   items: GalleryItemRecord[],
-): Promise<GalleryItemDto[]> {
+): Promise<Omit<GalleryItemDto, "pageUrl">[]> {
   let store: Awaited<ReturnType<typeof storage>>;
   let config: Awaited<ReturnType<typeof storageConfig>>;
   try {
@@ -241,6 +266,10 @@ export function galleryUrl(env: Env, id: string): string {
   );
 }
 
+export function galleryItemUrl(env: Env, galleryId: string, itemId: string): string {
+  return galleryUrl(env, galleryId) + "/" + encodeURIComponent(itemId);
+}
+
 export function gallerySummary(env: Env, record: GalleryRecord): GallerySummaryDto {
   return {
     id: record.id,
@@ -273,7 +302,10 @@ export async function hydrateOwnerGallery(
     version: record.version,
     createdAt: record.created_at,
     updatedAt: record.updated_at,
-    items: await hydrateGalleryItems(env, workspace, items),
+    items: (await hydrateGalleryItems(env, workspace, items)).map((item) => ({
+      ...item,
+      pageUrl: galleryItemUrl(env, record.id, item.id),
+    })),
   };
 }
 
@@ -282,6 +314,7 @@ export async function hydratePublicGallery(
   workspace: WorkspaceRecord,
   record: GalleryRecord,
   items: GalleryItemRecord[],
+  references: GalleryExternalReferenceRecord[] = [],
 ): Promise<PublicGalleryDto> {
   const hydrated = await hydrateGalleryItems(env, workspace, items);
   return {
@@ -296,5 +329,6 @@ export async function hydratePublicGallery(
       url: item.url,
       contentType: item.contentType,
     })),
+    references: references.map(publicReferenceDto),
   };
 }

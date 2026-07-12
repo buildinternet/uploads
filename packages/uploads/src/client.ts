@@ -75,6 +75,8 @@ export interface GalleryItem {
   createdAt: string;
   status: "available" | "missing";
   url: string | null;
+  /** Standalone web page for this item (gallery URL + item id). Absent on older API deployments. */
+  pageUrl?: string;
   contentType: string | null;
   size: number | null;
 }

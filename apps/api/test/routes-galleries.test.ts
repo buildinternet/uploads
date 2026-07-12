@@ -524,6 +524,28 @@ describe("gallery routes with SQLite D1", () => {
       }),
     });
     expect(newAlias.status).toBe(201);
+
+    const publicView = await app.request(`/public/galleries/${gallery.id}`, {}, env);
+    expect(publicView.status).toBe(200);
+    const publicBody = (await publicView.json()) as { references: Record<string, unknown>[] };
+    expect(publicBody.references).toHaveLength(2);
+    expect(publicBody.references).toEqual(
+      expect.arrayContaining([
+        {
+          provider: "github",
+          resourceType: "item",
+          coordinate: "buildinternet/uploads#123",
+          canonicalUrl: "https://github.com/buildinternet/uploads/issues/123",
+        },
+        {
+          provider: "github",
+          resourceType: "item",
+          coordinate: "buildinternet/new-uploads#123",
+          canonicalUrl: "https://github.com/buildinternet/new-uploads/issues/123",
+        },
+      ]),
+    );
+
     const secondGallery = await create();
     expect(
       (
