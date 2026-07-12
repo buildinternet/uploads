@@ -106,6 +106,7 @@
     "**/*.d.ts",
     "packages/*/dist/**",
     "apps/api/scripts/**",
-    ".superpowers/**"
+    ".superpowers/**",
+    ".worktrees/**"
   ]
 }
