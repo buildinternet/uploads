@@ -13,23 +13,23 @@ const FAVICON =
 const FAQ = [
 	{
 		q: "Why can't my agent upload images to GitHub directly?",
-		a: "GitHub's built-in image hosting (github.com/user-attachments) only works from an authenticated browser session — you drag a file into the comment box. There is no gh CLI command or REST API endpoint for it, so agents, scripts, and CI jobs can't use it. Any image in a comment they write must already be hosted at a public URL.",
+		a: "GitHub's own image hosting (github.com/user-attachments) only works when you drag a file into the comment box in a signed-in browser. There is no gh command or API for it. So any image an agent puts in a comment must already live at a public URL.",
 	},
 	{
 		q: "Do the image URLs change when I re-upload a screenshot?",
-		a: "No. PR and issue attachments get stable, hash-free keys like gh/owner/repo/pull/123/shot.webp. Re-uploading the same filename overwrites in place, and every embed of that URL shows the new image within about a minute.",
+		a: "No. PR and issue attachments get stable keys like gh/owner/repo/pull/123/shot.webp. Upload the same filename again and every embed shows the new image within about a minute.",
 	},
 	{
 		q: "Can agents upload video to GitHub pull requests?",
-		a: "Yes — MP4, WebM, and other binaries upload unchanged and get a stable public URL. GitHub only inline-plays video hosted on its own CDN, so the managed attachments comment links the file instead of embedding a player; reviewers click through to watch.",
+		a: "Yes. MP4, WebM, and other files upload as-is and get a stable public URL. GitHub only plays videos it hosts itself, so the comment links the file instead of embedding a player.",
 	},
 	{
 		q: "How do I set up Claude Code to attach screenshots to its pull requests?",
-		a: "Run `uploads install` once. It installs the uploads-cli agent skill (which teaches the agent when to attach before/after screenshots) and registers the hosted MCP server with Claude Code. After that, the agent runs `uploads attach <files>` on its own when it changes something visual.",
+		a: "Run `uploads install` once. It installs the uploads-cli agent skill and registers the hosted MCP server with Claude Code. After that, the agent runs `uploads attach <files>` on its own when it changes something visual.",
 	},
 	{
 		q: "Are uploaded files private?",
-		a: "No — hosted files are public to anyone with the URL, including media attached to private repositories. Don't upload secrets or sensitive UI. Uploading requires an invitation-issued workspace token.",
+		a: "No. Files are public to anyone with the URL — even media attached to private repos. Don't upload secrets or sensitive UI. Uploading itself requires an invite-issued workspace token.",
 	},
 ];
 
@@ -213,12 +213,11 @@ const FAQ_JSON_LD = JSON.stringify({
       .block pre { margin: 0; white-space: pre; }
 
       .note {
-        border-left: 3px solid var(--accent);
-        padding: 2px 0 2px 14px;
-        margin: 16px 0;
+        margin: 20px 0 0;
         color: var(--muted);
         font-size: 14px;
       }
+      .note a { color: var(--muted); }
 
       /* faq */
       .faq dt { color: var(--fg); font-weight: 600; margin-top: 18px; }
@@ -261,24 +260,23 @@ const FAQ_JSON_LD = JSON.stringify({
       <section id="problem">
         <h2>The problem: no drag-and-drop from a terminal</h2>
         <p>
-          When <em>you</em> put a screenshot on a pull request, you drag the file into the
-          comment box and GitHub hosts it at <code>github.com/user-attachments/…</code>. That
-          hosting is only reachable from an <strong>authenticated browser session</strong> —
-          there is no <code>gh</code> CLI command and no REST API endpoint for it.
+          You put a screenshot on a pull request by dragging the file into the comment box.
+          GitHub then hosts it at <code>github.com/user-attachments/…</code>. That only works
+          in a signed-in browser. There is no <code>gh</code> command and no API for it.
         </p>
         <p>
-          So a coding agent that just changed your UI has no way to show its work. The usual
-          workarounds all hurt:
+          So an agent that just changed your UI can't show its work. The usual workarounds
+          all hurt:
         </p>
         <ul>
-          <li><strong>Committing images to the repo</strong> bloats history forever for a screenshot that matters for one review.</li>
-          <li><strong>Generic image hosts</strong> hand back random URLs, expire links, or need a browser to upload.</li>
-          <li><strong>Hand-rolled S3/R2 scripts</strong> work — until you want stable URLs, optimization, comment management, and every agent repo carries its own copy.</li>
+          <li><strong>Committing images to the repo</strong> bloats it forever, for a screenshot that matters once.</li>
+          <li><strong>Random image hosts</strong> give you random URLs, expiring links, or need a browser anyway.</li>
+          <li><strong>A hand-rolled S3 script</strong> works — until you want stable URLs, image optimization, and comment cleanup.</li>
         </ul>
         <p>
-          The fix is a URL the agent can mint itself: host the file somewhere public and
-          stable, then write ordinary Markdown. That's what&#32;
-          <a href="/">uploads.sh</a> does, plus the GitHub-shaped parts around it.
+          The fix: host the file at a public URL the agent can create itself, then write
+          plain Markdown. That's what&#32;
+          <a href="/">uploads.sh</a> does.
         </p>
       </section>
 
@@ -293,32 +291,31 @@ const FAQ_JSON_LD = JSON.stringify({
           <button type="button" data-copy="uploads login">copy</button>
         </div>
         <p>
-          <code>uploads login</code> exchanges an invitation code for a workspace token and
-          saves it, so this is a one-time step per machine. Access is currently by invitation —
-          ask via <a href={REPO}>the GitHub repo</a>. Verify with <code>uploads doctor</code>.
+          <code>uploads login</code> trades an invite code for a workspace token and saves it.
+          You do this once per machine. Access is invite-only for now — ask via&#32;
+          <a href={REPO}>the GitHub repo</a>. Check your setup with <code>uploads doctor</code>.
         </p>
       </section>
 
       <section id="agents">
         <h2>Step 2 — teach your agent</h2>
-        <p>One command sets up both integration points for Claude Code:</p>
+        <p>One command sets up Claude Code:</p>
         <div class="cmd">
           <span class="text">uploads install</span>
           <button type="button" data-copy="uploads install">copy</button>
         </div>
         <ul>
           <li>
-            The <strong>agent skill</strong> teaches the agent when to reach for the CLI —
-            e.g. attaching before/after screenshots to the PR it just opened, or dropping a
-            repro GIF on an issue.
+            The <strong>agent skill</strong> teaches the agent when to attach screenshots —
+            like before/after shots on a PR it just opened.
           </li>
           <li>
-            The <strong>MCP server</strong> exposes the same operations
+            The <strong>MCP server</strong> offers the same tools
             (<code>put</code>, <code>attach</code>, <code>list</code>, <code>delete</code>, …)
-            as tools, for runtimes that prefer MCP over shelling out.
+            for runtimes that prefer MCP.
           </li>
         </ul>
-        <p>Or wire each piece up yourself, for other agent runtimes:</p>
+        <p>Or set up each piece yourself, for other agent runtimes:</p>
         <div class="cmd">
           <span class="text">npx skills add buildinternet/uploads --skill uploads-cli</span>
           <button type="button" data-copy="npx skills add buildinternet/uploads --skill uploads-cli">copy</button>
@@ -332,9 +329,9 @@ const FAQ_JSON_LD = JSON.stringify({
       <section id="attach">
         <h2>Step 3 — the agent attaches media with one command</h2>
         <p>
-          From a branch with an open pull request, <code>attach</code> needs nothing but the
-          files. It finds the PR via <code>gh</code>, uploads each file to a stable URL, and
-          creates or updates a single managed attachments comment:
+          From a branch with an open pull request, <code>attach</code> only needs the files.
+          It finds the PR through <code>gh</code>, uploads each file to a stable URL, and
+          keeps one managed comment:
         </p>
         <div class="cmd">
           <span class="text">uploads attach ./before.png ./after.png</span>
@@ -351,7 +348,7 @@ URL: <span class="v">https://storage.uploads.sh/gh/you/app/pull/123/after.webp</
 MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp)
 <span class="ok">&gt;&gt; attachments comment updated</span></pre>
         </div>
-        <p>Not on a PR branch, or targeting something else? Say so explicitly:</p>
+        <p>Not on a PR branch? Point it somewhere:</p>
         <div class="cmd">
           <span class="text">uploads attach ./repro.gif --issue 45</span>
           <button type="button" data-copy="uploads attach ./repro.gif --issue 45">copy</button>
@@ -361,41 +358,37 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
           <button type="button" data-copy="uploads attach ./shot.png --repo owner/name --pr 123">copy</button>
         </div>
         <p>
-          Prefer to place the image yourself — in a PR description, review comment, or README?&#32;
-          <code>--no-comment</code> uploads and prints the URL and ready-to-paste Markdown
-          without touching any GitHub comment. <code>uploads put</code> gives full control over
-          naming and output format.
+          Want to place the image yourself — in a PR description or README?&#32;
+          <code>--no-comment</code> prints the URL and Markdown without posting anything.&#32;
+          <code>uploads put</code> gives full control over naming and output.
         </p>
         <h3>Why the URLs matter</h3>
         <p>
-          Attachments get <strong>hash-free, stable keys</strong> —
-          <code>gh/owner/repo/pull/123/shot.webp</code>. Re-upload the same filename after
-          addressing review feedback and the PR re-renders the new image at the same URL within
-          about a minute. No stale screenshots, no edit trail.
+          Attachments get <strong>stable keys</strong>, like&#32;
+          <code>gh/owner/repo/pull/123/shot.webp</code>. Upload the same filename again and
+          the PR shows the new image at the same URL within a minute. No stale screenshots.
         </p>
       </section>
 
       <section id="video">
         <h2>Video and everything else</h2>
         <p>
-          Screen recordings are often the clearest way for an agent to prove an interaction
-          works. MP4, WebM, GIFs, zips, logs — anything — upload unchanged:
+          A short screen recording is often the best proof that a change works. MP4, WebM,
+          GIFs, zips, logs — anything uploads as-is:
         </p>
         <div class="cmd">
           <span class="text">uploads attach ./demo.mp4 <span class="cm"># linked from the comment</span></span>
           <button type="button" data-copy="uploads attach ./demo.mp4">copy</button>
         </div>
         <p>
-          One honest caveat: GitHub only inline-plays video hosted on its own CDN, so external
-          video is <strong>linked, not embedded as a player</strong> — the managed comment lists
-          it as a click-through link with a stable URL. Animated GIFs embed inline like images.
+          One caveat: GitHub only plays videos it hosts itself. Outside video shows up as a&#32;
+          <strong>link, not a player</strong>. GIFs embed like images.
         </p>
         <p>
-          Still images are optimized by default — re-encoded to WebP with a capped long edge and&#32;
-          <strong>EXIF stripped</strong> so embeds load fast and leak nothing. Opt out per file
-          with <code>--no-optimize</code> or keep metadata with <code>--keep-exif</code>. And&#32;
-          <code>--frame phone|browser|iphone-16-pro</code> wraps raw simulator or viewport shots
-          in device chrome first.
+          Images are optimized by default: re-encoded to WebP, size capped, and&#32;
+          <strong>EXIF stripped</strong> so they load fast and leak nothing. Opt out with&#32;
+          <code>--no-optimize</code> or <code>--keep-exif</code>. Add device chrome with&#32;
+          <code>--frame phone|browser|iphone-16-pro</code>.
         </p>
       </section>
 
@@ -409,17 +402,16 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
             </>
           ))}
         </dl>
-        <div class="note">
-          More detail — every command, flag, and management operation — is in the&#32;
-          <a href="/docs">docs</a>. Agents can read <a href="/llms.txt">/llms.txt</a> for a
-          machine-friendly index. If this saved you a hand-rolled upload script,&#32;
+        <p class="note">
+          Every command and flag is in the <a href="/docs">docs</a>. Agents can read&#32;
+          <a href="/llms.txt">/llms.txt</a>. If this saved you a hand-rolled upload script,&#32;
           <a href={REPO}>a star on GitHub</a> helps others find it.
-        </div>
+        </p>
       </section>
 
       <footer>
-        uploads.sh · a <a href="https://buildinternet.com">Build Internet</a> project ·
-        <a href={REPO}>source</a> · <a href="/docs">docs</a> · <a href="/terms">terms</a> ·
+        uploads.sh · a <a href="https://buildinternet.com">Build Internet</a> project ·&#32;
+        <a href={REPO}>source</a> · <a href="/docs">docs</a> · <a href="/terms">terms</a> ·&#32;
         <a href="/privacy">privacy</a>
       </footer>
     </main>

@@ -315,13 +315,9 @@ const FAVICON =
 
       /* ---------- guide callout ---------- */
       .guide {
-        border: 1px solid var(--line);
-        border-left: 3px solid var(--accent);
-        border-radius: 8px;
-        background: var(--panel);
-        padding: 12px 14px;
         font: 13.5px/1.6 var(--sans);
-        color: var(--body);
+        color: var(--muted);
+        margin: 2px 2px 0;
       }
 
       /* ---------- install panel ---------- */
@@ -367,6 +363,12 @@ const FAVICON =
         outline: none;
       }
       .cmdrow button.done { color: var(--ok); border-color: var(--ok); }
+      .hero-install {
+        font-size: 14px;
+        margin-bottom: 2px;
+        border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+      }
+      .hero-install .cmdtext { font-weight: 500; }
       .install .foot { color: var(--muted); margin: 10px 2px 0; font-size: 12px; }
       .site-foot {
         color: var(--muted);
@@ -420,10 +422,16 @@ const FAVICON =
 
       <h1>Agents can put screenshots on pull requests now, too.</h1>
       <p class="lede">
-        GitHub's drag-and-drop image hosting doesn't work from a terminal — so agents ship
-        visual changes blind. uploads.sh fixes that with one command: <code>uploads attach</code>&#32;
-        hosts the file at a stable URL and keeps a single, tidy attachments comment on the PR.
+        You add a screenshot to GitHub by dragging it into the comment box. Agents can't.
+        uploads.sh gives them one command: <code>uploads attach</code>&#32;
+        hosts the file at a stable URL and keeps one tidy comment on the PR.
       </p>
+
+      <div class="cmdrow hero-install">
+        <span class="tag">install</span>
+        <span class="cmdtext">npm install -g @buildinternet/uploads</span>
+        <button type="button" data-copy="npm install -g @buildinternet/uploads">copy</button>
+      </div>
 
       <section class="terminal" aria-label="uploads.sh terminal">
         <div class="titlebar" aria-hidden="true">
@@ -496,50 +504,50 @@ const FAVICON =
           <div class="feature">
             <h3>one managed comment</h3>
             <p>
-              <code>attach</code> creates or updates a single attachments comment per PR or
-              issue. Re-run it all day — no trail of stale screenshot comments.
+              <code>attach</code> keeps a single attachments comment per PR or issue. Run it
+              again and the same comment updates — no comment spam.
             </p>
           </div>
           <div class="feature">
             <h3>stable, hash-free urls</h3>
             <p>
-              Keys like <code>gh/you/app/pull/123/shot.webp</code> mean re-uploading the same
-              filename updates every embed in place, within about a minute.
+              Keys like <code>gh/you/app/pull/123/shot.webp</code> never change. Re-upload the
+              same filename and every embed shows the new image in about a minute.
             </p>
           </div>
           <div class="feature">
             <h3>images optimized, video passed through</h3>
             <p>
-              Stills are re-encoded to WebP with EXIF stripped by default. MP4, WebM, GIFs, and
-              other binaries upload byte-for-byte.
+              Images are re-encoded to WebP with EXIF stripped. MP4, WebM, GIFs, and other
+              files upload as-is.
             </p>
           </div>
           <div class="feature">
             <h3>device frames</h3>
             <p>
               <code>--frame phone</code>, <code>browser</code>, or <code>iphone-16-pro</code>&#32;
-              wraps a raw screenshot in device chrome before optimizing.
+              puts a raw screenshot inside device chrome.
             </p>
           </div>
           <div class="feature">
             <h3>shareable galleries</h3>
             <p>
               Group uploads into a public gallery page at <code>uploads.sh/g/…</code> — one
-              link for a whole set of media, via the API.
+              link for a whole set of media (via the API).
             </p>
           </div>
           <div class="feature">
             <h3>workspaces</h3>
             <p>
-              Tenant-scoped tokens with storage caps, upload limits, key-prefix policy, and
-              optional retention. Nothing is shared between workspaces.
+              Each workspace gets its own tokens, storage caps, upload limits, and retention
+              rules. Nothing is shared between them.
             </p>
           </div>
         </div>
       </section>
 
       <p class="guide">
-        Setting up a coding agent to do this end to end? Read the guide:&#32;
+        Setting up an agent to do this end to end? Read the guide:&#32;
         <a href="/github-screenshots">how to get agents to upload screenshots &amp; video to GitHub</a>.
       </p>
 
