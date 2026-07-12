@@ -1,3 +1,5 @@
+import { CF_RUM_CONNECT_SRC, CF_RUM_SCRIPT_SRC, STYLE_SRC_SELF_AND_INLINE } from "./csp";
+
 export interface PublicGalleryItem {
   id: string;
   filename: string;
@@ -55,12 +57,29 @@ export function galleryItemPath(galleryId: string, itemId: string): string {
   return `${galleryPath(galleryId)}/${encodeURIComponent(itemId)}`;
 }
 
+/**
+ * Public gallery CSP.
+ *
+ * - style-src 'self' for Astro-extracted `/_astro/*.css` (not only 'unsafe-inline')
+ * - script/connect for Cloudflare Web Analytics (RUM) beacon injection
+ * - otherwise locked down: no default-src, no framing, no plugins
+ */
+export const PUBLIC_GALLERY_CSP = [
+  "default-src 'none'",
+  "img-src https: data:",
+  "media-src https:",
+  `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
+  `script-src ${CF_RUM_SCRIPT_SRC}`,
+  `connect-src ${CF_RUM_CONNECT_SRC}`,
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+].join("; ");
+
 /** Shared security posture for the public gallery pages: strict CSP, noindex, no-store. */
 export function applyPublicGalleryHeaders(headers: Headers): void {
-  headers.set(
-    "Content-Security-Policy",
-    "default-src 'none'; img-src https: data:; media-src https:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'",
-  );
+  headers.set("Content-Security-Policy", PUBLIC_GALLERY_CSP);
   headers.set("Referrer-Policy", "no-referrer");
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
