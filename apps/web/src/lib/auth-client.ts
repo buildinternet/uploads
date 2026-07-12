@@ -130,6 +130,33 @@ export async function getInvitation(origin: string, id: string): Promise<Invitat
   }
 }
 
+export interface OrganizationSummary {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt?: string;
+}
+
+/**
+ * GET /api/auth/organization/list — the signed-in user's organizations
+ * (Better Auth organization plugin). Returns [] on any failure — the
+ * /account page treats "no orgs" and "couldn't load" the same way visually,
+ * with copy that covers both.
+ */
+export async function listOrganizations(origin: string): Promise<OrganizationSummary[]> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/organization/list`, {
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const body = (await res.json().catch(() => null)) as OrganizationSummary[] | null;
+    return Array.isArray(body) ? body : [];
+  } catch {
+    return [];
+  }
+}
+
 export type AcceptInvitationResult = { ok: true } | { ok: false; status: number; code?: string };
 
 /**
