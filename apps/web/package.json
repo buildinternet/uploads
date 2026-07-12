@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
-    "preview": "astro preview",
+    "preview": "node scripts/preview-supervisor.mjs",
+    "preview:raw": "astro preview",
     "deploy": "pnpm run build && node --env-file-if-exists=../../.env node_modules/wrangler/bin/wrangler.js deploy",
     "types": "wrangler types",
     "typecheck": "wrangler types && astro check && tsc -p tsconfig.worker.json --noEmit",
