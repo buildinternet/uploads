@@ -174,6 +174,24 @@ uploads put ./shot.png --format markdown   # just the ![]()/<img> snippet
 uploads put ./shot.png --json              # {workspace,key,url,size,markdown}
 ```
 
+## Public media galleries
+
+Use galleries when several existing public uploads should be shared as one ordered collection.
+A gallery has an opaque, API-returned public URL; do not derive one in scripts. **Anyone who
+knows the URL can view the gallery and its media**. GitHub repository visibility does not make
+it private, and a gallery does not pin objects against retention.
+
+```bash
+uploads gallery create --title "Settings redesign"
+uploads gallery add gal_example screenshots/app/settings-before.webp screenshots/app/settings-after.webp
+uploads put ./after.png --gallery gal_example --alt "Updated settings page"
+uploads gallery show gal_example
+```
+
+`gallery add` processes keys sequentially so it obtains a current optimistic version before
+each mutation. With `--json`, its stable `added` and `failures` arrays make partial failures
+safe for agents to inspect. Deleting a gallery removes only its gallery record—not the objects.
+
 ## Embedding in a GitHub PR or issue
 
 Two ways, depending on whether you want a durable URL, a managed comment, or both.

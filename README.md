@@ -88,6 +88,21 @@ uploads put ./shot.png --repo myorg/myapp --ref 1722 --width 700
 uploads put ./mobile.png --frame phone
 ```
 
+### Public galleries
+
+Galleries are ordered collections of existing workspace uploads with an opaque public URL.
+Create one and add uploads with the installed CLI:
+
+```bash
+uploads gallery create --title "Release screenshots"
+uploads put ./after.png --gallery gal_example
+uploads gallery show gal_example
+```
+
+> **Privacy:** A gallery is public to anyone with its URL; it does not inherit GitHub or
+> repository visibility. Removing or deleting a gallery does not delete its uploaded media or
+> exempt it from retention.
+
 ### GitHub embeds
 
 GitHub's native image hosting only works through a browser session — agents

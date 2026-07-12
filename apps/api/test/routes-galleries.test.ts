@@ -116,6 +116,7 @@ beforeEach(async () => {
   };
   env = {
     DB: new SQLiteD1(db) as unknown as D1Database,
+    WEB_ORIGIN: "https://uploads.test",
     REGISTRY: { get: async (key: string) => records[key.slice(3)] ?? null },
     UPLOADS_DEFAULT: bucket,
     WRITE_LIMITER: { limit: async () => ({ success: true }) },
@@ -154,6 +155,7 @@ describe("gallery routes with SQLite D1", () => {
   it("creates, reads, updates and isolates gallery ownership", async () => {
     const gallery = await create();
     expect(gallery.id).toMatch(/^gal_/);
+    expect((gallery as { url?: string }).url).toBe(`https://uploads.test/g/${gallery.id}`);
     expect((await request(`/v1/alpha/galleries/${gallery.id}`)).status).toBe(200);
     expect((await request(`/v1/beta/galleries/${gallery.id}`)).status).toBe(404);
     const updated = await request(`/v1/alpha/galleries/${gallery.id}`, {

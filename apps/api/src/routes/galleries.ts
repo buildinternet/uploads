@@ -74,7 +74,7 @@ export const galleries = new Hono<WorkspaceVars>()
       limit,
       cursor: decodeGalleryCursor(c.req.query("cursor")),
     });
-    const result = page.galleries.map(gallerySummary);
+    const result = page.galleries.map((gallery) => gallerySummary(c.env, gallery));
     return c.json({
       galleries: result,
       nextCursor: page.nextCursor ? encodeGalleryCursor(page.nextCursor) : null,
@@ -95,7 +95,7 @@ export const galleries = new Hono<WorkspaceVars>()
       { limit, cursor: decodeGalleryCursor(c.req.query("cursor")) },
     );
     return c.json({
-      galleries: page.galleries.map(gallerySummary),
+      galleries: page.galleries.map((gallery) => gallerySummary(c.env, gallery)),
       nextCursor: page.nextCursor ? encodeGalleryCursor(page.nextCursor) : null,
     });
   })
