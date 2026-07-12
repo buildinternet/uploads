@@ -29,7 +29,16 @@ export type SendAuthEmailEnv = {
 
 export type MagicLinkContext = { url: string };
 
-export type SendAuthEmailArgs = { to: string; template: "magic-link"; context: MagicLinkContext };
+/** Phase 3: `organization` plugin's `sendInvitationEmail` context (src/auth.ts). */
+export type InvitationContext = {
+  url: string;
+  organizationName: string;
+  inviterEmail: string;
+};
+
+export type SendAuthEmailArgs =
+  | { to: string; template: "magic-link"; context: MagicLinkContext }
+  | { to: string; template: "invitation"; context: InvitationContext };
 
 function isDev(env: SendAuthEmailEnv): boolean {
   return env.ENVIRONMENT !== "production";
@@ -46,10 +55,23 @@ function renderMagicLink(context: MagicLinkContext): {
   return { subject, text, html };
 }
 
+function renderInvitation(context: InvitationContext): {
+  subject: string;
+  text: string;
+  html: string;
+} {
+  const subject = `You've been invited to ${context.organizationName} on uploads.sh`;
+  const text = `${context.inviterEmail} invited you to join ${context.organizationName} on uploads.sh.\n\nAccept the invitation:\n\n${context.url}\n\nIf you weren't expecting this, you can ignore this email.`;
+  const html = `<p><strong>${context.inviterEmail}</strong> invited you to join <strong>${context.organizationName}</strong> on uploads.sh.</p><p><a href="${context.url}">Accept invitation</a></p><p>If you weren't expecting this, you can ignore this email.</p>`;
+  return { subject, text, html };
+}
+
 function render(args: SendAuthEmailArgs): { subject: string; text: string; html: string } {
   switch (args.template) {
     case "magic-link":
       return renderMagicLink(args.context);
+    case "invitation":
+      return renderInvitation(args.context);
   }
 }
 
