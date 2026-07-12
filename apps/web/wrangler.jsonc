@@ -5,6 +5,10 @@
   "main": "@astrojs/cloudflare/entrypoints/server",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "preview_urls": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+  },
   "vars": {
     "UPLOADS_API_ORIGIN": "https://api.uploads.sh",
   },
