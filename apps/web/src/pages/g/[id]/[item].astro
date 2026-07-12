@@ -62,7 +62,7 @@ const title = item && gallery ? `${item.filename} · ${gallery.title} · uploads
       .brand { color:var(--fg); text-decoration:none; } .brand span { color:var(--accent); }
       .public { color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:6px 11px; background:var(--panel); }
       .crumbs { margin-bottom:20px; color:var(--muted); font:13px var(--mono); overflow-wrap:anywhere; }
-      .stage { background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+      .stage { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
       .media { min-height:320px; max-height:78vh; background:var(--bg); display:grid; place-items:center; overflow:hidden; }
       img,video { max-width:100%; max-height:78vh; width:auto; height:auto; object-fit:contain; display:block; }
       .fallback { padding:60px 30px; text-align:center; color:var(--muted); font:13px/1.6 var(--mono); }
@@ -76,9 +76,9 @@ const title = item && gallery ? `${item.filename} · ${gallery.title} · uploads
       .pager { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:22px 0 0; font:13px var(--mono); }
       .pager a, .pager span.disabled { display:inline-block; padding:10px 16px; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--fg); text-decoration:none; }
       .pager a:hover, .pager a:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
-      .pager span.disabled { color:var(--muted); border-style:dashed; }
+      .pager span.disabled { color:var(--muted); }
       .count { color:var(--muted); }
-      .error { padding:70px 24px; border:1px dashed var(--line); border-radius:10px; text-align:center; background:var(--panel); color:var(--body); }
+      .error { padding:70px 24px; border:1px solid var(--line); border-radius:10px; text-align:center; background:var(--panel); color:var(--body); }
       .error code { color:var(--accent); font-family:var(--mono); }
       a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
       footer { margin-top:44px; color:var(--muted); font:12px/1.6 var(--mono); }

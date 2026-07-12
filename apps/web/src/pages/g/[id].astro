@@ -54,7 +54,7 @@ const itemPage = (item: PublicGalleryItem) => galleryItemPath(id, item.id);
       h1 { margin:10px 0 12px; font-size:clamp(1.7rem,4vw,2.4rem); font-weight:600; line-height:1.2; letter-spacing:-.015em; overflow-wrap:anywhere; }
       .desc { max-width:640px; color:var(--body); font-size:15px; line-height:1.65; white-space:pre-wrap; }
       .meta { display:flex; gap:16px; flex-wrap:wrap; margin-top:18px; color:var(--muted); font:12px var(--mono); }
-      .notice { margin:26px 0; padding:12px 16px; border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:8px; background:var(--panel); color:var(--body); font:13px/1.5 var(--mono); }
+      .notice { margin:22px 2px; color:var(--muted); font:13.5px/1.6 var(--sans); }
       .grid { display:grid; grid-template-columns:repeat(12,1fr); gap:14px; }
       figure { grid-column:span 6; margin:0; background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
       .media { min-height:260px; aspect-ratio:16/10; background:var(--bg); display:grid; place-items:center; overflow:hidden; }
@@ -68,7 +68,7 @@ const itemPage = (item: PublicGalleryItem) => galleryItemPath(id, item.id);
       .media-link { display:contents; }
       .original:hover, .original:focus-visible { color:var(--accent); outline:none; }
       .caption { margin-top:8px; color:var(--body); font-size:14px; line-height:1.5; white-space:pre-wrap; }
-      .empty,.error { padding:70px 24px; border:1px dashed var(--line); border-radius:10px; text-align:center; background:var(--panel); color:var(--body); }
+      .empty,.error { padding:70px 24px; border:1px solid var(--line); border-radius:10px; text-align:center; background:var(--panel); color:var(--body); }
       .empty code,.error code { color:var(--accent); font-family:var(--mono); }
       a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
       footer { margin-top:44px; color:var(--muted); font:12px/1.6 var(--mono); }
