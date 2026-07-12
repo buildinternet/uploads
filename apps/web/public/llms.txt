@@ -1,6 +1,6 @@
 # uploads.sh
 
-> File hosting for agents and humans — CLI, agent skill, and MCP server on Cloudflare Workers.
+> File hosting for agents and humans — hosted CLI, agent skill, and MCP server. Open source for self-hosting.
 
 Access is by invitation. Hosted files are public (including media attached to private repositories). Do not upload secrets or sensitive UI. APIs may change without notice while the project is in active development.
 
