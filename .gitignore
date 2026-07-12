@@ -3,11 +3,21 @@ dist/
 .astro/
 .wrangler/
 .dev.vars
+.dev.vars.*
+!.dev.vars.example
 .env
+.env.*
+!.env.example
 *.local
 .DS_Store
+Thumbs.db
 worker-configuration.d.ts
+*.log
+pnpm-debug.log*
+coverage/
 .impeccable/
 # Local agent notes, private plans, pricing scratch (not for the public repo)
 .context/
+.superpowers/
 .claude/worktrees/
+.worktrees/
