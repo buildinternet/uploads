@@ -93,6 +93,21 @@ const FAVICON =
       }
       a:hover, a:focus-visible { color: var(--accent); outline: none; }
       code { color: var(--fg); }
+      .admin {
+        display: grid;
+        gap: 16px;
+        margin-top: 16px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+      }
+      .sect-head {
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        margin: 0;
+      }
+      [hidden] { display: none !important; }
     </style>
   </head>
   <body>
@@ -121,6 +136,26 @@ const FAVICON =
         <button type="button" id="btn-reconcile">Reconcile</button>
       </div>
       <pre id="out">Ready.</pre>
+
+      <section class="admin" aria-label="Invites">
+        <p class="sect-head"># invites — admin token required</p>
+        <p class="muted">
+          Creates a single-use enrollment code for the workspace above and prints the
+          magic link. Uses the token field as the admin bearer token.
+        </p>
+        <label>
+          Email invite to (optional)
+          <input id="invite-email" type="email" placeholder="them@example.com" autocomplete="off" />
+        </label>
+        <label>
+          Label (optional)
+          <input id="invite-label" type="text" placeholder="who or what this invite is for" autocomplete="off" />
+        </label>
+        <div class="row">
+          <button type="button" id="btn-invite">Create invite</button>
+          <button type="button" id="btn-invite-copy" hidden>Copy invite link</button>
+        </div>
+      </section>
     </main>
     <script>
       function el<T extends HTMLElement>(id: string): T {
@@ -161,6 +196,59 @@ const FAVICON =
       el<HTMLButtonElement>("btn-usage").onclick = () => call("/usage");
       el<HTMLButtonElement>("btn-list").onclick = () => call("/files?limit=50");
       el<HTMLButtonElement>("btn-reconcile").onclick = () => call("/usage/reconcile", "POST");
+
+      // Invite creation hits the admin API (POST /admin/enrollments) with the token
+      // field as the admin bearer token. The one-time code is shown once, here only.
+      const copyBtn = el<HTMLButtonElement>("btn-invite-copy");
+      let inviteLink = "";
+      el<HTMLButtonElement>("btn-invite").onclick = async () => {
+        const { api, ws, token } = cfg();
+        if (!token) {
+          out.textContent = "Paste the admin token into the token field first.";
+          return;
+        }
+        copyBtn.hidden = true;
+        out.textContent = "…";
+        const email = el<HTMLInputElement>("invite-email").value.trim();
+        const label = el<HTMLInputElement>("invite-label").value.trim();
+        try {
+          const res = await fetch(`${api}/admin/enrollments`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              workspace: ws || "default",
+              ...(email ? { email } : {}),
+              ...(label ? { label } : {}),
+            }),
+          });
+          const body = (await res.json().catch(() => null)) as {
+            pageId?: string;
+            code?: string;
+            expiresAt?: string;
+            emailed?: boolean;
+            error?: string;
+            message?: string;
+          } | null;
+          if (!res.ok || !body?.pageId || !body.code) {
+            out.textContent = `HTTP ${res.status}\n${JSON.stringify(body, null, 2)}`;
+            return;
+          }
+          inviteLink = `${location.origin}/invite?id=${encodeURIComponent(body.pageId)}#code=${encodeURIComponent(body.code)}`;
+          const emailedNote =
+            body.emailed === undefined ? "" : body.emailed ? `\nemailed:  ${email}` : "\nemailed:  send FAILED — share the link yourself";
+          out.textContent =
+            `Invite created for "${ws || "default"}" — the link below is shown once. Treat it like a password.\n\n` +
+            `${inviteLink}\n\nexpires:  ${body.expiresAt ?? "?"}${emailedNote}`;
+          copyBtn.hidden = false;
+        } catch (e) {
+          out.textContent = String(e);
+        }
+      };
+      copyBtn.onclick = async () => {
+        await navigator.clipboard.writeText(inviteLink);
+        copyBtn.textContent = "copied ✓";
+        setTimeout(() => (copyBtn.textContent = "Copy invite link"), 1500);
+      };
     </script>
   </body>
 </html>
