@@ -113,6 +113,20 @@ export function workspaceNameFromToken(token: string): string | undefined {
  * from the path for the REST API, or from the token itself for endpoints
  * without a workspace segment (the remote MCP worker's `/mcp`).
  */
+/**
+ * Loads a workspace record from the REGISTRY KV (`ws:<name>`), or null for an
+ * unknown/malformed name. The single source of truth for that lookup —
+ * `workspaceAuthWith` below and `src/routes/me.ts` (session-authenticated
+ * usage surface) both go through this rather than duplicating the KV read.
+ */
+export async function loadWorkspaceRecord(
+  env: Env,
+  name: string | undefined,
+): Promise<WorkspaceRecord | null> {
+  if (!name || !WS_NAME_RE.test(name)) return null;
+  return env.REGISTRY.get<WorkspaceRecord>(`ws:${name}`, { type: "json", cacheTtl: 60 });
+}
+
 function workspaceAuthWith(
   nameOf: (c: Parameters<MiddlewareHandler<WorkspaceVars>>[0], token: string) => string | undefined,
 ): MiddlewareHandler<WorkspaceVars> {
@@ -120,10 +134,7 @@ function workspaceAuthWith(
     const token = bearerToken(c.req.header("Authorization"));
     const name = nameOf(c, token);
 
-    const record =
-      name && WS_NAME_RE.test(name)
-        ? await c.env.REGISTRY.get<WorkspaceRecord>(`ws:${name}`, { type: "json", cacheTtl: 60 })
-        : null;
+    const record = await loadWorkspaceRecord(c.env, name);
 
     const providedHash = await sha256Hex(token);
     const providedBytes = hexToBytes(providedHash);

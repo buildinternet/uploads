@@ -18,10 +18,14 @@ const authOrigin =
   env.UPLOADS_AUTH_ORIGIN ??
   import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ??
   "https://auth.uploads.sh";
+const apiOrigin =
+  env.UPLOADS_API_ORIGIN ??
+  import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ??
+  "https://api.uploads.sh";
 
 const csp = [
   "default-src 'none'",
-  `connect-src ${authOrigin} ${CF_RUM_CONNECT_SRC}`,
+  `connect-src ${authOrigin} ${apiOrigin} ${CF_RUM_CONNECT_SRC}`,
   `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
   `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
   "img-src data: https:",
@@ -81,8 +85,10 @@ const FAVICON =
     .kv dd{margin:0;color:var(--fg);word-break:break-word}
     ul.plain{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px}
     /* :global() so JS-injected <li>s (#orgs-list) match despite Astro's style scoping. */
-    ul.plain :global(li){display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-size:13px}
+    ul.plain :global(li){display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-size:13px}
+    ul.plain :global(.row){display:flex;justify-content:space-between;gap:10px}
     ul.plain :global(.slug){color:var(--muted)}
+    ul.plain :global(.usage){color:var(--muted);font-size:12px}
     .pill{display:inline-block;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);border:1px solid var(--line);border-radius:99px;padding:2px 9px;background:var(--bg)}
 
     @media (max-width:680px){
@@ -183,14 +189,20 @@ const FAVICON =
   </div>
 </div>
 
-<script define:vars={{ authOrigin }}>
+<script define:vars={{ authOrigin, apiOrigin }}>
   window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
+  window.__UPLOADS_API_ORIGIN__ = apiOrigin;
 </script>
 <script>
-  import { getSession, listOrganizations, signOut } from "../lib/auth-client";
+  import { getSession, signOut } from "../lib/auth-client";
+  import { getMyWorkspaces, getMyWorkspaceUsage } from "../lib/api-client";
 
-  const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
-    .__UPLOADS_AUTH_ORIGIN__;
+  const w = window as unknown as {
+    __UPLOADS_AUTH_ORIGIN__: string;
+    __UPLOADS_API_ORIGIN__: string;
+  };
+  const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
+  const apiOrigin = w.__UPLOADS_API_ORIGIN__;
 
   function requireElement<T extends Element>(selector: string): T {
     const element = document.querySelector<T>(selector);
@@ -219,6 +231,36 @@ const FAVICON =
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
     );
 
+  // Workspace names are already restricted to [a-z0-9-] on the API, but
+  // escape defensively for the attribute-selector lookup below regardless.
+  const cssEscape = (value: string) =>
+    typeof CSS !== "undefined" && CSS.escape ? CSS.escape(value) : value.replace(/["\\]/g, "\\$&");
+
+  function formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    const units = ["KB", "MB", "GB", "TB"];
+    let value = bytes / 1024;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit += 1;
+    }
+    return `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10} ${units[unit]}`;
+  }
+
+  function formatUsage(usage: {
+    bytes: number;
+    objects: number;
+    maxStorageBytes?: number;
+  }): string {
+    const used = formatBytes(usage.bytes);
+    const size = usage.maxStorageBytes
+      ? `${used} of ${formatBytes(usage.maxStorageBytes)}`
+      : used;
+    const objects = `${usage.objects} object${usage.objects === 1 ? "" : "s"}`;
+    return `${size} · ${objects}`;
+  }
+
   getSession(authOrigin).then(async (result) => {
     checking.hidden = true;
     if (!result) {
@@ -236,20 +278,38 @@ const FAVICON =
 
     const orgsStatus = requireElement<HTMLElement>("#orgs-status");
     const orgsList = requireElement<HTMLUListElement>("#orgs-list");
-    const orgs = await listOrganizations(authOrigin);
-    if (!orgs.length) {
+    const workspaces = await getMyWorkspaces(apiOrigin);
+    if (!workspaces.length) {
       orgsStatus.textContent =
         "No workspaces on this account yet — accept an invite to join one.";
       return;
     }
     orgsStatus.hidden = true;
     orgsList.hidden = false;
-    orgsList.innerHTML = orgs
+    orgsList.innerHTML = workspaces
       .map(
-        (org) =>
-          `<li><span>${escapeHtml(org.name)}</span><span class="slug">${escapeHtml(org.slug)}</span></li>`,
+        (ws) =>
+          `<li data-workspace="${escapeHtml(ws.workspace)}">
+            <div class="row">
+              <span>${escapeHtml(ws.organization.name)}</span>
+              <span class="slug">${escapeHtml(ws.role)}</span>
+            </div>
+            <div class="usage">Loading usage&#32;…</div>
+          </li>`,
       )
       .join("");
+
+    // Usage is fetched per workspace, after the list renders, so a slow or
+    // failing usage call for one workspace never blocks the others.
+    for (const ws of workspaces) {
+      const li = orgsList.querySelector<HTMLElement>(
+        `li[data-workspace="${cssEscape(ws.workspace)}"]`,
+      );
+      const usageEl = li?.querySelector<HTMLElement>(".usage");
+      if (!usageEl) continue;
+      const usage = await getMyWorkspaceUsage(apiOrigin, ws.workspace);
+      usageEl.textContent = usage ? formatUsage(usage) : "Usage unavailable.";
+    }
   });
 
   requireElement<HTMLButtonElement>("#sign-out-btn").addEventListener("click", async () => {
