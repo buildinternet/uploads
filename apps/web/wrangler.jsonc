@@ -13,6 +13,11 @@
   },
   "vars": {
     "UPLOADS_API_ORIGIN": "https://api.uploads.sh",
+    // Public origin of apps/auth (Phase 2, plan D6). Local dev default is
+    // http://127.0.0.1:8788 (apps/auth's pinned wrangler dev port — see
+    // apps/auth/wrangler.jsonc); override via .dev.vars for local dev, same
+    // pattern as WEB_ORIGIN in apps/auth/.dev.vars.example.
+    "UPLOADS_AUTH_ORIGIN": "https://auth.uploads.sh",
   },
   "assets": {
     "binding": "ASSETS",

@@ -8,7 +8,7 @@
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { betterAuth } from "better-auth";
 import { drizzle } from "drizzle-orm/d1";
-import { magicLink } from "better-auth/plugins";
+import { admin, magicLink } from "better-auth/plugins";
 import { sendAuthEmail } from "./email";
 import * as schema from "./schema";
 import { authTrustedOrigins, isTrustedOrigin } from "./trusted-origins";
@@ -89,6 +89,13 @@ function buildAuth(
         sendMagicLink: async ({ email, url }) => {
           await sendAuthEmail(env, { to: email, template: "magic-link", context: { url } });
         },
+      }),
+      // D3/D9: global user.role gate for the admin UI + internal promote route.
+      // No org-scoped access-control roles configured — that's the separate
+      // `organization` plugin's `member.role`, out of scope until Phase 3.
+      admin({
+        defaultRole: "user",
+        adminRoles: ["admin"],
       }),
     ],
     session: {

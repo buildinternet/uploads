@@ -42,6 +42,15 @@
       "migrations_dir": "migrations",
     },
   ],
+  // Service binding to apps/auth (Phase 2, plan D1): forwards Cookie/
+  // Authorization to GET /api/auth/get-session over the binding — no public
+  // hop, no CORS. See src/session-auth.ts.
+  "services": [
+    {
+      "binding": "AUTH",
+      "service": "uploads-auth",
+    },
+  ],
   // Rate limits use separate namespaces so public invite traffic cannot consume
   // a workspace's write quota. Both are per-colo rather than globally exact.
   "unsafe": {
