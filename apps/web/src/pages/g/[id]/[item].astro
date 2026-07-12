@@ -18,9 +18,7 @@ const origin =
   env.UPLOADS_API_ORIGIN ??
   import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ??
   "https://api.uploads.sh";
-const result = /^[A-Za-z0-9_-]{1,64}$/.test(itemId)
-  ? await fetchPublicGallery(id, { origin })
-  : ({ status: "not_found" } as const);
+const result = await fetchPublicGallery(id, { origin });
 
 applyPublicGalleryHeaders(Astro.response.headers);
 

@@ -150,14 +150,14 @@ edit. Partial reorder lists and unknown/duplicate item IDs are rejected.
 
 ## External references
 
-Issue #62 exposes external references only through authenticated owner and
-reverse-lookup APIs. Issue #60 resolved the public exposure model: the
+Issue #62 introduced external references through authenticated owner and
+reverse-lookup APIs. Issue #60 then resolved the public exposure model: the
 unauthenticated gallery response includes a provider-neutral `references`
 array (`provider`, `resourceType`, `coordinate`, `canonicalUrl`) so the public
 gallery and item pages can list connected work items. Reference ids, timestamps,
-and normalized keys stay private. Reverse lookup (coordinate → galleries)
-remains authenticated-only; discoverability still requires the opaque gallery
-URL. A future workspace-level control may let verified owners opt specific
+and normalized keys stay private. Reverse lookup (coordinate → galleries) is
+the part that remains authenticated-only; discoverability still requires the
+opaque gallery URL. A future workspace-level control may let verified owners opt specific
 repositories into public coordinate-path browsing (e.g. `/pr/owner/repo/123`);
 nothing in this contract should preclude that.
 
