@@ -150,8 +150,7 @@ let raw;
 try {
   raw = wranglerKv(["get", key]);
 } catch (err) {
-  const msg = err instanceof Error ? err.message : String(err);
-  if (msg.includes("timed out")) {
+  if (err?.timedOut) {
     fail(
       `wrangler kv get timed out for ${key} (${opts.local ? "local" : "remote"}) — ` +
         `kill orphaned wrangler if memory is climbing (see docs/ops.md#local-wrangler-gotchas)`,
@@ -240,15 +239,14 @@ for (const [field, value] of Object.entries(patch)) {
 try {
   wranglerKv(["put", key, JSON.stringify(record)]);
 } catch (err) {
-  const msg = err instanceof Error ? err.message : String(err);
-  if (msg.includes("timed out")) {
+  if (err?.timedOut) {
     fail(
       `wrangler kv put timed out for ${key} (${opts.local ? "local" : "remote"}) — ` +
         `limits NOT saved; kill orphaned wrangler if memory is climbing ` +
         `(see docs/ops.md#local-wrangler-gotchas)`,
     );
   }
-  fail(`wrangler kv put failed for ${key}: ${msg}`);
+  fail(`wrangler kv put failed for ${key}: ${err instanceof Error ? err.message : String(err)}`);
 }
 
 const after = {

@@ -44,9 +44,10 @@ export function runTimed(cmd, args, opts) {
       encoding: stdio === "inherit" ? undefined : encoding,
       env: env ?? process.env,
       cwd,
+      maxBuffer: 20 * 1024 * 1024,
     });
-    // GNU timeout exits 124 when the deadline fires.
-    const timedOut = r.status === 124;
+    // GNU timeout exits 124 on deadline, 137 (128+9) when --kill-after escalates to SIGKILL.
+    const timedOut = r.status === 124 || r.status === 137;
     return {
       status: r.status,
       signal: r.signal,
@@ -98,7 +99,12 @@ async function runDetachedGroup(cmd, args, { timeoutSec }) {
 
   const killGroup = (signal) => {
     try {
-      process.kill(-child.pid, signal);
+      if (process.platform === "win32") {
+        // No Unix process groups on Windows; taskkill /T kills the whole tree.
+        spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+      } else {
+        process.kill(-child.pid, signal);
+      }
     } catch {
       // group already gone
     }
@@ -123,7 +129,13 @@ async function runDetachedGroup(cmd, args, { timeoutSec }) {
 
   const [status, signal] = await new Promise((res) => {
     child.on("error", () => res([1, null]));
-    child.on("exit", (code, sig) => res([code, sig]));
+    child.on("exit", (code, sig) => {
+      // On the timeout path the child may die from SIGTERM while grandchildren
+      // linger, and the unref'd SIGKILL timer would die with this process —
+      // force-kill any group stragglers before resolving.
+      if (timedOut) killGroup("SIGKILL");
+      res([code, sig]);
+    });
   });
 
   clearTimeout(timer);
@@ -164,9 +176,12 @@ export function wranglerKvKey(opts) {
   });
 
   if (result.timedOut) {
-    throw new Error(
+    /** @type {Error & { timedOut?: boolean }} */
+    const err = new Error(
       `wrangler kv key ${op} timed out after ${timeoutSec}s (${local ? "local" : "remote"})`,
     );
+    err.timedOut = true;
+    throw err;
   }
   if (result.error) {
     throw result.error;

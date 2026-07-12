@@ -232,13 +232,25 @@ const appliedLimits = {
 };
 
 // Bound wall-clock: local miniflare can hang/orphan multi-GB after agent timeouts.
-wranglerKvKey({
-  op: "put",
-  key: `ws:${name}`,
-  value: JSON.stringify(record),
-  local: opts.local,
-  stdio: "inherit",
-});
+try {
+  wranglerKvKey({
+    op: "put",
+    key: `ws:${name}`,
+    value: JSON.stringify(record),
+    local: opts.local,
+    stdio: "inherit",
+  });
+} catch (err) {
+  if (err?.timedOut) {
+    console.error(
+      `error: wrangler kv put timed out for ws:${name} (${opts.local ? "local" : "remote"}) — ` +
+        `workspace NOT saved; kill orphaned wrangler if memory is climbing ` +
+        `(see docs/ops.md#local-wrangler-gotchas)`,
+    );
+    process.exit(1);
+  }
+  throw err;
+}
 
 console.log(`\nworkspace : ${name}${opts.local ? " (local)" : ""}`);
 console.log(`token     : ${token}`);
