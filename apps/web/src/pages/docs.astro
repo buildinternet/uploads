@@ -5,6 +5,8 @@
 import "@fontsource-variable/geist/index.css";
 import "@fontsource-variable/geist-mono/index.css";
 import AuthIndicator from "../components/AuthIndicator.astro";
+import Brand from "../components/Brand.astro";
+import Footer from "../components/Footer.astro";
 
 const REPO = "https://github.com/buildinternet/uploads";
 // Static page (no `prerender = false`) — auth origin is baked at build time,
@@ -72,13 +74,6 @@ const FAVICON =
       }
       main { width: min(720px, 100%); margin: 0 auto; }
       .doc-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-      .home {
-        color: var(--muted);
-        text-decoration: none;
-        font: 13px var(--mono);
-        letter-spacing: 0.04em;
-      }
-      .home:hover, .home:focus-visible { text-decoration: underline; outline: none; }
       h1 {
         font-size: clamp(26px, 5vw, 34px);
         font-weight: 600;
@@ -327,14 +322,6 @@ const FAVICON =
       }
       .note a { color: var(--muted); }
 
-      footer {
-        margin-top: 56px;
-        padding-top: 20px;
-        border-top: 1px solid var(--line);
-        color: var(--muted);
-        font: 12px var(--mono);
-      }
-      footer a { color: var(--muted); }
       /* Geist Mono merges " --" into a joined dash via calt - keep CLI flags literal.
          Declared last: the font shorthand in earlier rules resets feature settings. */
       code, pre, .cmd, .block, .screen, .cmdtext, .cmdrow, .terminal, .feature h3 {
@@ -346,7 +333,7 @@ const FAVICON =
   <body>
     <main>
       <div class="doc-top">
-        <a class="home" href="/">← uploads.sh</a>
+        <Brand />
         <AuthIndicator authOrigin={authOrigin} />
       </div>
       <h1>Docs</h1>
@@ -619,10 +606,7 @@ MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot
         </div>
       </section>
 
-      <footer>
-        uploads.sh · a <a href="https://buildinternet.com">Build Internet</a> project ·&#32;
-        <a href={REPO}>source</a> · <a href="/terms">terms</a> · <a href="/privacy">privacy</a>
-      </footer>
+      <Footer />
     </main>
 
     <script>

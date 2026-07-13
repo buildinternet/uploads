@@ -5,6 +5,8 @@
 // FAQ JSON-LD mirrors the on-page answers.
 import "@fontsource-variable/geist/index.css";
 import "@fontsource-variable/geist-mono/index.css";
+import Brand from "../components/Brand.astro";
+import Footer from "../components/Footer.astro";
 
 const REPO = "https://github.com/buildinternet/uploads";
 const FAVICON =
@@ -99,13 +101,6 @@ const FAQ_JSON_LD = JSON.stringify({
       }
       main { width: min(680px, 100%); margin: 0 auto; }
       .top { display: flex; align-items: center; gap: 12px; }
-      .home {
-        color: var(--muted);
-        text-decoration: none;
-        font: 13px var(--mono);
-        letter-spacing: 0.04em;
-      }
-      .home:hover, .home:focus-visible { color: var(--accent); outline: none; }
       .star-cta {
         margin-left: auto;
         display: inline-flex;
@@ -223,14 +218,6 @@ const FAQ_JSON_LD = JSON.stringify({
       .faq dt { color: var(--fg); font-weight: 600; margin-top: 18px; }
       .faq dd { margin: 6px 0 0; color: var(--body); }
 
-      footer {
-        margin-top: 56px;
-        padding-top: 20px;
-        border-top: 1px solid var(--line);
-        color: var(--muted);
-        font: 12px var(--mono);
-      }
-      footer a { color: var(--muted); }
       /* Geist Mono merges " --" into a joined dash via calt - keep CLI flags literal.
          Declared last: the font shorthand in earlier rules resets feature settings. */
       code, pre, .cmd, .block, .screen, .cmdtext, .cmdrow, .terminal, .feature h3 {
@@ -242,7 +229,7 @@ const FAQ_JSON_LD = JSON.stringify({
   <body>
     <main>
       <div class="top">
-        <a class="home" href="/">← uploads.sh</a>
+        <Brand />
         <a class="star-cta" href={REPO} aria-label="Star buildinternet/uploads on GitHub">
           <svg viewBox="0 0 16 16" aria-hidden="true">
             <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"></path>
@@ -409,11 +396,7 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
         </p>
       </section>
 
-      <footer>
-        uploads.sh · a <a href="https://buildinternet.com">Build Internet</a> project ·&#32;
-        <a href={REPO}>source</a> · <a href="/docs">docs</a> · <a href="/terms">terms</a> ·&#32;
-        <a href="/privacy">privacy</a>
-      </footer>
+      <Footer />
     </main>
 
     <script>
