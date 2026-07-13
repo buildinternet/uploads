@@ -493,18 +493,30 @@
   height: 13px;
   flex: none;
 }
+/* Reserved-height viewport: holds the list, loading/empty/error states, and
+   the busy overlay so navigating between folder levels never collapses the
+   browser to near-zero and re-expands. */
+.ul-files__viewport {
+  position: relative;
+  min-height: 116px;
+}
 .ul-files__list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 4px;
+  gap: 0;
 }
+/* Hairline-separated rows read as one list rather than a stack of chips. */
 .ul-files__list li {
   display: block;
   padding: 0;
   border: 0;
+  border-bottom: 1px solid var(--line);
   background: none;
+}
+.ul-files__list li:last-child {
+  border-bottom: 0;
 }
 .ul-files__row {
   width: 100%;
@@ -514,16 +526,33 @@
   text-align: left;
   font: 12.5px var(--mono);
   color: var(--fg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  padding: 6px 8px;
-  background: var(--bg);
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 7px 8px;
+  background: none;
   cursor: pointer;
 }
 .ul-files__row:hover,
 .ul-files__row:focus-visible {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
   outline: none;
+}
+/* Dim (don't clear) the current listing while the next level loads. */
+.ul-files__viewport[data-busy] .ul-files__list {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.ul-files__busy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.ul-files__busy svg {
+  width: 15px;
+  height: 15px;
 }
 .ul-files__row:disabled {
   cursor: default;
@@ -558,7 +587,11 @@
   color: var(--muted);
   font: 11px var(--mono);
 }
+/* Loading / empty / error states fill the reserved viewport so they neither
+   grow the container nor leave it collapsed. */
 .ul-files__state {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -81,15 +81,21 @@ export function FileBrowser({
   }, [load]);
 
   const navigate = (nextPrefix: string) => {
+    if (nextPrefix === prefix) return;
+    // Keep the current listing on screen while the next level loads. The
+    // requestGeneration bump discards any in-flight page from this level, and
+    // load() replaces folders/items wholesale on success — so we avoid the
+    // flash-of-empty (and the shrink-then-grow) that clearing state caused.
     requestGeneration.current++;
-    setFolders([]);
-    setItems([]);
-    setCursor(undefined);
     setHasError(false);
     setIsLoading(true);
     setPrefix(nextPrefix);
   };
-  const isEmpty = !(isLoading || hasError || folders.length || items.length);
+  const hasContent = folders.length > 0 || items.length > 0;
+  const isEmpty = !(isLoading || hasError || hasContent);
+  // While navigating with content already on screen, dim the old listing
+  // instead of collapsing it — the reserved-height viewport does the rest.
+  const isBusyOverlay = isLoading && hasContent;
 
   return (
     <div className="ul-files">
@@ -115,50 +121,57 @@ export function FileBrowser({
           </Fragment>
         ))}
       </nav>
-      <ul className="ul-files__list">
-        {folders.map((folder) => (
-          <li key={folder}>
-            <button className="ul-files__row" onClick={() => navigate(folder)} type="button">
-              <span className="ul-files__icon">
-                <Folder aria-hidden="true" />
-              </span>
-              <span className="ul-files__name">{childName(folder, prefix, delimiter)}</span>
-              <ChevronRight className="ul-files__chevron" aria-hidden="true" />
-            </button>
-          </li>
-        ))}
-        {items.map((item) => (
-          <li key={item.key}>
-            <button
-              className="ul-files__row"
-              disabled={!onSelect}
-              onClick={() => onSelect?.(item)}
-              type="button"
-            >
-              <span className="ul-files__icon">
-                <File aria-hidden="true" />
-              </span>
-              <span className="ul-files__name">
-                <span>{childName(item.key, prefix, delimiter) || item.key}</span>
-                <small>
-                  {formatBytes(item.size)} · {item.type || "unknown"}
-                </small>
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-      {isLoading ? (
-        <div className="ul-files__state">
-          <LoaderCircle className="ul-files__spin" aria-hidden="true" /> Loading…
-        </div>
-      ) : null}
-      {hasError ? <div className="ul-files__state">Files unavailable.</div> : null}
-      {isEmpty ? (
-        <div className="ul-files__state">
-          <Folder aria-hidden="true" /> This folder is empty.
-        </div>
-      ) : null}
+      <div className="ul-files__viewport" data-busy={isBusyOverlay ? "" : undefined}>
+        <ul className="ul-files__list">
+          {folders.map((folder) => (
+            <li key={folder}>
+              <button className="ul-files__row" onClick={() => navigate(folder)} type="button">
+                <span className="ul-files__icon">
+                  <Folder aria-hidden="true" />
+                </span>
+                <span className="ul-files__name">{childName(folder, prefix, delimiter)}</span>
+                <ChevronRight className="ul-files__chevron" aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+          {items.map((item) => (
+            <li key={item.key}>
+              <button
+                className="ul-files__row"
+                disabled={!onSelect}
+                onClick={() => onSelect?.(item)}
+                type="button"
+              >
+                <span className="ul-files__icon">
+                  <File aria-hidden="true" />
+                </span>
+                <span className="ul-files__name">
+                  <span>{childName(item.key, prefix, delimiter) || item.key}</span>
+                  <small>
+                    {formatBytes(item.size)} · {item.type || "unknown"}
+                  </small>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        {isBusyOverlay ? (
+          <div className="ul-files__busy" aria-hidden="true">
+            <LoaderCircle className="ul-files__spin" />
+          </div>
+        ) : null}
+        {isLoading && !hasContent ? (
+          <div className="ul-files__state">
+            <LoaderCircle className="ul-files__spin" aria-hidden="true" /> Loading…
+          </div>
+        ) : null}
+        {hasError ? <div className="ul-files__state">Files unavailable.</div> : null}
+        {isEmpty ? (
+          <div className="ul-files__state">
+            <Folder aria-hidden="true" /> This folder is empty.
+          </div>
+        ) : null}
+      </div>
       {cursor && !isLoading ? (
         <button className="ul-files__more" onClick={() => void load(cursor)} type="button">
           Load more

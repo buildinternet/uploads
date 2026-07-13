@@ -12,6 +12,7 @@ import {
 } from "../lib/signed-in-page";
 import BaseHead from "../components/BaseHead.astro";
 import Brand from "../components/Brand.astro";
+import Footer from "../components/Footer.astro";
 import "../styles/signed-in-shell.css";
 
 export type AdminSection = "workspaces" | "users";
@@ -97,6 +98,8 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
         <slot />
       </div>
     </div>
+
+    <Footer />
   </div>
 </div>
 
