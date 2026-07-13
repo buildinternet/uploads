@@ -220,3 +220,41 @@ export async function setFileVisibility(
   }
   return { kind: "success", visibility: body.visibility };
 }
+
+export type InviteResult =
+  | { kind: "ok"; invitationId?: string; status?: string }
+  | { kind: "unavailable"; reason: RequestFailure | "server" | "forbidden" | "invalid" };
+
+/**
+ * POST /me/workspaces/:name/invites — workspace admin|owner invites an email
+ * to the org (Better Auth invitation). Session cookie only.
+ */
+export async function inviteToWorkspace(
+  apiOrigin: string,
+  name: string,
+  input: { email: string; role?: "member" | "admin" },
+): Promise<InviteResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/invites`,
+    {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: input.email, role: input.role ?? "member" }),
+    },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 400) return { kind: "unavailable", reason: "invalid" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const body = (await response.json().catch(() => null)) as {
+    invitation?: { id?: string; status?: string };
+  } | null;
+  return {
+    kind: "ok",
+    invitationId: body?.invitation?.id,
+    status: body?.invitation?.status,
+  };
+}

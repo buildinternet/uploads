@@ -23,6 +23,7 @@ export const prerender = false;
       getMyWorkspaces,
       getMyWorkspaceUsage,
       getMyWorkspaceGalleries,
+      inviteToWorkspace,
       type GallerySummary,
     } from "../../lib/api-client";
     import { AccountFileBrowser } from "../../components/AccountFileBrowser";
@@ -78,14 +79,13 @@ export const prerender = false;
       return parts.join(" · ");
     }
 
-    // Operator enrollment CLI for a given workspace. Needs site-wide
-    // ADMIN_TOKEN (not a workspace upload token / membership role). The
-    // workspace name is pre-filled only as a convenience — it does not create
-    // a workspace.
+    // Operator enrollment CLI — site-wide ADMIN_TOKEN only (not workspace role).
     const operatorInviteCommand = (workspace: string) =>
       `uploads admin invite create --workspace ${workspace} --email teammate@example.com`;
 
-    // Captured from onSession so the invite block can gate on global role.
+    const isWorkspaceAdminRole = (role: string) => role === "admin" || role === "owner";
+
+    // Captured from onSession so the operator CLI block can gate on global role.
     let sessionUser: { role?: string | null } | null = null;
 
     function renderGalleries(container: HTMLElement, galleries: GallerySummary[]): void {
@@ -136,14 +136,28 @@ export const prerender = false;
             ? `<p class="ws-note">This is the shared, public space — anything here is world-readable at <code>storage.uploads.sh</code>. Browse and upload with the CLI.</p>`
             : `<div class="ws-section" data-galleries><div class="ws-section-head">Galleries</div><p class="ws-empty">Loading&#32;…</p></div>
                <div class="ws-section" data-files><div class="ws-section-head">Files</div><p class="ws-empty">Loading&#32;…</p></div>`;
-          // Site operators: copy-paste enrollment invite for *this* workspace
-          // (name pre-filled). Day-to-day email invites go through /admin.
+          // Workspace org admin|owner: email invite form (session-authed org invitation).
+          const memberInvite = isWorkspaceAdminRole(ws.role)
+            ? `<div class="ws-section" data-invite>
+                 <div class="ws-section-head">Invite a teammate</div>
+                 <form class="invite-form" data-workspace="${escapeHtml(ws.workspace)}">
+                   <label class="invite-label">
+                     <span class="sr-only">Email</span>
+                     <input type="email" name="email" required autocomplete="email" placeholder="teammate@example.com" />
+                   </label>
+                   <button type="submit">Send invite</button>
+                 </form>
+                 <p class="muted cli-note" data-invite-status role="status"></p>
+                 <p class="muted cli-note">They accept by email, then run <code>uploads login</code>. CLI: <code>uploads invite create --workspace ${escapeHtml(ws.workspace)} --email …</code></p>
+               </div>`
+            : "";
+          // Site operators: enrollment codes (ADMIN_TOKEN), separate from org invites.
           const cmd = operatorInviteCommand(ws.workspace);
-          const invite = isSiteOperator
+          const operatorInvite = isSiteOperator
             ? `<div class="ws-section">
-                 <div class="ws-section-head">Operator invite to this workspace</div>
+                 <div class="ws-section-head">Operator enrollment (ADMIN_TOKEN)</div>
                  <div class="command"><code>${escapeHtml(cmd)}</code><button type="button" aria-live="polite" data-copy="${escapeHtml(cmd)}">copy</button></div>
-                 <p class="muted cli-note">Needs the site <code>ADMIN_TOKEN</code> — not a workspace upload token. Prefer <a href="/admin">/admin</a> for email invites.</p>
+                 <p class="muted cli-note">Break-glass link/code path — not required for normal teammate invites above.</p>
                </div>`
             : "";
           return `<li data-workspace="${escapeHtml(ws.workspace)}">
@@ -152,7 +166,7 @@ export const prerender = false;
                 <span class="slug">${escapeHtml(ws.role)}</span>
               </div>
               <div class="usage">Loading usage&#32;…</div>
-              <div class="ws-detail">${body}${invite}</div>
+              <div class="ws-detail">${body}${memberInvite}${operatorInvite}</div>
             </li>`;
         })
         .join("");
@@ -218,26 +232,53 @@ export const prerender = false;
       );
     }
 
-    // Delegated copy handler for the injected invite-command buttons.
-    requireElement<HTMLUListElement>("#orgs-list", "account workspaces").addEventListener(
-      "click",
-      (event) => {
-        void (async () => {
-          const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
-            "button[data-copy]",
-          );
-          if (!button) return;
-          try {
-            await navigator.clipboard.writeText(button.dataset.copy ?? "");
-            const previous = button.textContent;
-            button.textContent = "copied ✓";
-            setTimeout(() => (button.textContent = previous), 1500);
-          } catch {
-            // Clipboard blocked (permissions/insecure context) — leave the label.
-          }
-        })();
-      },
-    );
+    // Delegated handlers for copy buttons + workspace invite forms.
+    const orgsListEl = requireElement<HTMLUListElement>("#orgs-list", "account workspaces");
+    orgsListEl.addEventListener("click", (event) => {
+      void (async () => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+          "button[data-copy]",
+        );
+        if (!button) return;
+        try {
+          await navigator.clipboard.writeText(button.dataset.copy ?? "");
+          const previous = button.textContent;
+          button.textContent = "copied ✓";
+          setTimeout(() => (button.textContent = previous), 1500);
+        } catch {
+          // Clipboard blocked (permissions/insecure context) — leave the label.
+        }
+      })();
+    });
+    orgsListEl.addEventListener("submit", (event) => {
+      void (async () => {
+        const form = (event.target as HTMLElement).closest<HTMLFormElement>("form.invite-form");
+        if (!form) return;
+        event.preventDefault();
+        const workspace = form.dataset.workspace;
+        if (!workspace) return;
+        const emailInput = form.querySelector<HTMLInputElement>('input[name="email"]');
+        const status = form.parentElement?.querySelector<HTMLElement>("[data-invite-status]");
+        const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+        const email = emailInput?.value.trim() ?? "";
+        if (!email || !status || !submit) return;
+        status.textContent = "Sending…";
+        submit.disabled = true;
+        const result = await inviteToWorkspace(apiOrigin, workspace, { email });
+        submit.disabled = false;
+        if (result.kind === "ok") {
+          status.textContent = `Invite sent to ${email}.`;
+          if (emailInput) emailInput.value = "";
+          return;
+        }
+        status.textContent =
+          result.reason === "forbidden"
+            ? "You need workspace admin access to invite."
+            : result.reason === "invalid"
+              ? "That email doesn’t look valid."
+              : "Couldn’t send the invite. Try again.";
+      })();
+    });
 
     requireElement<HTMLButtonElement>("#orgs-retry", "account workspaces").addEventListener("click", () => {
       void loadWorkspaces();

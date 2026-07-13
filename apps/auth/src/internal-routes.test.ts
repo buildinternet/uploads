@@ -396,9 +396,23 @@ describe("DB-backed behavior", () => {
   });
 
   describe("POST /internal/invite", () => {
-    it("inserts a pending invite with created_at set and logs the email (no EMAIL binding)", async () => {
+    async function seedOrgAdmin(
+      role: "owner" | "admin" | "member" = "owner",
+    ): Promise<{ org: schema.AuthOrganization; inviter: schema.AuthUser }> {
       const org = await seedOrg();
       const inviter = await seedUser();
+      await orm.insert(schema.member).values({
+        id: crypto.randomUUID(),
+        organizationId: org.id,
+        userId: inviter.id,
+        role,
+        createdAt: new Date(),
+      });
+      return { org, inviter };
+    }
+
+    it("inserts a pending invite with created_at set and logs the email (no EMAIL binding)", async () => {
+      const { org, inviter } = await seedOrgAdmin("owner");
       const res = await app().request(
         "/internal/invite",
         {
@@ -425,9 +439,50 @@ describe("DB-backed behavior", () => {
       expect(rows[0].createdAt).toBeInstanceOf(Date);
     });
 
-    it("returns the existing pending invite instead of inserting a duplicate", async () => {
+    it("allows a global site admin to invite without org membership", async () => {
       const org = await seedOrg();
-      const inviter = await seedUser();
+      const inviter = await seedUser({ role: "admin" });
+      const res = await app().request(
+        "/internal/invite",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            organizationSlug: org.slug,
+            email: "ops@example.com",
+            role: "member",
+            inviterUserId: inviter.id,
+          }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(201);
+    });
+
+    it("403s when the inviter is only an org member", async () => {
+      const { org, inviter } = await seedOrgAdmin("member");
+      const res = await app().request(
+        "/internal/invite",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            organizationSlug: org.slug,
+            email: "nope@example.com",
+            role: "member",
+            inviterUserId: inviter.id,
+          }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(403);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "inviter_not_authorized" },
+      });
+    });
+
+    it("returns the existing pending invite instead of inserting a duplicate", async () => {
+      const { org, inviter } = await seedOrgAdmin("admin");
       const email = "dupe@example.com";
       const first = await app().request(
         "/internal/invite",
@@ -474,7 +529,7 @@ describe("DB-backed behavior", () => {
     });
 
     it("404s when the organization slug is unknown", async () => {
-      const inviter = await seedUser();
+      const inviter = await seedUser({ role: "admin" });
       const res = await app().request(
         "/internal/invite",
         {

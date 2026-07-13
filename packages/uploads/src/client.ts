@@ -400,6 +400,30 @@ export interface MintTokenResult {
 }
 
 /**
+ * POST /me/workspaces/:name/invites — org invitation for a workspace.
+ * Requires a Better Auth session bearer (device flow), not a workspace token.
+ * Caller must be org admin|owner for that workspace.
+ */
+export function createWorkspaceInvite(
+  apiUrl: string,
+  accessToken: string,
+  workspace: string,
+  input: { email: string; role?: "member" | "admin" },
+): Promise<{ invitation: { id: string; email: string; role: string; status: string } }> {
+  return jsonRequest(
+    `${apiUrl.replace(/\/$/, "")}/me/workspaces/${encodeURIComponent(workspace)}/invites`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email: input.email, role: input.role ?? "member" }),
+    },
+  );
+}
+
+/**
  * POST /v1/tokens — mint a `up_<workspace>_…` workspace token from a device-flow
  * session (presented as a bearer). v1 sends exactly one grant.
  */

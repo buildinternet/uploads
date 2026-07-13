@@ -41,14 +41,25 @@ The API worker also runs a **daily cron** (`0 6 * * *` UTC) that purges every wo
 
 ## Invitations
 
-Invite people through the session-authenticated **admin UI at `/admin`**, signed in
-as a global admin (`user.role === "admin"` in the Better Auth `user` table — see
-`apps/auth/README.md#first-admin`). Pick the workspace, enter an email, and the
-UI calls `POST /admin-ui/workspaces/:name/invites`, which invites that address to
-the organization backing the workspace. The invitee accepts (GitHub or magic-link
-sign-in), becomes an org member, and can then run `uploads login` to mint their
-own workspace token. This is the normal way to bring someone onto a workspace —
-no `ADMIN_TOKEN` involved, and nothing to hand-deliver.
+### Workspace admins (normal path)
+
+People with org role **admin** or **owner** on a workspace invite teammates
+without `ADMIN_TOKEN` or a global site-admin role:
+
+- **Web:** `/account/workspaces` → “Invite a teammate” (session cookie →
+  `POST /me/workspaces/:name/invites`)
+- **CLI:** `uploads invite create --email teammate@example.com --workspace <name>`
+  (device login as the inviter, then the same `/me/…/invites` API)
+
+The invitee accepts at `/accept-invitation/:id`, becomes an org member, and runs
+`uploads login` to mint their own workspace token.
+
+### Site operators (global admin)
+
+Signed in as a global admin (`user.role === "admin"` — see
+`apps/auth/README.md#first-admin`), the **`/admin`** UI can invite any workspace
+via `POST /admin-ui/workspaces/:name/invites`. Use this for bootstrap or when
+you are not an org member of the workspace.
 
 A workspace needs an organization behind it before it can be invited into — see
 the org backfill note in `docs/superpowers/plans/2026-07-12-better-auth-introduction.md`

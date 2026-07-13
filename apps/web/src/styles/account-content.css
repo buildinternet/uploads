@@ -144,6 +144,52 @@ ul.plain .cli-note {
   margin: 7px 0 0;
   font-size: 11px;
 }
+ul.plain .invite-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 2px;
+}
+ul.plain .invite-form .invite-label {
+  flex: 1;
+  min-width: 12rem;
+  margin: 0;
+}
+ul.plain .invite-form input[type="email"] {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  padding: 8px 10px;
+  font: 13px var(--mono);
+}
+ul.plain .invite-form input[type="email"]:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+ul.plain .invite-form button[type="submit"] {
+  flex-shrink: 0;
+  font: 12px var(--mono);
+  letter-spacing: 0.03em;
+  color: var(--accent);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 12px;
+  background: var(--panel);
+  cursor: pointer;
+}
+ul.plain .invite-form button[type="submit"]:hover,
+ul.plain .invite-form button[type="submit"]:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+ul.plain .invite-form button[type="submit"]:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 
 /* Overview CLI setup ──────────────────────────────────────────────────── */
 

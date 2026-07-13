@@ -248,6 +248,28 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       return c.json(errorJson("inviter_not_found", "no user with that id"), 404);
     }
 
+    // Authorization: either a global site operator (user.role === "admin") —
+    // used by /admin-ui when the operator is not an org member of every
+    // workspace — or an org member with role admin|owner. Unprivileged
+    // callers (or a fabricated inviterUserId) must not create invites.
+    const isGlobalAdmin = inviter.role === "admin";
+    if (!isGlobalAdmin) {
+      const [membership] = await db
+        .select({ role: schema.member.role })
+        .from(schema.member)
+        .where(and(eq(schema.member.organizationId, org.id), eq(schema.member.userId, inviter.id)))
+        .limit(1);
+      if (!membership || (membership.role !== "admin" && membership.role !== "owner")) {
+        return c.json(
+          errorJson(
+            "inviter_not_authorized",
+            "inviter must be a global admin or an org admin/owner",
+          ),
+          403,
+        );
+      }
+    }
+
     // Idempotency: an existing pending invite for this (org, email) is
     // returned as-is rather than inserting a duplicate row and re-sending
     // the invitation email (e.g. the admin double-clicks Invite).
