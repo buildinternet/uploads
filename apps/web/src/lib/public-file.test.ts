@@ -37,6 +37,8 @@ describe("public file headers", () => {
     expect(csp).toContain("default-src 'none'");
     expect(csp).toContain("script-src 'self' 'unsafe-inline'");
     expect(csp).toContain("connect-src https://api.uploads.sh");
+    expect(csp).toContain("'self'");
+    expect(csp).toContain("https://cloudflareinsights.com");
     expect(csp).toContain("frame-ancestors 'none'");
 
     const headers = new Headers();

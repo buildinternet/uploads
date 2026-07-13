@@ -29,6 +29,43 @@ you run `workspace:limits`.
 
 KV cache ~60s. Agents: `uploads usage`.
 
+## Dual public hosts (stable vs embed / GitHub Camo)
+
+Shared-bucket objects are available on two custom domains of `uploads-default`
+(same keys, same bytes):
+
+| Host                                           | Role                                                  | Cache-Control (origin)                                                |
+| ---------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------- |
+| `storage.uploads.sh` (also `store.uploads.sh`) | Durable public URL                                    | Object metadata: `public, max-age=60`                                 |
+| `embed.uploads.sh`                             | GitHub / Camo embeds that may be overwritten in place | Zone Transform Rule: `max-age=0, no-cache, no-store, must-revalidate` |
+
+**Why:** GitHub proxies external images through Camo. Short `max-age` alone is
+not enough for reliable hot-swap; badge-style no-cache headers on a dedicated
+host are. See [#152](https://github.com/buildinternet/uploads/issues/152).
+
+**Setup (once per account):**
+
+1. R2 → `uploads-default` → Custom Domains → connect `embed.uploads.sh` (same
+   zone as `uploads.sh`).
+2. Rules → Transform Rules → Modify Response Header:
+   - When: `http.host eq "embed.uploads.sh"`
+   - Set: `Cache-Control` =
+     `max-age=0, no-cache, no-store, must-revalidate`
+
+**API / CLI:** put, list, head, and gallery items return `url` (stable) and
+`embedUrl` (embed twin when the workspace `publicBaseUrl` host is
+`storage.uploads.sh` / `store.uploads.sh`). CLI/MCP markdown and the managed
+attachments comment prefer `embedUrl` for `<img src>`.
+
+**Overrides (self-host):**
+
+| Side         | Variable                        | Behavior                                                                                                   |
+| ------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Worker       | `EMBED_PUBLIC_BASE_URL`         | Unset → default embed host for known storage hosts; empty → never emit `embedUrl`; URL → use as embed base |
+| CLI / client | `UPLOADS_EMBED_PUBLIC_BASE_URL` | Same semantics client-side (also used if an older API omits `embedUrl`)                                    |
+
+No Worker proxies image bytes — dual host is DNS + zone rules only.
+
 ## Ledger + retention
 
 ```bash

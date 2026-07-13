@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { R2Bucket } from "@cloudflare/workers-types";
-import { createStorage, publicUrl, signedDownloadUrl, type StorageConfig } from "../src/index.js";
+import {
+  createStorage,
+  embedUrlFromPublic,
+  publicAndEmbedUrls,
+  publicUrl,
+  resolveEmbedBaseUrl,
+  signedDownloadUrl,
+  type StorageConfig,
+} from "../src/index.js";
 import { FakeR2Bucket } from "./fake-r2.js";
 
 const base: StorageConfig = {
@@ -56,6 +64,76 @@ describe("publicUrl", () => {
 
   it("returns null without a publicBaseUrl", () => {
     expect(publicUrl({ ...base, prefix: "myws/" }, "a.png")).toBeNull();
+  });
+});
+
+describe("embedUrlFromPublic", () => {
+  it("rewrites storage.uploads.sh to embed.uploads.sh by default", () => {
+    expect(
+      embedUrlFromPublic("https://storage.uploads.sh/default/gh/o/r/pull/1/a.webp", {
+        publicBaseUrl: "https://storage.uploads.sh",
+      }),
+    ).toBe("https://embed.uploads.sh/default/gh/o/r/pull/1/a.webp");
+  });
+
+  it("infers publicBaseUrl from a known embeddable host when omitted", () => {
+    expect(embedUrlFromPublic("https://storage.uploads.sh/default/a.webp")).toBe(
+      "https://embed.uploads.sh/default/a.webp",
+    );
+  });
+
+  it("rewrites store.uploads.sh twin as well", () => {
+    expect(
+      embedUrlFromPublic("https://store.uploads.sh/default/a.png", {
+        publicBaseUrl: "https://store.uploads.sh",
+      }),
+    ).toBe("https://embed.uploads.sh/default/a.png");
+  });
+
+  it("returns null for BYO public bases without an embed override", () => {
+    expect(
+      embedUrlFromPublic("https://cdn.example.com/ws/a.png", {
+        publicBaseUrl: "https://cdn.example.com",
+      }),
+    ).toBeNull();
+  });
+
+  it("honors an explicit embed base for self-host", () => {
+    expect(
+      embedUrlFromPublic("https://cdn.example.com/ws/a.png", {
+        publicBaseUrl: "https://cdn.example.com",
+        embedBaseUrl: "https://embed.example.com",
+      }),
+    ).toBe("https://embed.example.com/ws/a.png");
+  });
+
+  it("disables embed when embedBaseUrl is empty", () => {
+    expect(
+      embedUrlFromPublic("https://storage.uploads.sh/default/a.png", {
+        publicBaseUrl: "https://storage.uploads.sh",
+        embedBaseUrl: "",
+      }),
+    ).toBeNull();
+  });
+
+  it("publicAndEmbedUrls pairs both", () => {
+    expect(
+      publicAndEmbedUrls(
+        { ...base, publicBaseUrl: "https://storage.uploads.sh", prefix: "default/" },
+        "gh/x.png",
+      ),
+    ).toEqual({
+      url: "https://storage.uploads.sh/default/gh/x.png",
+      embedUrl: "https://embed.uploads.sh/default/gh/x.png",
+    });
+  });
+
+  it("resolveEmbedBaseUrl defaults only for known hosts", () => {
+    expect(resolveEmbedBaseUrl("https://storage.uploads.sh")).toBe("https://embed.uploads.sh");
+    expect(resolveEmbedBaseUrl("https://cdn.other.com")).toBeNull();
+    expect(resolveEmbedBaseUrl("https://cdn.other.com", "https://e.other.com/")).toBe(
+      "https://e.other.com",
+    );
   });
 });
 

@@ -9,7 +9,7 @@ import {
   putObject,
 } from "../files-core";
 import { provenanceFromHeaders } from "../provenance";
-import { publicUrl, storage, storageConfig } from "../storage";
+import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { checkDeclaredLength, resolveUploadPolicy, writeRateLimit } from "../guards";
 import { sanitizeVisibility } from "../visibility";
@@ -60,12 +60,14 @@ export const files = new Hono<WorkspaceVars>()
         maxSize,
       });
       const cfg = await storageConfig(c.env, ws);
+      const urls = objectPublicUrls(c.env, cfg, key);
       return c.json({
         workspace: c.get("workspaceName"),
         key,
         maxSize,
         expiresIn,
-        publicUrl: publicUrl(cfg, key),
+        publicUrl: urls.url,
+        embedUrl: urls.embedUrl,
         upload,
       });
     } catch (err) {
@@ -91,10 +93,12 @@ export const files = new Hono<WorkspaceVars>()
     if (dryRun === "1" || dryRun === "true") {
       const ws = c.get("workspace");
       const finalKey = finalizeUploadKey(key, ws);
+      const urls = objectPublicUrls(c.env, await storageConfig(c.env, ws), finalKey);
       return c.json({
         workspace: c.get("workspaceName"),
         key: finalKey,
-        url: publicUrl(await storageConfig(c.env, ws), finalKey),
+        url: urls.url,
+        embedUrl: urls.embedUrl,
         dryRun: true,
       });
     }
@@ -129,7 +133,8 @@ export const files = new Hono<WorkspaceVars>()
     const store = await storage(c.env, ws);
     if (!(await store.exists(key))) throw new NotFoundError();
     const meta = await store.head(key);
-    return c.json(headObjectJson(key, meta, publicUrl(await storageConfig(c.env, ws), key)));
+    const urls = objectPublicUrls(c.env, await storageConfig(c.env, ws), key);
+    return c.json(headObjectJson(key, meta, urls.url, urls.embedUrl));
   })
 
   .delete("/:key{.+}", writeRateLimit, requireScope("files:delete"), async (c) => {

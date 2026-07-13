@@ -21,7 +21,7 @@ import {
   sanitizeProvenance,
   type ProvenanceMap,
 } from "./provenance";
-import { publicUrl, storage, storageConfig } from "./storage";
+import { objectPublicUrls, storage, storageConfig } from "./storage";
 import { getWorkspaceUsage, recordUsageSafe } from "./usage";
 import { objectVisibility, VISIBILITY_META_KEY, type Visibility } from "./visibility";
 import type { WorkspaceRecord } from "./workspace";
@@ -117,6 +117,8 @@ export async function putObject(
 ): Promise<{
   key: string;
   url: string | null;
+  /** Same object on the embed host when dual-host cache policy applies; else null. */
+  embedUrl: string | null;
   size: number;
   contentType: string;
   metadata?: ProvenanceMap;
@@ -175,9 +177,12 @@ export async function putObject(
     uploads: 1,
   });
 
+  const cfg = await storageConfig(env, ws);
+  const urls = objectPublicUrls(env, cfg, finalKey);
   return {
     key: finalKey,
-    url: publicUrl(await storageConfig(env, ws), finalKey),
+    url: urls.url,
+    embedUrl: urls.embedUrl,
     size: newSize,
     contentType: inspection.contentType,
     metadata: provenance,
@@ -261,6 +266,7 @@ export function headObjectJson(
     metadata?: Record<string, string>;
   },
   url: string | null,
+  embedUrl: string | null = null,
 ) {
   const provenance = provenanceForResponse(meta.metadata ?? undefined);
   const visibility = objectVisibility(meta.metadata ?? undefined);
@@ -268,6 +274,7 @@ export function headObjectJson(
     key,
     ...storedMetaJson(meta),
     url,
+    embedUrl,
     ...(provenance ? { metadata: provenance } : {}),
     ...(visibility ? { visibility } : {}),
   };
@@ -277,6 +284,7 @@ export function headObjectJson(
 export interface ListedObject {
   key: string;
   url: string | null;
+  embedUrl: string | null;
   size: number;
   contentType: string;
   /** ISO timestamp when the provider reports a last-modified time. */
@@ -300,9 +308,11 @@ export async function listObjects(
   return {
     items: result.items.map((item) => {
       const visibility = objectVisibility(item.metadata ?? undefined);
+      const urls = objectPublicUrls(env, cfg, item.key);
       return {
         key: item.key,
-        url: publicUrl(cfg, item.key),
+        url: urls.url,
+        embedUrl: urls.embedUrl,
         ...storedMetaJson(item),
         ...(visibility ? { visibility } : {}),
       };

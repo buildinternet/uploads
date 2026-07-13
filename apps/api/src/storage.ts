@@ -1,6 +1,27 @@
-import { createStorage, publicUrl, type StorageConfig } from "@uploads/storage";
+import {
+  createStorage,
+  publicAndEmbedUrls,
+  publicUrl,
+  type EmbedUrlOptions,
+  type StorageConfig,
+} from "@uploads/storage";
 import { openCredentialFields, secretsKeyRingFromEnv } from "./secrets";
 import type { WorkspaceRecord } from "./workspace";
+
+/** Worker env override for the embed CDN base (self-host / disable). */
+function embedUrlOptionsFromEnv(env: Env): EmbedUrlOptions {
+  // undefined → default twin; "" → disable; else custom base
+  if (env.EMBED_PUBLIC_BASE_URL === undefined) return {};
+  return { embedBaseUrl: env.EMBED_PUBLIC_BASE_URL };
+}
+
+export function objectPublicUrls(
+  env: Env,
+  cfg: StorageConfig,
+  key: string,
+): { url: string | null; embedUrl: string | null } {
+  return publicAndEmbedUrls(cfg, key, embedUrlOptionsFromEnv(env));
+}
 
 export async function storageConfig(env: Env, ws: WorkspaceRecord): Promise<StorageConfig> {
   let binding: R2Bucket | undefined;

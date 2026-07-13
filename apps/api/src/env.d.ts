@@ -9,4 +9,9 @@ interface Env {
    * Remove after reencrypt-workspace-secrets.mjs completes.
    */
   WORKSPACE_SECRETS_KEY_PREVIOUS?: string;
+  /**
+   * Optional embed CDN base (GitHub Camo dual-host). Unset = default twin for
+   * storage/store.uploads.sh; empty = never emit embedUrl; URL = self-host.
+   */
+  EMBED_PUBLIC_BASE_URL?: string;
 }
