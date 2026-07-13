@@ -21,6 +21,7 @@
     "upload:mcp": "pnpm --filter @buildinternet/uploads run build && pnpm --filter @uploads/mcp exec wrangler versions upload",
     "upload:auth": "pnpm --filter @uploads/auth exec wrangler versions upload",
     "types": "pnpm --filter @uploads/api types && pnpm --filter @uploads/mcp types && pnpm --filter @uploads/web types && pnpm --filter @uploads/auth types",
+    "prelint": "pnpm --filter @uploads/ui build",
     "lint": "oxlint --ignore-pattern '.worktrees/**'",
     "lint:fix": "oxlint --fix --ignore-pattern '.worktrees/**'",
     "format": "oxfmt",
