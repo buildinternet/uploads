@@ -13,7 +13,7 @@
  * user-generated API tokens): the request carries a `grants` array, but v1
  * accepts exactly one grant and rejects >1 with a clear "not yet supported".
  */
-import { ForbiddenError, ValidationError } from "@uploads/errors";
+import { ForbiddenError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
 import {
   createToken,
@@ -22,13 +22,13 @@ import {
   MAX_TOKEN_SECONDS,
   type FileScope,
 } from "../auth-db";
+import { allowWrite } from "../guards";
 import { membershipsForUser, orgForWorkspace } from "../org-workspaces";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
-import { loadWorkspaceRecord } from "../workspace";
+import { loadWorkspaceRecord, WS_NAME_RE } from "../workspace";
 
 const MAX_BODY_BYTES = 4096;
 const MAX_LABEL_LEN = 200;
-const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 // Scopes a mint defaults to when the grant omits them — read+write, but not
 // delete (least surprise; the CLI sends explicit scopes anyway).
 const DEFAULT_MINT_SCOPES: FileScope[] = ["files:read", "files:write"];
@@ -167,6 +167,13 @@ export const tokens = new Hono<SessionVars>()
     ]);
     if (!record || !org || !memberships.some((m) => m.organizationId === org.id)) {
       throw new ForbiddenError("no access to this workspace", { code: "workspace_forbidden" });
+    }
+
+    // Throttle minting per workspace — checked only after the membership gate,
+    // so a non-member can't burn a workspace's mint budget by griefing this
+    // endpoint. Same WRITE_LIMITER other mutating routes use (see guards.ts).
+    if (!(await allowWrite(c.env, grant.workspace))) {
+      throw new RateLimitedError("token minting rate limit exceeded");
     }
 
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000);

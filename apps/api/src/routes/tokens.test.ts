@@ -41,6 +41,8 @@ interface EnvOpts {
   org?: typeof ORG | null;
   workspaces?: Record<string, object>;
   db?: D1Database;
+  /** When set, the WRITE_LIMITER binding reports this success value. */
+  writeLimitOk?: boolean;
 }
 
 function stubEnv(opts: EnvOpts = {}): Env {
@@ -50,6 +52,7 @@ function stubEnv(opts: EnvOpts = {}): Env {
     org = ORG,
     workspaces = { acme: { provider: "r2", bucket: "b" } },
     db = captureDb().db,
+    writeLimitOk,
   } = opts;
 
   const auth = stubAuth((req) => {
@@ -74,7 +77,10 @@ function stubEnv(opts: EnvOpts = {}): Env {
     }) as unknown as KVNamespace["get"],
   };
 
-  return { AUTH: auth, REGISTRY: registry, DB: db } as unknown as Env;
+  const WRITE_LIMITER =
+    writeLimitOk === undefined ? undefined : { limit: async () => ({ success: writeLimitOk }) };
+
+  return { AUTH: auth, REGISTRY: registry, DB: db, WRITE_LIMITER } as unknown as Env;
 }
 
 function app() {
@@ -261,5 +267,18 @@ describe("POST /v1/tokens mint", () => {
     expect(res.status).toBe(201);
     const body = (await res.json()) as { scopes: string[] };
     expect(body.scopes).toEqual(["files:read", "files:write"]);
+  });
+
+  it("429s when the workspace's write rate limit is exhausted", async () => {
+    const cap = captureDb();
+    const res = await post(stubEnv({ db: cap.db, writeLimitOk: false }), oneGrant);
+    expect(res.status).toBe(429);
+    // Rate-limited before any token row is written.
+    expect(cap.insert).toBeUndefined();
+  });
+
+  it("mints when the rate limiter allows the request", async () => {
+    const res = await post(stubEnv({ writeLimitOk: true }), oneGrant);
+    expect(res.status).toBe(201);
   });
 });

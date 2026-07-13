@@ -77,7 +77,10 @@ export type WorkspaceVars = {
   Bindings: Env;
 };
 
-const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
+/** Canonical workspace-name shape (lowercase, 2–63 chars). Shared so callers
+ * that validate a name — `loadWorkspaceRecord` here, the token-mint route —
+ * don't drift from one another. */
+export const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 
 export function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
