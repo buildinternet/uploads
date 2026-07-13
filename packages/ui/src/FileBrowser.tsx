@@ -16,10 +16,15 @@ export interface FileBrowserProps {
   /**
    * Renders a per-item action (e.g. a visibility toggle) alongside the
    * select row rather than inside it — `<button>` can't nest another
-   * `<button>`. `refresh` re-runs the current listing in place, for use
-   * after an action mutates the item.
+   * `<button>`. `refresh` re-runs the current listing (resetting any
+   * "Load more" pagination); `patchItem` updates one already-listed row in
+   * place — prefer it after a mutation whose result the caller already
+   * knows, so paginated results survive.
    */
-  itemActions?: (file: StoredFile, helpers: { refresh: () => void }) => React.ReactNode;
+  itemActions?: (
+    file: StoredFile,
+    helpers: { refresh: () => void; patchItem: (key: string, patch: Partial<StoredFile>) => void },
+  ) => React.ReactNode;
 }
 
 const formatBytes = (bytes: number): string => {
@@ -166,7 +171,11 @@ export function FileBrowser({
                   </span>
                   {isPrivate?.(item) ? <Badge tone="neutral">Private</Badge> : null}
                 </button>
-                {itemActions?.(item, { refresh: () => void load() })}
+                {itemActions?.(item, {
+                  refresh: () => void load(),
+                  patchItem: (key, patch) =>
+                    setItems((prev) => prev.map((i) => (i.key === key ? { ...i, ...patch } : i))),
+                })}
               </div>
             </li>
           ))}

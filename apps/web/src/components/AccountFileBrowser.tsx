@@ -43,12 +43,16 @@ export function AccountFileBrowser({ apiOrigin, workspace, hasPublicUrl }: Props
   const [togglingKeys, setTogglingKeys] = useState<ReadonlySet<string>>(new Set());
   const [toggleError, setToggleError] = useState<string | null>(null);
 
-  const toggleVisibility = async (key: string, next: "public" | "private", refresh: () => void) => {
+  const toggleVisibility = async (
+    key: string,
+    next: "public" | "private",
+    onSuccess: () => void,
+  ) => {
     setTogglingKeys((prev) => new Set(prev).add(key));
     setToggleError(null);
     try {
       const result = await setFileVisibility(apiOrigin, workspace, key, next);
-      if (result.kind === "success") refresh();
+      if (result.kind === "success") onSuccess();
       else setToggleError(`Couldn't make "${key}" ${next}. Try again shortly.`);
     } finally {
       setTogglingKeys((prev) => {
@@ -110,17 +114,24 @@ export function AccountFileBrowser({ apiOrigin, workspace, hasPublicUrl }: Props
         files={files}
         onSelect={(file) => openFile(file.key)}
         isPrivate={(file) => file.metadata?.visibility === "private"}
-        itemActions={(file, { refresh }) => {
+        itemActions={(file, { patchItem }) => {
           const isPrivate = file.metadata?.visibility === "private";
+          const next = isPrivate ? "public" : "private";
           const busy = togglingKeys.has(file.key);
+          // On success, patch the one row in place (rather than refresh())
+          // so "Load more" pagination survives the toggle.
+          const applyLocally = () => {
+            const metadata = { ...file.metadata };
+            if (next === "private") metadata.visibility = "private";
+            else delete metadata.visibility;
+            patchItem(file.key, { metadata });
+          };
           return (
             <Button
               size="sm"
               variant="ghost"
               disabled={busy}
-              onClick={() =>
-                void toggleVisibility(file.key, isPrivate ? "public" : "private", refresh)
-              }
+              onClick={() => void toggleVisibility(file.key, next, applyLocally)}
             >
               {busy ? "…" : isPrivate ? "Make public" : "Make private"}
             </Button>
