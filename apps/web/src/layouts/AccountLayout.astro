@@ -11,6 +11,7 @@ import {
 } from "../lib/signed-in-page";
 import BaseHead from "../components/BaseHead.astro";
 import Brand from "../components/Brand.astro";
+import Footer from "../components/Footer.astro";
 import "../styles/signed-in-shell.css";
 import "../styles/account-content.css";
 
@@ -94,6 +95,8 @@ const nav: { href: string; section: AccountSection; label: string }[] = [
         <slot />
       </div>
     </div>
+
+    <Footer />
   </div>
 </div>
 

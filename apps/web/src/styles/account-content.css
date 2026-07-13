@@ -35,6 +35,20 @@ ul.plain li {
   background: var(--bg);
   font-size: 13px;
 }
+/* Workspace blocks flatten: the surrounding .card is the only box. Each
+   workspace is a borderless region, hairline-separated from the next. */
+ul.plain li[data-workspace] {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  gap: 6px;
+}
+ul.plain li[data-workspace] + li[data-workspace] {
+  margin-top: 8px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
 ul.plain .row {
   display: flex;
   justify-content: space-between;
@@ -86,15 +100,18 @@ ul.plain .ws-note {
   font-size: 12px;
   margin: 0;
 }
+/* Invite command: a light inset code row, not a raised bordered panel. The
+   card is already --panel, so a subtle --bg strip reads as a copy target
+   without adding another box to the stack. */
 ul.plain .command {
   display: flex;
   gap: 10px;
   align-items: center;
   margin-top: 2px;
-  padding: 9px 11px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--panel);
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
 }
 ul.plain .command code {
   flex: 1;
@@ -115,7 +132,7 @@ ul.plain .command button {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 5px 10px;
-  background: var(--bg);
+  background: var(--panel);
   cursor: pointer;
 }
 ul.plain .command button:hover,
