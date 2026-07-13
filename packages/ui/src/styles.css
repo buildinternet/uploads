@@ -389,6 +389,89 @@
   flex: none;
 }
 
+/* ── Progress ──────────────────────────────────────────────────────────── */
+/*
+ * Labeled quota meters: each row is label + usage above a narrow bar.
+ * 1px stepped corners (no border-radius), soft 2px checker on the fill tip.
+ * Stack `.ul-progress__row` inside `.ul-progress`.
+ */
+.ul-progress {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+.ul-progress__row {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.ul-progress__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font: 12px/1.35 var(--mono);
+  color: var(--muted);
+}
+.ul-progress__label {
+  min-width: 0;
+  color: var(--body);
+}
+.ul-progress__value {
+  flex: none;
+  text-align: right;
+  white-space: nowrap;
+}
+.ul-progress__track {
+  height: 3px;
+  width: 100%;
+  background: var(--line);
+  overflow: hidden;
+  /* 1px stepped corners on a 3px bar */
+  clip-path: polygon(
+    1px 0,
+    calc(100% - 1px) 0,
+    100% 1px,
+    100% calc(100% - 1px),
+    calc(100% - 1px) 100%,
+    1px 100%,
+    0 calc(100% - 1px),
+    0 1px
+  );
+}
+.ul-progress__fill {
+  --ul-progress-fill: var(--muted);
+  position: relative;
+  height: 100%;
+  width: 0%;
+  max-width: 100%;
+  background: var(--ul-progress-fill);
+}
+/* Solid body + 1-bit dither on the last two pixels */
+.ul-progress__fill::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 2px;
+  background-color: var(--line);
+  background-image: linear-gradient(
+    45deg,
+    var(--ul-progress-fill) 25%,
+    transparent 25% 50%,
+    var(--ul-progress-fill) 50% 75%,
+    transparent 75%
+  );
+  background-size: 2px 2px;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+.ul-progress__fill[data-level="high"] {
+  --ul-progress-fill: var(--body);
+}
+.ul-progress__fill[data-level="full"] {
+  --ul-progress-fill: var(--accent);
+}
+
 /* ── GalleryTile ───────────────────────────────────────────────────────── */
 /*
  * The product's core object: a hosted image / PR screenshot with its metadata.

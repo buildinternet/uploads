@@ -60,6 +60,17 @@ ul.plain .slug {
 ul.plain .usage {
   color: var(--muted);
   font-size: 12px;
+  display: grid;
+  gap: 6px;
+  min-height: 1.2em;
+}
+ul.plain .usage .usage-text,
+ul.plain .usage .usage-meta {
+  line-height: 1.35;
+}
+ul.plain .usage .usage-meta {
+  font-size: 11px;
+  opacity: 0.9;
 }
 ul.plain .ws-detail {
   display: grid;

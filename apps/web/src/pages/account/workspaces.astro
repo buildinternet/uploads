@@ -59,24 +59,72 @@ export const prerender = false;
       return `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10} ${units[unit]}`;
     }
 
-    function formatUsage(usage: {
+    type UsageSnapshot = {
       bytes: number;
       objects: number;
       uploadsInPeriod: number;
       maxStorageBytes?: number;
       maxUploadsPerPeriod?: number;
-    }): string {
-      const used = formatBytes(usage.bytes);
-      const size = usage.maxStorageBytes
-        ? `${used} of ${formatBytes(usage.maxStorageBytes)}`
-        : used;
+    };
+
+    /** Plain one-liner when no cumulative caps are set (no bars to attach labels to). */
+    function formatUsagePlain(usage: UsageSnapshot): string {
+      const size = formatBytes(usage.bytes);
       const objects = `${usage.objects} object${usage.objects === 1 ? "" : "s"}`;
       const parts = [size, objects];
-      // Only present when the workspace has a monthly upload cap.
-      if (usage.maxUploadsPerPeriod) {
-        parts.push(`${usage.uploadsInPeriod} of ${usage.maxUploadsPerPeriod} uploads this month`);
+      if (usage.uploadsInPeriod > 0) {
+        parts.push(`${usage.uploadsInPeriod} uploads this month`);
       }
       return parts.join(" · ");
+    }
+
+    /** 0–100, one decimal. Missing/invalid caps → no bar. */
+    function usagePct(value: number, max: number | undefined): number | null {
+      if (typeof max !== "number" || !(max > 0) || !Number.isFinite(value)) return null;
+      return Math.min(100, Math.max(0, Math.round((value / max) * 1000) / 10));
+    }
+
+    /**
+     * One labeled meter: label + detail above the bar.
+     * Keep markup in sync with `Progress` in @uploads/ui.
+     */
+    function progressRowHtml(label: string, detail: string, pct: number): string {
+      let levelAttr = "";
+      if (pct >= 100) levelAttr = ' data-level="full"';
+      else if (pct >= 85) levelAttr = ' data-level="high"';
+      return `<div class="ul-progress__row">
+        <div class="ul-progress__head">
+          <span class="ul-progress__label">${escapeHtml(label)}</span>
+          <span class="ul-progress__value">${escapeHtml(detail)}</span>
+        </div>
+        <div class="ul-progress__track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}" aria-label="${escapeHtml(label)}">
+          <div class="ul-progress__fill"${levelAttr} style="width:${pct}%"></div>
+        </div>
+      </div>`;
+    }
+
+    function renderUsageHtml(usage: UsageSnapshot): string {
+      const meters: { label: string; detail: string; pct: number }[] = [];
+      const storagePct = usagePct(usage.bytes, usage.maxStorageBytes);
+      if (storagePct !== null && usage.maxStorageBytes) {
+        const detail = `${formatBytes(usage.bytes)} of ${formatBytes(usage.maxStorageBytes)}`;
+        meters.push({ label: "Storage", detail, pct: storagePct });
+      }
+      const uploadsPct = usagePct(usage.uploadsInPeriod, usage.maxUploadsPerPeriod);
+      if (uploadsPct !== null && usage.maxUploadsPerPeriod) {
+        meters.push({
+          label: "Uploads this month",
+          detail: `${usage.uploadsInPeriod} of ${usage.maxUploadsPerPeriod}`,
+          pct: uploadsPct,
+        });
+      }
+      if (!meters.length) {
+        return `<div class="usage-text">${escapeHtml(formatUsagePlain(usage))}</div>`;
+      }
+      // Object count is informational (no quota) — keep it as a quiet footer.
+      const objects = `${usage.objects} object${usage.objects === 1 ? "" : "s"}`;
+      const rows = meters.map((m) => progressRowHtml(m.label, m.detail, m.pct)).join("");
+      return `<div class="ul-progress">${rows}</div><div class="usage-meta">${escapeHtml(objects)}</div>`;
     }
 
     // Operator enrollment CLI — site-wide ADMIN_TOKEN only (not workspace role).
@@ -188,7 +236,11 @@ export const prerender = false;
           if (usageEl) {
             tasks.push(
               getMyWorkspaceUsage(apiOrigin, ws.workspace).then((usage) => {
-                usageEl.textContent = usage ? formatUsage(usage) : "Usage unavailable.";
+                if (!usage) {
+                  usageEl.textContent = "Usage unavailable.";
+                  return;
+                }
+                usageEl.innerHTML = renderUsageHtml(usage);
               }),
             );
           }
