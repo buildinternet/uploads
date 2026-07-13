@@ -1,0 +1,401 @@
+/*
+ * uploads.sh design system — shipped stylesheet.
+ *
+ * Self-contained: the token layer (identical to tokens.css) plus every component
+ * class. This is the file consumers import ("@uploads/ui/styles.css") and the one
+ * /design-sync ships as the DS's cssEntry, so it carries the @font-face rules and
+ * :root tokens inline rather than @importing them (a byte-copy to dist/ can't
+ * resolve a relative @import).
+ *
+ * Class vocabulary is prefixed `ul-`. Components apply these classes themselves —
+ * you style by choosing a component + its props, not by writing classes.
+ */
+
+/* ── Fonts ─────────────────────────────────────────────────────────────── */
+@font-face {
+  font-family: "Geist Variable";
+  src: url("../fonts/geist.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono Variable";
+  src: url("../fonts/geist-mono.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Pixel";
+  src: url("../fonts/geist-pixel.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Tokens ────────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: dark;
+  --bg: #0a0a0b;
+  --panel: #121214;
+  --line: #232327;
+  --fg: #ececea;
+  --body: #b3b3ad;
+  --muted: #7d7d77;
+  --accent: #b794ff;
+  --green: #8fae62;
+  --red: #d98a9c;
+  --sans:
+    "Geist Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif; /* @kind font */
+  --mono:
+    "Geist Mono Variable", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace; /* @kind font */
+  --pixel: "Geist Pixel", "Geist Mono Variable", ui-monospace, monospace; /* @kind font */
+  --pixel-shape: 1; /* @kind other */
+  --radius-sm: 7px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 40px;
+}
+
+/* ── Surface (theme root) ──────────────────────────────────────────────── */
+/*
+ * Wrap product UI in <Surface> (class .ul-surface) so components sit on the
+ * dark canvas with the sans body font and the tokens in scope.
+ */
+.ul-surface {
+  background: var(--bg);
+  color: var(--fg);
+  font: 14.5px/1.65 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Brand ─────────────────────────────────────────────────────────────── */
+.ul-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--fg);
+  text-decoration: none;
+  font-family: var(--pixel);
+  font-variation-settings: "ELSH" var(--pixel-shape);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+}
+.ul-brand__mark {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  flex: none;
+}
+.ul-brand--lg {
+  font-size: 22px;
+  gap: 12px;
+}
+.ul-brand--lg .ul-brand__mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+.ul-brand:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+/* ── Button ────────────────────────────────────────────────────────────── */
+.ul-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--mono);
+  letter-spacing: 0.03em;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    border-color 0.12s ease,
+    color 0.12s ease,
+    background 0.12s ease;
+}
+.ul-btn:hover,
+.ul-btn:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+.ul-btn:disabled,
+.ul-btn[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
+  border-color: var(--line);
+}
+/* sizes */
+.ul-btn--sm {
+  font-size: 12px;
+  padding: 8px 11px;
+  border-radius: var(--radius-sm);
+}
+.ul-btn--md {
+  font-size: 14px;
+  padding: 11px 15px;
+}
+.ul-btn--lg {
+  font-size: 15px;
+  padding: 13px 20px;
+}
+/* variants */
+.ul-btn--primary {
+  color: var(--accent);
+}
+.ul-btn--primary:hover,
+.ul-btn--primary:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.ul-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--body);
+}
+.ul-btn--ghost:hover,
+.ul-btn--ghost:focus-visible {
+  color: var(--fg);
+  border-color: var(--line);
+}
+.ul-btn--danger {
+  color: var(--red);
+}
+.ul-btn--danger:hover,
+.ul-btn--danger:focus-visible {
+  border-color: var(--red);
+}
+.ul-btn--block {
+  width: 100%;
+}
+
+/* ── Panel ─────────────────────────────────────────────────────────────── */
+.ul-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  color: var(--body);
+}
+.ul-panel--pad-lg {
+  padding: clamp(24px, 6vw, 40px);
+}
+.ul-panel__title {
+  margin: 0 0 var(--space-2);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.ul-panel__desc {
+  margin: 0 0 var(--space-4);
+  color: var(--body);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.ul-panel__desc:last-child {
+  margin-bottom: 0;
+}
+
+/* ── Field / Label / Input ─────────────────────────────────────────────── */
+.ul-field {
+  display: grid;
+  gap: 6px;
+}
+.ul-label {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.ul-input {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--fg);
+  padding: 10px 12px;
+  font: 14px var(--mono);
+  width: 100%;
+}
+.ul-input::placeholder {
+  color: var(--muted);
+}
+.ul-input:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+.ul-input:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.ul-field__hint {
+  color: var(--muted);
+  font: 11px var(--mono);
+  letter-spacing: 0.01em;
+}
+.ul-field--invalid .ul-input {
+  border-color: var(--red);
+}
+.ul-field--invalid .ul-field__hint {
+  color: var(--red);
+}
+
+/* ── Callout ───────────────────────────────────────────────────────────── */
+.ul-callout {
+  border-left: 3px solid var(--accent);
+  padding: 9px 14px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.55 var(--mono);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.ul-callout--ready {
+  border-color: var(--green);
+}
+.ul-callout--error {
+  border-color: var(--red);
+  color: var(--red);
+}
+.ul-callout--muted {
+  border-color: var(--line);
+  color: var(--muted);
+}
+.ul-callout__title {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ── Badge ─────────────────────────────────────────────────────────────── */
+.ul-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: 11px var(--mono);
+  letter-spacing: 0.02em;
+  color: var(--body);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+.ul-badge--accent {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.ul-badge--ok {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 40%, var(--line));
+}
+.ul-badge--danger {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 40%, var(--line));
+}
+.ul-badge__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  flex: none;
+}
+
+/* ── Divider ───────────────────────────────────────────────────────────── */
+.ul-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font: 11px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ul-divider::before,
+.ul-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.ul-divider--plain {
+  height: 1px;
+  background: var(--line);
+  border: 0;
+}
+
+/* ── GalleryTile ───────────────────────────────────────────────────────── */
+/*
+ * The product's core object: a hosted image / PR screenshot with its metadata.
+ */
+.ul-tile {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.12s ease;
+}
+.ul-tile:hover,
+.ul-tile:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+.ul-tile__thumb {
+  aspect-ratio: 16 / 10;
+  background: var(--bg);
+  background-size: cover;
+  background-position: center;
+  border-bottom: 1px solid var(--line);
+  display: block;
+}
+.ul-tile__body {
+  padding: 11px 13px 13px;
+  display: grid;
+  gap: 6px;
+}
+.ul-tile__name {
+  font: 13px var(--mono);
+  color: var(--fg);
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ul-tile__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 11px var(--mono);
+  color: var(--muted);
+}
+.ul-tile__meta > * {
+  flex: none;
+}
+.ul-tile__spacer {
+  flex: 1 1 auto;
+}

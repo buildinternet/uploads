@@ -17,6 +17,7 @@
     "**/*.d.ts",
     "pnpm-lock.yaml",
     "packages/*/dist",
-    ".superpowers"
+    ".superpowers",
+    ".design-sync"
   ]
 }

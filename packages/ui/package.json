@@ -1,0 +1,45 @@
+{
+  "name": "@uploads/ui",
+  "version": "0.1.0",
+  "description": "The uploads.sh design system — React components carrying the Geist / Geist Pixel brand.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": [
+    "*.css"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./styles.css": "./dist/uploads-ui.css",
+    "./tokens.css": "./src/tokens.css"
+  },
+  "files": [
+    "dist",
+    "fonts",
+    "src/tokens.css",
+    "src/styles.css"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tsup": "^8.3.5",
+    "typescript": "^5.6.3"
+  }
+}
