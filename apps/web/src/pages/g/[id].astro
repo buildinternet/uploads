@@ -1,5 +1,7 @@
 ---
 import GalleryReferences from "../../components/GalleryReferences.astro";
+import Brand from "../../components/Brand.astro";
+import Footer from "../../components/Footer.astro";
 import {
   applyPublicGalleryHeaders,
   fetchPublicGallery,
@@ -47,7 +49,6 @@ const itemPage = (item: PublicGalleryItem) => galleryItemPath(id, item.id);
       body { margin:0; min-height:100vh; color:var(--fg); background:var(--bg); font-family:var(--sans); }
       .shell { width:min(1080px,calc(100% - 48px)); margin:auto; padding:36px 0 64px; }
       nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:40px; font:13px var(--mono); letter-spacing:.02em; }
-      .brand { color:var(--fg); text-decoration:none; } .brand span { color:var(--accent); }
       .public { color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:6px 11px; background:var(--panel); }
       header { max-width:720px; margin-bottom:28px; }
       .eyebrow { color:var(--muted); font:11px var(--mono); letter-spacing:.14em; text-transform:uppercase; }
@@ -71,13 +72,12 @@ const itemPage = (item: PublicGalleryItem) => galleryItemPath(id, item.id);
       .empty,.error { padding:70px 24px; border:1px solid var(--line); border-radius:10px; text-align:center; background:var(--panel); color:var(--body); }
       .empty code,.error code { color:var(--accent); font-family:var(--mono); }
       a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
-      footer { margin-top:44px; color:var(--muted); font:12px/1.6 var(--mono); }
       @media (max-width:760px) { .shell{width:min(100% - 32px,1080px);padding-top:24px} nav{margin-bottom:32px} figure{grid-column:1/-1}.media{min-height:190px} }
     </style>
   </head>
   <body>
     <main class="shell">
-      <nav><a class="brand" href="/"><span>↑</span> uploads.sh</a><span class="public">public gallery</span></nav>
+      <nav><Brand /><span class="public">public gallery</span></nav>
       {gallery ? (
         <>
           <header>
@@ -104,7 +104,7 @@ const itemPage = (item: PublicGalleryItem) => galleryItemPath(id, item.id);
             </section>
           )}
           <GalleryReferences references={gallery.references} />
-          <footer>gallery {gallery.id}</footer>
+          <Footer />
         </>
       ) : (
         <section class="error"><code>{result.status === "not_found" ? "gallery.not_found" : "gallery.unavailable"}</code><h1>{result.status === "not_found" ? "Gallery not found" : "Gallery temporarily unavailable"}</h1><p>{result.status === "not_found" ? "Check the link or ask the gallery owner for a current URL." : "The gallery service could not be reached. Please try again shortly."}</p></section>

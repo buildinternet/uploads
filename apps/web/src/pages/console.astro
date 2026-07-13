@@ -5,6 +5,7 @@ import "@fontsource-variable/geist/index.css";
 import "@fontsource-variable/geist-mono/index.css";
 import { env } from "cloudflare:workers";
 import { resolveConsoleMode } from "../lib/console-mode";
+import Brand from "../components/Brand.astro";
 
 export const prerender = false;
 
@@ -129,6 +130,17 @@ const FAVICON =
       }
       [hidden] { display: none !important; }
       .session-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .lockup { display: inline-flex; align-items: center; gap: 9px; }
+      .pill {
+        font-size: 10.5px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+        border: 1px solid var(--line);
+        border-radius: 99px;
+        padding: 2px 9px;
+        background: var(--bg);
+      }
       .session-bar a { font-size: 12.5px; }
       .session-bar button {
         font: 12px var(--mono);
@@ -144,7 +156,7 @@ const FAVICON =
   <body>
     <main>
       <div class="session-bar">
-        <h1>uploads console</h1>
+        <div class="lockup"><Brand /><span class="pill">console</span></div>
         <span id="signed-out"><a href="/login">Sign in</a></span>
         <span id="signed-in" hidden>
           <a href="/account">account</a>

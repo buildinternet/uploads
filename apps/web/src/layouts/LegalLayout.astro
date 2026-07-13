@@ -3,6 +3,8 @@
 // palette and Geist type as the landing page, tuned for long-form prose.
 import "@fontsource-variable/geist/index.css";
 import "@fontsource-variable/geist-mono/index.css";
+import Brand from "../components/Brand.astro";
+import Footer from "../components/Footer.astro";
 
 interface Props {
 	title: string;
@@ -45,13 +47,7 @@ const FAVICON =
         padding: 48px 24px 64px;
       }
       main { width: min(680px, 100%); margin: 0 auto; }
-      .home {
-        color: var(--muted);
-        text-decoration: none;
-        font: 13px var(--mono);
-        letter-spacing: 0.04em;
-      }
-      .home:hover, .home:focus-visible { color: var(--accent); outline: none; }
+      .brandbar { margin-bottom: 30px; }
       h1 {
         font-size: clamp(26px, 5vw, 34px);
         font-weight: 600;
@@ -89,26 +85,15 @@ const FAVICON =
         font-variant-ligatures: none;
         font-feature-settings: "calt" 0, "liga" 0;
       }
-      footer {
-        margin-top: 56px;
-        padding-top: 20px;
-        border-top: 1px solid var(--line);
-        color: var(--muted);
-        font: 12px var(--mono);
-      }
-      footer a { color: var(--muted); }
     </style>
   </head>
   <body>
     <main>
-      <a class="home" href="/">← uploads.sh</a>
+      <div class="brandbar"><Brand /></div>
       <article>
         <slot />
       </article>
-      <footer>
-        uploads.sh · a <a href="https://buildinternet.com">Build Internet</a> project ·&#32;
-        <a href="/terms">terms</a> · <a href="/privacy">privacy</a>
-      </footer>
+      <Footer />
     </main>
   </body>
 </html>

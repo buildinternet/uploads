@@ -6,6 +6,7 @@ import {
   CF_RUM_SCRIPT_SRC,
   STYLE_SRC_SELF_AND_INLINE,
 } from "../lib/csp";
+import Brand from "../components/Brand.astro";
 
 export const prerender = false;
 
@@ -27,6 +28,7 @@ const csp = [
   `connect-src ${authOrigin} ${apiOrigin} ${CF_RUM_CONNECT_SRC}`,
   `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
   `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
+  "font-src 'self'",
   "img-src data: https:",
   "base-uri 'none'",
   "form-action 'none'",
@@ -58,8 +60,8 @@ const FAVICON =
     [hidden]{display:none!important}
 
     .shell{max-width:960px;margin:0 auto;padding:28px 20px 56px}
-    header.top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:22px}
-    header.top h1{font-size:1.1rem;font-weight:600;margin:0;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
+    header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:22px}
+    header.top .lockup{display:inline-flex;align-items:center;gap:9px}
     header.top .who{color:var(--muted);font-size:12.5px}
     .status{border-left:3px solid var(--accent);padding:9px 14px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
     .status[data-state=denied]{border-color:var(--red);color:var(--red)}
@@ -135,7 +137,7 @@ const FAVICON =
   -->
   <div id="dashboard" hidden>
     <header class="top">
-      <h1>uploads.sh <span class="pill">admin</span></h1>
+      <div class="lockup"><Brand /><span class="pill">admin</span></div>
       <span class="who" id="who"></span>
     </header>
 

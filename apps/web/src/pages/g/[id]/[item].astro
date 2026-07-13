@@ -1,5 +1,7 @@
 ---
 import GalleryReferences from "../../../components/GalleryReferences.astro";
+import Brand from "../../../components/Brand.astro";
+import Footer from "../../../components/Footer.astro";
 import {
   applyPublicGalleryHeaders,
   fetchPublicGallery,
@@ -57,7 +59,6 @@ const title = item && gallery ? `${item.filename} · ${gallery.title} · uploads
       body { margin:0; min-height:100vh; color:var(--fg); background:var(--bg); font-family:var(--sans); }
       .shell { width:min(1080px,calc(100% - 48px)); margin:auto; padding:36px 0 64px; }
       nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:32px; font:13px var(--mono); letter-spacing:.02em; }
-      .brand { color:var(--fg); text-decoration:none; } .brand span { color:var(--accent); }
       .public { color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:6px 11px; background:var(--panel); }
       .crumbs { margin-bottom:20px; color:var(--muted); font:13px var(--mono); overflow-wrap:anywhere; }
       .stage { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
@@ -79,13 +80,12 @@ const title = item && gallery ? `${item.filename} · ${gallery.title} · uploads
       .error { padding:70px 24px; border:1px solid var(--line); border-radius:10px; text-align:center; background:var(--panel); color:var(--body); }
       .error code { color:var(--accent); font-family:var(--mono); }
       a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
-      footer { margin-top:44px; color:var(--muted); font:12px/1.6 var(--mono); }
       @media (max-width:760px) { .shell{width:min(100% - 32px,1080px);padding-top:24px} .media{min-height:220px} .pager a,.pager span.disabled{padding:8px 12px} }
     </style>
   </head>
   <body>
     <main class="shell">
-      <nav><a class="brand" href="/"><span>↑</span> uploads.sh</a><span class="public">public gallery</span></nav>
+      <nav><Brand /><span class="public">public gallery</span></nav>
       {gallery && item ? (
         <>
           <div class="crumbs"><a href={listPath}>{gallery.title}</a> · <span class="count">{index + 1} of {items.length}</span></div>
@@ -109,7 +109,7 @@ const title = item && gallery ? `${item.filename} · ${gallery.title} · uploads
             {next ? <a href={itemPath(next)} rel="next">{next.filename} →</a> : <span class="disabled">End →</span>}
           </nav>
           <GalleryReferences references={gallery.references} />
-          <footer>gallery {gallery.id}</footer>
+          <Footer />
         </>
       ) : (
         <section class="error"><code>{result.status === "unavailable" ? "gallery.unavailable" : "gallery.item_not_found"}</code><h1>{result.status === "unavailable" ? "Gallery temporarily unavailable" : "Media not found"}</h1><p>{result.status === "unavailable" ? "The gallery service could not be reached. Please try again shortly." : "This item may have been removed, or the link is incorrect."}</p>{result.status !== "unavailable" && <p><a href={listPath}>View the gallery</a></p>}</section>

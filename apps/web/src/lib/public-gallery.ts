@@ -68,6 +68,8 @@ export const PUBLIC_GALLERY_CSP = [
   "default-src 'none'",
   "img-src https: data:",
   "media-src https:",
+  // Self-hosted Geist Pixel woff2 for the <Brand /> wordmark.
+  "font-src 'self'",
   `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
   `script-src ${CF_RUM_SCRIPT_SRC}`,
   `connect-src ${CF_RUM_CONNECT_SRC}`,
