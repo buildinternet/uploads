@@ -21,7 +21,9 @@ export function Variants() {
 /** The size ramp. */
 export function Sizes() {
   return (
-    <Surface style={{ padding: 28, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+    <Surface
+      style={{ padding: 28, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}
+    >
       <Button size="sm">Small</Button>
       <Button size="md">Medium</Button>
       <Button size="lg">Large</Button>

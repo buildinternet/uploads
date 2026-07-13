@@ -19,11 +19,7 @@ export interface CalloutProps extends Omit<ComponentPropsWithoutRef<"div">, "tit
  * <Callout tone="error">That workspace token is invalid.</Callout>
  */
 export function Callout({ tone = "info", title, className, children, ...rest }: CalloutProps) {
-  const cls = [
-    "ul-callout",
-    tone !== "info" && `ul-callout--${tone}`,
-    className,
-  ]
+  const cls = ["ul-callout", tone !== "info" && `ul-callout--${tone}`, className]
     .filter(Boolean)
     .join(" ");
   return (

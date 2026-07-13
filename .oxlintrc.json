@@ -108,6 +108,7 @@
     "apps/api/scripts/**",
     "apps/web/scripts/**",
     ".superpowers/**",
-    ".worktrees/**"
+    ".worktrees/**",
+    ".design-sync/**"
   ]
 }
