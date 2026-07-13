@@ -10,7 +10,7 @@ Lightweight file-hosting backend on Cloudflare Workers, built on
 
 ## Agent quick start
 
-Install the CLI, enroll once, then attach media from a checked-out PR branch:
+Install the CLI, sign in once, then attach media from a checked-out PR branch:
 
 ```bash
 npm install --global @buildinternet/uploads
@@ -30,11 +30,11 @@ files, and creates or updates one managed attachments comment. Use
 `--pr <number>` or `--issue <number>` when inference is not possible, and
 `--no-comment` when only the public URLs and Markdown are wanted.
 
-An uploads.sh administrator creates a short-lived, single-use enrollment code;
-`uploads login` exchanges it and saves the resulting workspace token. Routine
-agents never receive or need `ADMIN_TOKEN`. See [enrollment](docs/enrollment.md).
-Hosted files are public, including media attached to private repositories. Do
-not upload secrets or sensitive UI.
+An uploads.sh administrator invites your email to a workspace; `uploads login`
+opens a browser to sign in (GitHub or a magic link) and saves the resulting
+workspace token. Routine agents never receive or need `ADMIN_TOKEN`. See
+[enrollment](docs/enrollment.md). Hosted files are public, including media
+attached to private repositories. Do not upload secrets or sensitive UI.
 
 For agent runtimes, install the checked-in skill as well:
 

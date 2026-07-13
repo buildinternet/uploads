@@ -41,9 +41,27 @@ The API worker also runs a **daily cron** (`0 6 * * *` UTC) that purges every wo
 
 ## Invitations
 
-Invitation creation is an operator-only action behind `ADMIN_TOKEN`. Keep that secret
-in the operator environment; never place it in agent configuration, prompts, issues,
-or commands shared with adopters. Create an invitation for an existing workspace with:
+Invite people through the session-authenticated **admin UI at `/admin`**, signed in
+as a global admin (`user.role === "admin"` in the Better Auth `user` table — see
+`apps/auth/README.md#first-admin`). Pick the workspace, enter an email, and the
+UI calls `POST /admin-ui/workspaces/:name/invites`, which invites that address to
+the organization backing the workspace. The invitee accepts (GitHub or magic-link
+sign-in), becomes an org member, and can then run `uploads login` to mint their
+own workspace token. This is the normal way to bring someone onto a workspace —
+no `ADMIN_TOKEN` involved, and nothing to hand-deliver.
+
+A workspace needs an organization behind it before it can be invited into — see
+the org backfill note in `docs/superpowers/plans/2026-07-12-better-auth-introduction.md`
+(Phase 3) if a workspace predates Better Auth and has no org yet.
+
+### Alternative: `ADMIN_TOKEN` enrollment invites (invite links/codes)
+
+Operators can also mint single-use enrollment codes behind `ADMIN_TOKEN`. This
+is a secondary path retained for cases where you want to share a code or link
+without needing the recipient's email address in advance — org invitations
+above remain the primary, recommended way to onboard someone whose email you
+know. `uploads login --code` honors codes issued this way, and the `/console`
+scaffold (behind the console-mode flag) uses it internally.
 
 ```bash
 ADMIN_TOKEN=<admin-credential> uploads admin invite create \
@@ -114,11 +132,11 @@ SQLite WAL/SHM files under `.wrangler/state` are what miniflare locks.
 
 ## Secrets
 
-| Secret                           | Purpose                                                               |
-| -------------------------------- | --------------------------------------------------------------------- |
-| `ADMIN_TOKEN`                    | `/admin/*`                                                            |
-| `WORKSPACE_SECRETS_KEY`          | **Current** KEK for BYO credentials in KV (`enc:v1:…`)                |
-| `WORKSPACE_SECRETS_KEY_PREVIOUS` | **Previous** KEK during rotation only (decrypt fallback, then remove) |
+| Secret                           | Purpose                                                                                           |
+| -------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `ADMIN_TOKEN`                    | `/admin/*` — break-glass ops/CI use, not routine admin work (see [admin-tokens](admin-tokens.md)) |
+| `WORKSPACE_SECRETS_KEY`          | **Current** KEK for BYO credentials in KV (`enc:v1:…`)                                            |
+| `WORKSPACE_SECRETS_KEY_PREVIOUS` | **Previous** KEK during rotation only (decrypt fallback, then remove)                             |
 
 ```bash
 # Generate

@@ -88,12 +88,12 @@ the store (R2 upload time).
 (recycle bin, not TTL). Bucket lifecycle via `files.raw` is bucket-wide and
 doesn’t express per-workspace `retentionDays` on a shared bucket.
 
-New enrollment-issued tokens are stored in D1 and carry an expiry and explicit scopes.
-Workspace configuration and legacy tokens remain in `REGISTRY` KV. The routine-agent
-default is `files:read` plus `files:write`, which is sufficient for upload, listing,
-metadata, and managed attachment comments. Deletion requires `files:delete`. Existing
-tokens without scope or expiry metadata retain their legacy full-access behavior so
-deployment does not invalidate installed clients.
+New `uploads login`-issued tokens are stored in D1 and carry an expiry and explicit
+scopes. Workspace configuration and legacy tokens remain in `REGISTRY` KV. The
+routine-agent default is `files:read` plus `files:write`, which is sufficient for
+upload, listing, metadata, and managed attachment comments. Deletion requires
+`files:delete`. Existing tokens without scope or expiry metadata retain their legacy
+full-access behavior so deployment does not invalidate installed clients.
 
 ## Default model
 

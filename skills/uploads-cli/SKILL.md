@@ -77,24 +77,28 @@ Resolution is **per key, first match wins**: CLI flags (`--api-url`, `--token`,
 `$BUILDINTERNET_CONFIG` → the shared config file. For a one-off against a different
 API or workspace, just export the var or pass `--env-file`.
 
-The fastest path is enrollment. Ask an uploads.sh administrator for a short-lived
-enrollment code, then run:
+The fastest path is `uploads login`. Have an uploads.sh administrator invite your
+email to a workspace first, then run it once, interactively, to sign in:
 
 ```bash
-uploads login          # prompts without echoing the code, saves config, runs doctor
+uploads login          # opens a browser to approve sign-in, saves config, runs doctor
+uploads login --workspace acme   # only needed if your account can access more than one
 ```
 
-For a non-interactive agent, pass the short-lived code through the environment rather
-than a process-list-visible command argument:
+That's a one-time, human-in-the-loop step (device sign-in needs a browser); once the
+config file is written, every later `uploads` invocation — including from a
+non-interactive agent — just reads the saved token. Routine agents never need
+`ADMIN_TOKEN`.
 
-```bash
-UPLOADS_ENROLLMENT_CODE=upe_<workspace>_… uploads login
-```
+For headless machines with no browser at all, an operator can mint a token directly
+(`/admin/tokens`, `ADMIN_TOKEN`-gated — see `docs/admin-tokens.md`) and hand it to the
+agent as `UPLOADS_TOKEN`, or an enrollment code (`upe_…`, an alternative invite-link/code path — useful
+when you don't have the recipient's email) can be exchanged with `uploads login --code`.
+Neither is the normal path for new setups.
 
-Routine agents never need `ADMIN_TOKEN`. Enrollment codes expire after 2 hours by
-default (up to 24 hours) and can be redeemed once. The resulting token defaults to 90 days and `files:read` plus
-`files:write`; it cannot delete files unless an administrator explicitly grants
-`files:delete`. Verify or inspect setup at any time:
+The resulting token defaults to 90 days and `files:read` plus `files:write`; it cannot
+delete files unless an administrator explicitly grants `files:delete`. Verify or inspect
+setup at any time:
 
 ```bash
 uploads setup                                  # shows effective configuration
