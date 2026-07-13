@@ -1,5 +1,18 @@
 # @buildinternet/uploads
 
+## 0.7.0
+
+### Minor Changes
+
+- 2aee5b7: `uploads login` now signs you in through a browser by default: it opens a device-authorization page, you approve the request, and the CLI mints and saves a workspace token — no enrollment code to copy. When your account can access more than one workspace, pass `--workspace <name>`. The one-time enrollment-code path still works via `--code` / `--code-stdin`.
+- 778d440: Gallery items now carry a `pageUrl` pointing at their standalone web page
+  (`/g/<gallery>/<item>`), and gallery previews in the managed GitHub
+  attachments comment deep-link to those pages instead of the gallery root.
+
+### Patch Changes
+
+- 17280ce: `uploads setup` and `uploads login --help` now lead with `uploads login` (device authorization) as the recommended way to sign in. Enrollment codes (`--code` / `--code-stdin`) are still supported and are now clearly described as a fallback for pre-existing invites. No behavior changes.
+
 ## 0.6.0
 
 ### Minor Changes
