@@ -127,6 +127,9 @@ export const files = new Hono<WorkspaceVars>()
   // metadata index (ANDed equality across all given pairs) instead of the
   // R2 prefix-list below; see file-metadata.ts's `findObjectsByMetadata`.
   // No `meta.*` params at all leaves the existing R2 path untouched.
+  // Contract caveat: D1-path items carry no `visibility` annotation (that
+  // lives in R2 custom metadata and would cost a HEAD per result to
+  // hydrate); callers needing the private marker must HEAD the object.
   .get("/", requireScope("files:read"), async (c) => {
     const query = c.req.query();
     const metaParamKeys = Object.keys(query).filter((k) => k.startsWith("meta."));
