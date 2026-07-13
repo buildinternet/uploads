@@ -158,6 +158,14 @@ async function main() {
   await waitFor(`${API_ORIGIN}/health`, "api");
   if (stopping) return;
 
+  // Web starts via `exec astro dev` (below) instead of `pnpm run dev`, so the
+  // `predev` hook that builds @uploads/ui never fires. Build it explicitly:
+  // a fresh checkout has no packages/ui/dist, and the account shell imports
+  // `@uploads/ui/styles.css`, so without this web 500s on a missing module.
+  // Idempotent and quick when already built.
+  await run("pnpm", ["--filter", "@uploads/ui", "build"]);
+  if (stopping) return;
+
   start(
     "web",
     ["--filter", "@uploads/web", "exec", "astro", "dev", "--host", "127.0.0.1", "--port", "4321"],
