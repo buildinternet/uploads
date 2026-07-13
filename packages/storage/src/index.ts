@@ -1,4 +1,5 @@
 import { Files } from "files-sdk";
+export { createFilesRouter } from "files-sdk/api";
 import { r2 } from "files-sdk/r2";
 
 /**

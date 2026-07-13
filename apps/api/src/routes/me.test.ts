@@ -338,3 +338,77 @@ describe("GET /me/workspaces/:name/files", () => {
     });
   });
 });
+
+describe("/me/workspaces/:name/file-browser", () => {
+  function browserEnv(workspace = "acme") {
+    const bucket = new FakeR2Bucket();
+    const env = memberEnv({
+      workspace,
+      db: new UsageFakeD1(),
+      bucket,
+      record: {
+        provider: "r2",
+        bucket: "shared",
+        binding: "UPLOADS_DEFAULT",
+        prefix: `${workspace}/`,
+        publicBaseUrl: "https://storage.uploads.sh",
+      },
+    });
+    return { bucket, env };
+  }
+
+  it("lists folders through files-sdk without exposing the storage prefix", async () => {
+    const { bucket, env } = browserEnv();
+    await bucket.put("acme/f/x/shot.png", new Uint8Array([1]));
+    await bucket.put("acme/readme.txt", new Uint8Array([2]));
+    await bucket.put("other/secret.txt", new Uint8Array([3]));
+
+    const res = await app().request(
+      "/me/workspaces/acme/file-browser",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ op: "list", delimiter: "/" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: { key: string }[]; prefixes: string[] };
+    expect(body.items.map((item) => item.key)).toEqual(["readme.txt"]);
+    expect(body.prefixes).toEqual(["f/"]);
+    expect(JSON.stringify(body)).not.toContain("other/secret.txt");
+    expect(JSON.stringify(body)).not.toContain("acme/");
+
+    const urlRes = await app().request("/me/workspaces/acme/file-url?key=readme.txt", {}, env);
+    expect(urlRes.status).toBe(200);
+    expect(await urlRes.json()).toEqual({ url: "https://storage.uploads.sh/acme/readme.txt" });
+  });
+
+  it("rejects mutation operations even for a workspace member", async () => {
+    const { env } = browserEnv();
+    const res = await app().request(
+      "/me/workspaces/acme/file-browser",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ op: "delete", key: "readme.txt" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("does not mount a browser for the communal workspace", async () => {
+    const { env } = browserEnv("default");
+    const res = await app().request(
+      "/me/workspaces/default/file-browser",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ op: "list", delimiter: "/" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+});

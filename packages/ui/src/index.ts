@@ -31,3 +31,6 @@ export type { DividerProps } from "./Divider";
 
 export { GalleryTile } from "./GalleryTile";
 export type { GalleryTileProps } from "./GalleryTile";
+
+export { FileBrowser } from "./FileBrowser";
+export type { FileBrowserProps } from "./FileBrowser";

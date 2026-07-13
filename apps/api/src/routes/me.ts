@@ -10,13 +10,15 @@
  * for workspace existence any more precisely than for any other workspace.
  */
 import { NotFoundError } from "@uploads/errors";
+import { createFilesRouter } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
-import { listObjects } from "../files-core";
+import { badKey, listObjects } from "../files-core";
 import { listGalleries } from "../galleries";
 import { gallerySummary } from "../gallery-service";
 import { membershipsForUser, orgForWorkspace, workspacesForOrg } from "../org-workspaces";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
+import { publicUrl, storage, storageConfig } from "../storage";
 import { getWorkspaceUsage } from "../usage";
 import { loadWorkspaceRecord } from "../workspace";
 
@@ -142,4 +144,44 @@ export const me = new Hono<SessionVars>()
     }
     const { items } = await listObjects(c.env, record, { limit: 25 });
     return c.json({ communal: false, files: items });
+  })
+
+  // Resolve a selected browser item to its provider-aware public URL. This is
+  // separate from the gateway's `url` verb because its forced attachment
+  // disposition requires signing, while binding-mode R2 uses publicBaseUrl.
+  .get("/workspaces/:name/file-url", async (c) => {
+    const name = c.req.param("name");
+    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
+    const key = c.req.query("key") ?? "";
+    if (ws.communal || badKey(key)) throw new NotFoundError();
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) throw new NotFoundError();
+    const store = await storage(c.env, record);
+    if (!(await store.exists(key))) throw new NotFoundError();
+    return c.json({ url: publicUrl(await storageConfig(c.env, record), key) });
+  })
+
+  // files-sdk's folder-aware browser gateway. Authorization happens before a
+  // storage instance is constructed; readonly plus this operation allow-list
+  // independently prevent member UI requests from mutating storage.
+  .all("/workspaces/:name/file-browser", async (c) => {
+    const name = c.req.param("name");
+    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
+    if (ws.communal) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
+    const router = createFilesRouter({
+      files: (await storage(c.env, record)).readonly(),
+      operations: ["list"],
+      maxListLimit: 100,
+      // files-sdk resolves a signing secret even when signing operations are
+      // disabled. This value is intentionally non-secret and cannot authorize
+      // anything on this list-only, authenticated gateway.
+      secret: `readonly-list:${name}`,
+    });
+    return router.handle(c.req.raw);
   });
