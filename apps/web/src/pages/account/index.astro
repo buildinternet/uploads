@@ -1,0 +1,39 @@
+---
+// Authenticated landing page — where /login drops people after sign-in.
+// Client-side session gating is a UX affordance only — every data call goes
+// to apps/auth / apps/api, which enforce the session server-side.
+import AccountLayout from "../../layouts/AccountLayout.astro";
+
+export const prerender = false;
+---
+
+<AccountLayout section="overview">
+  <section class="card">
+    <h2>Welcome back<span id="hello-name"></span></h2>
+    <p>
+      uploads.sh hosts files you want to link to — PR screenshots, agent
+      artifacts, quick shares. Your workspaces and account details are in
+      the sections on the left.
+    </p>
+  </section>
+  <section class="card" style="margin-top:16px">
+    <h2>Uploading</h2>
+    <p>
+      Install the CLI, run <code>uploads login</code>, and it connects to
+      your workspaces. From there <code>uploads attach</code> puts files
+      on GitHub PRs and <code>uploads put</code> gets you a URL for
+      anything else. Workspace tokens are for the API and CI, not the
+      everyday path. The <a href="/docs">docs</a> cover setup.
+    </p>
+  </section>
+
+  <script>
+    import { onSession, requireElement } from "../../lib/account-shell";
+
+    onSession((user) => {
+      requireElement<HTMLElement>("#hello-name", "account overview").textContent = user.name
+        ? `, ${user.name}`
+        : "";
+    });
+  </script>
+</AccountLayout>

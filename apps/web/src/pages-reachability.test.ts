@@ -33,8 +33,12 @@ function ssrPageResponse(title: string): Response {
 describe.each([
   { path: "/login", title: "Sign in · uploads.sh" },
   { path: "/admin", title: "Admin · uploads.sh" },
+  { path: "/admin/users", title: "Users · Admin · uploads.sh" },
   { path: "/accept-invitation/upi_abc123", title: "Accept invitation · uploads.sh" },
   { path: "/account", title: "Account · uploads.sh" },
+  { path: "/account/workspaces", title: "Workspaces · uploads.sh" },
+  { path: "/account/profile", title: "Account · uploads.sh" },
+  { path: "/account/developers", title: "Developers · uploads.sh" },
   { path: "/console", title: "uploads.sh console" },
 ])("route reachability: $path", ({ path, title }) => {
   it("reaches the page handler (not a static 404) on a browser navigation request", async () => {

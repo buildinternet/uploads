@@ -1,0 +1,126 @@
+---
+/**
+ * Shared shell for /account and /account/* — sidebar nav with real paths
+ * (file-based routing), session gate chrome, and sign-out.
+ */
+import { env } from "cloudflare:workers";
+import {
+  SITE_FAVICON,
+  resolveShowConsoleLinks,
+  resolveSignedInOrigins,
+  signedInCsp,
+} from "../lib/signed-in-page";
+import Brand from "../components/Brand.astro";
+import "../styles/signed-in-shell.css";
+import "../styles/account-content.css";
+
+export type AccountSection = "overview" | "workspaces" | "profile" | "developers";
+
+interface Props {
+  section: AccountSection;
+}
+
+const { section } = Astro.props;
+
+const titles: Record<AccountSection, string> = {
+  overview: "Account",
+  workspaces: "Workspaces",
+  profile: "Account",
+  developers: "Developers",
+};
+const docTitle = `${titles[section]} · uploads.sh`;
+
+const showConsoleLinks = await resolveShowConsoleLinks(env);
+const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
+const csp = signedInCsp(authOrigin, apiOrigin);
+
+const nav: { href: string; section: AccountSection; label: string }[] = [
+  { href: "/account", section: "overview", label: "Overview" },
+  { href: "/account/workspaces", section: "workspaces", label: "Workspaces" },
+  { href: "/account/profile", section: "profile", label: "Account" },
+  { href: "/account/developers", section: "developers", label: "Developers" },
+];
+---
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow, noarchive" />
+  <meta name="referrer" content="no-referrer" />
+  <meta http-equiv="Content-Security-Policy" content={csp} />
+  <title>{docTitle}</title>
+  <link rel="icon" href={SITE_FAVICON} />
+</head>
+<body>
+<div class="shell">
+  <div id="checking" class="status" role="status">Checking your session…</div>
+
+  <div id="signed-out" hidden>
+    <div class="status" data-state="denied" role="alert">You're not signed in.</div>
+    <a class="button" href="/login">Sign in</a>
+  </div>
+
+  <div id="app" hidden>
+    <header class="top">
+      <Brand />
+      <span class="who" id="who"></span>
+    </header>
+
+    <div class="layout">
+      <nav class="side" aria-label="Account sections">
+        {nav.map((item) => (
+          <a
+            href={item.href}
+            aria-current={item.section === section ? "page" : undefined}
+          >
+            {item.label}
+          </a>
+        ))}
+        <div class="side-foot">
+          {showConsoleLinks ? <a href="/console">console →</a> : null}
+          <a href="/admin" id="admin-link" hidden>admin →</a>
+          <button type="button" id="sign-out-btn">Sign out</button>
+        </div>
+      </nav>
+
+      <div class="content">
+        <slot />
+      </div>
+    </div>
+  </div>
+</div>
+
+<script define:vars={{ authOrigin, apiOrigin }}>
+  window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
+  window.__UPLOADS_API_ORIGIN__ = apiOrigin;
+</script>
+<script>
+  import {
+    initSignOut,
+    requireElement,
+    resolveSessionGate,
+  } from "../lib/account-shell";
+
+  const w = window as unknown as {
+    __UPLOADS_AUTH_ORIGIN__: string;
+  };
+  const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
+
+  initSignOut(authOrigin);
+
+  void resolveSessionGate({
+    authOrigin,
+    checking: requireElement<HTMLElement>("#checking", "account"),
+    denied: requireElement<HTMLElement>("#signed-out", "account"),
+    app: requireElement<HTMLElement>("#app", "account"),
+    who: requireElement<HTMLElement>("#who", "account"),
+  }).then((result) => {
+    if (!result) return;
+    if (result.user.role === "admin") {
+      requireElement<HTMLElement>("#admin-link", "account").hidden = false;
+    }
+  });
+</script>
+</body>
+</html>

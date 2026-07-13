@@ -1,0 +1,130 @@
+/* Admin workspace accordions on /admin (JS-injected markup). */
+#workspaces-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+#workspaces-list .workspace {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+#workspaces-list .workspace summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+#workspaces-list .workspace summary::-webkit-details-marker {
+  display: none;
+}
+#workspaces-list .workspace .name {
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 13px;
+}
+#workspaces-list .workspace .counts {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+#workspaces-list .workspace .detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+}
+#workspaces-list .workspace ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+#workspaces-list .workspace li {
+  font-size: 12.5px;
+  color: var(--body);
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+#workspaces-list .workspace li .role {
+  color: var(--muted);
+}
+#workspaces-list .workspace .members,
+#workspaces-list .workspace .muted {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+#workspaces-list .invite-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+#workspaces-list .invite-form label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+#workspaces-list .invite-form input,
+#workspaces-list .invite-form select {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--fg);
+  padding: 7px 9px;
+  font: 12px var(--mono);
+}
+#workspaces-list .invite-form button,
+#workspaces-list .invite-link-row button {
+  font: 11px var(--mono);
+  color: var(--accent);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+#workspaces-list .invite-form button:hover,
+#workspaces-list .invite-form button:focus-visible,
+#workspaces-list .invite-link-row button:hover,
+#workspaces-list .invite-link-row button:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+#workspaces-list .invite-status {
+  font-size: 12px;
+  margin-top: 4px;
+}
+#workspaces-list .invite-status[data-state="error"] {
+  color: var(--red);
+}
+#workspaces-list .invite-status[data-state="ready"] {
+  color: var(--accent);
+}
+#workspaces-list .invite-link-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+#workspaces-list .invite-link-url {
+  flex: 1;
+  min-width: 200px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--fg);
+  padding: 7px 9px;
+  font: 11px var(--mono);
+}

@@ -1,0 +1,31 @@
+---
+import AccountLayout from "../../layouts/AccountLayout.astro";
+
+export const prerender = false;
+---
+
+<AccountLayout section="profile">
+  <section class="card">
+    <h2>Account</h2>
+    <dl class="kv">
+      <dt>Email</dt><dd id="acct-email"></dd>
+      <dt>Name</dt><dd id="acct-name"></dd>
+      <dt>Role</dt><dd id="acct-role"></dd>
+    </dl>
+    <p class="muted" style="margin-top:14px">
+      Your name and avatar come from your sign-in provider. There's
+      nothing to edit here yet.
+    </p>
+  </section>
+
+  <script>
+    import { onSession, requireElement } from "../../lib/account-shell";
+
+    onSession((user) => {
+      requireElement<HTMLElement>("#acct-email", "account profile").textContent = user.email;
+      requireElement<HTMLElement>("#acct-name", "account profile").textContent = user.name || "—";
+      requireElement<HTMLElement>("#acct-role", "account profile").textContent =
+        user.role || "member";
+    });
+  </script>
+</AccountLayout>
