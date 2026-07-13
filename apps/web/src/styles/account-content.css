@@ -60,6 +60,16 @@ ul.plain .slug {
 ul.plain .usage {
   color: var(--muted);
   font-size: 12px;
+  display: grid;
+  gap: 5px;
+  /* Floor so bars can appear under the label without layout jump. */
+  min-height: 1.2em;
+}
+ul.plain .usage .usage-text {
+  line-height: 1.35;
+}
+ul.plain .usage .ul-progress {
+  margin-top: 1px;
 }
 ul.plain .ws-detail {
   display: grid;

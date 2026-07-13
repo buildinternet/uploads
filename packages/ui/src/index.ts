@@ -29,6 +29,9 @@ export type { BadgeProps } from "./Badge";
 export { Divider } from "./Divider";
 export type { DividerProps } from "./Divider";
 
+export { Progress } from "./Progress";
+export type { ProgressProps } from "./Progress";
+
 export { GalleryTile } from "./GalleryTile";
 export type { GalleryTileProps } from "./GalleryTile";
 

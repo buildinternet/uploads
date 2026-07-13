@@ -59,13 +59,15 @@ export const prerender = false;
       return `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10} ${units[unit]}`;
     }
 
-    function formatUsage(usage: {
+    type UsageSnapshot = {
       bytes: number;
       objects: number;
       uploadsInPeriod: number;
       maxStorageBytes?: number;
       maxUploadsPerPeriod?: number;
-    }): string {
+    };
+
+    function formatUsage(usage: UsageSnapshot): string {
       const used = formatBytes(usage.bytes);
       const size = usage.maxStorageBytes
         ? `${used} of ${formatBytes(usage.maxStorageBytes)}`
@@ -77,6 +79,38 @@ export const prerender = false;
         parts.push(`${usage.uploadsInPeriod} of ${usage.maxUploadsPerPeriod} uploads this month`);
       }
       return parts.join(" · ");
+    }
+
+    /** 0–100, one decimal. Missing/invalid caps → no bar. */
+    function usagePct(value: number, max: number | undefined): number | null {
+      if (typeof max !== "number" || !(max > 0) || !Number.isFinite(value)) return null;
+      return Math.min(100, Math.max(0, Math.round((value / max) * 1000) / 10));
+    }
+
+    /** DS `.ul-progress` markup — keep in sync with `Progress` in @uploads/ui. */
+    function progressRowHtml(label: string, pct: number): string {
+      let levelAttr = "";
+      if (pct >= 100) levelAttr = ' data-level="full"';
+      else if (pct >= 85) levelAttr = ' data-level="high"';
+      return `<div class="ul-progress__row">
+        <div class="ul-progress__track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}" aria-label="${escapeHtml(label)}">
+          <div class="ul-progress__fill"${levelAttr} style="width:${pct}%"></div>
+        </div>
+      </div>`;
+    }
+
+    function renderUsageHtml(usage: UsageSnapshot): string {
+      const text = escapeHtml(formatUsage(usage));
+      const rows = (
+        [
+          ["Storage used", usagePct(usage.bytes, usage.maxStorageBytes)],
+          ["Uploads this month", usagePct(usage.uploadsInPeriod, usage.maxUploadsPerPeriod)],
+        ] as const
+      )
+        .filter((entry): entry is readonly [string, number] => entry[1] !== null)
+        .map(([label, pct]) => progressRowHtml(label, pct));
+      const bars = rows.length ? `<div class="ul-progress">${rows.join("")}</div>` : "";
+      return `<div class="usage-text">${text}</div>${bars}`;
     }
 
     // Operator enrollment CLI — site-wide ADMIN_TOKEN only (not workspace role).
@@ -188,7 +222,11 @@ export const prerender = false;
           if (usageEl) {
             tasks.push(
               getMyWorkspaceUsage(apiOrigin, ws.workspace).then((usage) => {
-                usageEl.textContent = usage ? formatUsage(usage) : "Usage unavailable.";
+                if (!usage) {
+                  usageEl.textContent = "Usage unavailable.";
+                  return;
+                }
+                usageEl.innerHTML = renderUsageHtml(usage);
               }),
             );
           }
