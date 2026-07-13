@@ -16,8 +16,13 @@ export const META_VALUE_MAX = 512;
 /** Cap on keys per request (mirrors META_MAX_KEYS server-side). */
 export const META_MAX_KEYS = 24;
 
+/** Cap on total UTF-8 key+value bytes per request (mirrors META_MAX_TOTAL_BYTES server-side). */
+export const META_MAX_TOTAL_BYTES = 8192;
+
 // Printable ASCII only — same rule as the server's file-metadata.ts.
 const VALUE_SAFE_RE = /^[\x20-\x7E]+$/;
+
+const encoder = new TextEncoder();
 
 /**
  * Server-computed keys the API rejects as custom metadata (currently just
@@ -60,8 +65,9 @@ export function parseMetaPair(raw: string): [string, string] {
 /**
  * Parse and validate a batch of `k=v` pairs (e.g. every `--meta` occurrence,
  * or `meta set`'s positional pairs) into a map. Fails fast on the first
- * invalid pair or when the batch exceeds `META_MAX_KEYS`. Later duplicate
- * keys in the same batch win (last write).
+ * invalid pair or when the batch exceeds `META_MAX_KEYS` or
+ * `META_MAX_TOTAL_BYTES`. Later duplicate keys in the same batch win
+ * (last write).
  */
 export function parseMetaFlags(pairs: string[]): Record<string, string> {
   if (pairs.length > META_MAX_KEYS) {
@@ -71,6 +77,17 @@ export function parseMetaFlags(pairs: string[]): Record<string, string> {
   for (const pair of pairs) {
     const [key, value] = parseMetaPair(pair);
     result[key] = value;
+  }
+  // Aggregate byte cap over the deduplicated map — same accounting as the
+  // server (sum of UTF-8 key+value bytes, META_MAX_TOTAL_BYTES).
+  let totalBytes = 0;
+  for (const [key, value] of Object.entries(result)) {
+    totalBytes += encoder.encode(key).byteLength + encoder.encode(value).byteLength;
+  }
+  if (totalBytes > META_MAX_TOTAL_BYTES) {
+    throw new UsageError(
+      `metadata too large: ${totalBytes} bytes of keys+values exceeds the ${META_MAX_TOTAL_BYTES}-byte limit per request`,
+    );
   }
   return result;
 }

@@ -89,16 +89,20 @@ export function ghAttachmentKey(target: GhTarget, filename: string): string {
  * The four `gh.*` queryable-metadata pairs `uploads attach` writes
  * automatically (`.context/2026-07-13-file-metadata-design.md`). `gh.kind`
  * uses the API's singular vocabulary (`pull`/`issue`), distinct from
- * `GhTarget.kind`'s URL-segment spelling (`pull`/`issues`). `gh.ref` reuses
- * the same lowercased `owner/repo#number` coordinate as gallery GitHub
- * references, so both surfaces resolve the same lookup key.
+ * `GhTarget.kind`'s URL-segment spelling (`pull`/`issues`). `gh.repo` and
+ * `gh.ref` are both lowercased so exact-match metadata search has one
+ * canonical spelling regardless of source casing (`--repo`, git remote, and
+ * `gh` output vary); `gh.ref` uses the same lowercased `owner/repo#number`
+ * coordinate as gallery GitHub references, so both surfaces resolve the same
+ * lookup key.
  */
 export function ghMetadataFromTarget(target: GhTarget): Record<string, string> {
+  const repo = target.repo.toLowerCase();
   return {
-    "gh.repo": target.repo,
+    "gh.repo": repo,
     "gh.kind": target.kind === "issues" ? "issue" : "pull",
     "gh.number": String(target.num),
-    "gh.ref": `${target.repo.toLowerCase()}#${target.num}`,
+    "gh.ref": `${repo}#${target.num}`,
   };
 }
 

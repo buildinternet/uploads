@@ -78,4 +78,16 @@ describe("parseMetaFlags", () => {
   it("fails fast on the first invalid pair", () => {
     expect(() => parseMetaFlags(["ok=1", "Bad=2"])).toThrow(UsageError);
   });
+
+  it("rejects a batch whose total key+value bytes exceed 8192", () => {
+    // 17 pairs x (k<i> + 512-char value) ≈ 8.7 KB > 8192, each pair individually valid.
+    const pairs = Array.from({ length: 17 }, (_, i) => `k${i}=${"x".repeat(512)}`);
+    expect(() => parseMetaFlags(pairs)).toThrow(/8192-byte limit/);
+  });
+
+  it("accepts a batch just under the byte cap", () => {
+    // 15 pairs x ~514 bytes ≈ 7.7 KB < 8192.
+    const pairs = Array.from({ length: 15 }, (_, i) => `k${i}=${"x".repeat(510)}`);
+    expect(() => parseMetaFlags(pairs)).not.toThrow();
+  });
 });

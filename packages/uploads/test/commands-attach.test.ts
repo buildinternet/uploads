@@ -142,6 +142,23 @@ describe("runAttach gh.* metadata", () => {
     });
   });
 
+  it("lowercases gh.repo and gh.ref for a mixed-case repo so metadata search stays exact-match", async () => {
+    const { client, metadataByKey } = fakeClient();
+    // Mixed-case repo, as gh/--repo can return; key path keeps original case
+    // (ghAttachmentKey), but gh.* metadata is normalized to lowercase.
+    const run: CommandRunner = (_cmd, args) => {
+      if (args[0] === "repo") return "BuildInternet/Uploads\n";
+      if (args[0] === "pr" && args[1] === "view") return "123\n";
+      if (args[1]?.includes("per_page=100")) return "[]";
+      return JSON.stringify({ id: 9 });
+    };
+    await runAttach(ctxWith(client), files("shot.png"), false, run);
+    expect(metadataByKey["gh/BuildInternet/Uploads/pull/123/shot.png"]).toMatchObject({
+      "gh.repo": "buildinternet/uploads",
+      "gh.ref": "buildinternet/uploads#123",
+    });
+  });
+
   it("merges --meta extras and lets the resolved target's gh.* win over a same-named extra", async () => {
     const { client, metadataByKey } = fakeClient();
     const { run } = ghRunner();

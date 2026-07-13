@@ -168,9 +168,17 @@ export function parseCommandArgs(args: string[]): CommandFlags {
   return { positionals, flags, help };
 }
 
+/**
+ * Single string value for a flag. A repeated single-value flag keeps the
+ * pre-repeatable-flags behavior: the last occurrence wins (e.g.
+ * `--repo a --repo b` → `"b"`). Genuinely repeatable flags should use
+ * `flagValues` instead.
+ */
 export function flagString(flags: CommandFlags["flags"], name: string): string | undefined {
   const value = flags.get(name);
-  return typeof value === "string" ? value : undefined;
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && value.length > 0) return value[value.length - 1];
+  return undefined;
 }
 
 export function flagBool(flags: CommandFlags["flags"], name: string): boolean {

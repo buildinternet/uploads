@@ -72,6 +72,7 @@ export {
   META_KEY_RE,
   META_VALUE_MAX,
   META_MAX_KEYS,
+  META_MAX_TOTAL_BYTES,
   validateMetaEntry,
   parseMetaPair,
   parseMetaFlags,

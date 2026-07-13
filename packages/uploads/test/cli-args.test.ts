@@ -13,9 +13,14 @@ describe("parseCommandArgs repeatable flags", () => {
     expect(flagValues(flags, "--meta")).toEqual(["app=x", "page=y"]);
   });
 
-  it("flagString returns undefined once a flag has repeated (avoids silently using only the last value)", () => {
+  it("flagString keeps last-value-wins when a single-value flag is repeated", () => {
+    const { flags } = parseCommandArgs(["--repo", "a/b", "--repo", "c/d"]);
+    expect(flagString(flags, "--repo")).toBe("c/d");
+  });
+
+  it("flagString returns the last of repeated occurrences for any flag", () => {
     const { flags } = parseCommandArgs(["--meta", "app=x", "--meta", "page=y"]);
-    expect(flagString(flags, "--meta")).toBeUndefined();
+    expect(flagString(flags, "--meta")).toBe("page=y");
   });
 
   it("returns an empty array when the flag is absent", () => {
