@@ -40,6 +40,18 @@ describe("validateMetadataEntries", () => {
     expect(() => validateMetadataEntries({ "Bad Key": "x" })).toThrow(AppError);
   });
 
+  it("throws a reserved-key AppError for server-set provenance keys like content-sha256", () => {
+    try {
+      validateMetadataEntries({ "content-sha256": "0".repeat(64) });
+      throw new Error("expected validateMetadataEntries to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(AppError);
+      expect((err as AppError & { code?: string }).code).toBe("file_metadata_reserved_key");
+    }
+    // gh.* keys stay writable — system-managed by convention, not reserved.
+    expect(() => validateMetadataEntries({ "gh.repo": "a/b" })).not.toThrow();
+  });
+
   it("throws AppError for an empty value", () => {
     expect(() => validateMetadataEntries({ app: "" })).toThrow(AppError);
   });

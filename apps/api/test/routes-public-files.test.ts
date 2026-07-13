@@ -174,10 +174,9 @@ describe("GET /public/files/:workspace/:key", () => {
 
   it("never surfaces provenance metadata on the public surface", async () => {
     const { env } = await makeEnv();
-    await seedShot(env, {
-      "X-Uploads-Meta-Client": "uploads-cli",
-      "X-Uploads-Meta-Content-Sha256": "0".repeat(64),
-    });
+    // The server always writes content-sha256 provenance itself; a client
+    // spoof attempt now rejects the upload outright (file_metadata_reserved_key).
+    await seedShot(env, { "X-Uploads-Meta-Client": "uploads-cli" });
 
     const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
     expect(res.status).toBe(200);

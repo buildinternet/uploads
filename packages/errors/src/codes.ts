@@ -60,6 +60,7 @@ export const ERROR_CODES = [
   "file_metadata_invalid_key",
   "file_metadata_invalid_value",
   "file_metadata_limit_exceeded",
+  "file_metadata_reserved_key",
 
   // Admin
   "invalid_workspace",

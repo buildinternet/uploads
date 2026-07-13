@@ -299,8 +299,8 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
         "X-Uploads-Meta-Client-Version": "0.3.0",
         "X-Uploads-Meta-Optimized": "1",
         "X-Uploads-Meta-Frame": "phone",
-        "X-Uploads-Meta-Secret": "should-drop",
-        "X-Uploads-Meta-Content-Sha256": "0".repeat(64),
+        // Non-allowlisted: lands in D1 custom metadata, never in R2 provenance.
+        "X-Uploads-Meta-Secret": "custom-not-provenance",
       },
     });
     expect(res.status).toBe(201);
@@ -401,6 +401,21 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
     const res = await putShot(env, { headers: { "X-Uploads-Meta-1bad": "x" } });
     expect(res.status).toBe(400);
     expect(bucket.store.has("default/screenshots/shot.png")).toBe(false);
+  });
+
+  it("rejects an upload spoofing the server-set content-sha256 as custom metadata", async () => {
+    const { env, db, bucket } = await makeEnv();
+    const res = await putShot(env, {
+      headers: { "X-Uploads-Meta-Content-Sha256": "0".repeat(64) },
+    });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { type: string; code: string } };
+    expect(json.error.type).toBe("validation");
+    expect(json.error.code).toBe("file_metadata_reserved_key");
+    expect(bucket.store.has("default/screenshots/shot.png")).toBe(false);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({});
   });
 
   it("rejects an empty custom metadata value instead of silently dropping it", async () => {
@@ -530,6 +545,22 @@ describe("GET/PATCH /v1/:workspace/files/:key/metadata", () => {
 
     const res = await getMeta(env, "screenshots/shot.png");
     expect(await res.json()).toEqual({ metadata: { gh_pr: "142" } });
+  });
+
+  it("PATCH rejects setting the reserved content-sha256 key with 400", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+
+    const patch = await patchMeta(env, "screenshots/shot.png", {
+      set: { "content-sha256": "0".repeat(64) },
+    });
+    expect(patch.status).toBe(400);
+    const json = (await patch.json()) as { error: { type: string; code: string } };
+    expect(json.error.type).toBe("validation");
+    expect(json.error.code).toBe("file_metadata_reserved_key");
+
+    const res = await getMeta(env, "screenshots/shot.png");
+    expect(await res.json()).toEqual({ metadata: {} });
   });
 
   it("PATCH delete removes a key", async () => {

@@ -9,9 +9,19 @@
  */
 
 import { ValidationError } from "@uploads/errors";
+import { PROVENANCE_SERVER_KEYS } from "./provenance";
 
 /** Lowercase key, optionally namespaced with dots (e.g. `gh.repo`). */
 export const META_KEY_RE = /^[a-z][a-z0-9._-]{0,63}$/;
+
+/**
+ * Server-set provenance keys (e.g. `content-sha256`) are reserved: a custom
+ * metadata row with the same name would be a spoofable shadow of a value the
+ * server computes and vouches for. Enforced here — the single choke point for
+ * upload capture, the PATCH endpoint, and any future setFileMetadata caller.
+ * `gh.*` keys are NOT reserved: system-managed by convention only (design doc).
+ */
+const RESERVED_META_KEYS = new Set<string>(PROVENANCE_SERVER_KEYS);
 
 /** Cap applied both to a single write request and to a file's total keys post-merge. */
 export const META_MAX_KEYS = 24;
@@ -47,6 +57,12 @@ export function validateMetadataEntries(meta: Record<string, string>): void {
     if (!META_KEY_RE.test(key)) {
       throw new ValidationError(`invalid metadata key: ${key}`, {
         code: "file_metadata_invalid_key",
+        details: { key },
+      });
+    }
+    if (RESERVED_META_KEYS.has(key)) {
+      throw new ValidationError(`reserved metadata key: ${key}`, {
+        code: "file_metadata_reserved_key",
         details: { key },
       });
     }

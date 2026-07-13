@@ -37,7 +37,15 @@ export const PROVENANCE_CLIENT_KEYS = [
   "keep-exif",
 ] as const;
 
-export const PROVENANCE_KEYS = [...PROVENANCE_CLIENT_KEYS, "content-sha256"] as const;
+/**
+ * Server-computed provenance keys — never accepted from headers, and reserved
+ * from the D1 custom-metadata namespace too (see file-metadata.ts's
+ * `validateMetadataEntries`) so a client can't store a spoofable shadow of
+ * the real integrity hash under the same name.
+ */
+export const PROVENANCE_SERVER_KEYS = ["content-sha256"] as const;
+
+export const PROVENANCE_KEYS = [...PROVENANCE_CLIENT_KEYS, ...PROVENANCE_SERVER_KEYS] as const;
 
 export type ProvenanceKey = (typeof PROVENANCE_KEYS)[number];
 export type ProvenanceClientKey = (typeof PROVENANCE_CLIENT_KEYS)[number];
