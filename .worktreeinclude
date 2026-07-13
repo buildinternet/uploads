@@ -1,2 +1,10 @@
+# Files copied from the main checkout into Claude Code worktrees on creation.
+# Uses .gitignore syntax; only matching paths that are ALSO gitignored are
+# copied, so tracked files are never duplicated.
+# https://code.claude.com/docs/en/worktrees#copy-gitignored-files-into-worktrees
 .env
 apps/api/.dev.vars
+
+# design-sync converter (scripts + node_modules). Staged on main only — see
+# .design-sync/NOTES.md. No-op when main has no .ds-sync/ yet.
+.ds-sync/
