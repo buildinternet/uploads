@@ -137,6 +137,13 @@ const title = file
       )}
     </main>
     {result.status === "auth_required" && (
+      // Progressive-enhancement, client-side authorization path — a second
+      // gate parallel to the server-side one this page already applied via
+      // fetchPublicFile()/objectVisibility (apps/api's GET /public/files/...,
+      // see apps/api/src/routes/public-files.ts). Both this probe and the
+      // /me/workspaces/:name/file-url resolver it calls must keep enforcing
+      // the same auth_required condition as that server gate, or a signed-out
+      // viewer could see one page disagree with the other about access.
       <script define:vars={{ apiOrigin: origin, workspace, key }}>
         (async function () {
           const checking = document.getElementById("auth-checking");

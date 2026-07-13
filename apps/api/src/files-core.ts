@@ -5,10 +5,15 @@
  * from `@uploads/errors`; REST serializes via `respondError`, MCP surfaces
  * `message` in the tool error.
  */
-import { InsufficientStorageError, RateLimitedError, ValidationError } from "@uploads/errors";
+import {
+  InsufficientStorageError,
+  NotFoundError,
+  RateLimitedError,
+  ValidationError,
+} from "@uploads/errors";
 import type { Files } from "@uploads/storage";
 import { checkPutBudget } from "./budget";
-import { inspectUpload, resolveUploadPolicy } from "./guards";
+import { DEFAULT_MAX_UPLOAD_BYTES, inspectUpload, resolveUploadPolicy } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
 import {
   contentSha256Hex,
@@ -178,6 +183,48 @@ export async function putObject(
     metadata: provenance,
     ...(storedVisibility ? { visibility: storedVisibility } : {}),
   };
+}
+
+/**
+ * Toggle an object's `visibility` custom-metadata flag. R2 custom metadata is
+ * immutable in place, so this rewrites the object under the same key: a
+ * `head` first (to enforce the same size cap as ordinary uploads, since the
+ * rewrite buffers the whole body in memory) then a `download` + `upload` with
+ * the toggled metadata. `contentType` and provenance metadata come straight
+ * off the existing object; `cacheControl` is reapplied from
+ * `UPLOAD_CACHE_CONTROL` (the same constant every upload already uses), so
+ * this is a no-op for objects written by this API and a one-time
+ * normalization for anything written before that constant existed.
+ *
+ * Throws `NotFoundError` when the object doesn't exist and `ValidationError`
+ * (`code: "file_too_large"`) when it exceeds `maxBytes` — callers should let
+ * both propagate to the route's error mapping.
+ */
+export async function setObjectVisibility(
+  store: Files,
+  key: string,
+  visibility: Visibility,
+  maxBytes: number = DEFAULT_MAX_UPLOAD_BYTES,
+): Promise<void> {
+  const meta = await store.head(key).catch(() => null);
+  if (!meta) throw new NotFoundError();
+  if (meta.size > maxBytes) {
+    throw new ValidationError("file too large to change visibility", {
+      code: "file_too_large",
+    });
+  }
+
+  const current = await store.download(key);
+  const bytes = new Uint8Array(await current.arrayBuffer());
+  const metadata: Record<string, string> = { ...current.metadata };
+  if (visibility === "private") metadata[VISIBILITY_META_KEY] = "private";
+  else delete metadata[VISIBILITY_META_KEY];
+
+  await store.upload(key, bytes, {
+    contentType: current.type,
+    cacheControl: UPLOAD_CACHE_CONTROL,
+    metadata,
+  });
 }
 
 /**

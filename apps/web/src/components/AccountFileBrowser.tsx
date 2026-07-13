@@ -1,5 +1,5 @@
 import { useFiles } from "files-sdk/react";
-import { FileBrowser } from "@uploads/ui";
+import { Button, FileBrowser } from "@uploads/ui";
 import "@uploads/ui/styles.css";
 import { useState } from "react";
 import { filePath } from "../lib/public-file";
@@ -106,16 +106,16 @@ export function AccountFileBrowser({ apiOrigin, workspace, hasPublicUrl }: Props
           const isPrivate = file.metadata?.visibility === "private";
           const busy = togglingKeys.has(file.key);
           return (
-            <button
-              type="button"
-              className="ul-files__action"
+            <Button
+              size="sm"
+              variant="ghost"
               disabled={busy}
               onClick={() =>
                 void toggleVisibility(file.key, isPrivate ? "public" : "private", refresh)
               }
             >
               {busy ? "…" : isPrivate ? "Make public" : "Make private"}
-            </button>
+            </Button>
           );
         }}
       />

@@ -57,22 +57,32 @@ export function filePath(workspace: string, key: string): string {
 }
 
 /**
+ * Shared directives behind both {@link PUBLIC_FILE_CSP} and
+ * {@link authRequiredFileCsp} — locked down except for self-hosted
+ * styles/fonts and the Cloudflare RUM beacon. `scriptSrc`/`connectSrc`
+ * override the default (script-free) posture for the auth-required branch.
+ */
+function buildFileCsp(overrides?: { scriptSrc?: string; connectSrc?: string }): string {
+  return [
+    "default-src 'none'",
+    "img-src https: data:",
+    "media-src https:",
+    "font-src 'self'",
+    `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
+    `script-src ${overrides?.scriptSrc ?? CF_RUM_SCRIPT_SRC}`,
+    `connect-src ${overrides?.connectSrc ?? CF_RUM_CONNECT_SRC}`,
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+  ].join("; ");
+}
+
+/**
  * Public file page CSP — identical posture to the public gallery: locked down
  * except for self-hosted styles/fonts and the Cloudflare RUM beacon.
  */
-export const PUBLIC_FILE_CSP = [
-  "default-src 'none'",
-  "img-src https: data:",
-  "media-src https:",
-  "font-src 'self'",
-  `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
-  `script-src ${CF_RUM_SCRIPT_SRC}`,
-  `connect-src ${CF_RUM_CONNECT_SRC}`,
-  "base-uri 'none'",
-  "form-action 'none'",
-  "frame-ancestors 'none'",
-  "object-src 'none'",
-].join("; ");
+export const PUBLIC_FILE_CSP = buildFileCsp();
 
 /**
  * CSP for the `auth_required` branch only: same posture as {@link PUBLIC_FILE_CSP}
@@ -83,19 +93,10 @@ export const PUBLIC_FILE_CSP = [
  * branch keeps the strict, script-free policy.
  */
 export function authRequiredFileCsp(apiOrigin: string): string {
-  return [
-    "default-src 'none'",
-    "img-src https: data:",
-    "media-src https:",
-    "font-src 'self'",
-    `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
-    `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
-    `connect-src ${apiOrigin} ${CF_RUM_CONNECT_SRC}`,
-    "base-uri 'none'",
-    "form-action 'none'",
-    "frame-ancestors 'none'",
-    "object-src 'none'",
-  ].join("; ");
+  return buildFileCsp({
+    scriptSrc: `'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
+    connectSrc: `${apiOrigin} ${CF_RUM_CONNECT_SRC}`,
+  });
 }
 
 /**

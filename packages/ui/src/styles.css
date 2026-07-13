@@ -543,37 +543,6 @@
   background: none;
   cursor: pointer;
 }
-.ul-files__badge {
-  flex: none;
-  font: 10.5px var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 2px 6px;
-}
-.ul-files__action {
-  flex: none;
-  font: 11px var(--mono);
-  color: var(--muted);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 5px 8px;
-  background: none;
-  cursor: pointer;
-}
-.ul-files__action:hover,
-.ul-files__action:focus-visible {
-  color: var(--accent);
-  border-color: var(--accent);
-  outline: none;
-}
-.ul-files__action:disabled {
-  cursor: default;
-  opacity: 0.6;
-}
 .ul-files__row:hover,
 .ul-files__row:focus-visible {
   background: color-mix(in srgb, var(--accent) 12%, transparent);

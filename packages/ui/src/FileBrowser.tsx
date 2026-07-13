@@ -4,6 +4,7 @@ import type { StoredFile } from "files-sdk";
 import type { UseFilesResult } from "files-sdk/react";
 import { ChevronRight, File, Folder, Home, LoaderCircle } from "lucide-react";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Badge } from "./Badge";
 
 export interface FileBrowserProps {
   files: UseFilesResult;
@@ -163,7 +164,7 @@ export function FileBrowser({
                       {formatBytes(item.size)} · {item.type || "unknown"}
                     </small>
                   </span>
-                  {isPrivate?.(item) ? <span className="ul-files__badge">Private</span> : null}
+                  {isPrivate?.(item) ? <Badge tone="neutral">Private</Badge> : null}
                 </button>
                 {itemActions?.(item, { refresh: () => void load() })}
               </div>

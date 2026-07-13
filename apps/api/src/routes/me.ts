@@ -13,15 +13,14 @@ import { NotFoundError, ValidationError } from "@uploads/errors";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
-import { badKey, listObjects, UPLOAD_CACHE_CONTROL } from "../files-core";
+import { badKey, listObjects, setObjectVisibility } from "../files-core";
 import { listGalleries } from "../galleries";
 import { gallerySummary } from "../gallery-service";
-import { DEFAULT_MAX_UPLOAD_BYTES } from "../guards";
 import { membershipsForUser, orgForWorkspace, workspacesForOrg } from "../org-workspaces";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
 import { publicUrl, storage, storageConfig } from "../storage";
 import { getWorkspaceUsage } from "../usage";
-import { sanitizeVisibility, VISIBILITY_META_KEY, VISIBILITY_VALUES } from "../visibility";
+import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
 import { loadWorkspaceRecord } from "../workspace";
 
 interface MyWorkspace {
@@ -193,15 +192,10 @@ export const me = new Hono<SessionVars>()
 
   // Toggle a file's `visibility` custom-metadata flag — member-gated, same key
   // convention as `file-url` (key via query param; embedding it in the path
-  // segment fights Hono's routing for keys containing `/`). R2 custom metadata
-  // is immutable in place, so this rewrites the object under the same key: a
-  // `head` first (to enforce the same size cap as ordinary uploads, since the
-  // rewrite buffers the whole body in memory) then a `download` + `upload`
-  // with the toggled metadata. `contentType` and provenance metadata come
-  // straight off the existing object; `cacheControl` is reapplied from the
-  // same constant every upload already uses (`UPLOAD_CACHE_CONTROL`), so this
-  // is a no-op for objects written by this API and a one-time normalization
-  // for anything written before that constant existed.
+  // segment fights Hono's routing for keys containing `/`). Storage mechanics
+  // (head/size-cap/download/re-upload) live in files-core's
+  // `setObjectVisibility`; this route keeps auth, key validation, body
+  // validation, and error mapping.
   .patch("/workspaces/:name/files/visibility", async (c) => {
     const name = c.req.param("name");
     const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
@@ -223,25 +217,7 @@ export const me = new Hono<SessionVars>()
     if (!record) throw new NotFoundError();
     const store = await storage(c.env, record);
 
-    const meta = await store.head(key).catch(() => null);
-    if (!meta) throw new NotFoundError();
-    if (meta.size > DEFAULT_MAX_UPLOAD_BYTES) {
-      throw new ValidationError("file too large to change visibility", {
-        code: "file_too_large",
-      });
-    }
-
-    const current = await store.download(key);
-    const bytes = new Uint8Array(await current.arrayBuffer());
-    const metadata: Record<string, string> = { ...current.metadata };
-    if (requested === "private") metadata[VISIBILITY_META_KEY] = "private";
-    else delete metadata[VISIBILITY_META_KEY];
-
-    await store.upload(key, bytes, {
-      contentType: current.type,
-      cacheControl: UPLOAD_CACHE_CONTROL,
-      metadata,
-    });
+    await setObjectVisibility(store, key, requested as "public" | "private");
 
     return c.json({ key, visibility: sanitizeVisibility(requested) ?? "public" });
   })
