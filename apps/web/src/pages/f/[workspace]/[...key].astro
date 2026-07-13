@@ -40,6 +40,13 @@ const uploadedLabel =
     : null;
 const canonical = new URL(file ? filePath(workspace, key) : Astro.url.pathname, Astro.url.origin)
   .href;
+// Generic metadata list excludes `gh.*` pairs — those render as the "Attached to"
+// row above via `file.github` instead of duplicating them here.
+const metadataEntries = file?.metadata
+  ? Object.entries(file.metadata)
+      .filter(([metaKey]) => !metaKey.startsWith("gh."))
+      .sort(([a], [b]) => a.localeCompare(b))
+  : [];
 const title = file
   ? `${filename} · uploads.sh`
   : result.status === "auth_required"
@@ -77,6 +84,9 @@ const title = file
       dl.meta { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; margin:14px 0 0; font:12px var(--mono); }
       dl.meta dt { color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-size:11px; }
       dl.meta dd { margin:0; color:var(--body); overflow-wrap:anywhere; }
+      .gh-kind { margin-left:8px; padding:1px 5px; border:1px solid var(--line); border-radius:4px; color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.06em; }
+      .section-label { margin:16px 0 0; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font:11px var(--mono); }
+      dl.meta.metadata { margin-top:6px; }
       .actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:16px; }
       .actions a.original { display:inline-block; padding:9px 15px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel); color:var(--fg); font:12px var(--mono); text-decoration:none; }
       .actions a.original:hover, .actions a.original:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
@@ -112,7 +122,29 @@ const title = file
                 <dt>Type</dt><dd>{file.contentType}</dd>
                 <dt>Size</dt><dd>{formatBytes(file.size)}</dd>
                 {uploadedLabel && <><dt>Uploaded</dt><dd>{uploadedLabel}</dd></>}
+                {file.github && (
+                  <>
+                    <dt>Attached to</dt>
+                    <dd>
+                      <a href={file.github.url} rel="noopener noreferrer">{file.github.repo}#{file.github.number}</a>
+                      <span class="gh-kind">{file.github.kind === "pull" ? "PR" : "Issue"}</span>
+                    </dd>
+                  </>
+                )}
               </dl>
+              {metadataEntries.length > 0 && (
+                <>
+                  <div class="section-label">Metadata</div>
+                  <dl class="meta metadata">
+                    {metadataEntries.map(([metaKey, metaValue]) => (
+                      <>
+                        <dt>{metaKey}</dt>
+                        <dd>{metaValue}</dd>
+                      </>
+                    ))}
+                  </dl>
+                </>
+              )}
               <div class="actions">
                 {kind(file.contentType) !== "unsupported" && <a class="original" href={file.url} rel="noopener noreferrer">Open original ↗</a>}
                 <span class="linkfield">
