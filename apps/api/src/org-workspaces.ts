@@ -24,10 +24,44 @@ export interface OrgSummary {
   name: string;
 }
 
+export interface Membership {
+  organizationId: string;
+  organizationSlug: string;
+  role: string;
+}
+
 const INTERNAL_ORIGIN = "https://auth.internal";
 
 function internalHeaders(): Headers {
   return new Headers({ "x-uploads-internal": "1" });
+}
+
+/**
+ * A user's org memberships via `GET /internal/memberships?userId=` over the
+ * AUTH binding. Like `orgForWorkspace`, a non-ok (or malformed) response is an
+ * auth-worker outage/bug — surfaced as a 5xx — NOT "this user has no
+ * memberships", so an outage can never masquerade as lost access. A user with
+ * genuinely no memberships gets a 200 with `[]`. Shared by the session-auth
+ * surfaces that need it (src/routes/me.ts, src/routes/tokens.ts).
+ */
+export async function membershipsForUser(env: Env, userId: string): Promise<Membership[]> {
+  const response = await env.AUTH.fetch(
+    `${INTERNAL_ORIGIN}/internal/memberships?userId=${encodeURIComponent(userId)}`,
+    { headers: internalHeaders() },
+  );
+  if (!response.ok) {
+    throw new ServiceUnavailableError("auth service returned an unexpected status", {
+      code: "auth_lookup_failed",
+      details: { status: response.status },
+    });
+  }
+  const body = await response.json().catch(() => null);
+  if (!Array.isArray(body)) {
+    throw new ServiceUnavailableError("auth service returned a malformed body", {
+      code: "auth_lookup_failed",
+    });
+  }
+  return body as Membership[];
 }
 
 /**

@@ -19,6 +19,9 @@ export interface AuthTokenRecord {
   created_at: string;
   expires_at: string | null;
   revoked_at: string | null;
+  // Better Auth user id that minted this token (POST /v1/tokens), or null for
+  // enrollment-code tokens and rows created before the Phase 4 migration.
+  minting_user_id: string | null;
 }
 
 interface EnrollmentRecord {
@@ -75,7 +78,8 @@ export async function findActiveToken(
   const hash = await sha256Hex(rawToken);
   return db
     .prepare(
-      `SELECT id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at
+      `SELECT id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
+              minting_user_id
        FROM auth_tokens
        WHERE workspace = ? AND token_hash = ? AND revoked_at IS NULL
          AND (expires_at IS NULL OR expires_at > ?)
@@ -92,6 +96,7 @@ export async function createToken(
     label?: string;
     scopes: FileScope[];
     expiresAt?: Date;
+    mintedByUserId?: string | null;
     now?: Date;
   },
 ): Promise<{ token: string; record: AuthTokenRecord }> {
@@ -106,12 +111,14 @@ export async function createToken(
     created_at: now.toISOString(),
     expires_at: input.expiresAt?.toISOString() ?? null,
     revoked_at: null,
+    minting_user_id: input.mintedByUserId ?? null,
   };
   await db
     .prepare(
       `INSERT INTO auth_tokens
-       (id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+       (id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
+        minting_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
     )
     .bind(
       record.id,
@@ -121,6 +128,7 @@ export async function createToken(
       record.scopes,
       record.created_at,
       record.expires_at,
+      record.minting_user_id,
     )
     .run();
   return { token, record };
@@ -249,7 +257,8 @@ export async function exchangeEnrollment(
 export async function listTokens(db: D1Database, workspace: string): Promise<AuthTokenRecord[]> {
   const result = await db
     .prepare(
-      `SELECT id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at
+      `SELECT id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
+              minting_user_id
        FROM auth_tokens WHERE workspace = ? ORDER BY created_at ASC`,
     )
     .bind(workspace)

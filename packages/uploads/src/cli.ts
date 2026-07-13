@@ -68,7 +68,7 @@ Commands:
   purge-expired       Delete objects past retentionDays
   setup               Inspect/configure advanced CLI settings
   install             Install the agent skill + register the remote MCP server
-  login               Exchange an enrollment code and configure credentials
+  login               Sign in via browser (or an enrollment code) and save credentials
   admin               Admin invitation management
   config              Show path, init, or set shared config
   doctor              Health + auth + workspace checks

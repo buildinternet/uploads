@@ -253,6 +253,156 @@ export function createEnrollment(
   });
 }
 
+// --- Device authorization (RFC 8628) — the `uploads login` device flow ---
+//
+// The CLI speaks the auth worker's OAuth-shaped endpoints directly with plain
+// `fetch` (no better-auth client dependency in the published package, per plan
+// D5). Better Auth's `device.code`/`device.token` endpoints take
+// `application/json` bodies, NOT the RFC's form-encoding — the JSON shapes
+// below are what the worker expects.
+
+/** Static OAuth client id allowlisted by the auth worker's `validateClient`. */
+export const DEVICE_CLIENT_ID = "uploads-cli";
+
+export interface DeviceCodeResponse {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  verification_uri_complete?: string;
+  expires_in: number;
+  interval: number;
+}
+
+/** POST /api/auth/device/code — start a device flow. Throws on a non-2xx. */
+export function requestDeviceCode(
+  authUrl: string,
+  clientId = DEVICE_CLIENT_ID,
+): Promise<DeviceCodeResponse> {
+  return jsonRequest(`${authUrl.replace(/\/$/, "")}/api/auth/device/code`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ client_id: clientId }),
+  });
+}
+
+/**
+ * One poll of POST /api/auth/device/token. Unlike most calls, the "not ready
+ * yet" outcomes (`authorization_pending`, `slow_down`) are EXPECTED 400s, so
+ * this returns a discriminated result instead of throwing — the caller's poll
+ * loop branches on `status`.
+ */
+export type DeviceTokenResult =
+  | { status: "ok"; accessToken: string; tokenType: string; expiresIn: number; scope: string }
+  | { status: "pending" }
+  | { status: "slow_down" }
+  | { status: "expired" }
+  | { status: "denied" }
+  | { status: "error"; error: string; description?: string };
+
+export async function requestDeviceToken(
+  authUrl: string,
+  input: { deviceCode: string; clientId?: string },
+): Promise<DeviceTokenResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${authUrl.replace(/\/$/, "")}/api/auth/device/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        device_code: input.deviceCode,
+        client_id: input.clientId ?? DEVICE_CLIENT_ID,
+      }),
+    });
+  } catch (err) {
+    throw new UploadsError(
+      err instanceof Error ? err.message : "network request failed",
+      "NETWORK",
+    );
+  }
+  const body = (await res.json().catch(() => null)) as {
+    access_token?: string;
+    token_type?: string;
+    expires_in?: number;
+    scope?: string;
+    error?: string;
+    error_description?: string;
+  } | null;
+  if (res.ok && body?.access_token) {
+    return {
+      status: "ok",
+      accessToken: body.access_token,
+      tokenType: body.token_type ?? "Bearer",
+      expiresIn: typeof body.expires_in === "number" ? body.expires_in : 0,
+      scope: body.scope ?? "",
+    };
+  }
+  switch (body?.error) {
+    case "authorization_pending":
+      return { status: "pending" };
+    case "slow_down":
+      return { status: "slow_down" };
+    case "expired_token":
+      return { status: "expired" };
+    case "access_denied":
+      return { status: "denied" };
+    default:
+      return {
+        status: "error",
+        error: body?.error ?? "unknown",
+        description: body?.error_description,
+      };
+  }
+}
+
+export interface MintWorkspaceSummary {
+  workspace: string;
+  role: string;
+}
+
+/** GET /v1/tokens — workspaces the signed-in user can mint tokens for. */
+export function listMintWorkspaces(
+  apiUrl: string,
+  accessToken: string,
+): Promise<{ workspaces: MintWorkspaceSummary[] }> {
+  return jsonRequest(`${apiUrl.replace(/\/$/, "")}/v1/tokens`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+}
+
+export interface MintTokenResult {
+  token: string;
+  workspace: string;
+  scopes: Array<"files:read" | "files:write" | "files:delete">;
+  label: string | null;
+  expiresAt: string | null;
+}
+
+/**
+ * POST /v1/tokens — mint a `up_<workspace>_…` workspace token from a device-flow
+ * session (presented as a bearer). v1 sends exactly one grant.
+ */
+export function mintWorkspaceToken(
+  apiUrl: string,
+  accessToken: string,
+  input: {
+    workspace: string;
+    scopes?: Array<"files:read" | "files:write" | "files:delete">;
+    label?: string;
+    ttlSeconds?: number;
+  },
+): Promise<MintTokenResult> {
+  return jsonRequest(`${apiUrl.replace(/\/$/, "")}/v1/tokens`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      grants: [{ workspace: input.workspace, ...(input.scopes ? { scopes: input.scopes } : {}) }],
+      ...(input.label ? { label: input.label } : {}),
+      ...(input.ttlSeconds ? { ttlSeconds: input.ttlSeconds } : {}),
+    }),
+  });
+}
+
 function encodeKeyPath(key: string): string {
   return key.split("/").map(encodeURIComponent).join("/");
 }

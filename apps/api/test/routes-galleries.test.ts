@@ -105,6 +105,16 @@ beforeEach(async () => {
       "utf8",
     ),
   );
+  // Phase 4: adds auth_tokens.minting_user_id, which findActiveToken (used by
+  // workspaceAuth on these routes) now selects.
+  db.exec(
+    readFileSync(
+      fileURLToPath(
+        new NodeURL("../migrations/20260712230000_token_minting_user.sql", import.meta.url),
+      ),
+      "utf8",
+    ),
+  );
   bucket = new FakeR2Bucket();
   await bucket.put("alpha/screenshots/one.png", PNG);
   records = {

@@ -9,47 +9,18 @@
  * (`workspace_not_found`) rather than 403ing, so membership can't be probed
  * for workspace existence any more precisely than for any other workspace.
  */
-import { NotFoundError, ServiceUnavailableError } from "@uploads/errors";
+import { NotFoundError } from "@uploads/errors";
 import { Hono } from "hono";
 import { usageWithLimits } from "../budget";
-import { orgForWorkspace, workspacesForOrg } from "../org-workspaces";
+import { membershipsForUser, orgForWorkspace, workspacesForOrg } from "../org-workspaces";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
 import { getWorkspaceUsage } from "../usage";
 import { loadWorkspaceRecord } from "../workspace";
-
-interface Membership {
-  organizationId: string;
-  organizationSlug: string;
-  role: string;
-}
 
 interface MyWorkspace {
   workspace: string;
   organization: { id: string; slug: string; name: string };
   role: string;
-}
-
-/** GET /internal/memberships?userId=<id> via the AUTH service binding. */
-async function membershipsForUser(env: Env, userId: string): Promise<Membership[]> {
-  const response = await env.AUTH.fetch(
-    `https://auth.internal/internal/memberships?userId=${encodeURIComponent(userId)}`,
-    { headers: { "x-uploads-internal": "1" } },
-  );
-  if (!response.ok) {
-    // An AUTH outage is a 5xx, never "no memberships" — same treatment as
-    // orgForWorkspace in src/org-workspaces.ts.
-    throw new ServiceUnavailableError("auth service returned an unexpected status", {
-      code: "auth_lookup_failed",
-      details: { status: response.status },
-    });
-  }
-  const body = await response.json().catch(() => null);
-  if (!Array.isArray(body)) {
-    throw new ServiceUnavailableError("auth service returned a malformed body", {
-      code: "auth_lookup_failed",
-    });
-  }
-  return body as Membership[];
 }
 
 /**

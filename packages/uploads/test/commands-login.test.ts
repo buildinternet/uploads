@@ -2,7 +2,13 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveEnrollmentCode, runLogin, validateEnrollmentCode } from "../src/commands/login.js";
+import {
+  resolveAuthUrl,
+  resolveEnrollmentCode,
+  runLogin,
+  validateEnrollmentCode,
+  type DeviceLoginIo,
+} from "../src/commands/login.js";
 import {
   inviteMagicLink,
   invitePageUrl,
@@ -129,6 +135,200 @@ describe("runLogin", () => {
     await expect(runLogin(["--non-interactive", "--path", path], {})).rejects.toThrow(
       "invalid credentials",
     );
+  });
+});
+
+describe("resolveAuthUrl", () => {
+  it("prefers an explicit --auth-url", () => {
+    expect(resolveAuthUrl(parseCommandArgs(["--auth-url", "http://127.0.0.1:8788/"]), "x")).toBe(
+      "http://127.0.0.1:8788",
+    );
+  });
+
+  it("swaps an api. host label for auth.", () => {
+    expect(resolveAuthUrl(parseCommandArgs([]), "https://api.uploads.sh")).toBe(
+      "https://auth.uploads.sh",
+    );
+  });
+
+  it("falls back to the production default for non-api hosts", () => {
+    expect(resolveAuthUrl(parseCommandArgs([]), "http://localhost:8787")).toBe(
+      "https://auth.uploads.sh",
+    );
+  });
+});
+
+describe("runLogin device flow", () => {
+  const silentIo: DeviceLoginIo = {
+    sleep: async () => {},
+    now: () => Date.now(),
+    openUrl: () => {},
+    write: () => {},
+  };
+
+  const deviceCode = (over: Record<string, unknown> = {}) =>
+    response({
+      device_code: "dev-123",
+      user_code: "ABCD-EFGH",
+      verification_uri: "https://uploads.sh/device",
+      verification_uri_complete: "https://uploads.sh/device?user_code=ABCD-EFGH",
+      expires_in: 900,
+      interval: 5,
+      ...over,
+    });
+
+  it("runs code → poll → mint, then writes and verifies", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    const token = "up_acme_abcdefghijklmnopqrstuvwxyz";
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode()) // device/code
+      .mockResolvedValueOnce(response({ error: "authorization_pending" }, 400)) // poll 1
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      ) // poll 2
+      .mockResolvedValueOnce(response({ workspaces: [{ workspace: "acme", role: "member" }] })) // GET /v1/tokens
+      .mockResolvedValueOnce(
+        response(
+          {
+            token,
+            workspace: "acme",
+            scopes: ["files:read", "files:write"],
+            label: "host",
+            expiresAt: null,
+          },
+          201,
+        ),
+      ) // POST /v1/tokens
+      .mockResolvedValueOnce(response({ ok: true })) // doctor health
+      .mockResolvedValueOnce(response({ items: [], cursor: null })); // doctor list
+    const output = captureOutput();
+
+    expect(await runLogin(["--path", path], { json: true }, false, silentIo)).toBe(0);
+
+    // The bearer session token is presented to /v1/tokens (GET + POST).
+    const mintCall = fetchMock.mock.calls.find(
+      (c) => String(c[0]).endsWith("/v1/tokens") && (c[1] as RequestInit)?.method === "POST",
+    );
+    expect((mintCall![1] as RequestInit).headers).toMatchObject({
+      Authorization: "Bearer sess-tok",
+    });
+    expect(JSON.parse(String((mintCall![1] as RequestInit).body))).toMatchObject({
+      grants: [{ workspace: "acme" }],
+    });
+    expect(loadConfigFile(path).UPLOADS_TOKEN).toBe(token);
+    expect(loadConfigFile(path).UPLOADS_WORKSPACE).toBe("acme");
+    expect(output.out() + output.err()).not.toContain(token);
+  });
+
+  it("uses --workspace directly and skips the workspace lookup", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    const token = "up_acme_abcdefghijklmnopqrstuvwxyz";
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode())
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      )
+      .mockResolvedValueOnce(
+        response(
+          { token, workspace: "acme", scopes: ["files:read"], label: "host", expiresAt: null },
+          201,
+        ),
+      );
+    captureOutput();
+
+    expect(
+      await runLogin(
+        ["--path", path, "--workspace", "acme", "--no-check"],
+        { json: true },
+        false,
+        silentIo,
+      ),
+    ).toBe(0);
+    // No GET /v1/tokens listing call happened.
+    expect(
+      fetchMock.mock.calls.some(
+        (c) => String(c[0]).endsWith("/v1/tokens") && (c[1] as RequestInit)?.method !== "POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("errors when the account has multiple workspaces and none is chosen", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode())
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          workspaces: [
+            { workspace: "acme", role: "member" },
+            { workspace: "beta", role: "member" },
+          ],
+        }),
+      );
+    captureOutput();
+    await expect(
+      runLogin(["--path", path, "--no-check"], { json: true }, false, silentIo),
+    ).rejects.toThrow("multiple workspaces");
+  });
+
+  it("fails fast (no polling) in non-interactive mode with no enrollment code", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    await expect(
+      runLogin(["--path", path, "--non-interactive"], { json: true }, false, silentIo),
+    ).rejects.toThrow(/device login requires a browser/);
+    // Never hit the network — no device/code request was made.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("stops when the user denies the request", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode())
+      .mockResolvedValueOnce(response({ error: "access_denied" }, 400));
+    captureOutput();
+    await expect(runLogin(["--path", path], { json: true }, false, silentIo)).rejects.toThrow(
+      "denied",
+    );
+  });
+
+  it("backs off on slow_down and keeps polling", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    const token = "up_acme_abcdefghijklmnopqrstuvwxyz";
+    let slept = 0;
+    const io: DeviceLoginIo = {
+      ...silentIo,
+      sleep: async (ms) => {
+        slept = ms;
+      },
+    };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode({ interval: 5 }))
+      .mockResolvedValueOnce(response({ error: "slow_down" }, 400))
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      )
+      .mockResolvedValueOnce(
+        response(
+          { token, workspace: "acme", scopes: ["files:read"], label: "h", expiresAt: null },
+          201,
+        ),
+      );
+    captureOutput();
+    expect(
+      await runLogin(
+        ["--path", path, "--workspace", "acme", "--no-check"],
+        { json: true },
+        false,
+        io,
+      ),
+    ).toBe(0);
+    // interval started at 5s and grew by 5s after slow_down.
+    expect(slept).toBe(10000);
   });
 });
 

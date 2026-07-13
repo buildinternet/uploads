@@ -8,6 +8,7 @@ import { usage } from "./routes/usage";
 import { admin } from "./routes/admin";
 import { adminUi } from "./routes/admin-ui";
 import { auth } from "./routes/auth";
+import { tokens } from "./routes/tokens";
 import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
 import { galleries } from "./routes/galleries";
@@ -57,6 +58,11 @@ export const app = new Hono<WorkspaceVars>()
   .route("/me", me)
   .route("/auth", auth)
   .route("/public/galleries", publicGalleries)
+  // Session-authenticated workspace-token mint (Phase 4). Registered BEFORE the
+  // `/v1/:workspace/*` bearer guard: `/v1/tokens` does NOT match that pattern
+  // (no trailing segment), so `workspaceAuth` never runs for it — this route
+  // brings its own session auth. See routes/tokens.ts.
+  .route("/v1/tokens", tokens)
   .use("/v1/:workspace/*", workspaceAuth)
   .route("/v1/:workspace/galleries", galleries)
   .route("/v1/:workspace/files", files)
