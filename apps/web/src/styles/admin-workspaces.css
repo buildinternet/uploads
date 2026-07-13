@@ -46,7 +46,7 @@
   gap: 6px;
 }
 #workspaces-list .workspace li {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--body);
   display: flex;
   justify-content: space-between;
@@ -58,7 +58,7 @@
 #workspaces-list .workspace .members,
 #workspaces-list .workspace .muted {
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 #workspaces-list .invite-form {
   display: flex;
@@ -70,7 +70,7 @@
   display: grid;
   gap: 4px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }

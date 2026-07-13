@@ -8,7 +8,7 @@
 }
 .kv dt {
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   align-self: center;
@@ -55,7 +55,7 @@ ul.plain .ws-detail {
   border-top: 1px solid var(--line);
 }
 ul.plain .ws-section-head {
-  font-size: 10.5px;
+  font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
@@ -74,7 +74,7 @@ ul.plain .ws-items li {
   border: 0;
   border-radius: 0;
   background: none;
-  font-size: 12.5px;
+  font-size: 12px;
 }
 ul.plain .ws-empty {
   color: var(--muted);
@@ -83,7 +83,7 @@ ul.plain .ws-empty {
 }
 ul.plain .ws-note {
   color: var(--body);
-  font-size: 12.5px;
+  font-size: 12px;
   margin: 0;
 }
 ul.plain .command {
