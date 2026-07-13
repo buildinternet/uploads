@@ -34,9 +34,30 @@ export interface SessionUser {
   role?: string | null;
 }
 
+/** Session row from get-session / list-sessions. */
+export interface AuthSession {
+  id: string;
+  token: string;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+  expiresAt: string | Date;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+}
+
 export interface SessionResponse {
   user: SessionUser;
-  session: unknown;
+  /** Better Auth session; `token` is present on a full cookie path response. */
+  session: Partial<AuthSession> & Record<string, unknown>;
+}
+
+/** Linked identity provider from list-accounts (e.g. providerId: "github"). */
+export interface LinkedAccount {
+  id: string;
+  providerId: string;
+  accountId: string;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
 }
 
 export type SessionResult =
@@ -295,5 +316,60 @@ export async function acceptInvitation(
     return { ok: false, status: res.status, code: body?.error?.code };
   } catch {
     return { ok: false, status: 0 };
+  }
+}
+
+/**
+ * GET a JSON array from the auth worker. Returns null on outage/auth/malformed
+ * so callers can distinguish "couldn't load" from an empty list.
+ */
+async function getAuthArray(origin: string, path: string): Promise<unknown[] | null> {
+  const result = await fetchWithTimeout(`${authOrigin(origin)}${path}`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (result.kind === "unavailable" || !result.response.ok) return null;
+  const body = (await result.response.json().catch(() => undefined)) as unknown;
+  return Array.isArray(body) ? body : null;
+}
+
+/** GET /api/auth/list-sessions — active sessions (browser + CLI device flow). */
+export async function listSessions(origin: string): Promise<AuthSession[] | null> {
+  const body = await getAuthArray(origin, "/api/auth/list-sessions");
+  if (!body) return null;
+  return body.filter((row): row is AuthSession => {
+    if (!row || typeof row !== "object") return false;
+    const r = row as Record<string, unknown>;
+    return typeof r.id === "string" && typeof r.token === "string";
+  });
+}
+
+/** GET /api/auth/list-accounts — linked identity providers (e.g. GitHub). */
+export async function listAccounts(origin: string): Promise<LinkedAccount[] | null> {
+  const body = await getAuthArray(origin, "/api/auth/list-accounts");
+  if (!body) return null;
+  return body.filter((row): row is LinkedAccount => {
+    if (!row || typeof row !== "object") return false;
+    const r = row as Record<string, unknown>;
+    return (
+      typeof r.id === "string" &&
+      typeof r.providerId === "string" &&
+      typeof r.accountId === "string"
+    );
+  });
+}
+
+/** POST /api/auth/revoke-session — end one other session. */
+export async function revokeSession(origin: string, token: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/revoke-session`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }

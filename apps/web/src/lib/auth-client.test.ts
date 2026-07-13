@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getSession, startLocalDemoSession } from "./auth-client";
+import {
+  getSession,
+  listAccounts,
+  listSessions,
+  revokeSession,
+  startLocalDemoSession,
+} from "./auth-client";
 import { BROWSER_REQUEST_TIMEOUT_MS, fetchWithTimeout } from "./request";
 
 const timeoutFetch: typeof fetch = async (_input, init) =>
@@ -57,6 +63,70 @@ describe("getSession", () => {
       kind: "unavailable",
       reason: "network",
     });
+  });
+});
+
+describe("listSessions / listAccounts", () => {
+  it("returns rows on success and null on outage", async () => {
+    const rows = [
+      {
+        id: "s1",
+        token: "tok-1",
+        createdAt: "2026-07-01T00:00:00.000Z",
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        expiresAt: "2026-08-01T00:00:00.000Z",
+        userAgent: "@buildinternet/uploads/1.0.0 (device-token)",
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json(rows)),
+    );
+    await expect(listSessions("http://127.0.0.1:8788")).resolves.toEqual(rows);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 503 })),
+    );
+    await expect(listSessions("http://127.0.0.1:8788")).resolves.toBeNull();
+  });
+
+  it("filters malformed rows and loads accounts", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("list-sessions")) {
+          return Response.json([
+            { id: "ok", token: "t", createdAt: "x", updatedAt: "x", expiresAt: "x" },
+            { id: "no-token" },
+          ]);
+        }
+        return Response.json([{ id: "a1", providerId: "github", accountId: "12345" }]);
+      }),
+    );
+    await expect(listSessions("http://127.0.0.1:8788")).resolves.toEqual([
+      { id: "ok", token: "t", createdAt: "x", updatedAt: "x", expiresAt: "x" },
+    ]);
+    await expect(listAccounts("https://auth.uploads.sh")).resolves.toEqual([
+      { id: "a1", providerId: "github", accountId: "12345" },
+    ]);
+  });
+});
+
+describe("revokeSession", () => {
+  it("returns true only on 2xx", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 200 })),
+    );
+    await expect(revokeSession("http://127.0.0.1:8788", "tok")).resolves.toBe(true);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 403 })),
+    );
+    await expect(revokeSession("http://127.0.0.1:8788", "tok")).resolves.toBe(false);
   });
 });
 

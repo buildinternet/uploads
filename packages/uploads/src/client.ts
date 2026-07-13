@@ -2,6 +2,7 @@ import { inferContentType } from "./embed.js";
 import type { UploadsClientConfig } from "./config.js";
 import { UploadsError } from "./errors.js";
 import { buildScreenshotKey } from "./keys.js";
+import { packageVersion } from "./package-version.js";
 
 /** Allowlisted object provenance (maps to X-Uploads-Meta-* on put). */
 export type ProvenanceInput = {
@@ -266,6 +267,16 @@ export function createEnrollment(
 /** Static OAuth client id allowlisted by the auth worker's `validateClient`. */
 export const DEVICE_CLIENT_ID = "uploads-cli";
 
+/**
+ * User-Agent for device-flow requests. Stored on the Better Auth session row
+ * when `/device/token` creates the session, so the web account UI can tell a
+ * completed `uploads login` apart from a browser tab. Keep the
+ * `@buildinternet/uploads` prefix in sync with apps/web `CLI_USER_AGENT_RE`.
+ */
+export function cliUserAgent(purpose = "device-login"): string {
+  return `@buildinternet/uploads/${packageVersion()} (${purpose})`;
+}
+
 export interface DeviceCodeResponse {
   device_code: string;
   user_code: string;
@@ -282,7 +293,10 @@ export function requestDeviceCode(
 ): Promise<DeviceCodeResponse> {
   return jsonRequest(`${authUrl.replace(/\/$/, "")}/api/auth/device/code`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": cliUserAgent("device-code"),
+    },
     body: JSON.stringify({ client_id: clientId }),
   });
 }
@@ -309,7 +323,12 @@ export async function requestDeviceToken(
   try {
     res = await fetch(`${authUrl.replace(/\/$/, "")}/api/auth/device/token`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        // Session user_agent is taken from this request when the token is
+        // exchanged — identify as the CLI so /account can surface it.
+        "User-Agent": cliUserAgent("device-token"),
+      },
       body: JSON.stringify({
         grant_type: "urn:ietf:params:oauth:grant-type:device_code",
         device_code: input.deviceCode,

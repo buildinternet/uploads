@@ -201,8 +201,8 @@ const csp = [
     acceptBtn.disabled = true;
     const result = await acceptInvitation(authOrigin, invitationId);
     if (result.ok) {
-      // Same post-sign-in landing as /login — no dead-end "close this page".
-      location.assign(`${location.origin}/account`);
+      // Native fragment scroll to the CLI setup card on the account overview.
+      location.assign(`${location.origin}/account#cli-setup`);
       return;
     }
     acceptBtn.disabled = false;
