@@ -29,4 +29,28 @@ describe("getMyWorkspaces", () => {
       reason: "server",
     });
   });
+
+  it("reports malformed workspace responses as unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ notWorkspaces: [] })),
+    );
+
+    await expect(getMyWorkspaces("http://127.0.0.1:8787")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "malformed",
+    });
+  });
+
+  it("propagates network failures instead of rendering an empty account", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new TypeError("network down"))),
+    );
+
+    await expect(getMyWorkspaces("http://127.0.0.1:8787")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "network",
+    });
+  });
 });

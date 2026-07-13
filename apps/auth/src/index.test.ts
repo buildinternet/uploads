@@ -134,7 +134,7 @@ describe("local demo session", () => {
     });
 
     const setCookie = res.headers.get("set-cookie") ?? "";
-    const sessionCookie = setCookie.match(/(?:^|,\\s*)(better-auth\\.session_token=[^;]+)/)?.[1];
+    const sessionCookie = setCookie.match(/(?:^|,\s*)(better-auth\.session_token=[^;]+)/)?.[1];
     expect(sessionCookie).toBeTruthy();
 
     const session = await app.request(
