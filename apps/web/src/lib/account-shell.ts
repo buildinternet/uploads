@@ -17,13 +17,27 @@ export function initPanelSwitcher(defaultPanel: string): void {
     document.querySelectorAll<HTMLAnchorElement>("nav.side a[data-panel]"),
   );
   const panels = Array.from(document.querySelectorAll<HTMLElement>("[data-panel-body]"));
-  const show = (name: string) => {
-    const target = panels.some((p) => p.dataset.panelBody === name) ? name : defaultPanel;
-    for (const p of panels) p.hidden = p.dataset.panelBody !== target;
-    for (const l of navLinks) l.setAttribute("aria-current", String(l.dataset.panel === target));
+  // Move focus to the shown panel's first heading so keyboard/screen-reader
+  // users land somewhere sensible after a panel switch — but only on actual
+  // switches, not the initial render (which would steal focus on page load).
+  const focusPanelHeading = (panel: HTMLElement) => {
+    const heading = panel.querySelector<HTMLElement>("h1, h2, h3, h4, h5, h6");
+    if (!heading) return;
+    if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+    heading.focus({ preventScroll: false });
   };
-  window.addEventListener("hashchange", () => show(location.hash.slice(1)));
-  show(location.hash.slice(1));
+  const show = (name: string, moveFocus: boolean) => {
+    const target = panels.some((p) => p.dataset.panelBody === name) ? name : defaultPanel;
+    let shownPanel: HTMLElement | null = null;
+    for (const p of panels) {
+      p.hidden = p.dataset.panelBody !== target;
+      if (!p.hidden) shownPanel = p;
+    }
+    for (const l of navLinks) l.setAttribute("aria-current", String(l.dataset.panel === target));
+    if (moveFocus && shownPanel) focusPanelHeading(shownPanel);
+  };
+  window.addEventListener("hashchange", () => show(location.hash.slice(1), true));
+  show(location.hash.slice(1), false);
 }
 
 /** Wire the sidebar `#sign-out-btn` to end the session and return to /login. */

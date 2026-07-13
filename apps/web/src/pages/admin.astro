@@ -53,6 +53,7 @@ const csp = [
     a:hover,a:focus-visible{color:var(--accent);outline:none}
     code{color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:.9em}
     [hidden]{display:none!important}
+    .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);clip-path:inset(50%);white-space:nowrap;border:0}
 
     .shell{max-width:960px;margin:0 auto;padding:28px 20px 56px}
     header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:22px}
@@ -131,6 +132,7 @@ const csp = [
     regardless of whatever this page shows or hides.
   -->
   <div id="dashboard" hidden>
+    <h1 class="sr-only">Admin</h1>
     <header class="top">
       <div class="lockup"><Brand /><span class="pill">admin</span></div>
       <span class="who" id="who"></span>
@@ -249,7 +251,7 @@ const csp = [
                 </label>
                 <button type="submit">Invite</button>
               </form>
-              <div class="invite-status" hidden></div>`
+              <div class="invite-status" role="status" aria-live="polite" hidden></div>`
             : `<p class="muted">No organization provisioned for this workspace yet — run the org backfill.</p>`
         }
         <div class="invite-link-row">

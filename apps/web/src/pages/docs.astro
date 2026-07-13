@@ -87,7 +87,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       @media (max-width: 560px) {
         nav.toc ol { columns: 1; }
       }
-      @media (min-width: 1200px) {
+      @media (min-width: 1240px) {
         nav.toc {
           position: fixed;
           top: 48px;
@@ -342,7 +342,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         <p>The everyday flow is two commands:</p>
         <div class="cmd">
           <span class="text">uploads attach ./before.png ./after.png</span>
-          <button type="button" data-copy="uploads attach ./before.png ./after.png">copy</button>
+          <button type="button" data-copy="uploads attach ./before.png ./after.png" aria-live="polite">copy</button>
         </div>
         <div class="block" aria-label="Example output">
           <pre>&gt;&gt; uploading ./before.png
@@ -370,11 +370,11 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
         <p>Install the CLI globally, then sign in once:</p>
         <div class="cmd">
           <span class="text">npm install -g @buildinternet/uploads</span>
-          <button type="button" data-copy="npm install -g @buildinternet/uploads">copy</button>
+          <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads login</span>
-          <button type="button" data-copy="uploads login">copy</button>
+          <button type="button" data-copy="uploads login" aria-live="polite">copy</button>
         </div>
         <p>
           <code>uploads login</code> opens a browser so you can approve the sign-in (GitHub or a
@@ -385,12 +385,12 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
         <p>Prefer not to install anything? Every command works as a one-off with <code>npx</code>:</p>
         <div class="cmd">
           <span class="text">npx @buildinternet/uploads attach ./after.png</span>
-          <button type="button" data-copy="npx @buildinternet/uploads attach ./after.png">copy</button>
+          <button type="button" data-copy="npx @buildinternet/uploads attach ./after.png" aria-live="polite">copy</button>
         </div>
         <p>To check that everything is wired up:</p>
         <div class="cmd">
           <span class="text">uploads doctor</span>
-          <button type="button" data-copy="uploads doctor">copy</button>
+          <button type="button" data-copy="uploads doctor" aria-live="polite">copy</button>
         </div>
       </section>
 
@@ -402,7 +402,7 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
         </p>
         <div class="cmd">
           <span class="text">uploads attach ./screenshot.png</span>
-          <button type="button" data-copy="uploads attach ./screenshot.png">copy</button>
+          <button type="button" data-copy="uploads attach ./screenshot.png" aria-live="polite">copy</button>
         </div>
         <p>…which lands on the pull request as one managed comment:</p>
         <div
@@ -446,15 +446,15 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
         </p>
         <div class="cmd">
           <span class="text">uploads attach ./shot.png --pr 123</span>
-          <button type="button" data-copy="uploads attach ./shot.png --pr 123">copy</button>
+          <button type="button" data-copy="uploads attach ./shot.png --pr 123" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads attach ./shot.png --issue 45</span>
-          <button type="button" data-copy="uploads attach ./shot.png --issue 45">copy</button>
+          <button type="button" data-copy="uploads attach ./shot.png --issue 45" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads attach ./shot.png --repo owner/name --pr 123</span>
-          <button type="button" data-copy="uploads attach ./shot.png --repo owner/name --pr 123">copy</button>
+          <button type="button" data-copy="uploads attach ./shot.png --repo owner/name --pr 123" aria-live="polite">copy</button>
         </div>
         <p>
           Want the URLs and ready-to-paste Markdown without touching any GitHub comment — say, to
@@ -462,7 +462,7 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
         </p>
         <div class="cmd">
           <span class="text">uploads attach ./shot.png --no-comment</span>
-          <button type="button" data-copy="uploads attach ./shot.png --no-comment">copy</button>
+          <button type="button" data-copy="uploads attach ./shot.png --no-comment" aria-live="polite">copy</button>
         </div>
       </section>
 
@@ -474,7 +474,7 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
         </p>
         <div class="cmd">
           <span class="text">uploads put ./shot.png</span>
-          <button type="button" data-copy="uploads put ./shot.png">copy</button>
+          <button type="button" data-copy="uploads put ./shot.png" aria-live="polite">copy</button>
         </div>
         <div class="block" aria-label="Example output">
           <pre>&gt;&gt; uploading ./shot.png
@@ -487,15 +487,15 @@ MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot
         <p>A few useful variations:</p>
         <div class="cmd">
           <span class="text">uploads put ./shot.png --pr 123 --comment <span class="cm"># also post to the PR</span></span>
-          <button type="button" data-copy="uploads put ./shot.png --pr 123 --comment">copy</button>
+          <button type="button" data-copy="uploads put ./shot.png --pr 123 --comment" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads put ./shot.png --no-optimize <span class="cm"># upload the original bytes</span></span>
-          <button type="button" data-copy="uploads put ./shot.png --no-optimize">copy</button>
+          <button type="button" data-copy="uploads put ./shot.png --no-optimize" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads put ./mobile.png --frame phone <span class="cm"># add device chrome</span></span>
-          <button type="button" data-copy="uploads put ./mobile.png --frame phone">copy</button>
+          <button type="button" data-copy="uploads put ./mobile.png --frame phone" aria-live="polite">copy</button>
         </div>
         <p>
           By default, images are re-encoded to WebP (capped size, high quality) so GitHub embeds
@@ -512,16 +512,16 @@ MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot
         </p>
         <div class="cmd">
           <span class="text">uploads install</span>
-          <button type="button" data-copy="uploads install">copy</button>
+          <button type="button" data-copy="uploads install" aria-live="polite">copy</button>
         </div>
         <p>Or set up each piece yourself:</p>
         <div class="cmd">
           <span class="text">npx skills add buildinternet/uploads --skill uploads-cli</span>
-          <button type="button" data-copy="npx skills add buildinternet/uploads --skill uploads-cli">copy</button>
+          <button type="button" data-copy="npx skills add buildinternet/uploads --skill uploads-cli" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">claude mcp add --transport http uploads <span class="url">https://agents.uploads.sh/mcp</span></span>
-          <button type="button" data-copy="claude mcp add --transport http uploads https://agents.uploads.sh/mcp">copy</button>
+          <button type="button" data-copy="claude mcp add --transport http uploads https://agents.uploads.sh/mcp" aria-live="polite">copy</button>
         </div>
         <p>
           The <strong>skill</strong> teaches the agent when and how to use the CLI — for example,
@@ -532,7 +532,7 @@ MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot
         </p>
         <div class="cmd">
           <span class="text">claude mcp add uploads -- uploads mcp</span>
-          <button type="button" data-copy="claude mcp add uploads -- uploads mcp">copy</button>
+          <button type="button" data-copy="claude mcp add uploads -- uploads mcp" aria-live="polite">copy</button>
         </div>
       </section>
 
@@ -540,19 +540,19 @@ MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot
         <h2>Manage what you uploaded <a class="anchor" href="#manage" aria-label="Link to this section">#</a></h2>
         <div class="cmd">
           <span class="text">uploads list <span class="cm"># see your files</span></span>
-          <button type="button" data-copy="uploads list">copy</button>
+          <button type="button" data-copy="uploads list" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads delete &lt;key&gt; <span class="cm"># remove a file</span></span>
-          <button type="button" data-copy="uploads delete">copy</button>
+          <button type="button" data-copy="uploads delete" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads usage <span class="cm"># storage used by your workspace</span></span>
-          <button type="button" data-copy="uploads usage">copy</button>
+          <button type="button" data-copy="uploads usage" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads --help <span class="cm"># everything else</span></span>
-          <button type="button" data-copy="uploads --help">copy</button>
+          <button type="button" data-copy="uploads --help" aria-live="polite">copy</button>
         </div>
       </section>
 

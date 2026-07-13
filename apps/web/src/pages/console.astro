@@ -113,6 +113,18 @@ const authOrigin =
         margin: 0;
       }
       [hidden] { display: none !important; }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
+      }
       .session-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
       .lockup { display: inline-flex; align-items: center; gap: 9px; }
       .pill {
@@ -139,6 +151,7 @@ const authOrigin =
   </head>
   <body>
     <main>
+      <h1 class="sr-only">Console</h1>
       <div class="session-bar">
         <div class="lockup"><Brand /><span class="pill">console</span></div>
         <span id="signed-out"><a href="/login">Sign in</a></span>
@@ -170,10 +183,10 @@ const authOrigin =
         <button type="button" id="btn-list">List files</button>
         <button type="button" id="btn-reconcile">Reconcile</button>
       </div>
-      <pre id="out">Ready.</pre>
+      <pre id="out" role="status" aria-live="polite">Ready.</pre>
 
       <section class="admin" aria-label="Invites">
-        <p class="sect-head"># invites — admin token required</p>
+        <h2 class="sect-head"># invites — admin token required</h2>
         <p class="muted">
           Creates a single-use enrollment code for the workspace above and prints the
           magic link. Uses the token field as the admin bearer token.
@@ -188,7 +201,7 @@ const authOrigin =
         </label>
         <div class="row">
           <button type="button" id="btn-invite">Create invite</button>
-          <button type="button" id="btn-invite-copy" hidden>Copy invite link</button>
+          <button type="button" id="btn-invite-copy" hidden aria-live="polite">Copy invite link</button>
         </div>
       </section>
     </main>

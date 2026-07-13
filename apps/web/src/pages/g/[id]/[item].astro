@@ -80,6 +80,7 @@ const title = item && gallery ? `${item.filename} · ${gallery.title} · uploads
       .error code { color:var(--accent); font-family:var(--mono); }
       a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
       @media (max-width:760px) { .shell{width:min(100% - 32px,1080px);padding-top:24px} .media{min-height:220px} .pager a,.pager span.disabled{padding:8px 12px} }
+      .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); clip-path:inset(50%); white-space:nowrap; border:0; }
     </style>
   </head>
   <body>
@@ -87,6 +88,7 @@ const title = item && gallery ? `${item.filename} · ${gallery.title} · uploads
       <nav><Brand /><span class="public">public gallery</span></nav>
       {gallery && item ? (
         <>
+          <h1 class="sr-only">{item.filename}</h1>
           <div class="crumbs"><a href={listPath}>{gallery.title}</a> · <span class="count">{index + 1} of {items.length}</span></div>
           <figure class="stage" style="margin:0">
             <div class="media">

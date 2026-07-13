@@ -94,13 +94,22 @@ export function FileBrowser({
   return (
     <div className="ul-files">
       <nav className="ul-files__crumbs" aria-label="Current folder">
-        <button type="button" onClick={() => navigate("")} aria-label="File root">
-          <Home />
+        <button
+          type="button"
+          onClick={() => navigate("")}
+          aria-label="File root"
+          aria-current={prefix === "" ? "location" : undefined}
+        >
+          <Home aria-hidden="true" />
         </button>
-        {crumbsOf(prefix, delimiter).map((crumb) => (
+        {crumbsOf(prefix, delimiter).map((crumb, index, crumbs) => (
           <Fragment key={crumb.prefix}>
-            <ChevronRight className="ul-files__chevron" />
-            <button type="button" onClick={() => navigate(crumb.prefix)}>
+            <ChevronRight className="ul-files__chevron" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={() => navigate(crumb.prefix)}
+              aria-current={index === crumbs.length - 1 ? "location" : undefined}
+            >
               {crumb.label}
             </button>
           </Fragment>
@@ -111,10 +120,10 @@ export function FileBrowser({
           <li key={folder}>
             <button className="ul-files__row" onClick={() => navigate(folder)} type="button">
               <span className="ul-files__icon">
-                <Folder />
+                <Folder aria-hidden="true" />
               </span>
               <span className="ul-files__name">{childName(folder, prefix, delimiter)}</span>
-              <ChevronRight className="ul-files__chevron" />
+              <ChevronRight className="ul-files__chevron" aria-hidden="true" />
             </button>
           </li>
         ))}
@@ -127,7 +136,7 @@ export function FileBrowser({
               type="button"
             >
               <span className="ul-files__icon">
-                <File />
+                <File aria-hidden="true" />
               </span>
               <span className="ul-files__name">
                 <span>{childName(item.key, prefix, delimiter) || item.key}</span>
@@ -141,13 +150,13 @@ export function FileBrowser({
       </ul>
       {isLoading ? (
         <div className="ul-files__state">
-          <LoaderCircle className="ul-files__spin" /> Loading…
+          <LoaderCircle className="ul-files__spin" aria-hidden="true" /> Loading…
         </div>
       ) : null}
       {hasError ? <div className="ul-files__state">Files unavailable.</div> : null}
       {isEmpty ? (
         <div className="ul-files__state">
-          <Folder /> This folder is empty.
+          <Folder aria-hidden="true" /> This folder is empty.
         </div>
       ) : null}
       {cursor && !isLoading ? (

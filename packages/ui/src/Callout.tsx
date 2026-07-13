@@ -23,7 +23,7 @@ export function Callout({ tone = "info", title, className, children, ...rest }: 
     .filter(Boolean)
     .join(" ");
   return (
-    <div className={cls} role="status" {...rest}>
+    <div className={cls} role={tone === "error" ? "alert" : "status"} {...rest}>
       {title != null && <span className="ul-callout__title">{title}</span>}
       {children}
     </div>

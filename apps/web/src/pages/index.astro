@@ -61,8 +61,12 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       .top {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 12px;
         margin-bottom: 6px;
+      }
+      @media (max-width: 420px) {
+        .star-cta .count { display: none; }
       }
       .star-cta {
         margin-left: auto;
@@ -393,7 +397,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       <div class="cmdrow hero-install">
         <span class="tag">install</span>
         <span class="cmdtext">npm install -g @buildinternet/uploads</span>
-        <button type="button" data-copy="npm install -g @buildinternet/uploads">copy</button>
+        <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite">copy</button>
       </div>
 
       <section class="terminal" aria-label="uploads.sh terminal">
@@ -462,7 +466,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       </section>
 
       <section class="features" aria-label="Features">
-        <p class="sect-head"># what else it does</p>
+        <h2 class="sect-head"># what else it does</h2>
         <div class="grid">
           <div class="feature">
             <h3>one managed comment</h3>
@@ -515,27 +519,27 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       </p>
 
       <section class="install" aria-label="Install commands">
-        <p class="sect-head"># get set up — click to copy</p>
+        <h2 class="sect-head"># get set up — click to copy</h2>
         <div class="rows">
           <div class="cmdrow">
             <span class="tag">cli</span>
             <span class="cmdtext">npm install -g @buildinternet/uploads &amp;&amp; uploads login</span>
-            <button type="button" data-copy="npm install -g @buildinternet/uploads && uploads login">copy</button>
+            <button type="button" data-copy="npm install -g @buildinternet/uploads && uploads login" aria-live="polite">copy</button>
           </div>
           <div class="cmdrow">
             <span class="tag">agents</span>
             <span class="cmdtext">uploads install</span>
-            <button type="button" data-copy="uploads install">copy</button>
+            <button type="button" data-copy="uploads install" aria-live="polite">copy</button>
           </div>
           <div class="cmdrow">
             <span class="tag">skill</span>
             <span class="cmdtext">npx skills add buildinternet/uploads --skill uploads-cli</span>
-            <button type="button" data-copy="npx skills add buildinternet/uploads --skill uploads-cli">copy</button>
+            <button type="button" data-copy="npx skills add buildinternet/uploads --skill uploads-cli" aria-live="polite">copy</button>
           </div>
           <div class="cmdrow">
             <span class="tag">mcp</span>
             <span class="cmdtext">claude mcp add --transport http uploads <span class="url">https://agents.uploads.sh/mcp</span></span>
-            <button type="button" data-copy="claude mcp add --transport http uploads https://agents.uploads.sh/mcp">copy</button>
+            <button type="button" data-copy="claude mcp add --transport http uploads https://agents.uploads.sh/mcp" aria-live="polite">copy</button>
           </div>
         </div>
         <p class="foot">

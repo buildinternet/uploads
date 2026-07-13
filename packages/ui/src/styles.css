@@ -42,7 +42,7 @@
   --line: #232327;
   --fg: #ececea;
   --body: #b3b3ad;
-  --muted: #7d7d77;
+  --muted: #8a8a83;
   --accent: #b794ff;
   --green: #8fae62;
   --red: #d98a9c;
@@ -144,7 +144,7 @@
 /* sizes */
 .ul-btn--sm {
   font-size: 12px;
-  padding: 8px 11px;
+  padding: 9px 12px;
   border-radius: var(--radius-sm);
 }
 .ul-btn--md {
@@ -515,5 +515,10 @@
 @keyframes ul-files-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ul-files__spin {
+    animation: none;
   }
 }
