@@ -22,6 +22,13 @@ export interface PutOptions {
   deriveRepoFromGit?: boolean;
   /** Stored as R2 custom metadata; echoed on put/head. */
   provenance?: ProvenanceInput;
+  /**
+   * Queryable custom metadata (D1 `file_metadata`), sent alongside provenance
+   * as more `X-Uploads-Meta-<key>` headers — the server routes each key to R2
+   * (provenance) or D1 (everything else) by name. See `metadata.ts` for the
+   * client-side validation callers should run before this.
+   */
+  metadata?: Record<string, string>;
   /** Validate key + resolve public URL without writing. `size` is local bytes only. */
   dryRun?: boolean;
 }
@@ -30,6 +37,31 @@ export interface ListOptions {
   prefix?: string;
   limit?: number;
   cursor?: string;
+}
+
+export interface FindFilesOptions {
+  prefix?: string;
+  limit?: number;
+}
+
+export interface FindFilesItem {
+  key: string;
+  url: string | null;
+  metadata: Record<string, string>;
+}
+
+export interface FindFilesResult {
+  items: FindFilesItem[];
+  cursor: string | null;
+}
+
+export interface GetMetadataResult {
+  metadata: Record<string, string>;
+}
+
+export interface PatchMetadataOptions {
+  set?: Record<string, string>;
+  delete?: string[];
 }
 
 export interface PutResult {
@@ -561,6 +593,13 @@ export function createUploadsClient(config: UploadsClientConfig) {
           if (v !== undefined && v !== "") headers[`X-Uploads-Meta-${k}`] = v;
         }
       }
+      // Same header prefix as provenance above; the server splits allowlisted
+      // provenance keys (R2) from everything else (D1 file_metadata) by name.
+      if (opts.metadata) {
+        for (const [k, v] of Object.entries(opts.metadata)) {
+          if (v !== undefined && v !== "") headers[`X-Uploads-Meta-${k}`] = v;
+        }
+      }
 
       const result = await request<{
         workspace: string;
@@ -603,6 +642,41 @@ export function createUploadsClient(config: UploadsClientConfig) {
 
     async delete(key: string): Promise<DeleteResult> {
       return request<DeleteResult>("DELETE", `${filesBase(config)}/${encodeKeyPath(key)}`);
+    },
+
+    /** `GET /v1/:workspace/files/:key/metadata` — the object's queryable metadata. */
+    async getMetadata(key: string): Promise<GetMetadataResult> {
+      return request<GetMetadataResult>(
+        "GET",
+        `${filesBase(config)}/${encodeKeyPath(key)}/metadata`,
+      );
+    },
+
+    /** `PATCH /v1/:workspace/files/:key/metadata` — merge `set`/`delete`; returns the merged map. */
+    async patchMetadata(key: string, opts: PatchMetadataOptions): Promise<GetMetadataResult> {
+      return request<GetMetadataResult>(
+        "PATCH",
+        `${filesBase(config)}/${encodeKeyPath(key)}/metadata`,
+        {
+          body: new TextEncoder().encode(JSON.stringify(opts)),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    },
+
+    /**
+     * `GET /v1/:workspace/files?meta.<k>=<v>&…` — ANDed equality filter over
+     * queryable metadata. `filters` must be pre-validated (see `metadata.ts`).
+     */
+    async findFiles(
+      filters: Record<string, string>,
+      opts: FindFilesOptions = {},
+    ): Promise<FindFilesResult> {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(filters)) params.append(`meta.${k}`, v);
+      if (opts.prefix) params.set("prefix", opts.prefix);
+      if (opts.limit != null) params.set("limit", String(opts.limit));
+      return request<FindFilesResult>("GET", `${filesBase(config)}?${params.toString()}`);
     },
 
     async head(key: string): Promise<HeadResult> {

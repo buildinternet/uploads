@@ -6,6 +6,7 @@ import {
   flagString,
   flagBool,
   flagInt,
+  flagValues,
   UsageError,
   type CommandFlags,
 } from "./cli-args.js";
@@ -18,9 +19,11 @@ import {
 import { buildMarkdown } from "./embed.js";
 import { UploadsError } from "./errors.js";
 import { writeJson, writeStdout } from "./io.js";
+import { parseMetaFlags } from "./metadata.js";
 import {
   ghAttachmentKey,
   ghKeyPrefix,
+  ghMetadataFromTarget,
   attachmentsCommentBody,
   type GhTarget,
   type AttachmentItem,
@@ -108,6 +111,7 @@ Options:
   --issue <num>         Attach to an issue: key gh/<owner>/<repo>/issues/<num>/<name>
   --comment             With --pr/--issue: update one managed comment with attachments and linked galleries via local gh auth
   --gallery <id>         Add the uploaded object to this public gallery
+  --meta <k=v>          Queryable custom metadata (repeatable; value may contain "="): key ^[a-z][a-z0-9._-]{0,63}$, value 1-512 printable ASCII, max 24 pairs
   --dry-run             Print key + public URL without uploading. Not with --comment/--gallery
 
 Exit codes: 0 ok · 2 usage/token/file · 3 auth/policy · 4 network · 1 other.
@@ -121,6 +125,7 @@ Examples:
   uploads put ./capture-….webp --pr 128 --name hero.webp
   uploads put ./shot.png --pr 128 --name hero.webp --dry-run --format url
   uploads put ./after.png --gallery gal_example
+  uploads put ./shot.png --meta app=myapp --meta page=settings
 `;
 
 /**
@@ -337,12 +342,16 @@ Options:
   --optimize-quality <1-100>  WebP quality (default: 85)
   --keep-exif           Keep EXIF/XMP/ICC when optimizing (default: strip for privacy)
   --workspace, -w <name>  Override workspace
+  --meta <k=v>          Extra queryable metadata (repeatable; value may contain "=").
+                        gh.repo/gh.kind/gh.number/gh.ref are always set from the resolved
+                        target — a --meta pair with the same key is overridden by it.
 
 Examples:
   uploads attach ./before.png ./after.png
   uploads attach ./mobile.png --frame phone
   uploads attach ./shot.png --pr 123 --repo myorg/myapp
   uploads attach ./artifact.zip --issue 45 --no-comment
+  uploads attach ./shot.png --meta app=myapp --meta page=settings
 `;
 
 export async function runAttach(
@@ -372,6 +381,10 @@ export async function runAttach(
   const optimizeOpts = optimizeOptionsFromFlags(parsed.flags, defaults);
   const frameOpts = frameOptionsFromFlags(parsed.flags);
   const contentTypeOverride = flagString(parsed.flags, "--content-type");
+  // User-supplied extras first, then the resolved target's gh.* — explicit
+  // target pairs always win over a same-named --meta extra (documented above).
+  const metaExtras = parseMetaFlags(flagValues(parsed.flags, "--meta"));
+  const metadata = { ...metaExtras, ...ghMetadataFromTarget(target) };
   const results = [];
   for (const file of parsed.positionals) {
     if (file === "-")
@@ -397,6 +410,7 @@ export async function runAttach(
         frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
         keepExif: optimizeOpts.keepExif === true,
       }),
+      metadata,
     });
     results.push({
       ...result,
@@ -466,6 +480,11 @@ export async function runPut(
   const galleryId = flagString(parsed.flags, "--gallery");
   const nameFlag = flagString(parsed.flags, "--name");
   const dryRun = flagBool(parsed.flags, "--dry-run");
+  // Validate --meta up front (fail fast, before reading/optimizing the file).
+  const metadata = ((): Record<string, string> | undefined => {
+    const pairs = flagValues(parsed.flags, "--meta");
+    return pairs.length > 0 ? parseMetaFlags(pairs) : undefined;
+  })();
   if (wantComment && typeof parsed.flags.get("--comment") === "string") {
     throw new UsageError("--comment takes no value — place it after the file argument");
   }
@@ -563,6 +582,7 @@ export async function runPut(
       frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
       keepExif: optimizeOpts.keepExif === true,
     }),
+    metadata,
   });
 
   const markdown = buildMarkdown(result.url, { alt, width });
@@ -862,15 +882,36 @@ export async function runGallery(ctx: CliContext, args: string[], help = false):
 
 // --- list ---
 
-const LIST_HELP = `uploads list [--prefix <p>] [--pr <num> | --issue <num>] [--repo <owner/name>] [--limit <n>] [--cursor <c>] [--all] [--workspace <name>]
+const LIST_HELP = `uploads list [--prefix <p>] [--pr <num> | --issue <num>] [--repo <owner/name>] [--limit <n>] [--cursor <c>] [--all] [--meta <k=v>]... [--workspace <name>]
 
 Default prefix: UPLOADS_DEFAULT_PREFIX (screenshots if unset).
+
+--meta <k=v> (repeatable, ANDed) switches to the metadata filter endpoint —
+returned items include their matched metadata. Combines with --prefix, not
+with --pr/--issue/--all. See also: uploads find (positional-pair alias).
 
 Examples:
   uploads list --prefix screenshots/
   uploads list --pr 123
   uploads list --all --json
+  uploads list --meta gh.repo=buildinternet/uploads --meta gh.number=123
 `;
+
+/** `--meta k=v` (repeatable) filter path, shared by `runList` and `runFind`. */
+async function runFindFiles(
+  ctx: CliContext,
+  filters: Record<string, string>,
+  flags: CommandFlags["flags"],
+): Promise<number> {
+  const prefix = flagString(flags, "--prefix");
+  const limit = flagInt(flags, "--limit", "--limit");
+  const result = await ctx.client.findFiles(filters, { prefix, limit });
+  if (ctx.json) await writeJson(result);
+  else
+    for (const item of result.items)
+      await writeStdout(`${item.key}${item.url ? `  ${item.url}` : ""}\n`);
+  return 0;
+}
 
 export async function runList(
   ctx: CliContext,
@@ -882,6 +923,16 @@ export async function runList(
   if (help || parsed.help) {
     process.stderr.write(LIST_HELP);
     return 0;
+  }
+  const metaPairs = flagValues(parsed.flags, "--meta");
+  if (metaPairs.length > 0) {
+    if (ghTargetFromFlags(parsed.flags, run)) {
+      throw new UsageError("--meta cannot be combined with --pr/--issue");
+    }
+    if (flagBool(parsed.flags, "--all")) {
+      throw new UsageError("--meta cannot be combined with --all");
+    }
+    return runFindFiles(ctx, parseMetaFlags(metaPairs), parsed.flags);
   }
   const defaults = resolvePutDefaults({ envFile: ctx.envFile });
   const prefixFlag = flagString(parsed.flags, "--prefix");
@@ -912,6 +963,88 @@ export async function runList(
     if (result.cursor) process.stderr.write(`cursor: ${result.cursor}\n`);
   }
   return 0;
+}
+
+// --- find ---
+
+const FIND_HELP = `uploads find k=v [k=v...] [--prefix <p>] [--limit <n>] [--workspace <name>]
+
+Human-friendly alias for \`uploads list --meta k=v...\` — same metadata filter
+(ANDed equality), same output; pairs are positional instead of repeated flags.
+
+Examples:
+  uploads find gh.repo=buildinternet/uploads gh.number=123
+  uploads find app=myapp page=settings --prefix screenshots/
+`;
+
+export async function runFind(ctx: CliContext, args: string[], help = false): Promise<number> {
+  const parsed = parseCommandArgs(args);
+  if (help || parsed.help) {
+    process.stderr.write(FIND_HELP);
+    return 0;
+  }
+  if (parsed.positionals.length === 0) {
+    process.stderr.write(FIND_HELP);
+    return 2;
+  }
+  const filters = parseMetaFlags(parsed.positionals);
+  return runFindFiles(ctx, filters, parsed.flags);
+}
+
+// --- meta ---
+
+const META_HELP = `uploads meta <command> [args]
+
+Read/write an object's queryable custom metadata (D1-backed key-value pairs;
+distinct from the R2 provenance headers put on upload).
+
+Commands:
+  get <key>                            Show metadata for an object
+  set <key> k=v [k=v...] [--delete k]...   Merge-set and/or delete pairs
+
+Examples:
+  uploads meta get screenshots/myapp/42/shot.png
+  uploads meta set screenshots/myapp/42/shot.png app=myapp page=settings
+  uploads meta set screenshots/myapp/42/shot.png --delete app --delete page
+`;
+
+export async function runMeta(ctx: CliContext, args: string[], help = false): Promise<number> {
+  const parsed = parseCommandArgs(args);
+  const action = parsed.positionals[0];
+  if (help || parsed.help || !action) {
+    process.stderr.write(META_HELP);
+    return help || parsed.help ? 0 : 2;
+  }
+
+  switch (action) {
+    case "get": {
+      const key = parsed.positionals[1];
+      if (!key) throw new UsageError("meta get requires an object key");
+      const result = await ctx.client.getMetadata(key);
+      if (ctx.json) await writeJson(result);
+      else for (const [k, v] of Object.entries(result.metadata)) await writeStdout(`${k}=${v}\n`);
+      return 0;
+    }
+    case "set": {
+      const key = parsed.positionals[1];
+      if (!key) throw new UsageError("meta set requires an object key");
+      const pairs = parsed.positionals.slice(2);
+      const del = flagValues(parsed.flags, "--delete");
+      if (pairs.length === 0 && del.length === 0) {
+        throw new UsageError("meta set requires k=v pairs and/or --delete <key>");
+      }
+      const set = pairs.length > 0 ? parseMetaFlags(pairs) : undefined;
+      const result = await ctx.client.patchMetadata(key, {
+        set,
+        delete: del.length > 0 ? del : undefined,
+      });
+      if (ctx.json) await writeJson(result);
+      else for (const [k, v] of Object.entries(result.metadata)) await writeStdout(`${k}=${v}\n`);
+      return 0;
+    }
+    default:
+      throw new UsageError(`unknown meta command: ${action}`);
+  }
 }
 
 // --- delete ---

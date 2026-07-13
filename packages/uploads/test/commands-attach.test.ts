@@ -18,6 +18,7 @@ function files(...names: string[]): string[] {
 
 function fakeClient() {
   const puts: string[] = [];
+  const metadataByKey: Record<string, Record<string, string> | undefined> = {};
   const list = async ({ prefix }: { prefix?: string } = {}) => ({
     items: puts
       .filter((key) => key.startsWith(prefix ?? ""))
@@ -25,8 +26,9 @@ function fakeClient() {
     cursor: null,
   });
   const client = {
-    put: async (_body: Uint8Array, opts: { key: string }) => {
+    put: async (_body: Uint8Array, opts: { key: string; metadata?: Record<string, string> }) => {
       puts.push(opts.key);
+      metadataByKey[opts.key] = opts.metadata;
       return {
         workspace: "test",
         key: opts.key,
@@ -40,7 +42,7 @@ function fakeClient() {
     findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
     getGallery: async () => ({ items: [] }),
   } as unknown as UploadsClient;
-  return { client, puts };
+  return { client, puts, metadataByKey };
 }
 
 function ctxWith(client: UploadsClient): CliContext {
@@ -109,5 +111,48 @@ describe("runAttach", () => {
     await expect(
       runAttach(ctxWith(client), files("shot.png"), false, noPullRequestRunner),
     ).rejects.toThrow(UsageError);
+  });
+});
+
+describe("runAttach gh.* metadata", () => {
+  it("writes gh.repo/gh.kind/gh.number/gh.ref for a pull request target", async () => {
+    const { client, metadataByKey } = fakeClient();
+    const { run } = ghRunner();
+    await runAttach(ctxWith(client), files("shot.png"), false, run);
+    expect(metadataByKey["gh/buildinternet/uploads/pull/123/shot.png"]).toEqual({
+      "gh.repo": "buildinternet/uploads",
+      "gh.kind": "pull",
+      "gh.number": "123",
+      "gh.ref": "buildinternet/uploads#123",
+    });
+  });
+
+  it("uses gh.kind=issue for an --issue target", async () => {
+    const { client, metadataByKey } = fakeClient();
+    const { run } = ghRunner();
+    await runAttach(
+      ctxWith(client),
+      [...files("artifact.zip"), "--issue", "45", "--repo", "o/r", "--no-comment"],
+      false,
+      run,
+    );
+    expect(metadataByKey["gh/o/r/issues/45/artifact.zip"]).toMatchObject({
+      "gh.kind": "issue",
+      "gh.ref": "o/r#45",
+    });
+  });
+
+  it("merges --meta extras and lets the resolved target's gh.* win over a same-named extra", async () => {
+    const { client, metadataByKey } = fakeClient();
+    const { run } = ghRunner();
+    await runAttach(
+      ctxWith(client),
+      [...files("shot.png"), "--meta", "app=myapp", "--meta", "gh.repo=should-be-overridden/nope"],
+      false,
+      run,
+    );
+    const metadata = metadataByKey["gh/buildinternet/uploads/pull/123/shot.png"];
+    expect(metadata?.app).toBe("myapp");
+    expect(metadata?.["gh.repo"]).toBe("buildinternet/uploads");
   });
 });

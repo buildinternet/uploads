@@ -16,11 +16,18 @@ function fakeClient() {
     prefix?: string;
     dryRun?: boolean;
     body: Uint8Array;
+    metadata?: Record<string, string>;
   }[] = [];
   const client = {
     put: async (
       body: Uint8Array,
-      opts: { filename: string; key?: string; prefix?: string; dryRun?: boolean },
+      opts: {
+        filename: string;
+        key?: string;
+        prefix?: string;
+        dryRun?: boolean;
+        metadata?: Record<string, string>;
+      },
     ) => {
       puts.push({
         key: opts.key,
@@ -28,6 +35,7 @@ function fakeClient() {
         prefix: opts.prefix,
         dryRun: opts.dryRun,
         body,
+        metadata: opts.metadata,
       });
       return {
         workspace: "test",
@@ -308,5 +316,67 @@ describe("runPut --destination", () => {
         noRun,
       ),
     ).rejects.toThrow(/must start with destination root/);
+  });
+});
+
+describe("runPut --meta", () => {
+  it("passes a single --meta pair through to the client", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "myapp", "--no-git", "--meta", "app=myapp"],
+      false,
+      noRun,
+    );
+    expect(code).toBe(0);
+    expect(puts[0].metadata).toEqual({ app: "myapp" });
+  });
+
+  it("collects repeated --meta pairs into one map", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "myapp", "--no-git", "--meta", "app=myapp", "--meta", "page=settings"],
+      false,
+      noRun,
+    );
+    expect(puts[0].metadata).toEqual({ app: "myapp", page: "settings" });
+  });
+
+  it("splits a --meta value containing '=' on the first '=' only", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "myapp", "--no-git", "--meta", "url=https://x.test/a?b=c"],
+      false,
+      noRun,
+    );
+    expect(puts[0].metadata).toEqual({ url: "https://x.test/a?b=c" });
+  });
+
+  it("omits metadata entirely when --meta is not passed", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [tmpFile(), "--repo", "myapp", "--no-git"], false, noRun);
+    expect(puts[0].metadata).toBeUndefined();
+  });
+
+  it("rejects an invalid --meta key before uploading", async () => {
+    const { client, puts } = fakeClient();
+    await expect(
+      runPut(
+        ctxWith(client),
+        [tmpFile(), "--repo", "myapp", "--no-git", "--meta", "Bad-Key=x"],
+        false,
+        noRun,
+      ),
+    ).rejects.toThrow(UsageError);
+    expect(puts).toEqual([]);
+  });
+
+  it("rejects a malformed --meta pair with no '='", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), [tmpFile(), "--meta", "noequals"], false, noRun),
+    ).rejects.toThrow(UsageError);
   });
 });

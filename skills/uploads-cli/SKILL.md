@@ -188,6 +188,26 @@ uploads put ./shot.png --format markdown   # just the ![]()/<img> snippet
 uploads put ./shot.png --json              # {workspace,key,url,size,markdown}
 ```
 
+## Custom metadata & search
+
+Every object can carry queryable key-value metadata (distinct from optimize/frame
+provenance) — tag uploads at put time, then find them later:
+
+```bash
+uploads put ./shot.png --meta app=myapp --meta page=settings --meta device=iphone-16
+uploads meta get screenshots/myapp/42/shot.png
+uploads meta set screenshots/myapp/42/shot.png page=onboarding --delete device
+uploads list --meta app=myapp --meta page=settings   # ANDed, repeatable
+uploads find app=myapp page=settings                 # same filter, positional pairs
+```
+
+Rules (validated client-side, fail-fast, before uploading): key
+`^[a-z][a-z0-9._-]{0,63}$` (lowercase, dot-namespacing allowed, e.g. `gh.repo`);
+value 1–512 printable ASCII characters; `--meta k=v` may repeat up to 24 times per
+request; a value may itself contain `=` (only the first `=` splits key from value).
+`content-sha256` is reserved (server-computed). `uploads attach` writes its own
+`gh.*` reserved-by-convention keys automatically — see below.
+
 ## Public media galleries
 
 Use galleries when several existing public uploads should be shared as one ordered collection.
@@ -240,6 +260,12 @@ Then reference the URL in the PR/issue markdown you write with `gh`:
 <img width="700" alt="Dashboard after" src="https://storage.uploads.sh/gh/myorg/myapp/pull/123/after.png">
 ```
 
+`uploads attach` (below) additionally writes `gh.repo`/`gh.kind`/`gh.number`/`gh.ref`
+as queryable metadata automatically, so `uploads find gh.ref=myorg/myapp#123` or
+`uploads list --meta gh.repo=myorg/myapp` finds everything attached to that PR/issue
+without needing the `gh/...` prefix. Add `--meta k=v` extras to `attach` for your own
+pairs on top — a `--meta gh.*` override loses to the target's own `gh.*` values.
+
 ### Option B — managed attachments comment (`--comment` / `comment`)
 
 Add `--comment` to upload **and** create/update a single marker-owned comment on the PR/issue. It keeps loose `gh/...` attachments and every public gallery linked to that PR/issue in clearly separate sections, with up to three available gallery images inline. It finds its own prior comment via a hidden marker and edits it in place — it never touches the description or other comments:
@@ -277,7 +303,11 @@ comment --body-file` over inline HEREDOCs.
 ```bash
 uploads list --prefix screenshots/        # list objects (key + url)
 uploads list --pr 123                      # everything attached to a PR
+uploads list --meta app=myapp              # filter by metadata (repeatable, ANDed)
+uploads find app=myapp page=settings       # same filter, human-friendly positional pairs
 uploads list --all --json                  # paginate fully, machine-readable
+uploads meta get <key>                     # show an object's metadata
+uploads meta set <key> k=v [k=v…] [--delete k]…   # merge-set / delete metadata pairs
 uploads delete <key>                       # remove an object
 uploads delete <key> --dry-run             # show what would be deleted
 uploads usage                              # storage / monthly upload counters (+ limits)

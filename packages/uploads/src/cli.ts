@@ -13,6 +13,8 @@ import {
   runPut,
   runAttach,
   runList,
+  runFind,
+  runMeta,
   runDelete,
   runHealth,
   runDoctor,
@@ -62,7 +64,9 @@ Commands:
   put <file>          Upload (+ URL + markdown for GitHub)
   gallery             Create and organize public media galleries
   comment             Create/update a PR/issue attachments comment (via gh)
-  list                List objects
+  list                List objects (--meta k=v filters by queryable metadata)
+  find k=v...         List objects matching metadata (alias for list --meta)
+  meta                Get/set an object's queryable metadata
   delete <key>        Delete object
   usage               Workspace storage / upload counters
   reconcile           Rebuild usage ledger from storage
@@ -264,6 +268,8 @@ export async function runCli(argv: string[]): Promise<number> {
       case "put":
       case "gallery":
       case "list":
+      case "find":
+      case "meta":
       case "delete":
       case "usage":
       case "reconcile":
@@ -286,6 +292,12 @@ export async function runCli(argv: string[]): Promise<number> {
             break;
           case "list":
             code = await runList(ctx, cmdArgs, showHelp);
+            break;
+          case "find":
+            code = await runFind(ctx, cmdArgs, showHelp);
+            break;
+          case "meta":
+            code = await runMeta(ctx, cmdArgs, showHelp);
             break;
           case "delete":
             code = await runDelete(ctx, cmdArgs, showHelp);
