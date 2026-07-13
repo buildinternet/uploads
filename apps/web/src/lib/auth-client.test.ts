@@ -70,7 +70,12 @@ describe("startLocalDemoSession", () => {
     ).resolves.toEqual({ kind: "started" });
     expect(fetcher).toHaveBeenCalledWith(
       "http://127.0.0.1:8788/api/auth/dev-session",
-      expect.objectContaining({ credentials: "include", method: "POST" }),
+      expect.objectContaining({
+        credentials: "include",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      }),
     );
 
     await expect(

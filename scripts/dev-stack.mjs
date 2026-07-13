@@ -158,6 +158,14 @@ async function main() {
   await waitFor(`${API_ORIGIN}/health`, "api");
   if (stopping) return;
 
+  // Web starts via `exec astro dev` (below) instead of `pnpm run dev`, so the
+  // `predev` hook that builds @uploads/ui never fires. Build it explicitly:
+  // a fresh checkout has no packages/ui/dist, and the account shell imports
+  // `@uploads/ui/styles.css`, so without this web 500s on a missing module.
+  // Idempotent and quick when already built.
+  await run("pnpm", ["--filter", "@uploads/ui", "build"]);
+  if (stopping) return;
+
   start(
     "web",
     ["--filter", "@uploads/web", "exec", "astro", "dev", "--host", "127.0.0.1", "--port", "4321"],
@@ -169,6 +177,19 @@ async function main() {
       // /login, /device, and invitations as well as to the SSR account shell.
       PUBLIC_UPLOADS_AUTH_ORIGIN: AUTH_ORIGIN,
       PUBLIC_UPLOADS_API_ORIGIN: API_ORIGIN,
+      // Astro 7's CLI auto-detects "agentic" shells (via am-i-vibing) and
+      // silently forks `astro dev` into a detached background daemon,
+      // exiting the foreground process with code 0. This supervisor treats
+      // any exit of a started child as a crash (see start()), so an
+      // unpatched astro dev tears down the whole stack the instant it
+      // daemonizes, leaving the orphaned daemon running at :4321. Setting
+      // ASTRO_DEV_BACKGROUND short-circuits astro's agent detection
+      // (dist/cli/dev/index.js: `!process.env.ASTRO_DEV_BACKGROUND &&
+      // isRunByAgent()`) so it stays in the foreground and is supervised
+      // like auth/api. 7.0.6 only checks the var's presence, but "0" is
+      // Astro's documented opt-out and the intent-correct value (background
+      // off) — future-proof if a later version parses the value.
+      ASTRO_DEV_BACKGROUND: "0",
     },
   );
   await waitFor(PREVIEW_URL, "web");
