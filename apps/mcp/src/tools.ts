@@ -15,6 +15,7 @@ import {
 } from "@buildinternet/uploads/mcp";
 import { badKey } from "@uploads/api/files";
 import {
+  META_MAX_KEYS,
   findObjectsByMetadata,
   setFileMetadata,
   validateMetadataEntries,
@@ -497,6 +498,10 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         const filters = optStringRecord(args, "filters");
         if (!filters || Object.keys(filters).length === 0) {
           usage("filters must have at least one key");
+        }
+        // Mirror the REST list endpoint's meta.* filter cap.
+        if (Object.keys(filters).length > META_MAX_KEYS) {
+          usage(`too many filters (max ${META_MAX_KEYS})`);
         }
         const cfg = await storageConfig(env, workspace);
         const matches = await findObjectsByMetadata(env.DB, workspaceName, filters, {
