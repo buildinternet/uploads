@@ -13,6 +13,7 @@ import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
 import { galleries } from "./routes/galleries";
 import { publicGalleries } from "./routes/public-galleries";
+import { publicFiles } from "./routes/public-files";
 
 // Lets the browser console on the web origin (and local dev) call the token-
 // authenticated endpoints. CORS is not the security boundary — bearer tokens
@@ -58,6 +59,9 @@ export const app = new Hono<WorkspaceVars>()
   .route("/me", me)
   .route("/auth", auth)
   .route("/public/galleries", publicGalleries)
+  // Public single-object metadata for the file page (#135). Like public
+  // galleries, fetched server-side by apps/web; no CORS (not a browser call).
+  .route("/public/files", publicFiles)
   // Session-authenticated workspace-token mint (Phase 4). Registered BEFORE the
   // `/v1/:workspace/*` bearer guard: `/v1/tokens` does NOT match that pattern
   // (no trailing segment), so `workspaceAuth` never runs for it — this route

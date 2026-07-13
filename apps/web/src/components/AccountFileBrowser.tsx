@@ -1,6 +1,7 @@
 import { useFiles } from "files-sdk/react";
 import { FileBrowser } from "@uploads/ui";
 import "@uploads/ui/styles.css";
+import { filePath } from "../lib/public-file";
 
 interface Props {
   apiOrigin: string;
@@ -28,28 +29,18 @@ export function AccountFileBrowser({ apiOrigin, workspace }: Props) {
     fetchImpl: credentialedFetch,
   });
 
-  const openFile = async (key: string) => {
-    // Open synchronously so popup blockers recognize this as the row click;
-    // resolve the files-sdk URL into that tab afterward.
-    const tab = window.open("about:blank", "_blank");
+  // Open the chrome-wrapped file page (issue #135) rather than dumping the raw
+  // bytes into a tab. The page presents metadata and links to the original; for
+  // non-public workspaces it depends on the #123 URL resolver.
+  const openFile = (key: string) => {
+    const tab = window.open(filePath(workspace, key), "_blank");
     if (tab) tab.opener = null;
-    try {
-      const response = await credentialedFetch(
-        `${apiOrigin.replace(/\/$/, "")}/me/workspaces/${encodeURIComponent(workspace)}/file-url?key=${encodeURIComponent(key)}`,
-      );
-      const body = (await response.json()) as { url?: string };
-      if (!(response.ok && body.url)) throw new Error("file URL unavailable");
-      if (tab) tab.location.replace(body.url);
-      else window.location.assign(body.url);
-    } catch {
-      tab?.close();
-    }
   };
 
   return (
     <>
       <div className="ws-section-head">Files</div>
-      <FileBrowser files={files} onSelect={(file) => void openFile(file.key)} />
+      <FileBrowser files={files} onSelect={(file) => openFile(file.key)} />
     </>
   );
 }

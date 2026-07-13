@@ -1,0 +1,120 @@
+---
+import BaseHead from "../../../components/BaseHead.astro";
+import Brand from "../../../components/Brand.astro";
+import Footer from "../../../components/Footer.astro";
+import {
+  applyPublicFileHeaders,
+  fetchPublicFile,
+  fileKind as kind,
+  filePath,
+  formatBytes,
+} from "../../../lib/public-file";
+import { env } from "cloudflare:workers";
+
+export const prerender = false;
+
+const workspace = Astro.params.workspace ?? "";
+const key = Astro.params.key ?? "";
+const origin =
+  env.UPLOADS_API_ORIGIN ??
+  import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ??
+  "https://api.uploads.sh";
+const result = await fetchPublicFile(workspace, key, { origin });
+
+applyPublicFileHeaders(Astro.response.headers);
+
+const file = result.status === "ok" ? result.file : null;
+if (result.status === "unavailable") Astro.response.status = 503;
+else if (!file) Astro.response.status = 404;
+
+const filename = key.split("/").filter(Boolean).pop() ?? key;
+const uploaded = file?.uploaded ? new Date(file.uploaded) : null;
+const uploadedLabel =
+  uploaded && Number.isFinite(uploaded.getTime())
+    ? uploaded.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+    : null;
+const canonical = new URL(file ? filePath(workspace, key) : Astro.url.pathname, Astro.url.origin)
+  .href;
+const title = file ? `${filename} · uploads.sh` : "File unavailable · uploads.sh";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <BaseHead />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+    <link rel="canonical" href={canonical} />
+    <title>{title}</title>
+    <meta name="description" content="Public file hosted by uploads.sh." />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={file ? filename : "File unavailable"} />
+    <meta property="og:description" content="Public file hosted by uploads.sh." />
+    <meta property="og:url" content={canonical} />
+    {file && kind(file.contentType) === "image" && <meta property="og:image" content={file.url} />}
+    <style>
+      * { box-sizing:border-box; }
+      body { margin:0; min-height:100vh; color:var(--fg); background:var(--bg); font-family:var(--sans); }
+      .shell { width:min(1080px,calc(100% - 48px)); margin:auto; padding:36px 0 64px; }
+      nav.top { display:flex; align-items:center; justify-content:space-between; margin-bottom:32px; font:13px var(--mono); letter-spacing:.02em; }
+      .public { color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:6px 11px; background:var(--panel); }
+      .stage { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-lg); overflow:hidden; }
+      .media { min-height:320px; max-height:78vh; background:var(--bg); display:grid; place-items:center; overflow:hidden; }
+      img,video { max-width:100%; max-height:78vh; width:auto; height:auto; object-fit:contain; display:block; }
+      .fallback { padding:60px 30px; text-align:center; color:var(--muted); font:13px/1.6 var(--mono); }
+      .fallback strong { display:block; color:var(--fg); margin-bottom:8px; }
+      .fallback a { color:var(--fg); overflow-wrap:anywhere; }
+      .details { padding:18px 20px 22px; border-top:1px solid var(--line); }
+      .filename { color:var(--fg); font:600 14px var(--mono); overflow-wrap:anywhere; }
+      dl.meta { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; margin:14px 0 0; font:12px var(--mono); }
+      dl.meta dt { color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-size:11px; }
+      dl.meta dd { margin:0; color:var(--body); overflow-wrap:anywhere; }
+      .actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:16px; }
+      .actions a.original { display:inline-block; padding:9px 15px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel); color:var(--fg); font:12px var(--mono); text-decoration:none; }
+      .actions a.original:hover, .actions a.original:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
+      .linkfield { flex:1; min-width:220px; }
+      .linkfield label { display:block; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font:11px var(--mono); margin-bottom:5px; }
+      .linkfield input { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--bg); color:var(--body); font:12px var(--mono); }
+      .error { padding:70px 24px; border:1px solid var(--line); border-radius:var(--radius-lg); text-align:center; background:var(--panel); color:var(--body); }
+      .error code { color:var(--accent); font-family:var(--mono); }
+      a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
+      @media (max-width:760px) { .shell{width:min(100% - 32px,1080px);padding-top:24px} .media{min-height:220px} }
+      .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); clip-path:inset(50%); white-space:nowrap; border:0; }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <nav class="top"><Brand /><span class="public">public file</span></nav>
+      {file ? (
+        <>
+          <h1 class="sr-only">{filename}</h1>
+          <figure class="stage" style="margin:0">
+            <div class="media">
+              {kind(file.contentType) === "image" && <img src={file.url} alt={filename} decoding="async" />}
+              {kind(file.contentType) === "video" && <video src={file.url} controls playsinline preload="metadata">Your browser cannot play this video.</video>}
+              {kind(file.contentType) === "file" && <div class="fallback"><strong>Preview unavailable</strong><a href={file.url} rel="noopener noreferrer">Open {filename}</a></div>}
+              {kind(file.contentType) === "unsupported" && <div class="fallback"><strong>Unsupported media type</strong><span>This file cannot be previewed inline.</span></div>}
+            </div>
+            <figcaption class="details">
+              <div class="filename">{filename}</div>
+              <dl class="meta">
+                <dt>Type</dt><dd>{file.contentType}</dd>
+                <dt>Size</dt><dd>{formatBytes(file.size)}</dd>
+                {uploadedLabel && <><dt>Uploaded</dt><dd>{uploadedLabel}</dd></>}
+              </dl>
+              <div class="actions">
+                {kind(file.contentType) !== "unsupported" && <a class="original" href={file.url} rel="noopener noreferrer">Open original ↗</a>}
+                <span class="linkfield">
+                  <label for="page-link">Page link</label>
+                  <input id="page-link" type="text" readonly value={canonical} aria-label="Page link" />
+                </span>
+              </div>
+            </figcaption>
+          </figure>
+          <Footer />
+        </>
+      ) : (
+        <section class="error"><code>{result.status === "unavailable" ? "file.unavailable" : "file.not_found"}</code><h1>{result.status === "unavailable" ? "File temporarily unavailable" : "File not found"}</h1><p>{result.status === "unavailable" ? "The file service could not be reached. Please try again shortly." : "This file may have been removed, or the link is incorrect."}</p></section>
+      )}
+    </main>
+  </body>
+</html>
