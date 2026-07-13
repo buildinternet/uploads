@@ -1,0 +1,16 @@
+{
+  "pkg": "@uploads/ui",
+  "globalName": "UploadsUI",
+  "shape": "package",
+  "projectId": "8ccd3608-71c8-4158-8fce-30df5d8259cd",
+  "buildCmd": "pnpm --filter @uploads/ui build",
+  "cssEntry": "dist/uploads-ui.css",
+  "readmeHeader": ".design-sync/conventions.md",
+  "overrides": {
+    "Button": { "cardMode": "column" },
+    "Divider": { "cardMode": "column" },
+    "Field": { "cardMode": "column" },
+    "GalleryTile": { "cardMode": "column" },
+    "Panel": { "cardMode": "column" }
+  }
+}
