@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   applyPublicFileHeaders,
+  authRequiredFileCsp,
   fetchPublicFile,
   fileKind,
   filePath,
@@ -29,6 +30,24 @@ describe("public file headers", () => {
     expect(headers.get("Content-Security-Policy")).toBe(PUBLIC_FILE_CSP);
     expect(headers.get("Cache-Control")).toBe("no-store");
     expect(headers.get("X-Robots-Tag")).toBe("noindex, nofollow, noarchive");
+  });
+
+  it("authRequiredFileCsp widens script-src/connect-src but keeps the rest locked down", () => {
+    const csp = authRequiredFileCsp("https://api.uploads.sh");
+    expect(csp).toContain("default-src 'none'");
+    expect(csp).toContain("script-src 'self' 'unsafe-inline'");
+    expect(csp).toContain("connect-src https://api.uploads.sh");
+    expect(csp).toContain("frame-ancestors 'none'");
+
+    const headers = new Headers();
+    applyPublicFileHeaders(headers, { csp });
+    expect(headers.get("Content-Security-Policy")).toBe(csp);
+    expect(headers.get("Cache-Control")).toBe("no-store");
+
+    // Default call (no override) still gets the strict, script-free policy.
+    const defaultHeaders = new Headers();
+    applyPublicFileHeaders(defaultHeaders);
+    expect(defaultHeaders.get("Content-Security-Policy")).toBe(PUBLIC_FILE_CSP);
   });
 });
 
@@ -119,6 +138,38 @@ describe("fetchPublicFile", () => {
       await fetchPublicFile("acme", "k.png", {
         origin: "https://api.uploads.sh",
         fetch: async () => new Response("nope", { status: 503 }),
+      }),
+    ).toEqual({ status: "unavailable" });
+  });
+
+  it("maps a well-formed 401 auth_required body to auth_required", async () => {
+    const body = { error: { code: "auth_required", message: "sign in to view this file" } };
+    expect(
+      await fetchPublicFile("acme", "k.png", {
+        origin: "https://api.uploads.sh",
+        fetch: async () => Response.json(body, { status: 401 }),
+      }),
+    ).toEqual({ status: "auth_required" });
+  });
+
+  it("treats a malformed or wrong-code 401 body as unavailable", async () => {
+    expect(
+      await fetchPublicFile("acme", "k.png", {
+        origin: "https://api.uploads.sh",
+        fetch: async () => new Response("nope", { status: 401 }),
+      }),
+    ).toEqual({ status: "unavailable" });
+    expect(
+      await fetchPublicFile("acme", "k.png", {
+        origin: "https://api.uploads.sh",
+        fetch: async () =>
+          Response.json({ error: { code: "other", message: "x" } }, { status: 401 }),
+      }),
+    ).toEqual({ status: "unavailable" });
+    expect(
+      await fetchPublicFile("acme", "k.png", {
+        origin: "https://api.uploads.sh",
+        fetch: async () => Response.json({ nope: true }, { status: 401 }),
       }),
     ).toEqual({ status: "unavailable" });
   });

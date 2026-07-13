@@ -520,6 +520,15 @@
 .ul-files__list li:last-child {
   border-bottom: 0;
 }
+.ul-files__row-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ul-files__row-wrap .ul-files__row {
+  flex: 1;
+  min-width: 0;
+}
 .ul-files__row {
   width: 100%;
   display: flex;

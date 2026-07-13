@@ -34,6 +34,7 @@ export const ERROR_CODES = [
   "key_too_deep",
   "presign_unavailable",
   "file_url_unavailable",
+  "auth_required",
 
   // Budgets
   "storage_quota_exceeded",

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getMyWorkspaces } from "./api-client";
+import { getMyWorkspaces, setFileVisibility } from "./api-client";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -86,5 +86,58 @@ describe("getMyWorkspaces", () => {
       ["acme", true],
       ["byo", false],
     ]);
+  });
+});
+
+describe("setFileVisibility", () => {
+  it("PATCHes with credentials and returns the resulting visibility", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe(
+        "http://127.0.0.1:8787/me/workspaces/acme/files/visibility?key=f%2Fx%2Fshot.png",
+      );
+      expect(init?.method).toBe("PATCH");
+      expect(init?.credentials).toBe("include");
+      expect(JSON.parse(init!.body as string)).toEqual({ visibility: "private" });
+      return Response.json({ key: "f/x/shot.png", visibility: "private" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      setFileVisibility("http://127.0.0.1:8787", "acme", "f/x/shot.png", "private"),
+    ).resolves.toEqual({ kind: "success", visibility: "private" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("reports non-2xx responses as unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+
+    await expect(
+      setFileVisibility("http://127.0.0.1:8787", "acme", "a.png", "public"),
+    ).resolves.toEqual({ kind: "unavailable", reason: "server" });
+  });
+
+  it("reports a malformed body as unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ key: "a.png" })),
+    );
+
+    await expect(
+      setFileVisibility("http://127.0.0.1:8787", "acme", "a.png", "public"),
+    ).resolves.toEqual({ kind: "unavailable", reason: "malformed" });
+  });
+
+  it("propagates network failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new TypeError("network down"))),
+    );
+
+    await expect(
+      setFileVisibility("http://127.0.0.1:8787", "acme", "a.png", "public"),
+    ).resolves.toEqual({ kind: "unavailable", reason: "network" });
   });
 });

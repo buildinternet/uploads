@@ -4,12 +4,27 @@ import type { StoredFile } from "files-sdk";
 import type { UseFilesResult } from "files-sdk/react";
 import { ChevronRight, File, Folder, Home, LoaderCircle } from "lucide-react";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Badge } from "./Badge";
 
 export interface FileBrowserProps {
   files: UseFilesResult;
   initialPrefix?: string;
   delimiter?: string;
   onSelect?: (file: StoredFile) => void;
+  /** When it returns true, a small "Private" badge renders next to the item. */
+  isPrivate?: (file: StoredFile) => boolean;
+  /**
+   * Renders a per-item action (e.g. a visibility toggle) alongside the
+   * select row rather than inside it — `<button>` can't nest another
+   * `<button>`. `refresh` re-runs the current listing (resetting any
+   * "Load more" pagination); `patchItem` updates one already-listed row in
+   * place — prefer it after a mutation whose result the caller already
+   * knows, so paginated results survive.
+   */
+  itemActions?: (
+    file: StoredFile,
+    helpers: { refresh: () => void; patchItem: (key: string, patch: Partial<StoredFile>) => void },
+  ) => React.ReactNode;
 }
 
 const formatBytes = (bytes: number): string => {
@@ -39,6 +54,8 @@ export function FileBrowser({
   initialPrefix = "",
   delimiter = "/",
   onSelect,
+  isPrivate,
+  itemActions,
 }: FileBrowserProps) {
   const [prefix, setPrefix] = useState(initialPrefix);
   const [folders, setFolders] = useState<string[]>([]);
@@ -136,22 +153,30 @@ export function FileBrowser({
           ))}
           {items.map((item) => (
             <li key={item.key}>
-              <button
-                className="ul-files__row"
-                disabled={!onSelect}
-                onClick={() => onSelect?.(item)}
-                type="button"
-              >
-                <span className="ul-files__icon">
-                  <File aria-hidden="true" />
-                </span>
-                <span className="ul-files__name">
-                  <span>{childName(item.key, prefix, delimiter) || item.key}</span>
-                  <small>
-                    {formatBytes(item.size)} · {item.type || "unknown"}
-                  </small>
-                </span>
-              </button>
+              <div className="ul-files__row-wrap">
+                <button
+                  className="ul-files__row"
+                  disabled={!onSelect}
+                  onClick={() => onSelect?.(item)}
+                  type="button"
+                >
+                  <span className="ul-files__icon">
+                    <File aria-hidden="true" />
+                  </span>
+                  <span className="ul-files__name">
+                    <span>{childName(item.key, prefix, delimiter) || item.key}</span>
+                    <small>
+                      {formatBytes(item.size)} · {item.type || "unknown"}
+                    </small>
+                  </span>
+                  {isPrivate?.(item) ? <Badge tone="neutral">Private</Badge> : null}
+                </button>
+                {itemActions?.(item, {
+                  refresh: () => void load(),
+                  patchItem: (key, patch) =>
+                    setItems((prev) => prev.map((i) => (i.key === key ? { ...i, ...patch } : i))),
+                })}
+              </div>
             </li>
           ))}
         </ul>

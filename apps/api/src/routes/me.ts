@@ -9,17 +9,19 @@
  * (`workspace_not_found`) rather than 403ing, so membership can't be probed
  * for workspace existence any more precisely than for any other workspace.
  */
-import { NotFoundError, ValidationError } from "@uploads/errors";
+import { NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
-import { badKey, listObjects } from "../files-core";
+import { badKey, listObjects, setObjectVisibility } from "../files-core";
 import { listGalleries } from "../galleries";
 import { gallerySummary } from "../gallery-service";
+import { allowWrite } from "../guards";
 import { membershipsForUser, orgForWorkspace, workspacesForOrg } from "../org-workspaces";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
 import { publicUrl, storage, storageConfig } from "../storage";
 import { getWorkspaceUsage } from "../usage";
+import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
 import { loadWorkspaceRecord } from "../workspace";
 
 interface MyWorkspace {
@@ -187,6 +189,45 @@ export const me = new Hono<SessionVars>()
       "no public or signed URL available for this workspace's storage configuration",
       { code: "file_url_unavailable" },
     );
+  })
+
+  // Toggle a file's `visibility` custom-metadata flag — member-gated, same key
+  // convention as `file-url` (key via query param; embedding it in the path
+  // segment fights Hono's routing for keys containing `/`). Storage mechanics
+  // (head/size-cap/download/re-upload) live in files-core's
+  // `setObjectVisibility`; this route keeps auth, key validation, body
+  // validation, and error mapping.
+  .patch("/workspaces/:name/files/visibility", async (c) => {
+    const name = c.req.param("name");
+    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
+    const key = c.req.query("key") ?? "";
+    if (ws.communal || badKey(key)) throw new NotFoundError();
+
+    // Throttle rewrites per workspace — checked only after the membership
+    // gate, so a non-member can't burn a workspace's write budget. Same
+    // WRITE_LIMITER the token-scoped mutating routes use (see guards.ts).
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+
+    const body = await c.req.json().catch(() => null);
+    const requested = (body as { visibility?: unknown } | null)?.visibility;
+    if (
+      typeof requested !== "string" ||
+      !(VISIBILITY_VALUES as readonly string[]).includes(requested)
+    ) {
+      throw new ValidationError('visibility must be "public" or "private"', {
+        code: "invalid_visibility",
+      });
+    }
+
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) throw new NotFoundError();
+    const store = await storage(c.env, record);
+
+    await setObjectVisibility(store, key, requested as "public" | "private");
+
+    return c.json({ key, visibility: sanitizeVisibility(requested) ?? "public" });
   })
 
   // files-sdk's folder-aware browser gateway. Authorization happens before a

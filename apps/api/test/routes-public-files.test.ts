@@ -147,4 +147,24 @@ describe("GET /public/files/:workspace/:key", () => {
     const res = await app.request("/public/files/default", {}, env);
     expect(res.status).toBe(404);
   });
+
+  it("401s with auth_required for a private object, without leaking metadata", async () => {
+    const { env } = await makeEnv();
+    await seedShot(env, { "X-Uploads-Visibility": "private" });
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as { error: { code: string; message: string } };
+    expect(json.error.code).toBe("auth_required");
+    expect(json).not.toHaveProperty("metadata");
+    expect(json).not.toHaveProperty("visibility");
+  });
+
+  it("stays public when the upload header is anything other than 'private'", async () => {
+    const { env } = await makeEnv();
+    await seedShot(env, { "X-Uploads-Visibility": "public" });
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+  });
 });

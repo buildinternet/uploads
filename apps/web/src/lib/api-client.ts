@@ -166,6 +166,8 @@ export interface WorkspaceFile {
   size?: number;
   contentType?: string;
   uploaded?: string;
+  /** Present (== "private") only when the file was marked private (issue #139). */
+  visibility?: "private";
 }
 
 function isWorkspaceFile(value: unknown): value is WorkspaceFile {
@@ -177,4 +179,44 @@ function isWorkspaceFile(value: unknown): value is WorkspaceFile {
 /** GET /me/workspaces/:name/files. See {@link fetchWorkspaceList}. */
 export function getMyWorkspaceFiles(apiOrigin: string, name: string): Promise<WorkspaceFile[]> {
   return fetchWorkspaceList(apiOrigin, name, "files", "files", isWorkspaceFile);
+}
+
+export type FileVisibility = "public" | "private";
+
+export type SetFileVisibilityResult =
+  | { kind: "success"; visibility: FileVisibility }
+  | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
+
+/**
+ * PATCH /me/workspaces/:name/files/visibility — toggles a file's private flag
+ * (issue #139). Key travels as a query param, matching `file-url`'s
+ * convention, since embedding an arbitrary (possibly `/`-containing) key in
+ * the path segment fights routing.
+ */
+export async function setFileVisibility(
+  apiOrigin: string,
+  name: string,
+  key: string,
+  visibility: FileVisibility,
+): Promise<SetFileVisibilityResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files/visibility?key=${encodeURIComponent(key)}`,
+    {
+      method: "PATCH",
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visibility }),
+    },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const body = (await response.json().catch(() => undefined)) as
+    | { visibility?: unknown }
+    | undefined;
+  if (body?.visibility !== "public" && body?.visibility !== "private") {
+    return { kind: "unavailable", reason: "malformed" };
+  }
+  return { kind: "success", visibility: body.visibility };
 }

@@ -524,6 +524,131 @@ describe("GET /me/workspaces/:name/file-url", () => {
   });
 });
 
+describe("PATCH /me/workspaces/:name/files/visibility", () => {
+  function patchVisibility(name: string, key: string, visibility: unknown, env: Env) {
+    return app().request(
+      `/me/workspaces/${name}/files/visibility?key=${encodeURIComponent(key)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility }),
+      },
+      env,
+    );
+  }
+
+  function acmeEnv(bucket: FakeR2Bucket) {
+    return memberEnv({
+      workspace: "acme",
+      db: new UsageFakeD1(),
+      bucket,
+      record: {
+        provider: "r2",
+        bucket: "shared",
+        binding: "UPLOADS_DEFAULT",
+        prefix: "acme/",
+        publicBaseUrl: "https://storage.uploads.sh",
+      },
+    });
+  }
+
+  it("flips a public file to private and back, preserving provenance metadata", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/a.png", new Uint8Array([1, 2, 3]), {
+      httpMetadata: { contentType: "image/png" },
+      customMetadata: { "source-name": "a.png", "content-sha256": "abc123" },
+    });
+    const env = acmeEnv(bucket);
+
+    const toPrivate = await patchVisibility("acme", "a.png", "private", env);
+    expect(toPrivate.status).toBe(200);
+    expect(await toPrivate.json()).toEqual({ key: "a.png", visibility: "private" });
+
+    const stored = bucket.store.get("acme/a.png");
+    expect(stored?.customMetadata).toEqual({
+      "source-name": "a.png",
+      "content-sha256": "abc123",
+      visibility: "private",
+    });
+    expect(stored?.contentType).toBe("image/png");
+    expect(Array.from(stored!.data)).toEqual([1, 2, 3]);
+
+    const toPublic = await patchVisibility("acme", "a.png", "public", env);
+    expect(toPublic.status).toBe(200);
+    expect(await toPublic.json()).toEqual({ key: "a.png", visibility: "public" });
+
+    const storedAgain = bucket.store.get("acme/a.png");
+    expect(storedAgain?.customMetadata).toEqual({
+      "source-name": "a.png",
+      "content-sha256": "abc123",
+    });
+  });
+
+  it("429s when the workspace write limiter is over budget", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/a.png", new Uint8Array([1]), {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const env = {
+      ...acmeEnv(bucket),
+      WRITE_LIMITER: { limit: async () => ({ success: false }) },
+    } as unknown as Env;
+
+    const res = await patchVisibility("acme", "a.png", "private", env);
+    expect(res.status).toBe(429);
+    expect(bucket.store.get("acme/a.png")?.customMetadata ?? {}).not.toHaveProperty("visibility");
+  });
+
+  it("404s for a workspace the caller is not a member of", async () => {
+    const env = stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") return Response.json([]);
+      return new Response(null, { status: 404 });
+    });
+    const res = await patchVisibility("acme", "a.png", "private", env);
+    expect(res.status).toBe(404);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "workspace_not_found" },
+    });
+  });
+
+  it("404s for the communal workspace", async () => {
+    const env = memberEnv({ workspace: "default", db: new UsageFakeD1() });
+    const res = await patchVisibility("default", "a.png", "private", env);
+    expect(res.status).toBe(404);
+  });
+
+  it("404s for a bad key", async () => {
+    const env = acmeEnv(new FakeR2Bucket());
+    const res = await patchVisibility("acme", "../etc/passwd", "private", env);
+    expect(res.status).toBe(404);
+  });
+
+  it("404s for a key that does not exist", async () => {
+    const env = acmeEnv(new FakeR2Bucket());
+    const res = await patchVisibility("acme", "missing.png", "private", env);
+    expect(res.status).toBe(404);
+  });
+
+  it("400s for an invalid visibility value", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/a.png", new Uint8Array([1]));
+    const env = acmeEnv(bucket);
+    const res = await patchVisibility("acme", "a.png", "hidden", env);
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "invalid_visibility" },
+    });
+  });
+
+  it("400s for a missing visibility field", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/a.png", new Uint8Array([1]));
+    const env = acmeEnv(bucket);
+    const res = await patchVisibility("acme", "a.png", undefined, env);
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("/me/workspaces/:name/file-browser", () => {
   function browserEnv(workspace = "acme") {
     const bucket = new FakeR2Bucket();

@@ -5,10 +5,15 @@
  * from `@uploads/errors`; REST serializes via `respondError`, MCP surfaces
  * `message` in the tool error.
  */
-import { InsufficientStorageError, RateLimitedError, ValidationError } from "@uploads/errors";
+import {
+  InsufficientStorageError,
+  NotFoundError,
+  RateLimitedError,
+  ValidationError,
+} from "@uploads/errors";
 import type { Files } from "@uploads/storage";
 import { checkPutBudget } from "./budget";
-import { inspectUpload, resolveUploadPolicy } from "./guards";
+import { DEFAULT_MAX_UPLOAD_BYTES, inspectUpload, resolveUploadPolicy } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
 import {
   contentSha256Hex,
@@ -18,6 +23,7 @@ import {
 } from "./provenance";
 import { publicUrl, storage, storageConfig } from "./storage";
 import { getWorkspaceUsage, recordUsageSafe } from "./usage";
+import { objectVisibility, VISIBILITY_META_KEY, type Visibility } from "./visibility";
 import type { WorkspaceRecord } from "./workspace";
 
 // The freshness floor on overwrite for every bucket. This is the operative lever
@@ -107,13 +113,14 @@ export async function putObject(
   key: string,
   bytes: Uint8Array,
   workspaceName: string,
-  opts?: { provenance?: Record<string, string> },
+  opts?: { provenance?: Record<string, string>; visibility?: Visibility },
 ): Promise<{
   key: string;
   url: string | null;
   size: number;
   contentType: string;
   metadata?: ProvenanceMap;
+  visibility?: Visibility;
 }> {
   const finalKey = finalizeUploadKey(key, ws);
   if (bytes.byteLength === 0) throw new ValidationError("empty body", { code: "empty_body" });
@@ -142,16 +149,24 @@ export async function putObject(
   }
 
   // Client headers first; always attach content-sha256 of the final stored body
-  // (never trust a client-supplied hash).
-  const metadata: ProvenanceMap = {
+  // (never trust a client-supplied hash). Visibility lives alongside provenance
+  // in the same custom-metadata bag but is tracked separately (not client-free-form).
+  const provenance: ProvenanceMap = {
     ...sanitizeProvenance(opts?.provenance, { clientOnly: true }),
     "content-sha256": await contentSha256Hex(bytes),
+  };
+  const storedVisibility = opts?.visibility === "private" ? "private" : undefined;
+  const storageMetadata: Record<string, string> = {
+    ...provenance,
+    // Only written when private — absence is the (majority) public default,
+    // matching the historical shape of objects uploaded before this existed.
+    ...(storedVisibility ? { [VISIBILITY_META_KEY]: storedVisibility } : {}),
   };
 
   await store.upload(finalKey, bytes, {
     contentType: inspection.contentType,
     cacheControl: UPLOAD_CACHE_CONTROL,
-    metadata,
+    metadata: storageMetadata,
   });
 
   await recordUsageSafe(env.DB, workspaceName, {
@@ -165,8 +180,58 @@ export async function putObject(
     url: publicUrl(await storageConfig(env, ws), finalKey),
     size: newSize,
     contentType: inspection.contentType,
-    metadata,
+    metadata: provenance,
+    ...(storedVisibility ? { visibility: storedVisibility } : {}),
   };
+}
+
+/**
+ * Toggle an object's `visibility` custom-metadata flag. R2 custom metadata is
+ * immutable in place, so this rewrites the object under the same key: a
+ * `head` first (to enforce the same size cap as ordinary uploads, since the
+ * rewrite buffers the whole body in memory) then a `download` + `upload` with
+ * the toggled metadata. `contentType` and provenance metadata come straight
+ * off the existing object; `cacheControl` is reapplied from
+ * `UPLOAD_CACHE_CONTROL` (the same constant every upload already uses), so
+ * this is a no-op for objects written by this API and a one-time
+ * normalization for anything written before that constant existed.
+ *
+ * Throws `NotFoundError` when the object doesn't exist and `ValidationError`
+ * (`code: "file_too_large"`) when it exceeds `maxBytes` — callers should let
+ * both propagate to the route's error mapping.
+ *
+ * KNOWN RACE: the download→upload pair is not compare-and-swap — files-sdk
+ * (2.1.0) exposes no conditional writes (etag/onlyIf), so an upload to the
+ * same key that lands between the two steps is overwritten with this
+ * request's older bytes (last-write-wins). Acceptable for now: toggles are
+ * rare, member-initiated, and workspace-write-rate-limited. Revisit if
+ * files-sdk grows conditional writes or a metadata-update API.
+ */
+export async function setObjectVisibility(
+  store: Files,
+  key: string,
+  visibility: Visibility,
+  maxBytes: number = DEFAULT_MAX_UPLOAD_BYTES,
+): Promise<void> {
+  const meta = await store.head(key).catch(() => null);
+  if (!meta) throw new NotFoundError();
+  if (meta.size > maxBytes) {
+    throw new ValidationError("file too large to change visibility", {
+      code: "file_too_large",
+    });
+  }
+
+  const current = await store.download(key);
+  const bytes = new Uint8Array(await current.arrayBuffer());
+  const metadata: Record<string, string> = { ...current.metadata };
+  if (visibility === "private") metadata[VISIBILITY_META_KEY] = "private";
+  else delete metadata[VISIBILITY_META_KEY];
+
+  await store.upload(key, bytes, {
+    contentType: current.type,
+    cacheControl: UPLOAD_CACHE_CONTROL,
+    metadata,
+  });
 }
 
 /**
@@ -198,11 +263,13 @@ export function headObjectJson(
   url: string | null,
 ) {
   const provenance = provenanceForResponse(meta.metadata ?? undefined);
+  const visibility = objectVisibility(meta.metadata ?? undefined);
   return {
     key,
     ...storedMetaJson(meta),
     url,
     ...(provenance ? { metadata: provenance } : {}),
+    ...(visibility ? { visibility } : {}),
   };
 }
 
@@ -214,6 +281,8 @@ export interface ListedObject {
   contentType: string;
   /** ISO timestamp when the provider reports a last-modified time. */
   uploaded?: string;
+  /** Present (== "private") only when the object was uploaded as private. */
+  visibility?: "private";
 }
 
 export async function listObjects(
@@ -229,11 +298,15 @@ export async function listObjects(
   // each to the shared HEAD/list subset (`storedMetaJson`) rather than spreading
   // the StoredFile, which carries reader methods and a raw epoch timestamp.
   return {
-    items: result.items.map((item) => ({
-      key: item.key,
-      url: publicUrl(cfg, item.key),
-      ...storedMetaJson(item),
-    })),
+    items: result.items.map((item) => {
+      const visibility = objectVisibility(item.metadata ?? undefined);
+      return {
+        key: item.key,
+        url: publicUrl(cfg, item.key),
+        ...storedMetaJson(item),
+        ...(visibility ? { visibility } : {}),
+      };
+    }),
     cursor: result.cursor ?? null,
   };
 }
