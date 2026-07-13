@@ -42,9 +42,18 @@ naming and output control.
 
 The killer feature for GitHub: `--pr`/`--issue` produce **hash-free, stable keys**
 (`gh/<owner>/<repo>/pull/<num>/<name>`), so re-uploading the same filename overwrites
-in place and the URL never changes — you can update a screenshot after review and the
-PR keeps rendering the new one (the API sets `Cache-Control: max-age=60`, so edits
-propagate within ~a minute).
+in place and the URL never changes. Responses include **two** public URLs when the
+shared dual-host setup applies:
+
+| Field      | Host (default)       | Use for                                              |
+| ---------- | -------------------- | ---------------------------------------------------- |
+| `url`      | `storage.uploads.sh` | Durable link, click-through, non-GitHub embeds       |
+| `embedUrl` | `embed.uploads.sh`   | **GitHub PR/issue markdown** (`<img src>` / `![]()`) |
+
+`embedUrl` is the same object with badge-style no-cache headers so GitHub Camo
+revalidates after an overwrite. CLI/MCP `markdown` and the managed attachments
+comment already prefer `embedUrl`. Override with `UPLOADS_EMBED_PUBLIC_BASE_URL`
+(empty disables; self-host set your no-cache CDN base).
 
 ## Prerequisites
 
@@ -244,11 +253,14 @@ or internal repository does **not** make the uploaded file private. Before using
 mode, confirm the media is safe for a public, guessable URL; otherwise redact it or do
 not upload it.
 
-Then reference the URL in the PR/issue markdown you write with `gh`:
+Then reference the **embed** URL in the PR/issue markdown you write with `gh`
+(CLI `--format markdown` / MCP `markdown` already do this):
 
 ```markdown
-<img width="700" alt="Dashboard after" src="https://storage.uploads.sh/gh/myorg/myapp/pull/123/after.png">
+<img width="700" alt="Dashboard after" src="https://embed.uploads.sh/default/gh/myorg/myapp/pull/123/after.webp">
 ```
+
+Keep `url` (storage host) when you need a durable share link outside GitHub.
 
 ### Option B — managed attachments comment (`--comment` / `comment`)
 
@@ -321,6 +333,7 @@ uploads config init --api-url http://localhost:8787 --workspace default --token 
 Recognized keys: `UPLOADS_API_URL`, `UPLOADS_WORKSPACE`, `UPLOADS_TOKEN`,
 `UPLOADS_DEFAULT_PREFIX`, `UPLOADS_DEFAULT_REPO`, `UPLOADS_DEFAULT_REF`,
 `UPLOADS_DEFAULT_WIDTH`, `UPLOADS_NO_GIT`, `UPLOADS_NO_OPTIMIZE`, `UPLOADS_KEEP_EXIF`.
+Also read (env only, not config-file keys): `UPLOADS_EMBED_PUBLIC_BASE_URL`.
 
 ## Local development
 
@@ -339,9 +352,10 @@ uploads --api-url http://localhost:8787 doctor
   public, and `gh/<owner>/<repo>/pull|issues/<num>/<filename>` keys are predictable.
   Never upload secrets, tokens, internal dashboards with sensitive data, or customer
   PII visible in a shot — crop/redact first.
-- **Edge cache:** responses carry `Cache-Control: max-age=60`, so an overwrite or a
-  delete can keep serving the old bytes from the edge for up to ~a minute. The object
-  in storage changes immediately.
+- **Edge cache / dual host:** stable `url` responses carry `Cache-Control: max-age=60`.
+  For GitHub, use `embedUrl` (no-cache host) so overwrites propagate through Camo.
+  Prefer CLI/MCP `markdown` rather than hand-building storage URLs into PR bodies.
+  See repo `docs/ops.md` (dual public hosts).
 - **Exit codes:** `2` usage/token/file, `3` auth/policy, `4` network, `1` other.
   `--json` emits `{error,code,status}` — branch on `code`. Scripted formats
   (`json|url|markdown`) also print failures on stdout. Usage errors:

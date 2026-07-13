@@ -188,6 +188,18 @@ describe("attachmentsCommentBody", () => {
     expect(body).toContain("after.png");
   });
 
+  it("uses embedUrl for image src while linking to the stable url", () => {
+    const body = attachmentsCommentBody([
+      {
+        key: "gh/o/r/pull/1/shot.webp",
+        url: "https://storage.uploads.sh/default/gh/o/r/pull/1/shot.webp",
+        embedUrl: "https://embed.uploads.sh/default/gh/o/r/pull/1/shot.webp",
+      },
+    ]);
+    expect(body).toContain('src="https://embed.uploads.sh/default/gh/o/r/pull/1/shot.webp"');
+    expect(body).toContain('href="https://storage.uploads.sh/default/gh/o/r/pull/1/shot.webp"');
+  });
+
   it("renders the empty body without either content section", () => {
     const body = attachmentsCommentBody([], []);
     expect(body).toContain(ATTACHMENTS_MARKER);

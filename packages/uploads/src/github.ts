@@ -91,6 +91,8 @@ export const ATTACHMENTS_MARKER = "<!-- uploads.sh:attachments -->";
 export interface AttachmentItem {
   key: string;
   url: string | null;
+  /** Prefer for `<img src>` on GitHub (Camo-friendly host). Falls back to `url`. */
+  embedUrl?: string | null;
 }
 
 /** A public gallery linked to the PR or issue whose managed comment is syncing. */
@@ -99,7 +101,7 @@ export interface GalleryCommentItem {
   /** Canonical URL returned by the API; callers must not synthesize it. */
   url: string;
   /** A bounded set of available images; each links to its item page when known, else the gallery. */
-  previews?: { url: string; alt: string; itemUrl?: string }[];
+  previews?: { url: string; alt: string; embedUrl?: string | null; itemUrl?: string }[];
 }
 
 /** Default max width for images in the managed attachments comment (HTML img). */
@@ -155,8 +157,9 @@ export function attachmentsCommentBody(
       lines.push(`#### <a href="${href}">${escapeHtmlText(gallery.title)}</a>`);
       for (const preview of gallery.previews ?? []) {
         const previewHref = preview.itemUrl ? escapeHtmlAttr(preview.itemUrl) : href;
+        const previewSrc = escapeHtmlAttr(preview.embedUrl ?? preview.url);
         lines.push(
-          `<a href="${previewHref}"><img width="320" alt="${escapeHtmlAttr(preview.alt)}" src="${escapeHtmlAttr(preview.url)}"></a>`,
+          `<a href="${previewHref}"><img width="320" alt="${escapeHtmlAttr(preview.alt)}" src="${previewSrc}"></a>`,
         );
       }
       lines.push(`<sub><a href="${href}">Open gallery</a></sub>`, "");
@@ -166,16 +169,19 @@ export function attachmentsCommentBody(
   if (sorted.length > 0 || sortedGalleries.length === 0) lines.push("### 📎 Attachments", "");
   for (const item of sorted) {
     const name = item.key.slice(item.key.lastIndexOf("/") + 1);
-    if (item.url && inferContentType(name).startsWith("image/")) {
+    const stable = item.url;
+    const src = item.embedUrl ?? item.url;
+    if (src && inferContentType(name).startsWith("image/")) {
       // Markdown ![]() has no width control — phone frames become full-column giants.
-      // Link to the asset so a click opens the full image (no "open in new tab" hunt).
+      // img src uses embed host when available (Camo revalidates); click-through keeps stable URL.
       const w = attachmentImageWidth(name);
       const alt = escapeHtmlAttr(name);
-      const href = escapeHtmlAttr(item.url);
-      lines.push(`<a href="${href}"><img width="${w}" alt="${alt}" src="${href}"></a>`);
+      const href = escapeHtmlAttr(stable ?? src);
+      const imgSrc = escapeHtmlAttr(src);
+      lines.push(`<a href="${href}"><img width="${w}" alt="${alt}" src="${imgSrc}"></a>`);
       lines.push("");
-    } else if (item.url) {
-      lines.push(`- [${name}](${item.url})`);
+    } else if (stable) {
+      lines.push(`- [${name}](${stable})`);
     } else {
       lines.push(`- ${name}`);
     }

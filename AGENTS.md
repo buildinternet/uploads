@@ -121,6 +121,10 @@ the record carries `prefix: "<name>/"` and creating one is a pure KV write.
 The prefix is applied in exactly one place — `createStorage()` in
 `packages/storage` (files-sdk instance prefix) — so route code and clients
 never see it; public URLs are `https://storage.uploads.sh/<name>/<key>`.
+The same keys are also served on `https://embed.uploads.sh/<name>/<key>` with
+freshness-oriented Cache-Control (zone Transform Rule) for GitHub Camo; API/CLI
+return `embedUrl` alongside `url` — prefer embed for PR/issue markdown. See
+[docs/ops.md](docs/ops.md#dual-public-hosts-stable-vs-embed--github-camo).
 Bring-your-own-bucket is the advanced case: register with `--bucket` and the
 record points at a dedicated bucket (own binding or S3 credentials, own
 `publicBaseUrl`, no prefix) — `buildinternet` on `buildinternet-dev` is the

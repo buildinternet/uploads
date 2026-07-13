@@ -3,6 +3,7 @@ import type { UploadsClientConfig } from "./config.js";
 import { UploadsError } from "./errors.js";
 import { buildScreenshotKey } from "./keys.js";
 import { packageVersion } from "./package-version.js";
+import { resolveEmbedUrl } from "./public-urls.js";
 
 /** Allowlisted object provenance (maps to X-Uploads-Meta-* on put). */
 export type ProvenanceInput = {
@@ -37,6 +38,8 @@ export interface PutResult {
   workspace: string;
   key: string;
   url: string;
+  /** Same object on the embed host when dual-host applies; prefer for GitHub markdown. */
+  embedUrl: string | null;
   size: number;
   contentType: string;
   metadata?: Record<string, string>;
@@ -45,6 +48,7 @@ export interface PutResult {
 export interface ListItem {
   key: string;
   url: string | null;
+  embedUrl?: string | null;
   size?: number;
   uploaded?: string;
 }
@@ -57,6 +61,7 @@ export interface ListResult {
 export interface HeadResult {
   key: string;
   url: string | null;
+  embedUrl?: string | null;
   size: number;
   contentType: string;
   uploaded?: string;
@@ -78,6 +83,8 @@ export interface GalleryItem {
   createdAt: string;
   status: "available" | "missing";
   url: string | null;
+  /** Dual-host embed URL when available. */
+  embedUrl?: string | null;
   /** Standalone web page for this item (gallery URL + item id). Absent on older API deployments. */
   pageUrl?: string;
   contentType: string | null;
@@ -561,7 +568,14 @@ export function createUploadsClient(config: UploadsClientConfig) {
     if (opts.limit != null) params.set("limit", String(opts.limit));
     if (opts.cursor) params.set("cursor", opts.cursor);
     const qs = params.toString();
-    return request<ListResult>("GET", `${filesBase(config)}${qs ? `?${qs}` : ""}`);
+    const page = await request<ListResult>("GET", `${filesBase(config)}${qs ? `?${qs}` : ""}`);
+    return {
+      ...page,
+      items: page.items.map((item) => ({
+        ...item,
+        embedUrl: resolveEmbedUrl(item.url, item.embedUrl),
+      })),
+    };
   }
 
   async function getGallery(id: string): Promise<Gallery> {
@@ -583,10 +597,12 @@ export function createUploadsClient(config: UploadsClientConfig) {
       const contentType = opts.contentType ?? inferContentType(opts.filename);
 
       if (opts.dryRun) {
-        const preview = await request<{ workspace: string; key: string; url: string | null }>(
-          "PUT",
-          `${filesBase(config)}/${encodeKeyPath(key)}?dryRun=1`,
-        );
+        const preview = await request<{
+          workspace: string;
+          key: string;
+          url: string | null;
+          embedUrl?: string | null;
+        }>("PUT", `${filesBase(config)}/${encodeKeyPath(key)}?dryRun=1`);
         if (preview.url == null) {
           throw new UploadsError(
             "workspace has no publicBaseUrl (cannot resolve a public URL)",
@@ -597,6 +613,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
           workspace: preview.workspace,
           key: preview.key,
           url: preview.url,
+          embedUrl: resolveEmbedUrl(preview.url, preview.embedUrl),
           size: body.byteLength,
           contentType,
         };
@@ -613,6 +630,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
         workspace: string;
         key: string;
         url: string | null;
+        embedUrl?: string | null;
         size: number;
         contentType: string;
         metadata?: Record<string, string>;
@@ -629,7 +647,11 @@ export function createUploadsClient(config: UploadsClientConfig) {
         );
       }
 
-      return { ...result, url: result.url };
+      return {
+        ...result,
+        url: result.url,
+        embedUrl: resolveEmbedUrl(result.url, result.embedUrl),
+      };
     },
 
     list,
@@ -653,7 +675,8 @@ export function createUploadsClient(config: UploadsClientConfig) {
     },
 
     async head(key: string): Promise<HeadResult> {
-      return request<HeadResult>("GET", `${filesBase(config)}/${encodeKeyPath(key)}`);
+      const result = await request<HeadResult>("GET", `${filesBase(config)}/${encodeKeyPath(key)}`);
+      return { ...result, embedUrl: resolveEmbedUrl(result.url, result.embedUrl) };
     },
 
     async createGallery(opts: CreateGalleryOptions): Promise<Gallery> {

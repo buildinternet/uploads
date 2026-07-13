@@ -1,4 +1,12 @@
 export { inferContentType, buildMarkdown } from "./embed.js";
+export {
+  DEFAULT_EMBED_PUBLIC_BASE_URL,
+  embedBaseUrlFromEnv,
+  embedUrlFromPublic,
+  resolveEmbedBaseUrl,
+  resolveEmbedUrl,
+  urlForGithubEmbed,
+} from "./public-urls.js";
 export { sanitizeKeySegment, sha256Short, deriveRepoFromGit, buildScreenshotKey } from "./keys.js";
 export {
   BUILTIN_DESTINATIONS,

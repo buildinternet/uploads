@@ -53,8 +53,14 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 | `GET/POST /v1/:workspace/galleries/:id/external-references`          | List or link coordinates; writes require `files:write`                                           |
 | `DELETE /v1/:workspace/galleries/:id/external-references/:reference` | Unlink a coordinate; requires `files:write`                                                      |
 
-`url` in responses is the public URL when the workspace has a
-`publicBaseUrl`, otherwise `null`.
+`url` in responses is the durable public CDN URL when the workspace has a
+`publicBaseUrl`, otherwise `null`. File put/list/head, presign, and gallery
+item payloads also include `embedUrl`: the same object on the embed host when
+dual-host policy applies (default for `storage.uploads.sh` /
+`store.uploads.sh`), else `null`. Prefer `embedUrl` in GitHub markdown so
+in-place overwrites revalidate through Camo; keep `url` for durable links.
+Worker override: optional `EMBED_PUBLIC_BASE_URL` (empty disables; any URL is
+a self-hosted embed base). See [ops.md](./ops.md#dual-public-hosts-stable-vs-embed--github-camo).
 
 ### Galleries
 
@@ -62,9 +68,9 @@ Gallery IDs are opaque `gal_…` identifiers and do not encode a workspace or
 GitHub coordinate. Owner responses use camelCase and include the workspace;
 the unauthenticated public response uses an explicit allowlist and never emits
 workspace ownership or object keys. Public items contain only `id`, `filename`,
-`position`, `caption`, `altText`, `status`, `url`, and `contentType`. Missing
-stored objects remain ordered tombstones with `status: "missing"` and
-`url: null`.
+`position`, `caption`, `altText`, `status`, `url`, `embedUrl`, and `contentType`.
+Missing stored objects remain ordered tombstones with `status: "missing"` and
+`url: null` / `embedUrl: null`.
 
 The owner collection route returns metadata summaries without `items`; it does
 not probe object storage. Fetch an individual gallery to hydrate current item
