@@ -2,8 +2,7 @@
 // uploads.sh — docs. A single linkable page that walks through the same setup
 // the GitHub README covers, in plain language with click-to-copy commands.
 // Purpose-first: getting media onto GitHub PRs, issues, and code reviews.
-import "@fontsource-variable/geist/index.css";
-import "@fontsource-variable/geist-mono/index.css";
+import BaseHead from "../components/BaseHead.astro";
 import AuthIndicator from "../components/AuthIndicator.astro";
 import Brand from "../components/Brand.astro";
 import Footer from "../components/Footer.astro";
@@ -12,14 +11,11 @@ const REPO = "https://github.com/buildinternet/uploads";
 // Static page (no `prerender = false`) — auth origin is baked at build time,
 // not read from request-time env. See src/lib/auth-client.ts.
 const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.uploads.sh";
-const FAVICON =
-	"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23121214'/%3E%3Cg fill='none' stroke='%23b794ff' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 12.5 L16 5 L24 12.5'/%3E%3Cpath d='M8 19.5 L16 12 L24 19.5' opacity='.55'/%3E%3Cpath d='M8 26.5 L16 19 L24 26.5' opacity='.28'/%3E%3C/g%3E%3C/svg%3E";
 ---
 
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <BaseHead preloadSans />
     <title>Docs — attach screenshots to GitHub PRs &amp; issues · uploads.sh</title>
     <meta
       name="description"
@@ -40,25 +36,7 @@ const FAVICON =
       name="twitter:description"
       content="Install the uploads CLI, attach media to GitHub PRs and issues, and set up your agent."
     />
-    <link rel="icon" href={FAVICON} />
     <style>
-      :root {
-        color-scheme: dark;
-        --bg: #0a0a0b;
-        --panel: #121214;
-        --line: #232327;
-        --bezel: #232327;
-        --fg: #ececea;
-        --body: #b3b3ad;
-        --muted: #7d7d77;
-        --purple: #b794ff;
-        --purple-dim: #7d7d77;
-        --purple-faint: color-mix(in srgb, #b794ff 55%, transparent);
-        --cyan: #b3b3ad;
-        --green-ok: #8fae62;
-        --mono: "Geist Mono Variable", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-        --sans: "Geist Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      }
       * { box-sizing: border-box; }
       html { scroll-behavior: smooth; }
       @media (prefers-reduced-motion: reduce) {
@@ -86,14 +64,14 @@ const FAVICON =
       /* on-page nav — in-flow box on narrow screens, sticky rail on wide */
       nav.toc {
         background: var(--panel);
-        border: 1px solid var(--bezel);
-        border-radius: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
         padding: 14px 18px;
         font-size: 13px;
         margin-bottom: 12px;
       }
       nav.toc .head {
-        color: var(--purple-dim);
+        color: var(--muted);
         font-size: 11px;
         letter-spacing: 0.14em;
         text-transform: uppercase;
@@ -109,7 +87,7 @@ const FAVICON =
       @media (max-width: 560px) {
         nav.toc ol { columns: 1; }
       }
-      @media (min-width: 1200px) {
+      @media (min-width: 1240px) {
         nav.toc {
           position: fixed;
           top: 48px;
@@ -133,16 +111,16 @@ const FAVICON =
         }
         nav.toc a:hover,
         nav.toc a:focus-visible { color: var(--fg); background: none; }
-        nav.toc a[aria-current="true"] { color: var(--purple); }
+        nav.toc a[aria-current="true"] { color: var(--accent); }
       }
 
       a {
-        color: var(--cyan);
+        color: var(--body);
         text-decoration: underline;
-        text-decoration-color: var(--purple-faint);
+        text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
         text-underline-offset: 3px;
       }
-      a:hover, a:focus-visible { color: var(--purple); outline: none; }
+      a:hover, a:focus-visible { color: var(--accent); outline: none; }
 
       section h2 {
         font-size: 19px;
@@ -155,13 +133,13 @@ const FAVICON =
         position: relative;
       }
       section h2 .anchor {
-        color: var(--purple-faint);
+        color: color-mix(in srgb, var(--accent) 55%, transparent);
         text-decoration: none;
         margin-left: 8px;
         font-weight: 400;
       }
       section h2 .anchor:hover,
-      section h2 .anchor:focus-visible { color: var(--purple); background: none; }
+      section h2 .anchor:focus-visible { color: var(--accent); background: none; }
       p, li { color: var(--body); }
       strong { color: var(--fg); }
       ul { padding-left: 22px; }
@@ -181,8 +159,8 @@ const FAVICON =
         align-items: center;
         gap: 12px;
         background: var(--panel);
-        border: 1px solid var(--bezel);
-        border-radius: 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
         padding: 10px 12px;
         margin: 12px 0;
         font: 13px var(--mono);
@@ -193,13 +171,13 @@ const FAVICON =
         white-space: nowrap;
         scrollbar-width: none;
       }
-      .cmd .text::before { content: "$ "; color: var(--purple); }
-      .cmd .text .url { color: var(--cyan); }
+      .cmd .text::before { content: "$ "; color: var(--accent); }
+      .cmd .text .url { color: var(--body); }
       .cmd .text .cm { color: var(--muted); }
       .cmd button {
         font: 11px var(--mono);
         letter-spacing: 0.06em;
-        color: var(--purple);
+        color: var(--accent);
         background: none;
         border: 1px solid var(--line);
         border-radius: 6px;
@@ -209,23 +187,23 @@ const FAVICON =
       .cmd button:hover,
       .cmd button:focus-visible {
         outline: none;
-        border-color: var(--purple);
+        border-color: var(--accent);
       }
-      .cmd button.done { color: var(--green-ok); border-color: var(--green-ok); }
+      .cmd button.done { color: var(--green); border-color: var(--green); }
 
       /* multi-line output block (not copyable) */
       .block {
         background: var(--panel);
-        border: 1px solid var(--bezel);
-        border-radius: 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
         padding: 12px 14px;
         margin: 12px 0;
         font: 12.5px/1.6 var(--mono);
         color: var(--muted);
         overflow-x: auto;
       }
-      .block .ok { color: var(--green-ok); }
-      .block .v { color: var(--cyan); }
+      .block .ok { color: var(--green); }
+      .block .v { color: var(--body); }
       .block pre { margin: 0; white-space: pre; }
 
       /* ---------- wireframe github comment (same treatment as the landing page) ---------- */
@@ -246,7 +224,7 @@ const FAVICON =
       .ghc .bubble {
         background: #161b22;
         border: 1px solid #30363d;
-        border-radius: 8px;
+        border-radius: var(--radius-md);
         overflow: hidden;
         position: relative;
       }
@@ -364,7 +342,7 @@ const FAVICON =
         <p>The everyday flow is two commands:</p>
         <div class="cmd">
           <span class="text">uploads attach ./before.png ./after.png</span>
-          <button type="button" data-copy="uploads attach ./before.png ./after.png">copy</button>
+          <button type="button" data-copy="uploads attach ./before.png ./after.png" aria-live="polite">copy</button>
         </div>
         <div class="block" aria-label="Example output">
           <pre>&gt;&gt; uploading ./before.png
@@ -392,11 +370,11 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
         <p>Install the CLI globally, then sign in once:</p>
         <div class="cmd">
           <span class="text">npm install -g @buildinternet/uploads</span>
-          <button type="button" data-copy="npm install -g @buildinternet/uploads">copy</button>
+          <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads login</span>
-          <button type="button" data-copy="uploads login">copy</button>
+          <button type="button" data-copy="uploads login" aria-live="polite">copy</button>
         </div>
         <p>
           <code>uploads login</code> opens a browser so you can approve the sign-in (GitHub or a
@@ -407,12 +385,12 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
         <p>Prefer not to install anything? Every command works as a one-off with <code>npx</code>:</p>
         <div class="cmd">
           <span class="text">npx @buildinternet/uploads attach ./after.png</span>
-          <button type="button" data-copy="npx @buildinternet/uploads attach ./after.png">copy</button>
+          <button type="button" data-copy="npx @buildinternet/uploads attach ./after.png" aria-live="polite">copy</button>
         </div>
         <p>To check that everything is wired up:</p>
         <div class="cmd">
           <span class="text">uploads doctor</span>
-          <button type="button" data-copy="uploads doctor">copy</button>
+          <button type="button" data-copy="uploads doctor" aria-live="polite">copy</button>
         </div>
       </section>
 
@@ -424,7 +402,7 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
         </p>
         <div class="cmd">
           <span class="text">uploads attach ./screenshot.png</span>
-          <button type="button" data-copy="uploads attach ./screenshot.png">copy</button>
+          <button type="button" data-copy="uploads attach ./screenshot.png" aria-live="polite">copy</button>
         </div>
         <p>…which lands on the pull request as one managed comment:</p>
         <div
@@ -468,15 +446,15 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
         </p>
         <div class="cmd">
           <span class="text">uploads attach ./shot.png --pr 123</span>
-          <button type="button" data-copy="uploads attach ./shot.png --pr 123">copy</button>
+          <button type="button" data-copy="uploads attach ./shot.png --pr 123" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads attach ./shot.png --issue 45</span>
-          <button type="button" data-copy="uploads attach ./shot.png --issue 45">copy</button>
+          <button type="button" data-copy="uploads attach ./shot.png --issue 45" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads attach ./shot.png --repo owner/name --pr 123</span>
-          <button type="button" data-copy="uploads attach ./shot.png --repo owner/name --pr 123">copy</button>
+          <button type="button" data-copy="uploads attach ./shot.png --repo owner/name --pr 123" aria-live="polite">copy</button>
         </div>
         <p>
           Want the URLs and ready-to-paste Markdown without touching any GitHub comment — say, to
@@ -484,7 +462,7 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
         </p>
         <div class="cmd">
           <span class="text">uploads attach ./shot.png --no-comment</span>
-          <button type="button" data-copy="uploads attach ./shot.png --no-comment">copy</button>
+          <button type="button" data-copy="uploads attach ./shot.png --no-comment" aria-live="polite">copy</button>
         </div>
       </section>
 
@@ -496,7 +474,7 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
         </p>
         <div class="cmd">
           <span class="text">uploads put ./shot.png</span>
-          <button type="button" data-copy="uploads put ./shot.png">copy</button>
+          <button type="button" data-copy="uploads put ./shot.png" aria-live="polite">copy</button>
         </div>
         <div class="block" aria-label="Example output">
           <pre>&gt;&gt; uploading ./shot.png
@@ -509,15 +487,15 @@ MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot
         <p>A few useful variations:</p>
         <div class="cmd">
           <span class="text">uploads put ./shot.png --pr 123 --comment <span class="cm"># also post to the PR</span></span>
-          <button type="button" data-copy="uploads put ./shot.png --pr 123 --comment">copy</button>
+          <button type="button" data-copy="uploads put ./shot.png --pr 123 --comment" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads put ./shot.png --no-optimize <span class="cm"># upload the original bytes</span></span>
-          <button type="button" data-copy="uploads put ./shot.png --no-optimize">copy</button>
+          <button type="button" data-copy="uploads put ./shot.png --no-optimize" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads put ./mobile.png --frame phone <span class="cm"># add device chrome</span></span>
-          <button type="button" data-copy="uploads put ./mobile.png --frame phone">copy</button>
+          <button type="button" data-copy="uploads put ./mobile.png --frame phone" aria-live="polite">copy</button>
         </div>
         <p>
           By default, images are re-encoded to WebP (capped size, high quality) so GitHub embeds
@@ -534,16 +512,16 @@ MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot
         </p>
         <div class="cmd">
           <span class="text">uploads install</span>
-          <button type="button" data-copy="uploads install">copy</button>
+          <button type="button" data-copy="uploads install" aria-live="polite">copy</button>
         </div>
         <p>Or set up each piece yourself:</p>
         <div class="cmd">
           <span class="text">npx skills add buildinternet/uploads --skill uploads-cli</span>
-          <button type="button" data-copy="npx skills add buildinternet/uploads --skill uploads-cli">copy</button>
+          <button type="button" data-copy="npx skills add buildinternet/uploads --skill uploads-cli" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">claude mcp add --transport http uploads <span class="url">https://agents.uploads.sh/mcp</span></span>
-          <button type="button" data-copy="claude mcp add --transport http uploads https://agents.uploads.sh/mcp">copy</button>
+          <button type="button" data-copy="claude mcp add --transport http uploads https://agents.uploads.sh/mcp" aria-live="polite">copy</button>
         </div>
         <p>
           The <strong>skill</strong> teaches the agent when and how to use the CLI — for example,
@@ -554,7 +532,7 @@ MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot
         </p>
         <div class="cmd">
           <span class="text">claude mcp add uploads -- uploads mcp</span>
-          <button type="button" data-copy="claude mcp add uploads -- uploads mcp">copy</button>
+          <button type="button" data-copy="claude mcp add uploads -- uploads mcp" aria-live="polite">copy</button>
         </div>
       </section>
 
@@ -562,19 +540,19 @@ MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot
         <h2>Manage what you uploaded <a class="anchor" href="#manage" aria-label="Link to this section">#</a></h2>
         <div class="cmd">
           <span class="text">uploads list <span class="cm"># see your files</span></span>
-          <button type="button" data-copy="uploads list">copy</button>
+          <button type="button" data-copy="uploads list" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads delete &lt;key&gt; <span class="cm"># remove a file</span></span>
-          <button type="button" data-copy="uploads delete">copy</button>
+          <button type="button" data-copy="uploads delete" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads usage <span class="cm"># storage used by your workspace</span></span>
-          <button type="button" data-copy="uploads usage">copy</button>
+          <button type="button" data-copy="uploads usage" aria-live="polite">copy</button>
         </div>
         <div class="cmd">
           <span class="text">uploads --help <span class="cm"># everything else</span></span>
-          <button type="button" data-copy="uploads --help">copy</button>
+          <button type="button" data-copy="uploads --help" aria-live="polite">copy</button>
         </div>
       </section>
 

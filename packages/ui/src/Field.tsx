@@ -1,4 +1,11 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import {
+  cloneElement,
+  isValidElement,
+  useId,
+  type ComponentPropsWithoutRef,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 
 export interface InputProps extends ComponentPropsWithoutRef<"input"> {}
 
@@ -39,6 +46,12 @@ export interface FieldProps extends ComponentPropsWithoutRef<"div"> {
   invalid?: boolean;
   /** The control — typically an `Input`. */
   children?: ReactNode;
+  /**
+   * id of the control this label describes. Defaults to a generated id (via
+   * `useId`) that is cloned onto the child control when it doesn't already
+   * have one.
+   */
+  id?: string;
 }
 
 /**
@@ -54,12 +67,29 @@ export interface FieldProps extends ComponentPropsWithoutRef<"div"> {
  *   <Input defaultValue="upl_9f2c…" />
  * </Field>
  */
-export function Field({ label, hint, invalid = false, className, children, ...rest }: FieldProps) {
+export function Field({
+  label,
+  hint,
+  invalid = false,
+  className,
+  children,
+  id,
+  ...rest
+}: FieldProps) {
   const cls = ["ul-field", invalid && "ul-field--invalid", className].filter(Boolean).join(" ");
+  const generatedId = useId();
+  const hasLabel = label != null;
+  const childElement = isValidElement<{ id?: string }>(children) ? children : null;
+  const existingChildId = childElement?.props.id;
+  const controlId = id ?? existingChildId ?? generatedId;
+  const control =
+    hasLabel && childElement && !existingChildId
+      ? cloneElement(childElement as ReactElement<{ id?: string }>, { id: controlId })
+      : children;
   return (
     <div className={cls} {...rest}>
-      {label != null && <span className="ul-label">{label}</span>}
-      {children}
+      {hasLabel && <Label htmlFor={controlId}>{label}</Label>}
+      {control}
       {hint != null && <span className="ul-field__hint">{hint}</span>}
     </div>
   );

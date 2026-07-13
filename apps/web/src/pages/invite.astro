@@ -4,6 +4,7 @@ import {
   CF_RUM_SCRIPT_SRC,
   STYLE_SRC_SELF_AND_INLINE,
 } from "../lib/csp";
+import BaseHead from "../components/BaseHead.astro";
 import Brand from "../components/Brand.astro";
 import Footer from "../components/Footer.astro";
 
@@ -21,20 +22,16 @@ const csp = [
   "form-action 'none'",
   "frame-ancestors 'none'",
 ].join("; ");
-
-const FAVICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23121214'/%3E%3Cg fill='none' stroke='%23b794ff' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 12.5 L16 5 L24 12.5'/%3E%3Cpath d='M8 19.5 L16 12 L24 19.5' opacity='.55'/%3E%3Cpath d='M8 26.5 L16 19 L24 26.5' opacity='.28'/%3E%3C/g%3E%3C/svg%3E";
 ---
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <BaseHead />
   <meta name="robots" content="noindex, nofollow, noarchive" />
   <meta name="referrer" content="no-referrer" />
   <meta http-equiv="Content-Security-Policy" content={csp} />
   <title>Accept your invite · uploads.sh</title>
-  <link rel="icon" href={FAVICON} />
   <style>
-    :root{color-scheme:dark;--bg:#0a0a0b;--panel:#121214;--line:#232327;--fg:#ececea;--body:#b3b3ad;--muted:#7d7d77;--accent:#b794ff;--green:#8fae62;--red:#d98a9c}*{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:28px;background:var(--bg);color:var(--fg);font:14.5px/1.65 ui-monospace,"SFMono-Regular",Consolas,monospace}main{width:min(640px,100%);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:clamp(24px,6vw,44px)}.brandbar{display:flex;justify-content:center;margin-bottom:24px}h1{margin:0 0 8px;font-size:clamp(23px,5vw,30px);font-weight:600;letter-spacing:-.015em;line-height:1.25}p{color:var(--body)}.status{padding:12px 14px;margin:24px 0;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--body)}.status[data-state=ready]{color:var(--green)}.status[data-state=closed]{color:var(--red)}ol{padding-left:20px}li{margin:16px 0}.command{display:flex;gap:12px;align-items:center;margin-top:8px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}.command code{flex:1;min-width:0;white-space:nowrap;overflow-x:auto;display:block;font-variant-ligatures:none;font-feature-settings:"calt" 0,"liga" 0}.command button{flex-shrink:0}button{font-size:11px;letter-spacing:.06em;border:1px solid var(--line);border-radius:6px;padding:6px 10px;background:none;color:var(--accent);cursor:pointer;font-family:inherit}button:hover,button:focus-visible{border-color:var(--accent);outline:none}.security{margin-top:26px;padding-top:18px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}[hidden]{display:none!important}
+    *{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:28px;background:var(--bg);color:var(--fg);font:14.5px/1.65 ui-monospace,"SFMono-Regular",Consolas,monospace}main{width:min(640px,100%);background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);padding:clamp(24px,6vw,44px)}.brandbar{display:flex;justify-content:center;margin-bottom:24px}h1{margin:0 0 8px;font-size:clamp(23px,5vw,30px);font-weight:600;letter-spacing:-.015em;line-height:1.25}p{color:var(--body)}.status{padding:12px 14px;margin:24px 0;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--bg);color:var(--body)}.status[data-state=ready]{color:var(--green)}.status[data-state=closed]{color:var(--red)}ol{padding-left:20px}li{margin:16px 0}.command{display:flex;gap:12px;align-items:center;margin-top:8px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--bg)}.command code{flex:1;min-width:0;white-space:nowrap;overflow-x:auto;display:block;font-variant-ligatures:none;font-feature-settings:"calt" 0,"liga" 0}.command button{flex-shrink:0}button{font-size:11px;letter-spacing:.06em;border:1px solid var(--line);border-radius:6px;padding:6px 10px;background:none;color:var(--accent);cursor:pointer;font-family:inherit}button:hover,button:focus-visible{border-color:var(--accent);outline:none}.security{margin-top:26px;padding-top:18px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}[hidden]{display:none!important}
   </style>
 </head>
 <body>
@@ -45,8 +42,8 @@ const FAVICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' vi
   <div class="status" id="meta" role="status">Checking your invite…</div>
   <section id="instructions" hidden>
     <ol>
-      <li>Install<div class="command"><code>npm install --global @buildinternet/uploads</code><button data-copy="npm install --global @buildinternet/uploads">copy</button></div></li>
-      <li>Log in<div class="command"><code id="login-cmd">uploads login</code><button id="login-copy" data-copy="uploads login">copy</button></div></li>
+      <li>Install<div class="command"><code>npm install --global @buildinternet/uploads</code><button data-copy="npm install --global @buildinternet/uploads" aria-live="polite">copy</button></div></li>
+      <li>Log in<div class="command"><code id="login-cmd">uploads login</code><button id="login-copy" data-copy="uploads login" aria-live="polite">copy</button></div></li>
     </ol>
   </section>
   <p class="security">Treat this link like a password — it's single-use and stops working once you log in.</p>

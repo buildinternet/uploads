@@ -44,10 +44,10 @@
   /* Text */
   --fg: #ececea; /* headings / high-emphasis */
   --body: #b3b3ad; /* body copy */
-  --muted: #7d7d77; /* metadata, footnotes, placeholders */
+  --muted: #8a8a83; /* metadata, footnotes, placeholders */
 
   /* Accents */
-  --accent: #b794ff; /* the uploads.sh violet — focus, primary, hover */
+  --accent: #c27eff; /* the uploads.sh violet — focus, primary, hover */
   --green: #8fae62; /* success / ready */
   --red: #d98a9c; /* error / destructive */
 

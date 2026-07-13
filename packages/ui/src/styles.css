@@ -42,8 +42,8 @@
   --line: #232327;
   --fg: #ececea;
   --body: #b3b3ad;
-  --muted: #7d7d77;
-  --accent: #b794ff;
+  --muted: #8a8a83;
+  --accent: #c27eff;
   --green: #8fae62;
   --red: #d98a9c;
   --sans:
@@ -67,12 +67,14 @@
 /* ── Surface (theme root) ──────────────────────────────────────────────── */
 /*
  * Wrap product UI in <Surface> (class .ul-surface) so components sit on the
- * dark canvas with the sans body font and the tokens in scope.
+ * dark canvas with the tokens in scope. The body face is mono: uploads.sh is
+ * CLI-first and the interface reads terminal-native by intent, not default.
+ * Reach for var(--sans) deliberately (long prose), not as the base.
  */
 .ul-surface {
   background: var(--bg);
   color: var(--fg);
-  font: 14.5px/1.65 var(--sans);
+  font: 14px/1.7 var(--mono);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -110,6 +112,20 @@
   outline-offset: 3px;
   border-radius: 3px;
 }
+/*
+ * The signature move: the wordmark's pixels morph along Geist Pixel's ELSH
+ * axis on hover/focus (Square 1 → Circle 20). Variable-font interpolation,
+ * not a filter — the pixels physically reshape.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .ul-brand {
+    transition: font-variation-settings 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .ul-brand:hover,
+  .ul-brand:focus-visible {
+    font-variation-settings: "ELSH" 20;
+  }
+}
 
 /* ── Button ────────────────────────────────────────────────────────────── */
 .ul-btn {
@@ -144,7 +160,7 @@
 /* sizes */
 .ul-btn--sm {
   font-size: 12px;
-  padding: 8px 11px;
+  padding: 9px 12px;
   border-radius: var(--radius-sm);
 }
 .ul-btn--md {
@@ -260,23 +276,41 @@
 }
 
 /* ── Callout ───────────────────────────────────────────────────────────── */
+/*
+ * Inline status formatted the way the uploads CLI prints it: a tone-colored
+ * `>>` marker, mono text, a hairline border with a faint tone tint. Tone via
+ * modifier class (React) or `data-state` attribute (plain-HTML pages sharing
+ * the same JS hooks): info (accent) · ready (green) · error (red) · muted.
+ */
 .ul-callout {
-  border-left: 3px solid var(--accent);
-  padding: 9px 14px;
-  background: var(--bg);
+  --callout-tone: var(--accent);
+  position: relative;
+  padding: 10px 14px 10px 36px;
+  background: color-mix(in srgb, var(--callout-tone) 5%, transparent);
   color: var(--fg);
   font: 13px/1.55 var(--mono);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border: 1px solid color-mix(in srgb, var(--callout-tone) 26%, var(--line));
+  border-radius: var(--radius-md);
 }
-.ul-callout--ready {
-  border-color: var(--green);
+.ul-callout::before {
+  content: ">>";
+  position: absolute;
+  left: 13px;
+  color: var(--callout-tone);
+  letter-spacing: -0.08em;
 }
-.ul-callout--error {
-  border-color: var(--red);
+.ul-callout--ready,
+.ul-callout[data-state="ready"] {
+  --callout-tone: var(--green);
+}
+.ul-callout--error,
+.ul-callout[data-state="error"] {
+  --callout-tone: var(--red);
   color: var(--red);
 }
-.ul-callout--muted {
-  border-color: var(--line);
+.ul-callout--muted,
+.ul-callout[data-state="muted"] {
+  --callout-tone: var(--muted);
   color: var(--muted);
 }
 .ul-callout__title {
@@ -344,6 +378,16 @@
   background: var(--line);
   border: 0;
 }
+/* Chevron divider — the brand mark's chevron as a section separator. */
+.ul-divider--chevron {
+  gap: 14px;
+}
+.ul-divider--chevron svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  flex: none;
+}
 
 /* ── GalleryTile ───────────────────────────────────────────────────────── */
 /*
@@ -372,6 +416,16 @@
   background-position: center;
   border-bottom: 1px solid var(--line);
   display: block;
+}
+/* Empty thumb: the stacked-chevron mark, faint, instead of a bare gray box. */
+.ul-tile__thumb--empty {
+  display: grid;
+  place-items: center;
+}
+.ul-tile__thumb--empty svg {
+  width: 30px;
+  height: 30px;
+  color: var(--line);
 }
 .ul-tile__body {
   padding: 11px 13px 13px;
@@ -515,5 +569,10 @@
 @keyframes ul-files-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ul-files__spin {
+    animation: none;
   }
 }

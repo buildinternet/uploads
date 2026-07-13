@@ -1,4 +1,5 @@
 ---
+import BaseHead from "../../../components/BaseHead.astro";
 import GalleryReferences from "../../../components/GalleryReferences.astro";
 import Brand from "../../../components/Brand.astro";
 import Footer from "../../../components/Footer.astro";
@@ -42,8 +43,7 @@ const title = item && gallery ? `${item.filename} · ${gallery.title} · uploads
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <BaseHead />
     <meta name="robots" content="noindex, nofollow, noarchive" />
     <link rel="canonical" href={canonical} />
     <title>{title}</title>
@@ -54,18 +54,17 @@ const title = item && gallery ? `${item.filename} · ${gallery.title} · uploads
     <meta property="og:url" content={canonical} />
     {item && kind(item) === "image" && <meta property="og:image" content={item.url!} />}
     <style>
-      :root { color-scheme: dark; --bg:#0a0a0b; --panel:#121214; --line:#232327; --fg:#ececea; --body:#b3b3ad; --muted:#7d7d77; --accent:#b794ff; --danger:#d98a9c; --mono:ui-monospace,"SFMono-Regular",Consolas,monospace; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
       * { box-sizing:border-box; }
       body { margin:0; min-height:100vh; color:var(--fg); background:var(--bg); font-family:var(--sans); }
       .shell { width:min(1080px,calc(100% - 48px)); margin:auto; padding:36px 0 64px; }
       nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:32px; font:13px var(--mono); letter-spacing:.02em; }
       .public { color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:6px 11px; background:var(--panel); }
       .crumbs { margin-bottom:20px; color:var(--muted); font:13px var(--mono); overflow-wrap:anywhere; }
-      .stage { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+      .stage { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-lg); overflow:hidden; }
       .media { min-height:320px; max-height:78vh; background:var(--bg); display:grid; place-items:center; overflow:hidden; }
       img,video { max-width:100%; max-height:78vh; width:auto; height:auto; object-fit:contain; display:block; }
       .fallback { padding:60px 30px; text-align:center; color:var(--muted); font:13px/1.6 var(--mono); }
-      .fallback strong { display:block; color:var(--danger); margin-bottom:8px; }
+      .fallback strong { display:block; color:var(--red); margin-bottom:8px; }
       .fallback a { color:var(--fg); overflow-wrap:anywhere; }
       .details { padding:18px 20px 20px; border-top:1px solid var(--line); }
       .filename { color:var(--fg); font:600 14px var(--mono); overflow-wrap:anywhere; }
@@ -73,14 +72,15 @@ const title = item && gallery ? `${item.filename} · ${gallery.title} · uploads
       .original { display:inline-block; margin-top:12px; color:var(--muted); font:12px var(--mono); }
       .original:hover, .original:focus-visible { color:var(--accent); outline:none; }
       .pager { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:22px 0 0; font:13px var(--mono); }
-      .pager a, .pager span.disabled { display:inline-block; padding:10px 16px; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--fg); text-decoration:none; }
+      .pager a, .pager span.disabled { display:inline-block; padding:10px 16px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel); color:var(--fg); text-decoration:none; }
       .pager a:hover, .pager a:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
       .pager span.disabled { color:var(--muted); }
       .count { color:var(--muted); }
-      .error { padding:70px 24px; border:1px solid var(--line); border-radius:10px; text-align:center; background:var(--panel); color:var(--body); }
+      .error { padding:70px 24px; border:1px solid var(--line); border-radius:var(--radius-lg); text-align:center; background:var(--panel); color:var(--body); }
       .error code { color:var(--accent); font-family:var(--mono); }
       a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
       @media (max-width:760px) { .shell{width:min(100% - 32px,1080px);padding-top:24px} .media{min-height:220px} .pager a,.pager span.disabled{padding:8px 12px} }
+      .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); clip-path:inset(50%); white-space:nowrap; border:0; }
     </style>
   </head>
   <body>
@@ -88,6 +88,7 @@ const title = item && gallery ? `${item.filename} · ${gallery.title} · uploads
       <nav><Brand /><span class="public">public gallery</span></nav>
       {gallery && item ? (
         <>
+          <h1 class="sr-only">{item.filename}</h1>
           <div class="crumbs"><a href={listPath}>{gallery.title}</a> · <span class="count">{index + 1} of {items.length}</span></div>
           <figure class="stage" style="margin:0">
             <div class="media">

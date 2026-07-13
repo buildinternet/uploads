@@ -6,11 +6,11 @@
  */
 import { env } from "cloudflare:workers";
 import {
-  SITE_FAVICON,
   resolveShowConsoleLinks,
   resolveSignedInOrigins,
   signedInCsp,
 } from "../lib/signed-in-page";
+import BaseHead from "../components/BaseHead.astro";
 import Brand from "../components/Brand.astro";
 import "../styles/signed-in-shell.css";
 
@@ -40,20 +40,19 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
 
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <BaseHead />
   <meta name="robots" content="noindex, nofollow, noarchive" />
   <meta name="referrer" content="no-referrer" />
   <meta http-equiv="Content-Security-Policy" content={csp} />
   <title>{docTitle}</title>
-  <link rel="icon" href={SITE_FAVICON} />
 </head>
 <body>
 <div class="shell">
-  <div id="checking" class="status" role="status">Checking your session…</div>
+  <h1 class="sr-only">{titles[section]}</h1>
+  <div id="checking" class="ul-callout status" role="status">Checking your session…</div>
 
   <div id="denied" hidden>
-    <div class="status" data-state="denied" role="alert">You need admin access to view this page.</div>
+    <div class="ul-callout status" data-state="error" role="alert">You need admin access to view this page.</div>
     <a class="button" href="/login">Sign in</a>
   </div>
 

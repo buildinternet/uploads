@@ -28,7 +28,7 @@ export function Brand({ href = "/", size = "md", label = "uploads.sh", className
         <rect width="32" height="32" rx="7" fill="var(--panel, #121214)" />
         <g
           fill="none"
-          stroke="var(--accent, #b794ff)"
+          stroke="var(--accent, #c27eff)"
           strokeWidth="3.2"
           strokeLinecap="round"
           strokeLinejoin="round"

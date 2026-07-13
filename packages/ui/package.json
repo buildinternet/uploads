@@ -17,7 +17,8 @@
       "import": "./dist/index.js"
     },
     "./styles.css": "./dist/uploads-ui.css",
-    "./tokens.css": "./src/tokens.css"
+    "./tokens.css": "./src/tokens.css",
+    "./fonts/*": "./fonts/*"
   },
   "files": [
     "dist",

@@ -122,7 +122,7 @@ export const prerender = false;
           const invite = isAdminRole(ws.role)
             ? `<div class="ws-section">
                  <div class="ws-section-head">Invite a teammate</div>
-                 <div class="command"><code>${escapeHtml(cmd)}</code><button type="button" data-copy="${escapeHtml(cmd)}">copy</button></div>
+                 <div class="command"><code>${escapeHtml(cmd)}</code><button type="button" aria-live="polite" data-copy="${escapeHtml(cmd)}">copy</button></div>
                  <p class="muted cli-note">Runs with the workspace's admin token.</p>
                </div>`
             : "";
@@ -167,9 +167,26 @@ export const prerender = false;
             }
             const filesEl = li.querySelector<HTMLElement>("[data-files]");
             if (filesEl) {
-              createRoot(filesEl).render(
-                createElement(AccountFileBrowser, { apiOrigin, workspace: ws.workspace }),
-              );
+              // Mount lazily: a fresh React root per workspace is only worth
+              // paying for once its container approaches the viewport.
+              const mount = () =>
+                createRoot(filesEl).render(
+                  createElement(AccountFileBrowser, { apiOrigin, workspace: ws.workspace }),
+                );
+              if (typeof IntersectionObserver === "undefined") {
+                mount();
+              } else {
+                const observer = new IntersectionObserver(
+                  (entries) => {
+                    if (entries.some((entry) => entry.isIntersecting)) {
+                      observer.disconnect();
+                      mount();
+                    }
+                  },
+                  { rootMargin: "200px" },
+                );
+                observer.observe(filesEl);
+              }
             }
           }
           await Promise.all(tasks);

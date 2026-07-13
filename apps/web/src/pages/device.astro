@@ -5,6 +5,7 @@ import {
   CF_RUM_SCRIPT_SRC,
   STYLE_SRC_SELF_AND_INLINE,
 } from "../lib/csp";
+import BaseHead from "../components/BaseHead.astro";
 import Brand from "../components/Brand.astro";
 import Footer from "../components/Footer.astro";
 
@@ -27,42 +28,34 @@ const csp = [
   "form-action 'none'",
   "frame-ancestors 'none'",
 ].join("; ");
-
-const FAVICON =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23121214'/%3E%3Cg fill='none' stroke='%23b794ff' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 12.5 L16 5 L24 12.5'/%3E%3Cpath d='M8 19.5 L16 12 L24 19.5' opacity='.55'/%3E%3Cpath d='M8 26.5 L16 19 L24 26.5' opacity='.28'/%3E%3C/g%3E%3C/svg%3E";
 ---
 
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <BaseHead />
   <meta name="robots" content="noindex, nofollow, noarchive" />
   <meta name="referrer" content="no-referrer" />
   <meta http-equiv="Content-Security-Policy" content={csp} />
   <title>Authorize device · uploads.sh</title>
-  <link rel="icon" href={FAVICON} />
   <style>
-    :root{color-scheme:dark;--bg:#0a0a0b;--panel:#121214;--line:#232327;--fg:#ececea;--body:#b3b3ad;--muted:#7d7d77;--accent:#b794ff;--green:#8fae62;--red:#d98a9c;--mono:"Geist Mono Variable",ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace}
     *{box-sizing:border-box}
     body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:28px;background:var(--bg);color:var(--fg);font:14.5px/1.65 var(--mono)}
-    main{width:min(480px,100%);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:clamp(24px,6vw,40px)}
+    main{width:min(480px,100%);background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);padding:clamp(24px,6vw,40px)}
     .brandbar{display:flex;justify-content:center;margin-bottom:24px}
     h1{margin:0 0 8px;font-size:clamp(21px,5vw,26px);font-weight:600;letter-spacing:-.015em;line-height:1.25}
     p{color:var(--body);margin:0 0 20px}
-    .status{border-left:3px solid var(--accent);padding:9px 14px;margin:16px 0;background:var(--bg);color:var(--fg)}
-    .status[data-state=ready]{border-color:var(--green)}
-    .status[data-state=error]{border-color:var(--red);color:var(--red)}
-    .code{font-size:clamp(24px,7vw,32px);letter-spacing:.28em;font-weight:600;color:var(--fg);text-align:center;padding:16px 10px;margin:12px 0 22px;background:var(--bg);border:1px solid var(--line);border-radius:8px}
-    button.github{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;font:14px var(--mono);letter-spacing:.02em;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px 16px;cursor:pointer}
+    .status{margin:16px 0}
+    .code{font-size:clamp(24px,7vw,32px);letter-spacing:.28em;font-weight:600;color:var(--fg);text-align:center;padding:16px 10px;margin:12px 0 22px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-md)}
+    button.github{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;font:14px var(--mono);letter-spacing:.02em;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-md);padding:12px 16px;cursor:pointer}
     button.github:hover,button.github:focus-visible{border-color:var(--accent);outline:none}
     .divider{display:flex;align-items:center;gap:12px;margin:22px 0;color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
     .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line)}
     form{display:grid;gap:10px}
     label{display:grid;gap:6px;color:var(--muted);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase}
-    input{background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:10px 12px;font:14px var(--mono)}
+    input{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-md);color:var(--fg);padding:10px 12px;font:14px var(--mono)}
     input:focus-visible{border-color:var(--accent);outline:none}
     .actions{display:flex;gap:10px}
-    button.primary,button.secondary,button[type=submit]{flex:1;font:12px var(--mono);letter-spacing:.04em;color:var(--accent);background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:11px 13px;cursor:pointer}
+    button.primary,button.secondary,button[type=submit]{flex:1;font:12px var(--mono);letter-spacing:.04em;color:var(--accent);background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 13px;cursor:pointer}
     button.secondary{color:var(--muted)}
     button.primary:hover,button.primary:focus-visible,button[type=submit]:hover,button[type=submit]:focus-visible{border-color:var(--accent);outline:none}
     button.secondary:hover,button.secondary:focus-visible{border-color:var(--red);color:var(--red);outline:none}
@@ -75,7 +68,7 @@ const FAVICON =
   <div class="brandbar"><Brand /></div>
   <h1>Authorize device</h1>
 
-  <div id="checking" class="status" role="status">Checking…</div>
+  <div id="checking" class="ul-callout status" role="status">Checking…</div>
 
   <div id="code-entry" hidden>
     <p>Enter the code shown in your terminal to continue.</p>
@@ -89,7 +82,7 @@ const FAVICON =
   </div>
 
   <div id="invalid" hidden>
-    <div class="status" data-state="error" role="alert">That code is invalid or has expired. Start a new sign-in from the CLI.</div>
+    <div class="ul-callout status" data-state="error" role="alert">That code is invalid or has expired. Start a new sign-in from the CLI.</div>
   </div>
 
   <div id="signed-out" hidden>
@@ -103,11 +96,11 @@ const FAVICON =
       </label>
       <button type="submit" id="magic-submit">Send sign-in link</button>
     </form>
-    <div class="status" id="signin-error" data-state="error" role="alert" hidden></div>
+    <div class="ul-callout status" id="signin-error" data-state="error" role="alert" hidden></div>
   </div>
 
   <div id="sent-state" hidden>
-    <div class="status" data-state="ready" role="status">Check your email — we sent you a sign-in link. Come back to this page after signing in.</div>
+    <div class="ul-callout status" data-state="ready" role="status">Check your email — we sent you a sign-in link. Come back to this page after signing in.</div>
   </div>
 
   <div id="confirm" hidden>
@@ -117,15 +110,15 @@ const FAVICON =
       <button type="button" class="primary" id="approve-btn">Approve</button>
       <button type="button" class="secondary" id="deny-btn">Deny</button>
     </div>
-    <div class="status" id="confirm-error" data-state="error" role="alert" hidden></div>
+    <div class="ul-callout status" id="confirm-error" data-state="error" role="alert" hidden></div>
   </div>
 
   <div id="approved" hidden>
-    <div class="status" data-state="ready" role="status">Device approved. Return to your terminal — you're signed in. You can close this page.</div>
+    <div class="ul-callout status" data-state="ready" role="status">Device approved. Return to your terminal — you're signed in. You can close this page.</div>
   </div>
 
   <div id="denied" hidden>
-    <div class="status" role="status">Request denied. The device was not granted access.</div>
+    <div class="ul-callout status" role="status">Request denied. The device was not granted access.</div>
   </div>
 
   <Footer compact />
