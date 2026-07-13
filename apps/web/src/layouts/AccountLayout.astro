@@ -91,6 +91,30 @@ const nav: { href: string; section: AccountSection; label: string }[] = [
   </div>
 </div>
 
+{/* Sync optimistic paint: show the shell before deferred modules run so
+    /account → /account/workspaces does not flash "Checking your session…".
+    Key must match SESSION_CACHE_KEY in account-shell.ts. Not a security
+    boundary — revalidated by resolveSessionGate immediately after. */}
+<script is:inline>
+  (function () {
+    try {
+      var raw = sessionStorage.getItem("uploads:sessionUser");
+      if (!raw) return;
+      var user = JSON.parse(raw);
+      if (!user || !user.email) return;
+      var checking = document.getElementById("checking");
+      var app = document.getElementById("app");
+      var who = document.getElementById("who");
+      var adminLink = document.getElementById("admin-link");
+      if (checking) checking.hidden = true;
+      if (app) app.hidden = false;
+      if (who) who.textContent = user.email;
+      if (adminLink && user.role === "admin") adminLink.hidden = false;
+      window.__uploadsSessionUser = user;
+    } catch (e) {}
+  })();
+</script>
+
 <script define:vars={{ authOrigin, apiOrigin }}>
   window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
   window.__UPLOADS_API_ORIGIN__ = apiOrigin;
@@ -116,10 +140,8 @@ const nav: { href: string; section: AccountSection; label: string }[] = [
     app: requireElement<HTMLElement>("#app", "account"),
     who: requireElement<HTMLElement>("#who", "account"),
   }).then((result) => {
-    if (!result) return;
-    if (result.user.role === "admin") {
-      requireElement<HTMLElement>("#admin-link", "account").hidden = false;
-    }
+    const adminLink = requireElement<HTMLElement>("#admin-link", "account");
+    adminLink.hidden = result?.user.role !== "admin";
   });
 </script>
 </body>
