@@ -47,14 +47,16 @@ the invitation (GitHub or magic-link sign-in) makes you a member — from
 there, `uploads login` mints a token for that workspace. See the
 [operator runbook](ops.md#invitations) for how administrators send invites.
 
-## Legacy: enrollment codes (`--code`)
+## Alternative: enrollment codes / invite links (`--code`)
 
-Before device login existed, administrators minted single-use **enrollment
-codes** (`upe_…`) via `ADMIN_TOKEN`-authenticated `POST /admin/enrollments`,
-and `uploads login --code` exchanged one for a token directly, with no
-organization membership involved. **This path is deprecated** and kept only
-so enrollment invites already sent out keep working — it is not the way to
-invite new people. Use org invitations above for that.
+Administrators can also mint single-use **enrollment codes** (`upe_…`) via
+`ADMIN_TOKEN`-authenticated `POST /admin/enrollments`, and `uploads login
+--code` exchanges one for a token directly, with no organization membership
+involved. This is a secondary path, useful when you want to share a
+code or link without knowing the recipient's email address in advance
+(e.g. a link posted to a channel, or handed off out-of-band). Org
+invitations above remain the primary, recommended way to onboard someone
+whose email you know.
 
 ```bash
 uploads login --code upe_…

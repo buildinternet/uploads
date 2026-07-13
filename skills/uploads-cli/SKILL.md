@@ -92,9 +92,9 @@ non-interactive agent — just reads the saved token. Routine agents never need
 
 For headless machines with no browser at all, an operator can mint a token directly
 (`/admin/tokens`, `ADMIN_TOKEN`-gated — see `docs/admin-tokens.md`) and hand it to the
-agent as `UPLOADS_TOKEN`, or a pre-existing legacy enrollment code (deprecated, `upe_…`)
-can still be exchanged with `uploads login --code`. Neither is the normal path for new
-setups.
+agent as `UPLOADS_TOKEN`, or an enrollment code (`upe_…`, an alternative invite-link/code path — useful
+when you don't have the recipient's email) can be exchanged with `uploads login --code`.
+Neither is the normal path for new setups.
 
 The resulting token defaults to 90 days and `files:read` plus `files:write`; it cannot
 delete files unless an administrator explicitly grants `files:delete`. Verify or inspect

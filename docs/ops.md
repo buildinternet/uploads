@@ -54,13 +54,14 @@ A workspace needs an organization behind it before it can be invited into — se
 the org backfill note in `docs/superpowers/plans/2026-07-12-better-auth-introduction.md`
 (Phase 3) if a workspace predates Better Auth and has no org yet.
 
-### Legacy: `ADMIN_TOKEN` enrollment invites (deprecated)
+### Alternative: `ADMIN_TOKEN` enrollment invites (invite links/codes)
 
-Before organization invitations existed, operators minted single-use enrollment
-codes behind `ADMIN_TOKEN`. **This path is deprecated and slated for removal** —
-do not use it for new invites. It is documented here only because
-`uploads login --code` still honors codes issued this way, and the `/console`
-scaffold (behind the console-mode flag) still uses it internally.
+Operators can also mint single-use enrollment codes behind `ADMIN_TOKEN`. This
+is a secondary path retained for cases where you want to share a code or link
+without needing the recipient's email address in advance — org invitations
+above remain the primary, recommended way to onboard someone whose email you
+know. `uploads login --code` honors codes issued this way, and the `/console`
+scaffold (behind the console-mode flag) uses it internally.
 
 ```bash
 ADMIN_TOKEN=<admin-credential> uploads admin invite create \

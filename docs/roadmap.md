@@ -21,14 +21,16 @@
   script with one authenticated PUT.
 - **Enrollment “token used” notify** — org-membership accepts already email
   the inviter (`member-joined` via Better Auth `afterAcceptInvitation`). The
-  legacy, deprecated CLI enrollment path (`/admin/enrollments` → `/invite#code`)
+  secondary CLI enrollment path (`/admin/enrollments` → `/invite#code`)
   has no durable inviter identity (admin bearer only); low priority now that
   org invitations are the primary onboarding path.
-- **Remove the legacy `ADMIN_TOKEN` enrollment path** — `POST
-/admin/enrollments`, `uploads admin invite create`, and `uploads login
---code` are deprecated in favor of session-authed org invitations from
-  `/admin`. Remove once no known consumers still rely on outstanding
-  enrollment codes.
+- **Session-authed invite-link generator** — consider adding a way to mint
+  `ADMIN_TOKEN`-free enrollment codes/links from the session-authed `/admin`
+  UI, so link-style invites (share a code/URL without knowing the recipient's
+  email) don't require holding `ADMIN_TOKEN`. `POST /admin/enrollments`,
+  `uploads admin invite create`, and `uploads login --code` stay as the
+  underlying mechanism; org invitations from `/admin` remain the primary,
+  recommended onboarding path.
 - **Private-repo embed privacy** — today every hosted file is on a public CDN;
   `--pr`/`--issue` keys are predictable (`gh/<owner>/<repo>/pull/<n>/<name>`),
   so attachments on private repos are not secret from anyone who can guess the
