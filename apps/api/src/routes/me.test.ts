@@ -584,6 +584,21 @@ describe("PATCH /me/workspaces/:name/files/visibility", () => {
     });
   });
 
+  it("429s when the workspace write limiter is over budget", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/a.png", new Uint8Array([1]), {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const env = {
+      ...acmeEnv(bucket),
+      WRITE_LIMITER: { limit: async () => ({ success: false }) },
+    } as unknown as Env;
+
+    const res = await patchVisibility("acme", "a.png", "private", env);
+    expect(res.status).toBe(429);
+    expect(bucket.store.get("acme/a.png")?.customMetadata ?? {}).not.toHaveProperty("visibility");
+  });
+
   it("404s for a workspace the caller is not a member of", async () => {
     const env = stubEnv(USER, (path) => {
       if (path === "/internal/memberships") return Response.json([]);

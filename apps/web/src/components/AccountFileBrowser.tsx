@@ -1,5 +1,5 @@
 import { useFiles } from "files-sdk/react";
-import { Button, FileBrowser } from "@uploads/ui";
+import { Button, Callout, FileBrowser } from "@uploads/ui";
 import "@uploads/ui/styles.css";
 import { useState } from "react";
 import { filePath } from "../lib/public-file";
@@ -41,12 +41,15 @@ export function AccountFileBrowser({ apiOrigin, workspace, hasPublicUrl }: Props
   // Keys with an in-flight visibility PATCH, so the toggle button disables
   // itself per-row instead of blocking the whole list.
   const [togglingKeys, setTogglingKeys] = useState<ReadonlySet<string>>(new Set());
+  const [toggleError, setToggleError] = useState<string | null>(null);
 
   const toggleVisibility = async (key: string, next: "public" | "private", refresh: () => void) => {
     setTogglingKeys((prev) => new Set(prev).add(key));
+    setToggleError(null);
     try {
       const result = await setFileVisibility(apiOrigin, workspace, key, next);
       if (result.kind === "success") refresh();
+      else setToggleError(`Couldn't make "${key}" ${next}. Try again shortly.`);
     } finally {
       setTogglingKeys((prev) => {
         const copy = new Set(prev);
@@ -98,6 +101,11 @@ export function AccountFileBrowser({ apiOrigin, workspace, hasPublicUrl }: Props
   return (
     <>
       <div className="ws-section-head">Files</div>
+      {toggleError && (
+        <Callout tone="error" role="alert">
+          {toggleError}
+        </Callout>
+      )}
       <FileBrowser
         files={files}
         onSelect={(file) => openFile(file.key)}

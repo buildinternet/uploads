@@ -9,13 +9,14 @@
  * (`workspace_not_found`) rather than 403ing, so membership can't be probed
  * for workspace existence any more precisely than for any other workspace.
  */
-import { NotFoundError, ValidationError } from "@uploads/errors";
+import { NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
 import { badKey, listObjects, setObjectVisibility } from "../files-core";
 import { listGalleries } from "../galleries";
 import { gallerySummary } from "../gallery-service";
+import { allowWrite } from "../guards";
 import { membershipsForUser, orgForWorkspace, workspacesForOrg } from "../org-workspaces";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
 import { publicUrl, storage, storageConfig } from "../storage";
@@ -201,6 +202,13 @@ export const me = new Hono<SessionVars>()
     const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
     const key = c.req.query("key") ?? "";
     if (ws.communal || badKey(key)) throw new NotFoundError();
+
+    // Throttle rewrites per workspace — checked only after the membership
+    // gate, so a non-member can't burn a workspace's write budget. Same
+    // WRITE_LIMITER the token-scoped mutating routes use (see guards.ts).
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
 
     const body = await c.req.json().catch(() => null);
     const requested = (body as { visibility?: unknown } | null)?.visibility;

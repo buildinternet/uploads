@@ -199,6 +199,13 @@ export async function putObject(
  * Throws `NotFoundError` when the object doesn't exist and `ValidationError`
  * (`code: "file_too_large"`) when it exceeds `maxBytes` — callers should let
  * both propagate to the route's error mapping.
+ *
+ * KNOWN RACE: the download→upload pair is not compare-and-swap — files-sdk
+ * (2.1.0) exposes no conditional writes (etag/onlyIf), so an upload to the
+ * same key that lands between the two steps is overwritten with this
+ * request's older bytes (last-write-wins). Acceptable for now: toggles are
+ * rare, member-initiated, and workspace-write-rate-limited. Revisit if
+ * files-sdk grows conditional writes or a metadata-update API.
  */
 export async function setObjectVisibility(
   store: Files,
