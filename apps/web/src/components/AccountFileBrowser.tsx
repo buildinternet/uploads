@@ -6,6 +6,14 @@ import { filePath } from "../lib/public-file";
 interface Props {
   apiOrigin: string;
   workspace: string;
+  /**
+   * Whether this workspace has a stable public custom domain configured (from
+   * `GET /me/workspaces`' `hasPublicUrl`). Workspaces without one (private/BYO
+   * without a public domain) can't be opened via the public `/f/` page — it
+   * 404s there (issue #123) — so those resolve through the authenticated,
+   * signed-URL-capable `/me/.../file-url` endpoint instead.
+   */
+  hasPublicUrl: boolean;
 }
 
 const credentialedFetch: typeof fetch = async (input, init) => {
@@ -23,18 +31,49 @@ const credentialedFetch: typeof fetch = async (input, init) => {
   }
 };
 
-export function AccountFileBrowser({ apiOrigin, workspace }: Props) {
+export function AccountFileBrowser({ apiOrigin, workspace, hasPublicUrl }: Props) {
   const files = useFiles({
     endpoint: `${apiOrigin.replace(/\/$/, "")}/me/workspaces/${encodeURIComponent(workspace)}/file-browser`,
     fetchImpl: credentialedFetch,
   });
 
-  // Open the chrome-wrapped file page (issue #135) rather than dumping the raw
-  // bytes into a tab. The page presents metadata and links to the original; for
-  // non-public workspaces it depends on the #123 URL resolver.
-  const openFile = (key: string) => {
+  // Public workspaces open the chrome-wrapped file page (issue #135) rather
+  // than dumping the raw bytes into a tab — it presents metadata and links to
+  // the original.
+  const openPublicFile = (key: string) => {
     const tab = window.open(filePath(workspace, key), "_blank");
     if (tab) tab.opener = null;
+  };
+
+  // Private/BYO workspaces without a public domain have no `/f/` page to open
+  // (it 404s — publicUrl() has nothing to resolve). Resolve through the
+  // member-gated resolver instead, which signs a short-lived download URL when
+  // the workspace's storage credentials support it (issue #123). Opens
+  // "about:blank" synchronously so popup blockers see it as the row click,
+  // then navigates that tab once the URL resolves — the same approach this
+  // component used before the #135 public-page navigation replaced it here.
+  const openResolvedFile = async (key: string) => {
+    const tab = window.open("about:blank", "_blank");
+    if (tab) tab.opener = null;
+    try {
+      const response = await credentialedFetch(
+        `${apiOrigin.replace(/\/$/, "")}/me/workspaces/${encodeURIComponent(workspace)}/file-url?key=${encodeURIComponent(key)}`,
+      );
+      const body = (await response.json().catch(() => ({}))) as { url?: string };
+      if (!(response.ok && body.url)) throw new Error("file URL unavailable");
+      if (tab) tab.location.replace(body.url);
+      else window.location.assign(body.url);
+    } catch {
+      tab?.close();
+    }
+  };
+
+  const openFile = (key: string) => {
+    if (hasPublicUrl) {
+      openPublicFile(key);
+      return;
+    }
+    void openResolvedFile(key);
   };
 
   return (
