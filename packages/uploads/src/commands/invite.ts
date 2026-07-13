@@ -1,104 +1,36 @@
 /**
  * Workspace-admin email invite via ephemeral device session.
- * Does not use ADMIN_TOKEN or workspace upload tokens.
+ * Not ADMIN_TOKEN, not a workspace upload token.
  */
-import { spawn } from "node:child_process";
-import {
-  createWorkspaceInvite,
-  listMintWorkspaces,
-  requestDeviceCode,
-  requestDeviceToken,
-} from "../client.js";
+import { createWorkspaceInvite, listMintWorkspaces } from "../client.js";
 import { flagBool, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
-import { resolveAuthUrl } from "./login.js";
+import {
+  defaultDeviceIo,
+  obtainDeviceAccessToken,
+  resolveAuthUrl,
+  type DeviceLoginIo,
+} from "./login.js";
 
 const HELP = `uploads invite create [options]
 
-Invite someone to a workspace by email. Opens a browser so you can approve
-with your account (device login) — you must be an admin or owner of that
-workspace. Does NOT use ADMIN_TOKEN or a workspace upload token.
+Invite someone to a workspace by email. Opens a browser so you approve as
+yourself (device login). You must be an admin or owner of that workspace.
 
-The invitee gets an email, accepts at uploads.sh, then runs uploads login.
+The invitee gets email when Email Sending is configured; either way the
+CLI prints an accept URL you can share. After accepting they run uploads login.
 
 Options:
-  --email <address>     Required. Invitee email
-  --workspace <name>    Workspace to invite into (required if you admin more than one)
-  --role member|admin   Org role for the invitee (default: member)
-  --auth-url <url>      Auth base (default: derived from --api-url)
-  --api-url <url>       API base (default: https://api.uploads.sh)
-  --no-open             Don't open a browser automatically
+  --email <address>     Required
+  --workspace <name>    Required if you admin more than one workspace
+  --role member|admin   Invitee org role (default: member)
+  --auth-url <url>      Auth origin (default: derived from --api-url)
+  --api-url <url>       API origin (default: https://api.uploads.sh)
+  --no-open             Print the approval URL only
 
 Examples:
   uploads invite create --email teammate@example.com
-  uploads invite create --workspace acme --email teammate@example.com --role member
+  uploads invite create --workspace acme --email teammate@example.com
 `;
-
-type DeviceIo = {
-  sleep: (ms: number) => Promise<void>;
-  now: () => number;
-  openUrl: (url: string) => void;
-  write: (text: string) => void;
-};
-
-function openUrl(url: string): void {
-  try {
-    const isWin = process.platform === "win32";
-    const command = process.platform === "darwin" ? "open" : isWin ? "cmd" : "xdg-open";
-    const args = isWin ? ["/c", "start", "", url] : [url];
-    const child = spawn(command, args, { stdio: "ignore", detached: true });
-    child.on("error", () => {});
-    child.unref();
-  } catch {
-    // URL is printed for manual navigation.
-  }
-}
-
-const defaultIo: DeviceIo = {
-  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
-  now: () => Date.now(),
-  openUrl,
-  write: (text) => {
-    process.stderr.write(text);
-  },
-};
-
-async function pollForDeviceToken(
-  authUrl: string,
-  code: { device_code: string; interval: number; expires_in: number },
-  io: DeviceIo,
-): Promise<string> {
-  let intervalMs = Math.max(1, code.interval) * 1000;
-  const deadline = io.now() + Math.max(1, code.expires_in) * 1000;
-  while (io.now() < deadline) {
-    await io.sleep(intervalMs);
-    let result: Awaited<ReturnType<typeof requestDeviceToken>>;
-    try {
-      result = await requestDeviceToken(authUrl, { deviceCode: code.device_code });
-    } catch {
-      continue;
-    }
-    switch (result.status) {
-      case "ok":
-        return result.accessToken;
-      case "pending":
-        continue;
-      case "slow_down":
-        intervalMs += 5000;
-        continue;
-      case "denied":
-        throw new UsageError("device authorization was denied");
-      case "expired":
-        throw new UsageError("the device code expired before it was approved");
-      default:
-        throw new UsageError(
-          `device authorization failed: ${result.error}${
-            result.description ? ` — ${result.description}` : ""
-          }`,
-        );
-    }
-  }
-  throw new UsageError("timed out waiting for device authorization");
-}
 
 /** Exported for unit tests. */
 export function resolveInviteWorkspace(
@@ -136,7 +68,7 @@ export async function runInvite(
   args: string[],
   opts: { json?: boolean; apiUrl?: string },
   help = false,
-  io: DeviceIo = defaultIo,
+  io: DeviceLoginIo = defaultDeviceIo,
 ): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
@@ -162,15 +94,14 @@ export async function runInvite(
     throw new UsageError("invite requires a browser for device approval");
   }
 
-  const code = await requestDeviceCode(authUrl);
-  const verifyUrl = code.verification_uri_complete ?? code.verification_uri;
-  io.write(
-    `To invite as your account, open:\n\n  ${verifyUrl}\n\nand confirm this code:\n\n  ${code.user_code}\n\n`,
+  const accessToken = await obtainDeviceAccessToken(
+    authUrl,
+    {
+      noOpen: flagBool(parsed.flags, "--no-open"),
+      prompt: "To invite as your account, open:",
+    },
+    io,
   );
-  if (!flagBool(parsed.flags, "--no-open")) io.openUrl(verifyUrl);
-  io.write("Waiting for approval…\n");
-
-  const accessToken = await pollForDeviceToken(authUrl, code, io);
   const { workspaces } = await listMintWorkspaces(apiUrl, accessToken);
   const workspace = resolveInviteWorkspace(workspaces, requestedWorkspace);
 
@@ -182,12 +113,19 @@ export async function runInvite(
     role: result.invitation.role,
     invitationId: result.invitation.id,
     status: result.invitation.status,
+    acceptUrl: result.acceptUrl ?? null,
   };
   if (opts.json) process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
   else {
     process.stdout.write(
-      `Invited ${email} to ${workspace} as ${role} (${result.invitation.status}).\nThey should check email, accept, then run uploads login.\n`,
+      `Invited ${email} to ${workspace} as ${role} (${result.invitation.status}).\n`,
     );
+    if (result.acceptUrl) {
+      process.stdout.write(
+        `Accept link (share if email isn't configured):\n  ${result.acceptUrl}\n`,
+      );
+    }
+    process.stdout.write("They accept, then run: uploads login\n");
   }
   return 0;
 }

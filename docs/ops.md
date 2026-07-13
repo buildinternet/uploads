@@ -51,8 +51,11 @@ without `ADMIN_TOKEN` or a global site-admin role:
 - **CLI:** `uploads invite create --email teammate@example.com --workspace <name>`
   (device login as the inviter, then the same `/me/…/invites` API)
 
-The invitee accepts at `/accept-invitation/:id`, becomes an org member, and runs
-`uploads login` to mint their own workspace token.
+Both return an **accept URL** (`/accept-invitation/:id`). On hosted uploads.sh,
+Cloudflare Email Sending also emails that link. **Self-hosted without an `EMAIL`
+binding:** no mail is sent — share the accept URL yourself (UI shows it; CLI
+prints it; auth worker logs it). The invitee opens the link, becomes an org
+member, and runs `uploads login`.
 
 ### Site operators (global admin)
 

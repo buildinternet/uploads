@@ -428,7 +428,12 @@ describe("DB-backed behavior", () => {
         dbEnv(),
       );
       expect(res.status).toBe(201);
-      const body = (await res.json()) as { invitation: { id: string; status: string } };
+      const body = (await res.json()) as {
+        invitation: { id: string; status: string; email: string };
+        acceptUrl: string;
+      };
+      expect(body.acceptUrl).toContain(`/accept-invitation/${body.invitation.id}`);
+      expect(body.invitation.email).toBe("invitee@example.com");
 
       const rows = await orm
         .select()

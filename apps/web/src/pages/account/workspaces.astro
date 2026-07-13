@@ -136,7 +136,8 @@ export const prerender = false;
             ? `<p class="ws-note">This is the shared, public space — anything here is world-readable at <code>storage.uploads.sh</code>. Browse and upload with the CLI.</p>`
             : `<div class="ws-section" data-galleries><div class="ws-section-head">Galleries</div><p class="ws-empty">Loading&#32;…</p></div>
                <div class="ws-section" data-files><div class="ws-section-head">Files</div><p class="ws-empty">Loading&#32;…</p></div>`;
-          // Workspace org admin|owner: email invite form (session-authed org invitation).
+          // Workspace org admin|owner: invite by email (session). Accept URL is
+          // always returned so installs without outbound email still work.
           const memberInvite = isWorkspaceAdminRole(ws.role)
             ? `<div class="ws-section" data-invite>
                  <div class="ws-section-head">Invite a teammate</div>
@@ -145,19 +146,20 @@ export const prerender = false;
                      <span class="sr-only">Email</span>
                      <input type="email" name="email" required autocomplete="email" placeholder="teammate@example.com" />
                    </label>
-                   <button type="submit">Send invite</button>
+                   <button type="submit">Invite</button>
                  </form>
                  <p class="muted cli-note" data-invite-status role="status"></p>
-                 <p class="muted cli-note">They accept by email, then run <code>uploads login</code>. CLI: <code>uploads invite create --workspace ${escapeHtml(ws.workspace)} --email …</code></p>
+                 <p class="muted cli-note" data-invite-link hidden></p>
+                 <p class="muted cli-note">They open the accept link, then run <code>uploads login</code>.</p>
                </div>`
             : "";
-          // Site operators: enrollment codes (ADMIN_TOKEN), separate from org invites.
+          // Site operators only: enrollment codes need ADMIN_TOKEN (separate product path).
           const cmd = operatorInviteCommand(ws.workspace);
           const operatorInvite = isSiteOperator
             ? `<div class="ws-section">
-                 <div class="ws-section-head">Operator enrollment (ADMIN_TOKEN)</div>
+                 <div class="ws-section-head">Operator enrollment code</div>
                  <div class="command"><code>${escapeHtml(cmd)}</code><button type="button" aria-live="polite" data-copy="${escapeHtml(cmd)}">copy</button></div>
-                 <p class="muted cli-note">Break-glass link/code path — not required for normal teammate invites above.</p>
+                 <p class="muted cli-note"><code>ADMIN_TOKEN</code> only — not for everyday teammate invites.</p>
                </div>`
             : "";
           return `<li data-workspace="${escapeHtml(ws.workspace)}">
@@ -259,16 +261,25 @@ export const prerender = false;
         if (!workspace) return;
         const emailInput = form.querySelector<HTMLInputElement>('input[name="email"]');
         const status = form.parentElement?.querySelector<HTMLElement>("[data-invite-status]");
+        const linkEl = form.parentElement?.querySelector<HTMLElement>("[data-invite-link]");
         const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
         const email = emailInput?.value.trim() ?? "";
         if (!email || !status || !submit) return;
-        status.textContent = "Sending…";
+        status.textContent = "Creating invite…";
+        if (linkEl) {
+          linkEl.hidden = true;
+          linkEl.textContent = "";
+        }
         submit.disabled = true;
-        const result = await inviteToWorkspace(apiOrigin, workspace, { email });
+        const result = await inviteToWorkspace(apiOrigin, workspace, email);
         submit.disabled = false;
         if (result.kind === "ok") {
-          status.textContent = `Invite sent to ${email}.`;
+          status.textContent = `Invite created for ${email}.`;
           if (emailInput) emailInput.value = "";
+          if (linkEl && result.acceptUrl) {
+            linkEl.hidden = false;
+            linkEl.innerHTML = `Accept link: <a href="${escapeHtml(result.acceptUrl)}">${escapeHtml(result.acceptUrl)}</a>`;
+          }
           return;
         }
         status.textContent =
@@ -276,7 +287,7 @@ export const prerender = false;
             ? "You need workspace admin access to invite."
             : result.reason === "invalid"
               ? "That email doesn’t look valid."
-              : "Couldn’t send the invite. Try again.";
+              : "Couldn’t create the invite. Try again.";
       })();
     });
 

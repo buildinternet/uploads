@@ -270,6 +270,11 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       }
     }
 
+    // Normalize so "Ada@x.com" and "ada@x.com" hit the same pending row.
+    const normalizedEmail = email.toLowerCase();
+    const webOrigin = (c.env.WEB_ORIGIN || "https://uploads.sh").replace(/\/$/, "");
+    const acceptUrlFor = (invitationId: string) => `${webOrigin}/accept-invitation/${invitationId}`;
+
     // Idempotency: an existing pending invite for this (org, email) is
     // returned as-is rather than inserting a duplicate row and re-sending
     // the invitation email (e.g. the admin double-clicks Invite).
@@ -279,11 +284,12 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       .where(
         and(
           eq(schema.invitation.organizationId, org.id),
-          eq(schema.invitation.email, email),
+          eq(schema.invitation.email, normalizedEmail),
           eq(schema.invitation.status, "pending"),
         ),
       )
       .limit(1);
+
     if (existingInvite) {
       return c.json(
         {
@@ -295,6 +301,8 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
             status: existingInvite.status,
             expiresAt: existingInvite.expiresAt,
           },
+          // Always return so self-hosted (no EMAIL binding) can share the link.
+          acceptUrl: acceptUrlFor(existingInvite.id),
         },
         200,
       );
@@ -305,7 +313,7 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     await db.insert(schema.invitation).values({
       id,
       organizationId: org.id,
-      email,
+      email: normalizedEmail,
       role,
       status: "pending",
       expiresAt,
@@ -313,19 +321,29 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       createdAt: new Date(),
     });
 
-    const webOrigin = c.env.WEB_ORIGIN || "https://uploads.sh";
+    const acceptUrl = acceptUrlFor(id);
     await sendAuthEmail(c.env, {
-      to: email,
+      to: normalizedEmail,
       template: "invitation",
       context: {
-        url: `${webOrigin}/accept-invitation/${id}`,
+        url: acceptUrl,
         organizationName: org.name,
         inviterEmail: inviter.email,
       },
     });
 
     return c.json(
-      { invitation: { id, organizationId: org.id, email, role, status: "pending", expiresAt } },
+      {
+        invitation: {
+          id,
+          organizationId: org.id,
+          email: normalizedEmail,
+          role,
+          status: "pending",
+          expiresAt,
+        },
+        acceptUrl,
+      },
       201,
     );
   })

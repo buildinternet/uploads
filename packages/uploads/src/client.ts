@@ -402,14 +402,18 @@ export interface MintTokenResult {
 /**
  * POST /me/workspaces/:name/invites — org invitation for a workspace.
  * Requires a Better Auth session bearer (device flow), not a workspace token.
- * Caller must be org admin|owner for that workspace.
+ * Caller must be org admin|owner. `acceptUrl` is always returned so
+ * self-hosted deploys without email can still share the link.
  */
 export function createWorkspaceInvite(
   apiUrl: string,
   accessToken: string,
   workspace: string,
   input: { email: string; role?: "member" | "admin" },
-): Promise<{ invitation: { id: string; email: string; role: string; status: string } }> {
+): Promise<{
+  invitation: { id: string; email: string; role: string; status: string };
+  acceptUrl?: string;
+}> {
   return jsonRequest(
     `${apiUrl.replace(/\/$/, "")}/me/workspaces/${encodeURIComponent(workspace)}/invites`,
     {

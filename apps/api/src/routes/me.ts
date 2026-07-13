@@ -268,30 +268,9 @@ export const me = new Hono<SessionVars>()
     return router.handle(c.req.raw);
   })
 
-  // Pending org invitations for a workspace — workspace admin|owner only.
-  // Non-members 404 (same anti-enumeration as other /me workspace routes).
-  .get("/workspaces/:name/invites", async (c) => {
-    const name = c.req.param("name");
-    await adminWorkspaceOr403(c.env, requireUserId(c), name);
-    const org = await orgForWorkspace(c.env, name);
-    if (!org) {
-      throw new NotFoundError("no organization for this workspace", { code: "org_not_found" });
-    }
-    const response = await c.env.AUTH.fetch(
-      `https://auth.internal/internal/orgs/${encodeURIComponent(org.slug)}/invites`,
-      { headers: { "x-uploads-internal": "1" } },
-    );
-    if (!response.ok) {
-      throw new ValidationError("failed to list invites", {
-        details: await response.json().catch(() => null),
-      });
-    }
-    return c.json(await response.json());
-  })
-
   // Invite an email to the org backing this workspace (Better Auth invitation).
-  // Workspace org admin|owner only — not ADMIN_TOKEN, not global site admin.
-  // Invitee accepts at /accept-invitation/:id then runs `uploads login`.
+  // Workspace org admin|owner only. Returns acceptUrl so self-hosted installs
+  // without Email Sending can still hand the invitee a link.
   .post("/workspaces/:name/invites", async (c) => {
     const name = c.req.param("name");
     const userId = requireUserId(c);
@@ -311,7 +290,8 @@ export const me = new Hono<SessionVars>()
     const body = await c.req
       .json<{ email?: unknown; role?: unknown }>()
       .catch(() => ({}) as { email?: unknown; role?: unknown });
-    const email = typeof body.email === "string" ? body.email.trim() : "";
+    // Account UI always invites as member; API still accepts role for CLI.
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     const role = typeof body.role === "string" ? body.role.trim() : "member";
     if (!email || !EMAIL_RE.test(email)) {
       throw new ValidationError("invalid email address", { code: "invalid_email" });
@@ -320,10 +300,12 @@ export const me = new Hono<SessionVars>()
       throw new ValidationError("role must be member or admin", { code: "invalid_role" });
     }
 
-    // Per-recipient rate limit (same namespace as operator enrollments).
+    // Per-recipient rate limit when the binding is configured (hosted always;
+    // self-hosted opt-in via wrangler). Absent binding = no RL (same as other
+    // optional limiters).
     const limiter = c.env.INVITE_LIMITER;
     if (limiter) {
-      const { success } = await limiter.limit({ key: `invite:email:${email.toLowerCase()}` });
+      const { success } = await limiter.limit({ key: `invite:email:${email}` });
       if (!success) throw new RateLimitedError("invite rate limit exceeded");
     }
 
@@ -337,7 +319,10 @@ export const me = new Hono<SessionVars>()
         inviterUserId: userId,
       }),
     });
-    const payload = await response.json().catch(() => null);
+    const payload = (await response.json().catch(() => null)) as {
+      invitation?: { id?: string };
+      acceptUrl?: string;
+    } | null;
     if (!response.ok) {
       if (response.status === 403) {
         throw new ForbiddenError("not authorized to invite to this workspace", {
@@ -347,5 +332,10 @@ export const me = new Hono<SessionVars>()
       }
       throw new ValidationError("failed to create invitation", { details: payload });
     }
-    return c.json(payload as object, response.status === 200 ? 200 : 201);
+    // Ensure acceptUrl even if an older auth worker omits it.
+    const webOrigin = (c.env.WEB_ORIGIN || "https://uploads.sh").replace(/\/$/, "");
+    const id = payload?.invitation?.id;
+    const acceptUrl =
+      payload?.acceptUrl ?? (id ? `${webOrigin}/accept-invitation/${id}` : undefined);
+    return c.json({ ...payload, acceptUrl }, response.status === 200 ? 200 : 201);
   });

@@ -839,27 +839,3 @@ describe("POST /me/workspaces/:name/invites", () => {
     expect(res.status).toBe(400);
   });
 });
-
-describe("GET /me/workspaces/:name/invites", () => {
-  it("lists pending invites for a workspace admin", async () => {
-    const env = stubEnv(USER, (path) => {
-      if (path === "/internal/memberships") {
-        return Response.json([{ organizationId: "org1", organizationSlug: "acme", role: "admin" }]);
-      }
-      if (path === "/internal/orgs/acme") {
-        return Response.json({ organization: { id: "org1", slug: "acme", name: "Acme" } });
-      }
-      if (path === "/internal/orgs/acme/invites") {
-        return Response.json({
-          invites: [{ id: "i1", email: "pending@x.com", role: "member", status: "pending" }],
-        });
-      }
-      return new Response(null, { status: 404 });
-    });
-    const res = await app().request("/me/workspaces/acme/invites", {}, env);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      invites: [{ id: "i1", email: "pending@x.com", role: "member", status: "pending" }],
-    });
-  });
-});

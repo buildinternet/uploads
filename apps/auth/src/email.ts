@@ -70,8 +70,14 @@ export async function sendAuthEmail(env: SendAuthEmailEnv, args: SendAuthEmailAr
   const magicLink = args.template === "magic-link" && isDev ? ` Link: ${args.context.url}` : "";
 
   if (!env.EMAIL) {
+    // Invitation accept URLs are always logged so self-hosted operators without
+    // Email Sending can copy them. Magic-link URLs stay dev-only (secrets).
+    const inviteLink =
+      args.template === "invitation" && typeof args.context.url === "string"
+        ? ` Link: ${args.context.url}`
+        : "";
     console.warn(
-      `[auth email] no EMAIL binding — not sent. To: ${args.to}. "${subject}".${magicLink}`,
+      `[auth email] no EMAIL binding — not sent. To: ${args.to}. "${subject}".${inviteLink || magicLink}`,
     );
     return;
   }
