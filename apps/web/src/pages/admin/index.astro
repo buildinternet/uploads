@@ -1,0 +1,278 @@
+---
+import AdminLayout from "../../layouts/AdminLayout.astro";
+import "../../styles/admin-workspaces.css";
+
+export const prerender = false;
+---
+
+<AdminLayout section="workspaces">
+  <section class="card">
+    <h2>Workspaces</h2>
+    <p>
+      Every registered workspace, with its members and pending invites. Expand one
+      to load its people and invite someone.
+    </p>
+    <div id="workspaces-status" class="muted" style="margin-top:12px;font-size:13px">Loading…</div>
+    <div id="workspaces-list"></div>
+  </section>
+
+  <script>
+    import { onSession, requireElement } from "../../lib/account-shell";
+
+    const w = window as unknown as { __UPLOADS_API_ORIGIN__: string };
+    const apiOrigin = w.__UPLOADS_API_ORIGIN__.replace(/\/$/, "");
+
+    const workspacesStatus = requireElement<HTMLElement>("#workspaces-status", "admin");
+    const workspacesList = requireElement<HTMLElement>("#workspaces-list", "admin");
+
+    interface WorkspaceSummary {
+      workspace: string;
+      organization: { id: string; slug: string; name: string } | null;
+      memberCount: number;
+      pendingInviteCount: number;
+    }
+    interface Member {
+      id: string;
+      email: string;
+      name: string;
+      role: string;
+    }
+    interface Invite {
+      id: string;
+      email: string;
+      role: string | null;
+      status: string;
+    }
+
+    function escapeHtml(value: string): string {
+      return value.replace(/[&<>"']/g, (ch) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
+      );
+    }
+
+    async function apiGet<T>(path: string): Promise<T> {
+      const res = await fetch(`${apiOrigin}${path}`, { credentials: "include", cache: "no-store" });
+      if (!res.ok) throw new Error(`request failed: ${res.status}`);
+      return (await res.json()) as T;
+    }
+
+    function renderWorkspace(ws: WorkspaceSummary): HTMLElement {
+      const details = document.createElement("details");
+      details.className = "workspace";
+      const org = ws.organization ? ws.organization.name : "no organization yet";
+      details.innerHTML = `
+      <summary>
+        <span class="name">${escapeHtml(ws.workspace)}</span>
+        <span class="counts">${escapeHtml(org)} · ${ws.memberCount} member${ws.memberCount === 1 ? "" : "s"} · ${ws.pendingInviteCount} pending</span>
+      </summary>
+      <div class="detail">
+        <div class="members" data-state="unloaded">Members load when expanded.</div>
+        <div class="invites"></div>
+        ${
+          ws.organization
+            ? `<form class="invite-form" data-workspace="${escapeHtml(ws.workspace)}">
+                <label>Email<input type="email" required class="invite-email" placeholder="you@example.com" /></label>
+                <label>Role
+                  <select class="invite-role">
+                    <option value="member">member</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </label>
+                <button type="submit">Invite</button>
+              </form>
+              <div class="invite-status" hidden></div>`
+            : `<p class="muted">No organization provisioned for this workspace yet — run the org backfill.</p>`
+        }
+        <div class="invite-link-row">
+          <button type="button" class="invite-link-generate">Generate invite link</button>
+          <input type="text" class="invite-link-url" readonly hidden aria-label="Invite link" />
+          <button type="button" class="invite-link-copy" hidden>Copy</button>
+        </div>
+        <div class="invite-status invite-link-status" role="status" aria-live="polite" hidden></div>
+      </div>
+    `;
+
+      let loaded = false;
+      details.addEventListener("toggle", () => {
+        void (async () => {
+          if (!details.open || loaded) return;
+          const membersEl = details.querySelector<HTMLElement>(".members");
+          const invitesEl = details.querySelector<HTMLElement>(".invites");
+          if (!ws.organization) {
+            if (membersEl) membersEl.textContent = "";
+            loaded = true;
+            return;
+          }
+          try {
+            const [{ members }, { invites }] = await Promise.all([
+              apiGet<{ members: Member[] }>(
+                `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/members`,
+              ),
+              apiGet<{ invites: Invite[] }>(
+                `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invites`,
+              ),
+            ]);
+            if (membersEl) {
+              membersEl.innerHTML = members.length
+                ? `<ul>${members.map((m) => `<li><span>${escapeHtml(m.email)}</span><span class="role">${escapeHtml(m.role)}</span></li>`).join("")}</ul>`
+                : `<p class="muted">No members yet.</p>`;
+            }
+            if (invitesEl) {
+              invitesEl.innerHTML = invites.length
+                ? `<ul>${invites.map((i) => `<li><span>${escapeHtml(i.email)}</span><span class="role">pending</span></li>`).join("")}</ul>`
+                : "";
+            }
+            // Only mark as loaded once the fetch actually succeeded — a failure
+            // leaves `loaded` false so re-toggling the <details> retries instead
+            // of permanently showing "Failed to load members."
+            loaded = true;
+          } catch {
+            if (membersEl) membersEl.textContent = "Failed to load members.";
+          }
+        })();
+      });
+
+      const form = details.querySelector<HTMLFormElement>(".invite-form");
+      const statusEl = details.querySelector<HTMLElement>(".invite-status");
+      form?.addEventListener("submit", (event) => {
+        void (async () => {
+          event.preventDefault();
+          const emailInput = form.querySelector(".invite-email") as HTMLInputElement | null;
+          const roleSelect = form.querySelector(".invite-role") as HTMLSelectElement | null;
+          const email = emailInput?.value.trim() ?? "";
+          const role = roleSelect?.value ?? "member";
+          const submitBtn = form.querySelector<HTMLButtonElement>("button[type=submit]");
+          if (submitBtn) submitBtn.disabled = true;
+          if (statusEl) statusEl.hidden = true;
+          try {
+            const res = await fetch(
+              `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invites`,
+              {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email, role }),
+              },
+            );
+            if (!res.ok) {
+              const payload = (await res.json().catch(() => null)) as
+                | { error?: { message?: string } }
+                | null;
+              throw new Error(payload?.error?.message || `invite failed: ${res.status}`);
+            }
+            if (statusEl) {
+              statusEl.dataset.state = "ready";
+              statusEl.textContent = `Invited ${email}.`;
+              statusEl.hidden = false;
+            }
+            if (emailInput) emailInput.value = "";
+            loaded = false;
+            details.open = false;
+            details.open = true;
+          } catch (err) {
+            if (statusEl) {
+              statusEl.dataset.state = "error";
+              statusEl.textContent =
+                err instanceof Error && err.message ? err.message : "Couldn't send the invite.";
+              statusEl.hidden = false;
+            }
+          } finally {
+            if (submitBtn) submitBtn.disabled = false;
+          }
+        })();
+      });
+
+      const generateBtn = details.querySelector<HTMLButtonElement>(".invite-link-generate");
+      const urlInput = details.querySelector<HTMLInputElement>(".invite-link-url");
+      const copyBtn = details.querySelector<HTMLButtonElement>(".invite-link-copy");
+      const linkStatusEl = details.querySelector<HTMLElement>(".invite-link-status");
+      generateBtn?.addEventListener("click", () => {
+        void (async () => {
+          generateBtn.disabled = true;
+          if (linkStatusEl) linkStatusEl.hidden = true;
+          if (urlInput) urlInput.hidden = true;
+          if (copyBtn) copyBtn.hidden = true;
+          try {
+            const res = await fetch(
+              `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invite-links`,
+              {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: "{}",
+              },
+            );
+            if (!res.ok) {
+              const payload = (await res.json().catch(() => null)) as
+                | { error?: { message?: string } }
+                | null;
+              throw new Error(payload?.error?.message || `invite link failed: ${res.status}`);
+            }
+            const { url } = (await res.json()) as { url: string };
+            if (urlInput) {
+              urlInput.value = url;
+              urlInput.hidden = false;
+            }
+            if (copyBtn) copyBtn.hidden = false;
+          } catch (err) {
+            if (linkStatusEl) {
+              linkStatusEl.dataset.state = "error";
+              linkStatusEl.textContent =
+                err instanceof Error && err.message
+                  ? err.message
+                  : "Couldn't generate an invite link.";
+              linkStatusEl.hidden = false;
+            }
+          } finally {
+            generateBtn.disabled = false;
+          }
+        })();
+      });
+      copyBtn?.addEventListener("click", () => {
+        void (async () => {
+          if (!urlInput?.value) return;
+          try {
+            await navigator.clipboard.writeText(urlInput.value);
+            if (linkStatusEl) {
+              linkStatusEl.dataset.state = "ready";
+              linkStatusEl.textContent = "Copied.";
+              linkStatusEl.hidden = false;
+            }
+          } catch {
+            if (linkStatusEl) {
+              linkStatusEl.dataset.state = "error";
+              linkStatusEl.textContent = "Clipboard unavailable; copy the selected link manually.";
+              linkStatusEl.hidden = false;
+            }
+            urlInput.focus();
+            urlInput.select();
+          }
+        })();
+      });
+
+      return details;
+    }
+
+    async function loadWorkspaces() {
+      try {
+        const { workspaces } = await apiGet<{ workspaces: WorkspaceSummary[] }>(
+          "/admin-ui/workspaces",
+        );
+        workspacesStatus.hidden = true;
+        workspacesList.innerHTML = "";
+        if (!workspaces.length) {
+          workspacesStatus.hidden = false;
+          workspacesStatus.textContent = "No workspaces yet.";
+          return;
+        }
+        for (const ws of workspaces) workspacesList.appendChild(renderWorkspace(ws));
+      } catch {
+        workspacesStatus.textContent = "Failed to load workspaces.";
+      }
+    }
+
+    onSession(() => {
+      void loadWorkspaces();
+    });
+  </script>
+</AdminLayout>

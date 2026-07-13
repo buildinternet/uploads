@@ -1,0 +1,222 @@
+---
+import AccountLayout from "../../layouts/AccountLayout.astro";
+
+export const prerender = false;
+---
+
+<AccountLayout section="workspaces">
+  <section class="card">
+    <h2>Workspaces</h2>
+    <p>Workspaces group your files and tokens. You belong to these:</p>
+    <div id="orgs-status" class="muted" style="margin-top:12px;font-size:13px">Loading…</div>
+    <ul class="plain" id="orgs-list" hidden></ul>
+    <p class="muted" style="margin-top:12px">
+      Need another workspace? Ask its admin for an invite.
+    </p>
+  </section>
+
+  <script>
+    import { onSession, requireElement } from "../../lib/account-shell";
+    import {
+      getMyWorkspaces,
+      getMyWorkspaceUsage,
+      getMyWorkspaceGalleries,
+      type GallerySummary,
+    } from "../../lib/api-client";
+    import { AccountFileBrowser } from "../../components/AccountFileBrowser";
+    import { createElement } from "react";
+    import { createRoot } from "react-dom/client";
+
+    const w = window as unknown as {
+      __UPLOADS_API_ORIGIN__: string;
+    };
+    const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+
+    const escapeHtml = (value: string) =>
+      value.replace(/[&<>"']/g, (ch) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
+      );
+
+    // Workspace names are already restricted to [a-z0-9-] on the API, but
+    // escape defensively for the attribute-selector lookup below regardless.
+    const cssEscape = (value: string) =>
+      typeof CSS !== "undefined" && CSS.escape
+        ? CSS.escape(value)
+        : value.replace(/["\\]/g, "\\$&");
+
+    function formatBytes(bytes: number): string {
+      if (bytes < 1024) return `${bytes} B`;
+      const units = ["KB", "MB", "GB", "TB"];
+      let value = bytes / 1024;
+      let unit = 0;
+      while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit += 1;
+      }
+      return `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10} ${units[unit]}`;
+    }
+
+    function formatUsage(usage: {
+      bytes: number;
+      objects: number;
+      uploadsInPeriod: number;
+      maxStorageBytes?: number;
+      maxUploadsPerPeriod?: number;
+    }): string {
+      const used = formatBytes(usage.bytes);
+      const size = usage.maxStorageBytes
+        ? `${used} of ${formatBytes(usage.maxStorageBytes)}`
+        : used;
+      const objects = `${usage.objects} object${usage.objects === 1 ? "" : "s"}`;
+      const parts = [size, objects];
+      // Only present when the workspace has a monthly upload cap.
+      if (usage.maxUploadsPerPeriod) {
+        parts.push(`${usage.uploadsInPeriod} of ${usage.maxUploadsPerPeriod} uploads this month`);
+      }
+      return parts.join(" · ");
+    }
+
+    const isAdminRole = (role: string) => role === "admin" || role === "owner";
+
+    // The command an admin runs to invite a teammate. Workspace names are
+    // [a-z0-9-] on the API; escapeHtml is applied at the render site regardless.
+    const inviteCommand = (workspace: string) =>
+      `uploads admin invite create --workspace ${workspace} --email teammate@example.com`;
+
+    function renderGalleries(container: HTMLElement, galleries: GallerySummary[]): void {
+      const head = `<div class="ws-section-head">Galleries${galleries.length ? ` (${galleries.length})` : ""}</div>`;
+      if (!galleries.length) {
+        container.innerHTML = `${head}<p class="ws-empty">No galleries yet.</p>`;
+        return;
+      }
+      const items = galleries
+        .map(
+          (g) =>
+            `<li><a href="${escapeHtml(g.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(g.title)}</a></li>`,
+        )
+        .join("");
+      container.innerHTML = `${head}<ul class="ws-items">${items}</ul>`;
+    }
+
+    async function loadWorkspaces(): Promise<void> {
+      const orgsStatus = requireElement<HTMLElement>("#orgs-status", "account workspaces");
+      const orgsList = requireElement<HTMLUListElement>("#orgs-list", "account workspaces");
+      const workspaces = await getMyWorkspaces(apiOrigin);
+      if (!workspaces.length) {
+        orgsStatus.textContent =
+          "No workspaces on this account yet — accept an invite to join one.";
+        return;
+      }
+      orgsStatus.hidden = true;
+      orgsList.hidden = false;
+      orgsList.innerHTML = workspaces
+        .map((ws) => {
+          // Communal workspace = the shared, world-readable dumping ground; it
+          // gets a short note instead of the personal galleries/files browser.
+          const body = ws.communal
+            ? `<p class="ws-note">This is the shared, public space — anything here is world-readable at <code>storage.uploads.sh</code>. Browse and upload with the CLI.</p>`
+            : `<div class="ws-section" data-galleries><div class="ws-section-head">Galleries</div><p class="ws-empty">Loading&#32;…</p></div>
+               <div class="ws-section" data-files><div class="ws-section-head">Files</div><p class="ws-empty">Loading&#32;…</p></div>`;
+          // Workspace admins get a copy-paste invite command.
+          const cmd = inviteCommand(ws.workspace);
+          const invite = isAdminRole(ws.role)
+            ? `<div class="ws-section">
+                 <div class="ws-section-head">Invite a teammate</div>
+                 <div class="command"><code>${escapeHtml(cmd)}</code><button type="button" aria-live="polite" data-copy="${escapeHtml(cmd)}">copy</button></div>
+                 <p class="muted cli-note">Runs with the workspace's admin token.</p>
+               </div>`
+            : "";
+          return `<li data-workspace="${escapeHtml(ws.workspace)}">
+              <div class="row">
+                <span>${escapeHtml(ws.organization.name)}</span>
+                <span class="slug">${escapeHtml(ws.role)}</span>
+              </div>
+              <div class="usage">Loading usage&#32;…</div>
+              <div class="ws-detail">${body}${invite}</div>
+            </li>`;
+        })
+        .join("");
+
+      // Usage, galleries, and files are fetched per workspace, concurrently,
+      // after the list renders, so a slow or failing call for one workspace (or
+      // one surface) never blocks the others. Communal workspaces skip the
+      // galleries/files fetch entirely — the API returns them empty anyway.
+      await Promise.all(
+        workspaces.map(async (ws) => {
+          const li = orgsList.querySelector<HTMLElement>(
+            `li[data-workspace="${cssEscape(ws.workspace)}"]`,
+          );
+          if (!li) return;
+          const tasks: Promise<void>[] = [];
+          const usageEl = li.querySelector<HTMLElement>(".usage");
+          if (usageEl) {
+            tasks.push(
+              getMyWorkspaceUsage(apiOrigin, ws.workspace).then((usage) => {
+                usageEl.textContent = usage ? formatUsage(usage) : "Usage unavailable.";
+              }),
+            );
+          }
+          if (!ws.communal) {
+            const galleriesEl = li.querySelector<HTMLElement>("[data-galleries]");
+            if (galleriesEl) {
+              tasks.push(
+                getMyWorkspaceGalleries(apiOrigin, ws.workspace).then((galleries) => {
+                  renderGalleries(galleriesEl, galleries);
+                }),
+              );
+            }
+            const filesEl = li.querySelector<HTMLElement>("[data-files]");
+            if (filesEl) {
+              // Mount lazily: a fresh React root per workspace is only worth
+              // paying for once its container approaches the viewport.
+              const mount = () =>
+                createRoot(filesEl).render(
+                  createElement(AccountFileBrowser, { apiOrigin, workspace: ws.workspace }),
+                );
+              if (typeof IntersectionObserver === "undefined") {
+                mount();
+              } else {
+                const observer = new IntersectionObserver(
+                  (entries) => {
+                    if (entries.some((entry) => entry.isIntersecting)) {
+                      observer.disconnect();
+                      mount();
+                    }
+                  },
+                  { rootMargin: "200px" },
+                );
+                observer.observe(filesEl);
+              }
+            }
+          }
+          await Promise.all(tasks);
+        }),
+      );
+    }
+
+    // Delegated copy handler for the injected invite-command buttons.
+    requireElement<HTMLUListElement>("#orgs-list", "account workspaces").addEventListener(
+      "click",
+      (event) => {
+        void (async () => {
+          const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+            "button[data-copy]",
+          );
+          if (!button) return;
+          try {
+            await navigator.clipboard.writeText(button.dataset.copy ?? "");
+            const previous = button.textContent;
+            button.textContent = "copied ✓";
+            setTimeout(() => (button.textContent = previous), 1500);
+          } catch {
+            // Clipboard blocked (permissions/insecure context) — leave the label.
+          }
+        })();
+      },
+    );
+
+    onSession(() => {
+      void loadWorkspaces();
+    });
+  </script>
+</AccountLayout>

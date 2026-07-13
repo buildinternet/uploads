@@ -1,0 +1,197 @@
+/* Shared shell/sidebar styles for /account/* and /admin/* signed-in pages.
+   Tokens + @font-face come from @uploads/ui/styles.css via <BaseHead />. */
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.6 var(--mono);
+  font-variant-ligatures: none;
+  font-feature-settings:
+    "calt" 0,
+    "liga" 0;
+}
+a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  text-underline-offset: 3px;
+}
+a:hover,
+a:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+code {
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 1px 6px;
+  font-size: 0.9em;
+}
+[hidden] {
+  display: none !important;
+}
+
+.shell {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 28px 20px 56px;
+}
+header.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+header.top .lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+header.top .who {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+/* Status blocks render as .ul-callout (DS); .status is the JS hook only. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+a.button {
+  display: inline-block;
+  margin-top: 12px;
+  font: 12px var(--mono);
+  color: var(--accent);
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 9px 13px;
+  background: var(--panel);
+}
+a.button:hover,
+a.button:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+nav.side {
+  display: grid;
+  gap: 4px;
+  position: sticky;
+  top: 28px;
+}
+nav.side a {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13px;
+}
+nav.side a:hover {
+  color: var(--fg);
+}
+nav.side a[aria-current="page"] {
+  color: var(--accent);
+  background: var(--panel);
+  border-color: var(--line);
+}
+nav.side .side-foot {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 4px;
+}
+nav.side .side-foot a {
+  font-size: 12px;
+}
+nav.side button {
+  text-align: left;
+  font: 12px var(--mono);
+  color: var(--muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+nav.side button:hover,
+nav.side button:focus-visible {
+  color: var(--red);
+  outline: none;
+}
+
+.content {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+section.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px 20px;
+}
+section.card h2 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+section.card p {
+  color: var(--body);
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+p.muted,
+span.muted {
+  color: var(--muted);
+}
+.pill {
+  display: inline-block;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  padding: 2px 9px;
+  background: var(--bg);
+}
+
+@media (max-width: 680px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+  nav.side {
+    position: static;
+    grid-template-columns: repeat(auto-fit, minmax(90px, max-content));
+    gap: 6px;
+  }
+  nav.side .side-foot {
+    grid-column: 1 / -1;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    grid-template-columns: subgrid;
+  }
+}

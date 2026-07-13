@@ -1,0 +1,143 @@
+---
+/**
+ * Shared shell for /admin and /admin/* — sidebar nav with real paths.
+ * Client-side gating is a UX affordance only; /admin-ui/* enforces admin
+ * server-side.
+ */
+import { env } from "cloudflare:workers";
+import {
+  resolveShowConsoleLinks,
+  resolveSignedInOrigins,
+  signedInCsp,
+} from "../lib/signed-in-page";
+import BaseHead from "../components/BaseHead.astro";
+import Brand from "../components/Brand.astro";
+import "../styles/signed-in-shell.css";
+
+export type AdminSection = "workspaces" | "users";
+
+interface Props {
+  section: AdminSection;
+}
+
+const { section } = Astro.props;
+
+const titles: Record<AdminSection, string> = {
+  workspaces: "Admin",
+  users: "Users · Admin",
+};
+const docTitle = `${titles[section]} · uploads.sh`;
+
+const showConsoleLinks = await resolveShowConsoleLinks(env);
+const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
+const csp = signedInCsp(authOrigin, apiOrigin);
+
+const nav: { href: string; section: AdminSection; label: string }[] = [
+  { href: "/admin", section: "workspaces", label: "Workspaces" },
+  { href: "/admin/users", section: "users", label: "Users" },
+];
+---
+
+<html lang="en">
+<head>
+  <BaseHead />
+  <meta name="robots" content="noindex, nofollow, noarchive" />
+  <meta name="referrer" content="no-referrer" />
+  <meta http-equiv="Content-Security-Policy" content={csp} />
+  <title>{docTitle}</title>
+</head>
+<body>
+<div class="shell">
+  <h1 class="sr-only">{titles[section]}</h1>
+  <div id="checking" class="ul-callout status" role="status">Checking your session…</div>
+
+  <div id="denied" hidden>
+    <div class="ul-callout status" data-state="error" role="alert">You need admin access to view this page.</div>
+    <a class="button" href="/login">Sign in</a>
+  </div>
+
+  <!--
+    Client-side gating here is a UX affordance ONLY — it just avoids flashing
+    admin nav (and firing admin-ui fetches) at a non-admin visitor. It is NOT
+    the security boundary: the workspaces data is fetched from apps/api's
+    /admin-ui/* surface, which independently enforces requireAdminUser
+    over the AUTH service binding on every request.
+  -->
+  <div id="dashboard" hidden>
+    <header class="top">
+      <div class="lockup"><Brand /><span class="pill">admin</span></div>
+      <span class="who" id="who"></span>
+    </header>
+
+    <div class="layout">
+      <nav class="side" aria-label="Admin sections">
+        {nav.map((item) => (
+          <a
+            href={item.href}
+            aria-current={item.section === section ? "page" : undefined}
+          >
+            {item.label}
+          </a>
+        ))}
+        <div class="side-foot">
+          <a href="/account">← account</a>
+          {showConsoleLinks ? <a href="/console">console →</a> : null}
+          <button type="button" id="sign-out-btn">Sign out</button>
+        </div>
+      </nav>
+
+      <div class="content">
+        <slot />
+      </div>
+    </div>
+  </div>
+</div>
+
+{/* Sync optimistic paint for admins only — same cache key as account-shell. */}
+<script is:inline>
+  (function () {
+    try {
+      var raw = sessionStorage.getItem("uploads:sessionUser");
+      if (!raw) return;
+      var user = JSON.parse(raw);
+      if (!user || !user.email || user.role !== "admin") return;
+      var checking = document.getElementById("checking");
+      var app = document.getElementById("dashboard");
+      var who = document.getElementById("who");
+      if (checking) checking.hidden = true;
+      if (app) app.hidden = false;
+      if (who) who.textContent = user.email;
+      window.__uploadsSessionUser = user;
+    } catch (e) {}
+  })();
+</script>
+
+<script define:vars={{ authOrigin, apiOrigin }}>
+  window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
+  window.__UPLOADS_API_ORIGIN__ = apiOrigin;
+</script>
+<script>
+  import {
+    initSignOut,
+    requireElement,
+    resolveSessionGate,
+  } from "../lib/account-shell";
+
+  const w = window as unknown as {
+    __UPLOADS_AUTH_ORIGIN__: string;
+  };
+  const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
+
+  initSignOut(authOrigin);
+
+  void resolveSessionGate({
+    authOrigin,
+    checking: requireElement<HTMLElement>("#checking", "admin"),
+    denied: requireElement<HTMLElement>("#denied", "admin"),
+    app: requireElement<HTMLElement>("#dashboard", "admin"),
+    who: requireElement<HTMLElement>("#who", "admin"),
+    requireRole: "admin",
+  });
+</script>
+</body>
+</html>
