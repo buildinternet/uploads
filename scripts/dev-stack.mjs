@@ -186,8 +186,10 @@ async function main() {
       // ASTRO_DEV_BACKGROUND short-circuits astro's agent detection
       // (dist/cli/dev/index.js: `!process.env.ASTRO_DEV_BACKGROUND &&
       // isRunByAgent()`) so it stays in the foreground and is supervised
-      // like auth/api.
-      ASTRO_DEV_BACKGROUND: "1",
+      // like auth/api. 7.0.6 only checks the var's presence, but "0" is
+      // Astro's documented opt-out and the intent-correct value (background
+      // off) — future-proof if a later version parses the value.
+      ASTRO_DEV_BACKGROUND: "0",
     },
   );
   await waitFor(PREVIEW_URL, "web");
