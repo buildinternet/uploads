@@ -7,6 +7,20 @@ import { env } from "cloudflare:workers";
 
 export const prerender = false;
 
+// Visibility knob, not a security boundary — console auth is bearer-token
+// based (see comment above); this only controls whether the route serves
+// and whether anything links to it. "off" mimics the static 404 page.
+// wrangler types infers CONSOLE_MODE as the literal "public" from the default
+// in wrangler.jsonc; widen so runtime overrides ("linked-only"/"off") typecheck.
+const consoleMode = (env.CONSOLE_MODE as string | undefined) ?? "public";
+if (consoleMode === "off") {
+  // Reroute to the real 404 page so this matches an unknown route exactly
+  // (same markup) rather than hand-rolling markup; force the status since
+  // rewrite() doesn't inherit the target's own status code.
+  Astro.response.status = 404;
+  return Astro.rewrite("/404");
+}
+
 const API_DEFAULT = "https://api.uploads.sh";
 const authOrigin =
   env.UPLOADS_AUTH_ORIGIN ??

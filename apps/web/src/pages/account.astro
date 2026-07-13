@@ -14,6 +14,13 @@ import {
 
 export const prerender = false;
 
+// Visibility knob, not a security boundary — console auth is bearer-token
+// based, not session-based (see console.astro). Only "public" mode links
+// to it from here; "linked-only" and "off" still let the route serve.
+// See console.astro for why this is widened from the inferred literal type.
+const consoleMode = (env.CONSOLE_MODE as string | undefined) ?? "public";
+const showConsoleLinks = consoleMode === "public";
+
 const authOrigin =
   env.UPLOADS_AUTH_ORIGIN ??
   import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ??
@@ -120,7 +127,7 @@ const FAVICON =
         <a href="#account" data-panel="account">Account</a>
         <a href="#developers" data-panel="developers">Developers</a>
         <div class="side-foot">
-          <a href="/console">console →</a>
+          {showConsoleLinks ? <a href="/console">console →</a> : null}
           <a href="/admin" id="admin-link" hidden>admin →</a>
           <button type="button" id="sign-out-btn">Sign out</button>
         </div>
@@ -178,7 +185,7 @@ const FAVICON =
             <h2>Developers</h2>
             <p>These tools need a workspace token.</p>
             <ul class="plain">
-              <li><span><a href="/console">Console</a></span><span class="slug">usage, files, invites — bring a token</span></li>
+              {showConsoleLinks ? <li><span><a href="/console">Console</a></span><span class="slug">usage, files, invites — bring a token</span></li> : null}
               <li><span><a href="/docs">API docs</a></span><span class="slug">endpoints &amp; auth</span></li>
               <li><span><a href="https://github.com/buildinternet/uploads">GitHub</a></span><span class="slug">source &amp; issues</span></li>
             </ul>

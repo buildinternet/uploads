@@ -164,6 +164,10 @@ Do **not** delete PREVIOUS before re-encrypt completes.
 
 `POST /v1/:ws/files/sign` — workspace needs HTTP S3 credentials (not binding-only).
 
+## Console visibility
+
+`CONSOLE_MODE` (apps/web `wrangler.jsonc` vars) controls `/console` link visibility, not security — the console is bearer-token authenticated, so anyone with a valid workspace token can use it regardless of this setting. `"public"` (default) links to it from `/account`; `"linked-only"` keeps the route serving but drops those links, useful if you'd rather people find it deliberately; `"off"` makes `/console` 404. Self-hosters can leave the default.
+
 ## Deploys
 
 Code via Workers Builds / `pnpm run deploy`. D1 migrations on merge. npm CLI via changesets.
