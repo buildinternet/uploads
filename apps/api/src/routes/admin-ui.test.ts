@@ -187,6 +187,130 @@ describe("POST /admin-ui/workspaces/:name/invites", () => {
   });
 });
 
+describe("POST /admin-ui/workspaces/:name/invite-links", () => {
+  type Row = Record<string, unknown>;
+
+  class FakeStatement {
+    values: unknown[] = [];
+    constructor(
+      readonly db: FakeD1,
+      readonly sql: string,
+    ) {}
+    bind(...values: unknown[]): FakeStatement {
+      this.values = values;
+      return this;
+    }
+    run(): Promise<D1Result> {
+      this.db.enrollments.push({
+        id: this.values[0],
+        workspace: this.values[1],
+        code_hash: this.values[2],
+        label: this.values[3],
+        scopes: this.values[4],
+        created_at: this.values[5],
+        expires_at: this.values[6],
+        token_expires_at: this.values[7],
+        used_at: null,
+        page_id: this.values[8],
+      });
+      return Promise.resolve({ success: true } as unknown as D1Result);
+    }
+  }
+
+  class FakeD1 {
+    enrollments: Row[] = [];
+    prepare(sql: string): FakeStatement {
+      return new FakeStatement(this, sql);
+    }
+  }
+
+  function envWithDb(
+    user: typeof ADMIN_USER | null,
+    registryNames: string[],
+  ): Env & { DB: FakeD1 } {
+    const base = stubEnv(user, () => new Response(null, { status: 404 }));
+    const db = new FakeD1();
+    return {
+      ...base,
+      REGISTRY: {
+        get: (async (key: string) =>
+          registryNames.some((n) => `ws:${n}` === key)
+            ? "{}"
+            : null) as unknown as KVNamespace["get"],
+      } as unknown as KVNamespace,
+      DB: db,
+    } as unknown as Env & { DB: FakeD1 };
+  }
+
+  it("mints a redeemable code for an admin session", async () => {
+    const env = envWithDb(ADMIN_USER, ["acme"]);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/invite-links",
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+      env,
+    );
+    expect(res.status).toBe(201);
+    const payload = (await res.json()) as {
+      workspace: string;
+      code: string;
+      pageId: string;
+      url: string;
+      scopes: string[];
+      expiresAt: string;
+    };
+    expect(payload.workspace).toBe("acme");
+    expect(payload.code).toMatch(/^upe_/);
+    expect(payload.pageId).toMatch(/^upi_/);
+    expect(payload.url).toContain(payload.pageId);
+    expect(payload.url).toContain("#code=");
+    expect(payload.scopes).toEqual(["files:read", "files:write"]);
+    expect(env.DB.enrollments).toHaveLength(1);
+  });
+
+  it("401s with no session", async () => {
+    const env = envWithDb(null, ["acme"]);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/invite-links",
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+      env,
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("403s for a non-admin session", async () => {
+    const env = envWithDb(NON_ADMIN_USER, ["acme"]);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/invite-links",
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+      env,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("404s for an unknown workspace", async () => {
+    const env = envWithDb(ADMIN_USER, []);
+    const res = await app().request(
+      "/admin-ui/workspaces/nope/invite-links",
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("429s when the per-workspace write budget is exhausted", async () => {
+    const env = envWithDb(ADMIN_USER, ["acme"]) as Env & {
+      WRITE_LIMITER: { limit: (opts: { key: string }) => Promise<{ success: boolean }> };
+    };
+    env.WRITE_LIMITER = { limit: async () => ({ success: false }) };
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/invite-links",
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+      env,
+    );
+    expect(res.status).toBe(429);
+  });
+});
+
 describe("GET /admin-ui/workspaces/:name/members", () => {
   it("proxies the internal member list", async () => {
     const env = stubEnv(ADMIN_USER, (path) => {
