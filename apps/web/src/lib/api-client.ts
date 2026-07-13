@@ -16,7 +16,21 @@ export interface MyWorkspace {
   role: string;
 }
 
-/** GET /me/workspaces. Returns [] on any non-2xx or malformed body. */
+function isMyWorkspace(value: unknown): value is MyWorkspace {
+  if (!value || typeof value !== "object") return false;
+  const ws = value as Record<string, unknown>;
+  const org = ws.organization as Record<string, unknown> | null | undefined;
+  return (
+    typeof ws.workspace === "string" &&
+    typeof ws.role === "string" &&
+    !!org &&
+    typeof org === "object" &&
+    typeof org.name === "string" &&
+    typeof org.slug === "string"
+  );
+}
+
+/** GET /me/workspaces. Returns [] on any non-2xx or malformed body; drops malformed entries. */
 export async function getMyWorkspaces(apiOrigin: string): Promise<MyWorkspace[]> {
   try {
     const res = await fetch(`${trimOrigin(apiOrigin)}/me/workspaces`, {
@@ -24,8 +38,9 @@ export async function getMyWorkspaces(apiOrigin: string): Promise<MyWorkspace[]>
       cache: "no-store",
     });
     if (!res.ok) return [];
-    const body = (await res.json().catch(() => null)) as { workspaces?: MyWorkspace[] } | null;
-    return Array.isArray(body?.workspaces) ? body.workspaces : [];
+    const body = (await res.json().catch(() => null)) as { workspaces?: unknown[] } | null;
+    if (!Array.isArray(body?.workspaces)) return [];
+    return body.workspaces.filter(isMyWorkspace);
   } catch {
     return [];
   }
@@ -56,7 +71,16 @@ export async function getMyWorkspaceUsage(
     );
     if (!res.ok) return null;
     const body = (await res.json().catch(() => null)) as WorkspaceUsage | null;
-    return body ?? null;
+    if (
+      !body ||
+      typeof body !== "object" ||
+      typeof body.bytes !== "number" ||
+      typeof body.objects !== "number" ||
+      typeof body.uploadsInPeriod !== "number"
+    ) {
+      return null;
+    }
+    return body;
   } catch {
     return null;
   }

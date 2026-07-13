@@ -251,14 +251,21 @@ const FAVICON =
   function formatUsage(usage: {
     bytes: number;
     objects: number;
+    uploadsInPeriod: number;
     maxStorageBytes?: number;
+    maxUploadsPerPeriod?: number;
   }): string {
     const used = formatBytes(usage.bytes);
     const size = usage.maxStorageBytes
       ? `${used} of ${formatBytes(usage.maxStorageBytes)}`
       : used;
     const objects = `${usage.objects} object${usage.objects === 1 ? "" : "s"}`;
-    return `${size} · ${objects}`;
+    const parts = [size, objects];
+    // Only present when the workspace has a monthly upload cap.
+    if (usage.maxUploadsPerPeriod) {
+      parts.push(`${usage.uploadsInPeriod} of ${usage.maxUploadsPerPeriod} uploads this month`);
+    }
+    return parts.join(" · ");
   }
 
   getSession(authOrigin).then(async (result) => {
@@ -299,17 +306,20 @@ const FAVICON =
       )
       .join("");
 
-    // Usage is fetched per workspace, after the list renders, so a slow or
-    // failing usage call for one workspace never blocks the others.
-    for (const ws of workspaces) {
-      const li = orgsList.querySelector<HTMLElement>(
-        `li[data-workspace="${cssEscape(ws.workspace)}"]`,
-      );
-      const usageEl = li?.querySelector<HTMLElement>(".usage");
-      if (!usageEl) continue;
-      const usage = await getMyWorkspaceUsage(apiOrigin, ws.workspace);
-      usageEl.textContent = usage ? formatUsage(usage) : "Usage unavailable.";
-    }
+    // Usage is fetched per workspace, concurrently, after the list renders,
+    // so a slow or failing usage call for one workspace never blocks the
+    // others.
+    await Promise.all(
+      workspaces.map(async (ws) => {
+        const li = orgsList.querySelector<HTMLElement>(
+          `li[data-workspace="${cssEscape(ws.workspace)}"]`,
+        );
+        const usageEl = li?.querySelector<HTMLElement>(".usage");
+        if (!usageEl) return;
+        const usage = await getMyWorkspaceUsage(apiOrigin, ws.workspace);
+        usageEl.textContent = usage ? formatUsage(usage) : "Usage unavailable.";
+      }),
+    );
   });
 
   requireElement<HTMLButtonElement>("#sign-out-btn").addEventListener("click", async () => {

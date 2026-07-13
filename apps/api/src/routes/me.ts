@@ -9,7 +9,7 @@
  * (`workspace_not_found`) rather than 403ing, so membership can't be probed
  * for workspace existence any more precisely than for any other workspace.
  */
-import { NotFoundError } from "@uploads/errors";
+import { NotFoundError, ServiceUnavailableError } from "@uploads/errors";
 import { Hono } from "hono";
 import { usageWithLimits } from "../budget";
 import { orgForWorkspace, workspacesForOrg } from "../org-workspaces";
@@ -35,9 +35,21 @@ async function membershipsForUser(env: Env, userId: string): Promise<Membership[
     `https://auth.internal/internal/memberships?userId=${encodeURIComponent(userId)}`,
     { headers: { "x-uploads-internal": "1" } },
   );
-  if (!response.ok) return [];
+  if (!response.ok) {
+    // An AUTH outage is a 5xx, never "no memberships" — same treatment as
+    // orgForWorkspace in src/org-workspaces.ts.
+    throw new ServiceUnavailableError("auth service returned an unexpected status", {
+      code: "auth_lookup_failed",
+      details: { status: response.status },
+    });
+  }
   const body = await response.json().catch(() => null);
-  return Array.isArray(body) ? (body as Membership[]) : [];
+  if (!Array.isArray(body)) {
+    throw new ServiceUnavailableError("auth service returned a malformed body", {
+      code: "auth_lookup_failed",
+    });
+  }
+  return body as Membership[];
 }
 
 /**

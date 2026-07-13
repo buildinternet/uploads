@@ -74,6 +74,15 @@ describe("GET /me/workspaces", () => {
     });
   });
 
+  it("503s when the memberships lookup fails (AUTH outage is not zero memberships)", async () => {
+    const env = stubEnv(USER, () => new Response(null, { status: 500 }));
+    const res = await app().request("/me/workspaces", {}, env);
+    expect(res.status).toBe(503);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "auth_lookup_failed" },
+    });
+  });
+
   it("returns an empty list for a user with no memberships", async () => {
     const env = stubEnv(USER, (path) => {
       if (path === "/internal/memberships") return Response.json([]);
