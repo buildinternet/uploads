@@ -4,6 +4,7 @@ import { createAuth, type AuthEnv } from "./auth";
 import { internal } from "./internal-routes";
 import { isInternalRequest } from "./internal";
 import { isTrustedOrigin } from "./trusted-origins";
+import { runAuthRetentionSweep } from "./retention-sweep";
 
 // Credentialed CORS for the web origin (+ dev origins), scoped to /api/auth/*
 // only — this worker has no other public surface (D1: "CORS becomes trivial").
@@ -52,4 +53,19 @@ export const app = new Hono<{ Bindings: AuthEnv }>()
 
 export default {
   fetch: app.fetch.bind(app),
+  // Daily retention sweep (plan Phase 5, uploads#102 item 4): expired
+  // `verification`/`device_code` rows that Better Auth doesn't proactively
+  // clean up. See src/retention-sweep.ts.
+  async scheduled(_controller: ScheduledController, env: AuthEnv, ctx: ExecutionContext) {
+    ctx.waitUntil(
+      runAuthRetentionSweep(env).catch((err) => {
+        console.error(
+          JSON.stringify({
+            message: "auth_retention_sweep_failed",
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      }),
+    );
+  },
 };

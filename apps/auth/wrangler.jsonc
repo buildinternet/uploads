@@ -29,6 +29,13 @@
     "enabled": true,
     "head_sampling_rate": 1,
   },
+  // Daily retention sweep for expired verification/device_code rows (plan
+  // Phase 5, uploads#102 item 4 — see src/retention-sweep.ts). Offset 15
+  // minutes from apps/api's own daily sweep (0 6 * * *) so the two crons
+  // don't fire in the same minute.
+  "triggers": {
+    "crons": ["15 6 * * *"],
+  },
   // Dedicated D1 database (see docs/superpowers/plans/2026-07-12-better-auth-introduction.md,
   // decision D1) — auth tables never live in uploads-production. Database
   // created 2026-07-12 (region ENAM); migrations in ./migrations.
