@@ -1,0 +1,129 @@
+/* Content styles for /account/* cards (profile kv, workspace list, developer list). */
+.kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 18px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.kv dt {
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  align-self: center;
+}
+.kv dd {
+  margin: 0;
+  color: var(--fg);
+  word-break: break-word;
+}
+ul.plain {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+ul.plain li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 13px;
+}
+ul.plain .row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+ul.plain .slug {
+  color: var(--muted);
+}
+ul.plain .usage {
+  color: var(--muted);
+  font-size: 12px;
+}
+ul.plain .ws-detail {
+  display: grid;
+  gap: 14px;
+  margin-top: 11px;
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+}
+ul.plain .ws-section-head {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 7px;
+}
+ul.plain .ws-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+}
+ul.plain .ws-items li {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-size: 12.5px;
+}
+ul.plain .ws-empty {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+ul.plain .ws-note {
+  color: var(--body);
+  font-size: 12.5px;
+  margin: 0;
+}
+ul.plain .command {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 2px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+}
+ul.plain .command code {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow-x: auto;
+  display: block;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+}
+ul.plain .command button {
+  flex-shrink: 0;
+  font: 11px var(--mono);
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 10px;
+  background: var(--bg);
+  cursor: pointer;
+}
+ul.plain .command button:hover,
+ul.plain .command button:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+ul.plain .cli-note {
+  margin: 7px 0 0;
+  font-size: 11px;
+}
