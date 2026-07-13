@@ -205,8 +205,14 @@ Rules (validated client-side, fail-fast, before uploading): key
 `^[a-z][a-z0-9._-]{0,63}$` (lowercase, dot-namespacing allowed, e.g. `gh.repo`);
 value 1–512 printable ASCII characters; `--meta k=v` may repeat up to 24 times per
 request; a value may itself contain `=` (only the first `=` splits key from value).
-`content-sha256` is reserved (server-computed). `uploads attach` writes its own
-`gh.*` reserved-by-convention keys automatically — see below.
+`content-sha256` and `visibility` are reserved (server-computed / the real R2
+visibility gate, respectively). `uploads attach` writes its own `gh.*`
+reserved-by-convention keys automatically — see below.
+
+**Re-upload semantics:** re-uploading to an existing key **with** `--meta` replaces
+that file's entire metadata set (delete-then-set, not a merge); re-uploading
+**without** `--meta` at all preserves the existing metadata untouched. Use
+`uploads meta set` to edit individual keys without disturbing the rest.
 
 ## Public media galleries
 

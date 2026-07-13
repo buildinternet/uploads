@@ -112,6 +112,9 @@ Options:
   --comment             With --pr/--issue: update one managed comment with attachments and linked galleries via local gh auth
   --gallery <id>         Add the uploaded object to this public gallery
   --meta <k=v>          Queryable custom metadata (repeatable; value may contain "="): key ^[a-z][a-z0-9._-]{0,63}$, value 1-512 printable ASCII, max 24 pairs
+                        Re-uploading to an existing key WITH --meta replaces that file's
+                        entire metadata set; without --meta the existing metadata is
+                        preserved. Use "uploads meta set" to edit individual keys.
   --dry-run             Print key + public URL without uploading. Not with --comment/--gallery
 
 Exit codes: 0 ok · 2 usage/token/file · 3 auth/policy · 4 network · 1 other.
@@ -345,6 +348,9 @@ Options:
   --meta <k=v>          Extra queryable metadata (repeatable; value may contain "=").
                         gh.repo/gh.kind/gh.number/gh.ref are always set from the resolved
                         target — a --meta pair with the same key is overridden by it.
+                        Because attach always sends its own gh.* pairs, re-attaching to
+                        the same key always replaces that file's entire metadata set
+                        (never preserves) — use "uploads meta set" to add to it instead.
 
 Examples:
   uploads attach ./before.png ./after.png
