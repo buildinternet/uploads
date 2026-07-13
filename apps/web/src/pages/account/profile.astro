@@ -25,6 +25,16 @@ export const prerender = false;
   </section>
 
   <section class="card">
+    <h2>Workspace access</h2>
+    <p class="muted">
+      Workspaces this account can use. Membership expands as you’re invited;
+      open a workspace to browse files.
+    </p>
+    <div id="access-status" class="muted detail-status">Loading…</div>
+    <ul class="detail-list" id="access-list" hidden></ul>
+  </section>
+
+  <section class="card">
     <h2>Active sessions</h2>
     <p class="muted">
       Browsers and CLI devices signed in to this account. Revoking a CLI session
@@ -37,11 +47,25 @@ export const prerender = false;
 
   <script>
     import { onSession, requireElement } from "../../lib/account-shell";
-    import { getSession, listAccounts, listSessions, revokeSession } from "../../lib/auth-client";
+    import {
+      getAccountInfo,
+      getSession,
+      listAccounts,
+      listSessions,
+      revokeSession,
+      type LinkedAccount,
+      type ProviderAccountInfo,
+    } from "../../lib/auth-client";
+    import { getMyWorkspaces } from "../../lib/api-client";
+    import { githubMarkSvg } from "../../lib/brand-icons";
     import { deviceLabel, formatSessionTime, isCliUserAgent } from "../../lib/session-device";
 
-    const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
-      .__UPLOADS_AUTH_ORIGIN__;
+    const w = window as unknown as {
+      __UPLOADS_AUTH_ORIGIN__: string;
+      __UPLOADS_API_ORIGIN__: string;
+    };
+    const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
+    const apiOrigin = w.__UPLOADS_API_ORIGIN__;
 
     const escapeHtml = (value: string) =>
       value.replace(/[&<>"']/g, (ch) =>
@@ -52,6 +76,28 @@ export const prerender = false;
       el.hidden = false;
       el.textContent = text;
     }
+
+    function asNonEmptyString(value: unknown): string | null {
+      return typeof value === "string" && value.length > 0 ? value : null;
+    }
+
+    // Official GitHub mark (same path as releases AccountIcon) — not a Lucide
+    // brand icon; Lucide dropped brand logos.
+    const GITHUB_ICON = githubMarkSvg({ size: 14, className: "detail-icon" });
+
+    function githubDetail(account: LinkedAccount, info: ProviderAccountInfo | null): string {
+      const parts: string[] = [];
+      const login = asNonEmptyString(info?.data?.login);
+      if (login) parts.push(`@${login}`);
+      const email =
+        asNonEmptyString(info?.user?.email) ?? asNonEmptyString(info?.data?.email);
+      if (email) parts.push(email);
+      parts.push(`id ${account.accountId}`);
+      if (account.scopes?.length) parts.push(`scopes ${account.scopes.join(", ")}`);
+      return parts.join(" · ");
+    }
+
+    type MethodRow = { title: string; detail: string; ok: boolean; icon?: string };
 
     async function loadAccounts(): Promise<void> {
       const status = requireElement<HTMLElement>("#accounts-status", "account profile");
@@ -65,14 +111,25 @@ export const prerender = false;
         return;
       }
 
-      const rows =
+      // Live GitHub profile (username/email) when a linked account exists.
+      // account-info needs the numeric accountId from list-accounts.
+      const github = accounts.find((a) => a.providerId === "github");
+      const githubInfo = github
+        ? await getAccountInfo(authOrigin, {
+            providerId: "github",
+            accountId: github.accountId,
+          })
+        : null;
+
+      const rows: MethodRow[] =
         accounts.length > 0
           ? accounts.map((a) => {
               if (a.providerId === "github") {
                 return {
                   title: "GitHub",
-                  detail: `Connected · user id ${a.accountId}`,
+                  detail: githubDetail(a, githubInfo),
                   ok: true,
+                  icon: GITHUB_ICON,
                 };
               }
               return {
@@ -84,11 +141,12 @@ export const prerender = false;
           : [{ title: "Email", detail: "Magic link sign-in", ok: true }];
 
       // Surface a missing GitHub link without inventing connect/disconnect UI.
-      if (!accounts.some((a) => a.providerId === "github")) {
+      if (!github) {
         rows.push({
           title: "GitHub",
           detail: "Not connected — use GitHub next time you sign in to link it.",
           ok: false,
+          icon: GITHUB_ICON,
         });
       }
 
@@ -99,6 +157,7 @@ export const prerender = false;
           (row) => `<li>
             <div class="detail-main">
               <div class="detail-title">
+                ${row.icon ?? ""}
                 <span>${escapeHtml(row.title)}</span>
                 ${
                   row.ok
@@ -110,6 +169,51 @@ export const prerender = false;
             </div>
           </li>`,
         )
+        .join("");
+    }
+
+    async function loadWorkspaceAccess(): Promise<void> {
+      const status = requireElement<HTMLElement>("#access-status", "account profile");
+      const list = requireElement<HTMLUListElement>("#access-list", "account profile");
+      list.hidden = true;
+      showStatus(status, "Loading…");
+
+      const result = await getMyWorkspaces(apiOrigin);
+      if (result.kind === "unavailable") {
+        showStatus(status, "Couldn’t load workspace access.");
+        return;
+      }
+      const { workspaces } = result;
+      if (!workspaces.length) {
+        showStatus(status, "No workspaces yet — accept an invite to join one.");
+        return;
+      }
+
+      status.hidden = true;
+      list.hidden = false;
+      list.innerHTML = workspaces
+        .map((ws) => {
+          const name = ws.organization.name || ws.workspace;
+          const href = `/account/workspaces?ws=${encodeURIComponent(ws.workspace)}`;
+          const meta = [
+            ws.workspace !== name ? ws.workspace : null,
+            ws.role,
+            ws.communal ? "communal" : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          return `<li>
+            <div class="detail-main">
+              <div class="detail-title">
+                <a href="${escapeHtml(href)}">${escapeHtml(name)}</a>
+              </div>
+              <div class="detail-meta">${escapeHtml(meta)}</div>
+            </div>
+            <div class="detail-action">
+              <a class="text-btn" href="${escapeHtml(href)}">Open</a>
+            </div>
+          </li>`;
+        })
         .join("");
     }
 
@@ -211,6 +315,7 @@ export const prerender = false;
       requireElement<HTMLElement>("#acct-role", "account profile").textContent =
         user.role || "member";
       void loadAccounts();
+      void loadWorkspaceAccess();
       void loadSessions();
     });
   </script>

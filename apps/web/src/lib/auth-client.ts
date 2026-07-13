@@ -56,8 +56,25 @@ export interface LinkedAccount {
   id: string;
   providerId: string;
   accountId: string;
+  /** OAuth scopes granted to this linked account (from list-accounts). */
+  scopes?: string[];
   createdAt?: string | Date;
   updatedAt?: string | Date;
+}
+
+/**
+ * Live provider profile from GET /api/auth/account-info.
+ * For GitHub, `data.login` is the username; `user` is the mapped BA profile.
+ */
+export interface ProviderAccountInfo {
+  user: {
+    id?: string | number;
+    name?: string | null;
+    email?: string | null;
+    image?: string | null;
+    emailVerified?: boolean;
+  };
+  data?: Record<string, unknown>;
 }
 
 export type SessionResult =
@@ -348,15 +365,65 @@ export async function listSessions(origin: string): Promise<AuthSession[] | null
 export async function listAccounts(origin: string): Promise<LinkedAccount[] | null> {
   const body = await getAuthArray(origin, "/api/auth/list-accounts");
   if (!body) return null;
-  return body.filter((row): row is LinkedAccount => {
-    if (!row || typeof row !== "object") return false;
+  const accounts: LinkedAccount[] = [];
+  for (const row of body) {
+    if (!row || typeof row !== "object") continue;
     const r = row as Record<string, unknown>;
-    return (
-      typeof r.id === "string" &&
-      typeof r.providerId === "string" &&
-      typeof r.accountId === "string"
-    );
+    if (
+      typeof r.id !== "string" ||
+      typeof r.providerId !== "string" ||
+      typeof r.accountId !== "string"
+    ) {
+      continue;
+    }
+    const account: LinkedAccount = {
+      id: r.id,
+      providerId: r.providerId,
+      accountId: r.accountId,
+    };
+    if (Array.isArray(r.scopes)) {
+      const scopes = r.scopes.filter((s): s is string => typeof s === "string" && s.length > 0);
+      if (scopes.length > 0) account.scopes = scopes;
+    }
+    if (r.createdAt !== undefined) account.createdAt = r.createdAt as string | Date;
+    if (r.updatedAt !== undefined) account.updatedAt = r.updatedAt as string | Date;
+    accounts.push(account);
+  }
+  return accounts;
+}
+
+/**
+ * GET /api/auth/account-info — live profile from the linked OAuth provider
+ * (uses the stored access token). Pass accountId from list-accounts; without
+ * it Better Auth only resolves via an account cookie we do not enable.
+ */
+export async function getAccountInfo(
+  origin: string,
+  opts: { providerId: string; accountId: string },
+): Promise<ProviderAccountInfo | null> {
+  const params = new URLSearchParams({
+    providerId: opts.providerId,
+    accountId: opts.accountId,
   });
+  const result = await fetchWithTimeout(`${authOrigin(origin)}/api/auth/account-info?${params}`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (result.kind === "unavailable" || !result.response.ok) return null;
+  const body = (await result.response.json().catch(() => undefined)) as
+    | { user?: unknown; data?: unknown }
+    | null
+    | undefined;
+  if (!body || typeof body !== "object" || !body.user || typeof body.user !== "object") {
+    return null;
+  }
+  const info: ProviderAccountInfo = {
+    user: body.user as ProviderAccountInfo["user"],
+  };
+  if (body.data && typeof body.data === "object") {
+    info.data = body.data as Record<string, unknown>;
+  }
+  return info;
 }
 
 /** POST /api/auth/revoke-session — end one other session. */

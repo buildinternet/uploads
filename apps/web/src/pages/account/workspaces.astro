@@ -27,6 +27,10 @@ export const prerender = false;
       type GallerySummary,
     } from "../../lib/api-client";
     import { AccountFileBrowser } from "../../components/AccountFileBrowser";
+    import {
+      readBrowseLocation,
+      replaceBrowseLocation,
+    } from "../../lib/workspace-browse-url";
     import { createElement } from "react";
     import { createRoot } from "react-dom/client";
 
@@ -34,6 +38,8 @@ export const prerender = false;
       __UPLOADS_API_ORIGIN__: string;
     };
     const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+    // Deep-link restore: ?ws=<name>&path=screenshots/releases/
+    const browseOnLoad = readBrowseLocation(window.location.search);
 
     const escapeHtml = (value: string) =>
       value.replace(/[&<>"']/g, (ch) =>
@@ -255,25 +261,35 @@ export const prerender = false;
             }
             const filesEl = li.querySelector<HTMLElement>("[data-files]");
             if (filesEl) {
-              // Mount lazily: a fresh React root per workspace is only worth
-              // paying for once its container approaches the viewport.
-              const mount = () =>
+              const isDeepLinked = browseOnLoad.workspace === ws.workspace;
+              // Mount lazily near the viewport; deep-linked workspaces mount now
+              // so `?path=` restores before the user scrolls.
+              const mount = () => {
                 createRoot(filesEl).render(
                   createElement(AccountFileBrowser, {
                     apiOrigin,
                     workspace: ws.workspace,
                     hasPublicUrl: ws.hasPublicUrl,
+                    initialPrefix: isDeepLinked ? browseOnLoad.path : "",
+                    onPrefixChange: (path: string) => {
+                      replaceBrowseLocation({ workspace: ws.workspace, path });
+                    },
                   }),
                 );
-              if (typeof IntersectionObserver === "undefined") {
+              };
+              if (isDeepLinked || typeof IntersectionObserver === "undefined") {
                 mount();
+                if (isDeepLinked) {
+                  requestAnimationFrame(() => {
+                    li.scrollIntoView({ block: "start", behavior: "smooth" });
+                  });
+                }
               } else {
                 const observer = new IntersectionObserver(
                   (entries) => {
-                    if (entries.some((entry) => entry.isIntersecting)) {
-                      observer.disconnect();
-                      mount();
-                    }
+                    if (!entries.some((entry) => entry.isIntersecting)) return;
+                    observer.disconnect();
+                    mount();
                   },
                   { rootMargin: "200px" },
                 );
