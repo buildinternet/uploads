@@ -1,0 +1,13 @@
+# Copy to apps/web/.dev.vars for local `astro dev` / `wrangler dev` (gitignored).
+
+# REQUIRED locally: the Cloudflare adapter inherits the top-level (production)
+# wrangler vars from wrangler.jsonc, so without these overrides the signed-in
+# shells (/account/*, /admin/*) resolve https://auth.uploads.sh and
+# https://api.uploads.sh — and their strict CSP then blocks localhost fetches.
+# .dev.vars values take precedence over wrangler.jsonc vars, so setting these
+# here points the signed-in pages (and their CSP connect-src, which is derived
+# from the same origins — see resolveSignedInOrigins in
+# src/lib/signed-in-page.ts) at the local auth/API workers instead. Matches
+# the ports used by `pnpm dev:stack` (see scripts/dev-stack-common.mjs).
+UPLOADS_AUTH_ORIGIN=http://127.0.0.1:8788
+UPLOADS_API_ORIGIN=http://127.0.0.1:8787
