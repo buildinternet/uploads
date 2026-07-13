@@ -152,4 +152,39 @@ describe("runBackfill", () => {
 
     expect(summary).toEqual({ matched: 2, patched: 1, skipped: 0, errors: 1 });
   });
+
+  it("counts a thrown PATCH fetch (transport error) as an error and continues", async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.includes("/files?")) {
+        return jsonResponse({
+          items: [{ key: "gh/owner/repo/pull/12/a.png" }, { key: "gh/owner/repo/pull/13/b.png" }],
+          cursor: null,
+        });
+      }
+      if (url.includes("/pull/12/a.png/metadata")) {
+        throw new TypeError("fetch failed: connection reset");
+      }
+      if (url.includes("/pull/13/b.png/metadata")) {
+        return jsonResponse({ metadata: {} });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const summary = await runBackfill({ ...baseOpts, fetchImpl });
+
+    expect(summary).toEqual({ matched: 2, patched: 1, skipped: 0, errors: 1 });
+    // Both PATCHes were attempted despite the first one throwing.
+    expect(fetchImpl.mock.calls.filter(([url]) => url.includes("/metadata"))).toHaveLength(2);
+  });
+
+  it("aborts cleanly with an error counted when the list fetch throws (transport error)", async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError("fetch failed: getaddrinfo ENOTFOUND");
+    });
+
+    const summary = await runBackfill({ ...baseOpts, fetchImpl });
+
+    expect(summary).toEqual({ matched: 0, patched: 0, skipped: 0, errors: 1 });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
 });

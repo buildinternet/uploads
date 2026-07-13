@@ -75,9 +75,19 @@ export async function runBackfill({
     listUrl.searchParams.set("prefix", prefix);
     if (cursor) listUrl.searchParams.set("cursor", cursor);
 
-    const listRes = await fetchImpl(listUrl.toString(), {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    // A failed list call (non-2xx or transport error) aborts the loop —
+    // without the page we can't discover further keys. A failed PATCH below
+    // only skips that one key. Both count as errors (non-zero exit).
+    let listRes;
+    try {
+      listRes = await fetchImpl(listUrl.toString(), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (err) {
+      counts.errors += 1;
+      log(`error: list failed (${err instanceof Error ? err.message : String(err)})`);
+      break;
+    }
     if (!listRes.ok) {
       counts.errors += 1;
       log(`error: list failed (HTTP ${listRes.status})`);
@@ -101,14 +111,23 @@ export async function runBackfill({
       }
 
       const patchUrl = `${base}/v1/${workspace}/files/${plan.key}/metadata`;
-      const patchRes = await fetchImpl(patchUrl, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ set: plan.metadata }),
-      });
+      let patchRes;
+      try {
+        patchRes = await fetchImpl(patchUrl, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ set: plan.metadata }),
+        });
+      } catch (err) {
+        counts.errors += 1;
+        log(
+          `error: PATCH ${plan.key} failed (${err instanceof Error ? err.message : String(err)})`,
+        );
+        continue;
+      }
       if (!patchRes.ok) {
         counts.errors += 1;
         log(`error: PATCH ${plan.key} failed (HTTP ${patchRes.status})`);
@@ -165,7 +184,15 @@ async function main() {
     `backfilling gh.* metadata for ${apiUrl} workspace=${workspace}${opts.dryRun ? " (dry-run)" : ""}`,
   );
 
-  const summary = await runBackfill({ apiUrl, workspace, token, dryRun: opts.dryRun });
+  // runBackfill handles fetch failures itself; this catch is the last line of
+  // defense (e.g. a malformed list body) — exit non-zero, no raw stack dump.
+  let summary;
+  try {
+    summary = await runBackfill({ apiUrl, workspace, token, dryRun: opts.dryRun });
+  } catch (err) {
+    console.error(`error: backfill failed (${err instanceof Error ? err.message : String(err)})`);
+    process.exit(1);
+  }
 
   console.log(
     `\ndone: matched=${summary.matched} patched=${summary.patched} skipped=${summary.skipped} errors=${summary.errors}`,
