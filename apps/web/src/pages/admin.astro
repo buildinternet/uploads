@@ -104,6 +104,10 @@ const FAVICON =
     #workspaces-list :global(.invite-status){font-size:12px;margin-top:4px}
     #workspaces-list :global(.invite-status[data-state=error]){color:var(--red)}
     #workspaces-list :global(.invite-status[data-state=ready]){color:var(--accent)}
+    #workspaces-list :global(.invite-link-row){display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--line)}
+    #workspaces-list :global(.invite-link-row button){font:11px var(--mono);color:var(--accent);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:7px 12px;cursor:pointer}
+    #workspaces-list :global(.invite-link-row button:hover),#workspaces-list :global(.invite-link-row button:focus-visible){border-color:var(--accent);outline:none}
+    #workspaces-list :global(.invite-link-url){flex:1;min-width:200px;background:var(--panel);border:1px solid var(--line);border-radius:6px;color:var(--fg);padding:7px 9px;font:11px var(--mono)}
 
     @media (max-width:680px){
       .layout{grid-template-columns:1fr}
@@ -251,6 +255,12 @@ const FAVICON =
               <div class="invite-status" hidden></div>`
             : `<p class="muted">No organization provisioned for this workspace yet — run the org backfill.</p>`
         }
+        <div class="invite-link-row">
+          <button type="button" class="invite-link-generate">Generate invite link</button>
+          <input type="text" class="invite-link-url" readonly hidden aria-label="Invite link" />
+          <button type="button" class="invite-link-copy" hidden>Copy</button>
+        </div>
+        <div class="invite-status invite-link-status" role="status" aria-live="polite" hidden></div>
       </div>
     `;
 
@@ -330,6 +340,68 @@ const FAVICON =
         }
       } finally {
         if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+
+    const generateBtn = details.querySelector<HTMLButtonElement>(".invite-link-generate");
+    const urlInput = details.querySelector<HTMLInputElement>(".invite-link-url");
+    const copyBtn = details.querySelector<HTMLButtonElement>(".invite-link-copy");
+    const linkStatusEl = details.querySelector<HTMLElement>(".invite-link-status");
+    generateBtn?.addEventListener("click", async () => {
+      generateBtn.disabled = true;
+      if (linkStatusEl) linkStatusEl.hidden = true;
+      if (urlInput) urlInput.hidden = true;
+      if (copyBtn) copyBtn.hidden = true;
+      try {
+        const res = await fetch(
+          `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invite-links`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+          },
+        );
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => null)) as
+            | { error?: { message?: string } }
+            | null;
+          throw new Error(payload?.error?.message || `invite link failed: ${res.status}`);
+        }
+        const { url } = (await res.json()) as { url: string };
+        if (urlInput) {
+          urlInput.value = url;
+          urlInput.hidden = false;
+        }
+        if (copyBtn) copyBtn.hidden = false;
+      } catch (err) {
+        if (linkStatusEl) {
+          linkStatusEl.dataset.state = "error";
+          linkStatusEl.textContent =
+            err instanceof Error && err.message ? err.message : "Couldn't generate an invite link.";
+          linkStatusEl.hidden = false;
+        }
+      } finally {
+        generateBtn.disabled = false;
+      }
+    });
+    copyBtn?.addEventListener("click", async () => {
+      if (!urlInput?.value) return;
+      try {
+        await navigator.clipboard.writeText(urlInput.value);
+        if (linkStatusEl) {
+          linkStatusEl.dataset.state = "ready";
+          linkStatusEl.textContent = "Copied.";
+          linkStatusEl.hidden = false;
+        }
+      } catch {
+        if (linkStatusEl) {
+          linkStatusEl.dataset.state = "error";
+          linkStatusEl.textContent = "Clipboard unavailable; copy the selected link manually.";
+          linkStatusEl.hidden = false;
+        }
+        urlInput.focus();
+        urlInput.select();
       }
     });
 

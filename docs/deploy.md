@@ -13,13 +13,13 @@ subdomain.
 
 1. Create the registry: `wrangler kv namespace create REGISTRY`, paste the id
    into `apps/api/wrangler.jsonc`.
-2. Create the enrollment database and add the emitted binding to
-   `apps/api/wrangler.jsonc` as `DB`:
+2. Create the API's D1 database (tokens, usage ledger, legacy enrollment
+   state) and add the emitted binding to `apps/api/wrangler.jsonc` as `DB`:
    ```bash
    cd apps/api
    pnpm exec wrangler d1 create uploads-production
    ```
-3. Apply enrollment migrations locally during development:
+3. Apply migrations locally during development:
    ```bash
    pnpm --filter @uploads/api run migrate:d1:local
    # equivalent: CI=1 wrangler d1 migrations apply DB --local  (from apps/api)
@@ -44,11 +44,21 @@ subdomain.
    database `uploads-production`) so schema lands before new code. Manual-only:
    `pnpm --filter @uploads/api run migrate:d1`.
 
-D1 owns short-lived enrollment state, redemption, scoped/expiring tokens, and
-the workspace usage ledger. KV remains the source of truth for workspace
-storage configuration and legacy tokens. Never deploy a Worker that reads a
-new D1 schema before the corresponding remote migration succeeds. Check in
-every migration under `apps/api/migrations/`.
+D1 owns short-lived legacy enrollment state, redemption, scoped/expiring
+tokens, and the workspace usage ledger. KV remains the source of truth for
+workspace storage configuration and legacy tokens. Never deploy a Worker that
+reads a new D1 schema before the corresponding remote migration succeeds.
+Check in every migration under `apps/api/migrations/`.
+
+### The `apps/auth` worker
+
+Sign-in (`uploads login`, `/admin`, `/accept-invitation`) is served by a
+separate Better Auth worker, `apps/auth`, deploying to `auth.uploads.sh` with
+its own D1 database (`uploads-auth`) and migrations under
+`apps/auth/migrations/`. It needs a GitHub OAuth app, a signing secret, and
+(for `apps/api` to verify sessions) a `services` binding named `AUTH` from
+`apps/api` → the `uploads-auth` worker. See `apps/auth/README.md` for setup,
+including the first-admin bootstrap.
 
 ### CI: migrations on merge
 

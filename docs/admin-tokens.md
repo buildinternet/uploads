@@ -1,9 +1,13 @@
 # Admin tokens
 
-`ADMIN_TOKEN` is a server-administration credential. Routine agents must never
-receive it. The normal onboarding path is for an administrator to create a
-short-lived enrollment code and for the agent to exchange it with `uploads login`.
-The workspace must already exist (`pnpm workspace:add …`).
+`ADMIN_TOKEN` is a break-glass ops/CI credential — it is **not** how someone
+gets onto a workspace day-to-day. The normal path is a session-authenticated
+organization invitation sent from the `/admin` UI, followed by the invitee
+running `uploads login` themselves (see [enrollment](enrollment.md)).
+`ADMIN_TOKEN` stays reserved for things the session-authed admin UI doesn't
+cover: minting or revoking tokens on behalf of a workspace, the second-admin
+promote fallback, credential re-encryption, org backfills, and CI smoke
+tests. The workspace must already exist (`pnpm workspace:add …`).
 
 ## Setup
 
@@ -21,8 +25,9 @@ value in routine-agent configuration.
 
 ## Mint a token
 
-Direct minting is retained for CI, migration, and break-glass use. Interactive and
-routine agent setup should use [enrollment](enrollment.md) instead.
+Direct minting is retained for CI, migration, and break-glass use. Everyday
+setup should use `uploads login` instead (see [enrollment](enrollment.md)) —
+end users mint their own token that way, with no `ADMIN_TOKEN` involved.
 
 Defaults to the `default` workspace:
 

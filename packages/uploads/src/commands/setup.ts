@@ -87,8 +87,10 @@ function formatWizard(status: SetupStatus): string {
 
   if (!status.token) {
     lines.push("Step 1 — Sign in");
-    lines.push("  Ask your uploads.sh administrator for a one-time enrollment code, then run:");
+    lines.push("  Run:");
     lines.push("    uploads login");
+    lines.push("  This opens a browser to authorize this device.");
+    lines.push("  Have a pre-existing enrollment code instead? uploads login --code upe_…");
     lines.push("  If you already have a bearer token:");
     lines.push("    uploads setup --token up_<workspace>_…");
     lines.push("");
@@ -253,7 +255,9 @@ export async function runSetup(
   } else if (token || checkExplicit) {
     process.stderr.write("hint: run uploads doctor to verify\n");
   } else {
-    process.stderr.write("hint: run uploads login with an admin-provided enrollment code\n");
+    process.stderr.write(
+      "hint: run uploads login (or uploads login --code <code> if you have one)\n",
+    );
   }
 
   return doctorOk === false ? 1 : 0;

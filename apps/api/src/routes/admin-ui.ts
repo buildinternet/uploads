@@ -7,7 +7,14 @@
  */
 import { NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
+import {
+  DEFAULT_ENROLLMENT_SECONDS,
+  DEFAULT_TOKEN_SECONDS,
+  createEnrollment,
+  validateScopes,
+} from "../auth-db";
 import { allowWrite } from "../guards";
+import { deriveWebOrigin, inviteLinkUrl } from "../invite-links";
 import { orgForWorkspace } from "../org-workspaces";
 import {
   requireAdminUser,
@@ -17,6 +24,18 @@ import {
 } from "../session-auth";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Invite links share the same D1 enrollment records as the ADMIN_TOKEN-gated
+// POST /admin/enrollments path (apps/api/src/routes/admin.ts) — same code
+// format, same TTL defaults, same redemption flow (apps/web's /invite page
+// and `uploads login --code`). This route only adds a session-authed way to
+// mint one without an email recipient.
+function labelValue(value: unknown): string | undefined | null {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") return null;
+  const label = value.trim();
+  return label.length >= 1 && label.length <= 100 ? label : null;
+}
 
 interface OrgSummary {
   organization: { id: string; slug: string; name: string };
@@ -143,4 +162,54 @@ export const adminUi = new Hono<SessionVars>()
       throw new ValidationError("failed to create invitation", { details: payload });
     }
     return c.json(payload as object, 201);
+  })
+
+  // Mint a redeemable invite link/code for this workspace — the session-authed
+  // counterpart to POST /admin/enrollments, for sharing a URL/code without
+  // knowing the invitee's email. Backed by the same auth_enrollments table
+  // (see createEnrollment in ../auth-db), so the resulting link works
+  // unchanged with apps/web's /invite page and `uploads login --code`.
+  .post("/workspaces/:name/invite-links", async (c) => {
+    const name = c.req.param("name");
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+    const existing = await c.env.REGISTRY.get(`ws:${name}`);
+    if (!existing) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
+
+    const body = await c.req
+      .json<{ label?: unknown; scopes?: unknown }>()
+      .catch(() => ({}) as { label?: unknown; scopes?: unknown });
+    const label = labelValue(body.label);
+    if (label === null) {
+      throw new ValidationError("label must be between 1 and 100 characters", {
+        code: "invalid_label",
+      });
+    }
+    const scopes = validateScopes(body.scopes, ["files:read", "files:write"]);
+    if (!scopes) throw new ValidationError("invalid scopes", { code: "invalid_scopes" });
+
+    const enrollment = await createEnrollment(c.env.DB, {
+      workspace: name,
+      label,
+      scopes,
+      enrollmentSeconds: DEFAULT_ENROLLMENT_SECONDS,
+      tokenSeconds: DEFAULT_TOKEN_SECONDS,
+    });
+
+    const webOrigin = c.env.WEB_ORIGIN || deriveWebOrigin(c.req.url);
+    const url = inviteLinkUrl(webOrigin, enrollment.pageId, enrollment.code);
+
+    return c.json(
+      {
+        workspace: name,
+        label: label ?? null,
+        scopes,
+        url,
+        ...enrollment,
+      },
+      201,
+    );
   });
