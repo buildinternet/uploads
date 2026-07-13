@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { UsageError } from "../src/cli-args.js";
+import { UploadsError } from "../src/errors.js";
 import type { UploadsClient } from "../src/client.js";
 import { runPut, type CliContext } from "../src/commands.js";
 import type { CommandRunner } from "../src/github-gh.js";
@@ -9,10 +10,25 @@ import { join } from "node:path";
 
 /** Fake client capturing put() calls; other methods throw if reached. */
 function fakeClient() {
-  const puts: { key?: string; filename: string; prefix?: string; body: Uint8Array }[] = [];
+  const puts: {
+    key?: string;
+    filename: string;
+    prefix?: string;
+    dryRun?: boolean;
+    body: Uint8Array;
+  }[] = [];
   const client = {
-    put: async (body: Uint8Array, opts: { filename: string; key?: string; prefix?: string }) => {
-      puts.push({ key: opts.key, filename: opts.filename, prefix: opts.prefix, body });
+    put: async (
+      body: Uint8Array,
+      opts: { filename: string; key?: string; prefix?: string; dryRun?: boolean },
+    ) => {
+      puts.push({
+        key: opts.key,
+        filename: opts.filename,
+        prefix: opts.prefix,
+        dryRun: opts.dryRun,
+        body,
+      });
       return {
         workspace: "test",
         key: opts.key ?? "generated/key.png",
@@ -140,6 +156,91 @@ describe("runPut --pr/--issue", () => {
     );
     expect(puts[0].filename).toBe("shot.png");
     expect(puts[0].key).toBe("gh/o/r/pull/9/shot.png");
+  });
+});
+
+describe("runPut --name", () => {
+  it("overrides the key leaf while keeping the stable --pr path", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "128", "--repo", "o/r", "--name", "hero.png"],
+      false,
+      noRun,
+    );
+    expect(code).toBe(0);
+    expect(puts[0].filename).toBe("hero.png");
+    expect(puts[0].key).toBe("gh/o/r/pull/128/hero.png");
+  });
+
+  it("overrides the leaf on the default hashed key path", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "myapp", "--no-git", "--name", "clean.png"],
+      false,
+      noRun,
+    );
+    expect(puts[0].filename).toBe("clean.png"); // client hashes <name>-<hash>.<ext>
+  });
+
+  it("rejects --name with a slash", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), [tmpFile(), "--name", "a/b.png"], false, noRun),
+    ).rejects.toThrow(UsageError);
+  });
+
+  it("rejects --name combined with --key", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), [tmpFile(), "--key", "x/y.png", "--name", "z.png"], false, noRun),
+    ).rejects.toThrow(UsageError);
+  });
+});
+
+describe("runPut --dry-run", () => {
+  it("passes dryRun to the client and returns 0", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "5", "--repo", "o/r", "--dry-run"],
+      false,
+      noRun,
+    );
+    expect(code).toBe(0);
+    expect(puts[0].dryRun).toBe(true);
+    expect(puts[0].key).toBe("gh/o/r/pull/5/shot.png");
+  });
+
+  it("rejects --dry-run with --comment", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), [tmpFile(), "--pr", "5", "--dry-run", "--comment"], false, noRun),
+    ).rejects.toThrow(UsageError);
+  });
+
+  it("rejects --dry-run with --gallery", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), [tmpFile(), "--dry-run", "--gallery", "gal_x"], false, noRun),
+    ).rejects.toThrow(UsageError);
+  });
+});
+
+describe("runPut missing file", () => {
+  it("throws FILE_NOT_FOUND for a nonexistent path", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), ["/no/such/file-xyz.png"], false, noRun),
+    ).rejects.toMatchObject({ code: "FILE_NOT_FOUND" });
+  });
+
+  it("surfaces FILE_NOT_FOUND as an UploadsError", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), ["/no/such/file-xyz.png"], false, noRun),
+    ).rejects.toBeInstanceOf(UploadsError);
   });
 });
 

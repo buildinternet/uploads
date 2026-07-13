@@ -54,6 +54,18 @@ export interface CliContext {
   envFile?: string;
 }
 
+/** Read a local file (or `-` for stdin). Missing path → FILE_NOT_FOUND (exit 2). */
+export function readFileArg(fileArg: string): Uint8Array {
+  try {
+    return new Uint8Array(readFileSync(fileArg === "-" ? 0 : fileArg));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+      throw new UploadsError(`file not found: ${fileArg}`, "FILE_NOT_FOUND");
+    }
+    throw err;
+  }
+}
+
 // --- put ---
 
 const PUT_HELP = `uploads put <file> [options]
@@ -74,6 +86,7 @@ that is safe at a predictable public URL.
 
 Options:
   --key <key>           Object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>)
+  --name <leaf>         Clean key leaf + default alt (no '/'); keeps --pr/default path. Not with --key
   --destination <id>    Typed root: screenshots | gh | f (sets --prefix)
   --prefix <path>       Key prefix (default: screenshots, or UPLOADS_DEFAULT_PREFIX)
   --repo <owner/repo>   Repo segment (default: git remote, or UPLOADS_DEFAULT_REPO)
@@ -95,12 +108,18 @@ Options:
   --issue <num>         Attach to an issue: key gh/<owner>/<repo>/issues/<num>/<name>
   --comment             With --pr/--issue: update one managed comment with attachments and linked galleries via local gh auth
   --gallery <id>         Add the uploaded object to this public gallery
+  --dry-run             Print key + public URL without uploading. Not with --comment/--gallery
+
+Exit codes: 0 ok · 2 usage/token/file · 3 auth/policy · 4 network · 1 other.
+Scripted formats (json|url|markdown) also print failures on stdout.
 
 Examples:
   uploads put ./shot.png --repo myorg/myapp --ref 1722 --alt "New cards" --width 700
   uploads put ./mobile.png --frame phone
   uploads put ./ui.png --frame browser --frame-url "https://app.example/settings"
   uploads put ./shot.png --destination screenshots
+  uploads put ./capture-….webp --pr 128 --name hero.webp
+  uploads put ./shot.png --pr 128 --name hero.webp --dry-run --format url
   uploads put ./after.png --gallery gal_example
 `;
 
@@ -359,7 +378,7 @@ export async function runAttach(
       throw new UsageError("attach does not support stdin; pass one or more file paths");
     const sourceName = basename(file);
     if (!ctx.quiet && !ctx.json) process.stderr.write(`>> uploading ${file}\n`);
-    const prepared = await prepareImageForUpload(new Uint8Array(readFileSync(file)), sourceName, {
+    const prepared = await prepareImageForUpload(readFileArg(file), sourceName, {
       ...frameOpts,
       optimize: optimizeOpts,
     });
@@ -445,16 +464,32 @@ export async function runPut(
   const ghTarget = ghTargetFromFlags(parsed.flags, run);
   const wantComment = parsed.flags.has("--comment");
   const galleryId = flagString(parsed.flags, "--gallery");
+  const nameFlag = flagString(parsed.flags, "--name");
+  const dryRun = flagBool(parsed.flags, "--dry-run");
   if (wantComment && typeof parsed.flags.get("--comment") === "string") {
     throw new UsageError("--comment takes no value — place it after the file argument");
   }
   if (wantComment && !ghTarget) throw new UsageError("--comment requires --pr or --issue");
   if (ghTarget) {
-    if (keyHint) throw new UsageError("--key cannot be combined with --pr/--issue");
+    if (keyHint) {
+      throw new UsageError(
+        "--key cannot be combined with --pr/--issue; use --name <leaf> to set a clean filename on the stable path",
+      );
+    }
     if (flagString(parsed.flags, "--ref")) {
       throw new UsageError("--ref cannot be combined with --pr/--issue");
     }
     if (prefixFlag) throw new UsageError("--prefix cannot be combined with --pr/--issue");
+  }
+  if (nameFlag !== undefined) {
+    if (nameFlag === "" || nameFlag.includes("/")) {
+      throw new UsageError("--name must be a bare filename with no '/'");
+    }
+    if (keyHint) throw new UsageError("--name cannot be combined with --key");
+  }
+  if (dryRun) {
+    if (wantComment) throw new UsageError("--dry-run cannot be combined with --comment");
+    if (galleryId) throw new UsageError("--dry-run cannot be combined with --gallery");
   }
   let resolvedPrefix: string | undefined;
   try {
@@ -467,10 +502,9 @@ export async function runPut(
   } catch (err) {
     throw new UsageError(err instanceof Error ? err.message : String(err));
   }
-  const bytes =
-    fileArg === "-" ? new Uint8Array(readFileSync(0)) : new Uint8Array(readFileSync(fileArg));
+  const bytes = readFileArg(fileArg);
   const sourceName =
-    fileArg === "-" ? (keyHint ? basename(keyHint) : "stdin.bin") : basename(fileArg);
+    nameFlag ?? (fileArg === "-" ? (keyHint ? basename(keyHint) : "stdin.bin") : basename(fileArg));
 
   const format = ctx.json
     ? "json"
@@ -484,6 +518,7 @@ export async function runPut(
   const defaults = resolvePutDefaults({ envFile: ctx.envFile });
   const optimizeOpts = optimizeOptionsFromFlags(parsed.flags, defaults);
   const frameOpts = frameOptionsFromFlags(parsed.flags);
+  // Optimize even on --dry-run so the preview key extension/hash match a real put.
   const prepared = await prepareImageForUpload(bytes, sourceName, {
     ...frameOpts,
     optimize: optimizeOpts,
@@ -502,7 +537,9 @@ export async function runPut(
         : defaults.width;
 
   if (!ctx.quiet && format === "human") {
-    process.stderr.write(`>> uploading ${fileArg === "-" ? "stdin" : fileArg}\n`);
+    process.stderr.write(
+      `>> ${dryRun ? "dry run" : "uploading"} ${fileArg === "-" ? "stdin" : fileArg}\n`,
+    );
     if (prepared.frame?.framed) process.stderr.write(`>> framed with ${prepared.frame.frameId}\n`);
     const note = formatOptimizeNote(prepared);
     if (note) process.stderr.write(`>> ${note}\n`);
@@ -519,6 +556,7 @@ export async function runPut(
     ref: flagString(parsed.flags, "--ref") ?? defaults.ref,
     contentType: prepared.optimized ? prepared.contentType : contentTypeOverride,
     deriveRepoFromGit: !noGit,
+    dryRun,
     provenance: buildCliProvenance({
       sourceName,
       optimized: prepared.optimized,
@@ -559,7 +597,7 @@ export async function runPut(
   };
 
   if (!ctx.quiet && format === "human") {
-    process.stderr.write(`>> key: ${result.key}\n\n`);
+    process.stderr.write(`>> key: ${result.key}${dryRun ? " (dry run — not uploaded)" : ""}\n\n`);
   }
 
   switch (format) {
@@ -570,6 +608,7 @@ export async function runPut(
         optimize: optimizeMeta,
         frame: prepared.frame,
         gallery,
+        ...(dryRun ? { dryRun: true } : {}),
       });
       break;
     case "url":

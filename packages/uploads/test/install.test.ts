@@ -6,19 +6,23 @@ function fakeRunner() {
   const calls: string[][] = [];
   const run: CommandRunner = (cmd, args) => {
     calls.push([cmd, ...args]);
-    return "installed\n";
+    return "installed\nwith multi-line child output\n";
   };
   return { run, calls };
 }
 
-function captureStdout() {
-  const chunks: string[] = [];
+function captureStreams() {
+  const out: string[] = [];
+  const err: string[] = [];
   vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
-    chunks.push(String(chunk));
+    out.push(String(chunk));
     return true;
   });
-  vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-  return chunks;
+  vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    err.push(String(chunk));
+    return true;
+  });
+  return { out, err };
 }
 
 const GLOBALS = { apiUrl: "https://x.test", token: "up_acme_secret" };
@@ -27,7 +31,7 @@ beforeEach(() => {
   vi.stubEnv("BUILDINTERNET_CONFIG", "/nonexistent/uploads-install-test-config");
   vi.stubEnv("UPLOADS_TOKEN", "");
   vi.stubEnv("UPLOADS_WORKSPACE", "");
-  captureStdout();
+  captureStreams();
 });
 
 afterEach(() => {
@@ -41,7 +45,19 @@ describe("uploads install", () => {
     const code = await runInstall([], { globals: GLOBALS, runner: run });
     expect(code).toBe(0);
     expect(calls).toEqual([
-      ["npx", "-y", "skills", "add", "buildinternet/uploads", "--skill", "uploads-cli"],
+      [
+        "npx",
+        "-y",
+        "skills",
+        "add",
+        "buildinternet/uploads",
+        "--skill",
+        "uploads-cli",
+        "-g",
+        "-y",
+        "-a",
+        "*",
+      ],
       [
         "claude",
         "mcp",
@@ -56,11 +72,45 @@ describe("uploads install", () => {
     ]);
   });
 
+  it("prints step progress and suppresses child output on success", async () => {
+    const { run } = fakeRunner();
+    const { out, err } = captureStreams();
+    const code = await runInstall([], { globals: GLOBALS, runner: run });
+    expect(code).toBe(0);
+    const printed = out.join("");
+    expect(printed).toContain("Installing skill…");
+    expect(printed).toContain("Installing MCP server…");
+    expect(printed).toMatch(/skill: ok/);
+    expect(printed).toMatch(/mcp: ok/);
+    // Child process noise stays out of the happy path.
+    expect(printed).not.toContain("multi-line child output");
+    expect(printed).not.toContain("claude mcp add");
+    expect(printed).toContain("Restart your agent session");
+    expect(printed).toMatch(/upload this screenshot/i);
+    expect(err.join("")).toBe("");
+  });
+
+  it("--verbose includes child output on success", async () => {
+    const { run } = fakeRunner();
+    const { out } = captureStreams();
+    expect(await runInstall(["--verbose"], { globals: GLOBALS, runner: run })).toBe(0);
+    expect(out.join("")).toContain("multi-line child output");
+  });
+
   it("install skill runs only the skills step", async () => {
     const { run, calls } = fakeRunner();
     expect(await runInstall(["skill"], { globals: GLOBALS, runner: run })).toBe(0);
     expect(calls).toHaveLength(1);
     expect(calls[0][0]).toBe("npx");
+  });
+
+  it("skill-only success still nudges login when unsigned", async () => {
+    const { run } = fakeRunner();
+    const { out } = captureStreams();
+    expect(
+      await runInstall(["skill"], { globals: { apiUrl: "https://x.test" }, runner: run }),
+    ).toBe(0);
+    expect(out.join("")).toMatch(/uploads login/);
   });
 
   it("install mcp honors --url and --name", async () => {
@@ -76,24 +126,47 @@ describe("uploads install", () => {
 
   it("--dry-run runs nothing and never prints the token", async () => {
     const { run, calls } = fakeRunner();
-    const chunks: string[] = [];
-    vi.mocked(process.stdout.write).mockImplementation((chunk) => {
-      chunks.push(String(chunk));
-      return true;
-    });
+    const { out } = captureStreams();
     const code = await runInstall(["--dry-run"], { globals: GLOBALS, json: true, runner: run });
     expect(code).toBe(0);
     expect(calls).toEqual([]);
-    const printed = chunks.join("");
+    const printed = out.join("");
     expect(printed).not.toContain("up_acme_secret");
     expect(printed).toContain("Bearer ***");
   });
 
-  it("install mcp without a token is a tool error, not a crash", async () => {
-    const { run } = fakeRunner();
-    await expect(
-      runInstall(["mcp"], { globals: { apiUrl: "https://x.test" }, runner: run }),
-    ).rejects.toThrow(/UPLOADS_TOKEN|token/i);
+  it("install mcp without a token skips with a login nudge (no crash, not 'failed')", async () => {
+    const { run, calls } = fakeRunner();
+    const { out, err } = captureStreams();
+    const code = await runInstall(["mcp"], {
+      globals: { apiUrl: "https://x.test" },
+      runner: run,
+    });
+    expect(code).toBe(1);
+    expect(calls).toEqual([]);
+    const printed = out.join("");
+    expect(printed).toMatch(/mcp: skipped/);
+    expect(printed).toMatch(/uploads login/);
+    expect(printed).not.toMatch(/mcp: failed/);
+    expect(err.join("")).not.toMatch(/error:/i);
+  });
+
+  it("install all without a token still installs the skill, then nudges login for MCP", async () => {
+    const { run, calls } = fakeRunner();
+    const { out, err } = captureStreams();
+    const code = await runInstall(["all"], {
+      globals: { apiUrl: "https://x.test" },
+      runner: run,
+    });
+    expect(code).toBe(1);
+    expect(calls).toHaveLength(1);
+    expect(calls[0][0]).toBe("npx");
+    expect(out.join("")).toMatch(/skill: ok/);
+    expect(out.join("")).toMatch(/mcp: skipped/);
+    expect(out.join("")).not.toMatch(/mcp: failed/);
+    expect(out.join("")).toMatch(/uploads login/);
+    expect(out.join("")).toMatch(/Skill is installed/);
+    expect(err.join("")).not.toMatch(/error:/i);
   });
 
   it("reports a missing binary with a manual-command hint, redacted, and exits 1", async () => {
@@ -102,18 +175,14 @@ describe("uploads install", () => {
       err.code = "ENOENT";
       throw err;
     };
-    const errChunks: string[] = [];
-    vi.mocked(process.stderr.write).mockImplementation((chunk) => {
-      errChunks.push(String(chunk));
-      return true;
-    });
+    const { err } = captureStreams();
     const code = await runInstall(["mcp"], { globals: GLOBALS, runner: enoent });
     expect(code).toBe(1);
-    const printed = errChunks.join("");
-    // The manual-command hint embeds the full command — token must be masked.
+    const printed = err.join("");
     expect(printed).toContain("claude not found on PATH");
     expect(printed).not.toContain("up_acme_secret");
-    expect(printed).toContain("Bearer ***");
+    // Full command (with token) only with --verbose; still redacted if shown.
+    expect(printed).not.toContain("Bearer up_acme");
   });
 
   it("rejects unknown targets", async () => {

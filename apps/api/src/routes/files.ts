@@ -83,6 +83,21 @@ export const files = new Hono<WorkspaceVars>()
   .put("/:key{.+}", writeRateLimit, requireScope("files:write"), async (c) => {
     const key = c.req.param("key");
     if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
+
+    // ?dryRun=1 — validate key + resolve public URL; no R2 write, no usage/budget check.
+    // Prefixed keys match a real put; bare keys may re-govern to a new f/<id>/… on upload.
+    const dryRun = c.req.query("dryRun");
+    if (dryRun === "1" || dryRun === "true") {
+      const ws = c.get("workspace");
+      const finalKey = finalizeUploadKey(key, ws);
+      return c.json({
+        workspace: c.get("workspaceName"),
+        key: finalKey,
+        url: publicUrl(await storageConfig(c.env, ws), finalKey),
+        dryRun: true,
+      });
+    }
+
     const policy = resolveUploadPolicy(c.get("workspace"));
     const declared = checkDeclaredLength(c.req.header("Content-Length"), policy);
     if (declared) throw declared.error;

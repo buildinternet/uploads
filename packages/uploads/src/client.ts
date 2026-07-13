@@ -22,6 +22,8 @@ export interface PutOptions {
   deriveRepoFromGit?: boolean;
   /** Stored as R2 custom metadata; echoed on put/head. */
   provenance?: ProvenanceInput;
+  /** Validate key + resolve public URL without writing. `size` is local bytes only. */
+  dryRun?: boolean;
 }
 
 export interface ListOptions {
@@ -532,6 +534,27 @@ export function createUploadsClient(config: UploadsClientConfig) {
           deriveRepoFromGit: opts.deriveRepoFromGit,
         }));
       const contentType = opts.contentType ?? inferContentType(opts.filename);
+
+      if (opts.dryRun) {
+        const preview = await request<{ workspace: string; key: string; url: string | null }>(
+          "PUT",
+          `${filesBase(config)}/${encodeKeyPath(key)}?dryRun=1`,
+        );
+        if (preview.url == null) {
+          throw new UploadsError(
+            "workspace has no publicBaseUrl (cannot resolve a public URL)",
+            "NO_PUBLIC_URL",
+          );
+        }
+        return {
+          workspace: preview.workspace,
+          key: preview.key,
+          url: preview.url,
+          size: body.byteLength,
+          contentType,
+        };
+      }
+
       const headers: Record<string, string> = { "Content-Type": contentType };
       if (opts.provenance) {
         for (const [k, v] of Object.entries(opts.provenance)) {

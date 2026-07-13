@@ -185,11 +185,14 @@ export function resolveConfig(
 
 function missingTokenMessage(configPath: string): string {
   return [
-    "UPLOADS_TOKEN is required.",
-    "  uploads login                         # exchange an admin-provided enrollment code",
+    "You're not signed in yet — one quick step and you're set:",
+    "",
+    "  uploads login                         # open a browser and authorize this device",
+    "",
+    "Already have a token?",
     `  uploads setup --token <token>         # guided setup → ${configPath}`,
     `  uploads config init --token <token>   # writes ${configPath}`,
-    "  or set UPLOADS_TOKEN in env, pass --token, or use --env-file",
+    "  or set UPLOADS_TOKEN / pass --token / use --env-file",
   ].join("\n");
 }
 

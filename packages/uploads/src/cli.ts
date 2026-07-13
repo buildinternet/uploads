@@ -3,6 +3,7 @@ import { resolveApiUrl, resolveConfig } from "./config.js";
 import { UploadsError } from "./errors.js";
 import {
   commandWorkspace,
+  flagString,
   isHelpFlag,
   parseArgv,
   parseCommandArgs,
@@ -124,6 +125,7 @@ function exitCode(err: unknown): number {
     switch (err.code) {
       case "MISSING_TOKEN":
       case "USAGE":
+      case "FILE_NOT_FOUND":
         return 2;
       case "UNAUTHORIZED":
       case "NOT_FOUND":
@@ -140,33 +142,69 @@ function exitCode(err: unknown): number {
   return 1;
 }
 
-function errorOut(err: unknown, json: boolean): void {
+/** Effective stdout format, so failures surface where the caller reads output. */
+type OutputFormat = "json" | "url" | "markdown" | "human";
+
+/** Global `--json` wins; else put-style `--format`. Drives where failures print. */
+export function outputFormat(argv: string[]): OutputFormat {
+  const flags = parseCommandArgs(argv.slice(2)).flags;
+  if (flags.has("--json")) return "json";
+  const value = flagString(flags, "--format");
+  if (value === "json" || value === "url" || value === "markdown") return value;
+  return "human";
+}
+
+const QUOTA_HINT =
+  "hint: run `uploads usage` then delete objects or raise limits (`pnpm workspace:limits`)\n";
+const ERROR_HINTS: Partial<Record<UploadsError["code"], string>> = {
+  STORAGE_QUOTA: QUOTA_HINT,
+  UPLOAD_BUDGET: QUOTA_HINT,
+  KEY_POLICY:
+    "hint: use a typed destination (`--destination screenshots|gh`) or an allowed prefix; operators set allowlists with `pnpm workspace:limits --allowed-prefixes`\n",
+  UNAUTHORIZED:
+    "hint: token rejected — run `uploads login` to sign in again, or check UPLOADS_TOKEN / --token\n",
+};
+
+function errorOut(err: unknown, format: OutputFormat): void {
   const payload =
     err instanceof UploadsError
       ? { error: err.message, code: err.code, status: err.status }
       : err instanceof UsageError
         ? { error: err.message, code: "USAGE" }
         : { error: err instanceof Error ? err.message : String(err) };
-  if (json) process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
-  else {
-    const msg = payload.error;
-    if (msg.includes("\n")) process.stderr.write(`${msg}\n`);
-    else process.stderr.write(`error: ${msg}\n`);
-    if (err instanceof UploadsError) {
-      if (err.code === "STORAGE_QUOTA" || err.code === "UPLOAD_BUDGET") {
-        process.stderr.write(
-          "hint: run `uploads usage` then delete objects or raise limits (`pnpm workspace:limits`)\n",
-        );
-      } else if (err.code === "KEY_POLICY") {
-        process.stderr.write(
-          "hint: use a typed destination (`--destination screenshots|gh`) or an allowed prefix; operators set allowlists with `pnpm workspace:limits --allowed-prefixes`\n",
-        );
-      } else if (err.status === 413 || err.message.toLowerCase().includes("too large")) {
-        process.stderr.write(
-          "hint: file exceeds workspace size policy (images vs video may differ); compress or raise --max-upload-bytes / --max-video-bytes\n",
-        );
-      }
+
+  if (format === "json") {
+    process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
+    return;
+  }
+
+  const msg = payload.error;
+
+  // No token: onboarding nudge (no "error:" prefix). Exit stays non-zero; JSON keeps MISSING_TOKEN.
+  if (err instanceof UploadsError && err.code === "MISSING_TOKEN") {
+    process.stderr.write(`${msg}\n`);
+    if (format === "url" || format === "markdown") {
+      process.stdout.write("not signed in — run uploads login\n");
     }
+    return;
+  }
+
+  if (msg.includes("\n")) process.stderr.write(`${msg}\n`);
+  else process.stderr.write(`error: ${msg}\n`);
+
+  if (err instanceof UploadsError) {
+    const hint = ERROR_HINTS[err.code];
+    if (hint) process.stderr.write(hint);
+    else if (err.status === 413 || err.message.toLowerCase().includes("too large")) {
+      process.stderr.write(
+        "hint: file exceeds workspace size policy (images vs video may differ); compress or raise --max-upload-bytes / --max-video-bytes\n",
+      );
+    }
+  }
+
+  // Scripted formats often drop stderr — mirror a one-line reason on stdout.
+  if (format === "url" || format === "markdown") {
+    process.stdout.write(`error: ${msg.replace(/\s*\n\s*/g, " ")}\n`);
   }
 }
 
@@ -278,8 +316,9 @@ export async function runCli(argv: string[]): Promise<number> {
     }
     return code;
   } catch (err) {
-    errorOut(err, argv.includes("--json"));
-    if (err instanceof UsageError && !argv.includes("--json")) usageHint(argv);
+    const format = outputFormat(argv);
+    errorOut(err, format);
+    if (err instanceof UsageError && format !== "json") usageHint(argv);
     return exitCode(err);
   }
 }
