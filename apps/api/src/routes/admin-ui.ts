@@ -14,6 +14,7 @@ import {
   validateScopes,
 } from "../auth-db";
 import { allowWrite } from "../guards";
+import { deriveWebOrigin, inviteLinkUrl } from "../invite-links";
 import { orgForWorkspace } from "../org-workspaces";
 import {
   requireAdminUser,
@@ -30,23 +31,10 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // and `uploads login --code`). This route only adds a session-authed way to
 // mint one without an email recipient.
 function labelValue(value: unknown): string | undefined | null {
-  if (value === undefined) return undefined;
+  if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") return null;
   const label = value.trim();
   return label.length >= 1 && label.length <= 100 ? label : null;
-}
-
-// Mirrors deriveWebOrigin/inviteMagicLink in routes/admin.ts. The invite page
-// lives on the web origin, which mirrors the API host without the `api.`
-// prefix (api.uploads.sh -> uploads.sh).
-function deriveWebOrigin(requestUrl: string): string {
-  const url = new URL(requestUrl);
-  url.hostname = url.hostname.replace(/^api\./, "");
-  return url.origin;
-}
-
-function inviteLinkUrl(webOrigin: string, pageId: string, code: string): string {
-  return `${webOrigin}/invite?id=${encodeURIComponent(pageId)}#code=${encodeURIComponent(code)}`;
 }
 
 interface OrgSummary {

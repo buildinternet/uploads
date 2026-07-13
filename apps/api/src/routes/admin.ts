@@ -14,6 +14,7 @@ import {
   revokeToken,
   validateScopes,
 } from "../auth-db";
+import { deriveWebOrigin, inviteLinkUrl as inviteMagicLink } from "../invite-links";
 import { reencryptRegistryCredentials } from "../reencrypt-registry";
 import type { WorkspaceRecord } from "../workspace";
 
@@ -28,20 +29,6 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Invitations are delivered from this address; uploads.sh is onboarded for
 // Cloudflare Email Sending, so any @uploads.sh sender works.
 const INVITE_FROM = { name: "uploads.sh", email: "invites@uploads.sh" } as const;
-
-// The invite page lives on the web origin, which mirrors the API host without
-// the `api.` prefix (api.uploads.sh -> uploads.sh), matching the CLI default.
-function deriveWebOrigin(requestUrl: string): string {
-  const url = new URL(requestUrl);
-  url.hostname = url.hostname.replace(/^api\./, "");
-  return url.origin;
-}
-
-// Self-contained magic link: the single-use code rides in the URL fragment, which
-// browsers never send to a server, so it stays out of logs and referrers.
-function inviteMagicLink(webOrigin: string, pageId: string, code: string): string {
-  return `${webOrigin}/invite?id=${encodeURIComponent(pageId)}#code=${encodeURIComponent(code)}`;
-}
 
 function inviteEmail(to: string, workspaceName: string, link: string, expiresAt: string) {
   return {

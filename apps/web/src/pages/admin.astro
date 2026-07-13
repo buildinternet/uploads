@@ -203,7 +203,7 @@ const FAVICON =
           <input type="text" class="invite-link-url" readonly hidden aria-label="Invite link" />
           <button type="button" class="invite-link-copy" hidden>Copy</button>
         </div>
-        <div class="invite-status invite-link-status" hidden></div>
+        <div class="invite-status invite-link-status" role="status" aria-live="polite" hidden></div>
       </div>
     `;
 
@@ -338,6 +338,12 @@ const FAVICON =
           linkStatusEl.hidden = false;
         }
       } catch {
+        if (linkStatusEl) {
+          linkStatusEl.dataset.state = "error";
+          linkStatusEl.textContent = "Clipboard unavailable; copy the selected link manually.";
+          linkStatusEl.hidden = false;
+        }
+        urlInput.focus();
         urlInput.select();
       }
     });

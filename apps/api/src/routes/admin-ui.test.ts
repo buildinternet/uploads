@@ -297,6 +297,54 @@ describe("POST /admin-ui/workspaces/:name/invite-links", () => {
     expect(res.status).toBe(404);
   });
 
+  it("400s for an empty label", async () => {
+    const env = envWithDb(ADMIN_USER, ["acme"]);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label: "" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    const payload = (await res.json()) as { error?: { code?: string } };
+    expect(payload.error?.code).toBe("invalid_label");
+  });
+
+  it("400s for a label over 100 characters", async () => {
+    const env = envWithDb(ADMIN_USER, ["acme"]);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label: "x".repeat(101) }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    const payload = (await res.json()) as { error?: { code?: string } };
+    expect(payload.error?.code).toBe("invalid_label");
+  });
+
+  it("400s for invalid scopes", async () => {
+    const env = envWithDb(ADMIN_USER, ["acme"]);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/invite-links",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scopes: ["not:a:real:scope"] }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    const payload = (await res.json()) as { error?: { code?: string } };
+    expect(payload.error?.code).toBe("invalid_scopes");
+  });
+
   it("429s when the per-workspace write budget is exhausted", async () => {
     const env = envWithDb(ADMIN_USER, ["acme"]) as Env & {
       WRITE_LIMITER: { limit: (opts: { key: string }) => Promise<{ success: boolean }> };
