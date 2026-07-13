@@ -98,6 +98,34 @@ export function provenanceFromHeaders(
   return raw;
 }
 
+const META_HEADER_PREFIX = "x-uploads-meta-";
+
+/**
+ * Split every `X-Uploads-Meta-<key>` request header into the allowlisted
+ * provenance bag (stored as R2 custom metadata, unchanged) and everything
+ * else (candidate custom file metadata, stored in D1 — see `file-metadata.ts`).
+ * Unlike `sanitizeProvenance`, non-allowlisted keys are surfaced here rather
+ * than dropped: the caller is responsible for validating and persisting them
+ * (`validateMetadataEntries`/`setFileMetadata`), so bad input rejects the
+ * upload instead of silently vanishing.
+ */
+export function splitUploadMetaHeaders(headers: Headers): {
+  provenance: Record<string, string>;
+  custom: Record<string, string>;
+} {
+  const provenance: Record<string, string> = {};
+  const custom: Record<string, string> = {};
+  for (const [rawName, rawValue] of headers.entries()) {
+    const name = rawName.toLowerCase();
+    if (!name.startsWith(META_HEADER_PREFIX)) continue;
+    const key = name.slice(META_HEADER_PREFIX.length);
+    if (!key || rawValue === "") continue;
+    if (CLIENT_ALLOWED.has(key)) provenance[key] = rawValue;
+    else custom[key] = rawValue;
+  }
+  return { provenance, custom };
+}
+
 /** Lowercase hex SHA-256 of the stored object body. */
 export async function contentSha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));

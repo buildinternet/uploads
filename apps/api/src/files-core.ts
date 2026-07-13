@@ -13,6 +13,7 @@ import {
 } from "@uploads/errors";
 import type { Files } from "@uploads/storage";
 import { checkPutBudget } from "./budget";
+import { deleteFileMetadata, setFileMetadata, validateMetadataEntries } from "./file-metadata";
 import { DEFAULT_MAX_UPLOAD_BYTES, inspectUpload, resolveUploadPolicy } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
 import {
@@ -113,7 +114,19 @@ export async function putObject(
   key: string,
   bytes: Uint8Array,
   workspaceName: string,
-  opts?: { provenance?: Record<string, string>; visibility?: Visibility },
+  opts?: {
+    provenance?: Record<string, string>;
+    visibility?: Visibility;
+    /**
+     * Custom queryable metadata (D1 `file_metadata`), distinct from the R2
+     * `provenance` bag above. When present (even `{}`), this call fully
+     * replaces any metadata already stored for the key — delete-then-set —
+     * so an overwrite never leaves stale rows from a prior put. Omit
+     * entirely (undefined) to leave existing metadata untouched, which is
+     * what non-route callers (e.g. the MCP worker) do today.
+     */
+    metadata?: Record<string, string>;
+  },
 ): Promise<{
   key: string;
   url: string | null;
@@ -124,6 +137,10 @@ export async function putObject(
 }> {
   const finalKey = finalizeUploadKey(key, ws);
   if (bytes.byteLength === 0) throw new ValidationError("empty body", { code: "empty_body" });
+
+  // Validate custom metadata before any write so a bad key/value or a
+  // cap breach rejects the whole upload instead of landing bytes first.
+  if (opts?.metadata) validateMetadataEntries(opts.metadata);
 
   const inspection = inspectUpload(bytes, resolveUploadPolicy(ws));
   if (!inspection.ok) throw inspection.error;
@@ -168,6 +185,15 @@ export async function putObject(
     cacheControl: UPLOAD_CACHE_CONTROL,
     metadata: storageMetadata,
   });
+
+  if (opts?.metadata) {
+    // Full replace: an overwrite must not inherit a prior put's custom
+    // metadata, so clear the row set before (re-)writing this request's.
+    await deleteFileMetadata(env.DB, workspaceName, finalKey);
+    if (Object.keys(opts.metadata).length > 0) {
+      await setFileMetadata(env.DB, workspaceName, finalKey, opts.metadata);
+    }
+  }
 
   await recordUsageSafe(env.DB, workspaceName, {
     bytes: deltaBytes,
@@ -311,7 +337,7 @@ export async function listObjects(
   };
 }
 
-/** Delete an object and decrement the workspace ledger when size was known. */
+/** Delete an object (and its D1 custom metadata) and decrement the workspace ledger when size was known. */
 export async function deleteObject(
   env: Env,
   ws: WorkspaceRecord,
@@ -324,6 +350,7 @@ export async function deleteObject(
   const prev = await existingSize(store, key);
 
   await store.delete(key);
+  await deleteFileMetadata(env.DB, workspaceName, key);
 
   if (prev !== null) {
     await recordUsageSafe(env.DB, workspaceName, {

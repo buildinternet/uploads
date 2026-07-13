@@ -45,6 +45,9 @@ async function makeEnv(overrides: Partial<WorkspaceRecord> = {}) {
         async run() {
           return { success: true, meta: { changes: 0 }, results: [] };
         },
+        async all() {
+          return { success: true, results: [], meta: {} };
+        },
       }),
       async batch(stmts: { run: () => Promise<unknown> }[]) {
         return Promise.all(stmts.map((s) => s.run()));

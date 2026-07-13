@@ -41,6 +41,9 @@ async function makeEnv(overrides: Partial<WorkspaceRecord> = {}) {
   const bucket = new FakeR2Bucket();
   const env = {
     REGISTRY: { get: async () => record, put: async () => undefined },
+    // No-op D1: this suite doesn't assert on file_metadata rows, just that
+    // putObject's D1 metadata write (`.all()` read-before-write inside
+    // setFileMetadata) doesn't blow up.
     DB: {
       prepare: () => ({
         bind() {
@@ -51,6 +54,9 @@ async function makeEnv(overrides: Partial<WorkspaceRecord> = {}) {
         },
         async run() {
           return { success: true, meta: { changes: 0 }, results: [] };
+        },
+        async all() {
+          return { success: true, results: [], meta: {} };
         },
       }),
       async batch(stmts: { run: () => Promise<unknown> }[]) {

@@ -14,10 +14,15 @@ export type UsageRow = {
 
 export class UsageFakeD1 {
   usage = new Map<string, UsageRow>();
+  // Backs `file_metadata` so putObject/deleteObject's D1 metadata
+  // cascade (Task 2) doesn't blow up in suites that only care about the
+  // usage ledger. Keyed by `${workspace} ${objectKey}`.
+  fileMetadata = new Map<string, Map<string, string>>();
 
   prepare = (sql: string) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
     let values: unknown[] = [];
+    const metaScopeKey = (workspace: string, objectKey: string) => `${workspace} ${objectKey}`;
 
     const stmt = {
       bind: (...v: unknown[]) => {
@@ -31,7 +36,43 @@ export class UsageFakeD1 {
         }
         throw new Error(`unsupported first: ${normalized}`);
       },
+      all: async <T>() => {
+        if (normalized.startsWith("SELECT meta_key, meta_value FROM file_metadata")) {
+          const [workspace, objectKey] = values as [string, string];
+          const map = this.fileMetadata.get(metaScopeKey(workspace, objectKey)) ?? new Map();
+          return {
+            success: true as const,
+            results: [...map.entries()].map(([meta_key, meta_value]) => ({
+              meta_key,
+              meta_value,
+            })) as T[],
+            meta: {},
+          };
+        }
+        throw new Error(`unsupported all: ${normalized}`);
+      },
       run: async () => {
+        if (normalized.startsWith("INSERT INTO file_metadata")) {
+          const [workspace, objectKey, key, value] = values as [string, string, string, string];
+          const scope = metaScopeKey(workspace, objectKey);
+          const map = this.fileMetadata.get(scope) ?? new Map<string, string>();
+          map.set(key, value);
+          this.fileMetadata.set(scope, map);
+          return { success: true as const, meta: { changes: 1 }, results: [] };
+        }
+        if (
+          normalized.startsWith("DELETE FROM file_metadata") &&
+          normalized.includes("meta_key = ?")
+        ) {
+          const [workspace, objectKey, key] = values as [string, string, string];
+          this.fileMetadata.get(metaScopeKey(workspace, objectKey))?.delete(key);
+          return { success: true as const, meta: { changes: 1 }, results: [] };
+        }
+        if (normalized.startsWith("DELETE FROM file_metadata")) {
+          const [workspace, objectKey] = values as [string, string];
+          this.fileMetadata.delete(metaScopeKey(workspace, objectKey));
+          return { success: true as const, meta: { changes: 1 }, results: [] };
+        }
         if (normalized.startsWith("INSERT OR IGNORE INTO workspace_usage")) {
           // applyUsageDelta: (ws, period, updatedAt) with zeros
           // setUsageTotals: (ws, bytes, objects, period, updatedAt)

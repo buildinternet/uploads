@@ -8,7 +8,7 @@ import {
   listObjects,
   putObject,
 } from "../files-core";
-import { provenanceFromHeaders } from "../provenance";
+import { splitUploadMetaHeaders } from "../provenance";
 import { publicUrl, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { checkDeclaredLength, resolveUploadPolicy, writeRateLimit } from "../guards";
@@ -105,13 +105,14 @@ export const files = new Hono<WorkspaceVars>()
 
     const body = await c.req.arrayBuffer();
     const visibility = sanitizeVisibility(c.req.header("x-uploads-visibility"));
+    const { provenance, custom } = splitUploadMetaHeaders(c.req.raw.headers);
     const result = await putObject(
       c.env,
       c.get("workspace"),
       key,
       new Uint8Array(body),
       c.get("workspaceName"),
-      { provenance: provenanceFromHeaders((n) => c.req.header(n)), visibility },
+      { provenance, visibility, metadata: custom },
     );
     return c.json({ workspace: c.get("workspaceName"), ...result }, 201);
   })
