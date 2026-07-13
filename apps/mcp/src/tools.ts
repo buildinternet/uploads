@@ -14,7 +14,11 @@ import {
   type McpTool,
 } from "@buildinternet/uploads/mcp";
 import { badKey } from "@uploads/api/files";
-import { validateMetadataEntries } from "@uploads/api/file-metadata";
+import {
+  findObjectsByMetadata,
+  setFileMetadata,
+  validateMetadataEntries,
+} from "@uploads/api/file-metadata";
 import {
   addExternalReference,
   addGalleryItem,
@@ -45,6 +49,25 @@ export interface RemoteToolContext {
   workspace: WorkspaceRecord;
   workspaceName: string;
   authScopes: readonly FileScope[];
+}
+
+/** Shared tool-description text for the metadata-shaped params (mirrors packages/uploads/src/mcp/tools.ts). */
+const METADATA_DESCRIPTION =
+  "Queryable custom metadata (key→value), separate from provenance. Keys: lowercase, ^[a-z][a-z0-9._-]{0,63}$. Values: 1-512 printable ASCII characters. Caps: at most 24 keys, at most 8192 total key+value bytes. Suggested keys: app, url, page, device, resolution, commit, branch. `gh.*` is reserved by convention for GitHub PR/issue attachment context (repo/kind/number/ref).";
+
+const metadataProp = {
+  type: "object",
+  additionalProperties: { type: "string" },
+  description: METADATA_DESCRIPTION,
+};
+
+function optStringArray(args: Record<string, unknown>, name: string): string[] | undefined {
+  const v = args[name];
+  if (v === undefined || v === null) return undefined;
+  if (!Array.isArray(v) || v.some((item) => typeof item !== "string")) {
+    usage(`${name} must be an array of strings`);
+  }
+  return v as string[];
 }
 
 function decodeBase64(value: string, maxBytes: number): Uint8Array {
@@ -413,6 +436,81 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         const key = optString(args, "key");
         if (!key) usage("key is required");
         return deleteObject(env, workspace, key, workspaceName);
+      },
+    },
+    {
+      name: "set_metadata",
+      description:
+        "Merge-set and/or delete an object's queryable custom metadata (D1-backed key-value pairs; distinct from the R2 provenance headers put on upload). `set` pairs win over `delete` when a key appears in both. " +
+        METADATA_DESCRIPTION +
+        " Requires at least one of `set` or `delete`. Same as the CLI/local MCP's `set_metadata` tool.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "Object key to update." },
+          set: { ...metadataProp, description: "Keys to set/overwrite. " + METADATA_DESCRIPTION },
+          delete: {
+            type: "array",
+            items: { type: "string" },
+            description: "Keys to remove.",
+          },
+        },
+        required: ["key"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:write");
+        await requireWriteBudget();
+        const key = optString(args, "key");
+        if (!key) usage("key is required");
+        if (badKey(key)) usage("invalid key");
+        const set = optStringRecord(args, "set");
+        const del = optStringArray(args, "delete");
+        if ((!set || Object.keys(set).length === 0) && (!del || del.length === 0)) {
+          usage("set_metadata requires set and/or delete");
+        }
+        const store = await storage(env, workspace);
+        if (!(await store.exists(key))) throw new Error("object not found");
+        const metadata = await setFileMetadata(env.DB, workspaceName, key, set ?? {}, del ?? []);
+        return { metadata };
+      },
+    },
+    {
+      name: "find_files",
+      description:
+        "Find objects in the workspace whose queryable custom metadata matches ALL of `filters` (ANDed equality). Returns each match's key, public URL, and full metadata map. Same as the CLI/local MCP's `find_files` tool.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          filters: {
+            ...metadataProp,
+            description: "Metadata equality filters (at least one pair). " + METADATA_DESCRIPTION,
+          },
+          prefix: { type: "string", description: "Key prefix filter, combinable with filters." },
+          limit: { type: "number", description: "Page size (default 50, max 500)." },
+        },
+        required: ["filters"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:read");
+        const filters = optStringRecord(args, "filters");
+        if (!filters || Object.keys(filters).length === 0) {
+          usage("filters must have at least one key");
+        }
+        const cfg = await storageConfig(env, workspace);
+        const matches = await findObjectsByMetadata(env.DB, workspaceName, filters, {
+          prefix: optString(args, "prefix"),
+          limit: optPosInt(args, "limit"),
+        });
+        return {
+          items: matches.map((match) => ({
+            key: match.key,
+            url: publicUrl(cfg, match.key),
+            metadata: match.metadata,
+          })),
+          cursor: null,
+        };
       },
     },
     {
