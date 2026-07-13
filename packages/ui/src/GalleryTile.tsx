@@ -38,9 +38,9 @@ export function GalleryTile({
     <a className={["ul-tile", className].filter(Boolean).join(" ")} href={href} {...rest}>
       <span
         className={src ? "ul-tile__thumb" : "ul-tile__thumb ul-tile__thumb--empty"}
-        style={src ? { backgroundImage: `url("${src}")` } : undefined}
         aria-hidden="true"
       >
+        {src && <img className="ul-tile__img" src={src} alt="" loading="lazy" decoding="async" />}
         {!src && (
           <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
             <g stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">

@@ -92,10 +92,11 @@
   line-height: 1;
   white-space: nowrap;
 }
+/* The mark is the pixel-grid chevron; its frame carries its own stepped
+   corners, so no CSS border-radius (it would round the crisp pixels). */
 .ul-brand__mark {
   width: 20px;
   height: 20px;
-  border-radius: 5px;
   flex: none;
 }
 .ul-brand--lg {
@@ -105,7 +106,6 @@
 .ul-brand--lg .ul-brand__mark {
   width: 28px;
   height: 28px;
-  border-radius: 7px;
 }
 .ul-brand:focus-visible {
   outline: 2px solid var(--accent);
@@ -412,10 +412,14 @@
 .ul-tile__thumb {
   aspect-ratio: 16 / 10;
   background: var(--bg);
-  background-size: cover;
-  background-position: center;
   border-bottom: 1px solid var(--line);
   display: block;
+}
+.ul-tile__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 /* Empty thumb: the stacked-chevron mark, faint, instead of a bare gray box. */
 .ul-tile__thumb--empty {

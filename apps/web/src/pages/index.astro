@@ -306,6 +306,14 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       /* ---------- install panel ---------- */
       .install { font-size: 13px; margin-top: 6px; }
       .install .rows { display: grid; gap: 8px; }
+      .install .sub {
+        margin-left: 14px;
+        padding-left: 16px;
+        border-left: 1px solid var(--line);
+        display: grid;
+        gap: 8px;
+      }
+      .install .sub-lead { color: var(--muted); font-size: 12px; margin: 2px 0 0; }
       .cmdrow {
         display: grid;
         grid-template-columns: 74px 1fr auto;
@@ -519,7 +527,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       </p>
 
       <section class="install" aria-label="Install commands">
-        <h2 class="sect-head"># get set up — click to copy</h2>
+        <h2 class="sect-head"># get set up</h2>
         <div class="rows">
           <div class="cmdrow">
             <span class="tag">cli</span>
@@ -531,20 +539,21 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
             <span class="cmdtext">uploads install</span>
             <button type="button" data-copy="uploads install" aria-live="polite">copy</button>
           </div>
-          <div class="cmdrow">
-            <span class="tag">skill</span>
-            <span class="cmdtext">npx skills add buildinternet/uploads --skill uploads-cli</span>
-            <button type="button" data-copy="npx skills add buildinternet/uploads --skill uploads-cli" aria-live="polite">copy</button>
-          </div>
-          <div class="cmdrow">
-            <span class="tag">mcp</span>
-            <span class="cmdtext">claude mcp add --transport http uploads <span class="url">https://agents.uploads.sh/mcp</span></span>
-            <button type="button" data-copy="claude mcp add --transport http uploads https://agents.uploads.sh/mcp" aria-live="polite">copy</button>
+          <div class="sub" aria-label="What uploads install sets up, also available individually">
+            <p class="sub-lead">runs both of these — grab one on its own if you'd rather:</p>
+            <div class="cmdrow">
+              <span class="tag">skill</span>
+              <span class="cmdtext">npx skills add buildinternet/uploads</span>
+              <button type="button" data-copy="npx skills add buildinternet/uploads" aria-live="polite">copy</button>
+            </div>
+            <div class="cmdrow">
+              <span class="tag">mcp</span>
+              <span class="cmdtext">claude mcp add --transport http uploads <span class="url">https://agents.uploads.sh/mcp</span></span>
+              <button type="button" data-copy="claude mcp add --transport http uploads https://agents.uploads.sh/mcp" aria-live="polite">copy</button>
+            </div>
           </div>
         </div>
-        <p class="foot">
-          access by invitation · `uploads install` covers the skill + mcp rows · <a href="/docs">docs</a> · <a href={REPO}>source &amp; roadmap</a>
-        </p>
+        <p class="foot">access by invitation</p>
       </section>
 
       <Footer />
