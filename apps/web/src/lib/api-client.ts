@@ -14,9 +14,14 @@ export interface MyWorkspace {
   workspace: string;
   organization: { id: string; slug: string; name: string };
   role: string;
+  /** True for the communal, world-readable workspace (no personal browser). */
+  communal: boolean;
 }
 
-function isMyWorkspace(value: unknown): value is MyWorkspace {
+// `communal` is intentionally NOT required here: web and api deploy
+// independently, so an older api may omit it. We accept the entry and coerce a
+// missing/other value to `false` in the mapper below.
+function isMyWorkspaceCore(value: unknown): value is Omit<MyWorkspace, "communal"> {
   if (!value || typeof value !== "object") return false;
   const ws = value as Record<string, unknown>;
   const org = ws.organization as Record<string, unknown> | null | undefined;
@@ -40,7 +45,14 @@ export async function getMyWorkspaces(apiOrigin: string): Promise<MyWorkspace[]>
     if (!res.ok) return [];
     const body = (await res.json().catch(() => null)) as { workspaces?: unknown[] } | null;
     if (!Array.isArray(body?.workspaces)) return [];
-    return body.workspaces.filter(isMyWorkspace);
+    return body.workspaces.filter(isMyWorkspaceCore).map(
+      (ws): MyWorkspace => ({
+        workspace: ws.workspace,
+        organization: ws.organization,
+        role: ws.role,
+        communal: (ws as { communal?: unknown }).communal === true,
+      }),
+    );
   } catch {
     return [];
   }
@@ -84,4 +96,75 @@ export async function getMyWorkspaceUsage(
   } catch {
     return null;
   }
+}
+
+/**
+ * Shared GET for the array-returning `/me/workspaces/:name/<segment>` endpoints
+ * (galleries, files). Reads `body[key]`, drops malformed entries via `isValid`,
+ * and returns [] on any non-2xx, malformed body, or communal workspace (which
+ * the API returns with an empty list).
+ */
+async function fetchWorkspaceList<T>(
+  apiOrigin: string,
+  name: string,
+  segment: string,
+  key: string,
+  isValid: (value: unknown) => value is T,
+): Promise<T[]> {
+  try {
+    const res = await fetch(
+      `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/${segment}`,
+      { credentials: "include", cache: "no-store" },
+    );
+    if (!res.ok) return [];
+    const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    const list = body?.[key];
+    if (!Array.isArray(list)) return [];
+    return list.filter(isValid);
+  } catch {
+    return [];
+  }
+}
+
+export interface GallerySummary {
+  id: string;
+  url: string;
+  title: string;
+  description: string | null;
+  coverItemId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function isGallerySummary(value: unknown): value is GallerySummary {
+  if (!value || typeof value !== "object") return false;
+  const g = value as Record<string, unknown>;
+  return typeof g.id === "string" && typeof g.url === "string" && typeof g.title === "string";
+}
+
+/** GET /me/workspaces/:name/galleries. See {@link fetchWorkspaceList}. */
+export function getMyWorkspaceGalleries(
+  apiOrigin: string,
+  name: string,
+): Promise<GallerySummary[]> {
+  return fetchWorkspaceList(apiOrigin, name, "galleries", "galleries", isGallerySummary);
+}
+
+export interface WorkspaceFile {
+  key: string;
+  url: string | null;
+  size?: number;
+  contentType?: string;
+  uploaded?: string;
+}
+
+function isWorkspaceFile(value: unknown): value is WorkspaceFile {
+  if (!value || typeof value !== "object") return false;
+  const f = value as Record<string, unknown>;
+  return typeof f.key === "string" && (f.url === null || typeof f.url === "string");
+}
+
+/** GET /me/workspaces/:name/files. See {@link fetchWorkspaceList}. */
+export function getMyWorkspaceFiles(apiOrigin: string, name: string): Promise<WorkspaceFile[]> {
+  return fetchWorkspaceList(apiOrigin, name, "files", "files", isWorkspaceFile);
 }
