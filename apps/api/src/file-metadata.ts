@@ -100,6 +100,12 @@ export async function getFileMetadata(
  * caps against the post-merge state. Rejects (no write) if the caps would be
  * violated; otherwise upserts/deletes atomically and returns the final map.
  * `remove` is applied before `set`, so a key present in both ends up set.
+ *
+ * Concurrency: the read → validate → batch write is not guarded, so two
+ * concurrent merges on the same object can land a combined state slightly
+ * over the caps (same accepted last-write-wins tradeoff as visibility
+ * rewrites in files-core.ts; single-tenant writes sit behind the write
+ * rate limiter). Caps are re-enforced on the next merge.
  */
 export async function setFileMetadata(
   db: D1Database,
