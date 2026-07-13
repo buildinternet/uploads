@@ -498,7 +498,9 @@
    browser to near-zero and re-expands. */
 .ul-files__viewport {
   position: relative;
-  min-height: 116px;
+  /* Floor of ~two rows so a shallow or momentarily-empty level never collapses
+     the browser to near-zero; overridable per consumer via the custom prop. */
+  min-height: var(--ul-files-min-height, 116px);
 }
 .ul-files__list {
   list-style: none;
