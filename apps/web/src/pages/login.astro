@@ -1,10 +1,6 @@
 ---
 import { env } from "cloudflare:workers";
-import {
-  CF_RUM_CONNECT_SRC,
-  CF_RUM_SCRIPT_SRC,
-  STYLE_SRC_SELF_AND_INLINE,
-} from "../lib/csp";
+import { applyCspHeader, authPageCsp } from "../lib/signed-in-page";
 import BaseHead from "../components/BaseHead.astro";
 import Brand from "../components/Brand.astro";
 import Footer from "../components/Footer.astro";
@@ -17,18 +13,8 @@ const authOrigin =
   import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ??
   "https://auth.uploads.sh";
 
-const csp = [
-  "default-src 'none'",
-  `connect-src ${authOrigin} ${CF_RUM_CONNECT_SRC}`,
-  // 'self' covers Astro-bundled /_astro/*.js; CF RUM is edge-injected.
-  `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
-  `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
-  "font-src 'self'",
-  "img-src data:",
-  "base-uri 'none'",
-  "form-action 'none'",
-  "frame-ancestors 'none'",
-].join("; ");
+// Header (not meta): frame-ancestors is ignored on meta CSP.
+applyCspHeader(Astro.response.headers, authPageCsp(authOrigin));
 ---
 
 <html lang="en">
@@ -36,7 +22,6 @@ const csp = [
   <BaseHead />
   <meta name="robots" content="noindex, nofollow, noarchive" />
   <meta name="referrer" content="no-referrer" />
-  <meta http-equiv="Content-Security-Policy" content={csp} />
   <title>Sign in · uploads.sh</title>
   <style>
     *{box-sizing:border-box}

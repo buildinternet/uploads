@@ -1,6 +1,11 @@
 /**
- * Shared server helpers for the signed-in shells (/account/*, /admin/*):
- * origins, CSP, and console-link visibility. The favicon ships via BaseHead.
+ * Shared server helpers for the signed-in shells (/account/*, /admin/*) and
+ * auth surfaces (login, device, accept-invitation, invite): origins, CSP, and
+ * console-link visibility. The favicon ships via BaseHead.
+ *
+ * CSP is applied as an HTTP response header (not `<meta http-equiv>`) so
+ * `frame-ancestors` is honored — browsers ignore that directive in meta.
+ * Same delivery model as `applyPublicFileHeaders` / `applyPublicGalleryHeaders`.
  */
 import { resolveConsoleMode } from "./console-mode";
 import { CF_RUM_CONNECT_SRC, CF_RUM_SCRIPT_SRC, STYLE_SRC_SELF_AND_INLINE } from "./csp";
@@ -39,6 +44,54 @@ export function signedInCsp(authOrigin: string, apiOrigin: string): string {
     "form-action 'none'",
     "frame-ancestors 'none'",
   ].join("; ");
+}
+
+/**
+ * CSP for auth pages that only talk to the auth origin (login, device,
+ * accept-invitation). Slightly tighter than the signed-in shells: no API
+ * origin and no https: images.
+ */
+export function authPageCsp(authOrigin: string): string {
+  return [
+    "default-src 'none'",
+    `connect-src ${authOrigin} ${CF_RUM_CONNECT_SRC}`,
+    // 'self' covers Astro-bundled /_astro/*.js; CF RUM is edge-injected.
+    `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
+    `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
+    "font-src 'self'",
+    "img-src data:",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+}
+
+/**
+ * CSP for the CLI enroll invite page (`/invite`). Prod API origin is fixed
+ * (page hard-codes api.uploads.sh). Delivered via `public/_headers` for the
+ * static asset path — keep that file's Content-Security-Policy value identical
+ * to this constant (see tests).
+ */
+export const INVITE_CSP = [
+  "default-src 'none'",
+  `connect-src https://api.uploads.sh ${CF_RUM_CONNECT_SRC}`,
+  // 'self' future-proofs if Astro extracts the page script to /_astro/*.js.
+  `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
+  `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
+  "font-src 'self'",
+  "img-src data:",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join("; ");
+
+/**
+ * Set Content-Security-Policy as a response header so `frame-ancestors` applies.
+ * Prefer this over `<meta http-equiv="Content-Security-Policy">` (meta ignores
+ * frame-ancestors; stacking divergent meta + header policies is a footgun).
+ */
+export function applyCspHeader(headers: Headers, csp: string): void {
+  headers.set("Content-Security-Policy", csp);
 }
 
 /**
