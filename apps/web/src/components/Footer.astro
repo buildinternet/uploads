@@ -15,7 +15,7 @@ const REPO = "https://github.com/buildinternet/uploads";
 ---
 
 <footer class:list={["site-footer", { compact }]}>
-  uploads.sh · a <a href="https://buildinternet.com">Build Internet</a> project · <a href={REPO}>source</a> · <a href="/docs">docs</a> · <a href="/terms">terms</a> · <a href="/privacy">privacy</a>
+  {compact ? null : <Fragment>uploads.sh · </Fragment>}a <a href="https://buildinternet.com">Build Internet</a> project · <a href={REPO}>source</a> · <a href="/docs">docs</a> · <a href="/terms">terms</a> · <a href="/privacy">privacy</a>
 </footer>
 
 <style>
