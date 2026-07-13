@@ -264,37 +264,31 @@ const FAVICON =
     }
   });
 
-  approveBtn.addEventListener("click", async () => {
-    confirmError.hidden = true;
-    approveBtn.disabled = true;
-    denyBtn.disabled = true;
-    const ok = await approveDevice(authOrigin, userCode);
-    if (ok) {
-      hideAll();
-      approved.hidden = false;
-      return;
-    }
-    approveBtn.disabled = false;
-    denyBtn.disabled = false;
-    confirmError.textContent = "Couldn't approve the device. The code may have expired.";
-    confirmError.hidden = false;
-  });
+  // Approve and deny share everything but the action call, the verb in the
+  // error copy, and which final panel to reveal.
+  function decide(
+    action: (origin: string, code: string) => Promise<boolean>,
+    verb: string,
+    resultPanel: HTMLElement,
+  ) {
+    return async () => {
+      confirmError.hidden = true;
+      approveBtn.disabled = true;
+      denyBtn.disabled = true;
+      if (await action(authOrigin, userCode)) {
+        hideAll();
+        resultPanel.hidden = false;
+        return;
+      }
+      approveBtn.disabled = false;
+      denyBtn.disabled = false;
+      confirmError.textContent = `Couldn't ${verb} the device. The code may have expired.`;
+      confirmError.hidden = false;
+    };
+  }
 
-  denyBtn.addEventListener("click", async () => {
-    confirmError.hidden = true;
-    approveBtn.disabled = true;
-    denyBtn.disabled = true;
-    const ok = await denyDevice(authOrigin, userCode);
-    if (ok) {
-      hideAll();
-      denied.hidden = false;
-      return;
-    }
-    approveBtn.disabled = false;
-    denyBtn.disabled = false;
-    confirmError.textContent = "Couldn't deny the device. The code may have expired.";
-    confirmError.hidden = false;
-  });
+  approveBtn.addEventListener("click", decide(approveDevice, "approve", approved));
+  denyBtn.addEventListener("click", decide(denyDevice, "deny", denied));
 
   init();
 </script>

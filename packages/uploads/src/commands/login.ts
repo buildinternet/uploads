@@ -17,9 +17,7 @@ import {
   requestDeviceToken,
 } from "../client.js";
 import { flagBool, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
-
-type FileScope = "files:read" | "files:write" | "files:delete";
-const KNOWN_SCOPES = new Set<FileScope>(["files:read", "files:write", "files:delete"]);
+import { parseScopes } from "./admin-enrollment.js";
 
 const HELP = `uploads login [options]
 
@@ -155,19 +153,6 @@ export function resolveAuthUrl(
   return "https://auth.uploads.sh";
 }
 
-function parseScopeFlag(value: string | undefined): FileScope[] | undefined {
-  if (!value) return undefined;
-  const parts = value
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (parts.length === 0) return undefined;
-  for (const part of parts) {
-    if (!KNOWN_SCOPES.has(part as FileScope)) throw new UsageError(`invalid scope: ${part}`);
-  }
-  return [...new Set(parts)] as FileScope[];
-}
-
 /** Best-effort browser open. The URL is always printed too, so failures are silent. */
 function openUrl(url: string): void {
   try {
@@ -213,7 +198,7 @@ async function runDeviceLogin(
   opts: { apiUrl: string; authUrl: string; noOpen: boolean },
   io: DeviceLoginIo,
 ): Promise<LoginResult> {
-  const scopes = parseScopeFlag(flagString(parsed.flags, "--scopes"));
+  const scopes = parseScopes(flagString(parsed.flags, "--scopes"));
   const label = flagString(parsed.flags, "--label") ?? safeHostname();
   const requestedWorkspace = flagString(parsed.flags, "--workspace");
 

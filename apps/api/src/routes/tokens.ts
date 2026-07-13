@@ -13,7 +13,7 @@
  * user-generated API tokens): the request carries a `grants` array, but v1
  * accepts exactly one grant and rejects >1 with a clear "not yet supported".
  */
-import { ForbiddenError, ServiceUnavailableError, ValidationError } from "@uploads/errors";
+import { ForbiddenError, ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
 import {
   createToken,
@@ -22,9 +22,9 @@ import {
   MAX_TOKEN_SECONDS,
   type FileScope,
 } from "../auth-db";
-import { orgForWorkspace } from "../org-workspaces";
+import { membershipsForUser, orgForWorkspace } from "../org-workspaces";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
-import type { WorkspaceRecord } from "../workspace";
+import { loadWorkspaceRecord } from "../workspace";
 
 const MAX_BODY_BYTES = 4096;
 const MAX_LABEL_LEN = 200;
@@ -33,39 +33,9 @@ const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 // delete (least surprise; the CLI sends explicit scopes anyway).
 const DEFAULT_MINT_SCOPES: FileScope[] = ["files:read", "files:write"];
 
-interface MembershipRow {
-  organizationId: string;
-  organizationSlug: string;
-  role: string;
-}
-
 interface Grant {
   workspace: string;
   scopes: FileScope[];
-}
-
-/**
- * Memberships for a user via the AUTH binding's service-binding-only API.
- *
- * A non-ok status is an auth-worker outage/bug, NOT "this user has no
- * memberships" — surface it as a 503 rather than letting an empty list
- * masquerade as a 403 (which would tell a legitimate user they've lost access
- * during an outage). Mirrors `orgForWorkspace`'s deliberate throw-on-unexpected
- * behavior. A user with genuinely no memberships gets a 200 with `[]`.
- */
-async function membershipsForUser(env: Env, userId: string): Promise<MembershipRow[]> {
-  const res = await env.AUTH.fetch(
-    `https://auth.internal/internal/memberships?userId=${encodeURIComponent(userId)}`,
-    { headers: { "x-uploads-internal": "1" } },
-  );
-  if (!res.ok) {
-    throw new ServiceUnavailableError("auth service returned an unexpected status", {
-      code: "auth_lookup_failed",
-      details: { status: res.status },
-    });
-  }
-  const body = (await res.json().catch(() => null)) as MembershipRow[] | null;
-  return Array.isArray(body) ? body : [];
 }
 
 /**
@@ -156,8 +126,7 @@ export const tokens = new Hono<SessionVars>()
       await Promise.all(
         memberships.map(async (m) => {
           const name = m.organizationSlug;
-          if (!WS_NAME_RE.test(name)) return null;
-          const record = await c.env.REGISTRY.get(`ws:${name}`, { type: "json", cacheTtl: 60 });
+          const record = await loadWorkspaceRecord(c.env, name);
           return record ? { workspace: name, role: m.role } : null;
         }),
       )
@@ -185,26 +154,18 @@ export const tokens = new Hono<SessionVars>()
     // requireSessionUser guarantees this is set.
     const user = c.get("sessionUser")!;
 
-    // The workspace must exist as a KV tenant record — a token is meaningless
-    // otherwise, and it prevents minting for typo'd/non-existent workspaces.
-    const record = await c.env.REGISTRY.get<WorkspaceRecord>(`ws:${grant.workspace}`, {
-      type: "json",
-      cacheTtl: 60,
-    });
-    if (!record) {
-      throw new ForbiddenError("no access to this workspace", { code: "workspace_forbidden" });
-    }
-
-    // Membership gate: resolve the org backing this workspace (through the D4
-    // indirection), then require the session user to be a member of it. Same
-    // 403/`workspace_forbidden` as the missing-workspace case so a non-member
-    // can't distinguish "workspace doesn't exist" from "you're not a member".
-    const org = await orgForWorkspace(c.env, grant.workspace);
-    if (!org) {
-      throw new ForbiddenError("no access to this workspace", { code: "workspace_forbidden" });
-    }
-    const memberships = await membershipsForUser(c.env, user.id);
-    if (!memberships.some((m) => m.organizationId === org.id)) {
+    // Three independent lookups — resolve them concurrently, then gate. The
+    // workspace must exist as a KV tenant record (a token is meaningless
+    // otherwise, and this blocks typo'd/non-existent workspaces); the session
+    // user must be a member of the org backing it. All checks collapse to the
+    // same 403/`workspace_forbidden` so a non-member can't distinguish
+    // "workspace doesn't exist" from "you're not a member".
+    const [record, org, memberships] = await Promise.all([
+      loadWorkspaceRecord(c.env, grant.workspace),
+      orgForWorkspace(c.env, grant.workspace),
+      membershipsForUser(c.env, user.id),
+    ]);
+    if (!record || !org || !memberships.some((m) => m.organizationId === org.id)) {
       throw new ForbiddenError("no access to this workspace", { code: "workspace_forbidden" });
     }
 
