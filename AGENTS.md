@@ -221,6 +221,10 @@ do not merge “version packages” PRs unless shipping is intentional.
   loads the file via `node --env-file-if-exists`). Copy to `.env`, gitignored.
 - `apps/api/.dev.vars.example` — the worker's local config (Workers
   convention). Currently empty of secrets; workspace secrets live in KV.
+- `apps/web/.dev.vars.example` — overrides `UPLOADS_AUTH_ORIGIN` /
+  `UPLOADS_API_ORIGIN` to point the signed-in shells (`/account/*`,
+  `/admin/*`) at the local auth/API workers instead of the prod origins baked
+  into `wrangler.jsonc` `vars`; no secrets.
 - Never edit a user's `.env` / `.dev.vars` directly; template files only.
 
 ## Roadmap (see docs/roadmap.md for detail)

@@ -7,8 +7,8 @@
 # Steps:
 #   1. tooling     — Node ≥24 + corepack (pnpm is pinned via packageManager)
 #   2. install     — pnpm install
-#   3. env files   — scaffold .env + API/Auth .dev.vars from *.example (only
-#                    if absent); mint the local-only signing/admin secrets
+#   3. env files   — scaffold .env + API/Auth/Web .dev.vars from *.example
+#                    (only if absent); mint the local-only signing/admin secrets
 #   4. types       — wrangler types → worker-configuration.d.ts (gitignored)
 #   5. database    — apply local API + Auth D1 migrations
 #   6. workspace   — seed the local `default` workspace in REGISTRY KV (once)
@@ -128,6 +128,7 @@ step "Scaffolding env files (non-destructive)"
 scaffold "$ROOT/.env.example" "$ROOT/.env"
 scaffold "$ROOT/apps/api/.dev.vars.example" "$ROOT/apps/api/.dev.vars"
 scaffold "$ROOT/apps/auth/.dev.vars.example" "$ROOT/apps/auth/.dev.vars"
+scaffold "$ROOT/apps/web/.dev.vars.example" "$ROOT/apps/web/.dev.vars"
 
 DEV_VARS="$ROOT/apps/api/.dev.vars"
 AUTH_DEV_VARS="$ROOT/apps/auth/.dev.vars"
