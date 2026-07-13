@@ -169,6 +169,17 @@ async function main() {
       // /login, /device, and invitations as well as to the SSR account shell.
       PUBLIC_UPLOADS_AUTH_ORIGIN: AUTH_ORIGIN,
       PUBLIC_UPLOADS_API_ORIGIN: API_ORIGIN,
+      // Astro 7's CLI auto-detects "agentic" shells (via am-i-vibing) and
+      // silently forks `astro dev` into a detached background daemon,
+      // exiting the foreground process with code 0. This supervisor treats
+      // any exit of a started child as a crash (see start()), so an
+      // unpatched astro dev tears down the whole stack the instant it
+      // daemonizes, leaving the orphaned daemon running at :4321. Setting
+      // ASTRO_DEV_BACKGROUND short-circuits astro's agent detection
+      // (dist/cli/dev/index.js: `!process.env.ASTRO_DEV_BACKGROUND &&
+      // isRunByAgent()`) so it stays in the foreground and is supervised
+      // like auth/api.
+      ASTRO_DEV_BACKGROUND: "1",
     },
   );
   await waitFor(PREVIEW_URL, "web");
