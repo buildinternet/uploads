@@ -119,9 +119,17 @@ export function splitUploadMetaHeaders(headers: Headers): {
     const name = rawName.toLowerCase();
     if (!name.startsWith(META_HEADER_PREFIX)) continue;
     const key = name.slice(META_HEADER_PREFIX.length);
-    if (!key || rawValue === "") continue;
-    if (CLIENT_ALLOWED.has(key)) provenance[key] = rawValue;
-    else custom[key] = rawValue;
+    if (CLIENT_ALLOWED.has(key)) {
+      // Provenance keeps its historical lenience: an empty value is ignored,
+      // matching provenanceFromHeaders (sanitizeProvenance drops it anyway).
+      if (rawValue !== "") provenance[key] = rawValue;
+    } else {
+      // Custom keys must not pre-filter: empty values (and even an empty key
+      // from a bare `X-Uploads-Meta-` header name) flow to
+      // validateMetadataEntries so the upload rejects with a typed error
+      // instead of reproducing the old silent drop.
+      custom[key] = rawValue;
+    }
   }
   return { provenance, custom };
 }
