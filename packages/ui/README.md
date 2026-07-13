@@ -14,7 +14,9 @@ export function LoginCard() {
   return (
     <Surface style={{ padding: 24 }}>
       <Panel roomy title="Sign in" description="Continue with GitHub or a workspace token.">
-        <Button variant="primary" block>Continue with GitHub</Button>
+        <Button variant="primary" block>
+          Continue with GitHub
+        </Button>
       </Panel>
     </Surface>
   );
