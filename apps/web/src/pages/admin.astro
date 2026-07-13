@@ -59,8 +59,6 @@ const csp = [
     header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:22px}
     header.top .lockup{display:inline-flex;align-items:center;gap:9px}
     header.top .who{color:var(--muted);font-size:12.5px}
-    .status{border-left:3px solid var(--accent);padding:9px 14px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-md)}
-    .status[data-state=denied]{border-color:var(--red);color:var(--red)}
     a.button{display:inline-block;margin-top:12px;font:12px var(--mono);color:var(--accent);text-decoration:none;border:1px solid var(--line);border-radius:var(--radius-sm);padding:9px 13px;background:var(--panel)}
     a.button:hover,a.button:focus-visible{border-color:var(--accent);outline:none}
 
@@ -116,10 +114,10 @@ const csp = [
 </head>
 <body>
 <div class="shell">
-  <div id="checking" class="status" role="status">Checking your session…</div>
+  <div id="checking" class="ul-callout status" role="status">Checking your session…</div>
 
   <div id="denied" hidden>
-    <div class="status" data-state="denied" role="alert">You need admin access to view this page.</div>
+    <div class="ul-callout status" data-state="error" role="alert">You need admin access to view this page.</div>
     <a class="button" href="/login">Sign in</a>
   </div>
 

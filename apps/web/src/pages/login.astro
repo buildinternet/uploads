@@ -44,9 +44,7 @@ const csp = [
     .brandbar{display:flex;justify-content:center;margin-bottom:24px}
     h1{margin:0 0 8px;font-size:clamp(21px,5vw,26px);font-weight:600;letter-spacing:-.015em;line-height:1.25}
     p{color:var(--body);margin:0 0 20px}
-    .status{border-left:3px solid var(--accent);padding:9px 14px;margin:16px 0;background:var(--bg);color:var(--fg)}
-    .status[data-state=ready]{border-color:var(--green)}
-    .status[data-state=error]{border-color:var(--red);color:var(--red)}
+    .status{margin:16px 0}
     button.github{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;font:14px var(--mono);letter-spacing:.02em;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-md);padding:12px 16px;cursor:pointer}
     button.github:hover,button.github:focus-visible{border-color:var(--accent);outline:none}
     .divider{display:flex;align-items:center;gap:12px;margin:22px 0;color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
@@ -68,7 +66,7 @@ const csp = [
   <p>Manage workspaces, invites, and access.</p>
 
   <div id="sent-state" hidden>
-    <div class="status" data-state="ready" role="status">Check your email — we sent you a sign-in link.</div>
+    <div class="ul-callout status" data-state="ready" role="status">Check your email — we sent you a sign-in link.</div>
   </div>
 
   <div id="form-state">
@@ -81,7 +79,7 @@ const csp = [
       </label>
       <button type="submit" id="magic-submit">Send sign-in link</button>
     </form>
-    <div class="status" id="error" data-state="error" role="alert" hidden></div>
+    <div class="ul-callout status" id="error" data-state="error" role="alert" hidden></div>
   </div>
 
   <Footer compact />
