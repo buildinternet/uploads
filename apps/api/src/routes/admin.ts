@@ -1,3 +1,4 @@
+import { renderEnrollmentInvitationEmail } from "@uploads/email";
 import { ConflictError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
 import { adminAuth } from "../admin";
@@ -42,88 +43,11 @@ function inviteMagicLink(webOrigin: string, pageId: string, code: string): strin
   return `${webOrigin}/invite?id=${encodeURIComponent(pageId)}#code=${encodeURIComponent(code)}`;
 }
 
-function renderInviteEmail(to: string, workspaceName: string, link: string, expiresAt: string) {
-  const expires = new Date(expiresAt).toLocaleString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "UTC",
-    timeZoneName: "short",
-  });
-  const webOrigin = new URL(link).origin;
-  // "default" is the shared entry workspace — naming it reads as jargon, so that
-  // case is framed as access to uploads.sh itself.
-  const isDefault = workspaceName === "default";
-  const invitedTo = isDefault
-    ? "You've been given access to uploads.sh"
-    : `You've been invited to the ${workspaceName} workspace on uploads.sh`;
-  const pitch =
-    "an easy way to include screenshots and media in your GitHub pull requests, straight from the terminal";
-  const text = [
-    `${invitedTo} — ${pitch}.`,
-    "",
-    "Accept your invitation (you'll need to do this from your laptop, not your phone):",
-    `${link}`,
-    "",
-    `This link works once and expires ${expires}. If you weren't expecting it,`,
-    "you can safely ignore this email.",
-    "",
-    "—",
-    "uploads.sh · a Build Internet project",
-    `Terms: ${webOrigin}/terms · Privacy: ${webOrigin}/privacy`,
-  ].join("\n");
-  // Email-client HTML: tables for layout, inline styles, explicit hex colors so the
-  // dark card renders intentionally in both light- and dark-mode clients.
-  const mono = "ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace";
-  const preheader = `${invitedTo} — one click to accept, link expires ${expires}.`;
-  const html = `<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark"></head>
-<body style="margin:0;padding:0;background-color:#0b0813;">
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">${preheader}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#0b0813;">
-<tr><td align="center" style="padding:40px 16px;">
-  <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%;">
-    <tr><td style="font-family:${mono};font-size:13px;letter-spacing:.08em;color:#b794ff;padding:0 4px 14px;">&#9650; uploads.sh</td></tr>
-    <tr><td style="background-color:#151024;border:1px solid #2b1f46;border-radius:12px;padding:36px 34px;">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-        <tr><td style="font-family:${mono};font-size:24px;line-height:1.3;font-weight:700;color:#f2edfb;padding-bottom:12px;">You're invited</td></tr>
-        <tr><td style="font-family:${mono};font-size:14px;line-height:1.7;color:#b9b0cf;padding-bottom:26px;">${
-          isDefault
-            ? `You've been given access to <strong style="color:#f2edfb;">uploads.sh</strong>`
-            : `You've been invited to the <strong style="color:#f2edfb;">${workspaceName}</strong> workspace on uploads.sh`
-        } &mdash; an easy way to include screenshots and media in your GitHub pull requests, straight from the terminal.</td></tr>
-        <tr><td>
-          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-            <td style="background-color:#b794ff;border-radius:8px;">
-              <a href="${link}" style="display:inline-block;padding:13px 26px;font-family:${mono};font-size:15px;font-weight:700;color:#171128;text-decoration:none;">Accept invitation &rarr;</a>
-            </td>
-          </tr></table>
-        </td></tr>
-        <tr><td style="font-family:${mono};font-size:12px;line-height:1.6;color:#8e86a5;padding-top:14px;">You'll need to do this from your laptop, not your phone.</td></tr>
-        <tr><td style="padding-top:26px;"><div style="border-top:1px solid #2b1f46;"></div></td></tr>
-        <tr><td style="font-family:${mono};font-size:12px;line-height:1.7;color:#8e86a5;padding-top:18px;">This link works once and expires <span style="color:#b9b0cf;">${expires}</span>. If you weren't expecting it, you can safely ignore this email.</td></tr>
-      </table>
-    </td></tr>
-    <tr><td align="center" style="font-family:${mono};font-size:11px;line-height:1.8;color:#6f6787;padding:22px 4px 0;">
-      uploads.sh &middot; a <a href="https://buildinternet.com" style="color:#8e86a5;text-decoration:underline;">Build Internet</a> project<br>
-      <a href="${webOrigin}/terms" style="color:#8e86a5;text-decoration:underline;">Terms</a> &nbsp;&middot;&nbsp; <a href="${webOrigin}/privacy" style="color:#8e86a5;text-decoration:underline;">Privacy</a>
-    </td></tr>
-  </table>
-</td></tr>
-</table>
-</body>
-</html>`;
+function inviteEmail(to: string, workspaceName: string, link: string, expiresAt: string) {
   return {
     to,
     from: INVITE_FROM,
-    subject: isDefault
-      ? "You've been given access to uploads.sh"
-      : `You're invited to ${workspaceName} on uploads.sh`,
-    text,
-    html,
+    ...renderEnrollmentInvitationEmail({ workspaceName, link, expiresAt }),
   };
 }
 
@@ -385,7 +309,7 @@ export const admin = new Hono<{ Bindings: Env }>()
       const webOrigin = c.env.WEB_ORIGIN || deriveWebOrigin(c.req.url);
       const link = inviteMagicLink(webOrigin, enrollment.pageId, enrollment.code);
       try {
-        await c.env.EMAIL.send(renderInviteEmail(email, name, link, enrollment.expiresAt));
+        await c.env.EMAIL.send(inviteEmail(email, name, link, enrollment.expiresAt));
         emailed = true;
         // Audit only non-secret metadata — never the code, magic link, or URL.
         console.log(

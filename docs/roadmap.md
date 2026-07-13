@@ -19,6 +19,12 @@
 - **More providers**: add cases to `packages/storage` (`s3`, `gcs`, …).
 - **Point `github-screenshots` at this API** — replaces its bundled SigV4
   script with one authenticated PUT.
+- **Enrollment “token used” notify** — org-membership accepts already email
+  the inviter (`member-joined` via Better Auth `afterAcceptInvitation`). The
+  CLI enrollment path (`/admin/enrollments` → `/invite#code`) has no durable
+  inviter identity (admin bearer only); if we want “someone redeemed your
+  enrollment link,” store inviter email/label on the enrollment row and send
+  from the API after exchange.
 - **Private-repo embed privacy** — today every hosted file is on a public CDN;
   `--pr`/`--issue` keys are predictable (`gh/<owner>/<repo>/pull/<n>/<name>`),
   so attachments on private repos are not secret from anyone who can guess the

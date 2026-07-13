@@ -9,6 +9,7 @@ import { admin } from "./routes/admin";
 import { adminUi } from "./routes/admin-ui";
 import { auth } from "./routes/auth";
 import { tokens } from "./routes/tokens";
+import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
 import { galleries } from "./routes/galleries";
 import { publicGalleries } from "./routes/public-galleries";
@@ -27,9 +28,10 @@ const consoleCors = cors({
   maxAge: 86400,
 });
 
-// /admin-ui/* is session-cookie-authenticated (requireAdminUser, see
-// src/session-auth.ts), so unlike consoleCors above it must be credentialed
-// — same treatment as apps/auth's authCors for the web origin's cross-origin
+// /admin-ui/* and /me/* are both session-cookie-authenticated (see
+// src/session-auth.ts — requireAdminUser for /admin-ui, requireSessionUser
+// only for /me), so unlike consoleCors above they must be credentialed —
+// same treatment as apps/auth's authCors for the web origin's cross-origin
 // browser calls (uploads.sh -> api.uploads.sh). The ADMIN_TOKEN-gated
 // `/admin/*` surface is bearer-token-only and deliberately untouched.
 const adminUiCors = cors({
@@ -49,9 +51,11 @@ export const app = new Hono<WorkspaceVars>()
   .get("/health", (c) => c.json({ ok: true }))
   .use("/admin/*", consoleCors)
   .use("/admin-ui/*", adminUiCors)
+  .use("/me/*", adminUiCors)
   .use("/v1/*", consoleCors)
   .route("/admin", admin)
   .route("/admin-ui", adminUi)
+  .route("/me", me)
   .route("/auth", auth)
   .route("/public/galleries", publicGalleries)
   // Session-authenticated workspace-token mint (Phase 4). Registered BEFORE the
