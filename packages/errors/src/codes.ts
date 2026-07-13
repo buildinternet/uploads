@@ -33,6 +33,7 @@ export const ERROR_CODES = [
   "key_prefix_not_allowed",
   "key_too_deep",
   "presign_unavailable",
+  "file_url_unavailable",
 
   // Budgets
   "storage_quota_exceeded",

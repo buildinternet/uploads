@@ -74,6 +74,62 @@ describe("GET /me/workspaces", () => {
           organization: { id: "org1", slug: "acme", name: "Acme Inc" },
           role: "owner",
           communal: false,
+          hasPublicUrl: false,
+        },
+      ],
+    });
+  });
+
+  it("flags hasPublicUrl for a workspace whose storage record has a publicBaseUrl", async () => {
+    const env = stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") {
+        return Response.json([{ organizationId: "org1", organizationSlug: "acme", role: "owner" }]);
+      }
+      if (path === "/internal/orgs/acme") {
+        return Response.json({ organization: { id: "org1", slug: "acme", name: "Acme Inc" } });
+      }
+      return new Response(null, { status: 404 });
+    });
+    (env as unknown as { REGISTRY: Pick<KVNamespace, "get"> }).REGISTRY = fakeKv({
+      "ws:acme": {
+        provider: "r2",
+        bucket: "shared",
+        publicBaseUrl: "https://storage.uploads.sh",
+      },
+    });
+    const res = await app().request("/me/workspaces", {}, env);
+    const body = (await res.json()) as {
+      workspaces: { workspace: string; hasPublicUrl: boolean }[];
+    };
+    expect(body.workspaces).toEqual([
+      expect.objectContaining({ workspace: "acme", hasPublicUrl: true }),
+    ]);
+  });
+
+  it("never checks hasPublicUrl for the communal workspace", async () => {
+    const env = stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") {
+        return Response.json([
+          { organizationId: "org2", organizationSlug: "default", role: "member" },
+        ]);
+      }
+      if (path === "/internal/orgs/default") {
+        return Response.json({ organization: { id: "org2", slug: "default", name: "Default" } });
+      }
+      return new Response(null, { status: 404 });
+    });
+    // No REGISTRY record for "default" at all — a lookup would 404/throw were
+    // one attempted; the communal short-circuit means it never happens.
+    const res = await app().request("/me/workspaces", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      workspaces: [
+        {
+          workspace: "default",
+          organization: { id: "org2", slug: "default", name: "Default" },
+          role: "member",
+          communal: true,
+          hasPublicUrl: false,
         },
       ],
     });
@@ -335,6 +391,135 @@ describe("GET /me/workspaces/:name/files", () => {
     expect(body.files[0]).toMatchObject({
       key: "f/x/shot.png",
       url: "https://storage.uploads.sh/acme/f/x/shot.png",
+    });
+  });
+});
+
+describe("GET /me/workspaces/:name/file-url", () => {
+  it("404s for a workspace the caller is not a member of", async () => {
+    const env = stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") return Response.json([]);
+      return new Response(null, { status: 404 });
+    });
+    const res = await app().request("/me/workspaces/acme/file-url?key=a.png", {}, env);
+    expect(res.status).toBe(404);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "workspace_not_found" },
+    });
+  });
+
+  it("404s for the communal workspace", async () => {
+    const env = memberEnv({ workspace: "default", db: new UsageFakeD1() });
+    const res = await app().request("/me/workspaces/default/file-url?key=a.png", {}, env);
+    expect(res.status).toBe(404);
+  });
+
+  it("404s for an invalid key", async () => {
+    const bucket = new FakeR2Bucket();
+    const env = memberEnv({
+      workspace: "acme",
+      db: new UsageFakeD1(),
+      bucket,
+      record: {
+        provider: "r2",
+        bucket: "shared",
+        binding: "UPLOADS_DEFAULT",
+        prefix: "acme/",
+        publicBaseUrl: "https://storage.uploads.sh",
+      },
+    });
+    const res = await app().request(
+      "/me/workspaces/acme/file-url?key=" + encodeURIComponent("../etc/passwd"),
+      {},
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("404s for a key that does not exist in the bucket", async () => {
+    const bucket = new FakeR2Bucket();
+    const env = memberEnv({
+      workspace: "acme",
+      db: new UsageFakeD1(),
+      bucket,
+      record: {
+        provider: "r2",
+        bucket: "shared",
+        binding: "UPLOADS_DEFAULT",
+        prefix: "acme/",
+        publicBaseUrl: "https://storage.uploads.sh",
+      },
+    });
+    const res = await app().request("/me/workspaces/acme/file-url?key=missing.png", {}, env);
+    expect(res.status).toBe(404);
+  });
+
+  it("prefers the stable public URL when publicBaseUrl is configured", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/a.png", new Uint8Array([1]));
+    const env = memberEnv({
+      workspace: "acme",
+      db: new UsageFakeD1(),
+      bucket,
+      record: {
+        provider: "r2",
+        bucket: "shared",
+        binding: "UPLOADS_DEFAULT",
+        prefix: "acme/",
+        publicBaseUrl: "https://storage.uploads.sh",
+        // Hybrid signing creds are also present — publicBaseUrl must still win.
+        accountId: "acct",
+        accessKeyId: "key",
+        secretAccessKey: "secret",
+      },
+    });
+    const res = await app().request("/me/workspaces/acme/file-url?key=a.png", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ url: "https://storage.uploads.sh/acme/a.png" });
+  });
+
+  it("falls back to a short-lived signed URL when the provider has signing credentials but no publicBaseUrl", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/a.png", new Uint8Array([1]));
+    const env = memberEnv({
+      workspace: "acme",
+      db: new UsageFakeD1(),
+      bucket,
+      record: {
+        provider: "r2",
+        bucket: "shared",
+        binding: "UPLOADS_DEFAULT",
+        prefix: "acme/",
+        accountId: "acct",
+        accessKeyId: "key",
+        secretAccessKey: "secret",
+      },
+    });
+    const res = await app().request("/me/workspaces/acme/file-url?key=a.png", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { url: string };
+    expect(body.url).toMatch(/^https:\/\/acct\.r2\.cloudflarestorage\.com\/shared\/acme\/a\.png\?/);
+    expect(body.url).toContain("response-content-disposition=attachment");
+  });
+
+  it("returns a typed error for a binding-only workspace with no publicBaseUrl or signing credentials", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/a.png", new Uint8Array([1]));
+    const env = memberEnv({
+      workspace: "acme",
+      db: new UsageFakeD1(),
+      bucket,
+      record: {
+        provider: "r2",
+        bucket: "shared",
+        binding: "UPLOADS_DEFAULT",
+        prefix: "acme/",
+      },
+    });
+    const res = await app().request("/me/workspaces/acme/file-url?key=a.png", {}, env);
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "file_url_unavailable" },
     });
   });
 });
