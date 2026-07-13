@@ -722,3 +722,120 @@ describe("/me/workspaces/:name/file-browser", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("POST /me/workspaces/:name/invites", () => {
+  function inviteEnv(opts: {
+    role: string;
+    onInvite?: (body: unknown) => Response | Promise<Response>;
+  }): Env {
+    const { role, onInvite } = opts;
+    const auth = stubAuth(async (req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/api/auth/get-session") {
+        return new Response(JSON.stringify({ session: {}, user: USER }), { status: 200 });
+      }
+      if (url.pathname === "/internal/memberships") {
+        return Response.json([{ organizationId: "org1", organizationSlug: "acme", role }]);
+      }
+      if (url.pathname === "/internal/orgs/acme") {
+        return Response.json({ organization: { id: "org1", slug: "acme", name: "Acme" } });
+      }
+      if (url.pathname === "/internal/invite" && req.method === "POST") {
+        const body = await req.json();
+        if (onInvite) return onInvite(body);
+        return Response.json(
+          {
+            invitation: {
+              id: "inv1",
+              organizationId: "org1",
+              email: (body as { email?: string }).email,
+              role: "member",
+              status: "pending",
+            },
+          },
+          { status: 201 },
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+    return { AUTH: auth, DB: new UsageFakeD1() } as unknown as Env;
+  }
+
+  it("lets an org owner invite a teammate", async () => {
+    let captured: unknown;
+    const env = inviteEnv({
+      role: "owner",
+      onInvite: (body) => {
+        captured = body;
+        return Response.json(
+          { invitation: { id: "inv1", email: "t@example.com", status: "pending" } },
+          { status: 201 },
+        );
+      },
+    });
+    const res = await app().request(
+      "/me/workspaces/acme/invites",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "t@example.com" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    expect(captured).toMatchObject({
+      organizationSlug: "acme",
+      email: "t@example.com",
+      role: "member",
+      inviterUserId: USER.id,
+    });
+  });
+
+  it("403s for an org member without admin/owner", async () => {
+    const env = inviteEnv({ role: "member" });
+    const res = await app().request(
+      "/me/workspaces/acme/invites",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "t@example.com" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "workspace_admin_required" },
+    });
+  });
+
+  it("404s for a workspace the caller is not a member of", async () => {
+    const env = stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") return Response.json([]);
+      return new Response(null, { status: 404 });
+    });
+    const res = await app().request(
+      "/me/workspaces/acme/invites",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "t@example.com" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("400s on an invalid email", async () => {
+    const env = inviteEnv({ role: "admin" });
+    const res = await app().request(
+      "/me/workspaces/acme/invites",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "not-an-email" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+});

@@ -9,7 +9,7 @@
  * (`workspace_not_found`) rather than 403ing, so membership can't be probed
  * for workspace existence any more precisely than for any other workspace.
  */
-import { NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
+import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
@@ -23,6 +23,8 @@ import { publicUrl, storage, storageConfig } from "../storage";
 import { getWorkspaceUsage } from "../usage";
 import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
 import { loadWorkspaceRecord } from "../workspace";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface MyWorkspace {
   workspace: string;
@@ -90,6 +92,17 @@ function requireUserId(c: Context<SessionVars>): string {
   const userId = c.get("sessionUser")?.id;
   if (!userId) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
   return userId;
+}
+
+/** Membership admin|owner for this workspace — 404 if not a member, 403 if member but not privileged. */
+async function adminWorkspaceOr403(env: Env, userId: string, name: string): Promise<MyWorkspace> {
+  const ws = await memberWorkspaceOr404(env, userId, name);
+  if (ws.role !== "admin" && ws.role !== "owner") {
+    throw new ForbiddenError("workspace admin or owner role required", {
+      code: "workspace_admin_required",
+    });
+  }
+  return ws;
 }
 
 export const me = new Hono<SessionVars>()
@@ -253,4 +266,76 @@ export const me = new Hono<SessionVars>()
       secret: `readonly-list:${name}`,
     });
     return router.handle(c.req.raw);
+  })
+
+  // Invite an email to the org backing this workspace (Better Auth invitation).
+  // Workspace org admin|owner only. Returns acceptUrl so self-hosted installs
+  // without Email Sending can still hand the invitee a link.
+  .post("/workspaces/:name/invites", async (c) => {
+    const name = c.req.param("name");
+    const userId = requireUserId(c);
+    await adminWorkspaceOr403(c.env, userId, name);
+
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+
+    const org = await orgForWorkspace(c.env, name);
+    if (!org) {
+      throw new NotFoundError("no organization for this workspace — ask a site operator", {
+        code: "org_not_found",
+      });
+    }
+
+    const body = await c.req
+      .json<{ email?: unknown; role?: unknown }>()
+      .catch(() => ({}) as { email?: unknown; role?: unknown });
+    // Account UI always invites as member; API still accepts role for CLI.
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    const role = typeof body.role === "string" ? body.role.trim() : "member";
+    if (!email || !EMAIL_RE.test(email)) {
+      throw new ValidationError("invalid email address", { code: "invalid_email" });
+    }
+    if (role !== "member" && role !== "admin") {
+      throw new ValidationError("role must be member or admin", { code: "invalid_role" });
+    }
+
+    // Per-recipient rate limit when the binding is configured (hosted always;
+    // self-hosted opt-in via wrangler). Absent binding = no RL (same as other
+    // optional limiters).
+    const limiter = c.env.INVITE_LIMITER;
+    if (limiter) {
+      const { success } = await limiter.limit({ key: `invite:email:${email}` });
+      if (!success) throw new RateLimitedError("invite rate limit exceeded");
+    }
+
+    const response = await c.env.AUTH.fetch("https://auth.internal/internal/invite", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-uploads-internal": "1" },
+      body: JSON.stringify({
+        organizationSlug: org.slug,
+        email,
+        role,
+        inviterUserId: userId,
+      }),
+    });
+    const payload = (await response.json().catch(() => null)) as {
+      invitation?: { id?: string };
+      acceptUrl?: string;
+    } | null;
+    if (!response.ok) {
+      if (response.status === 403) {
+        throw new ForbiddenError("not authorized to invite to this workspace", {
+          code: "inviter_not_authorized",
+          details: payload,
+        });
+      }
+      throw new ValidationError("failed to create invitation", { details: payload });
+    }
+    // Ensure acceptUrl even if an older auth worker omits it.
+    const webOrigin = (c.env.WEB_ORIGIN || "https://uploads.sh").replace(/\/$/, "");
+    const id = payload?.invitation?.id;
+    const acceptUrl =
+      payload?.acceptUrl ?? (id ? `${webOrigin}/accept-invitation/${id}` : undefined);
+    return c.json({ ...payload, acceptUrl }, response.status === 200 ? 200 : 201);
   });

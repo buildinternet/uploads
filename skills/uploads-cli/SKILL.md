@@ -77,7 +77,7 @@ Resolution is **per key, first match wins**: CLI flags (`--api-url`, `--token`,
 `$BUILDINTERNET_CONFIG` → the shared config file. For a one-off against a different
 API or workspace, just export the var or pass `--env-file`.
 
-The fastest path is `uploads login`. Have an uploads.sh administrator invite your
+The fastest path is `uploads login`. Have a workspace admin invite your
 email to a workspace first, then run it once, interactively, to sign in:
 
 ```bash
@@ -89,6 +89,16 @@ That's a one-time, human-in-the-loop step (device sign-in needs a browser); once
 config file is written, every later `uploads` invocation — including from a
 non-interactive agent — just reads the saved token. Routine agents never need
 `ADMIN_TOKEN`.
+
+**Inviting a teammate** (workspace admin/owner only): `/account/workspaces` in the
+browser, or:
+
+```bash
+uploads invite create --email teammate@example.com --workspace acme
+```
+
+Device login as you (not `ADMIN_TOKEN` / not a workspace token). The CLI prints an
+accept URL to share if email isn’t configured. Invitee accepts, then `uploads login`.
 
 For headless machines with no browser at all, an operator can mint a token directly
 (`/admin/tokens`, `ADMIN_TOKEN`-gated — see `docs/admin-tokens.md`) and hand it to the

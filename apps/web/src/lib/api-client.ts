@@ -220,3 +220,43 @@ export async function setFileVisibility(
   }
   return { kind: "success", visibility: body.visibility };
 }
+
+export type InviteResult =
+  | { kind: "ok"; invitationId?: string; status?: string; acceptUrl?: string }
+  | { kind: "unavailable"; reason: RequestFailure | "server" | "forbidden" | "invalid" };
+
+/**
+ * POST /me/workspaces/:name/invites — workspace admin|owner invites an email.
+ * Always prefer showing `acceptUrl` (works without outbound email).
+ */
+export async function inviteToWorkspace(
+  apiOrigin: string,
+  name: string,
+  email: string,
+): Promise<InviteResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/invites`,
+    {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, role: "member" }),
+    },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 400) return { kind: "unavailable", reason: "invalid" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const body = (await response.json().catch(() => null)) as {
+    invitation?: { id?: string; status?: string };
+    acceptUrl?: string;
+  } | null;
+  return {
+    kind: "ok",
+    invitationId: body?.invitation?.id,
+    status: body?.invitation?.status,
+    acceptUrl: typeof body?.acceptUrl === "string" ? body.acceptUrl : undefined,
+  };
+}

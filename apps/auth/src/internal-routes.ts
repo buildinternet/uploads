@@ -248,6 +248,33 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       return c.json(errorJson("inviter_not_found", "no user with that id"), 404);
     }
 
+    // Authorization: either a global site operator (user.role === "admin") —
+    // used by /admin-ui when the operator is not an org member of every
+    // workspace — or an org member with role admin|owner. Unprivileged
+    // callers (or a fabricated inviterUserId) must not create invites.
+    const isGlobalAdmin = inviter.role === "admin";
+    if (!isGlobalAdmin) {
+      const [membership] = await db
+        .select({ role: schema.member.role })
+        .from(schema.member)
+        .where(and(eq(schema.member.organizationId, org.id), eq(schema.member.userId, inviter.id)))
+        .limit(1);
+      if (!membership || (membership.role !== "admin" && membership.role !== "owner")) {
+        return c.json(
+          errorJson(
+            "inviter_not_authorized",
+            "inviter must be a global admin or an org admin/owner",
+          ),
+          403,
+        );
+      }
+    }
+
+    // Normalize so "Ada@x.com" and "ada@x.com" hit the same pending row.
+    const normalizedEmail = email.toLowerCase();
+    const webOrigin = (c.env.WEB_ORIGIN || "https://uploads.sh").replace(/\/$/, "");
+    const acceptUrlFor = (invitationId: string) => `${webOrigin}/accept-invitation/${invitationId}`;
+
     // Idempotency: an existing pending invite for this (org, email) is
     // returned as-is rather than inserting a duplicate row and re-sending
     // the invitation email (e.g. the admin double-clicks Invite).
@@ -257,11 +284,12 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       .where(
         and(
           eq(schema.invitation.organizationId, org.id),
-          eq(schema.invitation.email, email),
+          eq(schema.invitation.email, normalizedEmail),
           eq(schema.invitation.status, "pending"),
         ),
       )
       .limit(1);
+
     if (existingInvite) {
       return c.json(
         {
@@ -273,6 +301,8 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
             status: existingInvite.status,
             expiresAt: existingInvite.expiresAt,
           },
+          // Always return so self-hosted (no EMAIL binding) can share the link.
+          acceptUrl: acceptUrlFor(existingInvite.id),
         },
         200,
       );
@@ -283,7 +313,7 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     await db.insert(schema.invitation).values({
       id,
       organizationId: org.id,
-      email,
+      email: normalizedEmail,
       role,
       status: "pending",
       expiresAt,
@@ -291,19 +321,29 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       createdAt: new Date(),
     });
 
-    const webOrigin = c.env.WEB_ORIGIN || "https://uploads.sh";
+    const acceptUrl = acceptUrlFor(id);
     await sendAuthEmail(c.env, {
-      to: email,
+      to: normalizedEmail,
       template: "invitation",
       context: {
-        url: `${webOrigin}/accept-invitation/${id}`,
+        url: acceptUrl,
         organizationName: org.name,
         inviterEmail: inviter.email,
       },
     });
 
     return c.json(
-      { invitation: { id, organizationId: org.id, email, role, status: "pending", expiresAt } },
+      {
+        invitation: {
+          id,
+          organizationId: org.id,
+          email: normalizedEmail,
+          role,
+          status: "pending",
+          expiresAt,
+        },
+        acceptUrl,
+      },
       201,
     );
   })
