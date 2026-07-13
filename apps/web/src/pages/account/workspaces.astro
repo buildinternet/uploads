@@ -12,7 +12,8 @@ export const prerender = false;
     <button id="orgs-retry" type="button" hidden>Try again</button>
     <ul class="plain" id="orgs-list" hidden></ul>
     <p class="muted" style="margin-top:12px">
-      Need another workspace? Ask its admin for an invite.
+      Joining another workspace is invite-only — someone who already manages
+      that workspace has to add you. Workspaces aren’t created from this page.
     </p>
   </section>
 
@@ -77,12 +78,15 @@ export const prerender = false;
       return parts.join(" · ");
     }
 
-    const isAdminRole = (role: string) => role === "admin" || role === "owner";
-
-    // The command an admin runs to invite a teammate. Workspace names are
-    // [a-z0-9-] on the API; escapeHtml is applied at the render site regardless.
-    const inviteCommand = (workspace: string) =>
+    // Operator enrollment CLI for a given workspace. Needs site-wide
+    // ADMIN_TOKEN (not a workspace upload token / membership role). The
+    // workspace name is pre-filled only as a convenience — it does not create
+    // a workspace.
+    const operatorInviteCommand = (workspace: string) =>
       `uploads admin invite create --workspace ${workspace} --email teammate@example.com`;
+
+    // Captured from onSession so the invite block can gate on global role.
+    let sessionUser: { role?: string | null } | null = null;
 
     function renderGalleries(container: HTMLElement, galleries: GallerySummary[]): void {
       const head = `<div class="ws-section-head">Galleries${galleries.length ? ` (${galleries.length})` : ""}</div>`;
@@ -121,6 +125,9 @@ export const prerender = false;
       }
       orgsStatus.hidden = true;
       orgsList.hidden = false;
+      // Global Better Auth role (site operator), not workspace membership role.
+      // Only operators hold ADMIN_TOKEN and should see the enrollment CLI snippet.
+      const isSiteOperator = sessionUser?.role === "admin";
       orgsList.innerHTML = workspaces
         .map((ws) => {
           // Communal workspace = the shared, world-readable dumping ground; it
@@ -129,13 +136,14 @@ export const prerender = false;
             ? `<p class="ws-note">This is the shared, public space — anything here is world-readable at <code>storage.uploads.sh</code>. Browse and upload with the CLI.</p>`
             : `<div class="ws-section" data-galleries><div class="ws-section-head">Galleries</div><p class="ws-empty">Loading&#32;…</p></div>
                <div class="ws-section" data-files><div class="ws-section-head">Files</div><p class="ws-empty">Loading&#32;…</p></div>`;
-          // Workspace admins get a copy-paste invite command.
-          const cmd = inviteCommand(ws.workspace);
-          const invite = isAdminRole(ws.role)
+          // Site operators: copy-paste enrollment invite for *this* workspace
+          // (name pre-filled). Day-to-day email invites go through /admin.
+          const cmd = operatorInviteCommand(ws.workspace);
+          const invite = isSiteOperator
             ? `<div class="ws-section">
-                 <div class="ws-section-head">Invite a teammate</div>
+                 <div class="ws-section-head">Operator invite to this workspace</div>
                  <div class="command"><code>${escapeHtml(cmd)}</code><button type="button" aria-live="polite" data-copy="${escapeHtml(cmd)}">copy</button></div>
-                 <p class="muted cli-note">Runs with the workspace's admin token.</p>
+                 <p class="muted cli-note">Needs the site <code>ADMIN_TOKEN</code> — not a workspace upload token. Prefer <a href="/admin">/admin</a> for email invites.</p>
                </div>`
             : "";
           return `<li data-workspace="${escapeHtml(ws.workspace)}">
@@ -235,7 +243,8 @@ export const prerender = false;
       void loadWorkspaces();
     });
 
-    onSession(() => {
+    onSession((user) => {
+      sessionUser = user;
       void loadWorkspaces();
     });
   </script>
