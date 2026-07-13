@@ -5,6 +5,7 @@ import {
   CF_RUM_SCRIPT_SRC,
   STYLE_SRC_SELF_AND_INLINE,
 } from "../lib/csp";
+import AuthIndicator from "../components/AuthIndicator.astro";
 
 export const prerender = false;
 
@@ -46,6 +47,7 @@ const FAVICON =
     *{box-sizing:border-box}
     body{margin:0;min-height:100dvh;background:var(--bg);color:var(--fg);font:14px/1.5 var(--mono);padding:32px 20px 48px}
     main{max-width:720px;margin:0 auto;display:grid;gap:16px}
+    .admin-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
     h1{font-size:1.15rem;font-weight:600;margin:0}
     p.muted{color:var(--muted);margin:0;font-size:.9rem}
     .status{border-left:3px solid var(--accent);padding:9px 14px;margin:8px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px}
@@ -77,7 +79,10 @@ const FAVICON =
 </head>
 <body>
 <main>
-  <h1>uploads.sh admin</h1>
+  <div class="admin-top">
+    <h1>uploads.sh admin</h1>
+    <AuthIndicator authOrigin={authOrigin} />
+  </div>
 
   <div id="checking" class="status" role="status">Checking your session…</div>
 

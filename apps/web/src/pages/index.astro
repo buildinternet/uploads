@@ -3,8 +3,12 @@
 // the GitHub comment it produces, what else it does, and copyable setup rows.
 import "@fontsource-variable/geist/index.css";
 import "@fontsource-variable/geist-mono/index.css";
+import AuthIndicator from "../components/AuthIndicator.astro";
 
 const REPO = "https://github.com/buildinternet/uploads";
+// Static page (no `prerender = false`) — auth origin is baked at build time,
+// not read from request-time env. See src/lib/auth-client.ts.
+const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.uploads.sh";
 // Stacked up-chevrons, fading as they rise — inline so the page stays a single request.
 const FAVICON =
 	"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23121214'/%3E%3Cg fill='none' stroke='%23b794ff' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 12.5 L16 5 L24 12.5'/%3E%3Cpath d='M8 19.5 L16 12 L24 19.5' opacity='.55'/%3E%3Cpath d='M8 26.5 L16 19 L24 26.5' opacity='.28'/%3E%3C/g%3E%3C/svg%3E";
@@ -418,6 +422,7 @@ const FAVICON =
           Star on GitHub
           <span class="count" id="star-count"></span>
         </a>
+        <AuthIndicator authOrigin={authOrigin} />
       </div>
 
       <h1>Agents can put screenshots on pull requests now, too.</h1>
