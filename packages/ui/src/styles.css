@@ -92,10 +92,11 @@
   line-height: 1;
   white-space: nowrap;
 }
+/* The mark is the pixel-grid chevron; its frame carries its own stepped
+   corners, so no CSS border-radius (it would round the crisp pixels). */
 .ul-brand__mark {
   width: 20px;
   height: 20px;
-  border-radius: 5px;
   flex: none;
 }
 .ul-brand--lg {
@@ -105,7 +106,6 @@
 .ul-brand--lg .ul-brand__mark {
   width: 28px;
   height: 28px;
-  border-radius: 7px;
 }
 .ul-brand:focus-visible {
   outline: 2px solid var(--accent);

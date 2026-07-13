@@ -24,18 +24,23 @@ export function Brand({ href = "/", size = "md", label = "uploads.sh", className
   const cls = ["ul-brand", size === "lg" && "ul-brand--lg", className].filter(Boolean).join(" ");
   const inner = (
     <>
-      <svg className="ul-brand__mark" viewBox="0 0 32 32" aria-hidden="true">
-        <rect width="32" height="32" rx="7" fill="var(--panel, #121214)" />
-        <g
-          fill="none"
-          stroke="var(--accent, #c27eff)"
-          strokeWidth="3.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M8 12.5 L16 5 L24 12.5" />
-          <path d="M8 19.5 L16 12 L24 19.5" opacity=".55" />
-          <path d="M8 26.5 L16 19 L24 26.5" opacity=".28" />
+      <svg
+        className="ul-brand__mark"
+        viewBox="0 0 32 32"
+        shapeRendering="crispEdges"
+        aria-hidden="true"
+      >
+        <path d="M4 0H28V4H32V28H28V32H4V28H0V4H4Z" fill="var(--panel, #121214)" />
+        <g fill="var(--accent, #c27eff)">
+          <path d="M14 4h4v4h-4z M10 6h4v4h-4z M18 6h4v4h-4z M6 8h4v4h-4z M22 8h4v4h-4z" />
+          <path
+            opacity=".55"
+            d="M14 12h4v4h-4z M10 14h4v4h-4z M18 14h4v4h-4z M6 16h4v4h-4z M22 16h4v4h-4z"
+          />
+          <path
+            opacity=".28"
+            d="M14 20h4v4h-4z M10 22h4v4h-4z M18 22h4v4h-4z M6 24h4v4h-4z M22 24h4v4h-4z"
+          />
         </g>
       </svg>
       <span>{label}</span>
