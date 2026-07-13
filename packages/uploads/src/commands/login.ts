@@ -21,9 +21,9 @@ import { parseScopes } from "./admin-enrollment.js";
 
 const HELP = `uploads login [options]
 
-Sign in and save workspace credentials. With no code, opens a browser to
-authorize this device (recommended). Pass an enrollment code to use the
-one-time code path instead.
+Sign in and save workspace credentials. With no flags, opens a browser to
+authorize this device — the recommended way to sign in. Pass an enrollment
+code only if you were given one from before device login (fallback path).
 
 Options:
   --workspace <name>  Workspace to mint a token for (device flow; required if
@@ -32,8 +32,9 @@ Options:
   --label <text>      Token label (default: this machine's hostname)
   --auth-url <url>    Auth base (default: https://auth.uploads.sh)
   --no-open           Don't try to open a browser automatically
-  --code <code>       Enrollment code in argv (visible in shell history)
-  --code-stdin        Read an enrollment code from stdin
+  --code <code>       Fallback: use a pre-existing enrollment code instead of
+                      device login (visible in shell history)
+  --code-stdin        Fallback: read a pre-existing enrollment code from stdin
   --non-interactive   Never prompt
   --api-url <url>     API base (default: https://api.uploads.sh)
   --path <file>       Config destination
@@ -43,7 +44,7 @@ Options:
 Examples:
   uploads login
   uploads login --workspace acme
-  uploads login --code upe_… --force
+  uploads login --code upe_… --force              # fallback: pre-existing invite
   printf '%s' upe_… | uploads login --code-stdin --non-interactive
 `;
 
