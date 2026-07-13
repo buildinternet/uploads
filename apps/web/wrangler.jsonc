@@ -19,9 +19,20 @@
     // pattern as WEB_ORIGIN in apps/auth/.dev.vars.example.
     "UPLOADS_AUTH_ORIGIN": "https://auth.uploads.sh",
     // Visibility knob for /console (not a security boundary — auth is
-    // bearer-token based): "public" | "linked-only" | "off". See console.astro.
-    "CONSOLE_MODE": "public",
+    // bearer-token based): "public" | "linked-only" | "off". Fallback when
+    // the Flagship `console-mode` flag (FLAGS binding below) is unavailable;
+    // see src/lib/console-mode.ts for the resolution order.
+    "CONSOLE_MODE": "linked-only",
   },
+  // Flagship feature flags (app "uploads"). Runtime override for CONSOLE_MODE
+  // without a redeploy. Self-hosters without Flagship can delete this block —
+  // everything falls back to the CONSOLE_MODE var above.
+  "flagship": [
+    {
+      "binding": "FLAGS",
+      "app_id": "8371bfe7-9767-4b4d-b75a-37b94d2724f7",
+    },
+  ],
   "assets": {
     "binding": "ASSETS",
     "directory": "./dist",

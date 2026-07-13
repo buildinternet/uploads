@@ -6,6 +6,7 @@
 // Client-side session gating here is a UX affordance only — every data
 // call goes to apps/auth, which enforces the session server-side.
 import { env } from "cloudflare:workers";
+import { resolveConsoleMode } from "../lib/console-mode";
 import {
   CF_RUM_CONNECT_SRC,
   CF_RUM_SCRIPT_SRC,
@@ -17,9 +18,7 @@ export const prerender = false;
 // Visibility knob, not a security boundary — console auth is bearer-token
 // based, not session-based (see console.astro). Only "public" mode links
 // to it from here; "linked-only" and "off" still let the route serve.
-// See console.astro for why this is widened from the inferred literal type.
-const consoleMode = (env.CONSOLE_MODE as string | undefined) ?? "public";
-const showConsoleLinks = consoleMode === "public";
+const showConsoleLinks = (await resolveConsoleMode(env)) === "public";
 
 const authOrigin =
   env.UPLOADS_AUTH_ORIGIN ??
