@@ -1,13 +1,17 @@
 ---
 import { env } from "cloudflare:workers";
+import { resolveConsoleMode } from "../lib/console-mode";
 import {
   CF_RUM_CONNECT_SRC,
   CF_RUM_SCRIPT_SRC,
   STYLE_SRC_SELF_AND_INLINE,
 } from "../lib/csp";
-import AuthIndicator from "../components/AuthIndicator.astro";
 
 export const prerender = false;
+
+// Mirrors /account — only "public" console mode links to the raw /console
+// developer surface from the sidebar footer. Not a security boundary.
+const showConsoleLinks = (await resolveConsoleMode(env)) === "public";
 
 const authOrigin =
   env.UPLOADS_AUTH_ORIGIN ??
@@ -43,47 +47,73 @@ const FAVICON =
   <title>Admin · uploads.sh</title>
   <link rel="icon" href={FAVICON} />
   <style>
+    /* Shared shell/sidebar/panel styles kept in sync with account.astro so the
+       admin surface matches the rest of the signed-in pages. */
     :root{color-scheme:dark;--bg:#0a0a0b;--panel:#121214;--line:#232327;--fg:#ececea;--body:#b3b3ad;--muted:#7d7d77;--accent:#b794ff;--red:#d98a9c;--mono:"Geist Mono Variable",ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace}
     *{box-sizing:border-box}
-    body{margin:0;min-height:100dvh;background:var(--bg);color:var(--fg);font:14px/1.5 var(--mono);padding:32px 20px 48px}
-    main{max-width:720px;margin:0 auto;display:grid;gap:16px}
-    .admin-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
-    h1{font-size:1.15rem;font-weight:600;margin:0}
-    p.muted{color:var(--muted);margin:0;font-size:.9rem}
-    .status{border-left:3px solid var(--accent);padding:9px 14px;margin:8px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px}
-    .status[data-state=denied]{border-color:var(--red);color:var(--red)}
-    a.button{display:inline-block;margin-top:4px;font:12px var(--mono);color:var(--accent);text-decoration:none;border:1px solid var(--line);border-radius:7px;padding:9px 13px;background:var(--panel)}
-    a.button:hover,a.button:focus-visible{border-color:var(--accent);outline:none}
-    nav.sections{display:grid;gap:10px;margin-top:8px}
-    nav.sections .item{padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--muted)}
-    nav.sections .item strong{color:var(--fg);display:block;font-size:.95rem;margin-bottom:2px}
-    .workspace{padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--panel);margin-bottom:10px}
-    .workspace summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px}
-    .workspace summary::-webkit-details-marker{display:none}
-    .workspace .name{color:var(--fg);font-weight:600}
-    .workspace .counts{color:var(--muted);font-size:.85rem}
-    .workspace .detail{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);display:grid;gap:12px}
-    .workspace ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
-    .workspace li{font-size:.85rem;color:var(--body);display:flex;justify-content:space-between;gap:8px}
-    .workspace li .role{color:var(--muted)}
-    .invite-form{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
-    .invite-form label{display:grid;gap:4px;color:var(--muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase}
-    .invite-form input,.invite-form select{background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--fg);padding:7px 9px;font:12px var(--mono)}
-    .invite-form button{font:11px var(--mono);color:var(--accent);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 12px;cursor:pointer}
-    .invite-form button:hover,.invite-form button:focus-visible{border-color:var(--accent);outline:none}
-    .invite-status{font-size:.8rem;margin-top:4px}
-    .invite-status[data-state=error]{color:var(--red)}
-    .invite-status[data-state=ready]{color:var(--accent)}
+    body{margin:0;min-height:100dvh;background:var(--bg);color:var(--fg);font:14px/1.6 var(--mono);font-variant-ligatures:none;font-feature-settings:"calt" 0,"liga" 0}
+    a{color:var(--fg);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent);text-underline-offset:3px}
+    a:hover,a:focus-visible{color:var(--accent);outline:none}
+    code{color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:.9em}
     [hidden]{display:none!important}
+
+    .shell{max-width:960px;margin:0 auto;padding:28px 20px 56px}
+    header.top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:22px}
+    header.top h1{font-size:1.1rem;font-weight:600;margin:0;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
+    header.top .who{color:var(--muted);font-size:12.5px}
+    .status{border-left:3px solid var(--accent);padding:9px 14px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+    .status[data-state=denied]{border-color:var(--red);color:var(--red)}
+    a.button{display:inline-block;margin-top:12px;font:12px var(--mono);color:var(--accent);text-decoration:none;border:1px solid var(--line);border-radius:7px;padding:9px 13px;background:var(--panel)}
+    a.button:hover,a.button:focus-visible{border-color:var(--accent);outline:none}
+
+    .layout{display:grid;grid-template-columns:190px 1fr;gap:24px;align-items:start}
+    nav.side{display:grid;gap:4px;position:sticky;top:28px}
+    nav.side a{display:block;padding:8px 12px;border-radius:7px;border:1px solid transparent;color:var(--muted);text-decoration:none;font-size:13px}
+    nav.side a:hover{color:var(--fg)}
+    nav.side a[aria-current=true]{color:var(--accent);background:var(--panel);border-color:var(--line)}
+    nav.side .side-foot{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);display:grid;gap:4px}
+    nav.side .side-foot a{font-size:12px}
+    nav.side button{text-align:left;font:12px var(--mono);color:var(--muted);background:none;border:1px solid transparent;border-radius:7px;padding:8px 12px;cursor:pointer}
+    nav.side button:hover,nav.side button:focus-visible{color:var(--red);outline:none}
+
+    .content{display:grid;gap:16px;min-width:0}
+    section.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px}
+    section.card h2{margin:0 0 4px;font-size:.95rem;font-weight:600}
+    section.card p{color:var(--body);margin:6px 0 0;font-size:13px}
+    p.muted,span.muted{color:var(--muted)}
+    .pill{display:inline-block;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);border:1px solid var(--line);border-radius:99px;padding:2px 9px;background:var(--bg)}
+
+    /* Admin workspace accordions. :global() so the JS-injected <details> match
+       despite Astro's style scoping (same pattern as account.astro's list). */
+    #workspaces-list{display:grid;gap:10px;margin-top:12px}
+    #workspaces-list :global(.workspace){padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+    #workspaces-list :global(.workspace summary){cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px}
+    #workspaces-list :global(.workspace summary::-webkit-details-marker){display:none}
+    #workspaces-list :global(.workspace .name){color:var(--fg);font-weight:600;font-size:13px}
+    #workspaces-list :global(.workspace .counts){color:var(--muted);font-size:12px;text-align:right}
+    #workspaces-list :global(.workspace .detail){margin-top:12px;padding-top:12px;border-top:1px solid var(--line);display:grid;gap:12px}
+    #workspaces-list :global(.workspace ul){list-style:none;margin:0;padding:0;display:grid;gap:6px}
+    #workspaces-list :global(.workspace li){font-size:12.5px;color:var(--body);display:flex;justify-content:space-between;gap:8px}
+    #workspaces-list :global(.workspace li .role){color:var(--muted)}
+    #workspaces-list :global(.workspace .members),#workspaces-list :global(.workspace .muted){color:var(--muted);font-size:12.5px}
+    #workspaces-list :global(.invite-form){display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+    #workspaces-list :global(.invite-form label){display:grid;gap:4px;color:var(--muted);font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+    #workspaces-list :global(.invite-form input),#workspaces-list :global(.invite-form select){background:var(--panel);border:1px solid var(--line);border-radius:6px;color:var(--fg);padding:7px 9px;font:12px var(--mono)}
+    #workspaces-list :global(.invite-form button){font:11px var(--mono);color:var(--accent);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:7px 12px;cursor:pointer}
+    #workspaces-list :global(.invite-form button:hover),#workspaces-list :global(.invite-form button:focus-visible){border-color:var(--accent);outline:none}
+    #workspaces-list :global(.invite-status){font-size:12px;margin-top:4px}
+    #workspaces-list :global(.invite-status[data-state=error]){color:var(--red)}
+    #workspaces-list :global(.invite-status[data-state=ready]){color:var(--accent)}
+
+    @media (max-width:680px){
+      .layout{grid-template-columns:1fr}
+      nav.side{position:static;grid-template-columns:repeat(auto-fit,minmax(90px,max-content));gap:6px}
+      nav.side .side-foot{grid-column:1/-1;border:0;margin:0;padding:0;grid-template-columns:subgrid}
+    }
   </style>
 </head>
 <body>
-<main>
-  <div class="admin-top">
-    <h1>uploads.sh admin</h1>
-    <AuthIndicator authOrigin={authOrigin} />
-  </div>
-
+<div class="shell">
   <div id="checking" class="status" role="status">Checking your session…</div>
 
   <div id="denied" hidden>
@@ -91,33 +121,58 @@ const FAVICON =
     <a class="button" href="/login">Sign in</a>
   </div>
 
+  <!--
+    Client-side gating here is a UX affordance ONLY — it just avoids flashing
+    admin nav (and firing admin-ui fetches) at a non-admin visitor. It is NOT
+    the security boundary: the workspaces data is fetched from apps/api's
+    /admin-ui/* surface, which independently enforces requireAdminUser
+    (src/session-auth.ts) over the AUTH service binding on every request,
+    regardless of whatever this page shows or hides.
+  -->
   <div id="dashboard" hidden>
-    <p class="muted">Signed in as <span id="who"></span>.</p>
-    <!--
-      Client-side gating here is a UX affordance ONLY — it just avoids
-      flashing admin nav (and firing admin-ui fetches) at a non-admin
-      visitor. It is NOT the security boundary: the workspaces data below is
-      fetched from apps/api's /admin-ui/* surface, which independently
-      enforces requireAdminUser (src/session-auth.ts) over the AUTH service
-      binding on every request, regardless of whatever this page shows or
-      hides.
-    -->
-    <nav class="sections" aria-label="Admin sections">
-      <div class="item">
-        <strong>Workspaces</strong>
-        <div id="workspaces-status" class="muted" style="margin-top:6px">Loading…</div>
-        <div id="workspaces-list"></div>
+    <header class="top">
+      <h1>uploads.sh <span class="pill">admin</span></h1>
+      <span class="who" id="who"></span>
+    </header>
+
+    <div class="layout">
+      <nav class="side" aria-label="Admin sections">
+        <a href="#workspaces" data-panel="workspaces" aria-current="true">Workspaces</a>
+        <a href="#users" data-panel="users">Users</a>
+        <div class="side-foot">
+          <a href="/account">← account</a>
+          {showConsoleLinks ? <a href="/console">console →</a> : null}
+          <button type="button" id="sign-out-btn">Sign out</button>
+        </div>
+      </nav>
+
+      <div class="content">
+        <div data-panel-body="workspaces">
+          <section class="card">
+            <h2>Workspaces</h2>
+            <p>Every registered workspace, with its members and pending invites. Expand one to load its people and invite someone.</p>
+            <div id="workspaces-status" class="muted" style="margin-top:12px;font-size:13px">Loading…</div>
+            <div id="workspaces-list"></div>
+          </section>
+        </div>
+
+        <div data-panel-body="users" hidden>
+          <section class="card">
+            <h2>Users</h2>
+            <p class="muted">Coming in a later phase.</p>
+          </section>
+        </div>
       </div>
-      <div class="item"><strong>Users</strong>Coming in a later phase.</div>
-    </nav>
+    </div>
   </div>
-</main>
+</div>
 <script define:vars={{ authOrigin, apiOrigin }}>
   window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
   window.__UPLOADS_API_ORIGIN__ = apiOrigin;
 </script>
 <script>
   import { getSession } from "../lib/auth-client";
+  import { initPanelSwitcher, initSignOut } from "../lib/account-shell";
 
   const w = window as unknown as { __UPLOADS_AUTH_ORIGIN__: string; __UPLOADS_API_ORIGIN__: string };
   const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
@@ -135,6 +190,8 @@ const FAVICON =
   const who = requireElement<HTMLElement>("#who");
   const workspacesStatus = requireElement<HTMLElement>("#workspaces-status");
   const workspacesList = requireElement<HTMLElement>("#workspaces-list");
+
+  initPanelSwitcher("workspaces");
 
   interface WorkspaceSummary {
     workspace: string;
@@ -235,8 +292,8 @@ const FAVICON =
     const statusEl = details.querySelector<HTMLElement>(".invite-status");
     form?.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const emailInput = form.querySelector<HTMLInputElement>(".invite-email");
-      const roleSelect = form.querySelector<HTMLSelectElement>(".invite-role");
+      const emailInput = form.querySelector(".invite-email") as HTMLInputElement | null;
+      const roleSelect = form.querySelector(".invite-role") as HTMLSelectElement | null;
       const email = emailInput?.value.trim() ?? "";
       const role = roleSelect?.value ?? "member";
       const submitBtn = form.querySelector<HTMLButtonElement>("button[type=submit]");
@@ -305,6 +362,8 @@ const FAVICON =
     dashboard.hidden = false;
     loadWorkspaces();
   });
+
+  initSignOut(authOrigin);
 </script>
 </body>
 </html>

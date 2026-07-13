@@ -169,6 +169,23 @@ export async function putObject(
   };
 }
 
+/**
+ * Provider object metadata → the JSON-safe `{ size, contentType, uploaded? }`
+ * subset shared by HEAD and list responses. Normalizes the epoch `lastModified`
+ * to an ISO `uploaded` and applies the fallback size/content type.
+ */
+function storedMetaJson(meta: { size?: number; type?: string; lastModified?: number }): {
+  size: number;
+  contentType: string;
+  uploaded?: string;
+} {
+  return {
+    size: meta.size ?? 0,
+    contentType: meta.type ?? "application/octet-stream",
+    ...(meta.lastModified != null ? { uploaded: new Date(meta.lastModified).toISOString() } : {}),
+  };
+}
+
 /** Shape HEAD/list-friendly metadata for API JSON. */
 export function headObjectJson(
   key: string,
@@ -183,27 +200,39 @@ export function headObjectJson(
   const provenance = provenanceForResponse(meta.metadata ?? undefined);
   return {
     key,
-    size: meta.size ?? 0,
-    contentType: meta.type ?? "application/octet-stream",
-    ...(meta.lastModified != null ? { uploaded: new Date(meta.lastModified).toISOString() } : {}),
+    ...storedMetaJson(meta),
     url,
     ...(provenance ? { metadata: provenance } : {}),
   };
+}
+
+/** A listed object, normalized to the same field convention as `headObjectJson`. */
+export interface ListedObject {
+  key: string;
+  url: string | null;
+  size: number;
+  contentType: string;
+  /** ISO timestamp when the provider reports a last-modified time. */
+  uploaded?: string;
 }
 
 export async function listObjects(
   env: Env,
   ws: WorkspaceRecord,
   opts: { prefix?: string; limit?: number; cursor?: string } = {},
-) {
+): Promise<{ items: ListedObject[]; cursor: string | null }> {
   const limit = Math.min(Math.max(opts.limit ?? 100, 1), 1000);
   const store = await storage(env, ws);
   const result = await store.list({ prefix: opts.prefix, limit, cursor: opts.cursor });
   const cfg = await storageConfig(env, ws);
+  // files-sdk returns rich StoredFile items (size, type, lastModified); project
+  // each to the shared HEAD/list subset (`storedMetaJson`) rather than spreading
+  // the StoredFile, which carries reader methods and a raw epoch timestamp.
   return {
-    items: result.items.map((item: { key: string }) => ({
-      ...item,
+    items: result.items.map((item) => ({
+      key: item.key,
       url: publicUrl(cfg, item.key),
+      ...storedMetaJson(item),
     })),
     cursor: result.cursor ?? null,
   };
