@@ -1,4 +1,5 @@
 ---
+import BaseHead from "../../components/BaseHead.astro";
 import GalleryReferences from "../../components/GalleryReferences.astro";
 import Brand from "../../components/Brand.astro";
 import Footer from "../../components/Footer.astro";
@@ -33,8 +34,7 @@ const itemPage = (item: PublicGalleryItem) => galleryItemPath(id, item.id);
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <BaseHead />
     <meta name="robots" content="noindex, nofollow, noarchive" />
     <link rel="canonical" href={canonical} />
     <title>{gallery ? `${gallery.title} · uploads.sh` : "Gallery unavailable · uploads.sh"}</title>
@@ -44,7 +44,6 @@ const itemPage = (item: PublicGalleryItem) => galleryItemPath(id, item.id);
     <meta property="og:description" content={gallery?.description ?? "A public media gallery hosted by uploads.sh."} />
     <meta property="og:url" content={canonical} />
     <style>
-      :root { color-scheme: dark; --bg:#0a0a0b; --panel:#121214; --line:#232327; --fg:#ececea; --body:#b3b3ad; --muted:#7d7d77; --accent:#b794ff; --danger:#d98a9c; --mono:ui-monospace,"SFMono-Regular",Consolas,monospace; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
       * { box-sizing:border-box; }
       body { margin:0; min-height:100vh; color:var(--fg); background:var(--bg); font-family:var(--sans); }
       .shell { width:min(1080px,calc(100% - 48px)); margin:auto; padding:36px 0 64px; }
@@ -57,11 +56,11 @@ const itemPage = (item: PublicGalleryItem) => galleryItemPath(id, item.id);
       .meta { display:flex; gap:16px; flex-wrap:wrap; margin-top:18px; color:var(--muted); font:12px var(--mono); }
       .notice { margin:22px 2px; color:var(--muted); font:13.5px/1.6 var(--sans); }
       .grid { display:grid; grid-template-columns:repeat(12,1fr); gap:14px; }
-      figure { grid-column:span 6; margin:0; background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+      figure { grid-column:span 6; margin:0; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-lg); overflow:hidden; }
       .media { min-height:260px; aspect-ratio:16/10; background:var(--bg); display:grid; place-items:center; overflow:hidden; }
       img,video { width:100%; height:100%; object-fit:contain; display:block; }
       .fallback { padding:30px; text-align:center; color:var(--muted); font:13px/1.6 var(--mono); }
-      .fallback strong { display:block; color:var(--danger); margin-bottom:8px; }
+      .fallback strong { display:block; color:var(--red); margin-bottom:8px; }
       .fallback a { color:var(--fg); overflow-wrap:anywhere; }
       figcaption { padding:14px 16px 16px; border-top:1px solid var(--line); }
       .filename { color:var(--fg); font:600 13px var(--mono); overflow-wrap:anywhere; }
@@ -69,7 +68,7 @@ const itemPage = (item: PublicGalleryItem) => galleryItemPath(id, item.id);
       .media-link { display:contents; }
       .original:hover, .original:focus-visible { color:var(--accent); outline:none; }
       .caption { margin-top:8px; color:var(--body); font-size:14px; line-height:1.5; white-space:pre-wrap; }
-      .empty,.error { padding:70px 24px; border:1px solid var(--line); border-radius:10px; text-align:center; background:var(--panel); color:var(--body); }
+      .empty,.error { padding:70px 24px; border:1px solid var(--line); border-radius:var(--radius-lg); text-align:center; background:var(--panel); color:var(--body); }
       .empty code,.error code { color:var(--accent); font-family:var(--mono); }
       a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
       @media (max-width:760px) { .shell{width:min(100% - 32px,1080px);padding-top:24px} nav{margin-bottom:32px} figure{grid-column:1/-1}.media{min-height:190px} }
