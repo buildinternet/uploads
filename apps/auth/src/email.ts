@@ -1,17 +1,18 @@
 /**
- * Auth email module (plan D8 seam: keep outbound send in one narrow-interface
- * module so a future webhooks/notifications service can absorb it without
- * touching src/auth.ts). Modeled on
- * `~/Code/room-configurator/apps/api/src/betterauth/email.ts` and the invite
- * email rendering in `apps/api/src/routes/admin.ts`.
- *
- * Sender is fixed at noreply@uploads.sh (D7) — must stay in
- * `send_email.allowed_sender_addresses` in wrangler.jsonc.
+ * Auth outbound mail. Templates for invites/notifies live in `@uploads/email`;
+ * this module only sends (and owns the magic-link template). Sender is always
+ * noreply@uploads.sh (must stay in wrangler send_email allowed addresses).
  */
+
+import {
+  escapeHtml,
+  renderMemberJoinedEmail,
+  renderOrgInvitationEmail,
+  type RenderedEmail,
+} from "@uploads/email";
 
 const FROM = { name: "uploads.sh", email: "noreply@uploads.sh" } as const;
 
-/** Minimal shape of the `send_email` binding this module needs. */
 export type EmailBinding = {
   send: (message: {
     to: string;
@@ -25,99 +26,59 @@ export type EmailBinding = {
 export type SendAuthEmailEnv = {
   EMAIL?: EmailBinding;
   ENVIRONMENT?: string;
-};
-
-export type MagicLinkContext = { url: string };
-
-/** Phase 3: `organization` plugin's `sendInvitationEmail` context (src/auth.ts). */
-export type InvitationContext = {
-  url: string;
-  organizationName: string;
-  inviterEmail: string;
+  WEB_ORIGIN?: string;
 };
 
 export type SendAuthEmailArgs =
-  | { to: string; template: "magic-link"; context: MagicLinkContext }
-  | { to: string; template: "invitation"; context: InvitationContext };
+  | { to: string; template: "magic-link"; context: { url: string } }
+  | {
+      to: string;
+      template: "invitation";
+      context: { url: string; organizationName: string; inviterEmail: string };
+    }
+  | {
+      to: string;
+      template: "member-joined";
+      context: { organizationName: string; memberEmail: string };
+    };
 
-function isDev(env: SendAuthEmailEnv): boolean {
-  return env.ENVIRONMENT !== "production";
-}
-
-/** Escape a string for safe interpolation into an HTML email body. */
-function escapeHtml(value: string): string {
-  return value.replace(
-    /[&<>"']/g,
-    (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
-  );
-}
-
-function renderMagicLink(context: MagicLinkContext): {
-  subject: string;
-  text: string;
-  html: string;
-} {
-  const subject = "Sign in to uploads.sh";
-  const text = `Sign in to uploads.sh by opening this link (expires in 15 minutes):\n\n${context.url}\n\nIf you didn't request this, you can ignore this email.`;
-  const url = escapeHtml(context.url);
-  const html = `<p>Sign in to uploads.sh by clicking the link below. It expires in 15 minutes.</p><p><a href="${url}">Sign in to uploads.sh</a></p><p>If you didn't request this, you can ignore this email.</p>`;
-  return { subject, text, html };
-}
-
-function renderInvitation(context: InvitationContext): {
-  subject: string;
-  text: string;
-  html: string;
-} {
-  const subject = `You've been invited to ${context.organizationName} on uploads.sh`;
-  const text = `${context.inviterEmail} invited you to join ${context.organizationName} on uploads.sh.\n\nAccept the invitation:\n\n${context.url}\n\nIf you weren't expecting this, you can ignore this email.`;
-  const organizationName = escapeHtml(context.organizationName);
-  const inviterEmail = escapeHtml(context.inviterEmail);
-  const url = escapeHtml(context.url);
-  const html = `<p><strong>${inviterEmail}</strong> invited you to join <strong>${organizationName}</strong> on uploads.sh.</p><p><a href="${url}">Accept invitation</a></p><p>If you weren't expecting this, you can ignore this email.</p>`;
-  return { subject, text, html };
-}
-
-function render(args: SendAuthEmailArgs): { subject: string; text: string; html: string } {
+function render(args: SendAuthEmailArgs, webOrigin: string): RenderedEmail {
   switch (args.template) {
-    case "magic-link":
-      return renderMagicLink(args.context);
+    case "magic-link": {
+      const { url } = args.context;
+      return {
+        subject: "Sign in to uploads.sh",
+        text: `Sign in to uploads.sh by opening this link (expires in 15 minutes):\n\n${url}\n\nIf you didn't request this, you can ignore this email.`,
+        html: `<p>Sign in to uploads.sh by clicking the link below. It expires in 15 minutes.</p><p><a href="${escapeHtml(url)}">Sign in to uploads.sh</a></p><p>If you didn't request this, you can ignore this email.</p>`,
+      };
+    }
     case "invitation":
-      return renderInvitation(args.context);
+      return renderOrgInvitationEmail({ ...args.context, webOrigin });
+    case "member-joined":
+      return renderMemberJoinedEmail({ ...args.context, webOrigin });
   }
 }
 
 /**
- * Send an auth email. Never throws: a missing `EMAIL` binding (local dev) or
- * a send failure both degrade to a logged message rather than surfacing as an
- * unhandled rejection inside Better Auth's flow — Better Auth's `sendMagicLink`
- * callback expects fire-and-forget semantics here, not error propagation.
- *
- * In dev (no EMAIL binding), logs the link instead of sending — this is the
- * "email captured via local binding stub/log" acceptance criterion for Phase 1.
+ * Never throws — missing EMAIL (local) or send failures only log, so Better
+ * Auth hooks/callbacks stay fire-and-forget.
  */
 export async function sendAuthEmail(env: SendAuthEmailEnv, args: SendAuthEmailArgs): Promise<void> {
-  const { subject, text, html } = render(args);
+  const webOrigin = env.WEB_ORIGIN || "https://uploads.sh";
+  const { subject, text, html } = render(args, webOrigin);
+  const isDev = env.ENVIRONMENT !== "production";
+  const magicLink = args.template === "magic-link" && isDev ? ` Link: ${args.context.url}` : "";
 
   if (!env.EMAIL) {
-    // Only log the magic-link URL in dev — logging it in production would
-    // leak a live sign-in link to anywhere console output ends up.
-    const linkNote =
-      isDev(env) && args.template === "magic-link" ? ` Link: ${args.context.url}` : "";
     console.warn(
-      `[auth email] no EMAIL binding — not sent. To: ${args.to}. "${subject}".${linkNote}`,
+      `[auth email] no EMAIL binding — not sent. To: ${args.to}. "${subject}".${magicLink}`,
     );
     return;
   }
 
   try {
     await env.EMAIL.send({ to: args.to, from: FROM, subject, text, html });
-    if (isDev(env)) {
-      const linkNote = args.template === "magic-link" ? ` Link: ${args.context.url}` : "";
-      console.log(`[auth email] sent "${subject}" to ${args.to}.${linkNote}`);
-    } else {
-      console.log(`[auth email] sent "${subject}" to ${args.to}`);
-    }
+    console.log(`[auth email] sent "${subject}" to ${args.to}${magicLink}`);
   } catch (err) {
     console.error(
       `[auth email] send failed for "${subject}" to ${args.to}`,

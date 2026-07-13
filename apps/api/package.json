@@ -30,6 +30,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@uploads/email": "workspace:^",
     "@uploads/errors": "workspace:^",
     "@uploads/storage": "workspace:^",
     "hono": "^4.12.28"

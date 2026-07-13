@@ -8,6 +8,7 @@
 import { dash } from "@better-auth/infra";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { betterAuth } from "better-auth";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { admin, magicLink, organization } from "better-auth/plugins";
 import { sendAuthEmail } from "./email";
@@ -124,6 +125,23 @@ function buildAuth(
               inviterEmail: inviter.user.email,
             },
           });
+        },
+        organizationHooks: {
+          // Notify inviter; sendAuthEmail never throws so accept can't roll back.
+          afterAcceptInvitation: async ({ invitation, user, organization: org }) => {
+            if (!invitation.inviterId) return;
+            const [inviter] = await db
+              .select({ email: schema.user.email })
+              .from(schema.user)
+              .where(eq(schema.user.id, invitation.inviterId))
+              .limit(1);
+            if (!inviter?.email || inviter.email.toLowerCase() === user.email.toLowerCase()) return;
+            await sendAuthEmail(env, {
+              to: inviter.email,
+              template: "member-joined",
+              context: { organizationName: org.name, memberEmail: user.email },
+            });
+          },
         },
       }),
       // Hosted dashboard (`@better-auth/infra`). Omit when the API key is unset.

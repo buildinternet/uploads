@@ -99,10 +99,6 @@ const FAVICON =
     <div class="status" id="accept-error" data-state="error" role="alert" hidden></div>
   </div>
 
-  <div id="accepted" hidden>
-    <div class="status" data-state="ready" role="status">You've joined the workspace. You can close this page.</div>
-  </div>
-
   <p class="legal">a <a href="https://buildinternet.com">Build Internet</a> project · <a href="/terms">terms</a> · <a href="/privacy">privacy</a></p>
 </main>
 <script define:vars={{ authOrigin, invitationId: id }}>
@@ -127,7 +123,6 @@ const FAVICON =
   const signedOut = requireElement<HTMLElement>("#signed-out");
   const sentState = requireElement<HTMLElement>("#sent-state");
   const ready = requireElement<HTMLElement>("#ready");
-  const accepted = requireElement<HTMLElement>("#accepted");
   const who = requireElement<HTMLElement>("#who");
   const githubBtn = requireElement<HTMLButtonElement>("#github-btn");
   const magicForm = requireElement<HTMLFormElement>("#magic-form");
@@ -192,8 +187,8 @@ const FAVICON =
     acceptBtn.disabled = true;
     const result = await acceptInvitation(authOrigin, invitationId);
     if (result.ok) {
-      ready.hidden = true;
-      accepted.hidden = false;
+      // Same post-sign-in landing as /login — no dead-end "close this page".
+      location.assign(`${location.origin}/account`);
       return;
     }
     acceptBtn.disabled = false;
