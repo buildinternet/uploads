@@ -96,7 +96,7 @@ fi
 # ── Generated types ──────────────────────────────────────────────────────────
 section "Generated types"
 # worker-configuration.d.ts is gitignored; CI / pre-commit run `pnpm types` first.
-for app in api mcp web; do
+for app in api mcp web auth; do
   types_file="$ROOT/apps/$app/worker-configuration.d.ts"
   if [ -f "$types_file" ]; then
     pass "apps/$app/worker-configuration.d.ts present"
@@ -116,20 +116,36 @@ else
     "pnpm --filter @uploads/api run migrate:d1:local  (or: pnpm bootstrap)"
 fi
 
-# Best-effort pending-migration check (needs deps; skip if wrangler unavailable).
-# Always time-bound: unbounded wrangler --local has orphaned multi-GB processes.
-if [ -d "$ROOT/apps/api/node_modules/wrangler" ] || [ -d "$ROOT/node_modules/wrangler" ]; then
+AUTH_D1_STATE="$ROOT/apps/auth/.wrangler/state/v3/d1"
+if [ -d "$AUTH_D1_STATE" ]; then
+  pass "local Auth D1 state present (apps/auth/.wrangler/state/v3/d1)"
+else
+  warn "local Auth D1 not built yet — authenticated local stack needs migrations" \
+    "pnpm --filter @uploads/auth run migrate:d1:local  (or: pnpm bootstrap)"
+fi
+
+# Best-effort pending-migration checks. Always time-bound: unbounded
+# wrangler --local has orphaned multi-GB processes.
+check_local_migrations() {
+  local app="$1"
+  local label="$2"
+  local mig_out
   mig_out="$(
-    run_with_timeout 30 pnpm --filter @uploads/api exec wrangler d1 migrations list DB --local 2>/dev/null || true
+    run_with_timeout 30 pnpm --filter "@uploads/$app" exec wrangler d1 migrations list DB --local 2>/dev/null || true
   )"
   if printf '%s\n' "$mig_out" | grep -qiE 'No migrations.*(to apply|pending|waiting)'; then
-    pass "no pending local D1 migrations"
+    pass "no pending local ${label}D1 migrations"
   elif printf '%s\n' "$mig_out" | grep -qE 'Migrations to be applied|┌─'; then
-    warn "local D1 has pending migrations" \
-      "pnpm --filter @uploads/api run migrate:d1:local"
+    warn "local ${label}D1 has pending migrations" \
+      "pnpm --filter @uploads/$app run migrate:d1:local"
   else
-    info "could not parse 'wrangler d1 migrations list' — skip if migrate:d1:local already ran"
+    info "could not parse local ${label}D1 migration status — skip if migrate:d1:local already ran"
   fi
+}
+
+if [ -d "$ROOT/apps/api/node_modules/wrangler" ] || [ -d "$ROOT/node_modules/wrangler" ]; then
+  check_local_migrations api ""
+  check_local_migrations auth "Auth "
 fi
 
 # ── Local workspace registry ─────────────────────────────────────────────────
@@ -176,14 +192,37 @@ else
     "cp apps/api/.dev.vars.example apps/api/.dev.vars  (or: pnpm bootstrap)"
 fi
 
+AUTH_DEV_VARS="$ROOT/apps/auth/.dev.vars"
+if [ -f "$AUTH_DEV_VARS" ]; then
+  pass "apps/auth/.dev.vars present"
+  if grep -qE '^BETTER_AUTH_SECRET_DEV=.+$' "$AUTH_DEV_VARS"; then
+    pass "BETTER_AUTH_SECRET_DEV is set (local Auth can issue stable sessions)"
+  else
+    warn "BETTER_AUTH_SECRET_DEV is empty — local Auth returns 503" \
+      "set a random 32+ character value in apps/auth/.dev.vars  (or: pnpm bootstrap)"
+  fi
+  if grep -qE '^ENVIRONMENT=development$' "$AUTH_DEV_VARS"; then
+    pass "Auth ENVIRONMENT is development"
+  else
+    warn "Auth ENVIRONMENT is not development — local demo session stays disabled" \
+      "set ENVIRONMENT=development in apps/auth/.dev.vars"
+  fi
+else
+  warn "apps/auth/.dev.vars missing — local Auth cannot sign sessions" \
+    "cp apps/auth/.dev.vars.example apps/auth/.dev.vars  (or: pnpm bootstrap)"
+fi
+
 if [ -f "$ROOT/.env" ]; then
   pass "root .env present (CLI + optional deploy credentials)"
-  if grep -qE '^UPLOADS_API_URL=http://localhost:8787/?$' "$ROOT/.env"; then
+  if grep -qE '^UPLOADS_API_URL=http://127\.0\.0\.1:8787/?$' "$ROOT/.env"; then
     pass "UPLOADS_API_URL points at local wrangler (:8787)"
+  elif grep -qE '^UPLOADS_API_URL=http://localhost:8787/?$' "$ROOT/.env"; then
+    warn "UPLOADS_API_URL uses localhost; the authenticated stack uses 127.0.0.1 for cookies" \
+      "set UPLOADS_API_URL=http://127.0.0.1:8787 (or re-run pnpm bootstrap)"
   elif grep -qE '^UPLOADS_API_URL=.+$' "$ROOT/.env"; then
-    info "UPLOADS_API_URL is not localhost — fine for talking to prod; use http://localhost:8787 for local API"
+    info "UPLOADS_API_URL is not local — fine for talking to prod; use http://127.0.0.1:8787 for local API"
   else
-    warn "UPLOADS_API_URL unset in .env" "set UPLOADS_API_URL=http://localhost:8787 for local CLI"
+    warn "UPLOADS_API_URL unset in .env" "set UPLOADS_API_URL=http://127.0.0.1:8787 for local CLI"
   fi
   if grep -qE '^UPLOADS_TOKEN=.+$' "$ROOT/.env"; then
     pass "UPLOADS_TOKEN is set (CLI can authenticate)"

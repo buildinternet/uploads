@@ -31,11 +31,15 @@ const { authOrigin } = Astro.props;
 
   getSession(origin).then((result) => {
     if (!slot) return;
-    if (!result) {
+    if (result.kind === "unavailable") {
+      slot.textContent = "auth unavailable";
+      return;
+    }
+    if (result.kind !== "signed_in") {
       slot.innerHTML = '<a href="/login">sign in</a>';
       return;
     }
-    slot.innerHTML = `<a href="/account">${escapeHtml(result.user.email)}</a>`;
+    slot.innerHTML = `<a href="/account">${escapeHtml(result.session.user.email)}</a>`;
   });
 </script>
 

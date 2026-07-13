@@ -7,8 +7,20 @@ interface Props {
   workspace: string;
 }
 
-const credentialedFetch: typeof fetch = (input, init) =>
-  fetch(input, { ...init, credentials: "include" });
+const credentialedFetch: typeof fetch = async (input, init) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      credentials: "include",
+      signal: init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+};
 
 export function AccountFileBrowser({ apiOrigin, workspace }: Props) {
   const files = useFiles({

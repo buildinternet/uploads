@@ -9,6 +9,7 @@ export const prerender = false;
     <h2>Workspaces</h2>
     <p>Workspaces group your files and tokens. You belong to these:</p>
     <div id="orgs-status" class="muted" style="margin-top:12px;font-size:13px">Loading…</div>
+    <button id="orgs-retry" type="button" hidden>Try again</button>
     <ul class="plain" id="orgs-list" hidden></ul>
     <p class="muted" style="margin-top:12px">
       Need another workspace? Ask its admin for an invite.
@@ -101,7 +102,18 @@ export const prerender = false;
     async function loadWorkspaces(): Promise<void> {
       const orgsStatus = requireElement<HTMLElement>("#orgs-status", "account workspaces");
       const orgsList = requireElement<HTMLUListElement>("#orgs-list", "account workspaces");
-      const workspaces = await getMyWorkspaces(apiOrigin);
+      const retry = requireElement<HTMLButtonElement>("#orgs-retry", "account workspaces");
+      orgsStatus.hidden = false;
+      orgsList.hidden = true;
+      retry.hidden = true;
+      orgsStatus.textContent = "Loading…";
+      const result = await getMyWorkspaces(apiOrigin);
+      if (result.kind === "unavailable") {
+        orgsStatus.textContent = "Workspaces are temporarily unavailable. Check the local stack or try again.";
+        retry.hidden = false;
+        return;
+      }
+      const { workspaces } = result;
       if (!workspaces.length) {
         orgsStatus.textContent =
           "No workspaces on this account yet — accept an invite to join one.";
@@ -214,6 +226,10 @@ export const prerender = false;
         })();
       },
     );
+
+    requireElement<HTMLButtonElement>("#orgs-retry", "account workspaces").addEventListener("click", () => {
+      void loadWorkspaces();
+    });
 
     onSession(() => {
       void loadWorkspaces();

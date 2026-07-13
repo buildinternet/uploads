@@ -60,6 +60,13 @@ const nav: { href: string; section: AccountSection; label: string }[] = [
     <a class="button" href="/login">Sign in</a>
   </div>
 
+  <div id="auth-unavailable" hidden>
+    <div class="status" data-state="denied" role="alert">
+      Authentication is temporarily unavailable. Check the local stack or try again.
+    </div>
+    <button class="button" type="button" id="session-retry">Try again</button>
+  </div>
+
   <div id="app" hidden>
     <header class="top">
       <Brand />
@@ -136,11 +143,16 @@ const nav: { href: string; section: AccountSection; label: string }[] = [
     authOrigin,
     checking: requireElement<HTMLElement>("#checking", "account"),
     denied: requireElement<HTMLElement>("#signed-out", "account"),
+    unavailable: requireElement<HTMLElement>("#auth-unavailable", "account"),
     app: requireElement<HTMLElement>("#app", "account"),
     who: requireElement<HTMLElement>("#who", "account"),
   }).then((result) => {
     const adminLink = requireElement<HTMLElement>("#admin-link", "account");
     adminLink.hidden = result?.user.role !== "admin";
+  });
+
+  requireElement<HTMLButtonElement>("#session-retry", "account").addEventListener("click", () => {
+    location.reload();
   });
 </script>
 </body>

@@ -67,6 +67,13 @@ const csp = [
 
   <div id="checking" class="ul-callout status" role="status">Checking your invitation…</div>
 
+  <div id="auth-unavailable" hidden>
+    <div class="status" data-state="error" role="alert">
+      Authentication is temporarily unavailable. Check the local stack or try again.
+    </div>
+    <button type="button" id="session-retry">Try again</button>
+  </div>
+
   <div id="invalid" hidden>
     <div class="ul-callout status" data-state="error" role="alert">This invitation is invalid or has expired.</div>
   </div>
@@ -117,6 +124,7 @@ const csp = [
   const checking = requireElement<HTMLElement>("#checking");
   const invalid = requireElement<HTMLElement>("#invalid");
   const signedOut = requireElement<HTMLElement>("#signed-out");
+  const authUnavailable = requireElement<HTMLElement>("#auth-unavailable");
   const sentState = requireElement<HTMLElement>("#sent-state");
   const ready = requireElement<HTMLElement>("#ready");
   const who = requireElement<HTMLElement>("#who");
@@ -140,14 +148,24 @@ const csp = [
     const session = await getSession(authOrigin);
     checking.hidden = true;
 
-    if (!session) {
+    if (session.kind === "unavailable") {
+      authUnavailable.hidden = false;
+      return;
+    }
+    if (session.kind !== "signed_in") {
       signedOut.hidden = false;
       return;
     }
 
-    who.textContent = session.user.email;
+    who.textContent = session.session.user.email;
     ready.hidden = false;
   }
+
+  requireElement<HTMLButtonElement>("#session-retry").addEventListener("click", () => {
+    authUnavailable.hidden = true;
+    checking.hidden = false;
+    void init();
+  });
 
   githubBtn.addEventListener("click", async () => {
     signinError.hidden = true;

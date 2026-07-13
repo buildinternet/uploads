@@ -56,6 +56,13 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
     <a class="button" href="/login">Sign in</a>
   </div>
 
+  <div id="auth-unavailable" hidden>
+    <div class="status" data-state="denied" role="alert">
+      Authentication is temporarily unavailable. Check the local stack or try again.
+    </div>
+    <button class="button" type="button" id="session-retry">Try again</button>
+  </div>
+
   <!--
     Client-side gating here is a UX affordance ONLY — it just avoids flashing
     admin nav (and firing admin-ui fetches) at a non-admin visitor. It is NOT
@@ -134,9 +141,14 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
     authOrigin,
     checking: requireElement<HTMLElement>("#checking", "admin"),
     denied: requireElement<HTMLElement>("#denied", "admin"),
+    unavailable: requireElement<HTMLElement>("#auth-unavailable", "admin"),
     app: requireElement<HTMLElement>("#dashboard", "admin"),
     who: requireElement<HTMLElement>("#who", "admin"),
     requireRole: "admin",
+  });
+
+  requireElement<HTMLButtonElement>("#session-retry", "admin").addEventListener("click", () => {
+    location.reload();
   });
 </script>
 </body>

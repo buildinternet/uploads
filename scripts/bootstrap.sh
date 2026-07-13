@@ -7,10 +7,10 @@
 # Steps:
 #   1. tooling     — Node ≥24 + corepack (pnpm is pinned via packageManager)
 #   2. install     — pnpm install
-#   3. env files   — scaffold .env / apps/api/.dev.vars from *.example (only if
-#                    absent); mint ADMIN_TOKEN when still empty
+#   3. env files   — scaffold .env + API/Auth .dev.vars from *.example (only
+#                    if absent); mint the local-only signing/admin secrets
 #   4. types       — wrangler types → worker-configuration.d.ts (gitignored)
-#   5. database    — apply local D1 migrations (enrollment, usage, galleries)
+#   5. database    — apply local API + Auth D1 migrations
 #   6. workspace   — seed the local `default` workspace in REGISTRY KV (once)
 #   7. doctor      — verify the result
 #
@@ -127,16 +127,20 @@ pnpm install
 step "Scaffolding env files (non-destructive)"
 scaffold "$ROOT/.env.example" "$ROOT/.env"
 scaffold "$ROOT/apps/api/.dev.vars.example" "$ROOT/apps/api/.dev.vars"
+scaffold "$ROOT/apps/auth/.dev.vars.example" "$ROOT/apps/auth/.dev.vars"
 
 DEV_VARS="$ROOT/apps/api/.dev.vars"
+AUTH_DEV_VARS="$ROOT/apps/auth/.dev.vars"
 if have openssl; then
   ensure_secret "$DEV_VARS" "ADMIN_TOKEN" "$(openssl rand -base64 32)" \
     "local admin gate for /admin/* (any non-empty string works)"
   # Optional encryption key for BYO S3 credentials in REGISTRY — harmless if unused.
   ensure_secret "$DEV_VARS" "WORKSPACE_SECRETS_KEY" "$(openssl rand -base64 32)" \
     "local encryption for BYO workspace secrets in REGISTRY KV"
+  ensure_secret "$AUTH_DEV_VARS" "BETTER_AUTH_SECRET_DEV" "$(openssl rand -base64 32)" \
+    "local Better Auth signing secret (never used in production)"
 else
-  note "openssl not found — set ADMIN_TOKEN (and optionally WORKSPACE_SECRETS_KEY) in apps/api/.dev.vars by hand"
+  note "openssl not found — set API secrets and BETTER_AUTH_SECRET_DEV in local .dev.vars files by hand"
 fi
 
 # Point the root client .env at local wrangler if still on the prod defaults.
@@ -144,20 +148,25 @@ ENV_FILE="$ROOT/.env"
 if [ -f "$ENV_FILE" ]; then
   if grep -qE '^UPLOADS_API_URL=https://api\.uploads\.sh/?$' "$ENV_FILE" 2>/dev/null; then
     tmp="$(mktemp)"
-    sed 's#^UPLOADS_API_URL=https://api\.uploads\.sh/?$#UPLOADS_API_URL=http://localhost:8787#' \
+    sed 's#^UPLOADS_API_URL=https://api\.uploads\.sh/?$#UPLOADS_API_URL=http://127.0.0.1:8787#' \
       "$ENV_FILE" >"$tmp" && mv "$tmp" "$ENV_FILE"
-    add "pointed UPLOADS_API_URL at http://localhost:8787 in .env"
+    add "pointed UPLOADS_API_URL at http://127.0.0.1:8787 in .env"
   elif grep -qE '^UPLOADS_API_URL=http://localhost:8787/?$' "$ENV_FILE" 2>/dev/null; then
+    tmp="$(mktemp)"
+    sed 's#^UPLOADS_API_URL=http://localhost:8787/?$#UPLOADS_API_URL=http://127.0.0.1:8787#' \
+      "$ENV_FILE" >"$tmp" && mv "$tmp" "$ENV_FILE"
+    add "normalized UPLOADS_API_URL to http://127.0.0.1:8787 in .env"
+  elif grep -qE '^UPLOADS_API_URL=http://127\.0\.0\.1:8787/?$' "$ENV_FILE" 2>/dev/null; then
     ok "UPLOADS_API_URL already points at local wrangler"
   else
-    note "UPLOADS_API_URL is custom — left as-is (set to http://localhost:8787 for local API)"
+    note "UPLOADS_API_URL is custom — left as-is (set to http://127.0.0.1:8787 for local API)"
   fi
 fi
 
 # ── 4. types ─────────────────────────────────────────────────────────────────
 step "Generating wrangler types (worker-configuration.d.ts)"
 if pnpm types; then
-  ok "types generated for api / mcp / web"
+  ok "types generated for api / mcp / web / auth"
 else
   note "pnpm types failed — see output above; typecheck/lint may fail until it succeeds"
 fi
@@ -171,6 +180,11 @@ else
     ok "local D1 migrations applied"
   else
     note "D1 migrate failed — see output above; 'pnpm doctor' will detail what's missing"
+  fi
+  if pnpm --filter @uploads/auth run migrate:d1:local; then
+    ok "local Auth D1 migrations applied"
+  else
+    note "Auth D1 migrate failed — see output above; 'pnpm doctor' will detail what's missing"
   fi
 fi
 
@@ -239,6 +253,7 @@ Setup complete. Start the app:
 
   pnpm dev              # API worker on :8787 (local R2 + KV + D1)
   pnpm dev:web          # Astro site
+  pnpm dev:stack        # authenticated Auth + API + Web stack on 127.0.0.1
   pnpm uploads put ./shot.png --env-file .env   # monorepo CLI against local API
 
 Run `pnpm check` and `pnpm typecheck` before opening a PR.

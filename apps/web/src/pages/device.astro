@@ -70,6 +70,13 @@ const csp = [
 
   <div id="checking" class="ul-callout status" role="status">Checking…</div>
 
+  <div id="auth-unavailable" hidden>
+    <div class="status" data-state="error" role="alert">
+      Authentication is temporarily unavailable. Check the local stack or try again.
+    </div>
+    <button type="button" id="session-retry">Try again</button>
+  </div>
+
   <div id="code-entry" hidden>
     <p>Enter the code shown in your terminal to continue.</p>
     <form id="code-form">
@@ -150,6 +157,7 @@ const csp = [
   const codeInput = requireElement<HTMLInputElement>("#code-input");
   const invalid = requireElement<HTMLElement>("#invalid");
   const signedOut = requireElement<HTMLElement>("#signed-out");
+  const authUnavailable = requireElement<HTMLElement>("#auth-unavailable");
   const sentState = requireElement<HTMLElement>("#sent-state");
   const confirmBox = requireElement<HTMLElement>("#confirm");
   const codeDisplay = requireElement<HTMLElement>("#code-display");
@@ -176,7 +184,17 @@ const csp = [
   }
 
   function hideAll() {
-    for (const el of [checking, codeEntry, invalid, signedOut, sentState, confirmBox, approved, denied]) {
+    for (const el of [
+      checking,
+      codeEntry,
+      invalid,
+      signedOut,
+      authUnavailable,
+      sentState,
+      confirmBox,
+      approved,
+      denied,
+    ]) {
       el.hidden = true;
     }
   }
@@ -186,12 +204,17 @@ const csp = [
     checking.hidden = false;
 
     const session = await getSession(authOrigin);
-    if (!session) {
+    if (session.kind === "unavailable") {
+      hideAll();
+      authUnavailable.hidden = false;
+      return;
+    }
+    if (session.kind !== "signed_in") {
       hideAll();
       signedOut.hidden = false;
       return;
     }
-    who.textContent = session.user.email;
+    who.textContent = session.session.user.email;
 
     const lookup = await getDeviceStatus(authOrigin, userCode);
     hideAll();
@@ -228,6 +251,10 @@ const csp = [
     const url = new URL(location.href);
     url.searchParams.set("user_code", userCode);
     history.replaceState(null, "", url.toString());
+    void proceed();
+  });
+
+  requireElement<HTMLButtonElement>("#session-retry").addEventListener("click", () => {
     void proceed();
   });
 

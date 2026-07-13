@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { app } from "./index";
 import type { AuthEnv } from "./auth";
+import { LOCAL_STACK_AUTH_ORIGIN, LOCAL_STACK_WEB_ORIGIN } from "./local-demo";
+import { createFakeD1 } from "./test/fake-d1";
 
 function envWithoutSecret(): AuthEnv {
   return {
@@ -8,6 +10,18 @@ function envWithoutSecret(): AuthEnv {
     WEB_ORIGIN: "https://uploads.sh",
     ENVIRONMENT: "development",
     // No UPL_BETTER_AUTH_SECRET, no BETTER_AUTH_SECRET_DEV: unresolvable.
+  };
+}
+
+function localEnv(overrides: Partial<AuthEnv> = {}): AuthEnv {
+  return {
+    DB: createFakeD1(),
+    BETTER_AUTH_SECRET_DEV: "x".repeat(32),
+    LOCAL_STACK: "true",
+    ENVIRONMENT: "development",
+    BETTER_AUTH_URL: LOCAL_STACK_AUTH_ORIGIN,
+    WEB_ORIGIN: LOCAL_STACK_WEB_ORIGIN,
+    ...overrides,
   };
 }
 
@@ -80,5 +94,64 @@ describe("CORS on /api/auth/*", () => {
   it("does not reflect localhost in production", async () => {
     const response = await preflight("http://localhost:4321");
     expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+});
+
+describe("local demo session", () => {
+  it("is absent unless every local-stack gate is exact", async () => {
+    for (const env of [
+      localEnv({ LOCAL_STACK: undefined }),
+      localEnv({ ENVIRONMENT: "production" }),
+      localEnv({ BETTER_AUTH_URL: "http://localhost:8788" }),
+      localEnv({ WEB_ORIGIN: "http://localhost:4321" }),
+    ]) {
+      const res = await app.request(
+        "/api/auth/dev-session",
+        { method: "POST", headers: { Origin: LOCAL_STACK_WEB_ORIGIN } },
+        env,
+      );
+      expect(res.status).toBe(404);
+    }
+
+    const wrongOrigin = await app.request(
+      "/api/auth/dev-session",
+      { method: "POST", headers: { Origin: "http://localhost:4321" } },
+      localEnv(),
+    );
+    expect(wrongOrigin.status).toBe(404);
+  });
+
+  it("seeds an ordinary member and issues a standard Better Auth session", async () => {
+    const env = localEnv();
+    const res = await app.request(
+      "/api/auth/dev-session",
+      { method: "POST", headers: { Origin: LOCAL_STACK_WEB_ORIGIN } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      user: { id: "local-dev-demo-user", email: "dev-demo@uploads.local", name: "Local demo" },
+    });
+
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    const sessionCookie = setCookie.match(/(?:^|,\s*)(better-auth\.session_token=[^;]+)/)?.[1];
+    expect(sessionCookie).toBeTruthy();
+
+    const session = await app.request(
+      "/api/auth/get-session",
+      { headers: { Cookie: sessionCookie ?? "" } },
+      env,
+    );
+    expect(session.status).toBe(200);
+    expect((await session.json()) as { user?: { email?: string; role?: string } }).toMatchObject({
+      user: { email: "dev-demo@uploads.local", role: "user" },
+    });
+
+    const rows = env.DB as ReturnType<typeof createFakeD1>;
+    expect(
+      rows.__sqlite
+        .prepare("SELECT role FROM member WHERE organization_id = 'local-dev-demo-org'")
+        .all(),
+    ).toEqual([{ role: "member" }]);
   });
 });
