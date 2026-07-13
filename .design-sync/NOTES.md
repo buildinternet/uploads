@@ -30,6 +30,12 @@ Repo-specific gotchas for future syncs of the uploads.sh design system.
 - `cfg.cssEntry` = `dist/uploads-ui.css` — one self-contained stylesheet carrying
   the `:root` token layer + `@font-face` + every `ul-` component class. No separate
   tokens package/glob; tokens are inline there and ship via the `styles.css` closure.
+- **`@kind` token annotations are load-bearing — do not strip them.** The token
+  declarations in `src/styles.css` / `src/tokens.css` carry trailing comments the
+  claude.ai/design compiler reads to classify tokens: `--sans`/`--mono`/`--pixel`
+  → `/* @kind font */`, `--pixel-shape` → `/* @kind other */` (a `1/0` flag, not a
+  color). Without them the compiler misgroups/flags those tokens. oxfmt preserves
+  the trailing comments; keep them on the same line as the declaration's `;`.
 
 ## Render check
 
