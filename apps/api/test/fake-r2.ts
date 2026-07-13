@@ -107,13 +107,24 @@ export class FakeR2Bucket {
     for (const k of Array.isArray(keys) ? keys : [keys]) this.store.delete(k);
   }
 
-  async list(opts?: { prefix?: string }) {
+  async list(opts?: { prefix?: string; delimiter?: string }) {
     const prefix = opts?.prefix ?? "";
+    // oxlint-disable-next-line unicorn/no-array-sort -- mirror R2's ordered listing in an ES2022 test fake
     const keys = [...this.store.keys()].filter((k) => k.startsWith(prefix)).sort();
+    const delimitedPrefixes = new Set<string>();
+    const objectKeys = opts?.delimiter
+      ? keys.filter((key) => {
+          const remainder = key.slice(prefix.length);
+          const boundary = remainder.indexOf(opts.delimiter!);
+          if (boundary < 0) return true;
+          delimitedPrefixes.add(prefix + remainder.slice(0, boundary + opts.delimiter!.length));
+          return false;
+        })
+      : keys;
     return {
-      objects: keys.map((k) => this.meta(k, this.store.get(k)!)),
+      objects: objectKeys.map((k) => this.meta(k, this.store.get(k)!)),
       truncated: false as const,
-      delimitedPrefixes: [] as string[],
+      delimitedPrefixes: [...delimitedPrefixes],
     };
   }
 }

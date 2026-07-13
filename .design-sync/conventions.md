@@ -60,4 +60,5 @@ for headings and body copy; `--pixel` only for brand moments.
 
 `Surface` · `Brand` · `Button` · `Panel` · `Field` / `Input` / `Label` ·
 `Callout` · `Badge` · `Divider` · `GalleryTile` (a hosted image / PR-screenshot
-tile — the product's core object).
+tile — the product's core object) · `FileBrowser` (a read-only, folder-aware
+files-sdk browser).

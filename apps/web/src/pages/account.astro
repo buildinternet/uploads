@@ -224,10 +224,11 @@ const FAVICON =
     getMyWorkspaces,
     getMyWorkspaceUsage,
     getMyWorkspaceGalleries,
-    getMyWorkspaceFiles,
     type GallerySummary,
-    type WorkspaceFile,
   } from "../lib/api-client";
+  import { AccountFileBrowser } from "../components/AccountFileBrowser";
+  import { createElement } from "react";
+  import { createRoot } from "react-dom/client";
 
   const w = window as unknown as {
     __UPLOADS_AUTH_ORIGIN__: string;
@@ -293,8 +294,6 @@ const FAVICON =
 
   const isAdminRole = (role: string) => role === "admin" || role === "owner";
 
-  const basename = (key: string) => key.split("/").at(-1) || key;
-
   // The command an admin runs to invite a teammate. Workspace names are
   // [a-z0-9-] on the API; escapeHtml is applied at the render site regardless.
   const inviteCommand = (workspace: string) =>
@@ -313,28 +312,6 @@ const FAVICON =
       )
       .join("");
     container.innerHTML = `${head}<ul class="ws-items">${items}</ul>`;
-  }
-
-  function renderFiles(container: HTMLElement, files: WorkspaceFile[]): void {
-    const head = `<div class="ws-section-head">Files${files.length ? ` (${files.length})` : ""}</div>`;
-    if (!files.length) {
-      container.innerHTML = `${head}<p class="ws-empty">No files yet.</p>`;
-      return;
-    }
-    const items = files
-      .map((f) => {
-        const name = escapeHtml(basename(f.key));
-        // files-sdk reports each object's size on list; show it inline.
-        const size = typeof f.size === "number" ? ` <span class="fsize">${formatBytes(f.size)}</span>` : "";
-        const label = f.url
-          ? `<a href="${escapeHtml(f.url)}" target="_blank" rel="noopener noreferrer">${name}</a>`
-          : `<span class="fkey">${name}</span>`;
-        return `<li>${label}${size}</li>`;
-      })
-      .join("");
-    container.innerHTML =
-      `${head}<ul class="ws-items">${items}</ul>` +
-      `<a class="cli-hint" href="/docs">Browse all with the CLI</a>`;
   }
 
   getSession(authOrigin).then(async (result) => {
@@ -420,10 +397,8 @@ const FAVICON =
           }
           const filesEl = li.querySelector<HTMLElement>("[data-files]");
           if (filesEl) {
-            tasks.push(
-              getMyWorkspaceFiles(apiOrigin, ws.workspace).then((files) => {
-                renderFiles(filesEl, files);
-              }),
+            createRoot(filesEl).render(
+              createElement(AccountFileBrowser, { apiOrigin, workspace: ws.workspace }),
             );
           }
         }
