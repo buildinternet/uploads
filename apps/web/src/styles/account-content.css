@@ -289,6 +289,11 @@ ul.detail-list .detail-title {
   gap: 6px 8px;
   color: var(--fg);
 }
+ul.detail-list .detail-icon {
+  flex-shrink: 0;
+  display: block;
+  color: var(--muted);
+}
 ul.detail-list .detail-title a {
   color: inherit;
   text-decoration: none;
