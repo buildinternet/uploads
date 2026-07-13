@@ -86,12 +86,20 @@ export const INVITE_CSP = [
 ].join("; ");
 
 /**
- * Set Content-Security-Policy as a response header so `frame-ancestors` applies.
- * Prefer this over `<meta http-equiv="Content-Security-Policy">` (meta ignores
- * frame-ancestors; stacking divergent meta + header policies is a footgun).
+ * Security headers for signed-in shells and auth pages.
+ * Same baseline as public file/gallery pages (`applyPublicFileHeaders`), with a
+ * page-specific CSP. CSP must be a response header (not meta) so
+ * `frame-ancestors` is enforced.
  */
-export function applyCspHeader(headers: Headers, csp: string): void {
+export function applyAuthSecurityHeaders(headers: Headers, csp: string): void {
   headers.set("Content-Security-Policy", csp);
+  headers.set("Referrer-Policy", "no-referrer");
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Frame-Options", "DENY");
+  headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+  headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  headers.set("Cache-Control", "no-store");
 }
 
 /**

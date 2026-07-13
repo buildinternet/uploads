@@ -6,7 +6,7 @@
  */
 import { env } from "cloudflare:workers";
 import {
-  applyCspHeader,
+  applyAuthSecurityHeaders,
   resolveShowConsoleLinks,
   resolveSignedInOrigins,
   signedInCsp,
@@ -33,7 +33,7 @@ const docTitle = `${titles[section]} · uploads.sh`;
 const showConsoleLinks = await resolveShowConsoleLinks(env);
 const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
 // Header (not meta): frame-ancestors is ignored on meta CSP.
-applyCspHeader(Astro.response.headers, signedInCsp(authOrigin, apiOrigin));
+applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrigin));
 
 const nav: { href: string; section: AdminSection; label: string }[] = [
   { href: "/admin", section: "workspaces", label: "Workspaces" },

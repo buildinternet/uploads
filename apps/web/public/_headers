@@ -17,6 +17,8 @@
   Referrer-Policy: no-referrer
   X-Robots-Tag: noindex, nofollow, noarchive
   X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Cross-Origin-Opener-Policy: same-origin
   Content-Security-Policy: default-src 'none'; connect-src https://api.uploads.sh 'self' https://cloudflareinsights.com; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
   Permissions-Policy: camera=(), microphone=(), geolocation=()
 

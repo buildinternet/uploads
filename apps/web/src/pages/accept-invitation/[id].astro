@@ -1,6 +1,6 @@
 ---
 import { env } from "cloudflare:workers";
-import { applyCspHeader, authPageCsp } from "../../lib/signed-in-page";
+import { applyAuthSecurityHeaders, authPageCsp } from "../../lib/signed-in-page";
 import BaseHead from "../../components/BaseHead.astro";
 import Brand from "../../components/Brand.astro";
 import Footer from "../../components/Footer.astro";
@@ -15,7 +15,7 @@ const authOrigin =
 const { id } = Astro.params;
 
 // Header (not meta): frame-ancestors is ignored on meta CSP.
-applyCspHeader(Astro.response.headers, authPageCsp(authOrigin));
+applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
 ---
 
 <html lang="en">
