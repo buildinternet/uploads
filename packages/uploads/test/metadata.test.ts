@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { UsageError } from "../src/cli-args.js";
-import { parseMetaFlags, parseMetaPair, validateMetaEntry } from "../src/metadata.js";
+import {
+  parseMetaFlags,
+  parseMetaPair,
+  validateMetaEntry,
+  validateMetaMap,
+} from "../src/metadata.js";
 
 describe("parseMetaPair", () => {
   it("splits on the first '=' only", () => {
@@ -89,5 +94,39 @@ describe("parseMetaFlags", () => {
     // 15 pairs x ~514 bytes ≈ 7.7 KB < 8192.
     const pairs = Array.from({ length: 15 }, (_, i) => `k${i}=${"x".repeat(510)}`);
     expect(() => parseMetaFlags(pairs)).not.toThrow();
+  });
+});
+
+describe("validateMetaMap", () => {
+  it("does not throw for a valid map", () => {
+    expect(() => validateMetaMap({ app: "myapp", page: "settings" })).not.toThrow();
+  });
+
+  it("accepts an empty map", () => {
+    expect(() => validateMetaMap({})).not.toThrow();
+  });
+
+  it("rejects an invalid key", () => {
+    expect(() => validateMetaMap({ "Bad-Key": "x" })).toThrow(UsageError);
+  });
+
+  it("rejects the reserved content-sha256 key", () => {
+    expect(() => validateMetaMap({ "content-sha256": "abc" })).toThrow(UsageError);
+  });
+
+  it("preserves a value containing '=' (no re-split corruption)", () => {
+    expect(() => validateMetaMap({ url: "https://example.com/a?b=c" })).not.toThrow();
+  });
+
+  it("rejects more than 24 keys", () => {
+    const meta = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`k${i}`, "v"]));
+    expect(() => validateMetaMap(meta)).toThrow(UsageError);
+  });
+
+  it("rejects a map whose total key+value bytes exceed 8192", () => {
+    const meta = Object.fromEntries(
+      Array.from({ length: 17 }, (_, i) => [`k${i}`, "x".repeat(512)]),
+    );
+    expect(() => validateMetaMap(meta)).toThrow(/8192-byte limit/);
   });
 });

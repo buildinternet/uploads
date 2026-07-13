@@ -6,8 +6,15 @@
  * a filesystem or the gh CLI (attach, comment, doctor) stay stdio-only.
  */
 import { buildMarkdown, buildScreenshotKey } from "@buildinternet/uploads";
-import { optPosInt, optString, usage, type McpTool } from "@buildinternet/uploads/mcp";
+import {
+  optPosInt,
+  optString,
+  optStringRecord,
+  usage,
+  type McpTool,
+} from "@buildinternet/uploads/mcp";
 import { badKey } from "@uploads/api/files";
+import { validateMetadataEntries } from "@uploads/api/file-metadata";
 import {
   addExternalReference,
   addGalleryItem,
@@ -296,6 +303,12 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             type: "number",
             description: "Emit <img width=…> markdown instead of a plain image embed.",
           },
+          metadata: {
+            type: "object",
+            additionalProperties: { type: "string" },
+            description:
+              "Queryable custom metadata (key→value), separate from provenance. Omit to leave any metadata already stored for this key untouched; pass an object (even {}) to fully replace it. Keys: lowercase, ^[a-z][a-z0-9._-]{0,63}$. Values: 1-512 printable ASCII characters. Caps: at most 24 keys, at most 8192 total key+value bytes. Suggested keys: app, url, page, device, resolution, commit, branch. `gh.*` is reserved by convention for GitHub PR/issue attachment context (repo/kind/number/ref), normally system-managed by the attach flow.",
+          },
         },
         required: ["contentBase64", "filename"],
         additionalProperties: false,
@@ -307,6 +320,15 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         const filename = optString(args, "filename");
         if (!contentBase64) usage("contentBase64 is required");
         if (!filename) usage("filename is required");
+
+        const metadata = optStringRecord(args, "metadata");
+        if (metadata) {
+          try {
+            validateMetadataEntries(metadata);
+          } catch (err) {
+            usage(err instanceof Error ? err.message : String(err));
+          }
+        }
 
         const explicitKey = optString(args, "key");
         const prefix = optString(args, "prefix");
@@ -332,7 +354,16 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
 
         // Key/body validation and the size/type guardrails live in putObject,
         // shared with the REST API — the stored content type is sniffed there.
-        const result = await putObject(env, workspace, key, bytes, workspaceName);
+        // metadata is undefined when omitted (leave existing D1 rows
+        // untouched); passing opts only when defined preserves that.
+        const result = await putObject(
+          env,
+          workspace,
+          key,
+          bytes,
+          workspaceName,
+          metadata !== undefined ? { metadata } : undefined,
+        );
         const markdown =
           result.url === null
             ? undefined

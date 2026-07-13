@@ -91,3 +91,14 @@ export function parseMetaFlags(pairs: string[]): Record<string, string> {
   }
   return result;
 }
+
+/**
+ * Validates a pre-parsed key→value metadata map (e.g. an MCP tool's object
+ * argument) against the same rules as {@link parseMetaFlags}, without
+ * requiring "k=v" string parsing first. Reuses `parseMetaFlags` by
+ * reconstructing "k=v" pairs — safe even when a value contains "=", since
+ * `parseMetaPair` only splits on the first occurrence. Throws `UsageError`.
+ */
+export function validateMetaMap(meta: Record<string, string>): void {
+  parseMetaFlags(Object.entries(meta).map(([key, value]) => `${key}=${value}`));
+}

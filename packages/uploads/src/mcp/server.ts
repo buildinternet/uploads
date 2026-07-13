@@ -9,7 +9,7 @@
  */
 import { UploadsError } from "../errors.js";
 
-export { optPosInt, optString, usage, type ToolArgs } from "./args.js";
+export { optPosInt, optString, optStringRecord, usage, type ToolArgs } from "./args.js";
 
 export interface McpTool {
   name: string;

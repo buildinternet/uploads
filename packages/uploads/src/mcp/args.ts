@@ -26,3 +26,18 @@ export function optPosInt(args: ToolArgs, name: string): number | undefined {
   }
   return v;
 }
+
+/** A JSON-object argument of string→string pairs (e.g. a `metadata` or `filters` param). */
+export function optStringRecord(args: ToolArgs, name: string): Record<string, string> | undefined {
+  const v = args[name];
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== "object" || Array.isArray(v)) {
+    usage(`${name} must be an object of string values`);
+  }
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof value !== "string") usage(`${name}.${key} must be a string`);
+    result[key] = value;
+  }
+  return result;
+}

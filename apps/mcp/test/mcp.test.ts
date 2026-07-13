@@ -40,17 +40,24 @@ beforeAll(() => {
  */
 async function makeEnv(
   options: { d1?: { tokenHash: string; scopes: string }; rateLimitOk?: boolean } = {},
-): Promise<{ env: Env; bucket: FakeR2Bucket }> {
+): Promise<{ env: Env; bucket: FakeR2Bucket; metadata: Map<string, Map<string, string>> }> {
   const record: WorkspaceRecord = { ...workspace, tokenHash: await sha256Hex(TOKEN) };
   const bucket = new FakeR2Bucket();
+  // Keyed by `${workspace} ${objectKey}` -> ordered meta_key -> meta_value,
+  // real enough to exercise putObject's file_metadata read/write/delete path
+  // (see apps/api/test/routes-files.test.ts's makeFakeDB for the fuller version).
+  const metadata = new Map<string, Map<string, string>>();
+  const scopeKey = (ws: string, objectKey: string) => `${ws} ${objectKey}`;
   const env = {
     REGISTRY: {
       get: async (key: string) => (key === "ws:test-ws" ? record : null),
       put: async () => undefined,
     },
     DB: {
-      // run() no-op for workspace_usage metering after put/delete.
-      prepare: () => {
+      // run() no-ops for workspace_usage metering; file_metadata reads/writes
+      // are backed by the `metadata` map above.
+      prepare: (sql: string) => {
+        const normalized = sql.replace(/\s+/g, " ").trim();
         let values: unknown[] = [];
         return {
           bind(...next: unknown[]) {
@@ -75,7 +82,34 @@ async function makeEnv(
             return null;
           },
           async run() {
+            if (normalized.startsWith("INSERT INTO file_metadata")) {
+              const [ws, objectKey, key, value] = values as [string, string, string, string];
+              const map = metadata.get(scopeKey(ws, objectKey)) ?? new Map<string, string>();
+              map.set(key, value);
+              metadata.set(scopeKey(ws, objectKey), map);
+            } else if (normalized.includes("meta_key = ?") && normalized.startsWith("DELETE")) {
+              const [ws, objectKey, key] = values as [string, string, string];
+              metadata.get(scopeKey(ws, objectKey))?.delete(key);
+            } else if (normalized.startsWith("DELETE FROM file_metadata")) {
+              const [ws, objectKey] = values as [string, string];
+              metadata.delete(scopeKey(ws, objectKey));
+            }
             return { success: true, meta: { changes: 0 }, results: [] };
+          },
+          async all<T>() {
+            if (normalized.startsWith("SELECT meta_key, meta_value FROM file_metadata")) {
+              const [ws, objectKey] = values as [string, string];
+              const map = metadata.get(scopeKey(ws, objectKey)) ?? new Map<string, string>();
+              return {
+                success: true,
+                results: [...map.entries()].map(([meta_key, meta_value]) => ({
+                  meta_key,
+                  meta_value,
+                })) as T[],
+                meta: {},
+              };
+            }
+            return { success: true, results: [] as T[], meta: {} };
           },
         };
       },
@@ -88,7 +122,7 @@ async function makeEnv(
       ? {}
       : { WRITE_LIMITER: { limit: async () => ({ success: options.rateLimitOk }) } }),
   } as unknown as Env;
-  return { env, bucket };
+  return { env, bucket, metadata };
 }
 
 async function makeGalleryEnv(): Promise<{ env: Env; bucket: FakeR2Bucket }> {
@@ -328,6 +362,55 @@ describe("mcp worker", () => {
     expect(bucket.store.has("shots/shot.png")).toBe(true);
     expect(bucket.store.get("shots/shot.png")?.data).toEqual(PNG_BYTES);
     expect(bucket.store.get("shots/shot.png")?.contentType).toBe("image/png");
+  });
+
+  it("writes custom metadata alongside the upload", async () => {
+    const { env, metadata } = await makeEnv();
+    const result = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/tagged.png",
+      metadata: { app: "myapp", page: "settings" },
+    });
+    expect(result.isError).toBe(false);
+    expect(Object.fromEntries(metadata.get("test-ws shots/tagged.png") ?? [])).toEqual({
+      app: "myapp",
+      page: "settings",
+    });
+  });
+
+  it("leaves existing metadata untouched when the metadata argument is omitted", async () => {
+    const { env, metadata } = await makeEnv();
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/tagged.png",
+      metadata: { app: "myapp" },
+    });
+    const result = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/tagged.png",
+    });
+    expect(result.isError).toBe(false);
+    expect(Object.fromEntries(metadata.get("test-ws shots/tagged.png") ?? [])).toEqual({
+      app: "myapp",
+    });
+  });
+
+  it("rejects invalid metadata as a tool error before uploading", async () => {
+    const { env, bucket } = await makeEnv();
+    const result = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/bad.png",
+      metadata: { "Bad-Key": "x" },
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([
+      { type: "text", text: "invalid metadata key: Bad-Key (USAGE)" },
+    ]);
+    expect(bucket.store.size).toBe(0);
   });
 
   it("computes the default screenshot key without git derivation", async () => {
