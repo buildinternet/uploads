@@ -5,7 +5,6 @@
  * per-call `workspace` argument behaves like the CLI's --workspace flag, and
  * a missing token surfaces as a tool error rather than a startup failure.
  */
-import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { GlobalFlags } from "../cli-args.js";
 import { createUploadsClient, type UploadsClient } from "../client.js";
@@ -13,6 +12,7 @@ import {
   buildDoctorReport,
   makeGhTarget,
   prepareImageForUpload,
+  readFileArg,
   syncAttachmentsComment,
 } from "../commands.js";
 import { resolveFrameId } from "../frame.js";
@@ -333,7 +333,8 @@ export function createUploadsMcpTools(opts: {
           },
           filename: {
             type: "string",
-            description: "Filename for contentBase64 content (drives the key and content type).",
+            description:
+              "Filename for contentBase64 content (drives the key and content type). With `file`, overrides the key's leaf (clean name) while keeping the pr/default path.",
           },
           key: {
             type: "string",
@@ -395,6 +396,10 @@ export function createUploadsMcpTools(opts: {
             description:
               "With pr/issue: create or update the managed attachments comment via local gh auth (best-effort).",
           },
+          dryRun: {
+            type: "boolean",
+            description: "Resolve key + public URL without uploading. Not with comment.",
+          },
           workspace: workspaceProp,
         },
         additionalProperties: false,
@@ -412,11 +417,13 @@ export function createUploadsMcpTools(opts: {
 
         const target = ghTargetFromArgs(args, run);
         const wantComment = optBool(args, "comment");
+        const dryRun = optBool(args, "dryRun");
         const keyArg = optString(args, "key");
         const destArg = optString(args, "destination");
         const prefixArg = optString(args, "prefix");
         const refArg = optString(args, "ref");
         if (wantComment && !target) usage("comment requires pr or issue");
+        if (dryRun && wantComment) usage("dryRun cannot be combined with comment");
         if (target) {
           if (keyArg) usage("key cannot be combined with pr/issue");
           if (refArg) usage("ref cannot be combined with pr/issue");
@@ -437,7 +444,7 @@ export function createUploadsMcpTools(opts: {
         const { client } = clientFor(args);
         const bytes =
           file !== undefined
-            ? new Uint8Array(readFileSync(file))
+            ? readFileArg(file)
             : new Uint8Array(Buffer.from(contentBase64!, "base64"));
         const sourceName = file !== undefined ? (filenameArg ?? basename(file)) : filenameArg!;
 
@@ -460,6 +467,7 @@ export function createUploadsMcpTools(opts: {
           ref: refArg ?? defaults.ref,
           contentType: prepared.optimized ? prepared.contentType : optString(args, "contentType"),
           deriveRepoFromGit: !noGit,
+          dryRun,
           provenance: buildCliProvenance({
             sourceName,
             client: "uploads-mcp",
@@ -484,7 +492,13 @@ export function createUploadsMcpTools(opts: {
           const { comment, commentError } = await syncComment(client, target);
           return { ...result, markdown, optimize, frame: prepared.frame, comment, commentError };
         }
-        return { ...result, markdown, optimize, frame: prepared.frame };
+        return {
+          ...result,
+          markdown,
+          optimize,
+          frame: prepared.frame,
+          ...(dryRun ? { dryRun: true } : {}),
+        };
       },
     },
     {
@@ -550,11 +564,10 @@ export function createUploadsMcpTools(opts: {
         const uploads = [];
         for (const file of files) {
           const sourceName = basename(file);
-          const prepared = await prepareImageForUpload(
-            new Uint8Array(readFileSync(file)),
-            sourceName,
-            { ...frameOpts, optimize: optimizeOpts },
-          );
+          const prepared = await prepareImageForUpload(readFileArg(file), sourceName, {
+            ...frameOpts,
+            optimize: optimizeOpts,
+          });
           const result = await client.put(prepared.bytes, {
             filename: prepared.filename,
             key: ghAttachmentKey(target, prepared.filename),

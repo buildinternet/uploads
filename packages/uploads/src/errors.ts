@@ -1,6 +1,7 @@
 export type UploadsErrorCode =
   | "MISSING_TOKEN"
   | "NO_PUBLIC_URL"
+  | "FILE_NOT_FOUND"
   | "NOT_FOUND"
   | "UNAUTHORIZED"
   | "INVALID_KEY"

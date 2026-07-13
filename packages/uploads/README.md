@@ -21,6 +21,8 @@ uploads put ./shot.png --no-optimize
 uploads put ./mobile.png --frame phone
 uploads put ./ui.png --frame browser --frame-url "https://app.example"
 uploads put ./after.png --pr 123 --comment
+uploads put ./capture-2026-…Z.png --pr 123 --name hero.png   # clean leaf, stable path
+uploads put ./shot.png --pr 123 --name hero.png --dry-run --format url  # preview URL, no upload
 uploads gallery create --title "Release screenshots"
 uploads put ./after.png --gallery gal_example
 uploads doctor
@@ -40,6 +42,11 @@ Commands: `attach`, `put`, `gallery`, `comment`, `list`, `delete`, `usage`, `rec
 newer npm release is available (at most once/day, `~/.cache/uploads/`). Silence
 with `--quiet`, `--json`, `UPLOADS_NO_UPDATE=1`, or `NO_UPDATE_NOTIFIER=1`. Not used
 for `uploads mcp`.
+
+**Exit codes:** `0` ok, `2` usage/token/file, `3` auth/policy, `4` network, `1` other.
+Failures go to stderr; under `--format json|url|markdown` they also go to stdout so
+piped runs stay self-diagnosing. Prefer JSON `code` over message text. `put --dry-run`
+previews the key + public URL without uploading.
 
 `attach` is the agent-friendly default for GitHub media. It accepts one or more files,
 infers the pull request for the current branch via `gh`, uploads stable URLs, and creates
@@ -95,7 +102,7 @@ Config layers (first match wins): CLI flags → env vars → `--env-file` → `~
 
 Or with `UPLOADS_TOKEN`/`UPLOADS_WORKSPACE` in the environment or user config. Claude Code: `claude mcp add uploads -- uploads --env-file /path/to/.env mcp`.
 
-For HTTP clients there's also a hosted variant at `https://agents.uploads.sh/mcp` — the workspace is inferred from the bearer token, so only the URL and token are needed (`https://agents.uploads.sh/<workspace>/mcp` and the `mcp.uploads.sh` hostname also work). Tools: file operations plus `gallery_create`, `gallery_get`, `gallery_add`, `gallery_link`, and `gallery_find_by_reference`; all use the same bearer-token workspace scopes and gallery URLs come from the API — see `apps/mcp` in the repo. `uploads install` registers it with Claude Code (and installs the agent skill) in one step. Its `put` takes no content type: the stored type is sniffed server-side from the bytes and checked against the workspace allowlist, and writes are rate limited per workspace.
+For HTTP clients there's also a hosted variant at `https://agents.uploads.sh/mcp` — the workspace is inferred from the bearer token, so only the URL and token are needed (`https://agents.uploads.sh/<workspace>/mcp` and the `mcp.uploads.sh` hostname also work). Tools: file operations plus `gallery_create`, `gallery_get`, `gallery_add`, `gallery_link`, and `gallery_find_by_reference`; all use the same bearer-token workspace scopes and gallery URLs come from the API — see `apps/mcp` in the repo. `uploads install` registers the skill + hosted MCP (short progress; `--verbose` for underlying output). Its `put` takes no content type: the stored type is sniffed server-side from the bytes and checked against the workspace allowlist, and writes are rate limited per workspace.
 
 ## Programmatic use
 

@@ -124,26 +124,28 @@ capture them. Use `-` as the file to read from stdin.
 
 Key options (`uploads put --help` for all):
 
-| Flag                                  | Purpose                                                                                            |
-| ------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `--alt <text>`                        | Alt text for the markdown (default: filename). Always write meaningful alt text.                   |
-| `--width <px>`                        | Emit sized `<img width=…>` HTML instead of `![]()` (markdown can't size images).                   |
-| `--repo <owner/repo>`                 | Repo segment of the auto key (default: git remote, or `UPLOADS_DEFAULT_REPO`).                     |
-| `--ref <id>`                          | PR/issue/branch/date segment (default: today, or `UPLOADS_DEFAULT_REF`).                           |
-| `--destination <id>`                  | Typed root: `screenshots` \| `gh` \| `f` (sets key prefix).                                        |
-| `--prefix <path>`                     | Key prefix (default: `screenshots`, or `UPLOADS_DEFAULT_PREFIX`).                                  |
-| `--key <key>`                         | Set the object key explicitly; skips the auto-naming below.                                        |
-| `--content-type <mime>`               | Override the content type (else inferred from extension; ignored when optimize rewrites the body). |
-| `--frame <id>`                        | Opt-in chrome before optimize: `phone`, `browser`, `iphone-16-pro`.                                |
-| `--frame-url <url>`                   | Address bar text for `--frame browser`.                                                            |
-| `--frame-fit cover\|contain`          | How the shot fills the screen (default: `cover`).                                                  |
-| `--no-optimize`                       | Skip client-side image optimization (default: still images → WebP). Or `UPLOADS_NO_OPTIMIZE=1`.    |
-| `--optimize-max-edge <px>`            | Max long edge when optimizing (default: 2400).                                                     |
-| `--optimize-quality <1-100>`          | WebP quality when optimizing (default: 85).                                                        |
-| `--keep-exif`                         | Keep EXIF/XMP/ICC when optimizing (default: **strip** for privacy). Or `UPLOADS_KEEP_EXIF=1`.      |
-| `--no-git`                            | Don't derive `--repo` from the git remote (or `UPLOADS_NO_GIT=1`).                                 |
-| `--format human\|url\|markdown\|json` | Control stdout. `--json` (global) forces json.                                                     |
-| `-w, --workspace <name>`              | Override workspace (wins over env and token inference).                                            |
+| Flag                                  | Purpose                                                                                                                |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `--alt <text>`                        | Alt text for the markdown (default: filename). Always write meaningful alt text.                                       |
+| `--width <px>`                        | Emit sized `<img width=…>` HTML instead of `![]()` (markdown can't size images).                                       |
+| `--repo <owner/repo>`                 | Repo segment of the auto key (default: git remote, or `UPLOADS_DEFAULT_REPO`).                                         |
+| `--ref <id>`                          | PR/issue/branch/date segment (default: today, or `UPLOADS_DEFAULT_REF`).                                               |
+| `--destination <id>`                  | Typed root: `screenshots` \| `gh` \| `f` (sets key prefix).                                                            |
+| `--prefix <path>`                     | Key prefix (default: `screenshots`, or `UPLOADS_DEFAULT_PREFIX`).                                                      |
+| `--key <key>`                         | Set the object key explicitly; skips the auto-naming below.                                                            |
+| `--name <leaf>`                       | Clean filename for the key's leaf + default alt (no `/`); keeps the `--pr`/default path. Not with `--key`.             |
+| `--dry-run`                           | Resolve + print the key and final public URL without uploading (one read, no write). Not with `--comment`/`--gallery`. |
+| `--content-type <mime>`               | Override the content type (else inferred from extension; ignored when optimize rewrites the body).                     |
+| `--frame <id>`                        | Opt-in chrome before optimize: `phone`, `browser`, `iphone-16-pro`.                                                    |
+| `--frame-url <url>`                   | Address bar text for `--frame browser`.                                                                                |
+| `--frame-fit cover\|contain`          | How the shot fills the screen (default: `cover`).                                                                      |
+| `--no-optimize`                       | Skip client-side image optimization (default: still images → WebP). Or `UPLOADS_NO_OPTIMIZE=1`.                        |
+| `--optimize-max-edge <px>`            | Max long edge when optimizing (default: 2400).                                                                         |
+| `--optimize-quality <1-100>`          | WebP quality when optimizing (default: 85).                                                                            |
+| `--keep-exif`                         | Keep EXIF/XMP/ICC when optimizing (default: **strip** for privacy). Or `UPLOADS_KEEP_EXIF=1`.                          |
+| `--no-git`                            | Don't derive `--repo` from the git remote (or `UPLOADS_NO_GIT=1`).                                                     |
+| `--format human\|url\|markdown\|json` | Control stdout. `--json` (global) forces json.                                                                         |
+| `-w, --workspace <name>`              | Override workspace (wins over env and token inference).                                                                |
 
 **Image optimization (default on):** PNG/JPEG and similar still images are re-encoded to
 WebP (long edge capped at 2400px, quality 85) before upload so PR/issue embeds stay
@@ -159,12 +161,16 @@ the original is uploaded. Use `--no-optimize` when you need lossless originals.
 
 **How keys work** — three paths, no extra naming modes:
 
-| Intent                                | Command                                            |
-| ------------------------------------- | -------------------------------------------------- |
-| Just upload it, give me a URL         | `uploads put ./file.png`                           |
-| Explicit typed destination            | `uploads put ./file.png --destination screenshots` |
-| Stable GitHub embed I might re-upload | `uploads put ./file.png --pr <num>`                |
-| I know exactly where it goes          | `uploads put ./file.png --key screenshots/…/x.png` |
+| Intent                                | Command                                                        |
+| ------------------------------------- | -------------------------------------------------------------- |
+| Just upload it, give me a URL         | `uploads put ./file.png`                                       |
+| Explicit typed destination            | `uploads put ./file.png --destination screenshots`             |
+| Stable GitHub embed I might re-upload | `uploads put ./file.png --pr <num>`                            |
+| Stable `--pr` path but a clean leaf   | `uploads put ./capture-2026-…Z.png --pr <num> --name hero.png` |
+| I know exactly where it goes          | `uploads put ./file.png --key screenshots/…/x.png`             |
+
+Timestamped captures break stable `--pr` keys — pass `--name hero.webp` to keep a
+clean leaf. Use `--dry-run` to preview the exact public URL before uploading.
 
 Default `put` is the fast path; you don't need `--key`, `--prefix`, or `--repo`. Without
 `--key`, keys look like
@@ -326,22 +332,15 @@ uploads --api-url http://localhost:8787 doctor
 - **Edge cache:** responses carry `Cache-Control: max-age=60`, so an overwrite or a
   delete can keep serving the old bytes from the edge for up to ~a minute. The object
   in storage changes immediately.
-- **Exit codes** (useful in scripts): `2` usage/missing-token, `3` unauthorized or
-  not-found, `4` network, `1` other. `--json` also emits `{error,code,status}`.
-  Usage errors print `hint: uploads <cmd> --help` (not the full root manual).
+- **Exit codes:** `2` usage/token/file, `3` auth/policy, `4` network, `1` other.
+  `--json` emits `{error,code,status}` — branch on `code`. Scripted formats
+  (`json|url|markdown`) also print failures on stdout. Usage errors:
+  `hint: uploads <cmd> --help`.
 - **Update hints (stderr):** successful human runs may note a newer npm release
   (daily). Silence with `--quiet` / `--json` / `UPLOADS_NO_UPDATE=1`.
-- **MCP server:** the CLI can also be exposed to agents as a local stdio MCP server —
-  `uploads mcp` (including gallery_create, gallery_get, gallery_add, gallery_link, and gallery_find_by_reference) — with tools mirroring the commands described here (`put`, `attach`,
-  `list`, `delete`, `usage`, `reconcile`, `purge_expired`, `comment`, `health`,
-  `doctor`) under the same config resolution.
-  Every tool also accepts a per-call `workspace` argument to override the configured
-  workspace (mirrors `--workspace`).
-  E.g. `claude mcp add uploads -- uploads --env-file /path/to/.env mcp`.
-  There is also a hosted MCP server at `https://agents.uploads.sh/mcp` (workspace
-  inferred from the bearer token; `mcp.uploads.sh` is an alternate hostname).
-  `uploads install` sets up both this skill (via `npx skills`) and the hosted MCP
-  server in Claude Code; `uploads install --dry-run` prints the commands instead.
+- **MCP:** `uploads mcp` (stdio) mirrors CLI tools; hosted MCP at
+  `https://agents.uploads.sh/mcp`. `uploads install` sets up this skill + hosted MCP
+  (short progress; `--verbose` / `--dry-run` available).
 - **Agents on the Worker side:** the package also exports
   `createUploadsWorkerFileTools()` from `@buildinternet/uploads/agent` for exposing
   upload/list/delete as AI-SDK tools inside a Worker — only relevant if you're

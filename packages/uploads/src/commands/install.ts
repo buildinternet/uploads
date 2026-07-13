@@ -21,35 +21,37 @@ bearer token, so only the token is needed.
 Usage:
   uploads install [skill|mcp|all]     (default: all)
 
-What runs:
-  skill   npx -y skills add ${SKILL_SOURCE} --skill ${SKILL_NAME}
+What it does:
+  skill   Agent skill (via npx skills) — when to host files / embed in PRs
+  mcp     Hosted MCP server in Claude Code — put, list, attach, galleries
+
+What runs under the hood:
+  skill   npx -y skills add ${SKILL_SOURCE} --skill ${SKILL_NAME} -g -y -a '*'
   mcp     claude mcp add --transport http uploads ${DEFAULT_MCP_URL} \\
             --header "Authorization: Bearer <token>"
 
 Options:
   --url <endpoint>    Remote MCP endpoint (default: ${DEFAULT_MCP_URL})
   --name <name>       MCP server name in the client (default: uploads)
-  --dry-run           Print the commands without running them
+  --dry-run           Print the plan without running anything
+  --verbose           Show underlying command output (default: errors only)
 
 Examples:
   uploads install
   uploads install skill
-  uploads install mcp --dry-run
+  uploads install mcp
+  uploads install --dry-run
 `;
 
 interface StepResult {
   command: string[];
   ok: boolean;
-  skipped?: string;
+  skipped?: "dry-run" | "sign-in";
   error?: string;
   output?: string;
 }
 
-/**
- * Masks the configured token (and any Bearer credential) in text destined
- * for stdout/stderr/JSON — command echoes, child-process output, and error
- * messages can all embed it.
- */
+/** Mask Bearer credentials and the configured token in any printed text. */
 function redactor(token: string | undefined): (text: string) => string {
   return (text) => {
     let out = text.replace(/Bearer \S+/g, "Bearer ***");
@@ -64,12 +66,83 @@ function runStep(run: CommandRunner, command: string[]): StepResult {
     return { command, ok: true, output: output || undefined };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    // execFileSync's ENOENT means the binary itself is missing.
     const hint =
       (err as NodeJS.ErrnoException).code === "ENOENT"
-        ? `${command[0]} not found on PATH — run manually: ${command.join(" ")}`
+        ? `${command[0]} not found on PATH — install it, or run manually: ${command.join(" ")}`
         : message;
     return { command, ok: false, error: hint };
+  }
+}
+
+function skillCommand(): string[] {
+  // -g global, -y non-interactive, -a '*' every agent (skips the multi-select TUI)
+  return ["npx", "-y", "skills", "add", SKILL_SOURCE, "--skill", SKILL_NAME, "-g", "-y", "-a", "*"];
+}
+
+function mcpCommand(name: string, url: string, bearer: string): string[] {
+  return [
+    "claude",
+    "mcp",
+    "add",
+    "--transport",
+    "http",
+    name,
+    url,
+    "--header",
+    `Authorization: Bearer ${bearer}`,
+  ];
+}
+
+function peekToken(globals: GlobalFlags): string | undefined {
+  try {
+    const config = resolveConfig({
+      apiUrl: globals.apiUrl,
+      workspace: globals.workspace,
+      token: globals.token,
+      envFile: globals.envFile,
+      requireToken: false,
+    });
+    return config.token || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function printHumanSteps(
+  results: Record<string, StepResult>,
+  redact: (s: string) => string,
+  verbose: boolean,
+): void {
+  for (const [step, r] of Object.entries(results)) {
+    const cmd = redact(r.command.join(" "));
+    if (r.skipped === "dry-run") {
+      process.stdout.write(`${step}: would run — ${cmd}\n`);
+    } else if (r.skipped === "sign-in") {
+      process.stdout.write(`${step}: skipped — ${redact(r.error ?? "needs sign-in")}\n`);
+    } else if (r.ok) {
+      process.stdout.write(`${step}: ok\n`);
+      if (verbose && r.output) {
+        process.stdout.write(`  ${redact(r.output).split("\n").join("\n  ")}\n`);
+      }
+    } else {
+      process.stderr.write(`${step}: failed — ${redact(r.error ?? "")}\n`);
+      if (verbose) process.stderr.write(`  command: ${cmd}\n`);
+    }
+  }
+}
+
+function printSuccessFooter(steps: string[], signedIn: boolean): void {
+  process.stdout.write(
+    `\nDone — ${steps.join(" and ")} ready.\n` +
+      "Restart your agent session so it picks up the new skill/server.\n" +
+      "Then ask it to host a screenshot or attach images to a PR — for example:\n" +
+      '  "upload this screenshot and put it in the PR description"\n' +
+      '  "attach before.png and after.png to this PR"\n',
+  );
+  if (!signedIn) {
+    process.stdout.write(
+      "\nNot signed in yet? Run `uploads login` once so put/attach/MCP can authenticate.\n",
+    );
   }
 }
 
@@ -88,73 +161,70 @@ export async function runInstall(
   if (!["skill", "mcp", "all"].includes(target)) {
     throw new UsageError(`unknown install target: ${target} (expected skill, mcp, or all)`);
   }
+
   const url = flagString(parsed.flags, "--url") ?? DEFAULT_MCP_URL;
   const name = flagString(parsed.flags, "--name") ?? "uploads";
   const dryRun = flagBool(parsed.flags, "--dry-run");
+  const verbose = flagBool(parsed.flags, "--verbose");
   const run = opts.runner ?? execRunner;
+  const human = !opts.json && !dryRun;
 
+  const token = peekToken(opts.globals);
+  const signedIn = Boolean(token);
+  const redact = redactor(token);
   const results: Record<string, StepResult> = {};
-  let redact = redactor(undefined);
 
   if (target === "skill" || target === "all") {
-    const command = ["npx", "-y", "skills", "add", SKILL_SOURCE, "--skill", SKILL_NAME];
+    const command = skillCommand();
+    if (human) process.stdout.write("Installing skill…\n");
     results.skill = dryRun ? { command, ok: true, skipped: "dry-run" } : runStep(run, command);
   }
 
   if (target === "mcp" || target === "all") {
-    const config = resolveConfig({
-      apiUrl: opts.globals.apiUrl,
-      workspace: opts.globals.workspace,
-      token: opts.globals.token,
-      envFile: opts.globals.envFile,
-      requireToken: !dryRun,
-    });
-    const bearer = config.token || "<token>";
-    redact = redactor(config.token || undefined);
-    const command = [
-      "claude",
-      "mcp",
-      "add",
-      "--transport",
-      "http",
-      name,
-      url,
-      "--header",
-      `Authorization: Bearer ${bearer}`,
-    ];
-    results.mcp = dryRun ? { command, ok: true, skipped: "dry-run" } : runStep(run, command);
+    if (!dryRun && !token) {
+      results.mcp = {
+        command: mcpCommand(name, url, "<token>"),
+        ok: false,
+        skipped: "sign-in",
+        error: "needs sign-in — run `uploads login`, then `uploads install mcp`",
+      };
+    } else {
+      const command = mcpCommand(name, url, token || "<token>");
+      if (human) process.stdout.write("Installing MCP server…\n");
+      results.mcp = dryRun ? { command, ok: true, skipped: "dry-run" } : runStep(run, command);
+    }
   }
 
   const failed = Object.values(results).some((r) => !r.ok);
 
   if (opts.json) {
-    // Never echo the token in structured output — commands, child output,
-    // and error text can all embed it.
-    const redacted = Object.fromEntries(
+    const steps = Object.fromEntries(
       Object.entries(results).map(([key, r]) => [
         key,
         {
-          ...r,
           command: r.command.map(redact),
+          ok: r.ok,
+          skipped: r.skipped,
           output: r.output === undefined ? undefined : redact(r.output),
           error: r.error === undefined ? undefined : redact(r.error),
         },
       ]),
     );
-    process.stdout.write(JSON.stringify({ ok: !failed, steps: redacted }, null, 2) + "\n");
+    process.stdout.write(JSON.stringify({ ok: !failed, steps }, null, 2) + "\n");
     return failed ? 1 : 0;
   }
 
-  for (const [step, r] of Object.entries(results)) {
-    const shown = redact(r.command.join(" "));
-    if (r.skipped) process.stdout.write(`${step}: would run — ${shown}\n`);
-    else if (r.ok) {
-      process.stdout.write(`${step}: ok — ${shown}\n`);
-      if (r.output) process.stdout.write(`  ${redact(r.output).split("\n").join("\n  ")}\n`);
-    } else process.stderr.write(`${step}: failed — ${redact(r.error ?? "")}\n`);
-  }
+  printHumanSteps(results, redact, verbose);
+
   if (!failed && !dryRun) {
-    process.stderr.write("hint: restart your agent session to pick up the new skill/server\n");
+    printSuccessFooter(Object.keys(results), signedIn);
+  } else if (failed && !dryRun && results.skill?.ok && results.mcp && !results.mcp.ok) {
+    const next =
+      results.mcp.skipped === "sign-in"
+        ? "Sign in with `uploads login`, then re-run `uploads install mcp`."
+        : "Fix the MCP step above, then re-run `uploads install mcp`.";
+    process.stdout.write(`\nSkill is installed. ${next}\n`);
   }
+
   return failed ? 1 : 0;
 }
