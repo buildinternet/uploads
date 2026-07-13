@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  getAccountInfo,
   getSession,
   listAccounts,
   listSessions,
@@ -102,15 +103,62 @@ describe("listSessions / listAccounts", () => {
             { id: "no-token" },
           ]);
         }
-        return Response.json([{ id: "a1", providerId: "github", accountId: "12345" }]);
+        return Response.json([
+          {
+            id: "a1",
+            providerId: "github",
+            accountId: "12345",
+            scopes: ["read:user", "user:email"],
+          },
+          { id: "bad" },
+        ]);
       }),
     );
     await expect(listSessions("http://127.0.0.1:8788")).resolves.toEqual([
       { id: "ok", token: "t", createdAt: "x", updatedAt: "x", expiresAt: "x" },
     ]);
     await expect(listAccounts("https://auth.uploads.sh")).resolves.toEqual([
-      { id: "a1", providerId: "github", accountId: "12345" },
+      {
+        id: "a1",
+        providerId: "github",
+        accountId: "12345",
+        scopes: ["read:user", "user:email"],
+      },
     ]);
+  });
+});
+
+describe("getAccountInfo", () => {
+  it("returns null on failure and parses provider profiles", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          user: { id: 1, name: "Zach", email: "z@example.com" },
+          data: { login: "zachdunn", id: 1 },
+        }),
+      ),
+    );
+    await expect(
+      getAccountInfo("https://auth.uploads.sh", {
+        providerId: "github",
+        accountId: "1",
+      }),
+    ).resolves.toEqual({
+      user: { id: 1, name: "Zach", email: "z@example.com" },
+      data: { login: "zachdunn", id: 1 },
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 400 })),
+    );
+    await expect(
+      getAccountInfo("https://auth.uploads.sh", {
+        providerId: "github",
+        accountId: "1",
+      }),
+    ).resolves.toBeNull();
   });
 });
 

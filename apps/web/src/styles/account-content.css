@@ -289,6 +289,42 @@ ul.detail-list .detail-title {
   gap: 6px 8px;
   color: var(--fg);
 }
+ul.detail-list .detail-title a {
+  color: inherit;
+  text-decoration: none;
+}
+ul.detail-list .detail-title a:hover,
+ul.detail-list .detail-title a:focus-visible {
+  color: var(--accent, #c27eff);
+  outline: none;
+}
+a.text-btn,
+button.text-btn {
+  font: 12px var(--mono);
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+a.text-btn {
+  display: inline-block;
+  text-decoration: none;
+}
+a.text-btn:hover,
+a.text-btn:focus-visible,
+button.text-btn:hover,
+button.text-btn:focus-visible {
+  color: var(--fg);
+  border-color: var(--line);
+  outline: none;
+}
+button.text-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 ul.detail-list .detail-meta {
   color: var(--muted);
   font-size: 11px;
@@ -300,24 +336,4 @@ ul.detail-list .detail-current {
   font-size: 11px;
   color: var(--muted);
   letter-spacing: 0.04em;
-}
-button.text-btn {
-  font: 12px var(--mono);
-  letter-spacing: 0.03em;
-  color: var(--muted);
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 5px 9px;
-  cursor: pointer;
-}
-button.text-btn:hover,
-button.text-btn:focus-visible {
-  color: var(--fg);
-  border-color: var(--line);
-  outline: none;
-}
-button.text-btn:disabled {
-  opacity: 0.55;
-  cursor: default;
 }

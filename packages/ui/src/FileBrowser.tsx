@@ -11,6 +11,13 @@ export interface FileBrowserProps {
   initialPrefix?: string;
   delimiter?: string;
   onSelect?: (file: StoredFile) => void;
+  /**
+   * Fired when the user navigates into a folder or breadcrumb (including
+   * back to root with `""`). Not fired for the initial mount — use
+   * `initialPrefix` to seed location. files-sdk's registry FileBrowser owns
+   * navigation state the same way; there is no built-in URL sync.
+   */
+  onPrefixChange?: (prefix: string) => void;
   /** When it returns true, a small "Private" badge renders next to the item. */
   isPrivate?: (file: StoredFile) => boolean;
   /**
@@ -54,6 +61,7 @@ export function FileBrowser({
   initialPrefix = "",
   delimiter = "/",
   onSelect,
+  onPrefixChange,
   isPrivate,
   itemActions,
 }: FileBrowserProps) {
@@ -64,8 +72,10 @@ export function FileBrowser({
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const filesRef = useRef(files);
+  const onPrefixChangeRef = useRef(onPrefixChange);
   const requestGeneration = useRef(0);
   filesRef.current = files;
+  onPrefixChangeRef.current = onPrefixChange;
 
   const load = useCallback(
     async (next?: string) => {
@@ -99,14 +109,13 @@ export function FileBrowser({
 
   const navigate = (nextPrefix: string) => {
     if (nextPrefix === prefix) return;
-    // Keep the current listing on screen while the next level loads. The
-    // requestGeneration bump discards any in-flight page from this level, and
-    // load() replaces folders/items wholesale on success — so we avoid the
-    // flash-of-empty (and the shrink-then-grow) that clearing state caused.
+    // Keep the current listing visible while the next level loads. Bumping
+    // requestGeneration drops any in-flight page; load() replaces rows on success.
     requestGeneration.current++;
     setHasError(false);
     setIsLoading(true);
     setPrefix(nextPrefix);
+    onPrefixChangeRef.current?.(nextPrefix);
   };
   const hasContent = folders.length > 0 || items.length > 0;
   const isEmpty = !(isLoading || hasError || hasContent);
