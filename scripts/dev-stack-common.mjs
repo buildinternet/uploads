@@ -93,7 +93,15 @@ export async function runSmoke() {
   const jar = new Map();
   const demo = await request(
     `${AUTH_ORIGIN}/api/auth/dev-session`,
-    { method: "POST", headers: { Origin: WEB_ORIGIN } },
+    {
+      method: "POST",
+      // better-call (better-auth's router) sees a non-null `request.body`
+      // for every POST under the Workers runtime, even with no body
+      // supplied, so it always runs its Content-Type gate and 415s without
+      // this header (see apps/web/src/lib/auth-client.ts's matching fix).
+      headers: { Origin: WEB_ORIGIN, "Content-Type": "application/json" },
+      body: "{}",
+    },
     jar,
   );
   await requireOk(demo, "local demo session");

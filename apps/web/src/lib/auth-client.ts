@@ -90,6 +90,11 @@ export async function startLocalDemoSession(
   const result = await fetchWithTimeout(`${normalizedOrigin}/api/auth/dev-session`, {
     method: "POST",
     credentials: "include",
+    // better-call (better-auth's router) sees a non-null `request.body` for
+    // every POST under the Workers runtime, even with no body supplied, so
+    // it always runs its Content-Type gate and 415s without this header.
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
   });
   if (result.kind === "unavailable") return result;
   if (result.response.ok) return { kind: "started" };
