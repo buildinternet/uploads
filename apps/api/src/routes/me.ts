@@ -9,8 +9,8 @@
  * (`workspace_not_found`) rather than 403ing, so membership can't be probed
  * for workspace existence any more precisely than for any other workspace.
  */
-import { NotFoundError } from "@uploads/errors";
-import { createFilesRouter } from "@uploads/storage";
+import { NotFoundError, ValidationError } from "@uploads/errors";
+import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
 import { badKey, listObjects } from "../files-core";
@@ -93,12 +93,26 @@ function requireUserId(c: Context<SessionVars>): string {
 export const me = new Hono<SessionVars>()
   .use("/*", sessionAuth, requireSessionUser)
 
-  // Workspaces the caller belongs to, via their org memberships.
+  // Workspaces the caller belongs to, via their org memberships. `hasPublicUrl`
+  // lets the account UI decide, per workspace, whether opening a file should
+  // navigate to the public /f/ page (issue #135) or resolve through the
+  // signed-URL-capable /file-url endpoint (issue #123) — see
+  // apps/web's AccountFileBrowser. Loaded here (not in `myWorkspaces`, which
+  // every member-gated route calls for authorization) so the extra KV read
+  // per workspace stays confined to this one listing endpoint.
   .get("/workspaces", async (c) => {
     const userId = c.get("sessionUser")?.id;
     if (!userId) throw new NotFoundError("no session user", { code: "workspace_not_found" });
     const workspaces = await myWorkspaces(c.env, userId);
-    return c.json({ workspaces });
+    const withPublicUrl = await Promise.all(
+      workspaces.map(async (ws) => {
+        const hasPublicUrl = ws.communal
+          ? false
+          : Boolean((await loadWorkspaceRecord(c.env, ws.workspace))?.publicBaseUrl);
+        return Object.assign({}, ws, { hasPublicUrl });
+      }),
+    );
+    return c.json({ workspaces: withPublicUrl });
   })
 
   // Usage + limits for one workspace — 404s unless the caller is a member.
@@ -146,7 +160,10 @@ export const me = new Hono<SessionVars>()
     return c.json({ communal: false, files: items });
   })
 
-  // Resolve a selected browser item to its provider-aware public URL. This is
+  // Resolve a selected browser item to a usable URL, by storage capability
+  // (issue #123): the stable public URL when `publicBaseUrl` is configured;
+  // otherwise a short-lived signed download URL when the provider can sign;
+  // otherwise a typed error rather than a 200 with `url: null`. This is
   // separate from the gateway's `url` verb because its forced attachment
   // disposition requires signing, while binding-mode R2 uses publicBaseUrl.
   .get("/workspaces/:name/file-url", async (c) => {
@@ -158,7 +175,18 @@ export const me = new Hono<SessionVars>()
     if (!record) throw new NotFoundError();
     const store = await storage(c.env, record);
     if (!(await store.exists(key))) throw new NotFoundError();
-    return c.json({ url: publicUrl(await storageConfig(c.env, record), key) });
+
+    const cfg = await storageConfig(c.env, record);
+    const url = publicUrl(cfg, key);
+    if (url) return c.json({ url });
+
+    const signed = await signedDownloadUrl(store, key);
+    if (signed) return c.json({ url: signed });
+
+    throw new ValidationError(
+      "no public or signed URL available for this workspace's storage configuration",
+      { code: "file_url_unavailable" },
+    );
   })
 
   // files-sdk's folder-aware browser gateway. Authorization happens before a

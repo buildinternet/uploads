@@ -183,7 +183,11 @@ export const prerender = false;
               // paying for once its container approaches the viewport.
               const mount = () =>
                 createRoot(filesEl).render(
-                  createElement(AccountFileBrowser, { apiOrigin, workspace: ws.workspace }),
+                  createElement(AccountFileBrowser, {
+                    apiOrigin,
+                    workspace: ws.workspace,
+                    hasPublicUrl: ws.hasPublicUrl,
+                  }),
                 );
               if (typeof IntersectionObserver === "undefined") {
                 mount();

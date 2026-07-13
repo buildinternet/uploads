@@ -61,4 +61,36 @@ export function publicUrl(config: StorageConfig, key: string): string | null {
   return `${base}/${fullKey.split("/").map(encodeURIComponent).join("/")}`;
 }
 
+/** Options for {@link signedDownloadUrl}. */
+export interface SignedDownloadUrlOptions {
+  /** How long the URL stays valid, in seconds. Defaults to 3600 (files-sdk's own default). */
+  expiresIn?: number;
+}
+
+/**
+ * Short-lived signed download URL for `key`, or `null` when the adapter has
+ * no signing primitive to mint one — e.g. an R2 binding with neither
+ * `publicBaseUrl` nor HTTP credentials (`accountId`/`accessKeyId`/`secretAccessKey`).
+ * Mirrors {@link Files.signedUploadUrl}'s presigning, but for reads: it forces
+ * `responseContentDisposition: "attachment"` so a user-uploaded HTML/SVG never
+ * renders inline at the bucket's origin (stored XSS).
+ *
+ * Checks {@link Files.capabilities}' `signedUrl.supported` flag up front so
+ * callers get a clean `null` instead of a thrown provider error when signing
+ * isn't possible. Callers should try {@link publicUrl} first — a workspace
+ * with `publicBaseUrl` configured should get its stable custom-domain URL
+ * instead of a short-lived signed one.
+ */
+export async function signedDownloadUrl(
+  store: Files,
+  key: string,
+  opts: SignedDownloadUrlOptions = {},
+): Promise<string | null> {
+  if (!store.capabilities.signedUrl.supported) return null;
+  return store.url(key, {
+    expiresIn: opts.expiresIn ?? 3600,
+    responseContentDisposition: "attachment",
+  });
+}
+
 export type { Files };

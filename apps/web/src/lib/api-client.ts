@@ -18,12 +18,21 @@ export interface MyWorkspace {
   role: string;
   /** True for the communal, world-readable workspace (no personal browser). */
   communal: boolean;
+  /**
+   * True when the workspace has a stable public custom domain configured.
+   * Lets the account file browser (issue #123) decide whether to open a
+   * selected file via the public `/f/` page or resolve it through the
+   * signed-URL-capable `/me/.../file-url` endpoint instead.
+   */
+  hasPublicUrl: boolean;
 }
 
-// `communal` is intentionally NOT required here: web and api deploy
-// independently, so an older api may omit it. We accept the entry and coerce a
-// missing/other value to `false` in the mapper below.
-function isMyWorkspaceCore(value: unknown): value is Omit<MyWorkspace, "communal"> {
+// `communal` and `hasPublicUrl` are intentionally NOT required here: web and
+// api deploy independently, so an older api may omit them. We accept the
+// entry and coerce a missing/other value to `false` in the mapper below.
+function isMyWorkspaceCore(
+  value: unknown,
+): value is Omit<MyWorkspace, "communal" | "hasPublicUrl"> {
   if (!value || typeof value !== "object") return false;
   const ws = value as Record<string, unknown>;
   const org = ws.organization as Record<string, unknown> | null | undefined;
@@ -62,6 +71,7 @@ export async function getMyWorkspaces(apiOrigin: string): Promise<WorkspacesResu
         organization: ws.organization,
         role: ws.role,
         communal: (ws as { communal?: unknown }).communal === true,
+        hasPublicUrl: (ws as { hasPublicUrl?: unknown }).hasPublicUrl === true,
       }),
     ),
   };
