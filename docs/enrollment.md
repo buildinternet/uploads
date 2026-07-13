@@ -1,17 +1,11 @@
-# Invitations and `uploads login`
+# Signing in with `uploads login`
 
-Early adopters authenticate through short-lived invitations. They never receive
-the API's `ADMIN_TOKEN`. An administrator authorizes an existing workspace and shares
-a single-use **magic link**; the adopter opens it and runs the one-click `uploads
-login` command it shows to exchange the code for a scoped, expiring workspace token.
+`uploads login` is how people and agents get workspace credentials. Run with
+no flags it opens a browser for a device sign-in (GitHub or a magic link); on
+approval the CLI mints a scoped, expiring workspace token and saves it
+locally. Nobody needs the API's `ADMIN_TOKEN` to sign in.
 
-The one-time code travels in the link's URL fragment (`…/invite?id=…#code=…`), which
-browsers never send to a server—so opening the page neither logs nor consumes the
-code; only the CLI's exchange call redeems it. Treat the link like a password. For
-security-sensitive deployments that prefer two channels, `uploads admin invite create
---separate-code` prints a non-secret page URL plus a code you deliver separately.
-
-## Agent login
+## Everyday login (device flow)
 
 Install once for repeated use:
 
@@ -27,46 +21,71 @@ Or run it once without a global install:
 npx @buildinternet/uploads login
 ```
 
-Interactive login prompts without echoing the enrollment code. For automation, use an
-ephemeral environment value rather than putting the code in shell history or the
-process list:
+With no code, `uploads login` prints a URL and a short code, opens the URL in
+a browser automatically (unless `--no-open`), and waits while you approve the
+sign-in there. Once approved, the CLI mints a token and saves it.
+
+Pass `--workspace <name>` if your account can access more than one workspace:
 
 ```bash
-UPLOADS_ENROLLMENT_CODE=upe_<workspace>_… uploads login
+uploads login --workspace acme
 ```
 
 On success, the CLI saves `UPLOADS_API_URL`, `UPLOADS_WORKSPACE`, and
-`UPLOADS_TOKEN` in the shared buildinternet config and runs `doctor`. It never prints
-the raw workspace token. Use `--force` only when intentionally replacing an existing
-configured token.
+`UPLOADS_TOKEN` in the shared buildinternet config and runs `doctor`. It never
+prints the raw workspace token. Use `--force` only when intentionally
+replacing an existing configured token. See `uploads login --help` for the
+full flag list (`--label`, `--scopes`, `--auth-url`, `--no-open`,
+`--non-interactive`, and more).
 
-## Administrator overview
+## How you get access to a workspace
 
-Administrators issue invitations for existing workspaces. Invitation codes are
-single-use and default to a 2-hour expiry (override with `--expires-in`, up to 24
-hours); issued tokens default to read/write scope without delete access. See the [operator runbook](ops.md#invitations) for
-commands, secret handling, delivery, and troubleshooting.
+Workspace access comes from an **organization invitation**, not a code you
+redeem. An administrator invites your email address to the workspace's
+organization from the session-authenticated admin UI at `/admin`. Accepting
+the invitation (GitHub or magic-link sign-in) makes you a member — from
+there, `uploads login` mints a token for that workspace. See the
+[operator runbook](ops.md#invitations) for how administrators send invites.
+
+## Legacy: enrollment codes (`--code`)
+
+Before device login existed, administrators minted single-use **enrollment
+codes** (`upe_…`) via `ADMIN_TOKEN`-authenticated `POST /admin/enrollments`,
+and `uploads login --code` exchanged one for a token directly, with no
+organization membership involved. **This path is deprecated** and kept only
+so enrollment invites already sent out keep working — it is not the way to
+invite new people. Use org invitations above for that.
+
+```bash
+uploads login --code upe_…
+# or, to avoid the code in shell history:
+UPLOADS_ENROLLMENT_CODE=upe_<workspace>_… uploads login --code-stdin
+```
+
+Interactive `--code` prompts without echoing the code. For automation, use an
+ephemeral environment value rather than putting the code in shell history or
+the process list.
 
 ## Token policy
 
-Enrollment-issued tokens default to:
+Login-issued tokens default to:
 
 - 90-day lifetime;
 - `files:read` for list and metadata operations;
 - `files:write` for uploads;
 - no `files:delete` unless explicitly authorized.
 
-The API stores token hashes, scopes, labels, creation time, and expiry—not raw tokens.
-Revocation continues to use the admin token-list and revoke endpoints. Existing tokens
-without scopes or expiry remain valid with their legacy access until deliberately
-rotated or revoked.
+The API stores token hashes, scopes, labels, creation time, and expiry — not
+raw tokens. Revocation uses the admin token-list and revoke endpoints (see
+[admin-tokens](admin-tokens.md)). Existing tokens without scopes or expiry
+remain valid with their legacy access until deliberately rotated or revoked.
 
 ## D1 state and deployment
 
-D1 stores enrollment requests and every new scoped/expiring token, and guarantees
-atomic single-use redemption. `REGISTRY` KV retains workspace storage configuration
-and legacy tokens. Create and migrate the database before deploying enrollment-aware
-API code:
+D1 stores every scoped/expiring token and, for the legacy enrollment path,
+enrollment requests with atomic single-use redemption. `REGISTRY` KV retains
+workspace storage configuration and legacy tokens. Create and migrate the
+database before deploying auth-aware API code:
 
 ```bash
 cd apps/api
@@ -80,15 +99,13 @@ Bind the database as `DB` in `apps/api/wrangler.jsonc`. Commit migrations under
 `apps/api/migrations/`; remote apply runs via `deploy:api`, the **D1 Migrations**
 GitHub Action on merge to main, or `migrate:d1` manually. See [deploy](deploy.md).
 
-## Migration and future auth
+The dedicated `apps/auth` worker and its own `uploads-auth` D1 database carry
+Better Auth's session/organization/device-code tables that back
+`uploads login` and the `/admin` UI — see `apps/auth/README.md`.
 
-Enrollment is additive: existing direct-minted and workspace-bootstrap tokens continue
-to authenticate. New installations should use `uploads login`; direct token minting is
-reserved for CI and break-glass administration. Rotate legacy routine-agent tokens to
-scoped enrollment tokens gradually, then revoke the old hashes.
+## Migration notes
 
-Better Auth with D1 and its API Key and Device Authorization plugins remains a later
-migration path when uploads.sh has human accounts, organization membership, and an
-authenticated browser approval UI. The current D1 schema and explicit workspace/token
-boundary keep that migration possible without coupling storage configuration to an
-identity framework today.
+`uploads login`'s device flow (Better Auth's device-authorization grant) is
+the default onboarding path today. Direct token minting (`/admin/tokens`) is
+reserved for CI and break-glass administration. Rotate legacy routine-agent
+tokens to login-issued tokens gradually, then revoke the old hashes.
