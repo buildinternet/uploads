@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { admin, bearer, deviceAuthorization, magicLink, organization } from "better-auth/plugins";
 import { sendAuthEmail } from "./email";
+import { localDemoEnabled, localDemoPlugin } from "./local-demo";
 import * as schema from "./schema";
 import { authTrustedOrigins, isTrustedOrigin } from "./trusted-origins";
 import {
@@ -43,6 +44,8 @@ export type AuthEnv = GitHubCredentialsEnv &
     ENVIRONMENT?: string;
     BETTER_AUTH_TRUSTED_ORIGINS?: string;
     AUTH_RATE_LIMIT_DISABLED?: string;
+    /** Ephemeral flag passed only by `pnpm dev:stack`; never configure in prod. */
+    LOCAL_STACK?: string;
   };
 
 export type BetterAuthInstance = ReturnType<typeof buildAuth>;
@@ -186,6 +189,10 @@ function buildAuth(
       }),
       // Hosted dashboard (`@better-auth/infra`). Omit when the API key is unset.
       ...(dashApiKey ? [dash({ apiKey: dashApiKey })] : []),
+      // This endpoint is omitted entirely unless the lifecycle runner supplies
+      // an exact, development-only loopback configuration. It still creates a
+      // standard Better Auth cookie and leaves membership checks to apps/api.
+      ...(localDemoEnabled(env) ? [localDemoPlugin(env)] : []),
     ],
     session: {
       cookieCache: {
@@ -237,6 +244,7 @@ function cacheKey(
     environment: env.ENVIRONMENT,
     trustedOriginsEnv: env.BETTER_AUTH_TRUSTED_ORIGINS,
     rateLimitDisabled: env.AUTH_RATE_LIMIT_DISABLED,
+    localStack: env.LOCAL_STACK,
     signingSecret,
     githubClientId: github?.clientId ?? null,
     githubClientSecret: github?.clientSecret ?? null,

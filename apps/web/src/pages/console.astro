@@ -155,6 +155,7 @@ const authOrigin =
       <div class="session-bar">
         <div class="lockup"><Brand /><span class="pill">console</span></div>
         <span id="signed-out"><a href="/login">Sign in</a></span>
+        <span id="auth-unavailable" class="muted" hidden>auth unavailable</span>
         <span id="signed-in" hidden>
           <a href="/account">account</a>
           &#32;<span id="session-who" class="muted"></span>
@@ -215,19 +216,28 @@ const authOrigin =
         .__UPLOADS_AUTH_ORIGIN__;
       const signedOut = document.getElementById("signed-out");
       const signedIn = document.getElementById("signed-in");
+      const authUnavailable = document.getElementById("auth-unavailable");
       const sessionWho = document.getElementById("session-who");
       const signOutBtn = document.getElementById("sign-out-btn");
 
       getSession(sessionAuthOrigin).then((result) => {
-        if (!signedOut || !signedIn || !sessionWho) return;
-        if (!result) {
+        if (!signedOut || !signedIn || !authUnavailable || !sessionWho) return;
+        if (result.kind === "unavailable") {
+          signedOut.hidden = true;
+          signedIn.hidden = true;
+          authUnavailable.hidden = false;
+          return;
+        }
+        if (result.kind !== "signed_in") {
           signedOut.hidden = false;
           signedIn.hidden = true;
+          authUnavailable.hidden = true;
           return;
         }
         signedOut.hidden = true;
         signedIn.hidden = false;
-        sessionWho.textContent = result.user.email;
+        authUnavailable.hidden = true;
+        sessionWho.textContent = result.session.user.email;
       });
 
       signOutBtn?.addEventListener("click", async () => {

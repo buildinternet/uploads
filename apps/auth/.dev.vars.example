@@ -20,6 +20,13 @@ BETTER_AUTH_URL=http://127.0.0.1:8788
 # Web app origin this worker trusts for CORS + magic-link emails.
 WEB_ORIGIN=http://127.0.0.1:4321
 
+# Local development must never inherit the production security mode from
+# wrangler.jsonc. `pnpm dev:stack` also passes this explicitly at runtime.
+ENVIRONMENT=development
+
+# Do not add LOCAL_STACK here. The zero-input /api/auth/dev-session route is
+# enabled only when `pnpm dev:stack` supplies its ephemeral --var flag.
+
 # Fail-closed rate limiting is production-only by default; flip this to skip
 # it locally (see src/auth.ts).
 AUTH_RATE_LIMIT_DISABLED=true

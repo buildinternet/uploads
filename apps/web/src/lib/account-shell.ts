@@ -8,7 +8,13 @@
  * revalidates in the background. Cache is a UX affordance only — every API
  * call still enforces the real session server-side.
  */
-import { getSession, signOut, type SessionResponse, type SessionUser } from "./auth-client";
+import {
+  getSession,
+  signOut,
+  startLocalDemoSession,
+  type SessionResponse,
+  type SessionUser,
+} from "./auth-client";
 
 const SESSION_EVENT = "uploads:session";
 
@@ -75,6 +81,15 @@ function showDenied(options: Pick<SessionGateOptions, "checking" | "denied" | "a
   options.denied.hidden = false;
 }
 
+function showUnavailable(
+  options: Pick<SessionGateOptions, "checking" | "denied" | "unavailable" | "app">,
+): void {
+  options.checking.hidden = true;
+  options.denied.hidden = true;
+  options.app.hidden = true;
+  options.unavailable.hidden = false;
+}
+
 /** Wire `#sign-out-btn` to end the session and return to /login. */
 export function initSignOut(authOrigin: string): void {
   const button = document.querySelector<HTMLButtonElement>("#sign-out-btn");
@@ -91,6 +106,7 @@ export type SessionGateOptions = {
   authOrigin: string;
   checking: HTMLElement;
   denied: HTMLElement;
+  unavailable: HTMLElement;
   app: HTMLElement;
   who?: HTMLElement | null;
   /** When set, only accept sessions with this `user.role` (e.g. `"admin"`). */
@@ -115,18 +131,34 @@ export async function resolveSessionGate(
     publishSession(cached);
   }
 
-  const result = await getSession(options.authOrigin);
-  if (!result || (options.requireRole && result.user.role !== options.requireRole)) {
+  let result = await getSession(options.authOrigin);
+  if (result.kind === "signed_out") {
+    const demo = await startLocalDemoSession(options.authOrigin, location.origin);
+    if (demo.kind === "unavailable") {
+      showUnavailable(options);
+      return null;
+    }
+    if (demo.kind === "started") result = await getSession(options.authOrigin);
+  }
+
+  if (result.kind === "unavailable") {
+    showUnavailable(options);
+    return null;
+  }
+  if (
+    result.kind === "signed_out" ||
+    (options.requireRole && result.session.user.role !== options.requireRole)
+  ) {
     clearCachedSessionUser();
     showDenied(options);
     return null;
   }
 
-  writeCachedSessionUser(result.user);
-  showApp(result.user, options);
+  writeCachedSessionUser(result.session.user);
+  showApp(result.session.user, options);
   // Force so email/role updates still reach listeners if the user object changed.
-  publishSession(result.user, true);
-  return result;
+  publishSession(result.session.user, true);
+  return result.session;
 }
 
 /** Run once the layout session gate succeeds (handles both ready and in-flight). */

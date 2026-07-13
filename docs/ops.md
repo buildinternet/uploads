@@ -88,6 +88,45 @@ restrictive CSP, and disabled browser permissions. The code lives only in the UR
 fragment—never the query string—so it stays out of server logs and referrers, and the
 page reads it client-side without sending it anywhere.
 
+## Authenticated local stack
+
+For the real local browser path, run:
+
+```bash
+pnpm dev:stack
+```
+
+It bootstraps the local state, starts Auth (`127.0.0.1:8788`), API (`:8787`),
+and Web (`:4321`), registers the dedicated `dev-demo` workspace, uploads nested
+PNG fixtures, and prints a JSON readiness record only after the end-to-end smoke
+test passes. Open `http://127.0.0.1:4321/account/workspaces`.
+That exact account page creates the local-only demo session automatically, then
+loads the workspace as the ordinary `dev-demo` member.
+
+Use these non-interactive checks for an agent or CI-like local verification:
+
+```bash
+pnpm dev:stack:check --json
+pnpm dev:stack:smoke
+```
+
+Both prove `dev session → get-session → /me/workspaces → dev-demo file listing`
+with a cookie jar. They exercise the real Better Auth cookie, API service binding,
+membership lookup, workspace prefix, and local R2—not a mock API. `dev-demo` is
+the only workspace overwritten by the stack; `default` stays communal and is never
+used for browser enumeration. Fixture object previews intentionally remain out of
+scope because simulated R2 objects do not exist at `storage.uploads.sh`.
+
+The zero-input `POST /api/auth/dev-session` route is absent unless `dev:stack`
+supplies its ephemeral `LOCAL_STACK=true` Worker variable, the environment is
+development, and Auth/Web use the exact `127.0.0.1` origins above. It seeds an
+ordinary member and uses Better Auth's normal session/cookie path; API membership
+and file authorization remain unchanged. Do not add that flag to `.dev.vars`.
+
+Stop the stack with <kbd>Ctrl-C</kbd>. Its supervisor sends TERM then KILL to each
+Worker process group. If an interrupted shell still leaves a process behind, inspect
+it before killing it as described below.
+
 ## Local Wrangler gotchas
 
 `wrangler … --local` starts miniflare against `apps/api/.wrangler/state`. That is

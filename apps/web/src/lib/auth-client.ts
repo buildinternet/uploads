@@ -17,6 +17,7 @@
  * cookie (`.uploads.sh`, see apps/auth/src/auth.ts's crossSubDomainCookies)
  * rides along.
  */
+import { fetchWithTimeout, type RequestFailure } from "./request";
 
 /** Public origin of the auth worker. Falls back to the documented local dev
  * origin (apps/auth's pinned wrangler dev port — see apps/auth/wrangler.jsonc
@@ -38,20 +39,63 @@ export interface SessionResponse {
   session: unknown;
 }
 
-/** GET /api/auth/get-session. Returns null on any non-2xx or malformed body — never throws. */
-export async function getSession(origin: string): Promise<SessionResponse | null> {
-  try {
-    const res = await fetch(`${authOrigin(origin)}/api/auth/get-session`, {
-      credentials: "include",
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const body = (await res.json().catch(() => null)) as SessionResponse | null;
-    if (!body || !body.user) return null;
-    return body;
-  } catch {
-    return null;
+export type SessionResult =
+  | { kind: "signed_in"; session: SessionResponse }
+  | { kind: "signed_out" }
+  | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
+
+const LOCAL_STACK_AUTH_ORIGIN = "http://127.0.0.1:8788";
+const LOCAL_STACK_WEB_ORIGIN = "http://127.0.0.1:4321";
+
+type LocalDemoSessionStart =
+  | { kind: "started" }
+  | { kind: "not_enabled" }
+  | { kind: "unavailable"; reason: RequestFailure | "server" };
+
+/**
+ * GET /api/auth/get-session. A valid no-session response is distinct from an
+ * auth timeout, network failure, 503, or malformed response so protected
+ * pages never send a user to sign in when the service is merely unavailable.
+ */
+export async function getSession(origin: string): Promise<SessionResult> {
+  const result = await fetchWithTimeout(`${authOrigin(origin)}/api/auth/get-session`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 401) return { kind: "signed_out" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const body = (await response.json().catch(() => undefined)) as SessionResponse | null | undefined;
+  if (body === null) return { kind: "signed_out" };
+  if (!body || !body.user) return { kind: "unavailable", reason: "malformed" };
+  return { kind: "signed_in", session: body };
+}
+
+/**
+ * Creates the ordinary local demo session when, and only when, this page and
+ * Auth both use the stack's exact loopback origins. The Auth worker applies
+ * the authoritative gate again; this browser-side check keeps production and
+ * arbitrary development origins from ever probing the endpoint.
+ */
+export async function startLocalDemoSession(
+  origin: string,
+  pageOrigin: string,
+): Promise<LocalDemoSessionStart> {
+  const normalizedOrigin = authOrigin(origin);
+  if (normalizedOrigin !== LOCAL_STACK_AUTH_ORIGIN || pageOrigin !== LOCAL_STACK_WEB_ORIGIN) {
+    return { kind: "not_enabled" };
   }
+
+  const result = await fetchWithTimeout(`${normalizedOrigin}/api/auth/dev-session`, {
+    method: "POST",
+    credentials: "include",
+  });
+  if (result.kind === "unavailable") return result;
+  if (result.response.ok) return { kind: "started" };
+  return result.response.status >= 500
+    ? { kind: "unavailable", reason: "server" }
+    : { kind: "not_enabled" };
 }
 
 /**

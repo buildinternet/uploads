@@ -38,21 +38,35 @@ describe("sessionAuth", () => {
     expect(await res.json()).toEqual({ sessionUser: null });
   });
 
-  it("sets sessionUser to null when the auth worker returns malformed JSON", async () => {
+  it("returns 503 when the auth worker returns malformed JSON", async () => {
     const auth = stubAuth(() => new Response("not json", { status: 200 }));
     const res = await appWith(auth).request("/whoami", {}, env(auth));
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ sessionUser: null });
+    expect(res.status).toBe(503);
+    expect((await res.json()) as { error?: { code?: string } }).toMatchObject({
+      error: { code: "auth_session_unavailable" },
+    });
   });
 
-  it("sets sessionUser to null when the auth worker fetch throws", async () => {
+  it("returns 503 when the auth worker fetch throws", async () => {
     const auth: Pick<Fetcher, "fetch"> = {
       fetch: (() => {
         throw new Error("network down");
       }) as Fetcher["fetch"],
     };
     const res = await appWith(auth).request("/whoami", {}, env(auth));
-    expect(await res.json()).toEqual({ sessionUser: null });
+    expect(res.status).toBe(503);
+    expect((await res.json()) as { error?: { code?: string } }).toMatchObject({
+      error: { code: "auth_session_unavailable" },
+    });
+  });
+
+  it("returns 503 when the auth worker itself is unavailable", async () => {
+    const auth = stubAuth(() => new Response(null, { status: 503 }));
+    const res = await appWith(auth).request("/private", {}, env(auth));
+    expect(res.status).toBe(503);
+    expect((await res.json()) as { error?: { code?: string } }).toMatchObject({
+      error: { code: "auth_session_unavailable" },
+    });
   });
 
   it("sets sessionUser for a valid non-admin user, and requireAdminUser 403s", async () => {

@@ -2,9 +2,11 @@
  * Session-cookie-authenticated wrappers for apps/api's `/me/*` surface
  * (issue #107). Same conventions as `src/lib/auth-client.ts`'s wrappers:
  * `credentials: "include"` so the cross-subdomain session cookie rides
- * along, and defensive null/[] returns on any failure rather than throwing
- * — the /account page treats "no data" and "couldn't load" the same way.
+ * along. The account workspace list preserves unavailable/auth failure states
+ * rather than rendering an outage as an empty account; less central detail
+ * helpers retain their defensive null/[] fallbacks.
  */
+import { fetchWithTimeout, type RequestFailure } from "./request";
 
 function trimOrigin(origin: string): string {
   return origin.replace(/\/$/, "");
@@ -35,27 +37,34 @@ function isMyWorkspaceCore(value: unknown): value is Omit<MyWorkspace, "communal
   );
 }
 
-/** GET /me/workspaces. Returns [] on any non-2xx or malformed body; drops malformed entries. */
-export async function getMyWorkspaces(apiOrigin: string): Promise<MyWorkspace[]> {
-  try {
-    const res = await fetch(`${trimOrigin(apiOrigin)}/me/workspaces`, {
-      credentials: "include",
-      cache: "no-store",
-    });
-    if (!res.ok) return [];
-    const body = (await res.json().catch(() => null)) as { workspaces?: unknown[] } | null;
-    if (!Array.isArray(body?.workspaces)) return [];
-    return body.workspaces.filter(isMyWorkspaceCore).map(
+export type WorkspacesResult =
+  | { kind: "success"; workspaces: MyWorkspace[] }
+  | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
+
+/** GET /me/workspaces, preserving an outage rather than rendering it as an empty account. */
+export async function getMyWorkspaces(apiOrigin: string): Promise<WorkspacesResult> {
+  const result = await fetchWithTimeout(`${trimOrigin(apiOrigin)}/me/workspaces`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const body = (await response.json().catch(() => undefined)) as
+    | { workspaces?: unknown[] }
+    | undefined;
+  if (!body || !Array.isArray(body.workspaces)) return { kind: "unavailable", reason: "malformed" };
+  return {
+    kind: "success",
+    workspaces: body.workspaces.filter(isMyWorkspaceCore).map(
       (ws): MyWorkspace => ({
         workspace: ws.workspace,
         organization: ws.organization,
         role: ws.role,
         communal: (ws as { communal?: unknown }).communal === true,
       }),
-    );
-  } catch {
-    return [];
-  }
+    ),
+  };
 }
 
 export interface WorkspaceUsage {
@@ -76,26 +85,22 @@ export async function getMyWorkspaceUsage(
   apiOrigin: string,
   name: string,
 ): Promise<WorkspaceUsage | null> {
-  try {
-    const res = await fetch(
-      `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/usage`,
-      { credentials: "include", cache: "no-store" },
-    );
-    if (!res.ok) return null;
-    const body = (await res.json().catch(() => null)) as WorkspaceUsage | null;
-    if (
-      !body ||
-      typeof body !== "object" ||
-      typeof body.bytes !== "number" ||
-      typeof body.objects !== "number" ||
-      typeof body.uploadsInPeriod !== "number"
-    ) {
-      return null;
-    }
-    return body;
-  } catch {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/usage`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable" || !result.response.ok) return null;
+  const body = (await result.response.json().catch(() => null)) as WorkspaceUsage | null;
+  if (
+    !body ||
+    typeof body !== "object" ||
+    typeof body.bytes !== "number" ||
+    typeof body.objects !== "number" ||
+    typeof body.uploadsInPeriod !== "number"
+  ) {
     return null;
   }
+  return body;
 }
 
 /**
@@ -111,19 +116,14 @@ async function fetchWorkspaceList<T>(
   key: string,
   isValid: (value: unknown) => value is T,
 ): Promise<T[]> {
-  try {
-    const res = await fetch(
-      `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/${segment}`,
-      { credentials: "include", cache: "no-store" },
-    );
-    if (!res.ok) return [];
-    const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-    const list = body?.[key];
-    if (!Array.isArray(list)) return [];
-    return list.filter(isValid);
-  } catch {
-    return [];
-  }
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/${segment}`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable" || !result.response.ok) return [];
+  const body = (await result.response.json().catch(() => null)) as Record<string, unknown> | null;
+  const list = body?.[key];
+  return Array.isArray(list) ? list.filter(isValid) : [];
 }
 
 export interface GallerySummary {
