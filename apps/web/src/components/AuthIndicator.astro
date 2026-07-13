@@ -1,0 +1,69 @@
+---
+// Persistent signed-in indicator for the top nav area of pages that don't
+// already have their own session UI. Signed out -> "sign in" link to
+// /login. Signed in -> the user's email, linking to /account. Reserves a
+// fixed-height slot so the async session check causes no layout shift; the
+// slot shows a muted "…" placeholder until getSession resolves.
+export interface Props {
+  authOrigin: string;
+}
+
+const { authOrigin } = Astro.props;
+---
+
+<span class="auth-indicator">
+  <span id="auth-indicator-slot" class="slot">…</span>
+</span>
+<script define:vars={{ authOrigin }}>
+  // Multiple instances/pages may set this; first one wins, all read the same value.
+  window.__UPLOADS_AUTH_ORIGIN__ = window.__UPLOADS_AUTH_ORIGIN__ || authOrigin;
+</script>
+<script>
+  import { getSession } from "../lib/auth-client";
+
+  const escapeHtml = (value: string) =>
+    value.replace(/[&<>"']/g, (ch) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
+    );
+
+  const origin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string }).__UPLOADS_AUTH_ORIGIN__;
+  const slot = document.getElementById("auth-indicator-slot");
+
+  getSession(origin).then((result) => {
+    if (!slot) return;
+    if (!result) {
+      slot.innerHTML = '<a href="/login">sign in</a>';
+      return;
+    }
+    slot.innerHTML = `<a href="/account">${escapeHtml(result.user.email)}</a>`;
+  });
+</script>
+
+<style>
+  .auth-indicator {
+    display: inline-flex;
+    align-items: center;
+    font-size: 12.5px;
+    font-family: "Geist Mono Variable", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--muted, #7d7d77);
+    /* Reserves horizontal space so "…" -> "sign in" / email causes no
+       reflow of anything to its right. */
+    min-width: 3.5em;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .auth-indicator .slot {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 220px;
+  }
+  .auth-indicator :global(a) {
+    color: var(--muted, #7d7d77);
+    text-decoration: none;
+  }
+  .auth-indicator :global(a:hover),
+  .auth-indicator :global(a:focus-visible) {
+    color: var(--accent, #b794ff);
+    outline: none;
+  }
+</style>

@@ -145,9 +145,11 @@ const FAVICON =
           <section class="card" style="margin-top:16px">
             <h2>Uploading</h2>
             <p>
-              Uploads go through the <code>uploads</code> CLI or the API with a
-              workspace token. The web console is a developer tool, not the main
-              path. The <a href="/docs">docs</a> cover setup.
+              Install the CLI, run <code>uploads login</code>, and it connects to
+              your workspaces. From there <code>uploads attach</code> puts files
+              on GitHub PRs and <code>uploads put</code> gets you a URL for
+              anything else. Workspace tokens are for the API and CI, not the
+              everyday path. The <a href="/docs">docs</a> cover setup.
             </p>
           </section>
         </div>
@@ -182,7 +184,7 @@ const FAVICON =
         <div data-panel-body="developers" hidden>
           <section class="card">
             <h2>Developers</h2>
-            <p>These tools need a workspace token.</p>
+            <p>Most people just need <code>uploads login</code>. These are for API and CI use.</p>
             <ul class="plain">
               {showConsoleLinks ? <li><span><a href="/console">Console</a></span><span class="slug">usage, files, invites — bring a token</span></li> : null}
               <li><span><a href="/docs">API docs</a></span><span class="slug">endpoints &amp; auth</span></li>
