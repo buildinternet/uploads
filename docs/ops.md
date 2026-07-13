@@ -39,6 +39,23 @@ uploads purge-expired      # needs retentionDays
 
 The API worker also runs a **daily cron** (`0 6 * * *` UTC) that purges every workspace with `retentionDays` set. Logs: `retention_sweep` JSON.
 
+## Backfill gh metadata
+
+One-time script for objects uploaded under `gh/...` before per-file metadata
+existed — derives `gh.repo` / `gh.kind` / `gh.number` / `gh.ref` from each key
+and PATCHes it in, matching what `uploads attach` now writes going forward.
+Idempotent (safe to re-run) and paginates the whole `gh/` prefix itself.
+
+```bash
+node --env-file=.env apps/api/scripts/backfill-gh-metadata.mjs --dry-run
+node --env-file=.env apps/api/scripts/backfill-gh-metadata.mjs
+```
+
+`UPLOADS_API_URL` / `UPLOADS_WORKSPACE` / `UPLOADS_TOKEN` come from `.env`
+(same names as `.env.example`); `--workspace <name>` overrides the workspace
+for one run. Test against a local `wrangler dev` stack first — never point
+this at production while testing.
+
 ## Invitations
 
 Invite people through the session-authenticated **admin UI at `/admin`**, signed in
