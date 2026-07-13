@@ -122,8 +122,11 @@ export async function putObject(
      * `provenance` bag above. When present (even `{}`), this call fully
      * replaces any metadata already stored for the key — delete-then-set —
      * so an overwrite never leaves stale rows from a prior put. Omit
-     * entirely (undefined) to leave existing metadata untouched, which is
-     * what non-route callers (e.g. the MCP worker) do today.
+     * entirely (undefined) to leave existing metadata untouched. Every
+     * caller follows this contract: the REST PUT route passes `undefined`
+     * when the request had no custom (non-provenance) `X-Uploads-Meta-*`
+     * headers, and the MCP `put`/`attach` tools pass `undefined` when their
+     * `metadata` argument was omitted.
      */
     metadata?: Record<string, string>;
   },

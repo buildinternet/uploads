@@ -61,6 +61,8 @@ export const ERROR_CODES = [
   "file_metadata_invalid_value",
   "file_metadata_limit_exceeded",
   "file_metadata_reserved_key",
+  "file_metadata_duplicate_filter",
+  "file_metadata_too_many_filters",
 
   // Admin
   "invalid_workspace",

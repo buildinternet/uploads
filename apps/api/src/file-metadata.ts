@@ -21,7 +21,11 @@ export const META_KEY_RE = /^[a-z][a-z0-9._-]{0,63}$/;
  * upload capture, the PATCH endpoint, and any future setFileMetadata caller.
  * `gh.*` keys are NOT reserved: system-managed by convention only (design doc).
  */
-const RESERVED_META_KEYS = new Set<string>(PROVENANCE_SERVER_KEYS);
+// `visibility` is reserved too: it names the R2-backed public/private gate
+// (visibility.ts's VISIBILITY_META_KEY), not a piece of D1 custom metadata. A
+// custom row with this name would render on the public /f/ panel looking
+// like an access-control setting when it's just an unrelated user tag.
+const RESERVED_META_KEYS = new Set<string>([...PROVENANCE_SERVER_KEYS, "visibility"]);
 
 /** Cap applied both to a single write request and to a file's total keys post-merge. */
 export const META_MAX_KEYS = 24;
@@ -184,6 +188,17 @@ const FIND_DEFAULT_LIMIT = 50;
 const FIND_MAX_LIMIT = 500;
 
 /**
+ * Escapes SQL LIKE metacharacters (`%`, `_`, and the escape character itself)
+ * so a prefix like `my_app/` matches only literal underscores — paired with
+ * `ESCAPE '\'` in the query. Without this, `_` and `%` in `opts.prefix` are
+ * interpreted as single-char/any-run wildcards and over-match (e.g. `my_app/`
+ * would also match `myXapp/`).
+ */
+function escapeLikePattern(raw: string): string {
+  return raw.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+/**
  * Finds objects whose metadata matches ALL `filters` (ANDed equality), with
  * an optional key-prefix and result limit. Returns each match's key plus its
  * full metadata map (not just the matched pairs).
@@ -205,8 +220,8 @@ export async function findObjectsByMetadata(
 
   let sql = `SELECT object_key FROM file_metadata WHERE workspace = ? AND (${conditions})`;
   if (opts.prefix) {
-    sql += ` AND object_key LIKE ? || '%'`;
-    params.push(opts.prefix);
+    sql += ` AND object_key LIKE ? || '%' ESCAPE '\\'`;
+    params.push(escapeLikePattern(opts.prefix));
   }
   sql += ` GROUP BY object_key HAVING COUNT(DISTINCT meta_key) = ? ORDER BY object_key LIMIT ?`;
   params.push(entries.length, limit);

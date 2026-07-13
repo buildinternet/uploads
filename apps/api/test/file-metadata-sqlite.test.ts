@@ -245,6 +245,24 @@ describe("file metadata persistence against SQLite", () => {
     }
   });
 
+  it("treats an underscore in the prefix literally, not as a SQL LIKE wildcard", async () => {
+    const sqlite = new SqliteD1();
+    try {
+      await setFileMetadata(database(sqlite), "alpha", "my_app/x.png", { app: "a" });
+      await setFileMetadata(database(sqlite), "alpha", "myxapp/x.png", { app: "a" });
+
+      const matches = await findObjectsByMetadata(
+        database(sqlite),
+        "alpha",
+        { app: "a" },
+        { prefix: "my_app/" },
+      );
+      expect(matches).toEqual([{ key: "my_app/x.png", metadata: { app: "a" } }]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it("respects a limit and returns an empty array for no filters or no matches", async () => {
     const sqlite = new SqliteD1();
     try {

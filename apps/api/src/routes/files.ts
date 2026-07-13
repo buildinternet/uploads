@@ -10,6 +10,7 @@ import {
 } from "../files-core";
 import {
   META_KEY_RE,
+  META_MAX_KEYS,
   findObjectsByMetadata,
   getFileMetadata,
   setFileMetadata,
@@ -112,13 +113,20 @@ export const files = new Hono<WorkspaceVars>()
     const body = await c.req.arrayBuffer();
     const visibility = sanitizeVisibility(c.req.header("x-uploads-visibility"));
     const { provenance, custom } = splitUploadMetaHeaders(c.req.raw.headers);
+    // No custom (non-provenance) X-Uploads-Meta-* headers at all: pass
+    // `metadata: undefined` so putObject leaves any existing D1 metadata
+    // untouched (matches the MCP `put` tool's omit-preserves semantics).
+    // At least one custom header: keep the existing full-replace behavior,
+    // even when that header's value alone ends up empty/invalid (putObject
+    // still validates and rejects before any write).
+    const hasCustomMeta = Object.keys(custom).length > 0;
     const result = await putObject(
       c.env,
       c.get("workspace"),
       key,
       new Uint8Array(body),
       c.get("workspaceName"),
-      { provenance, visibility, metadata: custom },
+      { provenance, visibility, metadata: hasCustomMeta ? custom : undefined },
     );
     return c.json({ workspace: c.get("workspaceName"), ...result }, 201);
   })
@@ -135,6 +143,13 @@ export const files = new Hono<WorkspaceVars>()
     const metaParamKeys = Object.keys(query).filter((k) => k.startsWith("meta."));
 
     if (metaParamKeys.length > 0) {
+      if (metaParamKeys.length > META_MAX_KEYS) {
+        throw new ValidationError(`too many meta.* filters (max ${META_MAX_KEYS})`, {
+          code: "file_metadata_too_many_filters",
+          details: { limit: META_MAX_KEYS, count: metaParamKeys.length },
+        });
+      }
+
       const filters: Record<string, string> = {};
       for (const param of metaParamKeys) {
         const key = param.slice("meta.".length);

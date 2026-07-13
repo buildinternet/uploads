@@ -52,6 +52,16 @@ describe("validateMetadataEntries", () => {
     expect(() => validateMetadataEntries({ "gh.repo": "a/b" })).not.toThrow();
   });
 
+  it("throws a reserved-key AppError for `visibility` (would shadow the R2 visibility gate)", () => {
+    try {
+      validateMetadataEntries({ visibility: "private" });
+      throw new Error("expected validateMetadataEntries to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(AppError);
+      expect((err as AppError & { code?: string }).code).toBe("file_metadata_reserved_key");
+    }
+  });
+
   it("throws AppError for an empty value", () => {
     expect(() => validateMetadataEntries({ app: "" })).toThrow(AppError);
   });

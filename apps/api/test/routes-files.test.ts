@@ -418,6 +418,21 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
     ).resolves.toEqual({});
   });
 
+  it("rejects an upload trying to shadow the R2 visibility gate as custom metadata", async () => {
+    const { env, db, bucket } = await makeEnv();
+    const res = await putShot(env, {
+      headers: { "X-Uploads-Meta-Visibility": "private" },
+    });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { type: string; code: string } };
+    expect(json.error.type).toBe("validation");
+    expect(json.error.code).toBe("file_metadata_reserved_key");
+    expect(bucket.store.has("default/screenshots/shot.png")).toBe(false);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({});
+  });
+
   it("rejects an empty custom metadata value instead of silently dropping it", async () => {
     const { env, bucket } = await makeEnv();
     const res = await putShot(env, { headers: { "X-Uploads-Meta-App": "" } });
@@ -473,7 +488,7 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
     ).resolves.toEqual({});
   });
 
-  it("re-PUT (overwrite) replaces prior custom metadata rather than merging", async () => {
+  it("re-PUT with at least one custom header still fully replaces prior custom metadata", async () => {
     const { env, db } = await makeEnv();
     const first = await putShot(env, {
       headers: { "X-Uploads-Meta-App": "web", "X-Uploads-Meta-Page": "/checkout" },
@@ -488,6 +503,37 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
     await expect(
       getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
     ).resolves.toEqual({ page: "/cart" });
+  });
+
+  it("re-PUT with no custom headers preserves prior custom metadata", async () => {
+    const { env, db } = await makeEnv();
+    const first = await putShot(env, {
+      headers: { "X-Uploads-Meta-App": "web", "X-Uploads-Meta-Page": "/checkout" },
+    });
+    expect(first.status).toBe(201);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({ app: "web", page: "/checkout" });
+
+    // No X-Uploads-Meta-* headers at all — not even a provenance-only one.
+    const second = await putShot(env);
+    expect(second.status).toBe(201);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({ app: "web", page: "/checkout" });
+  });
+
+  it("re-PUT with only allowlisted provenance headers (no custom keys) preserves prior custom metadata", async () => {
+    const { env, db } = await makeEnv();
+    const first = await putShot(env, { headers: { "X-Uploads-Meta-App": "web" } });
+    expect(first.status).toBe(201);
+
+    // "client" is an allowlisted provenance key, not custom metadata.
+    const second = await putShot(env, { headers: { "X-Uploads-Meta-Client": "cli" } });
+    expect(second.status).toBe(201);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({ app: "web" });
   });
 });
 
@@ -553,6 +599,22 @@ describe("GET/PATCH /v1/:workspace/files/:key/metadata", () => {
 
     const patch = await patchMeta(env, "screenshots/shot.png", {
       set: { "content-sha256": "0".repeat(64) },
+    });
+    expect(patch.status).toBe(400);
+    const json = (await patch.json()) as { error: { type: string; code: string } };
+    expect(json.error.type).toBe("validation");
+    expect(json.error.code).toBe("file_metadata_reserved_key");
+
+    const res = await getMeta(env, "screenshots/shot.png");
+    expect(await res.json()).toEqual({ metadata: {} });
+  });
+
+  it("PATCH rejects setting the reserved visibility key with 400", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+
+    const patch = await patchMeta(env, "screenshots/shot.png", {
+      set: { visibility: "private" },
     });
     expect(patch.status).toBe(400);
     const json = (await patch.json()) as { error: { type: string; code: string } };
@@ -820,5 +882,18 @@ describe("GET /v1/:workspace/files list + meta.* filter", () => {
     expect(res.status).toBe(400);
     const json = (await res.json()) as { error: { type: string } };
     expect(json.error.type).toBe("validation");
+  });
+
+  it("rejects more than 24 meta.* filter params with a typed error", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+
+    const qs = "?" + Array.from({ length: 25 }, (_, i) => `meta.k${i}=v`).join("&");
+    const res = await listFiles(env, qs);
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { type: string; code: string; details: unknown } };
+    expect(json.error.type).toBe("validation");
+    expect(json.error.code).toBe("file_metadata_too_many_filters");
+    expect(json.error.details).toEqual({ limit: 24, count: 25 });
   });
 });
