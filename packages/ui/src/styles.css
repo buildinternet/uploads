@@ -391,17 +391,36 @@
 
 /* ── Progress ──────────────────────────────────────────────────────────── */
 /*
- * Narrow quota bar: 1px stepped corners (no border-radius), soft 2px checker
- * on the fill tip. Stack `.ul-progress__row` inside `.ul-progress`.
+ * Labeled quota meters: each row is label + usage above a narrow bar.
+ * 1px stepped corners (no border-radius), soft 2px checker on the fill tip.
+ * Stack `.ul-progress__row` inside `.ul-progress`.
  */
 .ul-progress {
   display: grid;
-  gap: 3px;
+  gap: 10px;
   width: 100%;
-  max-width: 14rem;
 }
 .ul-progress__row {
+  display: grid;
+  gap: 4px;
   min-width: 0;
+}
+.ul-progress__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font: 12px/1.35 var(--mono);
+  color: var(--muted);
+}
+.ul-progress__label {
+  min-width: 0;
+  color: var(--body);
+}
+.ul-progress__value {
+  flex: none;
+  text-align: right;
+  white-space: nowrap;
 }
 .ul-progress__track {
   height: 3px;
