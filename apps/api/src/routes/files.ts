@@ -8,7 +8,12 @@ import {
   listObjects,
   putObject,
 } from "../files-core";
-import { getFileMetadata, setFileMetadata } from "../file-metadata";
+import {
+  META_KEY_RE,
+  findObjectsByMetadata,
+  getFileMetadata,
+  setFileMetadata,
+} from "../file-metadata";
 import { splitUploadMetaHeaders } from "../provenance";
 import { publicUrl, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
@@ -118,8 +123,53 @@ export const files = new Hono<WorkspaceVars>()
     return c.json({ workspace: c.get("workspaceName"), ...result }, 201);
   })
 
+  // Repeatable `meta.<key>=<value>` params switch the listing to the D1
+  // metadata index (ANDed equality across all given pairs) instead of the
+  // R2 prefix-list below; see file-metadata.ts's `findObjectsByMetadata`.
+  // No `meta.*` params at all leaves the existing R2 path untouched.
   .get("/", requireScope("files:read"), async (c) => {
-    const { prefix, cursor } = c.req.query();
+    const query = c.req.query();
+    const metaParamKeys = Object.keys(query).filter((k) => k.startsWith("meta."));
+
+    if (metaParamKeys.length > 0) {
+      const filters: Record<string, string> = {};
+      for (const param of metaParamKeys) {
+        const key = param.slice("meta.".length);
+        if (!META_KEY_RE.test(key)) {
+          throw new ValidationError(`invalid metadata key: ${key}`, {
+            code: "file_metadata_invalid_key",
+            details: { key },
+          });
+        }
+        const values = c.req.queries(param) ?? [];
+        if (values.length > 1) {
+          throw new ValidationError(`repeated metadata filter for key: ${key}`, {
+            code: "file_metadata_duplicate_filter",
+            details: { key },
+          });
+        }
+        filters[key] = values[0] ?? query[param];
+      }
+
+      const ws = c.get("workspace");
+      const limitParam = c.req.query("limit");
+      const limit = limitParam ? Number(limitParam) || undefined : undefined;
+      const matches = await findObjectsByMetadata(c.env.DB, c.get("workspaceName"), filters, {
+        prefix: query.prefix,
+        limit,
+      });
+      const cfg = await storageConfig(c.env, ws);
+      return c.json({
+        items: matches.map((match) => ({
+          key: match.key,
+          url: publicUrl(cfg, match.key),
+          metadata: match.metadata,
+        })),
+        cursor: null,
+      });
+    }
+
+    const { prefix, cursor } = query;
     const limit = Number(c.req.query("limit") ?? 100) || 100;
     return c.json(await listObjects(c.env, c.get("workspace"), { prefix, limit, cursor }));
   })

@@ -101,6 +101,55 @@ function makeFakeDB(authToken?: FakeAuthToken) {
             );
             return { success: true, results: results as T[], meta: {} };
           }
+          // findObjectsByMetadata's match query: ANDed equality filters
+          // (parsed by counting the repeated `(meta_key = ? AND meta_value = ?)`
+          // clause), an optional prefix LIKE, and a trailing HAVING-count +
+          // LIMIT. Mirrors the real SQL semantics against the in-memory store
+          // so route-level filter tests exercise real wiring, not a stub.
+          if (normalized.startsWith("SELECT object_key FROM file_metadata WHERE workspace")) {
+            const filterCount = (normalized.match(/meta_key = \? AND meta_value = \?/g) ?? [])
+              .length;
+            const hasPrefix = normalized.includes("object_key LIKE ? || '%'");
+            let idx = 0;
+            const workspace = args[idx++] as string;
+            const filters: Array<[string, string]> = [];
+            for (let i = 0; i < filterCount; i++) {
+              filters.push([args[idx] as string, args[idx + 1] as string]);
+              idx += 2;
+            }
+            const prefix = hasPrefix ? (args[idx++] as string) : undefined;
+            const requiredCount = args[idx++] as number;
+            const limit = args[idx++] as number;
+
+            const results: { object_key: string }[] = [];
+            const prefixMatch = `${workspace} `;
+            for (const [scopedKey, map] of metadata.entries()) {
+              if (!scopedKey.startsWith(prefixMatch)) continue;
+              const objectKey = scopedKey.slice(prefixMatch.length);
+              if (prefix && !objectKey.startsWith(prefix)) continue;
+              let matchCount = 0;
+              for (const [key, value] of filters) {
+                if (map.get(key) === value) matchCount++;
+              }
+              if (matchCount === requiredCount) results.push({ object_key: objectKey });
+            }
+            results.sort((a, b) =>
+              a.object_key < b.object_key ? -1 : a.object_key > b.object_key ? 1 : 0,
+            );
+            return { success: true, results: results.slice(0, limit) as T[], meta: {} };
+          }
+          if (normalized.startsWith("SELECT object_key, meta_key, meta_value FROM file_metadata")) {
+            const [workspace, ...keys] = args as [string, ...string[]];
+            const results: { object_key: string; meta_key: string; meta_value: string }[] = [];
+            for (const key of keys) {
+              const map = metadata.get(scopeKey(workspace, key));
+              if (!map) continue;
+              for (const [meta_key, meta_value] of map.entries()) {
+                results.push({ object_key: key, meta_key, meta_value });
+              }
+            }
+            return { success: true, results: results as T[], meta: {} };
+          }
           return { success: true, results: [] as T[], meta: {} };
         },
       };
@@ -610,5 +659,135 @@ describe("GET/PATCH /v1/:workspace/files/:key/metadata", () => {
     const json = (await res.json()) as { metadata?: unknown; key?: string };
     expect(res.status).toBe(200);
     expect(json).toEqual({ metadata: {} });
+  });
+});
+
+function listFiles(env: Parameters<typeof app.request>[2], qs: string) {
+  return app.request(
+    `/v1/default/files${qs}`,
+    { headers: { Authorization: `Bearer ${TOKEN}` } },
+    env,
+  );
+}
+
+interface ListedFile {
+  key: string;
+  url: string;
+  metadata: Record<string, string>;
+}
+
+describe("GET /v1/:workspace/files list + meta.* filter", () => {
+  it("no meta.* params: existing R2 prefix-list path is unchanged", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+
+    const res = await listFiles(env, "");
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      items: Array<{ key: string; url: string; size: number; contentType: string }>;
+      cursor: string | null;
+    };
+    expect(json.cursor).toBeNull();
+    expect(json.items).toHaveLength(1);
+    expect(json.items[0]).toMatchObject({
+      key: "screenshots/shot.png",
+      url: "https://storage.uploads.sh/default/screenshots/shot.png",
+      size: PNG.byteLength,
+      contentType: "image/png",
+    });
+  });
+
+  it("filters by a single meta.* param via D1", async () => {
+    const { env } = await makeEnv();
+    await putShot(env, { headers: { "X-Uploads-Meta-Device": "mobile" } });
+
+    const res = await listFiles(env, "?meta.device=mobile");
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { items: ListedFile[]; cursor: string | null };
+    expect(json.cursor).toBeNull();
+    expect(json.items).toEqual([
+      {
+        key: "screenshots/shot.png",
+        url: "https://storage.uploads.sh/default/screenshots/shot.png",
+        metadata: { device: "mobile" },
+      },
+    ]);
+  });
+
+  it("ANDs two meta.* filters, excluding an object that matches only one", async () => {
+    const { env } = await makeEnv();
+    await putShot(env, {
+      headers: { "X-Uploads-Meta-Device": "mobile", "X-Uploads-Meta-App": "screenshots" },
+    });
+    // Second object matches `device` but not `app`.
+    await app.request(
+      "/v1/default/files/other/shot2.png",
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "image/png",
+          "X-Uploads-Meta-Device": "mobile",
+          "X-Uploads-Meta-App": "web",
+        },
+        body: PNG,
+      },
+      env,
+    );
+
+    const res = await listFiles(env, "?meta.device=mobile&meta.app=screenshots");
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { items: ListedFile[] };
+    expect(json.items).toHaveLength(1);
+    expect(json.items[0].key).toBe("screenshots/shot.png");
+  });
+
+  it("combines a meta.* filter with a prefix", async () => {
+    const { env } = await makeEnv();
+    await putShot(env, { headers: { "X-Uploads-Meta-App": "screenshots" } });
+    await app.request(
+      "/v1/default/files/other/shot2.png",
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "image/png",
+          "X-Uploads-Meta-App": "screenshots",
+        },
+        body: PNG,
+      },
+      env,
+    );
+
+    const res = await listFiles(env, "?meta.app=screenshots&prefix=screenshots/");
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { items: ListedFile[] };
+    expect(json.items).toEqual([
+      {
+        key: "screenshots/shot.png",
+        url: "https://storage.uploads.sh/default/screenshots/shot.png",
+        metadata: { app: "screenshots" },
+      },
+    ]);
+  });
+
+  it("rejects an invalid meta.* key with a validation error", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+
+    const res = await listFiles(env, "?meta.1bad=x");
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { type: string } };
+    expect(json.error.type).toBe("validation");
+  });
+
+  it("rejects a repeated same-key meta.* param", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+
+    const res = await listFiles(env, "?meta.device=mobile&meta.device=desktop");
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { type: string } };
+    expect(json.error.type).toBe("validation");
   });
 });
