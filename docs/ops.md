@@ -164,6 +164,12 @@ Do **not** delete PREVIOUS before re-encrypt completes.
 
 `POST /v1/:ws/files/sign` — workspace needs HTTP S3 credentials (not binding-only).
 
+## Console visibility
+
+Console visibility controls links, not security — the console is bearer-token authenticated, so anyone with a valid workspace token can use it regardless of this setting. Three modes: `"public"` links to it from `/account`; `"linked-only"` (default) keeps the route serving but drops those links, so people find it deliberately; `"off"` makes `/console` 404.
+
+Resolution order (see apps/web `src/lib/console-mode.ts`): the Flagship `console-mode` flag (app "uploads", `FLAGS` binding) wins when present, so prod can flip modes without a redeploy — `wrangler flagship flags update <app-id> console-mode --default <mode>`. The `CONSOLE_MODE` var in apps/web `wrangler.jsonc` is the fallback. Self-hosters without Flagship: delete the `flagship` block from wrangler.jsonc and set the var.
+
 ## Deploys
 
 Code via Workers Builds / `pnpm run deploy`. D1 migrations on merge. npm CLI via changesets.
