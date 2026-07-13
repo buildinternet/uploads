@@ -167,6 +167,30 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
     expect(headJson.metadata).toEqual(json.metadata);
   });
 
+  it("stores private visibility from the upload header and surfaces it on authed head", async () => {
+    const { env } = await makeEnv();
+    const res = await putShot(env, { headers: { "X-Uploads-Visibility": "private" } });
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { visibility?: string };
+    expect(json.visibility).toBe("private");
+
+    const head = await app.request(
+      "/v1/default/files/screenshots/shot.png",
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    const headJson = (await head.json()) as { visibility?: string };
+    expect(headJson.visibility).toBe("private");
+  });
+
+  it("ignores an invalid visibility header value (stays public)", async () => {
+    const { env } = await makeEnv();
+    const res = await putShot(env, { headers: { "X-Uploads-Visibility": "hidden" } });
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { visibility?: string };
+    expect(json.visibility).toBeUndefined();
+  });
+
   it("always sets content-sha256 even without client provenance headers", async () => {
     const { env } = await makeEnv();
     const res = await putShot(env);

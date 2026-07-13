@@ -15,10 +15,11 @@ export interface PublicFile {
   uploaded: string | null;
 }
 
-/** Result of resolving a public file: the DTO, a hard 404, or a soft outage. */
+/** Result of resolving a public file: the DTO, a hard 404, a private gate, or a soft outage. */
 export type FileFetchResult =
   | { status: "ok"; file: PublicFile }
   | { status: "not_found" }
+  | { status: "auth_required" }
   | { status: "unavailable" };
 
 /** How a file should be presented in the page's media stage. */
@@ -73,9 +74,37 @@ export const PUBLIC_FILE_CSP = [
   "object-src 'none'",
 ].join("; ");
 
-/** Strict CSP, noindex, no-store — matches the public gallery pages. */
-export function applyPublicFileHeaders(headers: Headers): void {
-  headers.set("Content-Security-Policy", PUBLIC_FILE_CSP);
+/**
+ * CSP for the `auth_required` branch only: same posture as {@link PUBLIC_FILE_CSP}
+ * plus `'self' 'unsafe-inline'` script-src (Astro-processed inline `<script>`,
+ * same allowance as the signed-in shells — see `signed-in-page.ts`) and
+ * `connect-src` widened to the API origin, so the progressive-enhancement
+ * script can probe `/me/workspaces/:workspace/file-url`. The normal public
+ * branch keeps the strict, script-free policy.
+ */
+export function authRequiredFileCsp(apiOrigin: string): string {
+  return [
+    "default-src 'none'",
+    "img-src https: data:",
+    "media-src https:",
+    "font-src 'self'",
+    `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
+    `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
+    `connect-src ${apiOrigin} ${CF_RUM_CONNECT_SRC}`,
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+  ].join("; ");
+}
+
+/**
+ * Strict CSP, noindex, no-store — matches the public gallery pages. Pass a
+ * `csp` override (e.g. {@link authRequiredFileCsp}) for the auth-required
+ * branch, which needs script execution and API connectivity.
+ */
+export function applyPublicFileHeaders(headers: Headers, options?: { csp?: string }): void {
+  headers.set("Content-Security-Policy", options?.csp ?? PUBLIC_FILE_CSP);
   headers.set("Referrer-Policy", "no-referrer");
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
@@ -104,6 +133,19 @@ function httpsUrl(value: unknown): value is string {
   } catch {
     return false;
   }
+}
+
+/**
+ * Validate a 401 error body against the bounded shape the API commits to
+ * (issue #139 Task A): `{"error":{"code":"auth_required","message":"..."}}`.
+ * Any other shape — or any other `code` — is treated as a malformed 401.
+ */
+function isAuthRequiredError(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const body = value as Record<string, unknown>;
+  if (typeof body.error !== "object" || body.error === null) return false;
+  const error = body.error as Record<string, unknown>;
+  return error.code === "auth_required" && text(error.message, 512);
 }
 
 /** Validate an untrusted API response against the bounded {@link PublicFile} shape. */
@@ -167,6 +209,15 @@ export async function fetchPublicFile(
       referrerPolicy: "no-referrer",
     });
     if (response.status === 404) return { status: "not_found" };
+    if (response.status === 401) {
+      let body: unknown;
+      try {
+        body = await response.json();
+      } catch {
+        return { status: "unavailable" };
+      }
+      return isAuthRequiredError(body) ? { status: "auth_required" } : { status: "unavailable" };
+    }
     if (!response.ok) return { status: "unavailable" };
     const value: unknown = await response.json();
     return isPublicFile(value)

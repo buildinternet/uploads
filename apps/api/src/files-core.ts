@@ -18,6 +18,7 @@ import {
 } from "./provenance";
 import { publicUrl, storage, storageConfig } from "./storage";
 import { getWorkspaceUsage, recordUsageSafe } from "./usage";
+import { objectVisibility, VISIBILITY_META_KEY, type Visibility } from "./visibility";
 import type { WorkspaceRecord } from "./workspace";
 
 // The freshness floor on overwrite for every bucket. This is the operative lever
@@ -107,13 +108,14 @@ export async function putObject(
   key: string,
   bytes: Uint8Array,
   workspaceName: string,
-  opts?: { provenance?: Record<string, string> },
+  opts?: { provenance?: Record<string, string>; visibility?: Visibility },
 ): Promise<{
   key: string;
   url: string | null;
   size: number;
   contentType: string;
   metadata?: ProvenanceMap;
+  visibility?: Visibility;
 }> {
   const finalKey = finalizeUploadKey(key, ws);
   if (bytes.byteLength === 0) throw new ValidationError("empty body", { code: "empty_body" });
@@ -142,16 +144,24 @@ export async function putObject(
   }
 
   // Client headers first; always attach content-sha256 of the final stored body
-  // (never trust a client-supplied hash).
-  const metadata: ProvenanceMap = {
+  // (never trust a client-supplied hash). Visibility lives alongside provenance
+  // in the same custom-metadata bag but is tracked separately (not client-free-form).
+  const provenance: ProvenanceMap = {
     ...sanitizeProvenance(opts?.provenance, { clientOnly: true }),
     "content-sha256": await contentSha256Hex(bytes),
+  };
+  const storedVisibility = opts?.visibility === "private" ? "private" : undefined;
+  const storageMetadata: Record<string, string> = {
+    ...provenance,
+    // Only written when private — absence is the (majority) public default,
+    // matching the historical shape of objects uploaded before this existed.
+    ...(storedVisibility ? { [VISIBILITY_META_KEY]: storedVisibility } : {}),
   };
 
   await store.upload(finalKey, bytes, {
     contentType: inspection.contentType,
     cacheControl: UPLOAD_CACHE_CONTROL,
-    metadata,
+    metadata: storageMetadata,
   });
 
   await recordUsageSafe(env.DB, workspaceName, {
@@ -165,7 +175,8 @@ export async function putObject(
     url: publicUrl(await storageConfig(env, ws), finalKey),
     size: newSize,
     contentType: inspection.contentType,
-    metadata,
+    metadata: provenance,
+    ...(storedVisibility ? { visibility: storedVisibility } : {}),
   };
 }
 
@@ -198,11 +209,13 @@ export function headObjectJson(
   url: string | null,
 ) {
   const provenance = provenanceForResponse(meta.metadata ?? undefined);
+  const visibility = objectVisibility(meta.metadata ?? undefined);
   return {
     key,
     ...storedMetaJson(meta),
     url,
     ...(provenance ? { metadata: provenance } : {}),
+    ...(visibility ? { visibility } : {}),
   };
 }
 
@@ -214,6 +227,8 @@ export interface ListedObject {
   contentType: string;
   /** ISO timestamp when the provider reports a last-modified time. */
   uploaded?: string;
+  /** Present (== "private") only when the object was uploaded as private. */
+  visibility?: "private";
 }
 
 export async function listObjects(
@@ -229,11 +244,15 @@ export async function listObjects(
   // each to the shared HEAD/list subset (`storedMetaJson`) rather than spreading
   // the StoredFile, which carries reader methods and a raw epoch timestamp.
   return {
-    items: result.items.map((item) => ({
-      key: item.key,
-      url: publicUrl(cfg, item.key),
-      ...storedMetaJson(item),
-    })),
+    items: result.items.map((item) => {
+      const visibility = objectVisibility(item.metadata ?? undefined);
+      return {
+        key: item.key,
+        url: publicUrl(cfg, item.key),
+        ...storedMetaJson(item),
+        ...(visibility ? { visibility } : {}),
+      };
+    }),
     cursor: result.cursor ?? null,
   };
 }

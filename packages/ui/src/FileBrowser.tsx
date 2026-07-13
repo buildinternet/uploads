@@ -10,6 +10,15 @@ export interface FileBrowserProps {
   initialPrefix?: string;
   delimiter?: string;
   onSelect?: (file: StoredFile) => void;
+  /** When it returns true, a small "Private" badge renders next to the item. */
+  isPrivate?: (file: StoredFile) => boolean;
+  /**
+   * Renders a per-item action (e.g. a visibility toggle) alongside the
+   * select row rather than inside it — `<button>` can't nest another
+   * `<button>`. `refresh` re-runs the current listing in place, for use
+   * after an action mutates the item.
+   */
+  itemActions?: (file: StoredFile, helpers: { refresh: () => void }) => React.ReactNode;
 }
 
 const formatBytes = (bytes: number): string => {
@@ -39,6 +48,8 @@ export function FileBrowser({
   initialPrefix = "",
   delimiter = "/",
   onSelect,
+  isPrivate,
+  itemActions,
 }: FileBrowserProps) {
   const [prefix, setPrefix] = useState(initialPrefix);
   const [folders, setFolders] = useState<string[]>([]);
@@ -136,22 +147,26 @@ export function FileBrowser({
           ))}
           {items.map((item) => (
             <li key={item.key}>
-              <button
-                className="ul-files__row"
-                disabled={!onSelect}
-                onClick={() => onSelect?.(item)}
-                type="button"
-              >
-                <span className="ul-files__icon">
-                  <File aria-hidden="true" />
-                </span>
-                <span className="ul-files__name">
-                  <span>{childName(item.key, prefix, delimiter) || item.key}</span>
-                  <small>
-                    {formatBytes(item.size)} · {item.type || "unknown"}
-                  </small>
-                </span>
-              </button>
+              <div className="ul-files__row-wrap">
+                <button
+                  className="ul-files__row"
+                  disabled={!onSelect}
+                  onClick={() => onSelect?.(item)}
+                  type="button"
+                >
+                  <span className="ul-files__icon">
+                    <File aria-hidden="true" />
+                  </span>
+                  <span className="ul-files__name">
+                    <span>{childName(item.key, prefix, delimiter) || item.key}</span>
+                    <small>
+                      {formatBytes(item.size)} · {item.type || "unknown"}
+                    </small>
+                  </span>
+                  {isPrivate?.(item) ? <span className="ul-files__badge">Private</span> : null}
+                </button>
+                {itemActions?.(item, { refresh: () => void load() })}
+              </div>
             </li>
           ))}
         </ul>

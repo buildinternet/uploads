@@ -1,7 +1,9 @@
 import { useFiles } from "files-sdk/react";
 import { FileBrowser } from "@uploads/ui";
 import "@uploads/ui/styles.css";
+import { useState } from "react";
 import { filePath } from "../lib/public-file";
+import { setFileVisibility } from "../lib/api-client";
 
 interface Props {
   apiOrigin: string;
@@ -36,6 +38,23 @@ export function AccountFileBrowser({ apiOrigin, workspace, hasPublicUrl }: Props
     endpoint: `${apiOrigin.replace(/\/$/, "")}/me/workspaces/${encodeURIComponent(workspace)}/file-browser`,
     fetchImpl: credentialedFetch,
   });
+  // Keys with an in-flight visibility PATCH, so the toggle button disables
+  // itself per-row instead of blocking the whole list.
+  const [togglingKeys, setTogglingKeys] = useState<ReadonlySet<string>>(new Set());
+
+  const toggleVisibility = async (key: string, next: "public" | "private", refresh: () => void) => {
+    setTogglingKeys((prev) => new Set(prev).add(key));
+    try {
+      const result = await setFileVisibility(apiOrigin, workspace, key, next);
+      if (result.kind === "success") refresh();
+    } finally {
+      setTogglingKeys((prev) => {
+        const copy = new Set(prev);
+        copy.delete(key);
+        return copy;
+      });
+    }
+  };
 
   // Public workspaces open the chrome-wrapped file page (issue #135) rather
   // than dumping the raw bytes into a tab — it presents metadata and links to
@@ -79,7 +98,27 @@ export function AccountFileBrowser({ apiOrigin, workspace, hasPublicUrl }: Props
   return (
     <>
       <div className="ws-section-head">Files</div>
-      <FileBrowser files={files} onSelect={(file) => openFile(file.key)} />
+      <FileBrowser
+        files={files}
+        onSelect={(file) => openFile(file.key)}
+        isPrivate={(file) => file.metadata?.visibility === "private"}
+        itemActions={(file, { refresh }) => {
+          const isPrivate = file.metadata?.visibility === "private";
+          const busy = togglingKeys.has(file.key);
+          return (
+            <button
+              type="button"
+              className="ul-files__action"
+              disabled={busy}
+              onClick={() =>
+                void toggleVisibility(file.key, isPrivate ? "public" : "private", refresh)
+              }
+            >
+              {busy ? "…" : isPrivate ? "Make public" : "Make private"}
+            </button>
+          );
+        }}
+      />
     </>
   );
 }
