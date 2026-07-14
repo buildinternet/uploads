@@ -32,6 +32,8 @@ export interface SessionUser {
   name: string;
   image?: string | null;
   role?: string | null;
+  /** First CLI device-flow session (sticky); de-emphasizes account setup. */
+  cliOnboardedAt?: string | Date | null;
 }
 
 /** Session row from get-session / list-sessions. */

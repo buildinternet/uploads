@@ -8,7 +8,7 @@
 import { dash } from "@better-auth/infra";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { betterAuth } from "better-auth";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { admin, bearer, deviceAuthorization, magicLink, organization } from "better-auth/plugins";
 import { sendAuthEmail } from "./email";
@@ -32,6 +32,11 @@ import {
  * of scope for v1 (D3); when it lands, this stays the CLI's reserved id.
  */
 export const UPLOADS_CLI_CLIENT_ID = "uploads-cli";
+
+/** CLI device-flow User-Agent — keep in sync with apps/web `CLI_USER_AGENT_RE`. */
+export function isCliSessionUserAgent(ua?: string | null): boolean {
+  return Boolean(ua && /@buildinternet\/uploads(?:\/[\w.-]+)?/i.test(ua));
+}
 
 export type AuthEnv = GitHubCredentialsEnv &
   DashApiKeyEnv & {
@@ -194,10 +199,30 @@ function buildAuth(
       // standard Better Auth cookie and leaves membership checks to apps/api.
       ...(localDemoEnabled(env) ? [localDemoPlugin(env)] : []),
     ],
+    // Sticky "completed uploads login once" for account overview UX.
+    user: {
+      additionalFields: {
+        cliOnboardedAt: { type: "date", required: false, input: false },
+      },
+    },
     session: {
-      cookieCache: {
-        enabled: true,
-        maxAge: 5 * 60,
+      // /list-sessions uses freshSessionMiddleware (default 24h → SESSION_NOT_FRESH).
+      // We only use it for account UX, not high-sensitivity actions — disable.
+      freshAge: 0,
+      cookieCache: { enabled: true, maxAge: 5 * 60 },
+    },
+    databaseHooks: {
+      session: {
+        create: {
+          after: async (session) => {
+            const userId = session?.userId;
+            if (!userId || !isCliSessionUserAgent(session.userAgent)) return;
+            await db
+              .update(schema.user)
+              .set({ cliOnboardedAt: new Date(), updatedAt: new Date() })
+              .where(and(eq(schema.user.id, userId), isNull(schema.user.cliOnboardedAt)));
+          },
+        },
       },
     },
     // Fail-closed in production, decoupled from secret resolution (D3/D7):

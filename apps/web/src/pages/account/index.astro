@@ -8,11 +8,10 @@ export const prerender = false;
 
 <AccountLayout section="overview">
   <!--
-    Static setup card. Script only toggles the status line + emphasis once
-    list-sessions tells us whether a CLI device session exists.
-    Deep link: /account#cli-setup (used after invite accept / first sign-in).
+    CLI setup card. Script toggles status from list-sessions + sticky
+    user.cliOnboardedAt. Deep link: /account#cli-setup.
   -->
-  <section class="card is-pending" id="cli-setup">
+  <section class="card is-pending" id="cli-setup" data-setup="checking">
     <h2>Set up the CLI</h2>
     <p>
       Most of uploads is used from the terminal. Install once, run
@@ -22,8 +21,8 @@ export const prerender = false;
     <div id="cli-setup-status" class="ul-callout" data-state="muted" role="status">
       Checking for a CLI sign-in…
     </div>
-    <div class="cli-steps">
-      <div class="command">
+    <div class="cli-steps" id="cli-steps">
+      <div class="command" id="cli-install-cmd">
         <code>npm install -g @buildinternet/uploads</code>
         <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite">copy</button>
       </div>
@@ -32,7 +31,7 @@ export const prerender = false;
         <button type="button" data-copy="uploads login" aria-live="polite">copy</button>
       </div>
     </div>
-    <p class="muted cli-note">
+    <p class="muted cli-note" id="cli-setup-note">
       Prefer no global install? <code>npx @buildinternet/uploads login</code>.
       Full walkthrough in the <a href="/docs#install">docs</a>.
     </p>
@@ -50,12 +49,11 @@ export const prerender = false;
   <script>
     import { onSession, requireElement } from "../../lib/account-shell";
     import { listSessions } from "../../lib/auth-client";
-    import { isCliUserAgent } from "../../lib/session-device";
+    import { resolveCliSetupState } from "../../lib/cli-setup-state";
 
     const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
       .__UPLOADS_AUTH_ORIGIN__;
 
-    // Same delegated copy pattern as workspaces invite commands.
     requireElement<HTMLElement>("#cli-setup", "account overview").addEventListener(
       "click",
       (event) => {
@@ -78,28 +76,42 @@ export const prerender = false;
       },
     );
 
+    function applyCliSetup(
+      sessions: Awaited<ReturnType<typeof listSessions>>,
+      cliOnboardedAt: string | Date | null | undefined,
+      loaded: boolean,
+    ): void {
+      const { kind, statusText, statusState } = resolveCliSetupState({
+        sessions,
+        cliOnboardedAt,
+        loaded,
+      });
+      const status = requireElement<HTMLElement>("#cli-setup-status", "account overview");
+      const card = requireElement<HTMLElement>("#cli-setup", "account overview");
+      const steps = requireElement<HTMLElement>("#cli-steps", "account overview");
+      const installCmd = requireElement<HTMLElement>("#cli-install-cmd", "account overview");
+      const note = requireElement<HTMLElement>("#cli-setup-note", "account overview");
+
+      card.dataset.setup = kind;
+      card.classList.toggle("is-pending", kind === "checking" || kind === "setup");
+      if (statusState) status.dataset.state = statusState;
+      else delete status.dataset.state;
+      status.textContent = statusText;
+
+      // ready: hide commands; reconnect: login only; setup/checking: full install.
+      steps.hidden = kind === "ready";
+      installCmd.hidden = kind === "reconnect";
+      note.hidden = kind === "ready" || kind === "reconnect";
+    }
+
     onSession((user) => {
       requireElement<HTMLElement>("#hello-name", "account overview").textContent = user.name
         ? `, ${user.name}`
         : "";
 
-      const status = requireElement<HTMLElement>("#cli-setup-status", "account overview");
-      const card = requireElement<HTMLElement>("#cli-setup", "account overview");
-
+      applyCliSetup(null, user.cliOnboardedAt, false);
       void listSessions(authOrigin).then((sessions) => {
-        const hasCli = sessions?.some((s) => isCliUserAgent(s.userAgent)) ?? false;
-        if (hasCli) {
-          status.dataset.state = "ready";
-          status.textContent = "CLI sign-in found on an active session. You’re set.";
-          card.classList.remove("is-pending");
-          return;
-        }
-        delete status.dataset.state;
-        status.textContent =
-          sessions === null
-            ? "Couldn’t check CLI sessions — run uploads login if you haven’t yet."
-            : "No CLI session yet. Finish setup below so your terminal and agents can upload.";
-        card.classList.add("is-pending");
+        applyCliSetup(sessions, user.cliOnboardedAt, true);
       });
     });
   </script>

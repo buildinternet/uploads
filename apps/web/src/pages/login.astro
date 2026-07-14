@@ -98,8 +98,18 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   const magicSubmit = requireElement<HTMLButtonElement>("#magic-submit");
   const emailInput = requireElement<HTMLInputElement>("#email");
 
-  // Land on the CLI setup card (#cli-setup) so first-time users see next steps.
-  const callbackURL = `${location.origin}/account#cli-setup`;
+  // Default: CLI setup card. Same-origin ?callbackURL= allowed (session recovery).
+  const defaultCallback = `${location.origin}/account#cli-setup`;
+  let callbackURL = defaultCallback;
+  const rawCallback = new URLSearchParams(location.search).get("callbackURL");
+  if (rawCallback) {
+    try {
+      const url = new URL(rawCallback, location.origin);
+      if (url.origin === location.origin) callbackURL = url.href;
+    } catch {
+      // keep default
+    }
+  }
 
   githubBtn.addEventListener("click", async () => {
     errorBox.hidden = true;
