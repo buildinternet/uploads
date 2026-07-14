@@ -1,39 +1,106 @@
 ---
-// Authenticated landing page — where /login drops people after sign-in.
-// Client-side session gating is a UX affordance only — every data call goes
-// to apps/auth / apps/api, which enforce the session server-side.
+// Authenticated landing — /login and post-invite drop people here.
+// Session gating is UX only; data calls enforce auth server-side.
 import AccountLayout from "../../layouts/AccountLayout.astro";
 
 export const prerender = false;
 ---
 
 <AccountLayout section="overview">
+  <!--
+    Static setup card. Script only toggles the status line + emphasis once
+    list-sessions tells us whether a CLI device session exists.
+    Deep link: /account#cli-setup (used after invite accept / first sign-in).
+  -->
+  <section class="card is-pending" id="cli-setup">
+    <h2>Set up the CLI</h2>
+    <p>
+      Most of uploads is used from the terminal. Install once, run
+      <code>uploads login</code>, then <code>uploads attach</code> /
+      <code>uploads put</code> against this account’s workspaces.
+    </p>
+    <div id="cli-setup-status" class="ul-callout" data-state="muted" role="status">
+      Checking for a CLI sign-in…
+    </div>
+    <div class="cli-steps">
+      <div class="command">
+        <code>npm install -g @buildinternet/uploads</code>
+        <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite">copy</button>
+      </div>
+      <div class="command">
+        <code>uploads login</code>
+        <button type="button" data-copy="uploads login" aria-live="polite">copy</button>
+      </div>
+    </div>
+    <p class="muted cli-note">
+      Prefer no global install? <code>npx @buildinternet/uploads login</code>.
+      Full walkthrough in the <a href="/docs#install">docs</a>.
+    </p>
+  </section>
+
   <section class="card">
     <h2>Welcome back<span id="hello-name"></span></h2>
     <p>
       uploads.sh hosts files you want to link to — PR screenshots, agent
-      artifacts, quick shares. Your workspaces and account details are in
-      the sections on the left.
-    </p>
-  </section>
-  <section class="card" style="margin-top:16px">
-    <h2>Uploading</h2>
-    <p>
-      Install the CLI, run <code>uploads login</code>, and it connects to
-      your workspaces. From there <code>uploads attach</code> puts files
-      on GitHub PRs and <code>uploads put</code> gets you a URL for
-      anything else. Workspace tokens are for the API and CI, not the
-      everyday path. The <a href="/docs">docs</a> cover setup.
+      artifacts, quick shares. Workspaces and account details are in the
+      sidebar.
     </p>
   </section>
 
   <script>
     import { onSession, requireElement } from "../../lib/account-shell";
+    import { listSessions } from "../../lib/auth-client";
+    import { isCliUserAgent } from "../../lib/session-device";
+
+    const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
+      .__UPLOADS_AUTH_ORIGIN__;
+
+    // Same delegated copy pattern as workspaces invite commands.
+    requireElement<HTMLElement>("#cli-setup", "account overview").addEventListener(
+      "click",
+      (event) => {
+        void (async () => {
+          const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+            "button[data-copy]",
+          );
+          if (!button) return;
+          try {
+            await navigator.clipboard.writeText(button.dataset.copy ?? "");
+            const previous = button.textContent;
+            button.textContent = "copied ✓";
+            setTimeout(() => {
+              button.textContent = previous;
+            }, 1500);
+          } catch {
+            // Clipboard blocked — leave the label.
+          }
+        })();
+      },
+    );
 
     onSession((user) => {
       requireElement<HTMLElement>("#hello-name", "account overview").textContent = user.name
         ? `, ${user.name}`
         : "";
+
+      const status = requireElement<HTMLElement>("#cli-setup-status", "account overview");
+      const card = requireElement<HTMLElement>("#cli-setup", "account overview");
+
+      void listSessions(authOrigin).then((sessions) => {
+        const hasCli = sessions?.some((s) => isCliUserAgent(s.userAgent)) ?? false;
+        if (hasCli) {
+          status.dataset.state = "ready";
+          status.textContent = "CLI sign-in found on an active session. You’re set.";
+          card.classList.remove("is-pending");
+          return;
+        }
+        delete status.dataset.state;
+        status.textContent =
+          sessions === null
+            ? "Couldn’t check CLI sessions — run uploads login if you haven’t yet."
+            : "No CLI session yet. Finish setup below so your terminal and agents can upload.";
+        card.classList.add("is-pending");
+      });
     });
   </script>
 </AccountLayout>

@@ -29,6 +29,43 @@ you run `workspace:limits`.
 
 KV cache ~60s. Agents: `uploads usage`.
 
+## Dual public hosts (stable vs embed / GitHub Camo)
+
+Shared-bucket objects are available on two custom domains of `uploads-default`
+(same keys, same bytes):
+
+| Host                                           | Role                                                  | Cache-Control (origin)                                                |
+| ---------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------- |
+| `storage.uploads.sh` (also `store.uploads.sh`) | Durable public URL                                    | Object metadata: `public, max-age=60`                                 |
+| `embed.uploads.sh`                             | GitHub / Camo embeds that may be overwritten in place | Zone Transform Rule: `max-age=0, no-cache, no-store, must-revalidate` |
+
+**Why:** GitHub proxies external images through Camo. Short `max-age` alone is
+not enough for reliable hot-swap; badge-style no-cache headers on a dedicated
+host are. See [#152](https://github.com/buildinternet/uploads/issues/152).
+
+**Setup (once per account):**
+
+1. R2 → `uploads-default` → Custom Domains → connect `embed.uploads.sh` (same
+   zone as `uploads.sh`).
+2. Rules → Transform Rules → Modify Response Header:
+   - When: `http.host eq "embed.uploads.sh"`
+   - Set: `Cache-Control` =
+     `max-age=0, no-cache, no-store, must-revalidate`
+
+**API / CLI:** put, list, head, and gallery items return `url` (stable) and
+`embedUrl` (embed twin when the workspace `publicBaseUrl` host is
+`storage.uploads.sh` / `store.uploads.sh`). CLI/MCP markdown and the managed
+attachments comment prefer `embedUrl` for `<img src>`.
+
+**Overrides (self-host):**
+
+| Side         | Variable                        | Behavior                                                                                                   |
+| ------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Worker       | `EMBED_PUBLIC_BASE_URL`         | Unset → default embed host for known storage hosts; empty → never emit `embedUrl`; URL → use as embed base |
+| CLI / client | `UPLOADS_EMBED_PUBLIC_BASE_URL` | Same semantics client-side (also used if an older API omits `embedUrl`)                                    |
+
+No Worker proxies image bytes — dual host is DNS + zone rules only.
+
 ## Ledger + retention
 
 ```bash
@@ -58,14 +95,28 @@ this at production while testing.
 
 ## Invitations
 
-Invite people through the session-authenticated **admin UI at `/admin`**, signed in
-as a global admin (`user.role === "admin"` in the Better Auth `user` table — see
-`apps/auth/README.md#first-admin`). Pick the workspace, enter an email, and the
-UI calls `POST /admin-ui/workspaces/:name/invites`, which invites that address to
-the organization backing the workspace. The invitee accepts (GitHub or magic-link
-sign-in), becomes an org member, and can then run `uploads login` to mint their
-own workspace token. This is the normal way to bring someone onto a workspace —
-no `ADMIN_TOKEN` involved, and nothing to hand-deliver.
+### Workspace admins (normal path)
+
+People with org role **admin** or **owner** on a workspace invite teammates
+without `ADMIN_TOKEN` or a global site-admin role:
+
+- **Web:** `/account/workspaces` → “Invite a teammate” (session cookie →
+  `POST /me/workspaces/:name/invites`)
+- **CLI:** `uploads invite create --email teammate@example.com --workspace <name>`
+  (device login as the inviter, then the same `/me/…/invites` API)
+
+Both return an **accept URL** (`/accept-invitation/:id`). On hosted uploads.sh,
+Cloudflare Email Sending also emails that link. **Self-hosted without an `EMAIL`
+binding:** no mail is sent — share the accept URL yourself (UI shows it; CLI
+prints it; auth worker logs it). The invitee opens the link, becomes an org
+member, and runs `uploads login`.
+
+### Site operators (global admin)
+
+Signed in as a global admin (`user.role === "admin"` — see
+`apps/auth/README.md#first-admin`), the **`/admin`** UI can invite any workspace
+via `POST /admin-ui/workspaces/:name/invites`. Use this for bootstrap or when
+you are not an org member of the workspace.
 
 A workspace needs an organization behind it before it can be invited into — see
 the org backfill note in `docs/superpowers/plans/2026-07-12-better-auth-introduction.md`

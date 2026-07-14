@@ -13,19 +13,310 @@ export const prerender = false;
       <dt>Role</dt><dd id="acct-role"></dd>
     </dl>
     <p class="muted" style="margin-top:14px">
-      Your name and avatar come from your sign-in provider. There's
-      nothing to edit here yet.
+      Name and avatar come from your sign-in provider. Nothing to edit here yet.
     </p>
+  </section>
+
+  <section class="card">
+    <h2>Sign-in methods</h2>
+    <p class="muted">How you sign in to the web app and approve <code>uploads login</code>.</p>
+    <div id="accounts-status" class="muted detail-status">Loading…</div>
+    <ul class="detail-list" id="accounts-list" hidden></ul>
+  </section>
+
+  <section class="card">
+    <h2>Workspace access</h2>
+    <p class="muted">
+      Workspaces this account can use. Membership expands as you’re invited;
+      open a workspace to browse files.
+    </p>
+    <div id="access-status" class="muted detail-status">Loading…</div>
+    <ul class="detail-list" id="access-list" hidden></ul>
+  </section>
+
+  <section class="card">
+    <h2>Active sessions</h2>
+    <p class="muted">
+      Browsers and CLI devices signed in to this account. Revoking a CLI session
+      doesn’t remove workspace tokens already saved on that machine.
+    </p>
+    <div id="sessions-status" class="muted detail-status">Loading…</div>
+    <ul class="detail-list" id="sessions-list" hidden></ul>
+    <p id="sessions-error" class="detail-error" role="alert" hidden></p>
   </section>
 
   <script>
     import { onSession, requireElement } from "../../lib/account-shell";
+    import {
+      getAccountInfo,
+      getSession,
+      listAccounts,
+      listSessions,
+      revokeSession,
+      type LinkedAccount,
+      type ProviderAccountInfo,
+    } from "../../lib/auth-client";
+    import { getMyWorkspaces } from "../../lib/api-client";
+    import { githubMarkSvg } from "../../lib/brand-icons";
+    import { deviceLabel, formatSessionTime, isCliUserAgent } from "../../lib/session-device";
+
+    const w = window as unknown as {
+      __UPLOADS_AUTH_ORIGIN__: string;
+      __UPLOADS_API_ORIGIN__: string;
+    };
+    const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
+    const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+
+    const escapeHtml = (value: string) =>
+      value.replace(/[&<>"']/g, (ch) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
+      );
+
+    function showStatus(el: HTMLElement, text: string): void {
+      el.hidden = false;
+      el.textContent = text;
+    }
+
+    function asNonEmptyString(value: unknown): string | null {
+      return typeof value === "string" && value.length > 0 ? value : null;
+    }
+
+    // Official GitHub mark (same path as releases AccountIcon) — not a Lucide
+    // brand icon; Lucide dropped brand logos.
+    const GITHUB_ICON = githubMarkSvg({ size: 14, className: "detail-icon" });
+
+    function githubDetail(account: LinkedAccount, info: ProviderAccountInfo | null): string {
+      const parts: string[] = [];
+      const login = asNonEmptyString(info?.data?.login);
+      if (login) parts.push(`@${login}`);
+      const email =
+        asNonEmptyString(info?.user?.email) ?? asNonEmptyString(info?.data?.email);
+      if (email) parts.push(email);
+      parts.push(`id ${account.accountId}`);
+      if (account.scopes?.length) parts.push(`scopes ${account.scopes.join(", ")}`);
+      return parts.join(" · ");
+    }
+
+    type MethodRow = { title: string; detail: string; ok: boolean; icon?: string };
+
+    async function loadAccounts(): Promise<void> {
+      const status = requireElement<HTMLElement>("#accounts-status", "account profile");
+      const list = requireElement<HTMLUListElement>("#accounts-list", "account profile");
+      list.hidden = true;
+      showStatus(status, "Loading…");
+
+      const accounts = await listAccounts(authOrigin);
+      if (accounts === null) {
+        showStatus(status, "Couldn’t load sign-in methods.");
+        return;
+      }
+
+      // Live GitHub profile (username/email) when a linked account exists.
+      // account-info needs the numeric accountId from list-accounts.
+      const github = accounts.find((a) => a.providerId === "github");
+      const githubInfo = github
+        ? await getAccountInfo(authOrigin, {
+            providerId: "github",
+            accountId: github.accountId,
+          })
+        : null;
+
+      const rows: MethodRow[] =
+        accounts.length > 0
+          ? accounts.map((a) => {
+              if (a.providerId === "github") {
+                return {
+                  title: "GitHub",
+                  detail: githubDetail(a, githubInfo),
+                  ok: true,
+                  icon: GITHUB_ICON,
+                };
+              }
+              return {
+                title: a.providerId,
+                detail: a.createdAt ? `Linked ${formatSessionTime(a.createdAt)}` : "Connected",
+                ok: true,
+              };
+            })
+          : [{ title: "Email", detail: "Magic link sign-in", ok: true }];
+
+      // Surface a missing GitHub link without inventing connect/disconnect UI.
+      if (!github) {
+        rows.push({
+          title: "GitHub",
+          detail: "Not connected — use GitHub next time you sign in to link it.",
+          ok: false,
+          icon: GITHUB_ICON,
+        });
+      }
+
+      status.hidden = true;
+      list.hidden = false;
+      list.innerHTML = rows
+        .map(
+          (row) => `<li>
+            <div class="detail-main">
+              <div class="detail-title">
+                ${row.icon ?? ""}
+                <span>${escapeHtml(row.title)}</span>
+                ${
+                  row.ok
+                    ? `<span class="ul-badge ul-badge--ok">Connected</span>`
+                    : `<span class="ul-badge">Not connected</span>`
+                }
+              </div>
+              <div class="detail-meta">${escapeHtml(row.detail)}</div>
+            </div>
+          </li>`,
+        )
+        .join("");
+    }
+
+    async function loadWorkspaceAccess(): Promise<void> {
+      const status = requireElement<HTMLElement>("#access-status", "account profile");
+      const list = requireElement<HTMLUListElement>("#access-list", "account profile");
+      list.hidden = true;
+      showStatus(status, "Loading…");
+
+      const result = await getMyWorkspaces(apiOrigin);
+      if (result.kind === "unavailable") {
+        showStatus(status, "Couldn’t load workspace access.");
+        return;
+      }
+      const { workspaces } = result;
+      if (!workspaces.length) {
+        showStatus(status, "No workspaces yet — accept an invite to join one.");
+        return;
+      }
+
+      status.hidden = true;
+      list.hidden = false;
+      list.innerHTML = workspaces
+        .map((ws) => {
+          const name = ws.organization.name || ws.workspace;
+          const href = `/account/workspaces?ws=${encodeURIComponent(ws.workspace)}`;
+          const meta = [
+            ws.workspace !== name ? ws.workspace : null,
+            ws.role,
+            ws.communal ? "communal" : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          return `<li>
+            <div class="detail-main">
+              <div class="detail-title">
+                <a href="${escapeHtml(href)}">${escapeHtml(name)}</a>
+              </div>
+              <div class="detail-meta">${escapeHtml(meta)}</div>
+            </div>
+            <div class="detail-action">
+              <a class="text-btn" href="${escapeHtml(href)}">Open</a>
+            </div>
+          </li>`;
+        })
+        .join("");
+    }
+
+    let currentToken: string | undefined;
+
+    async function loadSessions(): Promise<void> {
+      const status = requireElement<HTMLElement>("#sessions-status", "account profile");
+      const list = requireElement<HTMLUListElement>("#sessions-list", "account profile");
+      const error = requireElement<HTMLElement>("#sessions-error", "account profile");
+      error.hidden = true;
+      list.hidden = true;
+      showStatus(status, "Loading…");
+
+      const [sessionResult, sessions] = await Promise.all([
+        getSession(authOrigin),
+        listSessions(authOrigin),
+      ]);
+
+      if (sessionResult.kind === "signed_in") {
+        const token = sessionResult.session.session?.token;
+        currentToken = typeof token === "string" ? token : undefined;
+      }
+
+      if (sessions === null) {
+        showStatus(status, "Couldn’t load sessions.");
+        return;
+      }
+      if (!sessions.length) {
+        showStatus(status, "No active sessions.");
+        return;
+      }
+
+      const ordered = sessions.toSorted((a, b) => {
+        if (currentToken && a.token === currentToken) return -1;
+        if (currentToken && b.token === currentToken) return 1;
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      });
+
+      status.hidden = true;
+      list.hidden = false;
+      list.innerHTML = ordered
+        .map((s) => {
+          const current = currentToken != null && s.token === currentToken;
+          const badge = current
+            ? `<span class="ul-badge ul-badge--accent">This device</span>`
+            : isCliUserAgent(s.userAgent)
+              ? `<span class="ul-badge">CLI</span>`
+              : "";
+          const meta = [
+            s.ipAddress ? escapeHtml(s.ipAddress) : null,
+            `Active ${escapeHtml(formatSessionTime(s.updatedAt))}`,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          const action = current
+            ? `<span class="detail-current">Current</span>`
+            : `<button type="button" class="text-btn" data-revoke="${escapeHtml(s.token)}">Sign out</button>`;
+          return `<li>
+            <div class="detail-main">
+              <div class="detail-title">
+                <span>${escapeHtml(deviceLabel(s.userAgent))}</span>
+                ${badge}
+              </div>
+              <div class="detail-meta">${meta}</div>
+            </div>
+            <div class="detail-action">${action}</div>
+          </li>`;
+        })
+        .join("");
+    }
+
+    requireElement<HTMLUListElement>("#sessions-list", "account profile").addEventListener(
+      "click",
+      (event) => {
+        void (async () => {
+          const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+            "button[data-revoke]",
+          );
+          if (!button?.dataset.revoke) return;
+          button.disabled = true;
+          button.textContent = "Signing out…";
+          const error = requireElement<HTMLElement>("#sessions-error", "account profile");
+          error.hidden = true;
+          if (!(await revokeSession(authOrigin, button.dataset.revoke))) {
+            error.textContent = "Couldn’t sign out that session.";
+            error.hidden = false;
+            button.disabled = false;
+            button.textContent = "Sign out";
+            return;
+          }
+          await loadSessions();
+        })();
+      },
+    );
 
     onSession((user) => {
       requireElement<HTMLElement>("#acct-email", "account profile").textContent = user.email;
       requireElement<HTMLElement>("#acct-name", "account profile").textContent = user.name || "—";
       requireElement<HTMLElement>("#acct-role", "account profile").textContent =
         user.role || "member";
+      void loadAccounts();
+      void loadWorkspaceAccess();
+      void loadSessions();
     });
   </script>
 </AccountLayout>

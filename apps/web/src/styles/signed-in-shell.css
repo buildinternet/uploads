@@ -3,9 +3,14 @@
 * {
   box-sizing: border-box;
 }
+html {
+  height: 100%;
+}
 body {
   margin: 0;
   min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
   color: var(--fg);
   font: 14px/1.6 var(--mono);
@@ -37,10 +42,29 @@ code {
   display: none !important;
 }
 
+/* Sticky footer (signed-in shells only): body/shell are flex columns;
+   #app / #dashboard grow; .layout takes free space so content stays top-
+   aligned and the footer sits at the viewport bottom when the page is short.
+   When content is taller than the viewport, the footer scrolls after it. */
 .shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
   max-width: 960px;
   margin: 0 auto;
-  padding: 28px 20px 56px;
+  padding: 28px 20px 28px;
+  box-sizing: border-box;
+}
+#app,
+#dashboard {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+#app > .layout,
+#dashboard > .layout {
+  flex: 1 0 auto;
 }
 header.top {
   display: flex;

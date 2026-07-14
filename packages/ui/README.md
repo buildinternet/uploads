@@ -39,7 +39,7 @@ never write the internal `ul-` classes yourself.
 ## Components
 
 `Surface` · `Brand` · `Button` · `Panel` · `Field` / `Input` / `Label` ·
-`Callout` · `Badge` · `Divider` · `GalleryTile` · `FileBrowser`
+`Callout` · `Badge` · `Divider` · `Progress` · `GalleryTile` · `FileBrowser`
 
 ## Build
 

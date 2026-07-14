@@ -33,6 +33,7 @@ function fakeClient() {
         workspace: "test",
         key: opts.key,
         url: `https://x.test/${opts.key}`,
+        embedUrl: null,
         size: 3,
         contentType: "image/png",
       };

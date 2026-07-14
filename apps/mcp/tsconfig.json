@@ -10,5 +10,7 @@
     "skipLibCheck": true,
     "types": ["./worker-configuration.d.ts"]
   },
-  "include": ["src", "test", "worker-configuration.d.ts"]
+  // ../api/src/env.d.ts: @uploads/api exports resolve to TS source, whose Env
+  // augmentations (e.g. EMBED_PUBLIC_BASE_URL) must be in this program too.
+  "include": ["src", "test", "worker-configuration.d.ts", "../api/src/env.d.ts"]
 }

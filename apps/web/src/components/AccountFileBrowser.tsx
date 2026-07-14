@@ -16,6 +16,10 @@ interface Props {
    * signed-URL-capable `/me/.../file-url` endpoint instead.
    */
   hasPublicUrl: boolean;
+  /** Folder prefix to open on mount (from `?path=`). */
+  initialPrefix?: string;
+  /** Fired on folder navigation for `?ws=&path=` URL sync. */
+  onPrefixChange?: (prefix: string) => void;
 }
 
 const credentialedFetch: typeof fetch = async (input, init) => {
@@ -33,7 +37,13 @@ const credentialedFetch: typeof fetch = async (input, init) => {
   }
 };
 
-export function AccountFileBrowser({ apiOrigin, workspace, hasPublicUrl }: Props) {
+export function AccountFileBrowser({
+  apiOrigin,
+  workspace,
+  hasPublicUrl,
+  initialPrefix = "",
+  onPrefixChange,
+}: Props) {
   const files = useFiles({
     endpoint: `${apiOrigin.replace(/\/$/, "")}/me/workspaces/${encodeURIComponent(workspace)}/file-browser`,
     fetchImpl: credentialedFetch,
@@ -112,6 +122,8 @@ export function AccountFileBrowser({ apiOrigin, workspace, hasPublicUrl }: Props
       )}
       <FileBrowser
         files={files}
+        initialPrefix={initialPrefix}
+        onPrefixChange={onPrefixChange}
         onSelect={(file) => openFile(file.key)}
         isPrivate={(file) => file.metadata?.visibility === "private"}
         itemActions={(file, { patchItem }) => {

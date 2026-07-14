@@ -44,7 +44,7 @@ describe("public gallery headers", () => {
     expect(PUBLIC_GALLERY_CSP).toContain("style-src 'self' 'unsafe-inline'");
     // Cloudflare injects the RUM beacon; default-src 'none' blocks it without these.
     expect(PUBLIC_GALLERY_CSP).toContain("script-src https://static.cloudflareinsights.com");
-    expect(PUBLIC_GALLERY_CSP).toContain("connect-src https://cloudflareinsights.com");
+    expect(PUBLIC_GALLERY_CSP).toContain("connect-src 'self' https://cloudflareinsights.com");
     expect(PUBLIC_GALLERY_CSP).toContain("default-src 'none'");
     expect(PUBLIC_GALLERY_CSP).toContain("frame-ancestors 'none'");
 

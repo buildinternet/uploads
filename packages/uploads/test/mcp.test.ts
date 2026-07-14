@@ -60,6 +60,7 @@ function fakeFactory() {
           workspace: config.workspace,
           key,
           url: `https://x.test/${key}`,
+          embedUrl: null,
           size: body.length,
           contentType: opts.contentType ?? "image/png",
         };

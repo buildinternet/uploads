@@ -28,6 +28,7 @@ import {
 import { runConfig } from "./commands/config.js";
 import { runSetup } from "./commands/setup.js";
 import { runLogin } from "./commands/login.js";
+import { runInvite } from "./commands/invite.js";
 import { runAdmin } from "./commands/admin-enrollment.js";
 import { runMcp } from "./commands/mcp.js";
 import { runInstall } from "./commands/install.js";
@@ -74,7 +75,8 @@ Commands:
   setup               Inspect/configure advanced CLI settings
   install             Install the agent skill + register the remote MCP server
   login               Sign in via browser (or an enrollment code) and save credentials
-  admin               Admin invitation management
+  invite              Invite a teammate to a workspace (workspace admin; device login)
+  admin               Site-operator invitation management (ADMIN_TOKEN)
   config              Show path, init, or set shared config
   doctor              Health + auth + workspace checks
   health              API liveness (no auth)
@@ -254,6 +256,9 @@ export async function runCli(argv: string[]): Promise<number> {
         break;
       case "login":
         code = await runLogin(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);
+        break;
+      case "invite":
+        code = await runInvite(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);
         break;
       case "admin":
         code = await runAdmin(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);

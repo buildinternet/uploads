@@ -2,6 +2,40 @@
 
 Repo-specific gotchas for future syncs of the uploads.sh design system.
 
+## Converter harness (`.ds-sync/`)
+
+Same layout as either/releases: **project inputs** live under committed
+`.design-sync/`; the **converter scripts** are staged into gitignored
+`.ds-sync/` at the repo root (never committed). Invocations always use
+`node .ds-sync/…` against this tree.
+
+### Restaging after a clean
+
+`.ds-sync/` is machine state. A fresh clone, `git clean`, or wiping the dir
+removes it — re-stage from the `/design-sync` skill (or any surviving sibling
+checkout that still has the tree, e.g. another repo's `.ds-sync/`):
+
+```bash
+mkdir -p .ds-sync
+# From the skill base dir, or a known-good .ds-sync copy:
+cp -R <skill-or-copy>/{package-build.mjs,package-validate.mjs,package-capture.mjs,resync.mjs,lib,storybook} .ds-sync/
+# Install converter deps in ONE npm command (separate --no-save installs prune
+# each other):
+(cd .ds-sync && npm i esbuild ts-morph @types/react playwright)
+# Optional render/capture browser:
+(cd .ds-sync && npx playwright install chromium)
+```
+
+Do not commit `.ds-sync/` or its `node_modules`.
+
+### Claude worktrees
+
+`.worktreeinclude` lists `.ds-sync/` so Claude Code copies the staged harness
+from the **main checkout** into new worktrees (same mechanism as `.env`). That
+only helps when main already has a staged tree; it does not replace restaging
+after a full clean. Plain `git worktree add` does not read `.worktreeinclude` —
+restage by hand (or copy from main) in those worktrees.
+
 ## Build
 
 - Shape is **package** (no Storybook). Source lives in `packages/ui/src/`, built
@@ -39,9 +73,9 @@ Repo-specific gotchas for future syncs of the uploads.sh design system.
 
 ## Render check
 
-- Playwright + chromium were installed into `.ds-sync/node_modules` (`npm i playwright`
-  + `npx playwright install chromium`). On a fresh clone the `.ds-sync/` tree is
-  gitignored and regenerated, so reinstall before validating.
+- Playwright + chromium live under `.ds-sync/node_modules` (see restage above —
+  install with the other converter deps in one `npm i`). On a fresh clone the
+  `.ds-sync/` tree is gitignored and regenerated, so reinstall before validating.
 - 5 components use `cfg.overrides.<Name>.cardMode = "column"` (Button, Divider,
   Field, GalleryTile, Panel) to resolve `[GRID_OVERFLOW]` — their previews are wider
   than a grid cell. Not a warn once the override is applied.
@@ -49,6 +83,9 @@ Repo-specific gotchas for future syncs of the uploads.sh design system.
 
 ## Re-sync risks
 
+- **Harness is not in git** — if `.ds-sync/` is missing, restage before build/
+  validate (see "Converter harness" above). Worktrees only inherit it when main
+  already has a staged copy.
 - Previews (`.design-sync/previews/*.tsx`) import from `'@uploads/ui'` and are fully
   self-contained: no network, no fixtures. `GalleryTile` thumbnails are inline SVG
   data-URIs. Safe to re-render on any machine.

@@ -17,6 +17,7 @@ import {
   type ResolvedConfig,
 } from "./config.js";
 import { buildMarkdown } from "./embed.js";
+import { urlForGithubEmbed } from "./public-urls.js";
 import { UploadsError } from "./errors.js";
 import { writeJson, writeStdout } from "./io.js";
 import { parseMetaFlags } from "./metadata.js";
@@ -86,6 +87,9 @@ Optional --frame wraps the image in a device/browser chrome before optimize
 Uploads are public. --pr/--issue keys include the repo, number, and filename and
 remain public even for private/internal GitHub repositories. Upload only media
 that is safe at a predictable public URL.
+
+Human/json output includes durable url and (when dual-host applies) embedUrl.
+MARKDOWN prefers embedUrl for GitHub. Override: UPLOADS_EMBED_PUBLIC_BASE_URL.
 
 Options:
   --key <key>           Object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>)
@@ -269,7 +273,7 @@ export async function syncAttachmentsComment(
   run: CommandRunner,
 ): Promise<{ action: "created" | "updated" | "skipped"; count: number }> {
   const items: AttachmentItem[] = (await client.listAll({ prefix: ghKeyPrefix(target) })).map(
-    ({ key, url }) => ({ key, url }),
+    ({ key, url, embedUrl }) => ({ key, url, embedUrl }),
   );
 
   const galleries: (GalleryCommentItem & { id: string })[] = [];
@@ -299,6 +303,7 @@ export async function syncAttachmentsComment(
             .slice(0, 3)
             .map((item) => ({
               url: item.url!,
+              embedUrl: item.embedUrl,
               alt: item.altText ?? item.objectKey,
               itemUrl: item.pageUrl,
             })),
@@ -418,9 +423,10 @@ export async function runAttach(
       }),
       metadata,
     });
+    const embedSrc = urlForGithubEmbed(result.url, result.embedUrl)!;
     results.push({
       ...result,
-      markdown: buildMarkdown(result.url, { alt: sourceName }),
+      markdown: buildMarkdown(embedSrc, { alt: sourceName }),
       optimize: {
         optimized: prepared.optimized,
         skippedReason: prepared.skippedReason,
@@ -449,7 +455,8 @@ export async function runAttach(
     await writeJson({ target, uploads: results, comment, commentError });
   } else {
     for (const result of results) {
-      await writeStdout(`URL: ${result.url}\nMARKDOWN: ${result.markdown}\n`);
+      const embedLine = result.embedUrl ? `EMBED: ${result.embedUrl}\n` : "";
+      await writeStdout(`URL: ${result.url}\n${embedLine}MARKDOWN: ${result.markdown}\n`);
     }
     if (!ctx.quiet && comment) process.stderr.write(`>> attachments comment ${comment.action}\n`);
   }
@@ -591,7 +598,8 @@ export async function runPut(
     metadata,
   });
 
-  const markdown = buildMarkdown(result.url, { alt, width });
+  const embedSrc = urlForGithubEmbed(result.url, result.embedUrl)!;
+  const markdown = buildMarkdown(embedSrc, { alt, width });
   let gallery:
     | {
         id: string;
@@ -643,10 +651,12 @@ export async function runPut(
     case "markdown":
       await writeStdout(`${markdown}\n`);
       break;
-    default:
+    default: {
+      const embedLine = result.embedUrl ? `EMBED: ${result.embedUrl}\n` : "";
       await writeStdout(
-        `URL: ${result.url}\nMARKDOWN: ${markdown}${gallery?.url ? `\nGALLERY: ${gallery.url}` : ""}\n`,
+        `URL: ${result.url}\n${embedLine}MARKDOWN: ${markdown}${gallery?.url ? `\nGALLERY: ${gallery.url}` : ""}\n`,
       );
+    }
   }
 
   if (gallery?.url && format !== "human") {

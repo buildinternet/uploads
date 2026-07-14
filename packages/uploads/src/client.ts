@@ -2,6 +2,8 @@ import { inferContentType } from "./embed.js";
 import type { UploadsClientConfig } from "./config.js";
 import { UploadsError } from "./errors.js";
 import { buildScreenshotKey } from "./keys.js";
+import { packageVersion } from "./package-version.js";
+import { resolveEmbedUrl } from "./public-urls.js";
 
 /** Allowlisted object provenance (maps to X-Uploads-Meta-* on put). */
 export type ProvenanceInput = {
@@ -68,6 +70,8 @@ export interface PutResult {
   workspace: string;
   key: string;
   url: string;
+  /** Same object on the embed host when dual-host applies; prefer for GitHub markdown. */
+  embedUrl: string | null;
   size: number;
   contentType: string;
   metadata?: Record<string, string>;
@@ -76,6 +80,7 @@ export interface PutResult {
 export interface ListItem {
   key: string;
   url: string | null;
+  embedUrl?: string | null;
   size?: number;
   uploaded?: string;
 }
@@ -88,6 +93,7 @@ export interface ListResult {
 export interface HeadResult {
   key: string;
   url: string | null;
+  embedUrl?: string | null;
   size: number;
   contentType: string;
   uploaded?: string;
@@ -109,6 +115,8 @@ export interface GalleryItem {
   createdAt: string;
   status: "available" | "missing";
   url: string | null;
+  /** Dual-host embed URL when available. */
+  embedUrl?: string | null;
   /** Standalone web page for this item (gallery URL + item id). Absent on older API deployments. */
   pageUrl?: string;
   contentType: string | null;
@@ -298,6 +306,16 @@ export function createEnrollment(
 /** Static OAuth client id allowlisted by the auth worker's `validateClient`. */
 export const DEVICE_CLIENT_ID = "uploads-cli";
 
+/**
+ * User-Agent for device-flow requests. Stored on the Better Auth session row
+ * when `/device/token` creates the session, so the web account UI can tell a
+ * completed `uploads login` apart from a browser tab. Keep the
+ * `@buildinternet/uploads` prefix in sync with apps/web `CLI_USER_AGENT_RE`.
+ */
+export function cliUserAgent(purpose = "device-login"): string {
+  return `@buildinternet/uploads/${packageVersion()} (${purpose})`;
+}
+
 export interface DeviceCodeResponse {
   device_code: string;
   user_code: string;
@@ -314,7 +332,10 @@ export function requestDeviceCode(
 ): Promise<DeviceCodeResponse> {
   return jsonRequest(`${authUrl.replace(/\/$/, "")}/api/auth/device/code`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": cliUserAgent("device-code"),
+    },
     body: JSON.stringify({ client_id: clientId }),
   });
 }
@@ -341,7 +362,12 @@ export async function requestDeviceToken(
   try {
     res = await fetch(`${authUrl.replace(/\/$/, "")}/api/auth/device/token`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        // Session user_agent is taken from this request when the token is
+        // exchanged — identify as the CLI so /account can surface it.
+        "User-Agent": cliUserAgent("device-token"),
+      },
       body: JSON.stringify({
         grant_type: "urn:ietf:params:oauth:grant-type:device_code",
         device_code: input.deviceCode,
@@ -410,6 +436,34 @@ export interface MintTokenResult {
   scopes: Array<"files:read" | "files:write" | "files:delete">;
   label: string | null;
   expiresAt: string | null;
+}
+
+/**
+ * POST /me/workspaces/:name/invites — org invitation for a workspace.
+ * Requires a Better Auth session bearer (device flow), not a workspace token.
+ * Caller must be org admin|owner. `acceptUrl` is always returned so
+ * self-hosted deploys without email can still share the link.
+ */
+export function createWorkspaceInvite(
+  apiUrl: string,
+  accessToken: string,
+  workspace: string,
+  input: { email: string; role?: "member" | "admin" },
+): Promise<{
+  invitation: { id: string; email: string; role: string; status: string };
+  acceptUrl?: string;
+}> {
+  return jsonRequest(
+    `${apiUrl.replace(/\/$/, "")}/me/workspaces/${encodeURIComponent(workspace)}/invites`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email: input.email, role: input.role ?? "member" }),
+    },
+  );
 }
 
 /**
@@ -546,7 +600,14 @@ export function createUploadsClient(config: UploadsClientConfig) {
     if (opts.limit != null) params.set("limit", String(opts.limit));
     if (opts.cursor) params.set("cursor", opts.cursor);
     const qs = params.toString();
-    return request<ListResult>("GET", `${filesBase(config)}${qs ? `?${qs}` : ""}`);
+    const page = await request<ListResult>("GET", `${filesBase(config)}${qs ? `?${qs}` : ""}`);
+    return {
+      ...page,
+      items: page.items.map((item) => ({
+        ...item,
+        embedUrl: resolveEmbedUrl(item.url, item.embedUrl),
+      })),
+    };
   }
 
   async function getGallery(id: string): Promise<Gallery> {
@@ -568,10 +629,12 @@ export function createUploadsClient(config: UploadsClientConfig) {
       const contentType = opts.contentType ?? inferContentType(opts.filename);
 
       if (opts.dryRun) {
-        const preview = await request<{ workspace: string; key: string; url: string | null }>(
-          "PUT",
-          `${filesBase(config)}/${encodeKeyPath(key)}?dryRun=1`,
-        );
+        const preview = await request<{
+          workspace: string;
+          key: string;
+          url: string | null;
+          embedUrl?: string | null;
+        }>("PUT", `${filesBase(config)}/${encodeKeyPath(key)}?dryRun=1`);
         if (preview.url == null) {
           throw new UploadsError(
             "workspace has no publicBaseUrl (cannot resolve a public URL)",
@@ -582,6 +645,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
           workspace: preview.workspace,
           key: preview.key,
           url: preview.url,
+          embedUrl: resolveEmbedUrl(preview.url, preview.embedUrl),
           size: body.byteLength,
           contentType,
         };
@@ -605,6 +669,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
         workspace: string;
         key: string;
         url: string | null;
+        embedUrl?: string | null;
         size: number;
         contentType: string;
         metadata?: Record<string, string>;
@@ -621,7 +686,11 @@ export function createUploadsClient(config: UploadsClientConfig) {
         );
       }
 
-      return { ...result, url: result.url };
+      return {
+        ...result,
+        url: result.url,
+        embedUrl: resolveEmbedUrl(result.url, result.embedUrl),
+      };
     },
 
     list,
@@ -680,7 +749,8 @@ export function createUploadsClient(config: UploadsClientConfig) {
     },
 
     async head(key: string): Promise<HeadResult> {
-      return request<HeadResult>("GET", `${filesBase(config)}/${encodeKeyPath(key)}`);
+      const result = await request<HeadResult>("GET", `${filesBase(config)}/${encodeKeyPath(key)}`);
+      return { ...result, embedUrl: resolveEmbedUrl(result.url, result.embedUrl) };
     },
 
     async createGallery(opts: CreateGalleryOptions): Promise<Gallery> {

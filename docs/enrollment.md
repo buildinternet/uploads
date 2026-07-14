@@ -41,11 +41,18 @@ full flag list (`--label`, `--scopes`, `--auth-url`, `--no-open`,
 ## How you get access to a workspace
 
 Workspace access comes from an **organization invitation**, not a code you
-redeem. An administrator invites your email address to the workspace's
-organization from the session-authenticated admin UI at `/admin`. Accepting
-the invitation (GitHub or magic-link sign-in) makes you a member — from
-there, `uploads login` mints a token for that workspace. See the
-[operator runbook](ops.md#invitations) for how administrators send invites.
+redeem. Someone who already **admins that workspace** (org role admin/owner)
+invites your email:
+
+- **Account UI** — `/account/workspaces` → “Invite a teammate”
+- **CLI** — `uploads invite create --email you@example.com --workspace <name>`
+  (device login as the inviter; no `ADMIN_TOKEN`)
+- **Site operators** can also invite from `/admin` (global admin session)
+
+You get an accept link (email when Email Sending is configured; otherwise the
+inviter shares the link from the UI/CLI). After accepting (GitHub or magic-link
+sign-in), run `uploads login`. See [ops.md#invitations](ops.md#invitations) for
+operator-only enrollment codes and self-hosted email notes.
 
 ## Alternative: enrollment codes / invite links (`--code`)
 

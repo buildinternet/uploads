@@ -8,6 +8,7 @@ import {
 import BaseHead from "../components/BaseHead.astro";
 import Brand from "../components/Brand.astro";
 import Footer from "../components/Footer.astro";
+import GitHubMark from "../components/GitHubMark.astro";
 
 export const prerender = false;
 
@@ -94,7 +95,10 @@ const csp = [
 
   <div id="signed-out" hidden>
     <p>Sign in to authorize the device.</p>
-    <button type="button" class="github" id="github-btn">Continue with GitHub</button>
+    <button type="button" class="github" id="github-btn">
+      <GitHubMark size={16} />
+      Continue with GitHub
+    </button>
     <div class="divider">or</div>
     <form id="magic-form">
       <label>

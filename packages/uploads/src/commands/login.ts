@@ -175,7 +175,7 @@ export interface DeviceLoginIo {
   write: (text: string) => void;
 }
 
-const defaultDeviceIo: DeviceLoginIo = {
+export const defaultDeviceIo: DeviceLoginIo = {
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   now: () => Date.now(),
   openUrl,
@@ -183,6 +183,24 @@ const defaultDeviceIo: DeviceLoginIo = {
     process.stderr.write(text);
   },
 };
+
+/**
+ * Browser device-authorization session only (no workspace token mint).
+ * Shared by `uploads login` and `uploads invite create`.
+ */
+export async function obtainDeviceAccessToken(
+  authUrl: string,
+  opts: { noOpen?: boolean; prompt?: string } = {},
+  io: DeviceLoginIo = defaultDeviceIo,
+): Promise<string> {
+  const code = await requestDeviceCode(authUrl);
+  const verifyUrl = code.verification_uri_complete ?? code.verification_uri;
+  const prompt = opts.prompt ?? "To sign in, open:";
+  io.write(`${prompt}\n\n  ${verifyUrl}\n\nand confirm this code:\n\n  ${code.user_code}\n\n`);
+  if (!opts.noOpen) io.openUrl(verifyUrl);
+  io.write("Waiting for approval…\n");
+  return pollForDeviceToken(authUrl, code, io);
+}
 
 interface LoginResult {
   workspace: string;
@@ -203,15 +221,7 @@ async function runDeviceLogin(
   const label = flagString(parsed.flags, "--label") ?? safeHostname();
   const requestedWorkspace = flagString(parsed.flags, "--workspace");
 
-  const code = await requestDeviceCode(opts.authUrl);
-  const verifyUrl = code.verification_uri_complete ?? code.verification_uri;
-  io.write(
-    `To sign in, open:\n\n  ${verifyUrl}\n\nand confirm this code:\n\n  ${code.user_code}\n\n`,
-  );
-  if (!opts.noOpen) io.openUrl(verifyUrl);
-  io.write("Waiting for approval…\n");
-
-  const accessToken = await pollForDeviceToken(opts.authUrl, code, io);
+  const accessToken = await obtainDeviceAccessToken(opts.authUrl, { noOpen: opts.noOpen }, io);
 
   const workspace = await resolveMintWorkspace(opts.apiUrl, accessToken, requestedWorkspace);
   const minted = await mintWorkspaceToken(opts.apiUrl, accessToken, { workspace, scopes, label });
@@ -227,7 +237,7 @@ function safeHostname(): string {
 }
 
 /** Poll device/token honoring interval / slow_down / pending until approved or expired. */
-async function pollForDeviceToken(
+export async function pollForDeviceToken(
   authUrl: string,
   code: { device_code: string; interval: number; expires_in: number },
   io: DeviceLoginIo,

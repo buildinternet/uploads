@@ -34,9 +34,47 @@ export interface SessionUser {
   role?: string | null;
 }
 
+/** Session row from get-session / list-sessions. */
+export interface AuthSession {
+  id: string;
+  token: string;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+  expiresAt: string | Date;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+}
+
 export interface SessionResponse {
   user: SessionUser;
-  session: unknown;
+  /** Better Auth session; `token` is present on a full cookie path response. */
+  session: Partial<AuthSession> & Record<string, unknown>;
+}
+
+/** Linked identity provider from list-accounts (e.g. providerId: "github"). */
+export interface LinkedAccount {
+  id: string;
+  providerId: string;
+  accountId: string;
+  /** OAuth scopes granted to this linked account (from list-accounts). */
+  scopes?: string[];
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
+}
+
+/**
+ * Live provider profile from GET /api/auth/account-info.
+ * For GitHub, `data.login` is the username; `user` is the mapped BA profile.
+ */
+export interface ProviderAccountInfo {
+  user: {
+    id?: string | number;
+    name?: string | null;
+    email?: string | null;
+    image?: string | null;
+    emailVerified?: boolean;
+  };
+  data?: Record<string, unknown>;
 }
 
 export type SessionResult =
@@ -295,5 +333,110 @@ export async function acceptInvitation(
     return { ok: false, status: res.status, code: body?.error?.code };
   } catch {
     return { ok: false, status: 0 };
+  }
+}
+
+/**
+ * GET a JSON array from the auth worker. Returns null on outage/auth/malformed
+ * so callers can distinguish "couldn't load" from an empty list.
+ */
+async function getAuthArray(origin: string, path: string): Promise<unknown[] | null> {
+  const result = await fetchWithTimeout(`${authOrigin(origin)}${path}`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (result.kind === "unavailable" || !result.response.ok) return null;
+  const body = (await result.response.json().catch(() => undefined)) as unknown;
+  return Array.isArray(body) ? body : null;
+}
+
+/** GET /api/auth/list-sessions — active sessions (browser + CLI device flow). */
+export async function listSessions(origin: string): Promise<AuthSession[] | null> {
+  const body = await getAuthArray(origin, "/api/auth/list-sessions");
+  if (!body) return null;
+  return body.filter((row): row is AuthSession => {
+    if (!row || typeof row !== "object") return false;
+    const r = row as Record<string, unknown>;
+    return typeof r.id === "string" && typeof r.token === "string";
+  });
+}
+
+/** GET /api/auth/list-accounts — linked identity providers (e.g. GitHub). */
+export async function listAccounts(origin: string): Promise<LinkedAccount[] | null> {
+  const body = await getAuthArray(origin, "/api/auth/list-accounts");
+  if (!body) return null;
+  const accounts: LinkedAccount[] = [];
+  for (const row of body) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    if (
+      typeof r.id !== "string" ||
+      typeof r.providerId !== "string" ||
+      typeof r.accountId !== "string"
+    ) {
+      continue;
+    }
+    const account: LinkedAccount = {
+      id: r.id,
+      providerId: r.providerId,
+      accountId: r.accountId,
+    };
+    if (Array.isArray(r.scopes)) {
+      const scopes = r.scopes.filter((s): s is string => typeof s === "string" && s.length > 0);
+      if (scopes.length > 0) account.scopes = scopes;
+    }
+    if (r.createdAt !== undefined) account.createdAt = r.createdAt as string | Date;
+    if (r.updatedAt !== undefined) account.updatedAt = r.updatedAt as string | Date;
+    accounts.push(account);
+  }
+  return accounts;
+}
+
+/**
+ * GET /api/auth/account-info — live profile from the linked OAuth provider
+ * (uses the stored access token). Pass accountId from list-accounts; without
+ * it Better Auth only resolves via an account cookie we do not enable.
+ */
+export async function getAccountInfo(
+  origin: string,
+  opts: { providerId: string; accountId: string },
+): Promise<ProviderAccountInfo | null> {
+  const params = new URLSearchParams({
+    providerId: opts.providerId,
+    accountId: opts.accountId,
+  });
+  const result = await fetchWithTimeout(`${authOrigin(origin)}/api/auth/account-info?${params}`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (result.kind === "unavailable" || !result.response.ok) return null;
+  const body = (await result.response.json().catch(() => undefined)) as
+    | { user?: unknown; data?: unknown }
+    | null
+    | undefined;
+  if (!body || typeof body !== "object" || !body.user || typeof body.user !== "object") {
+    return null;
+  }
+  const info: ProviderAccountInfo = {
+    user: body.user as ProviderAccountInfo["user"],
+  };
+  if (body.data && typeof body.data === "object") {
+    info.data = body.data as Record<string, unknown>;
+  }
+  return info;
+}
+
+/** POST /api/auth/revoke-session — end one other session. */
+export async function revokeSession(origin: string, token: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/revoke-session`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }

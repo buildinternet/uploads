@@ -60,6 +60,17 @@ ul.plain .slug {
 ul.plain .usage {
   color: var(--muted);
   font-size: 12px;
+  display: grid;
+  gap: 6px;
+  min-height: 1.2em;
+}
+ul.plain .usage .usage-text,
+ul.plain .usage .usage-meta {
+  line-height: 1.35;
+}
+ul.plain .usage .usage-meta {
+  font-size: 11px;
+  opacity: 0.9;
 }
 ul.plain .ws-detail {
   display: grid;
@@ -143,4 +154,202 @@ ul.plain .command button:focus-visible {
 ul.plain .cli-note {
   margin: 7px 0 0;
   font-size: 11px;
+}
+ul.plain .invite-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 2px;
+}
+ul.plain .invite-form .invite-label {
+  flex: 1;
+  min-width: 12rem;
+  margin: 0;
+}
+ul.plain .invite-form input[type="email"] {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  padding: 8px 10px;
+  font: 13px var(--mono);
+}
+ul.plain .invite-form input[type="email"]:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+ul.plain .invite-form button[type="submit"] {
+  flex-shrink: 0;
+  font: 12px var(--mono);
+  letter-spacing: 0.03em;
+  color: var(--accent);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 12px;
+  background: var(--panel);
+  cursor: pointer;
+}
+ul.plain .invite-form button[type="submit"]:hover,
+ul.plain .invite-form button[type="submit"]:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+ul.plain .invite-form button[type="submit"]:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Overview CLI setup ──────────────────────────────────────────────────── */
+
+/* Pending setup — no CLI session yet (hash #cli-setup still scrolls natively). */
+section.card.is-pending {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+#cli-setup-status {
+  margin-top: 14px;
+}
+.cli-steps {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+.cli-steps .command {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.cli-steps .command code {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow-x: auto;
+  display: block;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+}
+.cli-steps .command button {
+  flex-shrink: 0;
+  font: 11px var(--mono);
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 10px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.cli-steps .command button:hover,
+.cli-steps .command button:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+section.card .cli-note {
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+
+/* Profile sign-in methods + sessions ──────────────────────────────────── */
+
+.detail-status {
+  margin-top: 12px;
+  font-size: 13px;
+}
+.detail-error {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--red);
+}
+ul.detail-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+ul.detail-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  font-size: 13px;
+}
+ul.detail-list li + li {
+  border-top: 1px solid var(--line);
+}
+ul.detail-list .detail-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+ul.detail-list .detail-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  color: var(--fg);
+}
+ul.detail-list .detail-icon {
+  flex-shrink: 0;
+  display: block;
+  color: var(--muted);
+}
+ul.detail-list .detail-title a {
+  color: inherit;
+  text-decoration: none;
+}
+ul.detail-list .detail-title a:hover,
+ul.detail-list .detail-title a:focus-visible {
+  color: var(--accent, #c27eff);
+  outline: none;
+}
+a.text-btn,
+button.text-btn {
+  font: 12px var(--mono);
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+a.text-btn {
+  display: inline-block;
+  text-decoration: none;
+}
+a.text-btn:hover,
+a.text-btn:focus-visible,
+button.text-btn:hover,
+button.text-btn:focus-visible {
+  color: var(--fg);
+  border-color: var(--line);
+  outline: none;
+}
+button.text-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+ul.detail-list .detail-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+ul.detail-list .detail-action {
+  flex-shrink: 0;
+}
+ul.detail-list .detail-current {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
 }

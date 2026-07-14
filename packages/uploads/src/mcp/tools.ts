@@ -23,6 +23,7 @@ import {
   type UploadsClientConfig,
 } from "../config.js";
 import { buildMarkdown } from "../embed.js";
+import { urlForGithubEmbed } from "../public-urls.js";
 import { resolvePutPrefix } from "../destinations.js";
 import { ghAttachmentKey, ghKeyPrefix, ghMetadataFromTarget, type GhTarget } from "../github.js";
 import { validateMetaMap } from "../metadata.js";
@@ -329,7 +330,7 @@ export function createUploadsMcpTools(opts: {
     {
       name: "put",
       description:
-        "Upload a file to uploads.sh and get a public URL plus GitHub-ready embed markdown (the returned `markdown` is ready to paste into a PR or issue). Pass `file` (a local path) or `contentBase64` + `filename` for in-memory content; with `pr`/`issue` the key is stable (same filename → same URL) and `comment` syncs the managed attachments comment. All uploads are public; pr/issue keys are predictable and remain public for private/internal GitHub repositories, so upload only non-sensitive media.",
+        "Upload a file to uploads.sh and get a public URL plus GitHub-ready embed markdown. Returns `url` (durable CDN) and `embedUrl` (same object, freshness-oriented host for GitHub Camo — prefer this in PR/issue markdown). The returned `markdown` already uses embedUrl when available. Pass `file` or `contentBase64` + `filename`; with `pr`/`issue` the key is stable and `comment` syncs the managed attachments comment. All uploads are public; pr/issue keys are predictable, so upload only non-sensitive media.",
       inputSchema: {
         type: "object",
         properties: {
@@ -494,7 +495,7 @@ export function createUploadsMcpTools(opts: {
           }),
           metadata,
         });
-        const markdown = buildMarkdown(result.url, {
+        const markdown = buildMarkdown(urlForGithubEmbed(result.url, result.embedUrl)!, {
           alt: optString(args, "alt") ?? sourceName,
           width: optPosInt(args, "width") ?? defaults.width,
         });
@@ -522,7 +523,7 @@ export function createUploadsMcpTools(opts: {
     {
       name: "attach",
       description:
-        "Upload one or more files as stable PR/issue attachments and maintain a single managed GitHub comment listing them (each upload's `markdown` is ready to paste into GitHub). With no pr/issue, targets the pull request for the current branch. Attachments are public and their repo/number/filename keys are predictable even for private/internal GitHub repositories; upload only non-sensitive media.",
+        "Upload one or more files as stable PR/issue attachments and maintain a single managed GitHub comment listing them. Each upload returns `url`, `embedUrl` (when dual-host applies), and `markdown` (uses embedUrl for GitHub). With no pr/issue, targets the pull request for the current branch. Attachments are public and keys are predictable; upload only non-sensitive media.",
       inputSchema: {
         type: "object",
         properties: {
@@ -613,7 +614,9 @@ export function createUploadsMcpTools(opts: {
           });
           uploads.push({
             ...result,
-            markdown: buildMarkdown(result.url, { alt: sourceName }),
+            markdown: buildMarkdown(urlForGithubEmbed(result.url, result.embedUrl)!, {
+              alt: sourceName,
+            }),
             frame: prepared.frame,
             optimize: {
               optimized: prepared.optimized,

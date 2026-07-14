@@ -13,7 +13,7 @@ import {
   type PublicGallery,
   projectPublicGallery,
 } from "./galleries";
-import { publicUrl, storage, storageConfig } from "./storage";
+import { objectPublicUrls, storage, storageConfig } from "./storage";
 import type { WorkspaceRecord } from "./workspace";
 
 export interface GalleryItemDto {
@@ -25,6 +25,8 @@ export interface GalleryItemDto {
   createdAt: string;
   status: "available" | "missing";
   url: string | null;
+  /** Same object on the embed host when dual-host policy applies; for GitHub markdown. */
+  embedUrl: string | null;
   pageUrl: string;
   contentType: string | null;
   size: number | null;
@@ -37,6 +39,7 @@ export interface PublicGalleryItemDto {
   altText: string | null;
   status: "available" | "missing";
   url: string | null;
+  embedUrl: string | null;
   contentType: string | null;
 }
 export interface GalleryDto {
@@ -238,8 +241,10 @@ export async function hydrateGalleryItems(
         cause,
       });
     }
-    const url = meta ? publicUrl(config, item.object_key) : null;
-    if (meta && url === null)
+    const urls = meta
+      ? objectPublicUrls(env, config, item.object_key)
+      : { url: null, embedUrl: null };
+    if (meta && urls.url === null)
       throw new ServiceUnavailableError("Gallery object is not publicly served.", {
         code: "gallery_object_not_public",
       });
@@ -251,7 +256,8 @@ export async function hydrateGalleryItems(
       altText: item.alt_text,
       createdAt: item.created_at,
       status: meta ? "available" : "missing",
-      url,
+      url: urls.url,
+      embedUrl: urls.embedUrl,
       contentType: meta?.type ?? null,
       size: meta?.size ?? null,
     };
@@ -327,6 +333,7 @@ export async function hydratePublicGallery(
       altText: item.altText,
       status: item.status,
       url: item.url,
+      embedUrl: item.embedUrl,
       contentType: item.contentType,
     })),
     references: references.map(publicReferenceDto),

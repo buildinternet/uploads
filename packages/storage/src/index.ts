@@ -61,6 +61,92 @@ export function publicUrl(config: StorageConfig, key: string): string | null {
   return `${base}/${fullKey.split("/").map(encodeURIComponent).join("/")}`;
 }
 
+/**
+ * Embed twin for the shared bucket (`embed.uploads.sh`): same keys as the
+ * durable storage host, badge-style Cache-Control via zone Transform Rule so
+ * GitHub Camo revalidates after in-place overwrites.
+ */
+export const DEFAULT_EMBED_PUBLIC_BASE_URL = "https://embed.uploads.sh";
+
+/** Hosts that get an automatic embed twin when no override is set. */
+const DEFAULT_EMBEDDABLE_HOSTS = new Set(["storage.uploads.sh", "store.uploads.sh"]);
+
+export type EmbedUrlOptions = {
+  /**
+   * Embed CDN base.
+   * - omit → default twin when `publicBaseUrl` host is embeddable
+   * - empty string → disable
+   * - URL → self-hosted override
+   */
+  embedBaseUrl?: string | null;
+};
+
+/** Resolve embed CDN base for a workspace public base (or disable / override). */
+export function resolveEmbedBaseUrl(
+  publicBaseUrl?: string | null,
+  embedBaseUrl?: string | null,
+): string | null {
+  if (embedBaseUrl != null) {
+    const trimmed = embedBaseUrl.trim();
+    return trimmed ? trimmed.replace(/\/$/, "") : null;
+  }
+  if (!publicBaseUrl) return null;
+  try {
+    const host = new URL(publicBaseUrl).hostname.toLowerCase();
+    if (DEFAULT_EMBEDDABLE_HOSTS.has(host)) return DEFAULT_EMBED_PUBLIC_BASE_URL;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Map a stable public object URL to the embed twin.
+ * When `publicBaseUrl` is omitted, infers it from known embeddable hosts on the URL.
+ */
+export function embedUrlFromPublic(
+  publicObjectUrl: string | null | undefined,
+  opts: EmbedUrlOptions & { publicBaseUrl?: string | null } = {},
+): string | null {
+  if (!publicObjectUrl) return null;
+
+  let publicBaseUrl = opts.publicBaseUrl ?? null;
+  if (!publicBaseUrl) {
+    try {
+      const u = new URL(publicObjectUrl);
+      if (DEFAULT_EMBEDDABLE_HOSTS.has(u.hostname.toLowerCase())) {
+        publicBaseUrl = `${u.protocol}//${u.host}`;
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  const embedBase = resolveEmbedBaseUrl(publicBaseUrl, opts.embedBaseUrl);
+  if (!embedBase || !publicBaseUrl) return null;
+  const stableBase = publicBaseUrl.replace(/\/$/, "");
+  if (publicObjectUrl === stableBase || publicObjectUrl.startsWith(`${stableBase}/`)) {
+    return `${embedBase}${publicObjectUrl.slice(stableBase.length)}`;
+  }
+  return null;
+}
+
+/** Stable + embed public URLs for a key (either may be null). */
+export function publicAndEmbedUrls(
+  config: StorageConfig,
+  key: string,
+  opts?: EmbedUrlOptions,
+): { url: string | null; embedUrl: string | null } {
+  const url = publicUrl(config, key);
+  return {
+    url,
+    embedUrl: embedUrlFromPublic(url, {
+      publicBaseUrl: config.publicBaseUrl,
+      embedBaseUrl: opts?.embedBaseUrl,
+    }),
+  };
+}
+
 /** Options for {@link signedDownloadUrl}. */
 export interface SignedDownloadUrlOptions {
   /** How long the URL stays valid, in seconds. Defaults to 3600 (files-sdk's own default). */

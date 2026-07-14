@@ -219,10 +219,16 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
     const { env, bucket } = await makeEnv();
     const res = await putShot(env);
     expect(res.status).toBe(201);
-    const json = (await res.json()) as { contentType: string; url: string; key: string };
+    const json = (await res.json()) as {
+      contentType: string;
+      url: string;
+      embedUrl: string | null;
+      key: string;
+    };
     expect(json.contentType).toBe("image/png");
     expect(json.key).toBe("screenshots/shot.png");
     expect(json.url).toBe("https://storage.uploads.sh/default/screenshots/shot.png");
+    expect(json.embedUrl).toBe("https://embed.uploads.sh/default/screenshots/shot.png");
     expect(bucket.store.has("default/screenshots/shot.png")).toBe(true);
   });
 
@@ -271,11 +277,17 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
       env,
     );
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { key: string; url: string; dryRun: boolean };
+    const json = (await res.json()) as {
+      key: string;
+      url: string;
+      embedUrl: string | null;
+      dryRun: boolean;
+    };
     expect(json).toEqual({
       workspace: "default",
       key: "screenshots/shot.png",
       url: "https://storage.uploads.sh/default/screenshots/shot.png",
+      embedUrl: "https://embed.uploads.sh/default/screenshots/shot.png",
       dryRun: true,
     });
     expect(bucket.store.has("default/screenshots/shot.png")).toBe(false);
@@ -802,6 +814,7 @@ describe("GET /v1/:workspace/files list + meta.* filter", () => {
       {
         key: "screenshots/shot.png",
         url: "https://storage.uploads.sh/default/screenshots/shot.png",
+        embedUrl: "https://embed.uploads.sh/default/screenshots/shot.png",
         metadata: { device: "mobile" },
       },
     ]);
@@ -859,6 +872,7 @@ describe("GET /v1/:workspace/files list + meta.* filter", () => {
       {
         key: "screenshots/shot.png",
         url: "https://storage.uploads.sh/default/screenshots/shot.png",
+        embedUrl: "https://embed.uploads.sh/default/screenshots/shot.png",
         metadata: { app: "screenshots" },
       },
     ]);

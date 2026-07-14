@@ -41,6 +41,7 @@ function fakeClient() {
         workspace: "test",
         key: opts.key ?? "generated/key.png",
         url: `https://x.test/${opts.key ?? "generated/key.png"}`,
+        embedUrl: null,
         size: body.byteLength,
         contentType: "image/png",
       };

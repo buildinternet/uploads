@@ -461,6 +461,7 @@ describe("gallery routes with SQLite D1", () => {
       "altText",
       "status",
       "url",
+      "embedUrl",
       "contentType",
     ]);
     expect(publicItem).toMatchObject({
