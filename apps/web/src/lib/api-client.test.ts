@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getMyWorkspaces, setFileVisibility } from "./api-client";
+import { getMyWorkspaces, searchWorkspaceFiles, setFileVisibility } from "./api-client";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -139,5 +139,55 @@ describe("setFileVisibility", () => {
     await expect(
       setFileVisibility("http://127.0.0.1:8787", "acme", "a.png", "public"),
     ).resolves.toEqual({ kind: "unavailable", reason: "network" });
+  });
+});
+
+describe("searchWorkspaceFiles", () => {
+  it("returns matching items and the truncated flag", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          items: [
+            {
+              key: "f/x.png",
+              url: "https://s/acme/f/x.png",
+              embedUrl: null,
+              metadata: { app: "web" },
+            },
+          ],
+          truncated: true,
+        }),
+      ),
+    );
+    await expect(
+      searchWorkspaceFiles("http://127.0.0.1:8787", "acme", [{ key: "app", value: "web" }]),
+    ).resolves.toEqual({
+      kind: "ok",
+      items: [
+        { key: "f/x.png", url: "https://s/acme/f/x.png", embedUrl: null, metadata: { app: "web" } },
+      ],
+      truncated: true,
+    });
+  });
+
+  it("reports a server error as unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 500 })),
+    );
+    await expect(
+      searchWorkspaceFiles("http://127.0.0.1:8787", "acme", [{ key: "app", value: "web" }]),
+    ).resolves.toEqual({ kind: "unavailable", reason: "server" });
+  });
+
+  it("reports a malformed body as unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ nope: true })),
+    );
+    await expect(
+      searchWorkspaceFiles("http://127.0.0.1:8787", "acme", [{ key: "app", value: "web" }]),
+    ).resolves.toEqual({ kind: "unavailable", reason: "malformed" });
   });
 });
