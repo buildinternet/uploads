@@ -1,5 +1,43 @@
 # @buildinternet/uploads
 
+## 0.8.0
+
+### Minor Changes
+
+- c5b36a3: Return `embedUrl` alongside durable `url` for shared dual-host CDN (GitHub Camo–friendly). CLI/MCP markdown and managed attachment comments prefer the embed host; override with `UPLOADS_EMBED_PUBLIC_BASE_URL`.
+- 46b6860: Add queryable custom metadata to the CLI: `put --meta k=v` (repeatable), `attach`
+  now writes `gh.repo`/`gh.kind`/`gh.number`/`gh.ref` automatically (plus its own
+  `--meta` extras), new `meta get`/`meta set` commands, `list --meta k=v` and the
+  `find k=v...` alias for filtering objects by metadata.
+
+  MCP parity: the local stdio MCP's `put`/`attach` tools gain a `metadata` param
+  (same gh.\* auto-injection as `attach`), and two new tools — `set_metadata`
+  (merge-set/delete) and `find_files` (metadata filter) — mirror the CLI's
+  `meta set`/`find`. The hosted MCP's `put` tool also gains a `metadata` param.
+
+  `meta get`/`meta set` now hit `GET /v1/:workspace/files/:key?metadata=1` and
+  `PATCH /v1/:workspace/files/:key` instead of a `/:key/metadata` sibling route
+  — the original suffix route 404'd on real (slash-containing) keys once
+  deployed.
+
+- b1c87d8: CLI onboarding and agent-friendly put:
+
+  - **`uploads install`** — short progress, no child stdout unless `--verbose`/failure;
+    non-interactive skills (`-g -y -a '*'`); success next-steps; MCP without a token is
+    skipped with a login nudge (skill still installs).
+  - **Missing token** — onboarding copy (no `error:` prefix); exit non-zero; `--json`
+    keeps `MISSING_TOKEN`. Rejected tokens stay `UNAUTHORIZED` with a re-login hint.
+  - **`put --name <leaf>`** — clean key leaf on the stable `--pr`/default path.
+  - **`put --dry-run`** — resolve key + public URL without writing (API `?dryRun=1`).
+  - **Scripted failures** — `--format json|url|markdown` also print on stdout.
+  - **`FILE_NOT_FOUND`** — distinct code (exit 2) for a missing local file.
+
+- 1c5a38b: Add `uploads invite create` so workspace admins/owners can invite teammates by email via device login (no `ADMIN_TOKEN`). Invitees accept in the browser and run `uploads login`.
+
+### Patch Changes
+
+- 3f5c7e1: Device login (`uploads login`) now sends a recognizable CLI User-Agent so the web account page can tell when you've already signed in from the terminal.
+
 ## 0.7.0
 
 ### Minor Changes
