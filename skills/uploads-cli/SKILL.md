@@ -228,6 +228,11 @@ request; a value may itself contain `=` (only the first `=` splits key from valu
 visibility gate, respectively). `uploads attach` writes its own `gh.*`
 reserved-by-convention keys automatically — see below.
 
+On the default `screenshots/…` path, `put` also auto-derives GitHub context and
+stamps `gh.repo`/`gh.kind`/`gh.number`/`gh.ref` from the current branch's PR (or
+a numeric `--ref`), so the file's `/f/` page shows an "Attached to" link. This is
+on by default and best-effort; disable it with `--no-auto` or `UPLOADS_NO_AUTO_META=1`.
+
 **Re-upload semantics:** re-uploading to an existing key **with** `--meta` replaces
 that file's entire metadata set (delete-then-set, not a merge); re-uploading
 **without** `--meta` at all preserves the existing metadata untouched. Use
@@ -292,11 +297,12 @@ Then reference the **embed** URL in the PR/issue markdown you write with `gh`
 
 Keep `url` (storage host) when you need a durable share link outside GitHub.
 
-`uploads attach` (below) additionally writes `gh.repo`/`gh.kind`/`gh.number`/`gh.ref`
-as queryable metadata automatically, so `uploads find gh.ref=myorg/myapp#123` or
-`uploads list --meta gh.repo=myorg/myapp` finds everything attached to that PR/issue
-without needing the `gh/...` prefix. Add `--meta k=v` extras to `attach` for your own
-pairs on top — a `--meta gh.*` override loses to the target's own `gh.*` values.
+`put --pr`/`--issue` (and `uploads attach`, below) writes `gh.repo`/`gh.kind`/
+`gh.number`/`gh.ref` as queryable metadata automatically, so `uploads find
+gh.ref=myorg/myapp#123` or `uploads list --meta gh.repo=myorg/myapp` finds
+everything attached to that PR/issue without needing the `gh/...` prefix. Add
+`--meta k=v` extras for your own pairs on top — a `--meta gh.*` override loses
+to the target's own `gh.*` values.
 
 ### Option B — managed attachments comment (`--comment` / `comment`)
 
