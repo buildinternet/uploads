@@ -17,6 +17,8 @@ export interface MetaFilter {
 const META_KEY_RE = /^[a-z][a-z0-9._-]{0,63}$/;
 /** Mirrors apps/api's META_VALUE_MAX. */
 const META_VALUE_MAX = 512;
+/** Mirrors apps/api's META_MAX_KEYS — caps a hand-crafted deep link at the API's own limit. */
+const META_MAX_FILTERS = 24;
 
 export function isValidMetaKey(key: string): boolean {
   return META_KEY_RE.test(key);
@@ -38,6 +40,7 @@ export function readSearchFilters(search: string): MetaFilter[] {
   const seen = new Set<string>();
   const out: MetaFilter[] = [];
   for (const [param, value] of params) {
+    if (out.length >= META_MAX_FILTERS) break;
     if (!param.startsWith("meta.")) continue;
     const key = param.slice("meta.".length);
     if (seen.has(key)) continue;

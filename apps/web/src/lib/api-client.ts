@@ -271,7 +271,7 @@ export interface SearchFileItem {
 
 export type SearchFilesResult =
   | { kind: "ok"; items: SearchFileItem[]; truncated: boolean }
-  | { kind: "unavailable"; reason: "server" | "malformed" };
+  | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
 
 function isSearchFileItem(value: unknown): value is SearchFileItem {
   if (!value || typeof value !== "object") return false;
@@ -293,12 +293,9 @@ export async function searchWorkspaceFiles(
 ): Promise<SearchFilesResult> {
   const query = buildSearchQuery(filters);
   const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files/search?${query}`;
-  let response: Response;
-  try {
-    response = await fetch(url, { credentials: "include", cache: "no-store" });
-  } catch {
-    return { kind: "unavailable", reason: "server" };
-  }
+  const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
   if (!response.ok) return { kind: "unavailable", reason: "server" };
   let body: unknown;
   try {

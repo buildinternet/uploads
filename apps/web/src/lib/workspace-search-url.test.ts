@@ -41,6 +41,10 @@ describe("readSearchFilters", () => {
   it("returns empty when there are no meta params", () => {
     expect(readSearchFilters("?ws=acme&path=f/")).toEqual([]);
   });
+  it("caps a hand-crafted deep link at 24 filters", () => {
+    const params = Array.from({ length: 25 }, (_, i) => `meta.k${i}=v${i}`).join("&");
+    expect(readSearchFilters(`?${params}`)).toHaveLength(24);
+  });
 });
 
 describe("buildSearchQuery", () => {

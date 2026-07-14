@@ -63,7 +63,10 @@ export function WorkspaceFiles({
     commit([...filters, { key: k, value: v }]);
   };
 
-  const removeFilter = (k: string) => commit(filters.filter((f) => f.key !== k));
+  const removeFilter = (k: string) => {
+    setError(null);
+    commit(filters.filter((f) => f.key !== k));
+  };
 
   return (
     <div className="ws-files">
