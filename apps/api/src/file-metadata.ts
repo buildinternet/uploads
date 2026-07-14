@@ -212,6 +212,41 @@ export async function deleteFileMetadata(
     .run();
 }
 
+/**
+ * Fully replaces an object's metadata: validates `metadata` once (there's no
+ * prior state to merge against, so unlike `setFileMetadata` there's nothing
+ * to re-read first), then deletes any existing rows and inserts the new set
+ * in a single `db.batch` — atomic, and without the wasted
+ * guaranteed-empty-map SELECT that `deleteFileMetadata` + `setFileMetadata`
+ * would otherwise incur. Used by `putObject`'s full-replace-on-upload path.
+ */
+export async function replaceFileMetadata(
+  db: D1Database,
+  workspace: string,
+  objectKey: string,
+  metadata: Record<string, string>,
+): Promise<void> {
+  validateMetadataEntries(metadata);
+
+  const now = new Date().toISOString();
+  const statements = [
+    db
+      .prepare(`DELETE FROM file_metadata WHERE workspace = ? AND object_key = ?`)
+      .bind(workspace, objectKey),
+    ...Object.entries(metadata).map(([key, value]) =>
+      db
+        .prepare(
+          `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(workspace, object_key, meta_key)
+           DO UPDATE SET meta_value = excluded.meta_value, updated_at = excluded.updated_at`,
+        )
+        .bind(workspace, objectKey, key, value, now),
+    ),
+  ];
+  await db.batch(statements);
+}
+
 const FIND_DEFAULT_LIMIT = 50;
 const FIND_MAX_LIMIT = 500;
 

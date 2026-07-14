@@ -13,7 +13,7 @@ import {
 } from "@uploads/errors";
 import type { Files } from "@uploads/storage";
 import { checkPutBudget } from "./budget";
-import { deleteFileMetadata, setFileMetadata, validateMetadataEntries } from "./file-metadata";
+import { deleteFileMetadata, replaceFileMetadata, validateMetadataEntries } from "./file-metadata";
 import { DEFAULT_MAX_UPLOAD_BYTES, inspectUpload, resolveUploadPolicy } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
 import {
@@ -193,11 +193,10 @@ export async function putObject(
 
   if (opts?.metadata) {
     // Full replace: an overwrite must not inherit a prior put's custom
-    // metadata, so clear the row set before (re-)writing this request's.
-    await deleteFileMetadata(env.DB, workspaceName, finalKey);
-    if (Object.keys(opts.metadata).length > 0) {
-      await setFileMetadata(env.DB, workspaceName, finalKey, opts.metadata);
-    }
+    // metadata, so clear the row set before (re-)writing this request's, in
+    // one atomic batch (replaceFileMetadata) rather than a delete followed
+    // by a separate re-read-then-write.
+    await replaceFileMetadata(env.DB, workspaceName, finalKey, opts.metadata);
   }
 
   await recordUsageSafe(env.DB, workspaceName, {

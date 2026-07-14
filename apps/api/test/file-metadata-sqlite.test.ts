@@ -7,6 +7,7 @@ import {
   deleteFileMetadata,
   findObjectsByMetadata,
   getFileMetadata,
+  replaceFileMetadata,
   setFileMetadata,
 } from "../src/file-metadata";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
@@ -207,5 +208,111 @@ describe("file metadata persistence against SQLite", () => {
     } finally {
       sqlite.close();
     }
+  });
+
+  describe("replaceFileMetadata", () => {
+    it("fully replaces prior metadata rather than merging", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        await setFileMetadata(database(sqlite), "alpha", "f/one.png", {
+          app: "screenshots",
+          page: "/checkout",
+        });
+
+        await replaceFileMetadata(database(sqlite), "alpha", "f/one.png", { app: "other" });
+
+        await expect(getFileMetadata(database(sqlite), "alpha", "f/one.png")).resolves.toEqual({
+          app: "other",
+        });
+      } finally {
+        sqlite.close();
+      }
+    });
+
+    it("clears all metadata when replacing with an empty map", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        await setFileMetadata(database(sqlite), "alpha", "f/one.png", { app: "screenshots" });
+
+        await replaceFileMetadata(database(sqlite), "alpha", "f/one.png", {});
+
+        await expect(getFileMetadata(database(sqlite), "alpha", "f/one.png")).resolves.toEqual({});
+      } finally {
+        sqlite.close();
+      }
+    });
+
+    it("does not touch other objects or workspaces", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        await setFileMetadata(database(sqlite), "alpha", "f/two.png", { app: "keep" });
+        await setFileMetadata(database(sqlite), "beta", "f/one.png", { app: "keep" });
+
+        await replaceFileMetadata(database(sqlite), "alpha", "f/one.png", { app: "new" });
+
+        await expect(getFileMetadata(database(sqlite), "alpha", "f/two.png")).resolves.toEqual({
+          app: "keep",
+        });
+        await expect(getFileMetadata(database(sqlite), "beta", "f/one.png")).resolves.toEqual({
+          app: "keep",
+        });
+      } finally {
+        sqlite.close();
+      }
+    });
+
+    it("rejects metadata over the caps, writing nothing", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        await setFileMetadata(database(sqlite), "alpha", "f/one.png", { app: "screenshots" });
+
+        const tooMany: Record<string, string> = {};
+        for (let i = 0; i < META_MAX_KEYS + 1; i++) tooMany[`k${i}`] = "v";
+
+        await expect(
+          replaceFileMetadata(database(sqlite), "alpha", "f/one.png", tooMany),
+        ).rejects.toBeInstanceOf(AppError);
+
+        // Rejected replace must not have touched the prior state.
+        await expect(getFileMetadata(database(sqlite), "alpha", "f/one.png")).resolves.toEqual({
+          app: "screenshots",
+        });
+      } finally {
+        sqlite.close();
+      }
+    });
+
+    it("is atomic: a batch failure leaves the prior metadata untouched", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        await setFileMetadata(database(sqlite), "alpha", "f/one.png", { app: "screenshots" });
+
+        // replaceFileMetadata's own validation can't fail mid-batch (it
+        // runs before the batch is built), so exercise atomicity directly
+        // against the transaction wrapper: a delete + insert followed by a
+        // statement that violates a real constraint should roll back the
+        // whole batch, including the delete and insert that preceded it.
+        await expect(
+          sqlite.batch([
+            sqlite
+              .prepare(`DELETE FROM file_metadata WHERE workspace = ? AND object_key = ?`)
+              .bind("alpha", "f/one.png"),
+            sqlite
+              .prepare(
+                `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at) VALUES (?, ?, ?, ?, ?)`,
+              )
+              .bind("alpha", "f/one.png", "app", "replaced", "2026-07-13T00:00:00.000Z"),
+            sqlite.prepare(`INSERT INTO no_such_table (x) VALUES (1)`),
+          ]),
+        ).rejects.toThrow();
+
+        // Rolled back: the DELETE + INSERT from the failed batch never committed.
+        await expect(getFileMetadata(database(sqlite), "alpha", "f/one.png")).resolves.toEqual({
+          app: "screenshots",
+        });
+      } finally {
+        sqlite.close();
+      }
+    });
   });
 });
