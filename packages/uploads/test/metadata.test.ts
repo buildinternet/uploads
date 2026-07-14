@@ -35,6 +35,10 @@ describe("parseMetaPair", () => {
     expect(() => parseMetaPair("content-sha256=abc")).toThrow(UsageError);
   });
 
+  it("rejects the reserved visibility key", () => {
+    expect(() => parseMetaPair("visibility=private")).toThrow(UsageError);
+  });
+
   it("rejects an empty value", () => {
     expect(() => parseMetaPair("app=")).toThrow(UsageError);
   });
@@ -112,6 +116,10 @@ describe("validateMetaMap", () => {
 
   it("rejects the reserved content-sha256 key", () => {
     expect(() => validateMetaMap({ "content-sha256": "abc" })).toThrow(UsageError);
+  });
+
+  it("rejects the reserved visibility key", () => {
+    expect(() => validateMetaMap({ visibility: "private" })).toThrow(UsageError);
   });
 
   it("preserves a value containing '=' (no re-split corruption)", () => {

@@ -93,6 +93,34 @@ export function validateMetadataEntries(meta: Record<string, string>): void {
   }
 }
 
+/**
+ * Validates a `meta.*`-style equality-filter map (REST list endpoint's
+ * `meta.<key>=<value>` query params, the MCP `find_files` tool's `filters`
+ * argument): enforces the same count cap and key format as metadata writes,
+ * using the same typed error codes so existing callers' error handling is
+ * unaffected. Does not validate filter values (unlike write-side metadata,
+ * an empty or arbitrary-length filter value is fine — it just won't match
+ * anything) and does not check for duplicate/repeated params, which is
+ * query-string-specific and stays in the REST route.
+ */
+export function validateMetadataFilters(filters: Record<string, string>): void {
+  const keys = Object.keys(filters);
+  if (keys.length > META_MAX_KEYS) {
+    throw new ValidationError(`too many meta.* filters (max ${META_MAX_KEYS})`, {
+      code: "file_metadata_too_many_filters",
+      details: { limit: META_MAX_KEYS, count: keys.length },
+    });
+  }
+  for (const key of keys) {
+    if (!META_KEY_RE.test(key)) {
+      throw new ValidationError(`invalid metadata key: ${key}`, {
+        code: "file_metadata_invalid_key",
+        details: { key },
+      });
+    }
+  }
+}
+
 interface MetaRow {
   meta_key: string;
   meta_value: string;

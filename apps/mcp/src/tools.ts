@@ -7,18 +7,21 @@
  */
 import { buildMarkdown, buildScreenshotKey } from "@buildinternet/uploads";
 import {
+  METADATA_DESCRIPTION,
+  metadataProp,
   optPosInt,
   optString,
+  optStringArray,
   optStringRecord,
   usage,
   type McpTool,
 } from "@buildinternet/uploads/mcp";
 import { badKey } from "@uploads/api/files";
 import {
-  META_MAX_KEYS,
   findObjectsByMetadata,
   setFileMetadata,
   validateMetadataEntries,
+  validateMetadataFilters,
 } from "@uploads/api/file-metadata";
 import {
   addExternalReference,
@@ -50,25 +53,6 @@ export interface RemoteToolContext {
   workspace: WorkspaceRecord;
   workspaceName: string;
   authScopes: readonly FileScope[];
-}
-
-/** Shared tool-description text for the metadata-shaped params (mirrors packages/uploads/src/mcp/tools.ts). */
-const METADATA_DESCRIPTION =
-  "Queryable custom metadata (key→value), separate from provenance. Keys: lowercase, ^[a-z][a-z0-9._-]{0,63}$. Values: 1-512 printable ASCII characters. Caps: at most 24 keys, at most 8192 total key+value bytes. Suggested keys: app, url, page, device, resolution, commit, branch. `gh.*` is reserved by convention for GitHub PR/issue attachment context (repo/kind/number/ref).";
-
-const metadataProp = {
-  type: "object",
-  additionalProperties: { type: "string" },
-  description: METADATA_DESCRIPTION,
-};
-
-function optStringArray(args: Record<string, unknown>, name: string): string[] | undefined {
-  const v = args[name];
-  if (v === undefined || v === null) return undefined;
-  if (!Array.isArray(v) || v.some((item) => typeof item !== "string")) {
-    usage(`${name} must be an array of strings`);
-  }
-  return v as string[];
 }
 
 function decodeBase64(value: string, maxBytes: number): Uint8Array {
@@ -499,15 +483,15 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         if (!filters || Object.keys(filters).length === 0) {
           usage("filters must have at least one key");
         }
-        // Mirror the REST list endpoint's meta.* filter cap.
-        if (Object.keys(filters).length > META_MAX_KEYS) {
-          usage(`too many filters (max ${META_MAX_KEYS})`);
-        }
-        const cfg = await storageConfig(env, workspace);
-        const matches = await findObjectsByMetadata(env.DB, workspaceName, filters, {
-          prefix: optString(args, "prefix"),
-          limit: optPosInt(args, "limit"),
-        });
+        // Shares the count cap + key-format checks with the REST list endpoint's meta.* filters.
+        validateMetadataFilters(filters);
+        const [cfg, matches] = await Promise.all([
+          storageConfig(env, workspace),
+          findObjectsByMetadata(env.DB, workspaceName, filters, {
+            prefix: optString(args, "prefix"),
+            limit: optPosInt(args, "limit"),
+          }),
+        ]);
         return {
           items: matches.map((match) => ({
             key: match.key,

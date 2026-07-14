@@ -35,33 +35,23 @@ import {
   resolveRepo,
   type CommandRunner,
 } from "../github-gh.js";
-import { optPosInt, optString, optStringRecord, usage, type ToolArgs } from "./args.js";
+import {
+  METADATA_DESCRIPTION,
+  metadataProp,
+  optPosInt,
+  optString,
+  optStringArray,
+  optStringRecord,
+  usage,
+  type ToolArgs,
+} from "./args.js";
 import type { McpTool } from "./server.js";
-
-/** Shared tool-description text for the `metadata` object param on `put`/`attach`. */
-const METADATA_DESCRIPTION =
-  "Queryable custom metadata (key→value), separate from provenance. Omit to leave any metadata already stored for this key untouched; pass an object (even {}) to fully replace it. Keys: lowercase, ^[a-z][a-z0-9._-]{0,63}$. Values: 1-512 printable ASCII characters. Caps: at most 24 keys, at most 8192 total key+value bytes. Suggested keys: app, url, page, device, resolution, commit, branch. `gh.*` is reserved by convention for GitHub PR/issue attachment context (repo/kind/number/ref).";
-
-const metadataProp = {
-  type: "object",
-  additionalProperties: { type: "string" },
-  description: METADATA_DESCRIPTION,
-};
 
 function optBool(args: ToolArgs, name: string): boolean {
   const v = args[name];
   if (v === undefined || v === null) return false;
   if (typeof v !== "boolean") usage(`${name} must be a boolean`);
   return v;
-}
-
-function optStringArray(args: ToolArgs, name: string): string[] | undefined {
-  const v = args[name];
-  if (v === undefined || v === null) return undefined;
-  if (!Array.isArray(v) || v.some((item) => typeof item !== "string")) {
-    usage(`${name} must be an array of strings`);
-  }
-  return v as string[];
 }
 
 function mcpOptimizeOptions(

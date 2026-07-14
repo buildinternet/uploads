@@ -25,12 +25,14 @@ const VALUE_SAFE_RE = /^[\x20-\x7E]+$/;
 const encoder = new TextEncoder();
 
 /**
- * Server-computed keys the API rejects as custom metadata (currently just
- * `content-sha256`). `gh.*` is NOT reserved here: it's system-managed by
- * convention (attach flow), not blocked — the server happily accepts
- * user-supplied `gh.*` extras via `--meta`.
+ * Server-computed/server-reserved keys the API rejects as custom metadata:
+ * `content-sha256` (server-computed provenance) and `visibility` (names the
+ * R2-backed public/private gate, not a piece of D1 custom metadata — mirrors
+ * apps/api/src/file-metadata.ts's RESERVED_META_KEYS). `gh.*` is NOT reserved
+ * here: it's system-managed by convention (attach flow), not blocked — the
+ * server happily accepts user-supplied `gh.*` extras via `--meta`.
  */
-const RESERVED_META_KEYS = new Set<string>(["content-sha256"]);
+const RESERVED_META_KEYS = new Set<string>(["content-sha256", "visibility"]);
 
 /** Throws `UsageError` with a readable message if `key`/`value` violate the metadata rules. */
 export function validateMetaEntry(key: string, value: string): void {
@@ -62,6 +64,19 @@ export function parseMetaPair(raw: string): [string, string] {
   return [key, value];
 }
 
+/** Throws `UsageError` if the aggregate UTF-8 key+value bytes of `entries` exceed `META_MAX_TOTAL_BYTES`. */
+function enforceMetaByteCap(entries: Array<[string, string]>): void {
+  let totalBytes = 0;
+  for (const [key, value] of entries) {
+    totalBytes += encoder.encode(key).byteLength + encoder.encode(value).byteLength;
+  }
+  if (totalBytes > META_MAX_TOTAL_BYTES) {
+    throw new UsageError(
+      `metadata too large: ${totalBytes} bytes of keys+values exceeds the ${META_MAX_TOTAL_BYTES}-byte limit per request`,
+    );
+  }
+}
+
 /**
  * Parse and validate a batch of `k=v` pairs (e.g. every `--meta` occurrence,
  * or `meta set`'s positional pairs) into a map. Fails fast on the first
@@ -80,25 +95,23 @@ export function parseMetaFlags(pairs: string[]): Record<string, string> {
   }
   // Aggregate byte cap over the deduplicated map — same accounting as the
   // server (sum of UTF-8 key+value bytes, META_MAX_TOTAL_BYTES).
-  let totalBytes = 0;
-  for (const [key, value] of Object.entries(result)) {
-    totalBytes += encoder.encode(key).byteLength + encoder.encode(value).byteLength;
-  }
-  if (totalBytes > META_MAX_TOTAL_BYTES) {
-    throw new UsageError(
-      `metadata too large: ${totalBytes} bytes of keys+values exceeds the ${META_MAX_TOTAL_BYTES}-byte limit per request`,
-    );
-  }
+  enforceMetaByteCap(Object.entries(result));
   return result;
 }
 
 /**
  * Validates a pre-parsed key→value metadata map (e.g. an MCP tool's object
- * argument) against the same rules as {@link parseMetaFlags}, without
- * requiring "k=v" string parsing first. Reuses `parseMetaFlags` by
- * reconstructing "k=v" pairs — safe even when a value contains "=", since
- * `parseMetaPair` only splits on the first occurrence. Throws `UsageError`.
+ * argument) against the same rules as {@link parseMetaFlags} — the same
+ * per-entry validation (`validateMetaEntry`, which `parseMetaPair` also
+ * uses), the same key-count cap, and the same aggregate byte cap — without
+ * round-tripping through "k=v" string reconstruction and re-parsing first.
+ * Throws `UsageError`.
  */
 export function validateMetaMap(meta: Record<string, string>): void {
-  parseMetaFlags(Object.entries(meta).map(([key, value]) => `${key}=${value}`));
+  const entries = Object.entries(meta);
+  if (entries.length > META_MAX_KEYS) {
+    throw new UsageError(`too many --meta pairs: at most ${META_MAX_KEYS} per request`);
+  }
+  for (const [key, value] of entries) validateMetaEntry(key, value);
+  enforceMetaByteCap(entries);
 }

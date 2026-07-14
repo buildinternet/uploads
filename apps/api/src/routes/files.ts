@@ -9,11 +9,10 @@ import {
   putObject,
 } from "../files-core";
 import {
-  META_KEY_RE,
-  META_MAX_KEYS,
   findObjectsByMetadata,
   getFileMetadata,
   setFileMetadata,
+  validateMetadataFilters,
 } from "../file-metadata";
 import { splitUploadMetaHeaders } from "../provenance";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
@@ -147,22 +146,12 @@ export const files = new Hono<WorkspaceVars>()
     const metaParamKeys = Object.keys(query).filter((k) => k.startsWith("meta."));
 
     if (metaParamKeys.length > 0) {
-      if (metaParamKeys.length > META_MAX_KEYS) {
-        throw new ValidationError(`too many meta.* filters (max ${META_MAX_KEYS})`, {
-          code: "file_metadata_too_many_filters",
-          details: { limit: META_MAX_KEYS, count: metaParamKeys.length },
-        });
-      }
-
+      // Duplicate-param detection is query-string-specific (repeated same
+      // key), so it stays here; count cap + key format are shared with the
+      // MCP find_files tool via validateMetadataFilters.
       const filters: Record<string, string> = {};
       for (const param of metaParamKeys) {
         const key = param.slice("meta.".length);
-        if (!META_KEY_RE.test(key)) {
-          throw new ValidationError(`invalid metadata key: ${key}`, {
-            code: "file_metadata_invalid_key",
-            details: { key },
-          });
-        }
         const values = c.req.queries(param) ?? [];
         if (values.length > 1) {
           throw new ValidationError(`repeated metadata filter for key: ${key}`, {
@@ -172,15 +161,18 @@ export const files = new Hono<WorkspaceVars>()
         }
         filters[key] = values[0] ?? query[param];
       }
+      validateMetadataFilters(filters);
 
       const ws = c.get("workspace");
       const limitParam = c.req.query("limit");
       const limit = limitParam ? Number(limitParam) || undefined : undefined;
-      const matches = await findObjectsByMetadata(c.env.DB, c.get("workspaceName"), filters, {
-        prefix: query.prefix,
-        limit,
-      });
-      const cfg = await storageConfig(c.env, ws);
+      const [cfg, matches] = await Promise.all([
+        storageConfig(c.env, ws),
+        findObjectsByMetadata(c.env.DB, c.get("workspaceName"), filters, {
+          prefix: query.prefix,
+          limit,
+        }),
+      ]);
       return c.json({
         items: matches.map((match) => {
           const urls = objectPublicUrls(c.env, cfg, match.key);
