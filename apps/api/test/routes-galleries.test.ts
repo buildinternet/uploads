@@ -702,3 +702,59 @@ describe("gallery routes with SQLite D1", () => {
     ).toBe(429);
   });
 });
+
+describe("GET /public/galleries/:id/items/:item/download", () => {
+  it("streams the item's object with a forced attachment disposition", async () => {
+    const gallery = await create();
+    const added = await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+      method: "POST",
+      body: JSON.stringify({ expectedVersion: 1, objectKey: "screenshots/one.png" }),
+    });
+    expect(added.status).toBe(201);
+    const item = (await added.json()) as { id: string };
+
+    const res = await app.request(
+      `/public/galleries/${gallery.id}/items/${item.id}/download`,
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Disposition")).toBe(
+      "attachment; filename=\"one.png\"; filename*=UTF-8''one.png",
+    );
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(bytes).toEqual(PNG);
+  });
+
+  it("404s for an unknown item id", async () => {
+    const gallery = await create();
+    const res = await app.request(
+      `/public/galleries/${gallery.id}/items/item_missing/download`,
+      {},
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("404s for a non-public (unknown) gallery id", async () => {
+    const res = await app.request("/public/galleries/gal_doesnotexist/items/x/download", {}, env);
+    expect(res.status).toBe(404);
+  });
+
+  it("404s when the item's underlying object has been deleted (tombstone)", async () => {
+    const gallery = await create();
+    const added = await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+      method: "POST",
+      body: JSON.stringify({ expectedVersion: 1, objectKey: "screenshots/one.png" }),
+    });
+    const item = (await added.json()) as { id: string };
+    await bucket.delete("alpha/screenshots/one.png");
+
+    const res = await app.request(
+      `/public/galleries/${gallery.id}/items/${item.id}/download`,
+      {},
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+});
