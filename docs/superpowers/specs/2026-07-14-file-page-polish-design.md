@@ -421,15 +421,14 @@ What maps over, and the one API gap each needs:
 - **Copy-link cleanup (§3.2):** applies directly. The item page already has a
   `canonical` page URL (line 39). Reuse the same `data-copy` button + delegated
   listener. Needs the gallery CSP widened (see below).
-- **Embed formats (§3.3):** applies. `embedUrl` is **already computed
-  server-side** for each item (`gallery-service.ts` line 262 returns
-  `embedUrl` from `objectPublicUrls`) — it is simply dropped before reaching
-  the web. Surface it: add `embedUrl` to the public gallery item payload
-  (`apps/api/src/routes/public-galleries.ts` → `hydratePublicGallery`) and to
-  the `PublicGalleryItem` type + `isPublicGallery` validator in
-  `apps/web/src/lib/public-gallery.ts`. This is the gallery twin of Decision
-  (c)'s file-page `embedUrl` change and is even smaller (the value already
-  exists; it just isn't forwarded). Format list is gated by the item's
+- **Embed formats (§3.3):** applies. **The API already returns `embedUrl` per
+  gallery item** — `gallery-service.ts`'s public DTO includes it (line ~336,
+  asserted in `apps/api/test/routes-galleries.test.ts` ~line 464). Only the
+  **web** side drops it: add `embedUrl` to the `PublicGalleryItem` type +
+  `isPublicGallery` validator in `apps/web/src/lib/public-gallery.ts`. So the
+  gallery half of Decision (c) is **web-type-only** — no gallery API change
+  (unlike the file page, whose public route genuinely lacks `embedUrl` and
+  must be extended). Format list is gated by the item's
   `mediaKind` exactly as the file page gates on `fileKind`.
 - **Download (§3.4):** applies. Add a gallery-item download route that streams
   bytes with `Content-Disposition: attachment`, reusing the **same shared
