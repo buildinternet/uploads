@@ -14,6 +14,7 @@ export const UPLOADS_CONFIG_KEYS = [
   "UPLOADS_NO_GIT",
   "UPLOADS_NO_OPTIMIZE",
   "UPLOADS_KEEP_EXIF",
+  "UPLOADS_NO_AUTO_META",
 ] as const;
 
 export type UploadsConfigKey = (typeof UPLOADS_CONFIG_KEYS)[number];
@@ -30,6 +31,8 @@ export interface PutDefaults {
   noOptimize?: boolean;
   /** When true, optimize keeps EXIF/XMP/ICC (default strips). */
   keepExif?: boolean;
+  /** When true, `put` does NOT auto-resolve/stamp gh.* on the default path. */
+  noAutoMeta?: boolean;
 }
 
 const PUT_DEFAULT_KEY_MAP: Record<keyof PutDefaults, UploadsConfigKey> = {
@@ -40,6 +43,7 @@ const PUT_DEFAULT_KEY_MAP: Record<keyof PutDefaults, UploadsConfigKey> = {
   noGit: "UPLOADS_NO_GIT",
   noOptimize: "UPLOADS_NO_OPTIMIZE",
   keepExif: "UPLOADS_KEEP_EXIF",
+  noAutoMeta: "UPLOADS_NO_AUTO_META",
 };
 
 function isTruthyConfigFlag(value: string | undefined): boolean {
@@ -57,6 +61,7 @@ export function putDefaultsToConfigValues(defaults: PutDefaults): UploadsConfigV
   if (defaults.noGit) out.UPLOADS_NO_GIT = "1";
   if (defaults.noOptimize) out.UPLOADS_NO_OPTIMIZE = "1";
   if (defaults.keepExif) out.UPLOADS_KEEP_EXIF = "1";
+  if (defaults.noAutoMeta) out.UPLOADS_NO_AUTO_META = "1";
   return out;
 }
 
@@ -72,6 +77,7 @@ function parsePutDefaultsFromRaw(raw: UploadsConfigValues): PutDefaults {
   if (isTruthyConfigFlag(raw.UPLOADS_NO_GIT)) out.noGit = true;
   if (isTruthyConfigFlag(raw.UPLOADS_NO_OPTIMIZE)) out.noOptimize = true;
   if (isTruthyConfigFlag(raw.UPLOADS_KEEP_EXIF)) out.keepExif = true;
+  if (isTruthyConfigFlag(raw.UPLOADS_NO_AUTO_META)) out.noAutoMeta = true;
   return out;
 }
 
@@ -86,6 +92,7 @@ function parsePutDefaultsFromEnv(): PutDefaults {
   if (process.env.UPLOADS_NO_GIT) raw.UPLOADS_NO_GIT = process.env.UPLOADS_NO_GIT;
   if (process.env.UPLOADS_NO_OPTIMIZE) raw.UPLOADS_NO_OPTIMIZE = process.env.UPLOADS_NO_OPTIMIZE;
   if (process.env.UPLOADS_KEEP_EXIF) raw.UPLOADS_KEEP_EXIF = process.env.UPLOADS_KEEP_EXIF;
+  if (process.env.UPLOADS_NO_AUTO_META) raw.UPLOADS_NO_AUTO_META = process.env.UPLOADS_NO_AUTO_META;
   return parsePutDefaultsFromRaw(raw);
 }
 
@@ -150,6 +157,7 @@ export function mergePutDefaults(...layers: PutDefaults[]): PutDefaults {
     if (layer.noGit != null) out.noGit = layer.noGit;
     if (layer.noOptimize != null) out.noOptimize = layer.noOptimize;
     if (layer.keepExif != null) out.keepExif = layer.keepExif;
+    if (layer.noAutoMeta != null) out.noAutoMeta = layer.noAutoMeta;
   }
   return out;
 }
