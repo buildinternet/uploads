@@ -1,7 +1,5 @@
 /// <reference types="node" />
 
-import { readFileSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
   MAX_GALLERIES_PER_WORKSPACE,
@@ -16,79 +14,13 @@ import {
   removeGalleryItem,
   reorderGalleryItems,
 } from "../src/galleries";
+import { SqliteD1, database } from "./helpers/sqlite-d1";
 
-type SqliteValue = string | number | bigint | null | Uint8Array;
+const MIGRATION = "migrations/20260711180000_galleries.sql";
+const PRAGMAS = ["PRAGMA foreign_keys = ON"];
 
-class SqliteStatement {
-  private values: SqliteValue[] = [];
-
-  constructor(
-    readonly owner: SqliteD1,
-    readonly sql: string,
-  ) {}
-
-  bind(...values: unknown[]) {
-    this.values = values as SqliteValue[];
-    return this;
-  }
-
-  async first<T>(): Promise<T | null> {
-    return (this.owner.db.prepare(this.sql).get(...this.values) as T | undefined) ?? null;
-  }
-
-  async all<T>(): Promise<D1Result<T>> {
-    return {
-      success: true,
-      results: this.owner.db.prepare(this.sql).all(...this.values) as T[],
-      meta: {},
-    } as D1Result<T>;
-  }
-
-  async run(): Promise<D1Result> {
-    return this.runSync() as unknown as D1Result;
-  }
-
-  runSync() {
-    const result = this.owner.db.prepare(this.sql).run(...this.values);
-    return {
-      success: true,
-      results: [],
-      meta: { changes: Number(result.changes) },
-    };
-  }
-}
-
-class SqliteD1 {
-  readonly db = new DatabaseSync(":memory:");
-
-  constructor() {
-    this.db.exec("PRAGMA foreign_keys = ON");
-    this.db.exec(readFileSync("migrations/20260711180000_galleries.sql", "utf8"));
-  }
-
-  prepare(sql: string) {
-    return new SqliteStatement(this, sql);
-  }
-
-  async batch(statements: SqliteStatement[]): Promise<D1Result[]> {
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      const results = statements.map((statement) => statement.runSync() as unknown as D1Result);
-      this.db.exec("COMMIT");
-      return results;
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
-  }
-
-  close() {
-    this.db.close();
-  }
-}
-
-function database(sqlite: SqliteD1): D1Database {
-  return sqlite as unknown as D1Database;
+function newSqliteD1(): SqliteD1 {
+  return new SqliteD1(MIGRATION, PRAGMAS);
 }
 
 async function gallery(sqlite: SqliteD1, workspace = "alpha") {
@@ -103,7 +35,7 @@ async function gallery(sqlite: SqliteD1, workspace = "alpha") {
 
 describe("gallery persistence against SQLite", () => {
   it("applies the migration with foreign keys and cascades hard deletes", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = newSqliteD1();
     try {
       const created = await gallery(sqlite);
       const item = await addGalleryItem(database(sqlite), "alpha", created.id, {
@@ -135,7 +67,7 @@ describe("gallery persistence against SQLite", () => {
   });
 
   it("keeps item mutations versioned, tenant-scoped, ordered, and idempotent", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = newSqliteD1();
     try {
       const created = await gallery(sqlite);
       const first = await addGalleryItem(database(sqlite), "alpha", created.id, {
@@ -194,7 +126,7 @@ describe("gallery persistence against SQLite", () => {
   });
 
   it("enforces the active-gallery cap atomically per workspace", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = newSqliteD1();
     try {
       for (let index = 0; index < MAX_GALLERIES_PER_WORKSPACE; index++) {
         await expect(gallery(sqlite)).resolves.toMatchObject({ workspace: "alpha" });
@@ -211,7 +143,7 @@ describe("gallery persistence against SQLite", () => {
   });
 
   it("enforces the item cap inside the conditional insert", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = newSqliteD1();
     try {
       const created = await gallery(sqlite);
       const insert = sqlite.db.prepare(
@@ -242,7 +174,7 @@ describe("gallery persistence against SQLite", () => {
   });
 
   it("keeps external-reference retries idempotent and removals precise", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = newSqliteD1();
     try {
       const created = await gallery(sqlite);
       const input = {
@@ -287,7 +219,7 @@ describe("gallery persistence against SQLite", () => {
   });
 
   it("allows only one of two concurrent same-version mutations to commit", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = newSqliteD1();
     try {
       const created = await gallery(sqlite);
       const results = await Promise.all([

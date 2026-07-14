@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
+import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 
@@ -11,20 +12,14 @@ import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 
 const TOKEN = "secret-token";
 
-interface MetaRow {
-  meta_key: string;
-  meta_value: string;
-}
-
 /**
- * Fake D1 backing `file_metadata` with a real in-memory store (mirrors
- * routes-files.test.ts's makeFakeDB), so this suite can assert on the
- * `metadata`/`github` DTO fields the public endpoint derives from real rows
- * rather than a stubbed-empty read.
+ * Fake D1 backing `file_metadata` with a real in-memory store (shared
+ * `FileMetadataTable`, also used by routes-files.test.ts), so this suite can
+ * assert on the `metadata`/`github` DTO fields the public endpoint derives
+ * from real rows rather than a stubbed-empty read.
  */
 function makeFakeDB() {
-  const metadata = new Map<string, Map<string, string>>();
-  const scopeKey = (workspace: string, objectKey: string) => `${workspace} ${objectKey}`;
+  const table = new FileMetadataTable();
 
   return {
     prepare(sql: string) {
@@ -39,30 +34,14 @@ function makeFakeDB() {
           return null;
         },
         async run() {
-          if (normalized.startsWith("INSERT INTO file_metadata")) {
-            const [workspace, objectKey, key, value] = args as [string, string, string, string];
-            const map = metadata.get(scopeKey(workspace, objectKey)) ?? new Map<string, string>();
-            map.set(key, value);
-            metadata.set(scopeKey(workspace, objectKey), map);
-          } else if (normalized.includes("meta_key = ?")) {
-            const [workspace, objectKey, key] = args as [string, string, string];
-            metadata.get(scopeKey(workspace, objectKey))?.delete(key);
-          } else if (normalized.startsWith("DELETE FROM file_metadata")) {
-            const [workspace, objectKey] = args as [string, string];
-            metadata.delete(scopeKey(workspace, objectKey));
-          }
-          return { success: true, meta: { changes: 0 }, results: [] };
+          return (
+            table.tryRun(normalized, args) ?? { success: true, meta: { changes: 0 }, results: [] }
+          );
         },
         async all<T>() {
-          if (normalized.startsWith("SELECT meta_key, meta_value FROM file_metadata")) {
-            const [workspace, objectKey] = args as [string, string];
-            const map = metadata.get(scopeKey(workspace, objectKey)) ?? new Map<string, string>();
-            const results = [...map.entries()].map(
-              ([meta_key, meta_value]) => ({ meta_key, meta_value }) as MetaRow,
-            );
-            return { success: true, results: results as T[], meta: {} };
-          }
-          return { success: true, results: [] as T[], meta: {} };
+          return (
+            table.tryAll<T>(normalized, args) ?? { success: true, results: [] as T[], meta: {} }
+          );
         },
       };
     },

@@ -1,7 +1,5 @@
 /// <reference types="node" />
 
-import { readFileSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
 import { AppError } from "@uploads/errors";
 import { describe, expect, it } from "vitest";
 import {
@@ -11,83 +9,13 @@ import {
   getFileMetadata,
   setFileMetadata,
 } from "../src/file-metadata";
+import { SqliteD1, database } from "./helpers/sqlite-d1";
 
-type SqliteValue = string | number | bigint | null | Uint8Array;
-
-class SqliteStatement {
-  private values: SqliteValue[] = [];
-
-  constructor(
-    readonly owner: SqliteD1,
-    readonly sql: string,
-  ) {}
-
-  bind(...values: unknown[]) {
-    this.values = values as SqliteValue[];
-    return this;
-  }
-
-  async first<T>(): Promise<T | null> {
-    return (this.owner.db.prepare(this.sql).get(...this.values) as T | undefined) ?? null;
-  }
-
-  async all<T>(): Promise<D1Result<T>> {
-    return {
-      success: true,
-      results: this.owner.db.prepare(this.sql).all(...this.values) as T[],
-      meta: {},
-    } as D1Result<T>;
-  }
-
-  async run(): Promise<D1Result> {
-    return this.runSync() as unknown as D1Result;
-  }
-
-  runSync() {
-    const result = this.owner.db.prepare(this.sql).run(...this.values);
-    return {
-      success: true,
-      results: [],
-      meta: { changes: Number(result.changes) },
-    };
-  }
-}
-
-class SqliteD1 {
-  readonly db = new DatabaseSync(":memory:");
-
-  constructor() {
-    this.db.exec(readFileSync("migrations/20260713210559_file_metadata.sql", "utf8"));
-  }
-
-  prepare(sql: string) {
-    return new SqliteStatement(this, sql);
-  }
-
-  async batch(statements: SqliteStatement[]): Promise<D1Result[]> {
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      const results = statements.map((statement) => statement.runSync() as unknown as D1Result);
-      this.db.exec("COMMIT");
-      return results;
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
-  }
-
-  close() {
-    this.db.close();
-  }
-}
-
-function database(sqlite: SqliteD1): D1Database {
-  return sqlite as unknown as D1Database;
-}
+const MIGRATION = "migrations/20260713210559_file_metadata.sql";
 
 describe("file metadata persistence against SQLite", () => {
   it("returns an empty map for an object with no metadata", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = new SqliteD1(MIGRATION);
     try {
       await expect(getFileMetadata(database(sqlite), "alpha", "f/one.png")).resolves.toEqual({});
     } finally {
@@ -96,7 +24,7 @@ describe("file metadata persistence against SQLite", () => {
   });
 
   it("sets, reads, and scopes metadata by workspace and object key", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = new SqliteD1(MIGRATION);
     try {
       const result = await setFileMetadata(database(sqlite), "alpha", "f/one.png", {
         app: "screenshots",
@@ -117,7 +45,7 @@ describe("file metadata persistence against SQLite", () => {
   });
 
   it("merges set and remove in the same call, upserting and deleting keys", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = new SqliteD1(MIGRATION);
     try {
       await setFileMetadata(database(sqlite), "alpha", "f/one.png", {
         app: "screenshots",
@@ -147,7 +75,7 @@ describe("file metadata persistence against SQLite", () => {
   });
 
   it("rejects a merge that would push the post-merge file over the key cap", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = new SqliteD1(MIGRATION);
     try {
       const initial: Record<string, string> = {};
       for (let i = 0; i < META_MAX_KEYS; i++) initial[`k${i}`] = "v";
@@ -167,7 +95,7 @@ describe("file metadata persistence against SQLite", () => {
   });
 
   it("allows a merge at the cap when it simultaneously removes a key", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = new SqliteD1(MIGRATION);
     try {
       const initial: Record<string, string> = {};
       for (let i = 0; i < META_MAX_KEYS; i++) initial[`k${i}`] = "v";
@@ -185,7 +113,7 @@ describe("file metadata persistence against SQLite", () => {
   });
 
   it("deletes all metadata for an object", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = new SqliteD1(MIGRATION);
     try {
       await setFileMetadata(database(sqlite), "alpha", "f/one.png", { app: "screenshots" });
       await deleteFileMetadata(database(sqlite), "alpha", "f/one.png");
@@ -196,7 +124,7 @@ describe("file metadata persistence against SQLite", () => {
   });
 
   it("finds only objects matching ALL AND-ed filters, scoped by workspace", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = new SqliteD1(MIGRATION);
     try {
       await setFileMetadata(database(sqlite), "alpha", "f/one.png", {
         app: "screenshots",
@@ -228,7 +156,7 @@ describe("file metadata persistence against SQLite", () => {
   });
 
   it("combines a key prefix filter with metadata AND-filters", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = new SqliteD1(MIGRATION);
     try {
       await setFileMetadata(database(sqlite), "alpha", "gh/one.png", { app: "gh" });
       await setFileMetadata(database(sqlite), "alpha", "screenshots/one.png", { app: "gh" });
@@ -246,7 +174,7 @@ describe("file metadata persistence against SQLite", () => {
   });
 
   it("treats an underscore in the prefix literally, not as a SQL LIKE wildcard", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = new SqliteD1(MIGRATION);
     try {
       await setFileMetadata(database(sqlite), "alpha", "my_app/x.png", { app: "a" });
       await setFileMetadata(database(sqlite), "alpha", "myxapp/x.png", { app: "a" });
@@ -264,7 +192,7 @@ describe("file metadata persistence against SQLite", () => {
   });
 
   it("respects a limit and returns an empty array for no filters or no matches", async () => {
-    const sqlite = new SqliteD1();
+    const sqlite = new SqliteD1(MIGRATION);
     try {
       await setFileMetadata(database(sqlite), "alpha", "f/one.png", { app: "a" });
       await setFileMetadata(database(sqlite), "alpha", "f/two.png", { app: "a" });

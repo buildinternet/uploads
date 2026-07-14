@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
+import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
 import { getFileMetadata } from "../src/file-metadata";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
@@ -23,17 +24,12 @@ beforeAll(() => {
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 
-interface MetaRow {
-  meta_key: string;
-  meta_value: string;
-}
-
 /**
  * Fake D1 that no-ops the usage-ledger surface (as before) but backs
- * `file_metadata` with a real in-memory store, so the metadata-cascade
- * behavior in `putObject`/`deleteObject` can be exercised at the route
- * level without a full sqlite-backed D1 (see file-metadata-sqlite.test.ts
- * for that).
+ * `file_metadata` with a real in-memory store (via the shared
+ * `FileMetadataTable`), so the metadata-cascade behavior in
+ * `putObject`/`deleteObject` can be exercised at the route level without a
+ * full sqlite-backed D1 (see file-metadata-sqlite.test.ts for that).
  */
 /** Optional scoped auth_tokens row, backing `findActiveToken` for scope-enforcement tests. */
 interface FakeAuthToken {
@@ -42,12 +38,10 @@ interface FakeAuthToken {
 }
 
 function makeFakeDB(authToken?: FakeAuthToken) {
-  // Keyed by `${workspace} ${objectKey}` -> ordered meta_key -> meta_value.
-  const metadata = new Map<string, Map<string, string>>();
-  const scopeKey = (workspace: string, objectKey: string) => `${workspace} ${objectKey}`;
+  const table = new FileMetadataTable();
 
   return {
-    metadata,
+    metadata: table.metadata,
     prepare(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       let args: unknown[] = [];
@@ -76,81 +70,14 @@ function makeFakeDB(authToken?: FakeAuthToken) {
           return null;
         },
         async run() {
-          if (normalized.startsWith("INSERT INTO file_metadata")) {
-            const [workspace, objectKey, key, value] = args as [string, string, string, string];
-            const map = metadata.get(scopeKey(workspace, objectKey)) ?? new Map<string, string>();
-            map.set(key, value);
-            metadata.set(scopeKey(workspace, objectKey), map);
-          } else if (normalized.includes("meta_key = ?")) {
-            // Single-key delete (`setFileMetadata`'s `remove` path).
-            const [workspace, objectKey, key] = args as [string, string, string];
-            metadata.get(scopeKey(workspace, objectKey))?.delete(key);
-          } else if (normalized.startsWith("DELETE FROM file_metadata")) {
-            // Whole-object delete (`deleteFileMetadata`).
-            const [workspace, objectKey] = args as [string, string];
-            metadata.delete(scopeKey(workspace, objectKey));
-          }
-          return { success: true, meta: { changes: 0 }, results: [] };
+          return (
+            table.tryRun(normalized, args) ?? { success: true, meta: { changes: 0 }, results: [] }
+          );
         },
         async all<T>() {
-          if (normalized.startsWith("SELECT meta_key, meta_value FROM file_metadata")) {
-            const [workspace, objectKey] = args as [string, string];
-            const map = metadata.get(scopeKey(workspace, objectKey)) ?? new Map<string, string>();
-            const results = [...map.entries()].map(
-              ([meta_key, meta_value]) => ({ meta_key, meta_value }) as MetaRow,
-            );
-            return { success: true, results: results as T[], meta: {} };
-          }
-          // findObjectsByMetadata's match query: ANDed equality filters
-          // (parsed by counting the repeated `(meta_key = ? AND meta_value = ?)`
-          // clause), an optional prefix LIKE, and a trailing HAVING-count +
-          // LIMIT. Mirrors the real SQL semantics against the in-memory store
-          // so route-level filter tests exercise real wiring, not a stub.
-          if (normalized.startsWith("SELECT object_key FROM file_metadata WHERE workspace")) {
-            const filterCount = (normalized.match(/meta_key = \? AND meta_value = \?/g) ?? [])
-              .length;
-            const hasPrefix = normalized.includes("object_key LIKE ? || '%'");
-            let idx = 0;
-            const workspace = args[idx++] as string;
-            const filters: Array<[string, string]> = [];
-            for (let i = 0; i < filterCount; i++) {
-              filters.push([args[idx] as string, args[idx + 1] as string]);
-              idx += 2;
-            }
-            const prefix = hasPrefix ? (args[idx++] as string) : undefined;
-            const requiredCount = args[idx++] as number;
-            const limit = args[idx++] as number;
-
-            const results: { object_key: string }[] = [];
-            const prefixMatch = `${workspace} `;
-            for (const [scopedKey, map] of metadata.entries()) {
-              if (!scopedKey.startsWith(prefixMatch)) continue;
-              const objectKey = scopedKey.slice(prefixMatch.length);
-              if (prefix && !objectKey.startsWith(prefix)) continue;
-              let matchCount = 0;
-              for (const [key, value] of filters) {
-                if (map.get(key) === value) matchCount++;
-              }
-              if (matchCount === requiredCount) results.push({ object_key: objectKey });
-            }
-            results.sort((a, b) =>
-              a.object_key < b.object_key ? -1 : a.object_key > b.object_key ? 1 : 0,
-            );
-            return { success: true, results: results.slice(0, limit) as T[], meta: {} };
-          }
-          if (normalized.startsWith("SELECT object_key, meta_key, meta_value FROM file_metadata")) {
-            const [workspace, ...keys] = args as [string, ...string[]];
-            const results: { object_key: string; meta_key: string; meta_value: string }[] = [];
-            for (const key of keys) {
-              const map = metadata.get(scopeKey(workspace, key));
-              if (!map) continue;
-              for (const [meta_key, meta_value] of map.entries()) {
-                results.push({ object_key: key, meta_key, meta_value });
-              }
-            }
-            return { success: true, results: results as T[], meta: {} };
-          }
-          return { success: true, results: [] as T[], meta: {} };
+          return (
+            table.tryAll<T>(normalized, args) ?? { success: true, results: [] as T[], meta: {} }
+          );
         },
       };
     },
