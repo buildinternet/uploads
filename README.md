@@ -1,14 +1,61 @@
-# uploads
+<div align="center">
 
-Lightweight file-hosting backend on Cloudflare Workers, built on
-[files-sdk](https://files-sdk.dev) so the storage layer is provider-agnostic
-(R2 today; any files-sdk adapter later).
+<img src="docs/assets/readme-home.png" alt="uploads.sh — agents can put screenshots on pull requests now, too" width="760">
 
-> **Active development — not production-ready.** uploads.sh is being built in
-> the open and its APIs (including auth) will change without notice. Don't rely
-> on it for anything you can't afford to lose or re-key.
+<h1>uploads</h1>
 
-## Agent quick start
+**Agents can put screenshots on pull requests now, too.**
+
+A lightweight file-hosting service on Cloudflare Workers. One command —
+`uploads attach` — hosts a file at a stable public URL and keeps one tidy
+attachments comment on the PR. Built on [files-sdk](https://files-sdk.dev) so
+the storage layer is provider-agnostic (R2 today; any files-sdk adapter later).
+
+<p>
+  <a href="https://uploads.sh"><b>uploads.sh</b></a> &nbsp;·&nbsp;
+  <a href="docs/"><b>Docs</b></a> &nbsp;·&nbsp;
+  <a href="https://www.npmjs.com/package/@buildinternet/uploads"><b>npm →</b></a> &nbsp;·&nbsp;
+  <a href="#use-it">Use it</a> &nbsp;·&nbsp;
+  <a href="#whats-in-this-repo">What's in this repo</a> &nbsp;·&nbsp;
+  <a href="#local-development">Develop</a>
+</p>
+
+<p>
+  <a href="https://github.com/buildinternet/uploads/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/buildinternet/uploads/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://www.npmjs.com/package/@buildinternet/uploads"><img alt="npm (CLI)" src="https://img.shields.io/npm/v/@buildinternet/uploads?color=cb3837&label=%40buildinternet%2Fuploads&logo=npm"></a>
+  <a href="https://deepwiki.com/buildinternet/uploads"><img alt="Ask DeepWiki" src="https://deepwiki.com/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue"></a>
+</p>
+
+<p><sub>
+  <b>Active development — not production-ready.</b> uploads.sh is being built in
+  the open and its APIs (including auth) will change without notice. Don't rely
+  on it for anything you can't afford to lose or re-key.
+</sub></p>
+
+</div>
+
+---
+
+## What is this?
+
+You add a screenshot to GitHub by dragging it into the comment box. Agents
+can't — GitHub's native image hosting only works through a browser session, so
+an agent that just captured a before/after has nowhere to put it.
+
+**uploads** gives agents that missing step: a CLI and REST API that host files
+at stable, public URLs and return ready-to-paste Markdown. `--pr`/`--issue`
+keys are hash-free, so re-uploading the same filename overwrites in place and
+the URL never changes, and a managed attachments comment keeps every file for
+a PR in one tidy place. Workspaces keep tenants (and their budgets and key
+policies) apart.
+
+This repo is the source of the canonical deployment at
+[uploads.sh](https://uploads.sh): the API worker, auth worker, MCP server, the
+Astro web app, and the `@buildinternet/uploads` CLI (published to npm from
+[`packages/uploads`](packages/uploads)).
+
+## Use it
 
 Install the CLI, sign in once, then attach media from a checked-out PR branch:
 
@@ -25,180 +72,81 @@ npx @buildinternet/uploads login
 npx @buildinternet/uploads attach ./before.png ./after.png
 ```
 
-`attach` detects the GitHub repository and current PR through `gh`, uploads all
-files, and creates or updates one managed attachments comment. Use
-`--pr <number>` or `--issue <number>` when inference is not possible, and
-`--no-comment` when only the public URLs and Markdown are wanted.
+`attach` detects the GitHub repository and current PR through `gh`, uploads
+all files, and creates or updates one managed attachments comment.
 
 An uploads.sh administrator invites your email to a workspace; `uploads login`
 opens a browser to sign in (GitHub or a magic link) and saves the resulting
-workspace token. Routine agents never receive or need `ADMIN_TOKEN`. See
-[enrollment](docs/enrollment.md). Hosted files are public, including media
-attached to private repositories. Do not upload secrets or sensitive UI.
+workspace token — see [enrollment](docs/enrollment.md). Hosted files are
+public, including media attached to private repositories. Do not upload
+secrets or sensitive UI.
 
-For agent runtimes, install the checked-in skill as well:
+**Agent skill** — an auto-triggering playbook for the CLI, installable into
+any agent runtime without checking out anything:
 
 ```bash
 npx skills add buildinternet/uploads --skill uploads-cli
 ```
 
-## Local development quick start
+Full CLI usage — key conventions, stable PR/issue attachments, managed
+comments, and public galleries — lives in [docs/cli.md](docs/cli.md). REST
+routes are in [docs/api.md](docs/api.md).
 
-**Prerequisites:** Node ≥24 and pnpm ≥11 (`corepack enable`; versions pinned in
-`package.json` / `.nvmrc`). No Cloudflare account is required for the core
-local loop — `wrangler dev` simulates R2, KV, and D1 on disk.
+## What's in this repo
 
-```bash
-pnpm bootstrap        # tooling, deps, API/Auth vars, types, local D1 migrations, default workspace
-pnpm doctor           # diagnose the setup — reports what's missing and how to fix it
+| Path                  | What                                                      |
+| --------------------- | --------------------------------------------------------- |
+| `apps/api/`           | Hono worker — REST API, deploys to `api.uploads.sh`       |
+| `apps/auth/`          | Better Auth worker — sessions, enrollment, device flow    |
+| `apps/mcp/`           | Remote MCP server                                         |
+| `apps/web/`           | Astro site — uploads.sh, account and admin UI             |
+| `packages/storage/`   | `@uploads/storage` — files-sdk adapter factory            |
+| `packages/uploads/`   | `@buildinternet/uploads` — CLI + client, publishes to npm |
+| `packages/ui/`        | `@uploads/ui` — shared design system                      |
+| `skills/uploads-cli/` | Agent skill for driving the CLI                           |
 
-pnpm dev              # API on :8787 (local R2 + KV + D1)
-pnpm dev:web          # Astro site
-pnpm dev:stack        # authenticated Auth + API + Web stack, ready at 127.0.0.1:4321
-pnpm dev:stack:check --json  # machine-readable readiness + session/API smoke proof
-pnpm check            # lint + format (CI gate)
-pnpm typecheck        # wrangler types + tsc across workspaces
-```
-
-`bootstrap` is idempotent (safe to re-run; never overwrites your env files or
-re-mints an existing local workspace) and `doctor` is read-only. `dev:stack`
-uses the real Workers, Better Auth cookie, service binding, membership checks,
-and local R2; it starts an ordinary `dev-demo` member and nested PNG fixtures.
-Stop it with <kbd>Ctrl-C</kbd>; the supervisor reaps every Worker/miniflare
-process group. Prefer the manual steps?
-
-```bash
-pnpm install
-cp apps/api/.dev.vars.example apps/api/.dev.vars   # set ADMIN_TOKEN to any non-empty string
-cp apps/auth/.dev.vars.example apps/auth/.dev.vars # set a 32+ character BETTER_AUTH_SECRET_DEV
-cp .env.example .env                               # point UPLOADS_API_URL at http://127.0.0.1:8787
-pnpm types
-pnpm --filter @uploads/api run migrate:d1:local
-pnpm --filter @uploads/auth run migrate:d1:local
-pnpm workspace:add default --local                 # prints a bearer token once — save to .env
-pnpm dev
-```
-
-Upload a file (with `UPLOADS_TOKEN` from workspace seed in the environment or `.env`):
-
-```bash
-curl -X PUT http://127.0.0.1:8787/v1/default/files/test.txt \
-  -H "Authorization: Bearer $UPLOADS_TOKEN" \
-  -H "Content-Type: text/plain" \
-  --data-binary "hello"
-```
-
-### CLI
-
-The `@buildinternet/uploads` package wraps the API for scripting and GitHub
-image embeds. Product examples use the global `uploads` binary (same as after
-`npm install -g`). `pnpm workspace:add` prints a bearer token once — save it
-with `uploads setup --token <token>` or into `.env` / user config.
-
-```bash
-uploads put ./shot.png
-# stdout: public URL + ready-to-paste markdown; stderr: human summary
-```
-
-Inside this monorepo only, `pnpm uploads …` builds the package first so you
-pick up local source.
-
-**How keys work:** default `put` lands under `screenshots/…`. Prefer
-`--destination screenshots` (or `gh` with `--pr`/`--issue`) over inventing roots —
-workspaces may allowlist only those destinations. Use `--pr`/`--issue` for stable,
-hash-free GitHub keys; use `--key` only for an exact path under an allowed root.
-
-More output control:
-
-```bash
-uploads put ./shot.png --format url
-uploads put ./shot.png --repo myorg/myapp --ref 1722 --width 700
-uploads put ./mobile.png --frame phone
-uploads --version
-uploads doctor
-```
-
-See [`packages/uploads/README.md`](packages/uploads/README.md) for globals
-(`--version`, update hints, quiet/json) and the full command list.
-
-### Public galleries
-
-Galleries are ordered collections of existing workspace uploads with an opaque public URL.
-Create one and add uploads with the installed CLI:
-
-```bash
-uploads gallery create --title "Release screenshots"
-uploads put ./after.png --gallery gal_example
-uploads gallery show gal_example
-uploads gallery link gal_example --github buildinternet/uploads#58
-uploads gallery list --github https://github.com/buildinternet/uploads/pull/58
-```
-
-> **Privacy:** A gallery is public to anyone with its URL; it does not inherit GitHub or
-> repository visibility. Removing or deleting a gallery does not delete its uploaded media or
-> exempt it from retention.
-
-Use `uploads gallery link <gallery-id> --github <owner/repo#number>` to record an optional GitHub issue or PR reference. `uploads gallery list --github <coordinate-or-github-url>` performs an authenticated reverse lookup. The link does not change gallery identity or visibility.
-
-### GitHub embeds
-
-GitHub's native image hosting only works through a browser session — agents
-and `gh` need a public URL first. The CLI uploads to R2 and returns stable
-markdown you can drop into a PR or issue.
-
-**Stable PR/issue attachments** (`--pr` / `--issue`) use hash-free keys so
-re-uploading the same filename overwrites in place and the URL never changes:
-
-```bash
-uploads put ./after.png --pr 123 --alt "Dashboard after"
-# key: gh/<owner>/<repo>/pull/123/after.png
-```
-
-**Managed attachments comment** (`--comment`, requires local `gh` auth)
-creates or updates a single comment listing every file attached to that
-PR/issue — the upload still succeeds if `gh` is unavailable:
-
-```bash
-uploads put ./after.png --pr 123 --comment
-uploads comment --pr 123   # re-sync without uploading
-```
-
-> **Privacy:** Hosted files are served from a public CDN with no link to GitHub
-> repo visibility. A screenshot on a private PR is still reachable by anyone who
-> knows or guesses the URL — `--pr`/`--issue` keys embed the repo path and
-> filename (`gh/myorg/myapp/pull/123/after.png`), so generic names are easier
-> to guess than hashed keys. Treat uploads as public; don't host secrets or
-> sensitive UI. Tighter access controls for private repos are planned — see
-> [roadmap](docs/roadmap.md).
-
-See `skills/uploads-cli/SKILL.md` for agent-oriented usage and
-[docs/api.md](docs/api.md) for REST routes.
-
-## Layout
-
-```
-apps/api            Hono worker — REST API, deploys to api.uploads.sh
-apps/web            Astro placeholder — future browse/manage UI
-packages/storage    @uploads/storage — files-sdk adapter factory
-packages/uploads    @buildinternet/uploads — CLI + client for GitHub image embeds
-skills/uploads-cli  Agent skill for driving the CLI
-```
-
-The API and web app are separate deployables. All storage access goes through
-`createStorage()` in `packages/storage` — adding a provider is one new case
-plus peer deps, no API changes.
+The workers and web app are separate deployables. All storage access goes
+through `createStorage()` in `packages/storage` — adding a provider is one new
+case plus peer deps, no API changes.
 
 ## Docs
 
 | Doc                                          | Contents                                            |
 | -------------------------------------------- | --------------------------------------------------- |
+| [cli](docs/cli.md)                           | CLI usage, GitHub embeds, keys, galleries           |
+| [api](docs/api.md)                           | REST routes                                         |
+| [local-dev](docs/local-dev.md)               | Manual setup, dev stack, smoke tests                |
 | [workspaces](docs/workspaces.md)             | Multi-tenant model, budgets, key policy, BYO-bucket |
-| [ops](docs/ops.md)                           | Operator runbook (limits, retention, secrets)       |
 | [enrollment](docs/enrollment.md)             | Agent login, scopes, expiry, and migration          |
 | [admin-tokens](docs/admin-tokens.md)         | Minting, listing, and revoking upload tokens        |
-| [api](docs/api.md)                           | REST routes and CLI usage                           |
+| [ops](docs/ops.md)                           | Operator runbook (limits, retention, secrets)       |
 | [deploy](docs/deploy.md)                     | Cloudflare setup and production deploy              |
 | [contract testing](docs/contract-testing.md) | Deployed smoke checks and release gate              |
 | [roadmap](docs/roadmap.md)                   | Planned features                                    |
 
 Agent and contributor conventions live in [AGENTS.md](AGENTS.md).
+
+## Local development
+
+**Prerequisites:** Node ≥24 and pnpm ≥11 (`corepack enable`). No Cloudflare
+account needed for the core local loop — `wrangler dev` simulates R2, KV, and
+D1 on disk:
+
+```bash
+pnpm bootstrap        # one-command setup: tooling, deps, env vars, local D1, default workspace
+pnpm doctor           # diagnose the setup — reports what's missing and how to fix it
+
+pnpm dev              # API on :8787 (local R2 + KV + D1)
+pnpm dev:stack        # authenticated Auth + API + Web stack at 127.0.0.1:4321
+pnpm check            # lint + format (the CI gate)
+pnpm typecheck        # wrangler types + tsc across workspaces
+```
+
+`bootstrap` is idempotent (safe to re-run; never overwrites your env files or
+re-mints an existing local workspace) and `doctor` is read-only. Manual setup
+steps, the full dev-stack detail, and a curl smoke test live in
+[docs/local-dev.md](docs/local-dev.md).
+
+## License
+
+[MIT](LICENSE).
