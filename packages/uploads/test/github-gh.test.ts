@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import { ATTACHMENTS_MARKER, type GhTarget } from "../src/github.js";
-import { resolveRepo, upsertAttachmentsComment, type CommandRunner } from "../src/github-gh.js";
+import {
+  classifyGhNumber,
+  resolveRepo,
+  upsertAttachmentsComment,
+  type CommandRunner,
+} from "../src/github-gh.js";
 
 /** Fake runner: matches on command name, records calls. */
 function fakeRunner(handlers: Record<string, (args: string[], input?: string) => string>) {
@@ -87,5 +92,33 @@ describe("upsertAttachmentsComment", () => {
     expect(patch.args).toContain("repos/o/r/issues/comments/42");
     expect(patch.args).toContain("PATCH");
     expect(patch.input).toContain("new body");
+  });
+});
+
+describe("classifyGhNumber", () => {
+  it("classifies a pull request", () => {
+    const run: CommandRunner = (cmd, args) => {
+      expect(cmd).toBe("gh");
+      expect(args).toContain("repos/o/r/issues/280");
+      return "pull\n";
+    };
+    expect(classifyGhNumber("o/r", 280, run)).toEqual({ repo: "o/r", kind: "pull", num: 280 });
+  });
+
+  it("classifies an issue (GhTarget.kind is 'issues')", () => {
+    const run: CommandRunner = () => "issue\n";
+    expect(classifyGhNumber("o/r", 700, run)).toEqual({ repo: "o/r", kind: "issues", num: 700 });
+  });
+
+  it("returns undefined when gh throws", () => {
+    const run: CommandRunner = () => {
+      throw new Error("gh: Not Found");
+    };
+    expect(classifyGhNumber("o/r", 999, run)).toBeUndefined();
+  });
+
+  it("returns undefined on unexpected output", () => {
+    const run: CommandRunner = () => "weird\n";
+    expect(classifyGhNumber("o/r", 1, run)).toBeUndefined();
   });
 });

@@ -71,6 +71,32 @@ export function resolveCurrentPullRequest(repo: string, run: CommandRunner = exe
   );
 }
 
+/**
+ * Classify a bare PR/issue number via the GitHub API so the default `put`
+ * path can stamp the right `gh.kind`. Returns undefined on any failure (gh
+ * missing, 404, network) — the caller treats that as "no gh context" and
+ * uploads without metadata.
+ */
+export function classifyGhNumber(
+  repo: string,
+  num: number,
+  run: CommandRunner = execRunner,
+): GhTarget | undefined {
+  try {
+    const out = run("gh", [
+      "api",
+      `repos/${repo}/issues/${num}`,
+      "--jq",
+      'if .pull_request then "pull" else "issue" end',
+    ]).trim();
+    if (out === "pull") return { repo, kind: "pull", num };
+    if (out === "issue") return { repo, kind: "issues", num };
+  } catch {
+    // gh missing / not found / network — caller skips
+  }
+  return undefined;
+}
+
 interface GhComment {
   id: number;
   body: string;

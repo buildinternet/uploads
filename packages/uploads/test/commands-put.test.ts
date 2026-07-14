@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import { UploadsError } from "../src/errors.js";
 import type { UploadsClient } from "../src/client.js";
@@ -379,5 +379,216 @@ describe("runPut --meta", () => {
     await expect(
       runPut(ctxWith(client), [tmpFile(), "--meta", "noequals"], false, noRun),
     ).rejects.toThrow(UsageError);
+  });
+});
+
+describe("runPut gh.* metadata (explicit target)", () => {
+  it("stamps gh.* on the --pr path", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [tmpFile(), "--pr", "128", "--repo", "o/r"], false, noRun);
+    expect(puts[0].metadata).toMatchObject({
+      "gh.repo": "o/r",
+      "gh.kind": "pull",
+      "gh.number": "128",
+      "gh.ref": "o/r#128",
+    });
+  });
+
+  it("stamps gh.kind=issue on the --issue path", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [tmpFile(), "--issue", "7", "--repo", "o/r"], false, noRun);
+    expect(puts[0].metadata).toMatchObject({ "gh.kind": "issue", "gh.number": "7" });
+  });
+
+  it("explicit target wins over a same-key --meta", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "9", "--repo", "o/r", "--meta", "gh.number=999"],
+      false,
+      noRun,
+    );
+    expect(puts[0].metadata!["gh.number"]).toBe("9");
+  });
+});
+
+/** Fake gh: answers `gh pr view` (branch→PR) and `gh api` (classify). */
+function ghRunner(opts: { pr?: number; classify?: "pull" | "issue" }): CommandRunner {
+  return (cmd, args) => {
+    if (cmd === "gh" && args[0] === "repo") return "o/r\n"; // resolveRepo fallback
+    if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+      if (opts.pr) return `${opts.pr}\n`;
+      throw new Error("no pull request found");
+    }
+    if (cmd === "gh" && args[0] === "api") return `${opts.classify ?? "pull"}\n`;
+    throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+  };
+}
+
+describe("runPut auto gh.* metadata (default path)", () => {
+  it("stamps the current branch PR on a plain put", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [tmpFile(), "--repo", "o/r"], false, ghRunner({ pr: 481 }));
+    expect(puts[0].key).toBeUndefined(); // still the screenshots default key
+    expect(puts[0].metadata).toMatchObject({
+      "gh.repo": "o/r",
+      "gh.kind": "pull",
+      "gh.number": "481",
+      "gh.ref": "o/r#481",
+    });
+  });
+
+  it("classifies a numeric --ref as an issue", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "o/r", "--ref", "700"],
+      false,
+      ghRunner({ classify: "issue" }),
+    );
+    expect(puts[0].metadata).toMatchObject({
+      "gh.kind": "issue",
+      "gh.number": "700",
+      "gh.ref": "o/r#700",
+    });
+  });
+
+  it("uploads without metadata when no PR resolves", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runPut(ctxWith(client), [tmpFile(), "--repo", "o/r"], false, ghRunner({}));
+    expect(code).toBe(0);
+    expect(puts[0].metadata).toBeUndefined();
+  });
+
+  it("--no-auto suppresses auto resolution", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "o/r", "--no-auto"],
+      false,
+      ghRunner({ pr: 481 }),
+    );
+    expect(puts[0].metadata).toBeUndefined();
+  });
+
+  it("UPLOADS_NO_AUTO_META=1 suppresses auto resolution end-to-end", async () => {
+    const prev = process.env.UPLOADS_NO_AUTO_META;
+    process.env.UPLOADS_NO_AUTO_META = "1";
+    try {
+      const { client, puts } = fakeClient();
+      await runPut(ctxWith(client), [tmpFile(), "--repo", "o/r"], false, ghRunner({ pr: 481 }));
+      expect(puts[0].metadata).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.UPLOADS_NO_AUTO_META;
+      else process.env.UPLOADS_NO_AUTO_META = prev;
+    }
+  });
+
+  it("explicit --meta wins over auto-derived gh.*", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "o/r", "--meta", "gh.number=5"],
+      false,
+      ghRunner({ pr: 481 }),
+    );
+    expect(puts[0].metadata!["gh.number"]).toBe("5");
+  });
+});
+
+/** 21 distinct valid `--meta k=v` flags: 21 + 4 gh.* = 25, one over META_MAX_KEYS (24). */
+function metaFlagsNearCap(): string[] {
+  const flags: string[] = [];
+  for (let i = 0; i < 21; i++) {
+    flags.push("--meta", `k${i}=v${i}`);
+  }
+  return flags;
+}
+
+describe("runPut gh.* metadata cap enforcement", () => {
+  it("explicit path throws when the merged map exceeds the key cap", async () => {
+    const { client, puts } = fakeClient();
+    await expect(
+      runPut(
+        ctxWith(client),
+        [tmpFile(), ...metaFlagsNearCap(), "--pr", "9", "--repo", "o/r"],
+        false,
+        noRun,
+      ),
+    ).rejects.toThrow(UsageError);
+    expect(puts).toEqual([]);
+  });
+
+  it("auto path drops gh.* and succeeds when the merged map exceeds the key cap", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runPut(
+      ctxWith(client),
+      [tmpFile(), ...metaFlagsNearCap(), "--repo", "o/r"],
+      false,
+      ghRunner({ pr: 481 }),
+    );
+    expect(code).toBe(0);
+    expect(puts[0].metadata).toBeDefined();
+    expect(puts[0].metadata!["gh.repo"]).toBeUndefined();
+    expect(puts[0].metadata!["k0"]).toBe("v0");
+    expect(puts[0].metadata!["k20"]).toBe("v20");
+    expect(Object.keys(puts[0].metadata!)).toHaveLength(21);
+  });
+
+  it("--auto cannot force auto resolution past --no-git", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "o/r", "--auto", "--no-git"],
+      false,
+      ghRunner({ pr: 481 }),
+    );
+    expect(puts[0].metadata).toBeUndefined();
+  });
+
+  it("--auto takes no value", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), [tmpFile(), "--auto=1", "--repo", "o/r"], false, noRun),
+    ).rejects.toThrow(UsageError);
+  });
+});
+
+describe("runPut gh.* attach success note", () => {
+  /** Run `fn` with process.stderr.write captured, returning the concatenated output. */
+  async function captureStderr(fn: () => Promise<unknown>): Promise<string> {
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      await fn();
+      return writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    } finally {
+      writeSpy.mockRestore();
+    }
+  }
+
+  it("prints a success note when gh.* metadata is attached", async () => {
+    const { client } = fakeClient();
+    const output = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        ghRunner({ pr: 481 }),
+      ),
+    );
+    expect(output).toContain("attached to o/r#481");
+  });
+
+  it("stays silent when no PR resolves", async () => {
+    const { client } = fakeClient();
+    const output = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        ghRunner({}),
+      ),
+    );
+    expect(output).not.toContain("attached to");
   });
 });
