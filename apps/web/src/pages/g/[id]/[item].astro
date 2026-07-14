@@ -1,8 +1,9 @@
 ---
 import BaseHead from "../../../components/BaseHead.astro";
-import GalleryReferences from "../../../components/GalleryReferences.astro";
 import Brand from "../../../components/Brand.astro";
+import CopyAsControls from "../../../components/CopyAsControls.astro";
 import Footer from "../../../components/Footer.astro";
+import GalleryReferences from "../../../components/GalleryReferences.astro";
 import { buildEmbedFormats, type EmbedFormatOption } from "../../../lib/embed-formats";
 import {
   applyPublicGalleryHeaders,
@@ -55,9 +56,6 @@ const embedFormats: EmbedFormatOption[] =
     : [];
 const downloadUrl =
   item && item.status === "available" ? galleryItemDownloadUrl(origin, id, item.id) : null;
-// The "Copy as" input/button start on the first format (Page link) until the
-// select is changed client-side.
-const defaultCopyValue = embedFormats[0]?.value ?? canonical;
 ---
 
 <!doctype html>
@@ -91,80 +89,6 @@ const defaultCopyValue = embedFormats[0]?.value ?? canonical;
       .caption { margin-top:10px; color:var(--body); font-size:15px; line-height:1.6; white-space:pre-wrap; }
       .original { display:inline-block; margin-top:12px; color:var(--muted); font:12px var(--mono); }
       .original:hover, .original:focus-visible { color:var(--accent); outline:none; }
-      .actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        align-items: center;
-        margin-top: 14px;
-      }
-      .actions a.original {
-        display: inline-block;
-        padding: 9px 15px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-md);
-        background: var(--panel);
-        color: var(--fg);
-        font: 12px var(--mono);
-        text-decoration: none;
-        margin-top: 0;
-      }
-      .actions a.original:hover,
-      .actions a.original:focus-visible {
-        border-color: var(--accent);
-        color: var(--accent);
-        outline: none;
-      }
-      .linkfield {
-        flex: 1;
-        min-width: 260px;
-      }
-      .linkfield label {
-        display: block;
-        color: var(--muted);
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        font: 11px var(--mono);
-        margin-bottom: 5px;
-      }
-      .copyrow {
-        display: flex;
-        gap: 6px;
-        align-items: stretch;
-      }
-      .copyrow select {
-        padding: 8px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-md);
-        background: var(--bg);
-        color: var(--body);
-        font: 12px var(--mono);
-      }
-      .copyrow input {
-        flex: 1;
-        min-width: 0;
-        padding: 8px 10px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-md);
-        background: var(--bg);
-        color: var(--body);
-        font: 12px var(--mono);
-      }
-      .copyrow button {
-        padding: 8px 12px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-md);
-        background: var(--panel);
-        color: var(--fg);
-        font: 12px var(--mono);
-        cursor: pointer;
-      }
-      .copyrow button:hover,
-      .copyrow button:focus-visible {
-        border-color: var(--accent);
-        color: var(--accent);
-        outline: none;
-      }
       .pager { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:22px 0 0; font:13px var(--mono); }
       .pager a, .pager span.disabled { display:inline-block; padding:10px 16px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel); color:var(--fg); text-decoration:none; }
       .pager a:hover, .pager a:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
@@ -195,21 +119,11 @@ const defaultCopyValue = embedFormats[0]?.value ?? canonical;
             <figcaption class="details" id="item-caption">
               <div class="filename">{item.filename}</div>
               {item.caption && <div class="caption">{item.caption}</div>}
-              {item.status === "available" && kind(item) !== "unsupported" && <a class="original" href={item.url!} rel="noopener noreferrer">Open original</a>}
+              {item.status === "available" && kind(item) !== "unsupported" && (
+                <a class="original" href={item.url!} rel="noopener noreferrer">Open original</a>
+              )}
               {item.status === "available" && (
-                <div class="actions">
-                  {downloadUrl && <a class="original download" href={downloadUrl} rel="noopener noreferrer">Download</a>}
-                  <span class="linkfield">
-                    <label for="copy-format">Copy as</label>
-                    <div class="copyrow">
-                      <select id="copy-format" aria-label="Copy as format">
-                        {embedFormats.map((format) => <option value={format.id}>{format.label}</option>)}
-                      </select>
-                      <input id="copy-value" type="text" readonly value={defaultCopyValue} aria-label="Value to copy" />
-                      <button type="button" id="copy-format-btn" data-copy={defaultCopyValue} aria-live="polite">Copy</button>
-                    </div>
-                  </span>
-                </div>
+                <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl} />
               )}
             </figcaption>
           </figure>
@@ -225,45 +139,5 @@ const defaultCopyValue = embedFormats[0]?.value ?? canonical;
         <section class="error"><code>{result.status === "unavailable" ? "gallery.unavailable" : "gallery.item_not_found"}</code><h1>{result.status === "unavailable" ? "Gallery temporarily unavailable" : "Media not found"}</h1><p>{result.status === "unavailable" ? "The gallery service could not be reached. Please try again shortly." : "This item may have been removed, or the link is incorrect."}</p>{result.status !== "unavailable" && <p><a href={listPath}>View the gallery</a></p>}</section>
       )}
     </main>
-    {item && item.status === "available" && (
-      // Click-to-copy + "Copy as" format switching — same delegated-listener
-      // pattern as the public file page's Task 8 script; the gallery CSP was
-      // widened for inline script in Task 6. Download needs no script — it's
-      // a plain <a> to Task 4's `/download` suffix route.
-      <script define:vars={{ formats: embedFormats }}>
-        (function () {
-          const shell = document.querySelector(".shell");
-          if (!shell) return;
-
-          shell.addEventListener("click", (event) => {
-            void (async () => {
-              const button = event.target.closest("button[data-copy]");
-              if (!button) return;
-              try {
-                await navigator.clipboard.writeText(button.dataset.copy || "");
-                const original = button.dataset.copyLabel ?? button.textContent ?? "Copy";
-                button.dataset.copyLabel = original;
-                button.textContent = "copied ✓";
-                setTimeout(() => (button.textContent = original), 1500);
-              } catch {
-                // Clipboard blocked — leave the label.
-              }
-            })();
-          });
-
-          const select = document.getElementById("copy-format");
-          const input = document.getElementById("copy-value");
-          const copyButton = document.getElementById("copy-format-btn");
-          if (select instanceof HTMLSelectElement && input instanceof HTMLInputElement && copyButton) {
-            select.addEventListener("change", () => {
-              const format = formats.find((f) => f.id === select.value) ?? formats[0];
-              if (!format) return;
-              input.value = format.value;
-              copyButton.dataset.copy = format.value;
-            });
-          }
-        })();
-      </script>
-    )}
   </body>
 </html>
