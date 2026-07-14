@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { downloadResponse } from "../files-core";
 import { listExternalReferences, listGalleryItems, resolvePublicGallery } from "../galleries";
 import { hydratePublicGallery } from "../gallery-service";
-import { storage } from "../storage";
+import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { type WorkspaceRecord, type WorkspaceVars } from "../workspace";
 
 export const publicGalleries = new Hono<WorkspaceVars>()
@@ -27,6 +27,18 @@ export const publicGalleries = new Hono<WorkspaceVars>()
     if (!(await store.exists(item.object_key))) {
       throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
     }
+
+    // Mirrors hydrateGalleryItems (gallery-service.ts): the object may have
+    // been public at item-add time but the workspace's publicBaseUrl is
+    // mutable afterward. Withhold the bytes here exactly when the gallery's
+    // own read path would withhold the URL, so this route can't be used to
+    // bypass that gate.
+    const config = await storageConfig(c.env, workspace);
+    const urls = objectPublicUrls(c.env, config, item.object_key);
+    if (!urls.url) {
+      throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
+    }
+
     const filename = item.object_key.split("/").filter(Boolean).pop() ?? item.object_key;
     return downloadResponse(store, item.object_key, filename);
   })
