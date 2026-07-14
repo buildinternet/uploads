@@ -34,6 +34,7 @@ import {
 import {
   resolveRepo,
   resolveCurrentPullRequest,
+  classifyGhNumber,
   execRunner,
   upsertAttachmentsComment,
   type CommandRunner,
@@ -109,6 +110,8 @@ Options:
   --optimize-quality <1-100>  WebP quality (default: 85)
   --keep-exif           Keep EXIF/XMP/ICC when optimizing (default: strip for privacy)
   --no-git              Don't derive --repo from git (or UPLOADS_NO_GIT=1)
+  --auto                Resolve current PR/issue and stamp gh.* metadata (default on)
+  --no-auto             Skip gh.* auto-resolution on the default path (or UPLOADS_NO_AUTO_META=1)
   --workspace, -w <name>  Override workspace (wins over UPLOADS_WORKSPACE and token inference)
   --format human|url|markdown|json
   --pr <num>            Attach to a pull request: key gh/<owner>/<repo>/pull/<num>/<name> (stable URL, no hash)
@@ -161,6 +164,28 @@ function ghTargetFromFlags(flags: CommandFlags["flags"], run: CommandRunner): Gh
     flagString(flags, "--repo"),
     run,
   );
+}
+
+/**
+ * Best-effort GitHub target for the default put path (no --pr/--issue). A
+ * numeric --ref is classified as pull vs issue; otherwise the current branch's
+ * PR is resolved. Never throws — any failure yields undefined so the upload
+ * proceeds without gh metadata.
+ */
+function resolveAutoGhTarget(
+  repoArg: string | undefined,
+  ref: string | undefined,
+  run: CommandRunner,
+): GhTarget | undefined {
+  try {
+    const repo = resolveRepo(repoArg, run);
+    if (ref !== undefined && /^\d+$/.test(ref) && Number(ref) > 0) {
+      return classifyGhNumber(repo, Number.parseInt(ref, 10), run);
+    }
+    return resolveCurrentPullRequest(repo, run);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Shared put/attach optimize flags + UPLOADS_NO_OPTIMIZE default. */
@@ -587,10 +612,24 @@ export async function runPut(
   }
 
   const noGit = flagBool(parsed.flags, "--no-git") || defaults.noGit === true;
-  // gh.* metadata from an explicit --pr/--issue target (target wins over --meta).
+  // gh.* metadata: explicit --pr/--issue target wins over --meta; otherwise
+  // best-effort auto resolution (on by default) where --meta wins. Auto is off
+  // when --no-auto, --no-git, or UPLOADS_NO_AUTO_META is set (unless --auto forces it).
   let metadata = userMeta;
   if (ghTarget) {
     metadata = { ...userMeta, ...ghMetadataFromTarget(ghTarget) };
+  } else {
+    const autoEnabled =
+      flagBool(parsed.flags, "--auto") ||
+      (!flagBool(parsed.flags, "--no-auto") && defaults.noAutoMeta !== true && !noGit);
+    if (autoEnabled) {
+      const autoTarget = resolveAutoGhTarget(
+        flagString(parsed.flags, "--repo") ?? defaults.repo,
+        flagString(parsed.flags, "--ref") ?? defaults.ref,
+        run,
+      );
+      if (autoTarget) metadata = { ...ghMetadataFromTarget(autoTarget), ...userMeta };
+    }
   }
   let key = ghTarget ? ghAttachmentKey(ghTarget, filename) : keyHint;
   if (key && prepared.optimized) key = rewriteKeyExtension(key, filename);

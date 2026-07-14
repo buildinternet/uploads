@@ -411,3 +411,74 @@ describe("runPut gh.* metadata (explicit target)", () => {
     expect(puts[0].metadata!["gh.number"]).toBe("9");
   });
 });
+
+/** Fake gh: answers `gh pr view` (branch→PR) and `gh api` (classify). */
+function ghRunner(opts: { pr?: number; classify?: "pull" | "issue" }): CommandRunner {
+  return (cmd, args) => {
+    if (cmd === "gh" && args[0] === "repo") return "o/r\n"; // resolveRepo fallback
+    if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+      if (opts.pr) return `${opts.pr}\n`;
+      throw new Error("no pull request found");
+    }
+    if (cmd === "gh" && args[0] === "api") return `${opts.classify ?? "pull"}\n`;
+    throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+  };
+}
+
+describe("runPut auto gh.* metadata (default path)", () => {
+  it("stamps the current branch PR on a plain put", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [tmpFile(), "--repo", "o/r"], false, ghRunner({ pr: 481 }));
+    expect(puts[0].key).toBeUndefined(); // still the screenshots default key
+    expect(puts[0].metadata).toMatchObject({
+      "gh.repo": "o/r",
+      "gh.kind": "pull",
+      "gh.number": "481",
+      "gh.ref": "o/r#481",
+    });
+  });
+
+  it("classifies a numeric --ref as an issue", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "o/r", "--ref", "700"],
+      false,
+      ghRunner({ classify: "issue" }),
+    );
+    expect(puts[0].metadata).toMatchObject({
+      "gh.kind": "issue",
+      "gh.number": "700",
+      "gh.ref": "o/r#700",
+    });
+  });
+
+  it("uploads without metadata when no PR resolves", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runPut(ctxWith(client), [tmpFile(), "--repo", "o/r"], false, ghRunner({}));
+    expect(code).toBe(0);
+    expect(puts[0].metadata).toBeUndefined();
+  });
+
+  it("--no-auto suppresses auto resolution", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "o/r", "--no-auto"],
+      false,
+      ghRunner({ pr: 481 }),
+    );
+    expect(puts[0].metadata).toBeUndefined();
+  });
+
+  it("explicit --meta wins over auto-derived gh.*", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "o/r", "--meta", "gh.number=5"],
+      false,
+      ghRunner({ pr: 481 }),
+    );
+    expect(puts[0].metadata!["gh.number"]).toBe("5");
+  });
+});
