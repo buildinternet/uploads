@@ -7,6 +7,7 @@
  * helpers retain their defensive null/[] fallbacks.
  */
 import { fetchWithTimeout, type RequestFailure } from "./request";
+import { buildSearchQuery, type MetaFilter } from "./workspace-search-url";
 
 function trimOrigin(origin: string): string {
   return origin.replace(/\/$/, "");
@@ -259,4 +260,56 @@ export async function inviteToWorkspace(
     status: body?.invitation?.status,
     acceptUrl: typeof body?.acceptUrl === "string" ? body.acceptUrl : undefined,
   };
+}
+
+export interface SearchFileItem {
+  key: string;
+  url: string | null;
+  embedUrl: string | null;
+  metadata: Record<string, string>;
+}
+
+export type SearchFilesResult =
+  | { kind: "ok"; items: SearchFileItem[]; truncated: boolean }
+  | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
+
+function isSearchFileItem(value: unknown): value is SearchFileItem {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.key === "string" &&
+    (item.url === null || typeof item.url === "string") &&
+    (item.embedUrl === null || typeof item.embedUrl === "string") &&
+    typeof item.metadata === "object" &&
+    item.metadata !== null
+  );
+}
+
+/** GET /me/workspaces/:name/files/search — session-authed metadata search. */
+export async function searchWorkspaceFiles(
+  apiOrigin: string,
+  name: string,
+  filters: MetaFilter[],
+): Promise<SearchFilesResult> {
+  const query = buildSearchQuery(filters);
+  const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files/search?${query}`;
+  const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return { kind: "unavailable", reason: "malformed" };
+  }
+  const b = body as { items?: unknown; truncated?: unknown };
+  if (
+    !Array.isArray(b.items) ||
+    typeof b.truncated !== "boolean" ||
+    !b.items.every(isSearchFileItem)
+  ) {
+    return { kind: "unavailable", reason: "malformed" };
+  }
+  return { kind: "ok", items: b.items, truncated: b.truncated };
 }

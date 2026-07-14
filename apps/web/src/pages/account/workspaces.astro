@@ -26,11 +26,12 @@ export const prerender = false;
       inviteToWorkspace,
       type GallerySummary,
     } from "../../lib/api-client";
-    import { AccountFileBrowser } from "../../components/AccountFileBrowser";
+    import { WorkspaceFiles } from "../../components/WorkspaceFiles";
     import {
       readBrowseLocation,
       replaceBrowseLocation,
     } from "../../lib/workspace-browse-url";
+    import { readSearchFilters } from "../../lib/workspace-search-url";
     import { createElement } from "react";
     import { createRoot } from "react-dom/client";
 
@@ -40,6 +41,8 @@ export const prerender = false;
     const apiOrigin = w.__UPLOADS_API_ORIGIN__;
     // Deep-link restore: ?ws=<name>&path=screenshots/releases/
     const browseOnLoad = readBrowseLocation(window.location.search);
+    // Deep-link restore: ?ws=<name>&meta.gh.repo=owner/name&…
+    const searchFiltersOnLoad = readSearchFilters(window.location.search);
 
     const escapeHtml = (value: string) =>
       value.replace(/[&<>"']/g, (ch) =>
@@ -266,11 +269,12 @@ export const prerender = false;
               // so `?path=` restores before the user scrolls.
               const mount = () => {
                 createRoot(filesEl).render(
-                  createElement(AccountFileBrowser, {
+                  createElement(WorkspaceFiles, {
                     apiOrigin,
                     workspace: ws.workspace,
                     hasPublicUrl: ws.hasPublicUrl,
                     initialPrefix: isDeepLinked ? browseOnLoad.path : "",
+                    initialFilters: isDeepLinked ? searchFiltersOnLoad : [],
                     onPrefixChange: (path: string) => {
                       replaceBrowseLocation({ workspace: ws.workspace, path });
                     },
