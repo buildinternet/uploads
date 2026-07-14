@@ -2,6 +2,7 @@
 import BaseHead from "../../../components/BaseHead.astro";
 import Brand from "../../../components/Brand.astro";
 import Footer from "../../../components/Footer.astro";
+import GitHubMark from "../../../components/GitHubMark.astro";
 import {
   applyPublicFileHeaders,
   authRequiredFileCsp,
@@ -40,8 +41,8 @@ const uploadedLabel =
     : null;
 const canonical = new URL(file ? filePath(workspace, key) : Astro.url.pathname, Astro.url.origin)
   .href;
-// Generic metadata list excludes `gh.*` pairs — those render as the "Attached to"
-// row above via `file.github` instead of duplicating them here.
+// Generic metadata list excludes `gh.*` pairs — those render as the GitHub
+// chip above via `file.github` instead of duplicating them here.
 const metadataEntries = file?.metadata
   ? Object.entries(file.metadata)
       .filter(([metaKey]) => !metaKey.startsWith("gh."))
@@ -84,7 +85,9 @@ const title = file
       dl.meta { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; margin:14px 0 0; font:12px var(--mono); }
       dl.meta dt { color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-size:11px; }
       dl.meta dd { margin:0; color:var(--body); overflow-wrap:anywhere; }
-      .gh-kind { margin-left:8px; padding:1px 5px; border:1px solid var(--line); border-radius:4px; color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.06em; }
+      .gh-chip { display:inline-flex; align-items:center; gap:6px; margin:10px 0 0; padding:6px 10px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel); color:var(--fg); font:12px var(--mono); text-decoration:none; }
+      .gh-chip:hover, .gh-chip:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
+      .gh-chip-kind { padding:1px 5px; border:1px solid var(--line); border-radius:4px; color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.06em; }
       .section-label { margin:16px 0 0; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font:11px var(--mono); }
       dl.meta.metadata { margin-top:6px; }
       .actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:16px; }
@@ -118,19 +121,17 @@ const title = file
             </div>
             <figcaption class="details">
               <div class="filename">{filename}</div>
+              {file.github && (
+                <a class="gh-chip" href={file.github.url} rel="noopener noreferrer">
+                  <GitHubMark size={14} />
+                  <span class="gh-chip-name">{file.github.repo}#{file.github.number}</span>
+                  <span class="gh-chip-kind">{file.github.kind === "pull" ? "PR" : "Issue"}</span>
+                </a>
+              )}
               <dl class="meta">
                 <dt>Type</dt><dd>{file.contentType}</dd>
                 <dt>Size</dt><dd>{formatBytes(file.size)}</dd>
                 {uploadedLabel && <><dt>Uploaded</dt><dd>{uploadedLabel}</dd></>}
-                {file.github && (
-                  <>
-                    <dt>Attached to</dt>
-                    <dd>
-                      <a href={file.github.url} rel="noopener noreferrer">{file.github.repo}#{file.github.number}</a>
-                      <span class="gh-kind">{file.github.kind === "pull" ? "PR" : "Issue"}</span>
-                    </dd>
-                  </>
-                )}
               </dl>
               {metadataEntries.length > 0 && (
                 <>
