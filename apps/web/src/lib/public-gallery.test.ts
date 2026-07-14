@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applyPublicGalleryHeaders,
   fetchPublicGallery,
+  galleryItemDownloadUrl,
   isPublicGallery,
   PUBLIC_GALLERY_CSP,
 } from "./public-gallery";
@@ -25,6 +26,7 @@ const gallery = {
       altText: "Screenshot",
       status: "available",
       url: "https://storage.uploads.sh/screen.png",
+      embedUrl: "https://embed.uploads.sh/screen.png" as string | null,
       contentType: "image/png",
     },
   ],
@@ -43,7 +45,12 @@ describe("public gallery headers", () => {
     // Astro extracts page <style> into /_astro/*.css; 'unsafe-inline' alone blocks that.
     expect(PUBLIC_GALLERY_CSP).toContain("style-src 'self' 'unsafe-inline'");
     // Cloudflare injects the RUM beacon; default-src 'none' blocks it without these.
-    expect(PUBLIC_GALLERY_CSP).toContain("script-src https://static.cloudflareinsights.com");
+    // Copy button + Copy-as control (design spec §3.2/§3.3) need inline
+    // script — same posture the file page's auth_required branch already
+    // shipped and tested.
+    expect(PUBLIC_GALLERY_CSP).toContain(
+      "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
+    );
     expect(PUBLIC_GALLERY_CSP).toContain("connect-src 'self' https://cloudflareinsights.com");
     expect(PUBLIC_GALLERY_CSP).toContain("default-src 'none'");
     expect(PUBLIC_GALLERY_CSP).toContain("frame-ancestors 'none'");
@@ -87,6 +94,20 @@ describe("public gallery API", () => {
         items: Array.from({ length: 101 }, () => gallery.items[0]),
       }),
     ).toBe(false);
+  });
+
+  it("accepts a null item embedUrl but rejects a non-https one", () => {
+    expect(isPublicGallery({ ...gallery, items: [{ ...gallery.items[0], embedUrl: null }] })).toBe(
+      true,
+    );
+    expect(
+      isPublicGallery({
+        ...gallery,
+        items: [{ ...gallery.items[0], embedUrl: "http://embed.uploads.sh/x" }],
+      }),
+    ).toBe(false);
+    const { embedUrl: _omit, ...noEmbedUrl } = gallery.items[0];
+    expect(isPublicGallery({ ...gallery, items: [noEmbedUrl] })).toBe(false);
   });
 
   it("bounds and sanitizes external references, tolerating their absence", () => {
@@ -183,5 +204,13 @@ describe("public gallery API", () => {
     await expect(
       fetchPublicGallery(ID, { origin: "http://[::1]:8787", fetch: fetcher }),
     ).resolves.toMatchObject({ status: "ok" });
+  });
+});
+
+describe("galleryItemDownloadUrl", () => {
+  it("builds the absolute download-route URL for a gallery item", () => {
+    expect(galleryItemDownloadUrl("https://api.uploads.sh", ID, "item-1")).toBe(
+      `https://api.uploads.sh/public/galleries/${ID}/items/item-1/download`,
+    );
   });
 });

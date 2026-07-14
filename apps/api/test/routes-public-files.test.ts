@@ -151,6 +151,17 @@ describe("GET /public/files/:workspace/:key", () => {
     expect(json.size).toBeGreaterThan(0);
   });
 
+  it("includes an embedUrl alongside the stable url", async () => {
+    const { env } = await makeEnv();
+    await seedShot(env);
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { url: string; embedUrl: string | null };
+    expect(json.url).toBe("https://storage.uploads.sh/default/screenshots/shot.png");
+    expect(json.embedUrl).toBe("https://embed.uploads.sh/default/screenshots/shot.png");
+  });
+
   it("never surfaces provenance metadata on the public surface", async () => {
     const { env } = await makeEnv();
     // The server always writes content-sha256 provenance itself; a client
@@ -330,5 +341,96 @@ describe("GET /public/files/:workspace/:key", () => {
     const json = (await res.json()) as Record<string, unknown>;
     expect(json).not.toHaveProperty("metadata");
     expect(json).not.toHaveProperty("github");
+  });
+});
+
+// Task 3 (corrected): forced-download streaming lives behind a `?download=1`
+// query flag on the SAME handler as the metadata route above, mirroring the
+// `?metadata=1` convention already used by routes/files.ts (see the comment
+// there). A sibling `/download` suffix route was rejected: a static suffix
+// after the greedy `:key{.+}` param is inherently ambiguous — a request for
+// `/public/files/default/screenshots/download` can never be distinguished
+// from a request for the object whose key literally is
+// `screenshots/download` (the #158 trap, reverse direction). The query param
+// has no such shadowing, proven by the last test in this block.
+describe("GET /public/files/:workspace/:key?download=1", () => {
+  it("streams the object with a forced attachment disposition", async () => {
+    const { env } = await makeEnv();
+    await seedShot(env);
+
+    const res = await app.request("/public/files/default/screenshots/shot.png?download=1", {}, env);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("image/png");
+    expect(res.headers.get("Content-Disposition")).toBe(
+      "attachment; filename=\"shot.png\"; filename*=UTF-8''shot.png",
+    );
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(bytes).toEqual(PNG);
+  });
+
+  it("401s with auth_required for a private object, without streaming bytes", async () => {
+    const { env } = await makeEnv();
+    await seedShot(env, { "X-Uploads-Visibility": "private" });
+
+    const res = await app.request("/public/files/default/screenshots/shot.png?download=1", {}, env);
+    expect(res.status).toBe(401);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "auth_required" },
+    });
+  });
+
+  it("404s for a missing object", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/public/files/default/screenshots/missing.png?download=1",
+      {},
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("returns the unchanged JSON metadata response when the flag is absent (regression guard)", async () => {
+    const { env } = await makeEnv();
+    await seedShot(env);
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Disposition")).toBeNull();
+    const json = (await res.json()) as { workspace: string; key: string; url: string };
+    expect(json.workspace).toBe("default");
+    expect(json.key).toBe("screenshots/shot.png");
+    expect(json.url).toBe("https://storage.uploads.sh/default/screenshots/shot.png");
+  });
+
+  it("does not shadow a key that literally contains a 'download' segment", async () => {
+    // Proof the query-param design has no ambiguity: a key ending in
+    // "screenshots/download.png" is served correctly both ways.
+    const { env } = await makeEnv();
+    const put = await app.request(
+      "/v1/default/files/screenshots/download.png",
+      {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png" },
+        body: PNG,
+      },
+      env,
+    );
+    expect(put.status).toBe(201);
+
+    const meta = await app.request("/public/files/default/screenshots/download.png", {}, env);
+    expect(meta.status).toBe(200);
+    expect(((await meta.json()) as { key: string }).key).toBe("screenshots/download.png");
+
+    const download = await app.request(
+      "/public/files/default/screenshots/download.png?download=1",
+      {},
+      env,
+    );
+    expect(download.status).toBe(200);
+    expect(download.headers.get("Content-Disposition")).toBe(
+      "attachment; filename=\"download.png\"; filename*=UTF-8''download.png",
+    );
+    const bytes = new Uint8Array(await download.arrayBuffer());
+    expect(bytes).toEqual(PNG);
   });
 });

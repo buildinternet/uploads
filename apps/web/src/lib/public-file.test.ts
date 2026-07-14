@@ -3,6 +3,7 @@ import {
   applyPublicFileHeaders,
   authRequiredFileCsp,
   fetchPublicFile,
+  fileDownloadUrl,
   fileKind,
   filePath,
   formatBytes,
@@ -15,6 +16,7 @@ const file = {
   workspace: "acme",
   key: "screenshots/shot.png",
   url: "https://storage.uploads.sh/acme/screenshots/shot.png",
+  embedUrl: "https://embed.uploads.sh/acme/screenshots/shot.png" as string | null,
   size: 20480,
   contentType: "image/png",
   uploaded: "2026-07-13T12:00:00.000Z",
@@ -51,6 +53,12 @@ describe("public file headers", () => {
     applyPublicFileHeaders(defaultHeaders);
     expect(defaultHeaders.get("Content-Security-Policy")).toBe(PUBLIC_FILE_CSP);
   });
+
+  it("widens script-src on the ok branch too — same posture as authRequiredFileCsp", () => {
+    expect(PUBLIC_FILE_CSP).toContain(
+      "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
+    );
+  });
 });
 
 describe("isPublicFile", () => {
@@ -59,6 +67,13 @@ describe("isPublicFile", () => {
     expect(isPublicFile({ ...file, uploaded: null })).toBe(true);
     const { uploaded: _omit, ...noUploaded } = file;
     expect(isPublicFile(noUploaded)).toBe(true);
+  });
+
+  it("accepts a null embedUrl but rejects a non-https one", () => {
+    expect(isPublicFile({ ...file, embedUrl: null })).toBe(true);
+    expect(isPublicFile({ ...file, embedUrl: "http://embed.uploads.sh/x" })).toBe(false);
+    const { embedUrl: _omit, ...noEmbedUrl } = file;
+    expect(isPublicFile(noEmbedUrl)).toBe(false);
   });
 
   it("rejects non-https URLs, bad sizes, and over-long content types", () => {
@@ -115,6 +130,14 @@ describe("key safety + path building", () => {
 
   it("URL-encodes each key segment but preserves the slashes", () => {
     expect(filePath("acme", "f/My Shot#1.png")).toBe("/f/acme/f/My%20Shot%231.png");
+  });
+
+  it("builds the absolute download-route URL, encoding each key segment", () => {
+    // `?download=1` query flag (Task 3), not a `/download` suffix — a static
+    // suffix after the greedy key route param would be ambiguous.
+    expect(fileDownloadUrl("https://api.uploads.sh", "acme", "f/My Shot#1.png")).toBe(
+      "https://api.uploads.sh/public/files/acme/f/My%20Shot%231.png?download=1",
+    );
   });
 });
 

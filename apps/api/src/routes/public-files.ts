@@ -1,8 +1,9 @@
 import { NotFoundError, UnauthorizedError } from "@uploads/errors";
 import { Hono } from "hono";
-import { badKey } from "../files-core";
+import type { Files } from "@uploads/storage";
+import { badKey, downloadResponse } from "../files-core";
 import { getFileMetadata } from "../file-metadata";
-import { publicUrl, storage, storageConfig } from "../storage";
+import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
 
@@ -41,6 +42,49 @@ function deriveGithubContext(metadata: Record<string, string>): GithubContext | 
   return { repo, kind, number, url: `https://github.com/${repo}/${path}/${number}` };
 }
 
+interface ResolvedPublicObject {
+  store: Files;
+  meta: { size?: number; type?: string; lastModified?: number; metadata?: Record<string, string> };
+  urls: { url: string | null; embedUrl: string | null };
+}
+
+/**
+ * Shared lookup + visibility gate for the `/public/files/:workspace/:key*` GET
+ * handler below: workspace record → publicUrl existence → store.exists/head →
+ * objectVisibility 401. Both the JSON-metadata response and the `?download=1`
+ * streaming branch call this exact same gate (run once per request) so the
+ * two can never disagree about who gets to see — or download — an object.
+ */
+async function resolvePublicObject(
+  env: Env,
+  workspace: string,
+  key: string,
+): Promise<ResolvedPublicObject> {
+  if (badKey(key)) throw new NotFoundError();
+
+  // Validates the workspace name (WS_NAME_RE) before the KV lookup, matching the
+  // authenticated paths rather than trusting the raw path param.
+  const record = await loadWorkspaceRecord(env, workspace);
+  if (!record) throw new NotFoundError();
+
+  // Phase 1 is public-workspace-only: resolving the public URL doubles as the
+  // visibility gate. A workspace without a public base URL cannot be wrapped
+  // here — that is #123's signed-URL territory, swapped in when it lands.
+  const cfg = await storageConfig(env, record);
+  const urls = objectPublicUrls(env, cfg, key);
+  if (!urls.url) throw new NotFoundError();
+
+  const store = await storage(env, record);
+  if (!(await store.exists(key))) throw new NotFoundError();
+  const meta = await store.head(key);
+
+  if (objectVisibility(meta.metadata ?? undefined)) {
+    throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
+  }
+
+  return { store, meta, urls };
+}
+
 /**
  * Public, unauthenticated metadata for a single object, so `apps/web` (which has
  * no storage bindings) can render a chrome-wrapped file page at
@@ -61,29 +105,26 @@ function deriveGithubContext(metadata: Record<string, string>): GithubContext | 
  * route never controlled byte access, only this curated view. Real privacy for a
  * "private" object requires a workspace with no `publicBaseUrl` (signed URLs only),
  * which is out of scope for this endpoint.
+ *
+ * `?download=1` (task 3) switches the response from JSON to a streamed
+ * `Content-Disposition: attachment` body via `downloadResponse` — a query
+ * flag rather than a `/download` suffix route, because a static suffix after
+ * the greedy `:key{.+}` param is inherently ambiguous (a request for
+ * `.../screenshots/download` could mean the suffix OR an object literally
+ * named `screenshots/download`; see the `?metadata=1` precedent in
+ * routes/files.ts for the same reasoning). The gate above runs exactly once
+ * either way — this is purely a "stream vs json" branch on the same
+ * resolved object.
  */
 export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}", async (c) => {
   const workspace = c.req.param("workspace");
   const key = c.req.param("key");
-  if (badKey(key)) throw new NotFoundError();
+  const { store, meta, urls } = await resolvePublicObject(c.env, workspace, key);
 
-  // Validates the workspace name (WS_NAME_RE) before the KV lookup, matching the
-  // authenticated paths rather than trusting the raw path param.
-  const record = await loadWorkspaceRecord(c.env, workspace);
-  if (!record) throw new NotFoundError();
-
-  // Phase 1 is public-workspace-only: resolving the public URL doubles as the
-  // visibility gate. A workspace without a public base URL cannot be wrapped
-  // here — that is #123's signed-URL territory, swapped in when it lands.
-  const url = publicUrl(await storageConfig(c.env, record), key);
-  if (!url) throw new NotFoundError();
-
-  const store = await storage(c.env, record);
-  if (!(await store.exists(key))) throw new NotFoundError();
-  const meta = await store.head(key);
-
-  if (objectVisibility(meta.metadata ?? undefined)) {
-    throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
+  const downloadParam = c.req.query("download");
+  if (downloadParam === "1" || downloadParam === "true") {
+    const filename = key.split("/").filter(Boolean).pop() ?? key;
+    return downloadResponse(store, key, filename);
   }
 
   // Fetched only after the visibility gate above — a private object 401s
@@ -94,7 +135,8 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
   return c.json({
     workspace,
     key,
-    url,
+    url: urls.url,
+    embedUrl: urls.embedUrl,
     size: meta.size ?? 0,
     contentType: meta.type ?? "application/octet-stream",
     ...(meta.lastModified != null ? { uploaded: new Date(meta.lastModified).toISOString() } : {}),

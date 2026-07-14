@@ -8,6 +8,8 @@ export interface PublicGalleryItem {
   altText: string | null;
   status: "available" | "missing";
   url: string | null;
+  /** Embed-host URL when the dual-host policy applies; null otherwise. Always present (see gallery-service.ts). */
+  embedUrl: string | null;
   contentType: string | null;
 }
 
@@ -57,6 +59,14 @@ export function galleryItemPath(galleryId: string, itemId: string): string {
   return `${galleryPath(galleryId)}/${encodeURIComponent(itemId)}`;
 }
 
+/** Build the API's forced-download URL (absolute) for a gallery item — Task 4's `/download` route. */
+export function galleryItemDownloadUrl(origin: string, galleryId: string, itemId: string): string {
+  return new URL(
+    `/public/galleries/${encodeURIComponent(galleryId)}/items/${encodeURIComponent(itemId)}/download`,
+    origin,
+  ).href;
+}
+
 /**
  * Public gallery CSP.
  *
@@ -71,7 +81,10 @@ export const PUBLIC_GALLERY_CSP = [
   // Self-hosted Geist Pixel woff2 for the <Brand /> wordmark.
   "font-src 'self'",
   `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
-  `script-src ${CF_RUM_SCRIPT_SRC}`,
+  // Widened for the copy button + "Copy as" control on the item page (design
+  // spec §4.5); the gallery index page shares this constant and inherits the
+  // widening even though it adds no script of its own.
+  `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
   `connect-src ${CF_RUM_CONNECT_SRC}`,
   "base-uri 'none'",
   "form-action 'none'",
@@ -163,6 +176,7 @@ export function isPublicGallery(value: unknown): value is PublicGallery {
       nullableText(item.altText, 300) &&
       (item.status === "available" || item.status === "missing") &&
       safeUrl(item.url) &&
+      safeUrl(item.embedUrl) &&
       nullableText(item.contentType, 128) &&
       (item.status === "missing" ? item.url === null : item.url !== null)
     );

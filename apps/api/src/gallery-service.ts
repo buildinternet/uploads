@@ -196,6 +196,11 @@ export function decodeGalleryCursor(value: string | undefined): GalleryCursor | 
   }
 }
 
+/** The filename shown/used on public gallery surfaces: the object key's basename. */
+export function galleryItemFilename(objectKey: string): string {
+  return objectKey.split("/").at(-1) ?? objectKey;
+}
+
 async function mapBounded<T, R>(
   values: T[],
   concurrency: number,
@@ -327,7 +332,7 @@ export async function hydratePublicGallery(
     ...projectPublicGallery(record),
     items: hydrated.map((item) => ({
       id: item.id,
-      filename: item.objectKey.split("/").at(-1) ?? item.objectKey,
+      filename: galleryItemFilename(item.objectKey),
       position: item.position,
       caption: item.caption,
       altText: item.altText,

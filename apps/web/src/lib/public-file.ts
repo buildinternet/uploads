@@ -18,6 +18,8 @@ export interface PublicFile {
   workspace: string;
   key: string;
   url: string;
+  /** Embed-host URL when the dual-host policy applies (GitHub Camo); null otherwise. */
+  embedUrl: string | null;
   size: number;
   contentType: string;
   uploaded: string | null;
@@ -69,6 +71,20 @@ export function filePath(workspace: string, key: string): string {
 }
 
 /**
+ * Build the API's forced-download URL (absolute) for a public file — Task 3's
+ * `?download=1` query flag on `GET /public/files/:workspace/:key`, *not* a
+ * `/download` suffix route. A static suffix after the greedy `:key{.+}` route
+ * param is ambiguous (`.../screenshots/download` could mean the suffix or an
+ * object literally named `screenshots/download`); the query flag sidesteps
+ * that, mirroring the existing `?metadata=1` precedent.
+ */
+export function fileDownloadUrl(origin: string, workspace: string, key: string): string {
+  const url = new URL(`/public/files/${encodeURIComponent(workspace)}/${encodeKey(key)}`, origin);
+  url.searchParams.set("download", "1");
+  return url.href;
+}
+
+/**
  * Shared directives behind both {@link PUBLIC_FILE_CSP} and
  * {@link authRequiredFileCsp} — locked down except for self-hosted
  * styles/fonts and the Cloudflare RUM beacon. `scriptSrc`/`connectSrc`
@@ -91,10 +107,15 @@ function buildFileCsp(overrides?: { scriptSrc?: string; connectSrc?: string }): 
 }
 
 /**
- * Public file page CSP — identical posture to the public gallery: locked down
- * except for self-hosted styles/fonts and the Cloudflare RUM beacon.
+ * Public file page CSP — same posture as the public gallery: locked down
+ * except for self-hosted styles/fonts, the Cloudflare RUM beacon, and (as of
+ * the file-page-polish work) inline script for the click-to-copy button and
+ * "Copy as" control. `connect-src` stays untouched — clipboard writes never
+ * hit the network, and the download link needs no script at all.
  */
-export const PUBLIC_FILE_CSP = buildFileCsp();
+export const PUBLIC_FILE_CSP = buildFileCsp({
+  scriptSrc: `'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
+});
 
 /**
  * CSP for the `auth_required` branch only: same posture as {@link PUBLIC_FILE_CSP}
@@ -146,6 +167,11 @@ function httpsUrl(value: unknown): value is string {
   } catch {
     return false;
   }
+}
+
+/** `httpsUrl`, but also accepts `null` — for optional-but-typed URL fields like `embedUrl`. */
+function nullableHttpsUrl(value: unknown): value is string | null {
+  return value === null || httpsUrl(value);
 }
 
 /**
@@ -202,6 +228,7 @@ export function isPublicFile(value: unknown): value is PublicFile {
     text(file.workspace, 64) &&
     text(file.key, 1024) &&
     httpsUrl(file.url) &&
+    nullableHttpsUrl(file.embedUrl) &&
     Number.isSafeInteger(file.size) &&
     (file.size as number) >= 0 &&
     text(file.contentType, 128) &&
