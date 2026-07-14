@@ -303,6 +303,37 @@ function memberEnv(opts: {
   } as unknown as Env;
 }
 
+function metadataDb(
+  rows: Array<{ workspace: string; key: string; meta: Record<string, string> }>,
+): SQLiteD1 {
+  const db = new DatabaseSync(":memory:");
+  db.exec(
+    readFileSync(
+      fileURLToPath(
+        new NodeURL("../../migrations/20260713210559_file_metadata.sql", import.meta.url),
+      ),
+      "utf8",
+    ),
+  );
+  const insert = db.prepare(
+    "INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at) VALUES (?, ?, ?, ?, ?)",
+  );
+  for (const row of rows) {
+    for (const [k, v] of Object.entries(row.meta)) {
+      insert.run(row.workspace, row.key, k, v, "2026-07-13T00:00:00.000Z");
+    }
+  }
+  return new SQLiteD1(db);
+}
+
+const R2_RECORD = {
+  provider: "r2",
+  bucket: "shared",
+  binding: "UPLOADS_DEFAULT",
+  prefix: "acme/",
+  publicBaseUrl: "https://storage.uploads.sh",
+};
+
 describe("GET /me/workspaces/:name/galleries", () => {
   it("404s for a workspace the caller is not a member of", async () => {
     const env = stubEnv(USER, (path) => {
@@ -837,5 +868,76 @@ describe("POST /me/workspaces/:name/invites", () => {
       env,
     );
     expect(res.status).toBe(400);
+  });
+});
+
+describe("GET /me/workspaces/:name/files/search", () => {
+  it("returns files matching an ANDed metadata filter", async () => {
+    const db = metadataDb([
+      {
+        workspace: "acme",
+        key: "f/x/shot.png",
+        meta: { "gh.repo": "buildinternet/uploads", app: "web" },
+      },
+      { workspace: "acme", key: "f/y/other.png", meta: { "gh.repo": "buildinternet/uploads" } },
+    ]);
+    const env = memberEnv({ workspace: "acme", db, bucket: new FakeR2Bucket(), record: R2_RECORD });
+    const res = await app().request(
+      "/me/workspaces/acme/files/search?meta.gh.repo=buildinternet/uploads&meta.app=web",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      items: { key: string; url: string; metadata: Record<string, string> }[];
+      truncated: boolean;
+    };
+    expect(body.truncated).toBe(false);
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]).toMatchObject({
+      key: "f/x/shot.png",
+      url: "https://storage.uploads.sh/acme/f/x/shot.png",
+    });
+  });
+
+  it("rejects a repeated filter key with file_metadata_duplicate_filter", async () => {
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), record: R2_RECORD });
+    const res = await app().request(
+      "/me/workspaces/acme/files/search?meta.app=web&meta.app=api",
+      {},
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "file_metadata_duplicate_filter" },
+    });
+  });
+
+  it("rejects a malformed filter key with file_metadata_invalid_key", async () => {
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/search?meta.BadKey=x", {}, env);
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "file_metadata_invalid_key" },
+    });
+  });
+
+  it("requires at least one meta.* filter", async () => {
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/search", {}, env);
+    expect(res.status).toBe(400);
+  });
+
+  it("short-circuits the communal workspace with an empty result", async () => {
+    const env = memberEnv({ workspace: "default", db: metadataDb([]) });
+    const res = await app().request("/me/workspaces/default/files/search?meta.app=web", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ items: [], truncated: false });
+  });
+
+  it("404s for a workspace the caller is not a member of", async () => {
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), record: R2_RECORD });
+    const res = await app().request("/me/workspaces/other/files/search?meta.app=web", {}, env);
+    expect(res.status).toBe(404);
   });
 });

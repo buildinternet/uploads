@@ -13,13 +13,14 @@ import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
+import { findObjectsByMetadata, validateMetadataFilters } from "../file-metadata";
 import { badKey, listObjects, setObjectVisibility } from "../files-core";
 import { listGalleries } from "../galleries";
 import { gallerySummary } from "../gallery-service";
 import { allowWrite } from "../guards";
 import { membershipsForUser, orgForWorkspace, workspacesForOrg } from "../org-workspaces";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
-import { publicUrl, storage, storageConfig } from "../storage";
+import { objectPublicUrls, publicUrl, storage, storageConfig } from "../storage";
 import { getWorkspaceUsage } from "../usage";
 import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
 import { loadWorkspaceRecord } from "../workspace";
@@ -173,6 +174,60 @@ export const me = new Hono<SessionVars>()
     }
     const { items } = await listObjects(c.env, record, { limit: 25 });
     return c.json({ communal: false, files: items });
+  })
+
+  // Metadata search — the session-authed twin of the token route's
+  // `GET /v1/:workspace/files?meta.*` (files.ts). Same AND-of-equality
+  // semantics and shared validators; scoped to one workspace, member-gated.
+  // Results carry no `visibility` (it isn't in the D1 index — accepted caveat).
+  .get("/workspaces/:name/files/search", async (c) => {
+    const name = c.req.param("name");
+    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
+    if (ws.communal) return c.json({ items: [], truncated: false });
+
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
+
+    const query = c.req.query();
+    const metaParamKeys = Object.keys(query).filter((k) => k.startsWith("meta."));
+    if (metaParamKeys.length === 0) {
+      throw new ValidationError("at least one meta.* filter is required", {
+        code: "file_metadata_invalid_key",
+      });
+    }
+    const filters: Record<string, string> = {};
+    for (const param of metaParamKeys) {
+      const key = param.slice("meta.".length);
+      const values = c.req.queries(param) ?? [];
+      if (values.length > 1) {
+        throw new ValidationError(`repeated metadata filter for key: ${key}`, {
+          code: "file_metadata_duplicate_filter",
+          details: { key },
+        });
+      }
+      filters[key] = values[0] ?? query[param];
+    }
+    validateMetadataFilters(filters);
+
+    const SEARCH_LIMIT = 100;
+    const [cfg, matches] = await Promise.all([
+      storageConfig(c.env, record),
+      findObjectsByMetadata(c.env.DB, name, filters, {
+        prefix: query.prefix,
+        limit: SEARCH_LIMIT + 1,
+      }),
+    ]);
+    const truncated = matches.length > SEARCH_LIMIT;
+    const page = truncated ? matches.slice(0, SEARCH_LIMIT) : matches;
+    return c.json({
+      items: page.map((match) => {
+        const urls = objectPublicUrls(c.env, cfg, match.key);
+        return { key: match.key, url: urls.url, embedUrl: urls.embedUrl, metadata: match.metadata };
+      }),
+      truncated,
+    });
   })
 
   // Resolve a selected browser item to a usable URL, by storage capability
