@@ -111,6 +111,15 @@ function buildAuth(
     // D3: gate GitHub on both id+secret resolving; adding a provider later is
     // just another resolved secret pair, no code change here.
     socialProviders: github ? { github } : {},
+    // Magic-link first, then Connect GitHub on /account/profile (link-social).
+    // trustedProviders + allowDifferentEmails: signed-in explicit link; GitHub
+    // email often differs from the magic-link address.
+    account: {
+      accountLinking: {
+        trustedProviders: github ? ["github"] : [],
+        allowDifferentEmails: true,
+      },
+    },
     plugins: [
       magicLink({
         expiresIn: 60 * 15,

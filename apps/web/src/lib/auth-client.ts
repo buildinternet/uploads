@@ -7,11 +7,10 @@
  * are plain inline `<script>` tags with no component-island framework (no
  * React in this repo) and a deliberately strict CSP. Pulling in
  * `better-auth/client` would be this app's first client-bundle dependency,
- * for a page surface (`/login`, the console session indicator, `/admin`)
- * that only needs three calls: get-session, magic-link sign-in, sign-out,
- * plus a redirect to the GitHub social sign-in URL. The plan explicitly
- * sanctions this fallback when the client-bundle approach is awkward for the
- * inline-script model (see plan D6) — this is that case.
+ * for a page surface (`/login`, console, `/admin`, `/account/profile`) that
+ * needs session, magic-link, sign-out, GitHub sign-in, and link-social — not a
+ * full client SDK. The plan explicitly sanctions this fallback when the
+ * client-bundle approach is awkward for the inline-script model (see plan D6).
  *
  * `credentials: "include"` on every call so the cross-subdomain session
  * cookie (`.uploads.sh`, see apps/auth/src/auth.ts's crossSubDomainCookies)
@@ -144,23 +143,51 @@ export async function startLocalDemoSession(
 }
 
 /**
- * Starts the GitHub social sign-in flow: POSTs sign-in/social (Better Auth's
- * contract — it returns `{ url }` to redirect to rather than 302ing itself),
- * then navigates the browser there. Returns false (without navigating) if
- * the auth worker rejects the request, e.g. GitHub not configured (D3's gate).
+ * Better Auth social/link endpoints return `{ url }` instead of 302ing.
+ * Navigate when present; return false if the worker rejects or GitHub is
+ * unconfigured (D3's gate).
  */
+async function redirectToGitHubOAuth(
+  origin: string,
+  path: "/api/auth/sign-in/social" | "/api/auth/link-social",
+  body: Record<string, unknown>,
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}${path}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return false;
+    const data = (await res.json().catch(() => null)) as { url?: string } | null;
+    if (!data?.url) return false;
+    location.href = data.url;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Start GitHub sign-in (unauthenticated). */
 export async function signInWithGitHub(origin: string, callbackURL: string): Promise<boolean> {
-  const res = await fetch(`${authOrigin(origin)}/api/auth/sign-in/social`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider: "github", callbackURL }),
+  return redirectToGitHubOAuth(origin, "/api/auth/sign-in/social", {
+    provider: "github",
+    callbackURL,
   });
-  if (!res.ok) return false;
-  const body = (await res.json().catch(() => null)) as { url?: string } | null;
-  if (!body?.url) return false;
-  location.href = body.url;
-  return true;
+}
+
+/**
+ * Link GitHub to the current session (POST /link-social). Profile page uses
+ * this so magic-link users can add GitHub without signing out. Failures return
+ * to `callbackURL` with `?error=` (also used as errorCallbackURL).
+ */
+export async function linkGitHub(origin: string, callbackURL: string): Promise<boolean> {
+  return redirectToGitHubOAuth(origin, "/api/auth/link-social", {
+    provider: "github",
+    callbackURL,
+    errorCallbackURL: callbackURL,
+  });
 }
 
 /** POST /api/auth/sign-in/magic-link. Returns true when the auth worker accepted the request. */

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getAccountInfo,
   getSession,
+  linkGitHub,
   listAccounts,
   listSessions,
   revokeSession,
@@ -175,6 +176,60 @@ describe("revokeSession", () => {
       vi.fn(async () => new Response(null, { status: 403 })),
     );
     await expect(revokeSession("http://127.0.0.1:8788", "tok")).resolves.toBe(false);
+  });
+});
+
+describe("linkGitHub", () => {
+  it("posts link-social and navigates to the authorize URL", async () => {
+    const hrefSetter = vi.fn();
+    vi.stubGlobal("location", {
+      get href() {
+        return "https://uploads.sh/account/profile";
+      },
+      set href(value: string) {
+        hrefSetter(value);
+      },
+    });
+    const fetcher = vi.fn(async () =>
+      Response.json({ url: "https://github.com/login/oauth/authorize?x=1" }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      linkGitHub("https://auth.uploads.sh", "https://uploads.sh/account/profile"),
+    ).resolves.toBe(true);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://auth.uploads.sh/api/auth/link-social",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({
+          provider: "github",
+          callbackURL: "https://uploads.sh/account/profile",
+          errorCallbackURL: "https://uploads.sh/account/profile",
+        }),
+      }),
+    );
+    expect(hrefSetter).toHaveBeenCalledWith("https://github.com/login/oauth/authorize?x=1");
+  });
+
+  it("returns false when the auth worker rejects or omits a URL", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 401 })),
+    );
+    await expect(
+      linkGitHub("https://auth.uploads.sh", "https://uploads.sh/account/profile"),
+    ).resolves.toBe(false);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({})),
+    );
+    await expect(
+      linkGitHub("https://auth.uploads.sh", "https://uploads.sh/account/profile"),
+    ).resolves.toBe(false);
   });
 });
 
