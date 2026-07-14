@@ -44,7 +44,12 @@ describe("public gallery headers", () => {
     // Astro extracts page <style> into /_astro/*.css; 'unsafe-inline' alone blocks that.
     expect(PUBLIC_GALLERY_CSP).toContain("style-src 'self' 'unsafe-inline'");
     // Cloudflare injects the RUM beacon; default-src 'none' blocks it without these.
-    expect(PUBLIC_GALLERY_CSP).toContain("script-src https://static.cloudflareinsights.com");
+    // Copy button + Copy-as control (design spec §3.2/§3.3) need inline
+    // script — same posture the file page's auth_required branch already
+    // shipped and tested.
+    expect(PUBLIC_GALLERY_CSP).toContain(
+      "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
+    );
     expect(PUBLIC_GALLERY_CSP).toContain("connect-src 'self' https://cloudflareinsights.com");
     expect(PUBLIC_GALLERY_CSP).toContain("default-src 'none'");
     expect(PUBLIC_GALLERY_CSP).toContain("frame-ancestors 'none'");

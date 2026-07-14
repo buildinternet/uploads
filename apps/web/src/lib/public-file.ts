@@ -93,10 +93,15 @@ function buildFileCsp(overrides?: { scriptSrc?: string; connectSrc?: string }): 
 }
 
 /**
- * Public file page CSP — identical posture to the public gallery: locked down
- * except for self-hosted styles/fonts and the Cloudflare RUM beacon.
+ * Public file page CSP — same posture as the public gallery: locked down
+ * except for self-hosted styles/fonts, the Cloudflare RUM beacon, and (as of
+ * the file-page-polish work) inline script for the click-to-copy button and
+ * "Copy as" control. `connect-src` stays untouched — clipboard writes never
+ * hit the network, and the download link needs no script at all.
  */
-export const PUBLIC_FILE_CSP = buildFileCsp();
+export const PUBLIC_FILE_CSP = buildFileCsp({
+  scriptSrc: `'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
+});
 
 /**
  * CSP for the `auth_required` branch only: same posture as {@link PUBLIC_FILE_CSP}

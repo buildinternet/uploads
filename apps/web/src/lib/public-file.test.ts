@@ -52,6 +52,12 @@ describe("public file headers", () => {
     applyPublicFileHeaders(defaultHeaders);
     expect(defaultHeaders.get("Content-Security-Policy")).toBe(PUBLIC_FILE_CSP);
   });
+
+  it("widens script-src on the ok branch too — same posture as authRequiredFileCsp", () => {
+    expect(PUBLIC_FILE_CSP).toContain(
+      "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
+    );
+  });
 });
 
 describe("isPublicFile", () => {

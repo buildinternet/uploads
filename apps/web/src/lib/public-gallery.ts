@@ -73,7 +73,10 @@ export const PUBLIC_GALLERY_CSP = [
   // Self-hosted Geist Pixel woff2 for the <Brand /> wordmark.
   "font-src 'self'",
   `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
-  `script-src ${CF_RUM_SCRIPT_SRC}`,
+  // Widened for the copy button + "Copy as" control on the item page (design
+  // spec §4.5); the gallery index page shares this constant and inherits the
+  // widening even though it adds no script of its own.
+  `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
   `connect-src ${CF_RUM_CONNECT_SRC}`,
   "base-uri 'none'",
   "form-action 'none'",
