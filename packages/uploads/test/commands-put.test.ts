@@ -542,32 +542,40 @@ describe("runPut gh.* metadata cap enforcement", () => {
 });
 
 describe("runPut gh.* attach success note", () => {
-  it("prints a success note when gh.* metadata is attached, silent on skip", async () => {
+  /** Run `fn` with process.stderr.write captured, returning the concatenated output. */
+  async function captureStderr(fn: () => Promise<unknown>): Promise<string> {
     const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     try {
-      const { client: attachedClient } = fakeClient();
-      await runPut(
-        { ...ctxWith(attachedClient), quiet: false },
-        [tmpFile(), "--repo", "o/r"],
-        false,
-        ghRunner({ pr: 481 }),
-      );
-      const attachedOutput = writeSpy.mock.calls.map((c) => String(c[0])).join("");
-      expect(attachedOutput).toContain("attached to o/r#481");
-
-      writeSpy.mockClear();
-
-      const { client: skippedClient } = fakeClient();
-      await runPut(
-        { ...ctxWith(skippedClient), quiet: false },
-        [tmpFile(), "--repo", "o/r"],
-        false,
-        ghRunner({}),
-      );
-      const skippedOutput = writeSpy.mock.calls.map((c) => String(c[0])).join("");
-      expect(skippedOutput).not.toContain("attached to");
+      await fn();
+      return writeSpy.mock.calls.map((c) => String(c[0])).join("");
     } finally {
       writeSpy.mockRestore();
     }
+  }
+
+  it("prints a success note when gh.* metadata is attached", async () => {
+    const { client } = fakeClient();
+    const output = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        ghRunner({ pr: 481 }),
+      ),
+    );
+    expect(output).toContain("attached to o/r#481");
+  });
+
+  it("stays silent when no PR resolves", async () => {
+    const { client } = fakeClient();
+    const output = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        ghRunner({}),
+      ),
+    );
+    expect(output).not.toContain("attached to");
   });
 });
