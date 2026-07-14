@@ -42,6 +42,13 @@ export const prerender = false;
     </p>
     <div id="sessions-status" class="muted detail-status">Loading…</div>
     <ul class="detail-list" id="sessions-list" hidden></ul>
+    <div id="sessions-recover" class="sessions-recover" hidden>
+      <p class="muted">
+        Couldn’t load the session list. Sign in again to refresh it — browsing
+        still works with your current session.
+      </p>
+      <a class="text-btn" id="sessions-reauth" href="/login">Sign in again</a>
+    </div>
     <p id="sessions-error" class="detail-error" role="alert" hidden></p>
   </section>
 
@@ -222,10 +229,16 @@ export const prerender = false;
     async function loadSessions(): Promise<void> {
       const status = requireElement<HTMLElement>("#sessions-status", "account profile");
       const list = requireElement<HTMLUListElement>("#sessions-list", "account profile");
+      const recover = requireElement<HTMLElement>("#sessions-recover", "account profile");
+      const reauth = requireElement<HTMLAnchorElement>("#sessions-reauth", "account profile");
       const error = requireElement<HTMLElement>("#sessions-error", "account profile");
       error.hidden = true;
       list.hidden = true;
+      recover.hidden = true;
       showStatus(status, "Loading…");
+
+      // Point recovery at this page so re-auth lands back on the sessions list.
+      reauth.href = `/login?callbackURL=${encodeURIComponent(`${location.origin}/account/profile`)}`;
 
       const [sessionResult, sessions] = await Promise.all([
         getSession(authOrigin),
@@ -238,7 +251,8 @@ export const prerender = false;
       }
 
       if (sessions === null) {
-        showStatus(status, "Couldn’t load sessions.");
+        status.hidden = true;
+        recover.hidden = false;
         return;
       }
       if (!sessions.length) {

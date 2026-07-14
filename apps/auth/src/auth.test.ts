@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { deriveCookieDomain } from "./auth";
+import { deriveCookieDomain, isCliSessionUserAgent } from "./auth";
+
+describe("isCliSessionUserAgent", () => {
+  it("matches the uploads CLI device-flow User-Agent", () => {
+    expect(isCliSessionUserAgent("@buildinternet/uploads/1.2.3 (device-token)")).toBe(true);
+    expect(isCliSessionUserAgent("@buildinternet/uploads")).toBe(true);
+  });
+
+  it("rejects browsers and empty values", () => {
+    expect(isCliSessionUserAgent("Mozilla/5.0 (Macintosh) Chrome/120")).toBe(false);
+    expect(isCliSessionUserAgent(null)).toBe(false);
+    expect(isCliSessionUserAgent(undefined)).toBe(false);
+  });
+});
 
 describe("deriveCookieDomain", () => {
   it("shares the whole apex host for a 2-label domain (no public-suffix leak)", () => {

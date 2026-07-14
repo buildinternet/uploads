@@ -30,7 +30,8 @@ const timestampCol = (name: string) =>
  * additive-free for this table (verified: no ALTER TABLE for `user` in
  * `migrations/20260712210000_admin_plugin.sql`).
  *
- * Paired migration: `migrations/20260712200000_better_auth_core.sql`.
+ * Paired migrations: `20260712200000_better_auth_core.sql`,
+ * `20260714120000_cli_onboarded_at.sql` (`cli_onboarded_at`).
  */
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
@@ -46,6 +47,8 @@ export const user = sqliteTable("user", {
   banned: integer("banned", { mode: "boolean" }),
   banReason: text("ban_reason"),
   banExpires: integer("ban_expires", { mode: "timestamp" }),
+  /** First CLI device-flow session; sticky. */
+  cliOnboardedAt: integer("cli_onboarded_at", { mode: "timestamp" }),
 });
 
 /**

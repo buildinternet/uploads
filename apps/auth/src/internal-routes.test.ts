@@ -129,6 +129,7 @@ describe("DB-backed behavior", () => {
       banned: overrides.banned ?? null,
       banReason: overrides.banReason ?? null,
       banExpires: overrides.banExpires ?? null,
+      cliOnboardedAt: overrides.cliOnboardedAt ?? null,
     };
     await orm.insert(schema.user).values(user);
     return user;

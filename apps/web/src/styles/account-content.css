@@ -259,6 +259,15 @@ section.card .cli-note {
 
 /* Profile sign-in methods + sessions ──────────────────────────────────── */
 
+.sessions-recover {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+}
+.sessions-recover .text-btn {
+  display: inline-block;
+}
+
 .detail-status {
   margin-top: 12px;
   font-size: 13px;
