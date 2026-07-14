@@ -192,32 +192,33 @@ export const files = new Hono<WorkspaceVars>()
     return c.json(await listObjects(c.env, c.get("workspace"), { prefix, limit, cursor }));
   })
 
-  // Queryable metadata (file_metadata D1 table) — registered before the raw
-  // `/:key{.+}` GET route below. Verified by test (see
-  // "an object whose key literally ends in '/metadata'" in
-  // test/routes-files.test.ts): with this registration order, Hono's router
-  // resolves GET `.../<key>/metadata` to *this* route even when `<key>`
-  // happens to be a real object whose own key ends in the literal
-  // `/metadata` segment (e.g. `screenshots/shot.png/metadata`) — the raw
-  // `/:key{.+}` GET route never sees that request, so that object's own
-  // metadata/contentType/url are not fetchable via GET, only its sibling
-  // `.../metadata` reads the *other* object's (`screenshots/shot.png`)
-  // metadata map instead. PUT/DELETE are unaffected (no PUT/DELETE metadata
-  // route exists to shadow them), so such an object can still be uploaded
-  // and deleted via the raw route — only its GET is shadowed. Accepted
-  // tradeoff: metadata is a first-class sibling resource, and keys ending in
-  // the literal `/metadata` suffix are not a realistic upload pattern.
-  .get("/:key{.+}/metadata", requireScope("files:read"), async (c) => {
+  // Metadata now lives on the key-at-tail routes (same shape PUT/GET/DELETE
+  // already use) instead of a `/:key{.+}/metadata` suffix route: Hono's
+  // production router does not reliably match a `{.+}` param followed by a
+  // static suffix once the key contains raw slashes (real object keys always
+  // do) — the vitest harness matches raw slashes so this passed locally, but
+  // the deployed worker 404s on any real key. `?metadata=1` on GET and a bare
+  // PATCH (which has no other meaning on this route) avoid the fragile
+  // suffix pattern entirely.
+  .get("/:key{.+}", requireScope("files:read"), async (c) => {
     const key = c.req.param("key");
     if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
     const ws = c.get("workspace");
     const store = await storage(c.env, ws);
     if (!(await store.exists(key))) throw new NotFoundError();
-    const metadata = await getFileMetadata(c.env.DB, c.get("workspaceName"), key);
-    return c.json({ metadata });
+
+    const metadataParam = c.req.query("metadata");
+    if (metadataParam === "1" || metadataParam === "true") {
+      const metadata = await getFileMetadata(c.env.DB, c.get("workspaceName"), key);
+      return c.json({ metadata });
+    }
+
+    const meta = await store.head(key);
+    const urls = objectPublicUrls(c.env, await storageConfig(c.env, ws), key);
+    return c.json(headObjectJson(key, meta, urls.url, urls.embedUrl));
   })
 
-  .patch("/:key{.+}/metadata", writeRateLimit, requireScope("files:write"), async (c) => {
+  .patch("/:key{.+}", writeRateLimit, requireScope("files:write"), async (c) => {
     const key = c.req.param("key");
     if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
     const ws = c.get("workspace");
@@ -261,17 +262,6 @@ export const files = new Hono<WorkspaceVars>()
       (remove as string[] | undefined) ?? [],
     );
     return c.json({ metadata });
-  })
-
-  .get("/:key{.+}", requireScope("files:read"), async (c) => {
-    const key = c.req.param("key");
-    if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
-    const ws = c.get("workspace");
-    const store = await storage(c.env, ws);
-    if (!(await store.exists(key))) throw new NotFoundError();
-    const meta = await store.head(key);
-    const urls = objectPublicUrls(c.env, await storageConfig(c.env, ws), key);
-    return c.json(headObjectJson(key, meta, urls.url, urls.embedUrl));
   })
 
   .delete("/:key{.+}", writeRateLimit, requireScope("files:delete"), async (c) => {

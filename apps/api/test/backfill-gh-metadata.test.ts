@@ -87,7 +87,7 @@ describe("runBackfill", () => {
           cursor: "page2",
         });
       }
-      if (url.includes("/metadata")) {
+      if (url.includes("/files/gh/")) {
         return jsonResponse({ metadata: {} });
       }
       throw new Error(`unexpected fetch: ${url}`);
@@ -101,9 +101,10 @@ describe("runBackfill", () => {
     expect(listCalls).toHaveLength(2);
     expect(listCalls[1].url).toContain("cursor=page2");
 
-    const patchCalls = calls.filter((c) => c.url.includes("/metadata"));
+    const patchCalls = calls.filter((c) => c.url.includes("/files/gh/"));
     expect(patchCalls).toHaveLength(2);
-    expect(patchCalls[0].url).toContain("gh/owner/repo/pull/12/a.png/metadata");
+    expect(patchCalls[0].url).toContain("gh/owner/repo/pull/12/a.png");
+    expect(patchCalls[0].url).not.toContain("/metadata");
     expect(patchCalls[0].init?.method).toBe("PATCH");
     expect(JSON.parse(patchCalls[0].init?.body as string)).toEqual({
       set: {
@@ -139,10 +140,10 @@ describe("runBackfill", () => {
           cursor: null,
         });
       }
-      if (url.includes("/pull/12/a.png/metadata")) {
+      if (url.includes("/pull/12/a.png")) {
         return jsonResponse({ error: "boom" }, 500);
       }
-      if (url.includes("/pull/13/b.png/metadata")) {
+      if (url.includes("/pull/13/b.png")) {
         return jsonResponse({ metadata: {} });
       }
       throw new Error(`unexpected fetch: ${url}`);
@@ -161,10 +162,10 @@ describe("runBackfill", () => {
           cursor: null,
         });
       }
-      if (url.includes("/pull/12/a.png/metadata")) {
+      if (url.includes("/pull/12/a.png")) {
         throw new TypeError("fetch failed: connection reset");
       }
-      if (url.includes("/pull/13/b.png/metadata")) {
+      if (url.includes("/pull/13/b.png")) {
         return jsonResponse({ metadata: {} });
       }
       throw new Error(`unexpected fetch: ${url}`);
@@ -174,7 +175,7 @@ describe("runBackfill", () => {
 
     expect(summary).toEqual({ matched: 2, patched: 1, skipped: 0, errors: 1 });
     // Both PATCHes were attempted despite the first one throwing.
-    expect(fetchImpl.mock.calls.filter(([url]) => url.includes("/metadata"))).toHaveLength(2);
+    expect(fetchImpl.mock.calls.filter(([url]) => url.includes("/files/gh/"))).toHaveLength(2);
   });
 
   it("aborts cleanly with an error counted when the list fetch throws (transport error)", async () => {

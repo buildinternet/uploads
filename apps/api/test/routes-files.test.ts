@@ -478,7 +478,7 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
 
 function getMeta(env: Parameters<typeof app.request>[2], key: string, token = TOKEN) {
   return app.request(
-    `/v1/default/files/${key}/metadata`,
+    `/v1/default/files/${key}?metadata=1`,
     { headers: { Authorization: `Bearer ${token}` } },
     env,
   );
@@ -491,7 +491,7 @@ function patchMeta(
   token = TOKEN,
 ) {
   return app.request(
-    `/v1/default/files/${key}/metadata`,
+    `/v1/default/files/${key}`,
     {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -501,7 +501,7 @@ function patchMeta(
   );
 }
 
-describe("GET/PATCH /v1/:workspace/files/:key/metadata", () => {
+describe("GET ?metadata=1 / PATCH /v1/:workspace/files/:key", () => {
   it("GET returns an empty map for an object with no metadata", async () => {
     const { env } = await makeEnv();
     const put = await putShot(env);
@@ -610,7 +610,7 @@ describe("GET/PATCH /v1/:workspace/files/:key/metadata", () => {
     const { env } = await makeEnv();
     await putShot(env);
     const res = await app.request(
-      "/v1/default/files/screenshots/shot.png/metadata",
+      "/v1/default/files/screenshots/shot.png",
       {
         method: "PATCH",
         headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
@@ -627,7 +627,7 @@ describe("GET/PATCH /v1/:workspace/files/:key/metadata", () => {
     const { env } = await makeEnv();
     await putShot(env);
     const res = await app.request(
-      "/v1/default/files/screenshots/shot.png/metadata",
+      "/v1/default/files/screenshots/shot.png",
       {
         method: "PATCH",
         headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
@@ -655,23 +655,11 @@ describe("GET/PATCH /v1/:workspace/files/:key/metadata", () => {
     expect(json.error.type).toBe("insufficient_scope");
   });
 
-  it("an object whose key literally ends in '/metadata' can be PUT but its GET is shadowed by the metadata route", async () => {
-    const { env, bucket } = await makeEnv();
-    const put = await putShot(env, {
-      body: PNG,
-    });
-    expect(put.status).toBe(201);
-    // Now PUT a *second* object whose key ends in the literal "/metadata"
-    // segment. PUT still lands on the raw `/:key{.+}` route (no PUT metadata
-    // route exists to compete), so the object is stored under its full,
-    // literal key. But a GET to that same path resolves to the *metadata*
-    // route instead (see routes/files.ts): it is read back as the metadata
-    // sibling resource of "screenshots/shot.png", not as this object's own
-    // file. Documented tradeoff — keys ending in the literal "/metadata"
-    // suffix are not a realistic upload pattern.
-    const weirdKey = "screenshots/shot.png/metadata";
-    const putWeird = await app.request(
-      `/v1/default/files/${weirdKey}`,
+  it("GET ?metadata=1 / PATCH round-trip on a key with several raw slashes", async () => {
+    const { env } = await makeEnv();
+    const deepKey = "a/b/c/d/deep.png";
+    const put = await app.request(
+      `/v1/default/files/${deepKey}`,
       {
         method: "PUT",
         headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png" },
@@ -679,18 +667,31 @@ describe("GET/PATCH /v1/:workspace/files/:key/metadata", () => {
       },
       env,
     );
-    expect(putWeird.status).toBe(201);
-    expect(bucket.store.has(`default/${weirdKey}`)).toBe(true);
+    expect(put.status).toBe(201);
 
+    const patch = await patchMeta(env, deepKey, { set: { app: "web" } });
+    expect(patch.status).toBe(200);
+    expect(await patch.json()).toEqual({ metadata: { app: "web" } });
+
+    const res = await getMeta(env, deepKey);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ metadata: { app: "web" } });
+  });
+
+  it("dryRun is a PUT-only param and has no effect on GET ?metadata=1", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+    await patchMeta(env, "screenshots/shot.png", { set: { app: "web" } });
+
+    // dryRun only means anything on PUT; a stray dryRun=1 alongside
+    // metadata=1 on a GET is simply ignored, not misread as a dry-run upload.
     const res = await app.request(
-      `/v1/default/files/${weirdKey}`,
+      "/v1/default/files/screenshots/shot.png?metadata=1&dryRun=1",
       { headers: { Authorization: `Bearer ${TOKEN}` } },
       env,
     );
-    // This assertion documents actual behavior — see comment above.
-    const json = (await res.json()) as { metadata?: unknown; key?: string };
     expect(res.status).toBe(200);
-    expect(json).toEqual({ metadata: {} });
+    expect(await res.json()).toEqual({ metadata: { app: "web" } });
   });
 });
 

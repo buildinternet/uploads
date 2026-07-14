@@ -69,9 +69,9 @@ describe("put metadata headers", () => {
 });
 
 describe("metadata CRUD client methods", () => {
-  it("getMetadata GETs the /metadata sibling route", async () => {
+  it("getMetadata GETs the key-at-tail route with ?metadata=1", async () => {
     const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toBe("https://api.test/v1/test/files/screenshots/a.png/metadata");
+      expect(String(input)).toBe("https://api.test/v1/test/files/screenshots/a.png?metadata=1");
       expect(init?.method).toBe("GET");
       return new Response(JSON.stringify({ metadata: { app: "myapp" } }));
     });
@@ -84,9 +84,9 @@ describe("metadata CRUD client methods", () => {
     expect(await client.getMetadata("screenshots/a.png")).toEqual({ metadata: { app: "myapp" } });
   });
 
-  it("patchMetadata PATCHes { set, delete } and returns the merged map", async () => {
+  it("patchMetadata PATCHes { set, delete } to the key-at-tail route and returns the merged map", async () => {
     const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toBe("https://api.test/v1/test/files/screenshots/a.png/metadata");
+      expect(String(input)).toBe("https://api.test/v1/test/files/screenshots/a.png");
       expect(init?.method).toBe("PATCH");
       const body = JSON.parse(new TextDecoder().decode(init?.body as Uint8Array));
       expect(body).toEqual({ set: { app: "myapp" }, delete: ["page"] });

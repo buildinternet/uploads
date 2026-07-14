@@ -713,24 +713,20 @@ export function createUploadsClient(config: UploadsClientConfig) {
       return request<DeleteResult>("DELETE", `${filesBase(config)}/${encodeKeyPath(key)}`);
     },
 
-    /** `GET /v1/:workspace/files/:key/metadata` — the object's queryable metadata. */
+    /** `GET /v1/:workspace/files/:key?metadata=1` — the object's queryable metadata. */
     async getMetadata(key: string): Promise<GetMetadataResult> {
       return request<GetMetadataResult>(
         "GET",
-        `${filesBase(config)}/${encodeKeyPath(key)}/metadata`,
+        `${filesBase(config)}/${encodeKeyPath(key)}?metadata=1`,
       );
     },
 
-    /** `PATCH /v1/:workspace/files/:key/metadata` — merge `set`/`delete`; returns the merged map. */
+    /** `PATCH /v1/:workspace/files/:key` — merge `set`/`delete`; returns the merged map. */
     async patchMetadata(key: string, opts: PatchMetadataOptions): Promise<GetMetadataResult> {
-      return request<GetMetadataResult>(
-        "PATCH",
-        `${filesBase(config)}/${encodeKeyPath(key)}/metadata`,
-        {
-          body: new TextEncoder().encode(JSON.stringify(opts)),
-          headers: { "Content-Type": "application/json" },
-        },
-      );
+      return request<GetMetadataResult>("PATCH", `${filesBase(config)}/${encodeKeyPath(key)}`, {
+        body: new TextEncoder().encode(JSON.stringify(opts)),
+        headers: { "Content-Type": "application/json" },
+      });
     },
 
     /**
