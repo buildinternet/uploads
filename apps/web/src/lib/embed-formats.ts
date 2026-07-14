@@ -8,6 +8,15 @@
 
 export type EmbedFormatId = "page" | "url" | "markdown-image" | "markdown-link" | "html-img";
 
+/** Escapes `&`, `<`, `>`, and `"` for safe interpolation into an HTML attribute value. */
+function escapeHtmlAttr(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 export interface EmbedFormatOption {
   id: EmbedFormatId;
   label: string;
@@ -53,7 +62,7 @@ export function buildEmbedFormats(input: EmbedFormatInput): EmbedFormatOption[] 
     options.push({
       id: "html-img",
       label: "HTML <img>",
-      value: `<img src="${embedSrc}" alt="${input.filename}">`,
+      value: `<img src="${embedSrc}" alt="${escapeHtmlAttr(input.filename)}">`,
     });
   }
   return options;

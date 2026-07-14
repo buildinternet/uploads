@@ -488,44 +488,43 @@ async function resolvePublicObject(
 }
 ```
 
-Replace the `export const publicFiles = ...` block with (download route registered FIRST — see the Global Constraints route-ordering note):
+Replace the `export const publicFiles = ...` block with (a `?download=1` query
+flag on the existing handler, not a separate `/download` suffix route — a
+static suffix after the greedy `:key{.+}` param is inherently ambiguous, since
+a request for `.../screenshots/download` could mean the suffix OR an object
+literally named `screenshots/download`; see the `?metadata=1` precedent in
+`routes/files.ts` for the same reasoning. The visibility gate in
+`resolvePublicObject` runs exactly once either way — this is purely a
+"stream vs json" branch on the same resolved object):
 
 ```ts
-export const publicFiles = new Hono<WorkspaceVars>()
-  // MUST be registered before the generic "/:workspace/:key{.+}" route below:
-  // :key{.+} is a greedy multi-segment match, so if the generic route were
-  // registered first it would swallow "/download" as part of the key and this
-  // route would never be reached (the #158 lesson).
-  .get("/:workspace/:key{.+}/download", async (c) => {
-    const workspace = c.req.param("workspace");
-    const key = c.req.param("key");
-    const { store } = await resolvePublicObject(c.env, workspace, key);
+export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}", async (c) => {
+  const workspace = c.req.param("workspace");
+  const key = c.req.param("key");
+  const { store, meta, urls } = await resolvePublicObject(c.env, workspace, key);
+
+  const downloadParam = c.req.query("download");
+  if (downloadParam === "1" || downloadParam === "true") {
     const filename = key.split("/").filter(Boolean).pop() ?? key;
     return downloadResponse(store, key, filename);
-  })
-  .get("/:workspace/:key{.+}", async (c) => {
-    const workspace = c.req.param("workspace");
-    const key = c.req.param("key");
-    const { store: _store, meta, urls } = await resolvePublicObject(c.env, workspace, key);
+  }
 
-    const metadata = await getFileMetadata(c.env.DB, workspace, key);
-    const github = deriveGithubContext(metadata);
+  const metadata = await getFileMetadata(c.env.DB, workspace, key);
+  const github = deriveGithubContext(metadata);
 
-    return c.json({
-      workspace,
-      key,
-      url: urls.url,
-      embedUrl: urls.embedUrl,
-      size: meta.size ?? 0,
-      contentType: meta.type ?? "application/octet-stream",
-      ...(meta.lastModified != null ? { uploaded: new Date(meta.lastModified).toISOString() } : {}),
-      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
-      ...(github ? { github } : {}),
-    });
+  return c.json({
+    workspace,
+    key,
+    url: urls.url,
+    embedUrl: urls.embedUrl,
+    size: meta.size ?? 0,
+    contentType: meta.type ?? "application/octet-stream",
+    ...(meta.lastModified != null ? { uploaded: new Date(meta.lastModified).toISOString() } : {}),
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    ...(github ? { github } : {}),
   });
+});
 ```
-
-(The metadata route no longer needs `store` directly — prefixed `_store` to keep it visible in the destructure without an unused-var lint failure; drop the prefix if the lint config allows an unused destructured field.)
 
 - [ ] **Step 5: Run the tests to verify they pass**
 

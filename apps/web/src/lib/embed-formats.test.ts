@@ -55,4 +55,19 @@ describe("buildEmbedFormats", () => {
       `<img src="${base.url}" alt="shot.png">`,
     );
   });
+
+  it("HTML-escapes the filename in the html-img alt attribute", () => {
+    const formats = buildEmbedFormats({
+      ...base,
+      filename: 'a"><b.png',
+      kind: "image",
+    });
+    const html = formats.find((f) => f.id === "html-img")!;
+    expect(html.value).toBe(`<img src="${base.embedUrl}" alt="a&quot;&gt;&lt;b.png">`);
+    const altStart = html.value.indexOf('alt="') + 'alt="'.length;
+    const alt = html.value.slice(altStart, html.value.length - '">'.length);
+    expect(alt).toBe("a&quot;&gt;&lt;b.png");
+    expect(alt).not.toContain('"');
+    expect(alt).not.toContain("<");
+  });
 });

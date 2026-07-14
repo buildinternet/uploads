@@ -36,7 +36,8 @@ export const publicGalleries = new Hono<WorkspaceVars>()
     if (!workspace) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
 
     const store = await withGalleryStorageErrors(() => storage(c.env, workspace));
-    if (!(await store.exists(item.object_key))) {
+    const exists = await withGalleryStorageErrors(() => store.exists(item.object_key));
+    if (!exists) {
       throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
     }
 
@@ -51,7 +52,9 @@ export const publicGalleries = new Hono<WorkspaceVars>()
       throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
     }
 
-    return downloadResponse(store, item.object_key, galleryItemFilename(item.object_key));
+    return withGalleryStorageErrors(() =>
+      downloadResponse(store, item.object_key, galleryItemFilename(item.object_key)),
+    );
   })
   .get("/:id", async (c) => {
     const record = await resolvePublicGallery(c.env.DB, c.req.param("id"));

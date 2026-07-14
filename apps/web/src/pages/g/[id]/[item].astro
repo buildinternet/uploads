@@ -241,9 +241,10 @@ const defaultCopyValue = embedFormats[0]?.value ?? canonical;
               if (!button) return;
               try {
                 await navigator.clipboard.writeText(button.dataset.copy || "");
-                const previous = button.textContent;
+                const original = button.dataset.copyLabel ?? button.textContent ?? "Copy";
+                button.dataset.copyLabel = original;
                 button.textContent = "copied ✓";
-                setTimeout(() => (button.textContent = previous), 1500);
+                setTimeout(() => (button.textContent = original), 1500);
               } catch {
                 // Clipboard blocked — leave the label.
               }

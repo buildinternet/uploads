@@ -293,18 +293,32 @@ subject to the cross-origin restriction. That means this needs no
 no CSP `connect-src` widening: `<a href={downloadUrl} rel="noopener noreferrer">Download</a>`
 just works.
 
-Concretely: add `GET /public/files/:workspace/:key/download` to
+Concretely: add a `?download=1` query flag to the existing
+`GET /public/files/:workspace/:key{.+}` handler in
 `apps/api/src/routes/public-files.ts`, reusing the exact same
 lookup/visibility gate as the existing handler (workspace record → `publicUrl`
 existence check → `store.exists`/`head` → `objectVisibility` 401 gate), then
-stream the bytes: `files-sdk` 2.1.0's `StoredFile` (what `store.download(key)`
-resolves to) exposes `.stream()` — a `ReadableStream<Uint8Array>` — so the
-route can pass that straight into a `new Response(stream, { headers: {
-"Content-Disposition": \`attachment; filename="${encodeRfc5987(filename)}"\`,
-"Content-Type": meta.type, ... } })`without buffering the whole object in
-Worker memory. This mirrors`setObjectVisibility`'s existing use of
-`store.download()` (`apps/api/src/files-core.ts`lines 261–265) but reads the
-stream instead of`arrayBuffer()`.
+stream the bytes. A query flag rather than a `/download` suffix route, because
+a static suffix after the greedy `:key{.+}` param is ambiguous — e.g.
+`.../screenshots/download` could mean the suffix OR an object literally named
+`screenshots/download` (the #158 lesson). `files-sdk` 2.1.0's `StoredFile`
+(what `store.download(key)` resolves to) exposes `.stream()` — a
+`ReadableStream<Uint8Array>` — so the route can pass that straight into a
+`Response` without buffering the whole object in Worker memory:
+
+```ts
+new Response(stream, {
+  headers: {
+    "Content-Disposition": `attachment; filename="${encodeRfc5987(filename)}"`,
+    "Content-Type": meta.type,
+    // ...
+  },
+});
+```
+
+This mirrors `setObjectVisibility`'s existing use of `store.download()`
+(`apps/api/src/files-core.ts` lines 261–265) but reads the stream instead of
+`arrayBuffer()`.
 
 **Tradeoff to name explicitly:** this moves file bytes from "served directly
 off the R2 custom domain, zero Worker involvement" to "proxied through the
@@ -355,9 +369,11 @@ to justify a GitHub App token + caching layer — that's a materially bigger
 project, not a polish pass.
 
 **(b) Download mechanism.**
-New `GET /public/files/:workspace/:key/download` API route that streams
-bytes with `Content-Disposition: attachment`, linked via a plain `<a>` (no
-client JS, no CSP change for this feature specifically).
+A `?download=1` query flag on the existing `GET /public/files/:workspace/:key{.+}`
+API route (not a `/download` suffix — ambiguous after the greedy `:key{.+}`
+param, the #158 trap) that streams bytes with `Content-Disposition: attachment`,
+linked via a plain `<a>` (no client JS, no CSP change for this feature
+specifically).
 _Recommended default: yes, build this route._ Alternative (client-side
 fetch→blob) needs CORS on the storage host plus a CSP `connect-src` widen and
 is strictly worse on every axis investigated (§3.4). Flag if there's a
