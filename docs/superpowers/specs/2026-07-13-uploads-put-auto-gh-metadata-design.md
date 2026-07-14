@@ -56,7 +56,9 @@ Auto resolution picks its target in this order:
 
 Auto resolution is **best-effort and never fails the upload**: missing `gh`,
 no PR for the branch, an API error, or an unresolvable repo → skip the metadata
-and upload normally (one stderr note in human format, like `--comment`).
+and upload normally, silently (no note on skip). When `gh.*` metadata IS
+attached — explicit or auto — `runPut` prints one stderr note in human format
+(`>> attached to <gh.ref>`), the same shape as the `--comment` note.
 
 ## Control surface
 

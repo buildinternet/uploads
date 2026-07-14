@@ -231,7 +231,7 @@ reserved-by-convention keys automatically — see below.
 On the default `screenshots/…` path, `put` also auto-derives GitHub context and
 stamps `gh.repo`/`gh.kind`/`gh.number`/`gh.ref` from the current branch's PR (or
 a numeric `--ref`), so the file's `/f/` page shows an "Attached to" link. This is
-on by default and best-effort; disable it with `--no-auto` or `UPLOADS_NO_AUTO_META=1`.
+on by default and best-effort; disable it with `--no-auto`, `--no-git`, or `UPLOADS_NO_AUTO_META=1`.
 
 **Re-upload semantics:** re-uploading to an existing key **with** `--meta` replaces
 that file's entire metadata set (delete-then-set, not a merge); re-uploading

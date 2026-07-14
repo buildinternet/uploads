@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import { UploadsError } from "../src/errors.js";
 import type { UploadsClient } from "../src/client.js";
@@ -480,5 +480,94 @@ describe("runPut auto gh.* metadata (default path)", () => {
       ghRunner({ pr: 481 }),
     );
     expect(puts[0].metadata!["gh.number"]).toBe("5");
+  });
+});
+
+/** 21 distinct valid `--meta k=v` flags: 21 + 4 gh.* = 25, one over META_MAX_KEYS (24). */
+function metaFlagsNearCap(): string[] {
+  const flags: string[] = [];
+  for (let i = 0; i < 21; i++) {
+    flags.push("--meta", `k${i}=v${i}`);
+  }
+  return flags;
+}
+
+describe("runPut gh.* metadata cap enforcement", () => {
+  it("explicit path throws when the merged map exceeds the key cap", async () => {
+    const { client, puts } = fakeClient();
+    await expect(
+      runPut(
+        ctxWith(client),
+        [tmpFile(), ...metaFlagsNearCap(), "--pr", "9", "--repo", "o/r"],
+        false,
+        noRun,
+      ),
+    ).rejects.toThrow(UsageError);
+    expect(puts).toEqual([]);
+  });
+
+  it("auto path drops gh.* and succeeds when the merged map exceeds the key cap", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runPut(
+      ctxWith(client),
+      [tmpFile(), ...metaFlagsNearCap(), "--repo", "o/r"],
+      false,
+      ghRunner({ pr: 481 }),
+    );
+    expect(code).toBe(0);
+    expect(puts[0].metadata).toBeDefined();
+    expect(puts[0].metadata!["gh.repo"]).toBeUndefined();
+    expect(puts[0].metadata!["k0"]).toBe("v0");
+    expect(puts[0].metadata!["k20"]).toBe("v20");
+    expect(Object.keys(puts[0].metadata!)).toHaveLength(21);
+  });
+
+  it("--auto cannot force auto resolution past --no-git", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "o/r", "--auto", "--no-git"],
+      false,
+      ghRunner({ pr: 481 }),
+    );
+    expect(puts[0].metadata).toBeUndefined();
+  });
+
+  it("--auto takes no value", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), [tmpFile(), "--auto=1", "--repo", "o/r"], false, noRun),
+    ).rejects.toThrow(UsageError);
+  });
+});
+
+describe("runPut gh.* attach success note", () => {
+  it("prints a success note when gh.* metadata is attached, silent on skip", async () => {
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const { client: attachedClient } = fakeClient();
+      await runPut(
+        { ...ctxWith(attachedClient), quiet: false },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        ghRunner({ pr: 481 }),
+      );
+      const attachedOutput = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+      expect(attachedOutput).toContain("attached to o/r#481");
+
+      writeSpy.mockClear();
+
+      const { client: skippedClient } = fakeClient();
+      await runPut(
+        { ...ctxWith(skippedClient), quiet: false },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        ghRunner({}),
+      );
+      const skippedOutput = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+      expect(skippedOutput).not.toContain("attached to");
+    } finally {
+      writeSpy.mockRestore();
+    }
   });
 });

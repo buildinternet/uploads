@@ -111,7 +111,7 @@ Options:
   --keep-exif           Keep EXIF/XMP/ICC when optimizing (default: strip for privacy)
   --no-git              Don't derive --repo from git (or UPLOADS_NO_GIT=1)
   --auto                Resolve current PR/issue and stamp gh.* metadata (default on)
-  --no-auto             Skip gh.* auto-resolution on the default path (or UPLOADS_NO_AUTO_META=1)
+  --no-auto             Skip gh.* auto-resolution (also skipped by --no-git or UPLOADS_NO_AUTO_META=1)
   --workspace, -w <name>  Override workspace (wins over UPLOADS_WORKSPACE and token inference)
   --format human|url|markdown|json
   --pr <num>            Attach to a pull request: key gh/<owner>/<repo>/pull/<num>/<name> (stable URL, no hash)
@@ -535,6 +535,12 @@ export async function runPut(
   if (wantComment && typeof parsed.flags.get("--comment") === "string") {
     throw new UsageError("--comment takes no value — place it after the file argument");
   }
+  if (parsed.flags.has("--auto") && typeof parsed.flags.get("--auto") === "string") {
+    throw new UsageError("--auto takes no value");
+  }
+  if (parsed.flags.has("--no-auto") && typeof parsed.flags.get("--no-auto") === "string") {
+    throw new UsageError("--no-auto takes no value");
+  }
   if (wantComment && !ghTarget) throw new UsageError("--comment requires --pr or --issue");
   if (ghTarget) {
     if (keyHint) {
@@ -613,23 +619,44 @@ export async function runPut(
 
   const noGit = flagBool(parsed.flags, "--no-git") || defaults.noGit === true;
   // gh.* metadata: explicit --pr/--issue target wins over --meta; otherwise
-  // best-effort auto resolution (on by default) where --meta wins. Auto is off
-  // when --no-auto, --no-git, or UPLOADS_NO_AUTO_META is set (unless --auto forces it).
+  // best-effort auto resolution (on by default) where --meta wins. --no-git,
+  // --no-auto, or UPLOADS_NO_AUTO_META disable auto; --auto forces past the
+  // config default but never past --no-git (no repo to resolve).
   let metadata = userMeta;
+  let attachedRef: string | undefined;
   if (ghTarget) {
-    metadata = { ...userMeta, ...ghMetadataFromTarget(ghTarget) };
+    const merged = { ...userMeta, ...ghMetadataFromTarget(ghTarget) };
+    validateMetaMap(merged); // enforce 24-key/8KB caps on the merged map (matches attach)
+    metadata = merged;
+    attachedRef = merged["gh.ref"];
   } else {
     const autoEnabled =
-      flagBool(parsed.flags, "--auto") ||
-      (!flagBool(parsed.flags, "--no-auto") && defaults.noAutoMeta !== true && !noGit);
+      !noGit &&
+      !flagBool(parsed.flags, "--no-auto") &&
+      (flagBool(parsed.flags, "--auto") || defaults.noAutoMeta !== true);
     if (autoEnabled) {
       const autoTarget = resolveAutoGhTarget(
         flagString(parsed.flags, "--repo") ?? defaults.repo,
         flagString(parsed.flags, "--ref") ?? defaults.ref,
         run,
       );
-      if (autoTarget) metadata = { ...ghMetadataFromTarget(autoTarget), ...userMeta };
+      if (autoTarget) {
+        const autoMeta = ghMetadataFromTarget(autoTarget);
+        const merged = { ...autoMeta, ...userMeta };
+        // Auto resolution must never fail the upload: if merging the gh.* pairs
+        // would exceed the metadata caps, drop them and upload with --meta only.
+        try {
+          validateMetaMap(merged);
+          metadata = merged;
+          attachedRef = autoMeta["gh.ref"];
+        } catch {
+          // keep metadata = userMeta (already validated); skip auto gh.*
+        }
+      }
     }
+  }
+  if (attachedRef && !ctx.quiet && format === "human") {
+    process.stderr.write(`>> attached to ${attachedRef}\n`);
   }
   let key = ghTarget ? ghAttachmentKey(ghTarget, filename) : keyHint;
   if (key && prepared.optimized) key = rewriteKeyExtension(key, filename);
