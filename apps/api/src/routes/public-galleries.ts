@@ -6,6 +6,18 @@ import { galleryItemFilename, hydratePublicGallery } from "../gallery-service";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { type WorkspaceRecord, type WorkspaceVars } from "../workspace";
 
+/** Runs `action`, mapping any thrown error to the 503 the gallery storage routes commit to. */
+async function withGalleryStorageErrors<T>(action: () => Promise<T>): Promise<T> {
+  try {
+    return await action();
+  } catch (cause) {
+    throw new ServiceUnavailableError("Gallery storage unavailable.", {
+      code: "gallery_storage_unavailable",
+      cause,
+    });
+  }
+}
+
 export const publicGalleries = new Hono<WorkspaceVars>()
   .get("/:id/items/:item/download", async (c) => {
     const record = await resolvePublicGallery(c.env.DB, c.req.param("id"));
@@ -23,15 +35,7 @@ export const publicGalleries = new Hono<WorkspaceVars>()
     });
     if (!workspace) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
 
-    let store: Awaited<ReturnType<typeof storage>>;
-    try {
-      store = await storage(c.env, workspace);
-    } catch (cause) {
-      throw new ServiceUnavailableError("Gallery storage unavailable.", {
-        code: "gallery_storage_unavailable",
-        cause,
-      });
-    }
+    const store = await withGalleryStorageErrors(() => storage(c.env, workspace));
     if (!(await store.exists(item.object_key))) {
       throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
     }
@@ -41,15 +45,7 @@ export const publicGalleries = new Hono<WorkspaceVars>()
     // mutable afterward. Withhold the bytes here exactly when the gallery's
     // own read path would withhold the URL, so this route can't be used to
     // bypass that gate.
-    let config: Awaited<ReturnType<typeof storageConfig>>;
-    try {
-      config = await storageConfig(c.env, workspace);
-    } catch (cause) {
-      throw new ServiceUnavailableError("Gallery storage unavailable.", {
-        code: "gallery_storage_unavailable",
-        cause,
-      });
-    }
+    const config = await withGalleryStorageErrors(() => storageConfig(c.env, workspace));
     const urls = objectPublicUrls(c.env, config, item.object_key);
     if (!urls.url) {
       throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });

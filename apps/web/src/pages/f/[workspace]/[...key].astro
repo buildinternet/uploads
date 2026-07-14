@@ -63,6 +63,9 @@ const embedFormats = file
     })
   : [];
 const downloadUrl = file ? fileDownloadUrl(origin, workspace, key) : null;
+// The "Copy as" input/button start on the first format (Page link) until the
+// select is changed client-side.
+const defaultCopyValue = embedFormats[0]?.value ?? canonical;
 const title = file
   ? `${filename} · uploads.sh`
   : result.status === "auth_required"
@@ -175,8 +178,8 @@ const title = file
                     <select id="copy-format" aria-label="Copy as format">
                       {embedFormats.map((format) => <option value={format.id}>{format.label}</option>)}
                     </select>
-                    <input id="copy-value" type="text" readonly value={embedFormats[0]?.value ?? canonical} aria-label="Value to copy" />
-                    <button type="button" id="copy-format-btn" data-copy={embedFormats[0]?.value ?? canonical} aria-live="polite">Copy</button>
+                    <input id="copy-value" type="text" readonly value={defaultCopyValue} aria-label="Value to copy" />
+                    <button type="button" id="copy-format-btn" data-copy={defaultCopyValue} aria-live="polite">Copy</button>
                   </div>
                 </span>
               </div>
