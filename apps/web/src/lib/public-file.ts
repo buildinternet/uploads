@@ -71,6 +71,20 @@ export function filePath(workspace: string, key: string): string {
 }
 
 /**
+ * Build the API's forced-download URL (absolute) for a public file — Task 3's
+ * `?download=1` query flag on `GET /public/files/:workspace/:key`, *not* a
+ * `/download` suffix route. A static suffix after the greedy `:key{.+}` route
+ * param is ambiguous (`.../screenshots/download` could mean the suffix or an
+ * object literally named `screenshots/download`); the query flag sidesteps
+ * that, mirroring the existing `?metadata=1` precedent.
+ */
+export function fileDownloadUrl(origin: string, workspace: string, key: string): string {
+  const url = new URL(`/public/files/${encodeURIComponent(workspace)}/${encodeKey(key)}`, origin);
+  url.searchParams.set("download", "1");
+  return url.href;
+}
+
+/**
  * Shared directives behind both {@link PUBLIC_FILE_CSP} and
  * {@link authRequiredFileCsp} — locked down except for self-hosted
  * styles/fonts and the Cloudflare RUM beacon. `scriptSrc`/`connectSrc`

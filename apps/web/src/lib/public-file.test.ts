@@ -3,6 +3,7 @@ import {
   applyPublicFileHeaders,
   authRequiredFileCsp,
   fetchPublicFile,
+  fileDownloadUrl,
   fileKind,
   filePath,
   formatBytes,
@@ -129,6 +130,14 @@ describe("key safety + path building", () => {
 
   it("URL-encodes each key segment but preserves the slashes", () => {
     expect(filePath("acme", "f/My Shot#1.png")).toBe("/f/acme/f/My%20Shot%231.png");
+  });
+
+  it("builds the absolute download-route URL, encoding each key segment", () => {
+    // `?download=1` query flag (Task 3), not a `/download` suffix — a static
+    // suffix after the greedy key route param would be ambiguous.
+    expect(fileDownloadUrl("https://api.uploads.sh", "acme", "f/My Shot#1.png")).toBe(
+      "https://api.uploads.sh/public/files/acme/f/My%20Shot%231.png?download=1",
+    );
   });
 });
 

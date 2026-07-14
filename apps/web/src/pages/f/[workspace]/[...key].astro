@@ -3,10 +3,12 @@ import BaseHead from "../../../components/BaseHead.astro";
 import Brand from "../../../components/Brand.astro";
 import Footer from "../../../components/Footer.astro";
 import GitHubMark from "../../../components/GitHubMark.astro";
+import { buildEmbedFormats } from "../../../lib/embed-formats";
 import {
   applyPublicFileHeaders,
   authRequiredFileCsp,
   fetchPublicFile,
+  fileDownloadUrl,
   fileKind as kind,
   filePath,
   formatBytes,
@@ -48,6 +50,19 @@ const metadataEntries = file?.metadata
       .filter(([metaKey]) => !metaKey.startsWith("gh."))
       .sort(([a], [b]) => a.localeCompare(b))
   : [];
+// "Copy as" format options (Task 1's builder) and the forced-download link
+// (Task 3's `?download=1` route, via `fileDownloadUrl`) — both `null`/`[]`
+// when there's no file to link.
+const embedFormats = file
+  ? buildEmbedFormats({
+      canonical,
+      url: file.url,
+      embedUrl: file.embedUrl,
+      filename,
+      kind: kind(file.contentType),
+    })
+  : [];
+const downloadUrl = file ? fileDownloadUrl(origin, workspace, key) : null;
 const title = file
   ? `${filename} · uploads.sh`
   : result.status === "auth_required"
@@ -93,9 +108,13 @@ const title = file
       .actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:16px; }
       .actions a.original { display:inline-block; padding:9px 15px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel); color:var(--fg); font:12px var(--mono); text-decoration:none; }
       .actions a.original:hover, .actions a.original:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
-      .linkfield { flex:1; min-width:220px; }
+      .linkfield { flex:1; min-width:260px; }
       .linkfield label { display:block; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font:11px var(--mono); margin-bottom:5px; }
-      .linkfield input { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--bg); color:var(--body); font:12px var(--mono); }
+      .copyrow { display:flex; gap:6px; align-items:stretch; }
+      .copyrow select { padding:8px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--bg); color:var(--body); font:12px var(--mono); }
+      .copyrow input { flex:1; min-width:0; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--bg); color:var(--body); font:12px var(--mono); }
+      .copyrow button { padding:8px 12px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel); color:var(--fg); font:12px var(--mono); cursor:pointer; }
+      .copyrow button:hover, .copyrow button:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
       .error { padding:70px 24px; border:1px solid var(--line); border-radius:var(--radius-lg); text-align:center; background:var(--panel); color:var(--body); }
       .error code { color:var(--accent); font-family:var(--mono); }
       .error .signin { display:inline-block; margin-top:18px; padding:9px 16px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--bg); color:var(--fg); font:12px var(--mono); text-decoration:none; }
@@ -148,9 +167,16 @@ const title = file
               )}
               <div class="actions">
                 {kind(file.contentType) !== "unsupported" && <a class="original" href={file.url} rel="noopener noreferrer">Open original ↗</a>}
+                {downloadUrl && <a class="original download" href={downloadUrl} rel="noopener noreferrer">Download</a>}
                 <span class="linkfield">
-                  <label for="page-link">Page link</label>
-                  <input id="page-link" type="text" readonly value={canonical} aria-label="Page link" />
+                  <label for="copy-format">Copy as</label>
+                  <div class="copyrow">
+                    <select id="copy-format" aria-label="Copy as format">
+                      {embedFormats.map((format) => <option value={format.id}>{format.label}</option>)}
+                    </select>
+                    <input id="copy-value" type="text" readonly value={embedFormats[0]?.value ?? canonical} aria-label="Value to copy" />
+                    <button type="button" id="copy-format-btn" data-copy={embedFormats[0]?.value ?? canonical} aria-live="polite">Copy</button>
+                  </div>
                 </span>
               </div>
             </figcaption>
@@ -169,6 +195,48 @@ const title = file
         <section class="error"><code>{result.status === "unavailable" ? "file.unavailable" : "file.not_found"}</code><h1>{result.status === "unavailable" ? "File temporarily unavailable" : "File not found"}</h1><p>{result.status === "unavailable" ? "The file service could not be reached. Please try again shortly." : "This file may have been removed, or the link is incorrect."}</p></section>
       )}
     </main>
+    {file && (
+      // Click-to-copy + "Copy as" format switching — CSP allows inline script
+      // on this branch as of the file-page-polish work (see PUBLIC_FILE_CSP
+      // in lib/public-file.ts). Same data-copy delegated-listener pattern as
+      // account/index.astro and account/workspaces.astro. The Download link
+      // needs no script — it's a plain <a> to the API's `?download=1` route.
+      <script define:vars={{ formats: embedFormats }}>
+        (function () {
+          const shell = document.querySelector(".shell");
+          if (!shell) return;
+
+          shell.addEventListener("click", (event) => {
+            void (async () => {
+              const button = event.target.closest("button[data-copy]");
+              if (!button) return;
+              try {
+                await navigator.clipboard.writeText(button.dataset.copy || "");
+                const previous = button.textContent;
+                button.textContent = "copied ✓";
+                setTimeout(() => {
+                  button.textContent = previous;
+                }, 1500);
+              } catch {
+                // Clipboard blocked — leave the label.
+              }
+            })();
+          });
+
+          const select = document.getElementById("copy-format");
+          const input = document.getElementById("copy-value");
+          const copyButton = document.getElementById("copy-format-btn");
+          if (select instanceof HTMLSelectElement && input instanceof HTMLInputElement && copyButton) {
+            select.addEventListener("change", () => {
+              const format = formats.find((f) => f.id === select.value) ?? formats[0];
+              if (!format) return;
+              input.value = format.value;
+              copyButton.dataset.copy = format.value;
+            });
+          }
+        })();
+      </script>
+    )}
     {result.status === "auth_required" && (
       // Progressive-enhancement, client-side authorization path — a second
       // gate parallel to the server-side one this page already applied via
