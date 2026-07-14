@@ -11,3 +11,8 @@ MCP parity: the local stdio MCP's `put`/`attach` tools gain a `metadata` param
 (same gh.\* auto-injection as `attach`), and two new tools — `set_metadata`
 (merge-set/delete) and `find_files` (metadata filter) — mirror the CLI's
 `meta set`/`find`. The hosted MCP's `put` tool also gains a `metadata` param.
+
+`meta get`/`meta set` now hit `GET /v1/:workspace/files/:key?metadata=1` and
+`PATCH /v1/:workspace/files/:key` instead of a `/:key/metadata` sibling route
+— the original suffix route 404'd on real (slash-containing) keys once
+deployed.

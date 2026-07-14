@@ -6,7 +6,7 @@
  * packages/uploads/src/github.ts — this script mirrors that mapping).
  *
  * Pages GET /v1/:ws/files?prefix=gh/ (cursor loop), parses each key against
- * GH_KEY_RE, and PATCHes /v1/:ws/files/<key>/metadata with `{ set: {...} }`
+ * GH_KEY_RE, and PATCHes /v1/:ws/files/<key> with `{ set: {...} }`
  * for every match. Non-matching keys under gh/ are skipped and counted, not
  * treated as errors. Merge-semantics PATCH means re-running is harmless
  * (idempotent) — safe to re-run after interruption.
@@ -110,7 +110,7 @@ export async function runBackfill({
         continue;
       }
 
-      const patchUrl = `${base}/v1/${workspace}/files/${plan.key}/metadata`;
+      const patchUrl = `${base}/v1/${workspace}/files/${plan.key}`;
       let patchRes;
       try {
         patchRes = await fetchImpl(patchUrl, {
