@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applyPublicGalleryHeaders,
   fetchPublicGallery,
+  galleryItemDownloadUrl,
   isPublicGallery,
   PUBLIC_GALLERY_CSP,
 } from "./public-gallery";
@@ -201,5 +202,13 @@ describe("public gallery API", () => {
     await expect(
       fetchPublicGallery(ID, { origin: "http://[::1]:8787", fetch: fetcher }),
     ).resolves.toMatchObject({ status: "ok" });
+  });
+});
+
+describe("galleryItemDownloadUrl", () => {
+  it("builds the absolute download-route URL for a gallery item", () => {
+    expect(galleryItemDownloadUrl("https://api.uploads.sh", ID, "item-1")).toBe(
+      `https://api.uploads.sh/public/galleries/${ID}/items/item-1/download`,
+    );
   });
 });

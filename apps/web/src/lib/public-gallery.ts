@@ -59,6 +59,14 @@ export function galleryItemPath(galleryId: string, itemId: string): string {
   return `${galleryPath(galleryId)}/${encodeURIComponent(itemId)}`;
 }
 
+/** Build the API's forced-download URL (absolute) for a gallery item — Task 4's `/download` route. */
+export function galleryItemDownloadUrl(origin: string, galleryId: string, itemId: string): string {
+  return new URL(
+    `/public/galleries/${encodeURIComponent(galleryId)}/items/${encodeURIComponent(itemId)}/download`,
+    origin,
+  ).href;
+}
+
 /**
  * Public gallery CSP.
  *
