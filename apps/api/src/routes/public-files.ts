@@ -2,7 +2,7 @@ import { NotFoundError, UnauthorizedError } from "@uploads/errors";
 import { Hono } from "hono";
 import { badKey } from "../files-core";
 import { getFileMetadata } from "../file-metadata";
-import { publicUrl, storage, storageConfig } from "../storage";
+import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
 
@@ -75,8 +75,9 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
   // Phase 1 is public-workspace-only: resolving the public URL doubles as the
   // visibility gate. A workspace without a public base URL cannot be wrapped
   // here — that is #123's signed-URL territory, swapped in when it lands.
-  const url = publicUrl(await storageConfig(c.env, record), key);
-  if (!url) throw new NotFoundError();
+  const cfg = await storageConfig(c.env, record);
+  const urls = objectPublicUrls(c.env, cfg, key);
+  if (!urls.url) throw new NotFoundError();
 
   const store = await storage(c.env, record);
   if (!(await store.exists(key))) throw new NotFoundError();
@@ -94,7 +95,8 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
   return c.json({
     workspace,
     key,
-    url,
+    url: urls.url,
+    embedUrl: urls.embedUrl,
     size: meta.size ?? 0,
     contentType: meta.type ?? "application/octet-stream",
     ...(meta.lastModified != null ? { uploaded: new Date(meta.lastModified).toISOString() } : {}),

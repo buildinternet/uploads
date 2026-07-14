@@ -151,6 +151,17 @@ describe("GET /public/files/:workspace/:key", () => {
     expect(json.size).toBeGreaterThan(0);
   });
 
+  it("includes an embedUrl alongside the stable url", async () => {
+    const { env } = await makeEnv();
+    await seedShot(env);
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { url: string; embedUrl: string | null };
+    expect(json.url).toBe("https://storage.uploads.sh/default/screenshots/shot.png");
+    expect(json.embedUrl).toBe("https://embed.uploads.sh/default/screenshots/shot.png");
+  });
+
   it("never surfaces provenance metadata on the public surface", async () => {
     const { env } = await makeEnv();
     // The server always writes content-sha256 provenance itself; a client
