@@ -1,5 +1,28 @@
 # @buildinternet/uploads
 
+## 0.9.0
+
+### Minor Changes
+
+- d67c093: `uploads put` now stamps the four `gh.*` metadata pairs whenever it has a
+  GitHub target, so screenshots hosted on the default `screenshots/…` path get an
+  "Attached to" link on their `/f/` page. On by default: with `--pr`/`--issue`
+  the explicit target is used (previously the stable key was written without
+  metadata); otherwise `put` resolves the current branch's PR (or classifies a
+  numeric `--ref` as pull vs issue) via `gh`. Disable with `--no-auto`,
+  `--no-git`, or `UPLOADS_NO_AUTO_META=1`. Resolution is best-effort — a missing
+  `gh`, no PR, or an API error uploads normally without metadata.
+
+### Patch Changes
+
+- 528d895: Metadata discoverability polish: `uploads find` / `list --meta` now print each
+  match's matched metadata inline in human output (as `LIST_HELP` already
+  promised, previously only in `--json`); `uploads meta get` on an object with no
+  metadata prints a `(no metadata)` note to stderr instead of nothing; and
+  `uploads attach` prints a `find these later: uploads find gh.ref=…` hint so its
+  auto-written `gh.*` metadata is discoverable. README now lists the stdio MCP
+  `set_metadata`/`find_files` tools and the `put`/`attach` `metadata` param.
+
 ## 0.8.0
 
 ### Minor Changes
