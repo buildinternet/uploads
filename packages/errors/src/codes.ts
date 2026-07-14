@@ -56,6 +56,14 @@ export const ERROR_CODES = [
   "gallery_reference_not_found",
   "gallery_invalid_reference",
 
+  // File metadata
+  "file_metadata_invalid_key",
+  "file_metadata_invalid_value",
+  "file_metadata_limit_exceeded",
+  "file_metadata_reserved_key",
+  "file_metadata_duplicate_filter",
+  "file_metadata_too_many_filters",
+
   // Admin
   "invalid_workspace",
   "workspace_not_found",

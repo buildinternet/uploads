@@ -25,6 +25,10 @@ uploads put ./capture-2026-…Z.png --pr 123 --name hero.png   # clean leaf, sta
 uploads put ./shot.png --pr 123 --name hero.png --dry-run --format url  # preview URL, no upload
 uploads gallery create --title "Release screenshots"
 uploads put ./after.png --gallery gal_example
+uploads put ./shot.png --meta app=myapp --meta page=settings   # queryable custom metadata
+uploads meta get screenshots/myapp/42/shot.png
+uploads meta set screenshots/myapp/42/shot.png page=onboarding --delete device
+uploads find app=myapp page=settings                            # or: list --meta app=myapp
 uploads doctor
 ```
 
@@ -32,8 +36,8 @@ Inside this monorepo only, `pnpm uploads …` builds the package first so you pi
 up local source; product docs and PR “how to try it” examples should use the
 global `uploads` form above.
 
-Commands: `attach`, `put`, `gallery`, `comment`, `list`, `delete`, `usage`, `reconcile`,
-`purge-expired`, `setup`, `install`, `config`, `doctor`, `health`, `mcp`.
+Commands: `attach`, `put`, `gallery`, `comment`, `list`, `find`, `meta`, `delete`, `usage`,
+`reconcile`, `purge-expired`, `setup`, `install`, `config`, `doctor`, `health`, `mcp`.
 
 **Globals (before the command):** `--api-url`, `--token`, `--workspace` / `-w`,
 `--env-file`, `--json`, `--quiet`, `--version` / `-V`, `-h` / `--help`.

@@ -69,13 +69,28 @@ export {
   type ReconcileResult,
   type PurgeExpiredResult,
   type PurgeExpiredResponse,
+  type FindFilesOptions,
+  type FindFilesItem,
+  type FindFilesResult,
+  type GetMetadataResult,
+  type PatchMetadataOptions,
 } from "./client.js";
 export { buildCliProvenance } from "./provenance.js";
+export {
+  META_KEY_RE,
+  META_VALUE_MAX,
+  META_MAX_KEYS,
+  META_MAX_TOTAL_BYTES,
+  validateMetaEntry,
+  parseMetaPair,
+  parseMetaFlags,
+} from "./metadata.js";
 export {
   ATTACHMENTS_MARKER,
   attachmentsCommentBody,
   ghAttachmentKey,
   ghKeyPrefix,
+  ghMetadataFromTarget,
   isValidRepo,
   parseRepoFromRemoteUrl,
   type AttachmentItem,

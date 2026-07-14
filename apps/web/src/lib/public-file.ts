@@ -5,6 +5,14 @@ import { CF_RUM_CONNECT_SRC, CF_RUM_SCRIPT_SRC, STYLE_SRC_SELF_AND_INLINE } from
 // no storage bindings, so the API endpoint is the single-object security
 // surface. This mirrors public-gallery.ts, minus collection/ordering concerns.
 
+/** GitHub PR/issue an object is attached to, derived server-side from `gh.*` metadata. */
+export interface GithubContext {
+  repo: string;
+  kind: "pull" | "issue";
+  number: number;
+  url: string;
+}
+
 /** Allowlisted metadata for one public object, as returned by the API. */
 export interface PublicFile {
   workspace: string;
@@ -13,6 +21,10 @@ export interface PublicFile {
   size: number;
   contentType: string;
   uploaded: string | null;
+  /** Queryable `gh.*`-and-other custom metadata pairs; omitted when there are none. */
+  metadata?: Record<string, string>;
+  /** Convenience view of `gh.repo`/`gh.kind`/`gh.number`, when all three are present and valid. */
+  github?: GithubContext;
 }
 
 /** Result of resolving a public file: the DTO, a hard 404, a private gate, or a soft outage. */
@@ -149,6 +161,33 @@ function isAuthRequiredError(value: unknown): boolean {
   return error.code === "auth_required" && text(error.message, 512);
 }
 
+/** Mirrors apps/api's `META_KEY_RE` (file-metadata.ts) — lowercase, optionally dotted. */
+const META_KEY_RE = /^[a-z][a-z0-9._-]{0,63}$/;
+/** Mirrors apps/api's `META_MAX_KEYS`/`META_VALUE_MAX` caps for one file's metadata map. */
+const META_MAX_KEYS = 24;
+const META_VALUE_MAX = 512;
+
+/** Bounded, non-empty `Record<string,string>` of metadata pairs — never sent empty by the API. */
+function isMetadataMap(value: unknown): value is Record<string, string> {
+  if (typeof value !== "object" || value === null) return false;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0 || entries.length > META_MAX_KEYS) return false;
+  return entries.every(([key, v]) => META_KEY_RE.test(key) && text(v, META_VALUE_MAX));
+}
+
+/** Bounded `github` convenience object — mirrors apps/api's `deriveGithubContext` shape. */
+function isGithubContext(value: unknown): value is GithubContext {
+  if (typeof value !== "object" || value === null) return false;
+  const github = value as Record<string, unknown>;
+  return (
+    text(github.repo, 200) &&
+    (github.kind === "pull" || github.kind === "issue") &&
+    Number.isSafeInteger(github.number) &&
+    (github.number as number) > 0 &&
+    httpsUrl(github.url)
+  );
+}
+
 /** Validate an untrusted API response against the bounded {@link PublicFile} shape. */
 export function isPublicFile(value: unknown): value is PublicFile {
   if (typeof value !== "object" || value === null) return false;
@@ -157,6 +196,8 @@ export function isPublicFile(value: unknown): value is PublicFile {
     file.uploaded === undefined ||
     file.uploaded === null ||
     (text(file.uploaded, 64) && Number.isFinite(Date.parse(file.uploaded as string)));
+  const metadataOk = file.metadata === undefined || isMetadataMap(file.metadata);
+  const githubOk = file.github === undefined || isGithubContext(file.github);
   return (
     text(file.workspace, 64) &&
     text(file.key, 1024) &&
@@ -164,7 +205,9 @@ export function isPublicFile(value: unknown): value is PublicFile {
     Number.isSafeInteger(file.size) &&
     (file.size as number) >= 0 &&
     text(file.contentType, 128) &&
-    uploadedOk
+    uploadedOk &&
+    metadataOk &&
+    githubOk
   );
 }
 

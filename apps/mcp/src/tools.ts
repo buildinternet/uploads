@@ -6,8 +6,23 @@
  * a filesystem or the gh CLI (attach, comment, doctor) stay stdio-only.
  */
 import { buildMarkdown, buildScreenshotKey } from "@buildinternet/uploads";
-import { optPosInt, optString, usage, type McpTool } from "@buildinternet/uploads/mcp";
+import {
+  METADATA_DESCRIPTION,
+  metadataProp,
+  optPosInt,
+  optString,
+  optStringArray,
+  optStringRecord,
+  usage,
+  type McpTool,
+} from "@buildinternet/uploads/mcp";
 import { badKey } from "@uploads/api/files";
+import {
+  findObjectsByMetadata,
+  setFileMetadata,
+  validateMetadataEntries,
+  validateMetadataFilters,
+} from "@uploads/api/file-metadata";
 import {
   addExternalReference,
   addGalleryItem,
@@ -296,6 +311,12 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             type: "number",
             description: "Emit <img width=…> markdown instead of a plain image embed.",
           },
+          metadata: {
+            type: "object",
+            additionalProperties: { type: "string" },
+            description:
+              "Queryable custom metadata (key→value), separate from provenance. Omit to leave any metadata already stored for this key untouched; pass an object (even {}) to fully replace it. Keys: lowercase, ^[a-z][a-z0-9._-]{0,63}$. Values: 1-512 printable ASCII characters. Caps: at most 24 keys, at most 8192 total key+value bytes. Suggested keys: app, url, page, device, resolution, commit, branch. `gh.*` is reserved by convention for GitHub PR/issue attachment context (repo/kind/number/ref), normally system-managed by the attach flow.",
+          },
         },
         required: ["contentBase64", "filename"],
         additionalProperties: false,
@@ -307,6 +328,15 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         const filename = optString(args, "filename");
         if (!contentBase64) usage("contentBase64 is required");
         if (!filename) usage("filename is required");
+
+        const metadata = optStringRecord(args, "metadata");
+        if (metadata) {
+          try {
+            validateMetadataEntries(metadata);
+          } catch (err) {
+            usage(err instanceof Error ? err.message : String(err));
+          }
+        }
 
         const explicitKey = optString(args, "key");
         const prefix = optString(args, "prefix");
@@ -332,7 +362,16 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
 
         // Key/body validation and the size/type guardrails live in putObject,
         // shared with the REST API — the stored content type is sniffed there.
-        const result = await putObject(env, workspace, key, bytes, workspaceName);
+        // metadata is undefined when omitted (leave existing D1 rows
+        // untouched); passing opts only when defined preserves that.
+        const result = await putObject(
+          env,
+          workspace,
+          key,
+          bytes,
+          workspaceName,
+          metadata !== undefined ? { metadata } : undefined,
+        );
         const markdown =
           result.url === null
             ? undefined
@@ -382,6 +421,85 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         const key = optString(args, "key");
         if (!key) usage("key is required");
         return deleteObject(env, workspace, key, workspaceName);
+      },
+    },
+    {
+      name: "set_metadata",
+      description:
+        "Merge-set and/or delete an object's queryable custom metadata (D1-backed key-value pairs; distinct from the R2 provenance headers put on upload). `set` pairs win over `delete` when a key appears in both. " +
+        METADATA_DESCRIPTION +
+        " Requires at least one of `set` or `delete`. Same as the CLI/local MCP's `set_metadata` tool.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "Object key to update." },
+          set: { ...metadataProp, description: "Keys to set/overwrite. " + METADATA_DESCRIPTION },
+          delete: {
+            type: "array",
+            items: { type: "string" },
+            description: "Keys to remove.",
+          },
+        },
+        required: ["key"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:write");
+        await requireWriteBudget();
+        const key = optString(args, "key");
+        if (!key) usage("key is required");
+        if (badKey(key)) usage("invalid key");
+        const set = optStringRecord(args, "set");
+        const del = optStringArray(args, "delete");
+        if ((!set || Object.keys(set).length === 0) && (!del || del.length === 0)) {
+          usage("set_metadata requires set and/or delete");
+        }
+        const store = await storage(env, workspace);
+        if (!(await store.exists(key))) throw new Error("object not found");
+        const metadata = await setFileMetadata(env.DB, workspaceName, key, set ?? {}, del ?? []);
+        return { metadata };
+      },
+    },
+    {
+      name: "find_files",
+      description:
+        "Find objects in the workspace whose queryable custom metadata matches ALL of `filters` (ANDed equality). Returns each match's key, public URL, and full metadata map. Same as the CLI/local MCP's `find_files` tool.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          filters: {
+            ...metadataProp,
+            description: "Metadata equality filters (at least one pair). " + METADATA_DESCRIPTION,
+          },
+          prefix: { type: "string", description: "Key prefix filter, combinable with filters." },
+          limit: { type: "number", description: "Page size (default 50, max 500)." },
+        },
+        required: ["filters"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:read");
+        const filters = optStringRecord(args, "filters");
+        if (!filters || Object.keys(filters).length === 0) {
+          usage("filters must have at least one key");
+        }
+        // Shares the count cap + key-format checks with the REST list endpoint's meta.* filters.
+        validateMetadataFilters(filters);
+        const [cfg, matches] = await Promise.all([
+          storageConfig(env, workspace),
+          findObjectsByMetadata(env.DB, workspaceName, filters, {
+            prefix: optString(args, "prefix"),
+            limit: optPosInt(args, "limit"),
+          }),
+        ]);
+        return {
+          items: matches.map((match) => ({
+            key: match.key,
+            url: publicUrl(cfg, match.key),
+            metadata: match.metadata,
+          })),
+          cursor: null,
+        };
       },
     },
     {

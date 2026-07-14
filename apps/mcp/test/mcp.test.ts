@@ -40,17 +40,24 @@ beforeAll(() => {
  */
 async function makeEnv(
   options: { d1?: { tokenHash: string; scopes: string }; rateLimitOk?: boolean } = {},
-): Promise<{ env: Env; bucket: FakeR2Bucket }> {
+): Promise<{ env: Env; bucket: FakeR2Bucket; metadata: Map<string, Map<string, string>> }> {
   const record: WorkspaceRecord = { ...workspace, tokenHash: await sha256Hex(TOKEN) };
   const bucket = new FakeR2Bucket();
+  // Keyed by `${workspace} ${objectKey}` -> ordered meta_key -> meta_value,
+  // real enough to exercise putObject's file_metadata read/write/delete path
+  // (see apps/api/test/routes-files.test.ts's makeFakeDB for the fuller version).
+  const metadata = new Map<string, Map<string, string>>();
+  const scopeKey = (ws: string, objectKey: string) => `${ws} ${objectKey}`;
   const env = {
     REGISTRY: {
       get: async (key: string) => (key === "ws:test-ws" ? record : null),
       put: async () => undefined,
     },
     DB: {
-      // run() no-op for workspace_usage metering after put/delete.
-      prepare: () => {
+      // run() no-ops for workspace_usage metering; file_metadata reads/writes
+      // are backed by the `metadata` map above.
+      prepare: (sql: string) => {
+        const normalized = sql.replace(/\s+/g, " ").trim();
         let values: unknown[] = [];
         return {
           bind(...next: unknown[]) {
@@ -75,7 +82,81 @@ async function makeEnv(
             return null;
           },
           async run() {
+            if (normalized.startsWith("INSERT INTO file_metadata")) {
+              const [ws, objectKey, key, value] = values as [string, string, string, string];
+              const map = metadata.get(scopeKey(ws, objectKey)) ?? new Map<string, string>();
+              map.set(key, value);
+              metadata.set(scopeKey(ws, objectKey), map);
+            } else if (normalized.includes("meta_key = ?") && normalized.startsWith("DELETE")) {
+              const [ws, objectKey, key] = values as [string, string, string];
+              metadata.get(scopeKey(ws, objectKey))?.delete(key);
+            } else if (normalized.startsWith("DELETE FROM file_metadata")) {
+              const [ws, objectKey] = values as [string, string];
+              metadata.delete(scopeKey(ws, objectKey));
+            }
             return { success: true, meta: { changes: 0 }, results: [] };
+          },
+          async all<T>() {
+            if (normalized.startsWith("SELECT meta_key, meta_value FROM file_metadata")) {
+              const [ws, objectKey] = values as [string, string];
+              const map = metadata.get(scopeKey(ws, objectKey)) ?? new Map<string, string>();
+              return {
+                success: true,
+                results: [...map.entries()].map(([meta_key, meta_value]) => ({
+                  meta_key,
+                  meta_value,
+                })) as T[],
+                meta: {},
+              };
+            }
+            // findObjectsByMetadata's first query: matches by ANDed key/value
+            // pairs (+ optional escaped-LIKE prefix), grouped/having-counted.
+            // Good enough for tests — not a general SQL engine.
+            if (normalized.startsWith("SELECT object_key FROM file_metadata WHERE workspace")) {
+              const vals = values as unknown[];
+              const ws = vals[0] as string;
+              const hasPrefix = normalized.includes("LIKE");
+              const pairsEnd = hasPrefix ? vals.length - 3 : vals.length - 2;
+              const pairs: Array<[string, string]> = [];
+              for (let i = 1; i < pairsEnd; i += 2) {
+                pairs.push([vals[i] as string, vals[i + 1] as string]);
+              }
+              const prefix = hasPrefix
+                ? (vals[pairsEnd] as string).replace(/\\([%_\\])/g, "$1")
+                : undefined;
+              const limit = vals[vals.length - 1] as number;
+
+              const matches: string[] = [];
+              for (const [scoped, map] of metadata.entries()) {
+                const [scopedWs, objectKey] = scoped.split(" ");
+                if (scopedWs !== ws) continue;
+                if (prefix !== undefined && !objectKey.startsWith(prefix)) continue;
+                if (pairs.every(([k, v]) => map.get(k) === v)) matches.push(objectKey);
+              }
+              matches.sort();
+              return {
+                success: true,
+                results: matches.slice(0, limit).map((object_key) => ({ object_key })) as T[],
+                meta: {},
+              };
+            }
+            // findObjectsByMetadata's hydrate query: full metadata for a set of keys.
+            if (
+              normalized.startsWith("SELECT object_key, meta_key, meta_value FROM file_metadata")
+            ) {
+              const [ws, ...keys] = values as string[];
+              const results: Array<{ object_key: string; meta_key: string; meta_value: string }> =
+                [];
+              for (const objectKey of keys) {
+                const map = metadata.get(scopeKey(ws, objectKey));
+                if (!map) continue;
+                for (const [meta_key, meta_value] of map.entries()) {
+                  results.push({ object_key: objectKey, meta_key, meta_value });
+                }
+              }
+              return { success: true, results: results as T[], meta: {} };
+            }
+            return { success: true, results: [] as T[], meta: {} };
           },
         };
       },
@@ -88,7 +169,7 @@ async function makeEnv(
       ? {}
       : { WRITE_LIMITER: { limit: async () => ({ success: options.rateLimitOk }) } }),
   } as unknown as Env;
-  return { env, bucket };
+  return { env, bucket, metadata };
 }
 
 async function makeGalleryEnv(): Promise<{ env: Env; bucket: FakeR2Bucket }> {
@@ -295,6 +376,7 @@ describe("mcp worker", () => {
     const body = (await response.json()) as { result: { tools: { name: string }[] } };
     expect(body.result.tools.map((tool) => tool.name).sort()).toEqual([
       "delete",
+      "find_files",
       "gallery_add",
       "gallery_create",
       "gallery_find_by_reference",
@@ -305,6 +387,7 @@ describe("mcp worker", () => {
       "purge_expired",
       "put",
       "reconcile",
+      "set_metadata",
       "usage",
     ]);
   });
@@ -328,6 +411,170 @@ describe("mcp worker", () => {
     expect(bucket.store.has("shots/shot.png")).toBe(true);
     expect(bucket.store.get("shots/shot.png")?.data).toEqual(PNG_BYTES);
     expect(bucket.store.get("shots/shot.png")?.contentType).toBe("image/png");
+  });
+
+  it("writes custom metadata alongside the upload", async () => {
+    const { env, metadata } = await makeEnv();
+    const result = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/tagged.png",
+      metadata: { app: "myapp", page: "settings" },
+    });
+    expect(result.isError).toBe(false);
+    expect(Object.fromEntries(metadata.get("test-ws shots/tagged.png") ?? [])).toEqual({
+      app: "myapp",
+      page: "settings",
+    });
+  });
+
+  it("leaves existing metadata untouched when the metadata argument is omitted", async () => {
+    const { env, metadata } = await makeEnv();
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/tagged.png",
+      metadata: { app: "myapp" },
+    });
+    const result = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/tagged.png",
+    });
+    expect(result.isError).toBe(false);
+    expect(Object.fromEntries(metadata.get("test-ws shots/tagged.png") ?? [])).toEqual({
+      app: "myapp",
+    });
+  });
+
+  it("rejects invalid metadata as a tool error before uploading", async () => {
+    const { env, bucket } = await makeEnv();
+    const result = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/bad.png",
+      metadata: { "Bad-Key": "x" },
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([
+      { type: "text", text: "invalid metadata key: Bad-Key (USAGE)" },
+    ]);
+    expect(bucket.store.size).toBe(0);
+  });
+
+  it("set_metadata merges set + delete and returns the resulting map", async () => {
+    const { env, metadata } = await makeEnv();
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/tagged.png",
+      metadata: { app: "myapp", page: "/checkout" },
+    });
+
+    const result = await callTool(env, "set_metadata", {
+      key: "shots/tagged.png",
+      set: { page: "/cart" },
+      delete: ["app"],
+    });
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent).toEqual({ metadata: { page: "/cart" } });
+    expect(Object.fromEntries(metadata.get("test-ws shots/tagged.png") ?? [])).toEqual({
+      page: "/cart",
+    });
+  });
+
+  it("set_metadata requires at least one of set/delete", async () => {
+    const { env } = await makeEnv();
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/tagged.png",
+    });
+    const result = await callTool(env, "set_metadata", { key: "shots/tagged.png" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([
+      { type: "text", text: "set_metadata requires set and/or delete (USAGE)" },
+    ]);
+  });
+
+  it("set_metadata 404s for an object that doesn't exist", async () => {
+    const { env } = await makeEnv();
+    const result = await callTool(env, "set_metadata", {
+      key: "shots/missing.png",
+      set: { app: "x" },
+    });
+    expect(result.isError).toBe(true);
+  });
+
+  it("set_metadata rejects a reserved key as a tool error", async () => {
+    const { env } = await makeEnv();
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/tagged.png",
+    });
+    const result = await callTool(env, "set_metadata", {
+      key: "shots/tagged.png",
+      set: { "content-sha256": "0".repeat(64) },
+    });
+    expect(result.isError).toBe(true);
+  });
+
+  it("set_metadata enforces files:write scope", async () => {
+    const token = "up_test-ws_read-only-token";
+    const { env } = await makeEnv({
+      d1: { tokenHash: await sha256Hex(token), scopes: JSON.stringify(["files:read"]) },
+    });
+    const result = await callTool(
+      env,
+      "set_metadata",
+      { key: "shots/x.png", set: { app: "x" } },
+      token,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([
+      { type: "text", text: "forbidden: requires files:write scope" },
+    ]);
+  });
+
+  it("find_files finds objects matching ALL ANDed filters, with public URLs", async () => {
+    const { env } = await makeEnv();
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/one.png",
+      metadata: { app: "myapp", page: "/checkout" },
+    });
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/two.png",
+      metadata: { app: "myapp", page: "/cart" },
+    });
+
+    const result = await callTool(env, "find_files", {
+      filters: { app: "myapp", page: "/checkout" },
+    });
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent).toEqual({
+      items: [
+        {
+          key: "shots/one.png",
+          url: "https://storage.example.com/shots/one.png",
+          metadata: { app: "myapp", page: "/checkout" },
+        },
+      ],
+      cursor: null,
+    });
+  });
+
+  it("find_files requires at least one filter", async () => {
+    const { env } = await makeEnv();
+    const result = await callTool(env, "find_files", { filters: {} });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([
+      { type: "text", text: "filters must have at least one key (USAGE)" },
+    ]);
   });
 
   it("computes the default screenshot key without git derivation", async () => {

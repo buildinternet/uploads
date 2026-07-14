@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
+import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 
@@ -10,6 +11,45 @@ import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 // for publicly-served (publicBaseUrl) workspaces in Phase 1.
 
 const TOKEN = "secret-token";
+
+/**
+ * Fake D1 backing `file_metadata` with a real in-memory store (shared
+ * `FileMetadataTable`, also used by routes-files.test.ts), so this suite can
+ * assert on the `metadata`/`github` DTO fields the public endpoint derives
+ * from real rows rather than a stubbed-empty read.
+ */
+function makeFakeDB() {
+  const table = new FileMetadataTable();
+
+  return {
+    prepare(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      let args: unknown[] = [];
+      return {
+        bind(...values: unknown[]) {
+          args = values;
+          return this;
+        },
+        async first() {
+          return null;
+        },
+        async run() {
+          return (
+            table.tryRun(normalized, args) ?? { success: true, meta: { changes: 0 }, results: [] }
+          );
+        },
+        async all<T>() {
+          return (
+            table.tryAll<T>(normalized, args) ?? { success: true, results: [] as T[], meta: {} }
+          );
+        },
+      };
+    },
+    async batch(stmts: { run: () => Promise<unknown> }[]) {
+      return Promise.all(stmts.map((s) => s.run()));
+    },
+  };
+}
 
 beforeAll(() => {
   if (!(crypto.subtle as SubtleCrypto & { timingSafeEqual?: unknown }).timingSafeEqual) {
@@ -28,7 +68,10 @@ beforeAll(() => {
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 
-async function makeEnv(overrides: Partial<WorkspaceRecord> = {}) {
+async function makeEnv(
+  overrides: Partial<WorkspaceRecord> = {},
+  opts: { db?: ReturnType<typeof makeFakeDB> } = {},
+) {
   const record: WorkspaceRecord = {
     provider: "r2",
     bucket: "uploads-default",
@@ -41,7 +84,10 @@ async function makeEnv(overrides: Partial<WorkspaceRecord> = {}) {
   const bucket = new FakeR2Bucket();
   const env = {
     REGISTRY: { get: async () => record, put: async () => undefined },
-    DB: {
+    // Defaults to a no-op D1 (existing tests don't assert on file_metadata rows,
+    // just that putObject's D1 write doesn't blow up); pass `opts.db` to back
+    // `file_metadata` with a real in-memory store for the metadata/github tests.
+    DB: opts.db ?? {
       prepare: () => ({
         bind() {
           return this;
@@ -51,6 +97,9 @@ async function makeEnv(overrides: Partial<WorkspaceRecord> = {}) {
         },
         async run() {
           return { success: true, meta: { changes: 0 }, results: [] };
+        },
+        async all() {
+          return { success: true, results: [], meta: {} };
         },
       }),
       async batch(stmts: { run: () => Promise<unknown> }[]) {
@@ -104,10 +153,9 @@ describe("GET /public/files/:workspace/:key", () => {
 
   it("never surfaces provenance metadata on the public surface", async () => {
     const { env } = await makeEnv();
-    await seedShot(env, {
-      "X-Uploads-Meta-Client": "uploads-cli",
-      "X-Uploads-Meta-Content-Sha256": "0".repeat(64),
-    });
+    // The server always writes content-sha256 provenance itself; a client
+    // spoof attempt now rejects the upload outright (file_metadata_reserved_key).
+    await seedShot(env, { "X-Uploads-Meta-Client": "uploads-cli" });
 
     const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
     expect(res.status).toBe(200);
@@ -166,5 +214,121 @@ describe("GET /public/files/:workspace/:key", () => {
 
     const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
     expect(res.status).toBe(200);
+  });
+
+  it("includes file_metadata and a derived github object when gh.* is valid", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "142",
+      "X-Uploads-Meta-app": "uploads-cli",
+    });
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      metadata?: Record<string, string>;
+      github?: { repo: string; kind: string; number: number; url: string };
+    };
+    expect(json.metadata).toEqual({
+      "gh.repo": "buildinternet/uploads",
+      "gh.kind": "pull",
+      "gh.number": "142",
+      app: "uploads-cli",
+    });
+    expect(json.github).toEqual({
+      repo: "buildinternet/uploads",
+      kind: "pull",
+      number: 142,
+      url: "https://github.com/buildinternet/uploads/pull/142",
+    });
+  });
+
+  it("derives an issues URL for gh.kind = issue", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+      "X-Uploads-Meta-gh.kind": "issue",
+      "X-Uploads-Meta-gh.number": "7",
+    });
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    const json = (await res.json()) as { github?: { url: string } };
+    expect(json.github?.url).toBe("https://github.com/buildinternet/uploads/issues/7");
+  });
+
+  it("omits both fields when the file has no metadata", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env);
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json).not.toHaveProperty("metadata");
+    expect(json).not.toHaveProperty("github");
+  });
+
+  it("omits github but keeps raw pairs when gh.* is malformed (non-numeric number)", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "not-a-number",
+    });
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    const json = (await res.json()) as {
+      metadata?: Record<string, string>;
+      github?: unknown;
+    };
+    expect(json.metadata).toEqual({
+      "gh.repo": "buildinternet/uploads",
+      "gh.kind": "pull",
+      "gh.number": "not-a-number",
+    });
+    expect(json.github).toBeUndefined();
+  });
+
+  it("omits github when gh.kind is neither pull nor issue", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+      "X-Uploads-Meta-gh.kind": "discussion",
+      "X-Uploads-Meta-gh.number": "5",
+    });
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    const json = (await res.json()) as { metadata?: Record<string, string>; github?: unknown };
+    expect(json.metadata).toBeDefined();
+    expect(json.github).toBeUndefined();
+  });
+
+  it("omits github when a gh.* key is missing entirely", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+      "X-Uploads-Meta-gh.number": "5",
+    });
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    const json = (await res.json()) as { metadata?: Record<string, string>; github?: unknown };
+    expect(json.metadata).toEqual({ "gh.repo": "buildinternet/uploads", "gh.number": "5" });
+    expect(json.github).toBeUndefined();
+  });
+
+  it("401s with auth_required for a private file and never fetches/leaks metadata", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env, {
+      "X-Uploads-Visibility": "private",
+      "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "1",
+    });
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json).not.toHaveProperty("metadata");
+    expect(json).not.toHaveProperty("github");
   });
 });

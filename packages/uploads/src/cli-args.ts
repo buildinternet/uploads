@@ -96,17 +96,38 @@ export class UsageError extends Error {
 
 export interface CommandFlags {
   positionals: string[];
-  flags: Map<string, string | boolean>;
+  /** Repeated string flags (e.g. `--meta k=v --meta k2=v2`) collapse into a string[]. */
+  flags: Map<string, string | boolean | string[]>;
   help: boolean;
+}
+
+/** Records a flag occurrence, turning a repeated string flag into an array. */
+function setFlag(flags: CommandFlags["flags"], name: string, value: string | boolean): void {
+  const existing = flags.get(name);
+  if (existing === undefined) {
+    flags.set(name, value);
+    return;
+  }
+  if (Array.isArray(existing)) {
+    if (typeof value === "string") existing.push(value);
+    return;
+  }
+  if (typeof existing === "string" && typeof value === "string") {
+    flags.set(name, [existing, value]);
+    return;
+  }
+  flags.set(name, value);
 }
 
 /**
  * Parse command-specific args. Supports `--flag value`, `--flag=value`, and
- * boolean `--flag` flags.
+ * boolean `--flag` flags. A flag repeated multiple times with string values
+ * (e.g. `--meta app=x --meta page=y`) collapses into a `string[]` — read it
+ * with `flagValues`, not `flagString`.
  */
 export function parseCommandArgs(args: string[]): CommandFlags {
   const positionals: string[] = [];
-  const flags = new Map<string, string | boolean>();
+  const flags: CommandFlags["flags"] = new Map();
   let help = false;
   let i = 0;
 
@@ -122,7 +143,7 @@ export function parseCommandArgs(args: string[]): CommandFlags {
     if (arg.startsWith("--")) {
       const eq = arg.indexOf("=");
       if (eq !== -1) {
-        flags.set(arg.slice(0, eq), arg.slice(eq + 1));
+        setFlag(flags, arg.slice(0, eq), arg.slice(eq + 1));
         i++;
         continue;
       }
@@ -130,12 +151,12 @@ export function parseCommandArgs(args: string[]): CommandFlags {
       const name = arg;
       const next = args[i + 1];
       if (next && !next.startsWith("-")) {
-        flags.set(name, next);
+        setFlag(flags, name, next);
         i += 2;
         continue;
       }
 
-      flags.set(name, true);
+      setFlag(flags, name, true);
       i++;
       continue;
     }
@@ -147,13 +168,34 @@ export function parseCommandArgs(args: string[]): CommandFlags {
   return { positionals, flags, help };
 }
 
+/**
+ * Single string value for a flag. A repeated single-value flag keeps the
+ * pre-repeatable-flags behavior: the last occurrence wins (e.g.
+ * `--repo a --repo b` → `"b"`). Genuinely repeatable flags should use
+ * `flagValues` instead.
+ */
 export function flagString(flags: CommandFlags["flags"], name: string): string | undefined {
   const value = flags.get(name);
-  return typeof value === "string" ? value : undefined;
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && value.length > 0) return value[value.length - 1];
+  return undefined;
 }
 
 export function flagBool(flags: CommandFlags["flags"], name: string): boolean {
   return flags.get(name) === true;
+}
+
+/**
+ * Every string value passed for a repeatable flag (e.g. `--meta k=v`), in
+ * argument order. Empty when the flag is absent; a single occurrence yields
+ * a one-element array.
+ */
+export function flagValues(flags: CommandFlags["flags"], name: string): string[] {
+  const value = flags.get(name);
+  if (value === undefined) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") return [value];
+  return [];
 }
 
 /** Command-level workspace override (`--workspace` / `-w`). */

@@ -3,6 +3,8 @@
  * and optional no-op auth_tokens lookups for route tests.
  */
 
+import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
+
 export type UsageRow = {
   workspace: string;
   bytes: number;
@@ -14,6 +16,13 @@ export type UsageRow = {
 
 export class UsageFakeD1 {
   usage = new Map<string, UsageRow>();
+  // Backs `file_metadata` so putObject/deleteObject's D1 metadata
+  // cascade (Task 2) doesn't blow up in suites that only care about the
+  // usage ledger.
+  private fileMetadataTable = new FileMetadataTable();
+  get fileMetadata() {
+    return this.fileMetadataTable.metadata;
+  }
 
   prepare = (sql: string) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -31,7 +40,14 @@ export class UsageFakeD1 {
         }
         throw new Error(`unsupported first: ${normalized}`);
       },
+      all: async <T>() => {
+        const result = this.fileMetadataTable.tryAll<T>(normalized, values);
+        if (result) return result;
+        throw new Error(`unsupported all: ${normalized}`);
+      },
       run: async () => {
+        const metaResult = this.fileMetadataTable.tryRun(normalized, values);
+        if (metaResult) return metaResult;
         if (normalized.startsWith("INSERT OR IGNORE INTO workspace_usage")) {
           // applyUsageDelta: (ws, period, updatedAt) with zeros
           // setUsageTotals: (ws, bytes, objects, period, updatedAt)

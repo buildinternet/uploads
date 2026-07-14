@@ -68,6 +68,39 @@ describe("isPublicFile", () => {
     expect(isPublicFile({ ...file, contentType: "x".repeat(129) })).toBe(false);
     expect(isPublicFile(null)).toBe(false);
   });
+
+  it("accepts metadata + github when both are well-formed", () => {
+    const github = {
+      repo: "buildinternet/uploads",
+      kind: "pull",
+      number: 142,
+      url: "https://github.com/buildinternet/uploads/pull/142",
+    } as const;
+    const metadata = { "gh.repo": "buildinternet/uploads", "gh.kind": "pull", "gh.number": "142" };
+    expect(isPublicFile({ ...file, metadata, github })).toBe(true);
+  });
+
+  it("rejects malformed metadata maps", () => {
+    expect(isPublicFile({ ...file, metadata: {} })).toBe(false);
+    expect(isPublicFile({ ...file, metadata: { "Bad Key": "x" } })).toBe(false);
+    expect(isPublicFile({ ...file, metadata: { ok: "x".repeat(513) } })).toBe(false);
+    const tooManyKeys = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`k${i}`, "v"]));
+    expect(isPublicFile({ ...file, metadata: tooManyKeys })).toBe(false);
+  });
+
+  it("rejects malformed github contexts", () => {
+    const base = {
+      repo: "buildinternet/uploads",
+      kind: "pull",
+      number: 142,
+      url: "https://github.com/buildinternet/uploads/pull/142",
+    };
+    expect(isPublicFile({ ...file, github: { ...base, kind: "commit" } })).toBe(false);
+    expect(isPublicFile({ ...file, github: { ...base, number: 0 } })).toBe(false);
+    expect(
+      isPublicFile({ ...file, github: { ...base, url: "http://github.com/x/y/pull/1" } }),
+    ).toBe(false);
+  });
 });
 
 describe("key safety + path building", () => {

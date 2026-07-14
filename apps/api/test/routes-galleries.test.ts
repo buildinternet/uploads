@@ -115,6 +115,14 @@ beforeEach(async () => {
       "utf8",
     ),
   );
+  // Task 2: putObject/deleteObject (exercised via fileRequest below) now
+  // read/write `file_metadata` on every put/delete.
+  db.exec(
+    readFileSync(
+      fileURLToPath(new NodeURL("../migrations/20260713210559_file_metadata.sql", import.meta.url)),
+      "utf8",
+    ),
+  );
   bucket = new FakeR2Bucket();
   await bucket.put("alpha/screenshots/one.png", PNG);
   records = {

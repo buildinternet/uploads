@@ -25,7 +25,8 @@ import {
 import { buildMarkdown } from "../embed.js";
 import { urlForGithubEmbed } from "../public-urls.js";
 import { resolvePutPrefix } from "../destinations.js";
-import { ghAttachmentKey, ghKeyPrefix, type GhTarget } from "../github.js";
+import { ghAttachmentKey, ghKeyPrefix, ghMetadataFromTarget, type GhTarget } from "../github.js";
+import { validateMetaMap } from "../metadata.js";
 import { rewriteKeyExtension, type OptimizeImageOptions } from "../optimize.js";
 import { buildCliProvenance } from "../provenance.js";
 import {
@@ -34,7 +35,16 @@ import {
   resolveRepo,
   type CommandRunner,
 } from "../github-gh.js";
-import { optPosInt, optString, usage, type ToolArgs } from "./args.js";
+import {
+  METADATA_DESCRIPTION,
+  metadataProp,
+  optPosInt,
+  optString,
+  optStringArray,
+  optStringRecord,
+  usage,
+  type ToolArgs,
+} from "./args.js";
 import type { McpTool } from "./server.js";
 
 function optBool(args: ToolArgs, name: string): boolean {
@@ -42,15 +52,6 @@ function optBool(args: ToolArgs, name: string): boolean {
   if (v === undefined || v === null) return false;
   if (typeof v !== "boolean") usage(`${name} must be a boolean`);
   return v;
-}
-
-function optStringArray(args: ToolArgs, name: string): string[] | undefined {
-  const v = args[name];
-  if (v === undefined || v === null) return undefined;
-  if (!Array.isArray(v) || v.some((item) => typeof item !== "string")) {
-    usage(`${name} must be an array of strings`);
-  }
-  return v as string[];
 }
 
 function mcpOptimizeOptions(
@@ -401,6 +402,7 @@ export function createUploadsMcpTools(opts: {
             type: "boolean",
             description: "Resolve key + public URL without uploading. Not with comment.",
           },
+          metadata: metadataProp,
           workspace: workspaceProp,
         },
         additionalProperties: false,
@@ -430,6 +432,11 @@ export function createUploadsMcpTools(opts: {
           if (refArg) usage("ref cannot be combined with pr/issue");
           if (prefixArg) usage("prefix cannot be combined with pr/issue");
         }
+        // Validate up front (fail fast, before reading/optimizing the file).
+        // undefined leaves existing metadata untouched; an object (even {})
+        // fully replaces it — see metadataProp's description.
+        const metadata = optStringRecord(args, "metadata");
+        if (metadata) validateMetaMap(metadata);
         let resolvedPrefix: string | undefined;
         try {
           resolvedPrefix = resolvePutPrefix({
@@ -476,6 +483,7 @@ export function createUploadsMcpTools(opts: {
             frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
             keepExif: optimizeOpts.keepExif === true,
           }),
+          metadata,
         });
         const markdown = buildMarkdown(urlForGithubEmbed(result.url, result.embedUrl)!, {
           alt: optString(args, "alt") ?? sourceName,
@@ -543,6 +551,12 @@ export function createUploadsMcpTools(opts: {
               "Keep EXIF/XMP/ICC when optimizing (default: strip for privacy on public embeds).",
           },
           ...frameProps,
+          metadata: {
+            ...metadataProp,
+            description:
+              "Extra queryable metadata (key→value), merged with the automatic gh.repo/gh.kind/gh.number/gh.ref pairs — a gh.* pair here loses to the resolved target's own gh.* value. " +
+              METADATA_DESCRIPTION,
+          },
           workspace: workspaceProp,
         },
         required: ["files"],
@@ -561,6 +575,15 @@ export function createUploadsMcpTools(opts: {
         const defaults = resolvePutDefaults({ envFile: globals.envFile });
         const frameOpts = mcpFrameOptions(args);
         const optimizeOpts = mcpOptimizeOptions(args, defaults);
+        // User-supplied extras first, then the resolved target's gh.* —
+        // explicit target pairs always win over a same-named metadata extra
+        // (mirrors runAttach in ../commands.js). Validate the merged map (not
+        // just the extras) so the 24-key/8KB caps are enforced client-side —
+        // extras alone might pass while extras + the 4 gh.* pairs exceed the
+        // cap, which would otherwise only be caught server-side after upload.
+        const metaExtras = optStringRecord(args, "metadata") ?? {};
+        const metadata = { ...metaExtras, ...ghMetadataFromTarget(target) };
+        if (Object.keys(metadata).length > 0) validateMetaMap(metadata);
 
         const uploads = [];
         for (const file of files) {
@@ -580,6 +603,7 @@ export function createUploadsMcpTools(opts: {
               frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
               keepExif: optimizeOpts.keepExif === true,
             }),
+            metadata,
           });
           uploads.push({
             ...result,
@@ -664,6 +688,71 @@ export function createUploadsMcpTools(opts: {
         if (optBool(args, "dryRun")) return { key, deleted: false, dryRun: true };
         const { client } = clientFor(args);
         return client.delete(key);
+      },
+    },
+    {
+      name: "set_metadata",
+      description:
+        "Merge-set and/or delete an object's queryable custom metadata (D1-backed key-value pairs; distinct from the R2 provenance headers put on upload). `set` pairs win over `delete` when a key appears in both. " +
+        METADATA_DESCRIPTION +
+        " Requires at least one of `set` or `delete`. Same as `uploads meta set`.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "Object key to update." },
+          set: { ...metadataProp, description: "Keys to set/overwrite. " + METADATA_DESCRIPTION },
+          delete: {
+            type: "array",
+            items: { type: "string" },
+            description: "Keys to remove.",
+          },
+          workspace: workspaceProp,
+        },
+        required: ["key"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const key = optString(args, "key");
+        if (!key) usage("key is required");
+        const set = optStringRecord(args, "set");
+        const del = optStringArray(args, "delete");
+        if ((!set || Object.keys(set).length === 0) && (!del || del.length === 0)) {
+          usage("set_metadata requires set and/or delete");
+        }
+        if (set) validateMetaMap(set);
+        const { client } = clientFor(args);
+        return client.patchMetadata(key, { set, delete: del });
+      },
+    },
+    {
+      name: "find_files",
+      description:
+        "Find objects in the workspace whose queryable custom metadata matches ALL of `filters` (ANDed equality). Returns each match's key, public URL, and full metadata map. Same as `uploads find k=v...` / `uploads list --meta k=v`.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          filters: {
+            ...metadataProp,
+            description: "Metadata equality filters (at least one pair). " + METADATA_DESCRIPTION,
+          },
+          prefix: { type: "string", description: "Key prefix filter, combinable with filters." },
+          limit: { type: "number", description: "Page size (default 50, max 500)." },
+          workspace: workspaceProp,
+        },
+        required: ["filters"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const filters = optStringRecord(args, "filters");
+        if (!filters || Object.keys(filters).length === 0) {
+          usage("filters must have at least one key");
+        }
+        validateMetaMap(filters);
+        const { client } = clientFor(args);
+        return client.findFiles(filters, {
+          prefix: optString(args, "prefix"),
+          limit: optPosInt(args, "limit"),
+        });
       },
     },
     {

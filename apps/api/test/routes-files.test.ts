@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
+import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
+import { getFileMetadata } from "../src/file-metadata";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 
 const TOKEN = "secret-token";
@@ -22,9 +24,72 @@ beforeAll(() => {
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 
+/**
+ * Fake D1 that no-ops the usage-ledger surface (as before) but backs
+ * `file_metadata` with a real in-memory store (via the shared
+ * `FileMetadataTable`), so the metadata-cascade behavior in
+ * `putObject`/`deleteObject` can be exercised at the route level without a
+ * full sqlite-backed D1 (see file-metadata-sqlite.test.ts for that).
+ */
+/** Optional scoped auth_tokens row, backing `findActiveToken` for scope-enforcement tests. */
+interface FakeAuthToken {
+  tokenHash: string;
+  scopes: string;
+}
+
+function makeFakeDB(authToken?: FakeAuthToken) {
+  const table = new FileMetadataTable();
+
+  return {
+    metadata: table.metadata,
+    prepare(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      let args: unknown[] = [];
+      return {
+        bind(...values: unknown[]) {
+          args = values;
+          return this;
+        },
+        async first() {
+          if (normalized.startsWith("SELECT id, workspace, token_hash") && authToken) {
+            const [, hash] = args as [string, string, string];
+            if (hash === authToken.tokenHash) {
+              return {
+                id: "token-id",
+                workspace: "default",
+                token_hash: authToken.tokenHash,
+                label: null,
+                scopes: authToken.scopes,
+                created_at: "2026-07-13T00:00:00.000Z",
+                expires_at: null,
+                revoked_at: null,
+                minting_user_id: null,
+              };
+            }
+          }
+          return null;
+        },
+        async run() {
+          return (
+            table.tryRun(normalized, args) ?? { success: true, meta: { changes: 0 }, results: [] }
+          );
+        },
+        async all<T>() {
+          return (
+            table.tryAll<T>(normalized, args) ?? { success: true, results: [] as T[], meta: {} }
+          );
+        },
+      };
+    },
+    async batch(stmts: { run: () => Promise<unknown> }[]) {
+      return Promise.all(stmts.map((s) => s.run()));
+    },
+  };
+}
+
 async function makeEnv(
   overrides: Partial<WorkspaceRecord> = {},
-  opts: { rateLimitOk?: boolean } = {},
+  opts: { rateLimitOk?: boolean; scopedToken?: { rawToken: string; scopes: string[] } } = {},
 ) {
   const record: WorkspaceRecord = {
     provider: "r2",
@@ -36,29 +101,27 @@ async function makeEnv(
     ...overrides,
   };
   const bucket = new FakeR2Bucket();
+  // A `scopedToken` gives findActiveToken a D1-backed row for a *different*
+  // raw token than the legacy TOKEN above, so scope-enforcement tests can
+  // exercise a token with fewer than the full FILE_SCOPES set (the legacy
+  // path always grants all scopes).
+  const db = makeFakeDB(
+    opts.scopedToken
+      ? {
+          tokenHash: await sha256Hex(opts.scopedToken.rawToken),
+          scopes: JSON.stringify(opts.scopedToken.scopes),
+        }
+      : undefined,
+  );
   const env = {
     REGISTRY: { get: async () => record, put: async () => undefined },
-    // No D1 token: force the legacy token path. run/batch no-op for usage metering.
-    DB: {
-      prepare: () => ({
-        bind() {
-          return this;
-        },
-        async first() {
-          return null;
-        },
-        async run() {
-          return { success: true, meta: { changes: 0 }, results: [] };
-        },
-      }),
-      async batch(stmts: { run: () => Promise<unknown> }[]) {
-        return Promise.all(stmts.map((s) => s.run()));
-      },
-    },
+    // No D1 token: force the legacy token path. run/batch no-op for usage
+    // metering; file_metadata reads/writes are backed by makeFakeDB's store.
+    DB: db,
     UPLOADS_DEFAULT: bucket,
     WRITE_LIMITER: { limit: async () => ({ success: opts.rateLimitOk ?? true }) },
   };
-  return { env, bucket };
+  return { env, bucket, db };
 }
 
 /** PUT the standard test key with auth, letting each test vary body/headers/env. */
@@ -175,8 +238,8 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
         "X-Uploads-Meta-Client-Version": "0.3.0",
         "X-Uploads-Meta-Optimized": "1",
         "X-Uploads-Meta-Frame": "phone",
-        "X-Uploads-Meta-Secret": "should-drop",
-        "X-Uploads-Meta-Content-Sha256": "0".repeat(64),
+        // Non-allowlisted: lands in D1 custom metadata, never in R2 provenance.
+        "X-Uploads-Meta-Secret": "custom-not-provenance",
       },
     });
     expect(res.status).toBe(201);
@@ -237,5 +300,541 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
     expect(res.status).toBe(201);
     const json = (await res.json()) as { metadata?: Record<string, string> };
     expect(json.metadata?.["content-sha256"]).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
+  it("splits non-allowlisted X-Uploads-Meta-* headers into D1 while keeping allowlisted ones as R2 provenance", async () => {
+    const { env, db, bucket } = await makeEnv();
+    const res = await putShot(env, {
+      headers: { "X-Uploads-Meta-App": "web", "X-Uploads-Meta-Client": "cli" },
+    });
+    expect(res.status).toBe(201);
+
+    const json = (await res.json()) as { metadata?: Record<string, string> };
+    expect(json.metadata?.client).toBe("cli");
+    expect(json.metadata?.app).toBeUndefined();
+    expect(bucket.store.get("default/screenshots/shot.png")?.customMetadata?.app).toBeUndefined();
+
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({ app: "web" });
+  });
+
+  it("rejects an upload with more than the custom metadata key cap, writing nothing", async () => {
+    const { env, db, bucket } = await makeEnv();
+    const headers: Record<string, string> = {};
+    for (let i = 0; i < 25; i++) headers[`X-Uploads-Meta-k${i}`] = "v";
+
+    const res = await putShot(env, { headers });
+    expect(res.status).toBe(400);
+    expect(bucket.store.has("default/screenshots/shot.png")).toBe(false);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({});
+  });
+
+  it("rejects an upload with an invalid custom metadata key, writing nothing", async () => {
+    const { env, bucket } = await makeEnv();
+    // Keys must start with a letter (META_KEY_RE) — "1bad" does not.
+    const res = await putShot(env, { headers: { "X-Uploads-Meta-1bad": "x" } });
+    expect(res.status).toBe(400);
+    expect(bucket.store.has("default/screenshots/shot.png")).toBe(false);
+  });
+
+  it("rejects an upload spoofing the server-set content-sha256 as custom metadata", async () => {
+    const { env, db, bucket } = await makeEnv();
+    const res = await putShot(env, {
+      headers: { "X-Uploads-Meta-Content-Sha256": "0".repeat(64) },
+    });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { type: string; code: string } };
+    expect(json.error.type).toBe("validation");
+    expect(json.error.code).toBe("file_metadata_reserved_key");
+    expect(bucket.store.has("default/screenshots/shot.png")).toBe(false);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({});
+  });
+
+  it("rejects an upload trying to shadow the R2 visibility gate as custom metadata", async () => {
+    const { env, db, bucket } = await makeEnv();
+    const res = await putShot(env, {
+      headers: { "X-Uploads-Meta-Visibility": "private" },
+    });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { type: string; code: string } };
+    expect(json.error.type).toBe("validation");
+    expect(json.error.code).toBe("file_metadata_reserved_key");
+    expect(bucket.store.has("default/screenshots/shot.png")).toBe(false);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({});
+  });
+
+  it("rejects an empty custom metadata value instead of silently dropping it", async () => {
+    const { env, bucket } = await makeEnv();
+    const res = await putShot(env, { headers: { "X-Uploads-Meta-App": "" } });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { type: string; code: string } };
+    expect(json.error.type).toBe("validation");
+    expect(json.error.code).toBe("file_metadata_invalid_value");
+    expect(bucket.store.has("default/screenshots/shot.png")).toBe(false);
+  });
+
+  it("still ignores an empty value on an allowlisted provenance header (unchanged lenience)", async () => {
+    const { env, bucket } = await makeEnv();
+    const res = await putShot(env, { headers: { "X-Uploads-Meta-Client": "" } });
+    expect(res.status).toBe(201);
+    const json = (await res.json()) as { metadata?: Record<string, string> };
+    expect(json.metadata?.client).toBeUndefined();
+    expect(bucket.store.has("default/screenshots/shot.png")).toBe(true);
+  });
+
+  it("writes no custom metadata rows on a dry run", async () => {
+    const { env, db } = await makeEnv();
+    const res = await app.request(
+      "/v1/default/files/screenshots/shot.png?dryRun=1",
+      {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${TOKEN}`, "X-Uploads-Meta-App": "web" },
+        body: new Uint8Array(0),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({});
+  });
+
+  it("cascades: DELETE removes the object's custom metadata rows", async () => {
+    const { env, db } = await makeEnv();
+    const putRes = await putShot(env, { headers: { "X-Uploads-Meta-App": "web" } });
+    expect(putRes.status).toBe(201);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({ app: "web" });
+
+    const del = await app.request(
+      "/v1/default/files/screenshots/shot.png",
+      { method: "DELETE", headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(del.status).toBe(200);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({});
+  });
+
+  it("re-PUT with at least one custom header still fully replaces prior custom metadata", async () => {
+    const { env, db } = await makeEnv();
+    const first = await putShot(env, {
+      headers: { "X-Uploads-Meta-App": "web", "X-Uploads-Meta-Page": "/checkout" },
+    });
+    expect(first.status).toBe(201);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({ app: "web", page: "/checkout" });
+
+    const second = await putShot(env, { headers: { "X-Uploads-Meta-Page": "/cart" } });
+    expect(second.status).toBe(201);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({ page: "/cart" });
+  });
+
+  it("re-PUT with no custom headers preserves prior custom metadata", async () => {
+    const { env, db } = await makeEnv();
+    const first = await putShot(env, {
+      headers: { "X-Uploads-Meta-App": "web", "X-Uploads-Meta-Page": "/checkout" },
+    });
+    expect(first.status).toBe(201);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({ app: "web", page: "/checkout" });
+
+    // No X-Uploads-Meta-* headers at all — not even a provenance-only one.
+    const second = await putShot(env);
+    expect(second.status).toBe(201);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({ app: "web", page: "/checkout" });
+  });
+
+  it("re-PUT with only allowlisted provenance headers (no custom keys) preserves prior custom metadata", async () => {
+    const { env, db } = await makeEnv();
+    const first = await putShot(env, { headers: { "X-Uploads-Meta-App": "web" } });
+    expect(first.status).toBe(201);
+
+    // "client" is an allowlisted provenance key, not custom metadata.
+    const second = await putShot(env, { headers: { "X-Uploads-Meta-Client": "cli" } });
+    expect(second.status).toBe(201);
+    await expect(
+      getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
+    ).resolves.toEqual({ app: "web" });
+  });
+});
+
+function getMeta(env: Parameters<typeof app.request>[2], key: string, token = TOKEN) {
+  return app.request(
+    `/v1/default/files/${key}/metadata`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    env,
+  );
+}
+
+function patchMeta(
+  env: Parameters<typeof app.request>[2],
+  key: string,
+  body: { set?: Record<string, string>; delete?: string[] },
+  token = TOKEN,
+) {
+  return app.request(
+    `/v1/default/files/${key}/metadata`,
+    {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    env,
+  );
+}
+
+describe("GET/PATCH /v1/:workspace/files/:key/metadata", () => {
+  it("GET returns an empty map for an object with no metadata", async () => {
+    const { env } = await makeEnv();
+    const put = await putShot(env);
+    expect(put.status).toBe(201);
+
+    const res = await getMeta(env, "screenshots/shot.png");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ metadata: {} });
+  });
+
+  it("GET 404s when the object does not exist", async () => {
+    const { env } = await makeEnv();
+    const res = await getMeta(env, "screenshots/missing.png");
+    expect(res.status).toBe(404);
+    const json = (await res.json()) as { error: { type: string } };
+    expect(json.error.type).toBe("not_found");
+  });
+
+  it("PATCH set then GET round-trips the value", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+
+    const patch = await patchMeta(env, "screenshots/shot.png", { set: { gh_pr: "142" } });
+    expect(patch.status).toBe(200);
+    expect(await patch.json()).toEqual({ metadata: { gh_pr: "142" } });
+
+    const res = await getMeta(env, "screenshots/shot.png");
+    expect(await res.json()).toEqual({ metadata: { gh_pr: "142" } });
+  });
+
+  it("PATCH rejects setting the reserved content-sha256 key with 400", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+
+    const patch = await patchMeta(env, "screenshots/shot.png", {
+      set: { "content-sha256": "0".repeat(64) },
+    });
+    expect(patch.status).toBe(400);
+    const json = (await patch.json()) as { error: { type: string; code: string } };
+    expect(json.error.type).toBe("validation");
+    expect(json.error.code).toBe("file_metadata_reserved_key");
+
+    const res = await getMeta(env, "screenshots/shot.png");
+    expect(await res.json()).toEqual({ metadata: {} });
+  });
+
+  it("PATCH rejects setting the reserved visibility key with 400", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+
+    const patch = await patchMeta(env, "screenshots/shot.png", {
+      set: { visibility: "private" },
+    });
+    expect(patch.status).toBe(400);
+    const json = (await patch.json()) as { error: { type: string; code: string } };
+    expect(json.error.type).toBe("validation");
+    expect(json.error.code).toBe("file_metadata_reserved_key");
+
+    const res = await getMeta(env, "screenshots/shot.png");
+    expect(await res.json()).toEqual({ metadata: {} });
+  });
+
+  it("PATCH delete removes a key", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+    await patchMeta(env, "screenshots/shot.png", { set: { gh_pr: "142", app: "web" } });
+
+    const patch = await patchMeta(env, "screenshots/shot.png", { delete: ["gh_pr"] });
+    expect(patch.status).toBe(200);
+    expect(await patch.json()).toEqual({ metadata: { app: "web" } });
+  });
+
+  it("PATCH past the 24-key cap is rejected with 4xx and leaves metadata untouched", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+
+    const set: Record<string, string> = {};
+    for (let i = 0; i < 25; i++) set[`k${i}`] = "v";
+    const patch = await patchMeta(env, "screenshots/shot.png", { set });
+    expect(patch.status).toBeGreaterThanOrEqual(400);
+    expect(patch.status).toBeLessThan(500);
+
+    const res = await getMeta(env, "screenshots/shot.png");
+    expect(await res.json()).toEqual({ metadata: {} });
+  });
+
+  it("PATCH past the 8192 total-byte cap is rejected with 4xx", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+
+    // 24 keys is within the key cap but the values push total bytes over 8192.
+    const set: Record<string, string> = {};
+    for (let i = 0; i < 20; i++) set[`k${i}`] = "v".repeat(500);
+    const patch = await patchMeta(env, "screenshots/shot.png", { set });
+    expect(patch.status).toBeGreaterThanOrEqual(400);
+    expect(patch.status).toBeLessThan(500);
+  });
+
+  it("PATCH on a missing object 404s", async () => {
+    const { env } = await makeEnv();
+    const patch = await patchMeta(env, "screenshots/missing.png", { set: { app: "web" } });
+    expect(patch.status).toBe(404);
+  });
+
+  it("PATCH rejects a malformed body (non-object)", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+    const res = await app.request(
+      "/v1/default/files/screenshots/shot.png/metadata",
+      {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify(["not", "an", "object"]),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { type: string } };
+    expect(json.error.type).toBe("validation");
+  });
+
+  it("PATCH rejects a `set` with non-string values", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+    const res = await app.request(
+      "/v1/default/files/screenshots/shot.png/metadata",
+      {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ set: { app: 42 } }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("a read-scoped token can GET metadata but not PATCH it (403 insufficient_scope)", async () => {
+    const READ_TOKEN = "read-only-token";
+    const { env } = await makeEnv(
+      {},
+      { scopedToken: { rawToken: READ_TOKEN, scopes: ["files:read"] } },
+    );
+    await putShot(env);
+
+    const get = await getMeta(env, "screenshots/shot.png", READ_TOKEN);
+    expect(get.status).toBe(200);
+
+    const patch = await patchMeta(env, "screenshots/shot.png", { set: { app: "web" } }, READ_TOKEN);
+    expect(patch.status).toBe(403);
+    const json = (await patch.json()) as { error: { type: string } };
+    expect(json.error.type).toBe("insufficient_scope");
+  });
+
+  it("an object whose key literally ends in '/metadata' can be PUT but its GET is shadowed by the metadata route", async () => {
+    const { env, bucket } = await makeEnv();
+    const put = await putShot(env, {
+      body: PNG,
+    });
+    expect(put.status).toBe(201);
+    // Now PUT a *second* object whose key ends in the literal "/metadata"
+    // segment. PUT still lands on the raw `/:key{.+}` route (no PUT metadata
+    // route exists to compete), so the object is stored under its full,
+    // literal key. But a GET to that same path resolves to the *metadata*
+    // route instead (see routes/files.ts): it is read back as the metadata
+    // sibling resource of "screenshots/shot.png", not as this object's own
+    // file. Documented tradeoff — keys ending in the literal "/metadata"
+    // suffix are not a realistic upload pattern.
+    const weirdKey = "screenshots/shot.png/metadata";
+    const putWeird = await app.request(
+      `/v1/default/files/${weirdKey}`,
+      {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png" },
+        body: PNG,
+      },
+      env,
+    );
+    expect(putWeird.status).toBe(201);
+    expect(bucket.store.has(`default/${weirdKey}`)).toBe(true);
+
+    const res = await app.request(
+      `/v1/default/files/${weirdKey}`,
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    // This assertion documents actual behavior — see comment above.
+    const json = (await res.json()) as { metadata?: unknown; key?: string };
+    expect(res.status).toBe(200);
+    expect(json).toEqual({ metadata: {} });
+  });
+});
+
+function listFiles(env: Parameters<typeof app.request>[2], qs: string) {
+  return app.request(
+    `/v1/default/files${qs}`,
+    { headers: { Authorization: `Bearer ${TOKEN}` } },
+    env,
+  );
+}
+
+interface ListedFile {
+  key: string;
+  url: string;
+  metadata: Record<string, string>;
+}
+
+describe("GET /v1/:workspace/files list + meta.* filter", () => {
+  it("no meta.* params: existing R2 prefix-list path is unchanged", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+
+    const res = await listFiles(env, "");
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      items: Array<{ key: string; url: string; size: number; contentType: string }>;
+      cursor: string | null;
+    };
+    expect(json.cursor).toBeNull();
+    expect(json.items).toHaveLength(1);
+    expect(json.items[0]).toMatchObject({
+      key: "screenshots/shot.png",
+      url: "https://storage.uploads.sh/default/screenshots/shot.png",
+      size: PNG.byteLength,
+      contentType: "image/png",
+    });
+  });
+
+  it("filters by a single meta.* param via D1", async () => {
+    const { env } = await makeEnv();
+    await putShot(env, { headers: { "X-Uploads-Meta-Device": "mobile" } });
+
+    const res = await listFiles(env, "?meta.device=mobile");
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { items: ListedFile[]; cursor: string | null };
+    expect(json.cursor).toBeNull();
+    expect(json.items).toEqual([
+      {
+        key: "screenshots/shot.png",
+        url: "https://storage.uploads.sh/default/screenshots/shot.png",
+        embedUrl: "https://embed.uploads.sh/default/screenshots/shot.png",
+        metadata: { device: "mobile" },
+      },
+    ]);
+  });
+
+  it("ANDs two meta.* filters, excluding an object that matches only one", async () => {
+    const { env } = await makeEnv();
+    await putShot(env, {
+      headers: { "X-Uploads-Meta-Device": "mobile", "X-Uploads-Meta-App": "screenshots" },
+    });
+    // Second object matches `device` but not `app`.
+    await app.request(
+      "/v1/default/files/other/shot2.png",
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "image/png",
+          "X-Uploads-Meta-Device": "mobile",
+          "X-Uploads-Meta-App": "web",
+        },
+        body: PNG,
+      },
+      env,
+    );
+
+    const res = await listFiles(env, "?meta.device=mobile&meta.app=screenshots");
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { items: ListedFile[] };
+    expect(json.items).toHaveLength(1);
+    expect(json.items[0].key).toBe("screenshots/shot.png");
+  });
+
+  it("combines a meta.* filter with a prefix", async () => {
+    const { env } = await makeEnv();
+    await putShot(env, { headers: { "X-Uploads-Meta-App": "screenshots" } });
+    await app.request(
+      "/v1/default/files/other/shot2.png",
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          "Content-Type": "image/png",
+          "X-Uploads-Meta-App": "screenshots",
+        },
+        body: PNG,
+      },
+      env,
+    );
+
+    const res = await listFiles(env, "?meta.app=screenshots&prefix=screenshots/");
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { items: ListedFile[] };
+    expect(json.items).toEqual([
+      {
+        key: "screenshots/shot.png",
+        url: "https://storage.uploads.sh/default/screenshots/shot.png",
+        embedUrl: "https://embed.uploads.sh/default/screenshots/shot.png",
+        metadata: { app: "screenshots" },
+      },
+    ]);
+  });
+
+  it("rejects an invalid meta.* key with a validation error", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+
+    const res = await listFiles(env, "?meta.1bad=x");
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { type: string } };
+    expect(json.error.type).toBe("validation");
+  });
+
+  it("rejects a repeated same-key meta.* param", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+
+    const res = await listFiles(env, "?meta.device=mobile&meta.device=desktop");
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { type: string } };
+    expect(json.error.type).toBe("validation");
+  });
+
+  it("rejects more than 24 meta.* filter params with a typed error", async () => {
+    const { env } = await makeEnv();
+    await putShot(env);
+
+    const qs = "?" + Array.from({ length: 25 }, (_, i) => `meta.k${i}=v`).join("&");
+    const res = await listFiles(env, qs);
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { type: string; code: string; details: unknown } };
+    expect(json.error.type).toBe("validation");
+    expect(json.error.code).toBe("file_metadata_too_many_filters");
+    expect(json.error.details).toEqual({ limit: 24, count: 25 });
   });
 });

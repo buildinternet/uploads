@@ -37,7 +37,15 @@ export const PROVENANCE_CLIENT_KEYS = [
   "keep-exif",
 ] as const;
 
-export const PROVENANCE_KEYS = [...PROVENANCE_CLIENT_KEYS, "content-sha256"] as const;
+/**
+ * Server-computed provenance keys — never accepted from headers, and reserved
+ * from the D1 custom-metadata namespace too (see file-metadata.ts's
+ * `validateMetadataEntries`) so a client can't store a spoofable shadow of
+ * the real integrity hash under the same name.
+ */
+export const PROVENANCE_SERVER_KEYS = ["content-sha256"] as const;
+
+export const PROVENANCE_KEYS = [...PROVENANCE_CLIENT_KEYS, ...PROVENANCE_SERVER_KEYS] as const;
 
 export type ProvenanceKey = (typeof PROVENANCE_KEYS)[number];
 export type ProvenanceClientKey = (typeof PROVENANCE_CLIENT_KEYS)[number];
@@ -96,6 +104,42 @@ export function provenanceFromHeaders(
     if (v !== undefined && v !== "") raw[key] = v;
   }
   return raw;
+}
+
+const META_HEADER_PREFIX = "x-uploads-meta-";
+
+/**
+ * Split every `X-Uploads-Meta-<key>` request header into the allowlisted
+ * provenance bag (stored as R2 custom metadata, unchanged) and everything
+ * else (candidate custom file metadata, stored in D1 — see `file-metadata.ts`).
+ * Unlike `sanitizeProvenance`, non-allowlisted keys are surfaced here rather
+ * than dropped: the caller is responsible for validating and persisting them
+ * (`validateMetadataEntries`/`setFileMetadata`), so bad input rejects the
+ * upload instead of silently vanishing.
+ */
+export function splitUploadMetaHeaders(headers: Headers): {
+  provenance: Record<string, string>;
+  custom: Record<string, string>;
+} {
+  const provenance: Record<string, string> = {};
+  const custom: Record<string, string> = {};
+  for (const [rawName, rawValue] of headers.entries()) {
+    const name = rawName.toLowerCase();
+    if (!name.startsWith(META_HEADER_PREFIX)) continue;
+    const key = name.slice(META_HEADER_PREFIX.length);
+    if (CLIENT_ALLOWED.has(key)) {
+      // Provenance keeps its historical lenience: an empty value is ignored,
+      // matching provenanceFromHeaders (sanitizeProvenance drops it anyway).
+      if (rawValue !== "") provenance[key] = rawValue;
+    } else {
+      // Custom keys must not pre-filter: empty values (and even an empty key
+      // from a bare `X-Uploads-Meta-` header name) flow to
+      // validateMetadataEntries so the upload rejects with a typed error
+      // instead of reproducing the old silent drop.
+      custom[key] = rawValue;
+    }
+  }
+  return { provenance, custom };
 }
 
 /** Lowercase hex SHA-256 of the stored object body. */

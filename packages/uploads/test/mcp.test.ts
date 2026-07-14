@@ -17,9 +17,17 @@ import { createUploadsMcpTools } from "../src/mcp/tools.js";
 
 /** Fake client factory capturing every resolved config and put()/delete() call. */
 function fakeFactory() {
-  const puts: Array<{ key?: string; filename: string; contentType?: string }> = [];
+  const puts: Array<{
+    key?: string;
+    filename: string;
+    contentType?: string;
+    metadata?: Record<string, string>;
+  }> = [];
   const deletes: string[] = [];
   const configs: UploadsClientConfig[] = [];
+  // Keyed by object key, mirroring the server's per-key metadata rows well
+  // enough to exercise set_metadata/find_files wiring without a real API.
+  const metadataStore = new Map<string, Record<string, string>>();
   const list = async ({ prefix }: { prefix?: string } = {}) => ({
     items: puts
       .filter(({ key }) => (key ?? "").startsWith(prefix ?? ""))
@@ -31,12 +39,23 @@ function fakeFactory() {
     return {
       put: async (
         body: Uint8Array,
-        opts: { filename: string; key?: string; contentType?: string },
+        opts: {
+          filename: string;
+          key?: string;
+          contentType?: string;
+          metadata?: Record<string, string>;
+        },
       ) => {
         // Record the effective key, so list()'s prefix filter (and key
         // assertions) see what a real client would have stored.
         const key = opts.key ?? "generated/key.png";
-        puts.push({ key, filename: opts.filename, contentType: opts.contentType });
+        puts.push({
+          key,
+          filename: opts.filename,
+          contentType: opts.contentType,
+          metadata: opts.metadata,
+        });
+        if (opts.metadata !== undefined) metadataStore.set(key, opts.metadata);
         return {
           workspace: config.workspace,
           key,
@@ -58,9 +77,33 @@ function fakeFactory() {
         throw new Error("unexpected head");
       },
       health: async () => ({ ok: true }),
+      getMetadata: async (key: string) => ({ metadata: metadataStore.get(key) ?? {} }),
+      patchMetadata: async (
+        key: string,
+        opts: { set?: Record<string, string>; delete?: string[] },
+      ) => {
+        const current = { ...metadataStore.get(key) };
+        for (const k of opts.delete ?? []) delete current[k];
+        Object.assign(current, opts.set ?? {});
+        metadataStore.set(key, current);
+        return { metadata: current };
+      },
+      findFiles: async (
+        filters: Record<string, string>,
+        opts: { prefix?: string; limit?: number } = {},
+      ) => {
+        const items = [...metadataStore.entries()]
+          .filter(([key, meta]) => {
+            if (opts.prefix && !key.startsWith(opts.prefix)) return false;
+            return Object.entries(filters).every(([k, v]) => meta[k] === v);
+          })
+          .slice(0, opts.limit ?? 50)
+          .map(([key, meta]) => ({ key, url: `https://x.test/${key}`, metadata: meta }));
+        return { items, cursor: null };
+      },
     } as unknown as UploadsClient;
   };
-  return { factory, puts, deletes, configs };
+  return { factory, puts, deletes, configs, metadataStore };
 }
 
 /** In-memory gallery API contract used to exercise the MCP mutation workflow. */
@@ -152,7 +195,7 @@ function serverWith(overrides?: {
   runner?: CommandRunner;
   factory?: (config: UploadsClientConfig) => UploadsClient;
 }) {
-  const { factory, puts, deletes, configs } = fakeFactory();
+  const { factory, puts, deletes, configs, metadataStore } = fakeFactory();
   const server = createMcpServer({
     serverInfo: { name: "uploads", version: "0.0.0-test" },
     tools: createUploadsMcpTools({
@@ -161,7 +204,7 @@ function serverWith(overrides?: {
       clientFactory: overrides?.factory ?? factory,
     }),
   });
-  return { server, puts, deletes, configs };
+  return { server, puts, deletes, configs, metadataStore };
 }
 
 async function rpc(
@@ -276,6 +319,8 @@ describe("tools/list", () => {
       "attach",
       "list",
       "delete",
+      "set_metadata",
+      "find_files",
       "usage",
       "reconcile",
       "purge_expired",
@@ -417,6 +462,46 @@ describe("tools/call put", () => {
     expect(res.result.isError).toBe(true);
     expect(res.result.content[0].text).toContain("file or contentBase64");
   });
+
+  it("passes custom metadata through to the client", async () => {
+    const { server, puts } = serverWith();
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: {
+        contentBase64: PNG_B64,
+        filename: "shot.png",
+        key: "tagged/shot.png",
+        metadata: { app: "myapp", page: "settings" },
+      },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0].metadata).toEqual({ app: "myapp", page: "settings" });
+  });
+
+  it("leaves metadata undefined (untouched) when the argument is omitted", async () => {
+    const { server, puts } = serverWith();
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { contentBase64: PNG_B64, filename: "shot.png", key: "plain/shot.png" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0].metadata).toBeUndefined();
+  });
+
+  it("rejects an invalid metadata key as a tool error", async () => {
+    const { server } = serverWith();
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: {
+        contentBase64: PNG_B64,
+        filename: "shot.png",
+        key: "bad/shot.png",
+        metadata: { "Bad-Key": "x" },
+      },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("invalid metadata key");
+  });
 });
 
 describe("tools/call attach", () => {
@@ -446,6 +531,59 @@ describe("tools/call attach", () => {
     const res = await rpc(server, "tools/call", { name: "attach", arguments: { files: [] } });
     expect(res.result.isError).toBe(true);
     expect(res.result.content[0].text).toContain("files");
+  });
+
+  it("auto-injects gh.* metadata, merged with user extras", async () => {
+    const { run } = ghRunner();
+    const { server, puts } = serverWith({ runner: run });
+    const dir = mkdtempSync(join(tmpdir(), "uploads-mcp-test-"));
+    const file = join(dir, "before.png");
+    writeFileSync(file, "png");
+
+    await rpc(server, "tools/call", {
+      name: "attach",
+      arguments: { files: [file], metadata: { app: "myapp" } },
+    });
+    expect(puts[0].metadata).toEqual({
+      app: "myapp",
+      "gh.repo": "buildinternet/uploads",
+      "gh.kind": "pull",
+      "gh.number": "123",
+      "gh.ref": "buildinternet/uploads#123",
+    });
+  });
+
+  it("a gh.* metadata extra loses to the resolved target's own value", async () => {
+    const { run } = ghRunner();
+    const { server, puts } = serverWith({ runner: run });
+    const dir = mkdtempSync(join(tmpdir(), "uploads-mcp-test-"));
+    const file = join(dir, "before.png");
+    writeFileSync(file, "png");
+
+    await rpc(server, "tools/call", {
+      name: "attach",
+      arguments: { files: [file], metadata: { "gh.repo": "someone/else" } },
+    });
+    expect(puts[0].metadata?.["gh.repo"]).toBe("buildinternet/uploads");
+  });
+
+  it("rejects when 22 extras + the 4 automatic gh.* pairs exceed the 24-key cap", async () => {
+    const { run } = ghRunner();
+    const { server, puts } = serverWith({ runner: run });
+    const dir = mkdtempSync(join(tmpdir(), "uploads-mcp-test-"));
+    const file = join(dir, "before.png");
+    writeFileSync(file, "png");
+
+    const metadata: Record<string, string> = {};
+    for (let i = 0; i < 22; i++) metadata[`k${i}`] = "v";
+
+    const res = await rpc(server, "tools/call", {
+      name: "attach",
+      arguments: { files: [file], metadata },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("too many");
+    expect(puts.length).toBe(0);
   });
 });
 
@@ -515,6 +653,82 @@ describe("tools/call list, delete, comment", () => {
       action: "created",
       count: 1,
     });
+  });
+});
+
+describe("tools/call set_metadata, find_files", () => {
+  it("sets and deletes metadata, returning the merged map", async () => {
+    const { server, metadataStore } = serverWith();
+    metadataStore.set("shots/a.png", { app: "myapp", page: "old" });
+
+    const res = await rpc(server, "tools/call", {
+      name: "set_metadata",
+      arguments: {
+        key: "shots/a.png",
+        set: { page: "settings" },
+        delete: ["app"],
+      },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.structuredContent).toEqual({ metadata: { page: "settings" } });
+  });
+
+  it("set wins when a key is both set and deleted", async () => {
+    const { server } = serverWith();
+    const res = await rpc(server, "tools/call", {
+      name: "set_metadata",
+      arguments: { key: "shots/a.png", set: { app: "myapp" }, delete: ["app"] },
+    });
+    expect(res.result.structuredContent).toEqual({ metadata: { app: "myapp" } });
+  });
+
+  it("requires at least one of set or delete", async () => {
+    const { server } = serverWith();
+    const res = await rpc(server, "tools/call", {
+      name: "set_metadata",
+      arguments: { key: "shots/a.png" },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("set and/or delete");
+  });
+
+  it("rejects an invalid set key as a tool error", async () => {
+    const { server } = serverWith();
+    const res = await rpc(server, "tools/call", {
+      name: "set_metadata",
+      arguments: { key: "shots/a.png", set: { "Bad-Key": "x" } },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("invalid metadata key");
+  });
+
+  it("finds objects matching ANDed metadata filters", async () => {
+    const { server, metadataStore } = serverWith();
+    metadataStore.set("shots/a.png", { app: "myapp", page: "settings" });
+    metadataStore.set("shots/b.png", { app: "myapp", page: "home" });
+
+    const res = await rpc(server, "tools/call", {
+      name: "find_files",
+      arguments: { filters: { app: "myapp", page: "settings" } },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.structuredContent).toEqual({
+      items: [
+        {
+          key: "shots/a.png",
+          url: "https://x.test/shots/a.png",
+          metadata: { app: "myapp", page: "settings" },
+        },
+      ],
+      cursor: null,
+    });
+  });
+
+  it("requires at least one filter", async () => {
+    const { server } = serverWith();
+    const res = await rpc(server, "tools/call", { name: "find_files", arguments: { filters: {} } });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("filters");
   });
 });
 
