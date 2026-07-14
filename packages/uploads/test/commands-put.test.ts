@@ -381,3 +381,33 @@ describe("runPut --meta", () => {
     ).rejects.toThrow(UsageError);
   });
 });
+
+describe("runPut gh.* metadata (explicit target)", () => {
+  it("stamps gh.* on the --pr path", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [tmpFile(), "--pr", "128", "--repo", "o/r"], false, noRun);
+    expect(puts[0].metadata).toMatchObject({
+      "gh.repo": "o/r",
+      "gh.kind": "pull",
+      "gh.number": "128",
+      "gh.ref": "o/r#128",
+    });
+  });
+
+  it("stamps gh.kind=issue on the --issue path", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [tmpFile(), "--issue", "7", "--repo", "o/r"], false, noRun);
+    expect(puts[0].metadata).toMatchObject({ "gh.kind": "issue", "gh.number": "7" });
+  });
+
+  it("explicit target wins over a same-key --meta", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "9", "--repo", "o/r", "--meta", "gh.number=999"],
+      false,
+      noRun,
+    );
+    expect(puts[0].metadata!["gh.number"]).toBe("9");
+  });
+});

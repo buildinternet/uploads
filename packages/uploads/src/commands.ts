@@ -503,7 +503,7 @@ export async function runPut(
   const nameFlag = flagString(parsed.flags, "--name");
   const dryRun = flagBool(parsed.flags, "--dry-run");
   // Validate --meta up front (fail fast, before reading/optimizing the file).
-  const metadata = ((): Record<string, string> | undefined => {
+  const userMeta = ((): Record<string, string> | undefined => {
     const pairs = flagValues(parsed.flags, "--meta");
     return pairs.length > 0 ? parseMetaFlags(pairs) : undefined;
   })();
@@ -587,6 +587,11 @@ export async function runPut(
   }
 
   const noGit = flagBool(parsed.flags, "--no-git") || defaults.noGit === true;
+  // gh.* metadata from an explicit --pr/--issue target (target wins over --meta).
+  let metadata = userMeta;
+  if (ghTarget) {
+    metadata = { ...userMeta, ...ghMetadataFromTarget(ghTarget) };
+  }
   let key = ghTarget ? ghAttachmentKey(ghTarget, filename) : keyHint;
   if (key && prepared.optimized) key = rewriteKeyExtension(key, filename);
   const result = await ctx.client.put(prepared.bytes, {
