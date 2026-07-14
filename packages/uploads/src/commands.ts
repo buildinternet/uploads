@@ -463,6 +463,11 @@ export async function runAttach(
       await writeStdout(`URL: ${result.url}\n${embedLine}MARKDOWN: ${result.markdown}\n`);
     }
     if (!ctx.quiet && comment) process.stderr.write(`>> attachments comment ${comment.action}\n`);
+    // attach auto-writes gh.* metadata; point the user at how to find it later.
+    if (!ctx.quiet) {
+      const ref = ghMetadataFromTarget(target)["gh.ref"];
+      process.stderr.write(`>> find these later: uploads find gh.ref=${ref}\n`);
+    }
   }
   return 0;
 }
@@ -931,8 +936,17 @@ async function runFindFiles(
   const result = await ctx.client.findFiles(filters, { prefix, limit });
   if (ctx.json) await writeJson(result);
   else
-    for (const item of result.items)
-      await writeStdout(`${item.key}${item.url ? `  ${item.url}` : ""}\n`);
+    for (const item of result.items) {
+      // LIST_HELP promises matched metadata in the output; render it inline
+      // (sorted for stable output) so human mode honors that, not just --json.
+      const meta = Object.entries(item.metadata)
+        .toSorted(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => `${k}=${v}`)
+        .join(" ");
+      await writeStdout(
+        `${item.key}${item.url ? `  ${item.url}` : ""}${meta ? `  ${meta}` : ""}\n`,
+      );
+    }
   return 0;
 }
 
@@ -1045,7 +1059,10 @@ export async function runMeta(ctx: CliContext, args: string[], help = false): Pr
       if (!key) throw new UsageError("meta get requires an object key");
       const result = await ctx.client.getMetadata(key);
       if (ctx.json) await writeJson(result);
-      else for (const [k, v] of Object.entries(result.metadata)) await writeStdout(`${k}=${v}\n`);
+      else if (Object.keys(result.metadata).length === 0) {
+        // Empty stdout reads as failure; a stderr note keeps stdout parseable.
+        if (!ctx.quiet) process.stderr.write("(no metadata)\n");
+      } else for (const [k, v] of Object.entries(result.metadata)) await writeStdout(`${k}=${v}\n`);
       return 0;
     }
     case "set": {

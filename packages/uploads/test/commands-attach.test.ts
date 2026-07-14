@@ -1,7 +1,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import type { UploadsClient } from "../src/client.js";
 import { runAttach, type CliContext } from "../src/commands.js";
@@ -112,6 +112,28 @@ describe("runAttach", () => {
     await expect(
       runAttach(ctxWith(client), files("shot.png"), false, noPullRequestRunner),
     ).rejects.toThrow(UsageError);
+  });
+
+  it("hints how to find the attachments later via gh.ref metadata", async () => {
+    const { client } = fakeClient();
+    const { run } = ghRunner();
+    const ctx = { ...ctxWith(client), quiet: false };
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+    vi.spyOn(process.stdout, "write").mockImplementation(
+      (() => true) as typeof process.stdout.write,
+    );
+    try {
+      await runAttach(ctx, files("shot.png"), false, run);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(stderr.join("")).toContain(
+      ">> find these later: uploads find gh.ref=buildinternet/uploads#123\n",
+    );
   });
 });
 

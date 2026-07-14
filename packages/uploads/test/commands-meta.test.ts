@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import type { UploadsClient } from "../src/client.js";
 import { runMeta, type CliContext } from "../src/commands.js";
@@ -49,6 +49,30 @@ describe("runMeta get", () => {
   it("requires a key", async () => {
     const { client } = fakeClient();
     await expect(runMeta(ctxWith(client), ["get"], false)).rejects.toThrow(UsageError);
+  });
+
+  it("notes an empty result on stderr instead of printing nothing", async () => {
+    const client = {
+      getMetadata: async () => ({ metadata: {} }),
+    } as unknown as UploadsClient;
+    const ctx = { ...ctxWith(client), quiet: false };
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      stdout.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+    try {
+      expect(await runMeta(ctx, ["get", "screenshots/a.png"], false)).toBe(0);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(stdout.join("")).toBe("");
+    expect(stderr.join("")).toBe("(no metadata)\n");
   });
 });
 
