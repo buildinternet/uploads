@@ -1,20 +1,26 @@
 /**
- * Pure embed-format-string builder shared by the public file page
- * (`pages/f/[workspace]/[...key].astro`) and the public gallery-item page
- * (`pages/g/[id]/[item].astro`) — issue's "Copy as" control (design spec
- * §3.3). Kept dependency-free and framework-free so both `.astro` pages can
- * import it directly and it stays unit-testable without a render harness.
+ * Pure embed-format-string builder for the public file + gallery-item "Copy as"
+ * control (design spec §3.3). Consumed by `CopyAsControls.astro` on both pages.
+ * Dependency-free so it stays unit-testable without a render harness.
  */
 
 export type EmbedFormatId = "page" | "url" | "markdown-image" | "markdown-link" | "html-img";
 
-/** Escapes `&`, `<`, `>`, and `"` for safe interpolation into an HTML attribute value. */
+/** Escapes `&`, `<`, `>`, and `"` for HTML attribute values. */
 function escapeHtmlAttr(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/**
+ * Escapes `\` then `]` so CommonMark link text (`[text](url)`) stays one link.
+ * Cosmetic only — not a security sink (confirmed on #168).
+ */
+function escapeMarkdownLinkText(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/]/g, "\\]");
 }
 
 export interface EmbedFormatOption {
@@ -36,34 +42,33 @@ export interface EmbedFormatInput {
 }
 
 /**
- * Five candidate formats, gated by `kind`, in the fixed order the design
- * spec's §3.3 table lists them: Page link, Direct file URL, Markdown image
+ * Formats in design-spec §3.3 order: Page link, Direct file URL, Markdown image
  * (image only), Markdown link, HTML `<img>` (image only). Embed *snippet*
- * formats (Markdown image, HTML img) prefer `embedUrl` and fall back to the
- * stable `url`; "Direct file URL" always uses the stable `url` — mirrors
- * `packages/uploads/src/commands.ts`'s existing "MARKDOWN prefers embedUrl"
- * convention.
+ * formats prefer `embedUrl` and fall back to `url`; "Direct file URL" always
+ * uses the stable `url` (same convention as the CLI MARKDOWN path).
  */
 export function buildEmbedFormats(input: EmbedFormatInput): EmbedFormatOption[] {
   const embedSrc = input.embedUrl ?? input.url;
-  const options: EmbedFormatOption[] = [
+  const isImage = input.kind === "image";
+  return [
     { id: "page", label: "Page link", value: input.canonical },
     { id: "url", label: "Direct file URL", value: input.url },
+    ...(isImage
+      ? [{ id: "markdown-image" as const, label: "Markdown image", value: `![](${embedSrc})` }]
+      : []),
+    {
+      id: "markdown-link",
+      label: "Markdown link",
+      value: `[${escapeMarkdownLinkText(input.filename)}](${input.canonical})`,
+    },
+    ...(isImage
+      ? [
+          {
+            id: "html-img" as const,
+            label: "HTML <img>",
+            value: `<img src="${embedSrc}" alt="${escapeHtmlAttr(input.filename)}">`,
+          },
+        ]
+      : []),
   ];
-  if (input.kind === "image") {
-    options.push({ id: "markdown-image", label: "Markdown image", value: `![](${embedSrc})` });
-  }
-  options.push({
-    id: "markdown-link",
-    label: "Markdown link",
-    value: `[${input.filename}](${input.canonical})`,
-  });
-  if (input.kind === "image") {
-    options.push({
-      id: "html-img",
-      label: "HTML <img>",
-      value: `<img src="${embedSrc}" alt="${escapeHtmlAttr(input.filename)}">`,
-    });
-  }
-  return options;
 }

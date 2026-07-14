@@ -1,0 +1,179 @@
+---
+/**
+ * Shared Copy / Copy as / Download controls for public file and gallery-item
+ * pages — one place for markup, styles, and the CSP-safe `define:vars` script.
+ *
+ * Default slot: optional same-row links (e.g. "Open original"). Slotted `<a
+ * class="original">` is styled via `:global` so parent-scoped markup still matches.
+ */
+import type { EmbedFormatOption } from "../lib/embed-formats";
+
+interface Props {
+  formats: EmbedFormatOption[];
+  downloadUrl?: string | null;
+}
+
+const { formats, downloadUrl = null } = Astro.props;
+const defaultCopyValue = formats[0]?.value ?? "";
+const show = Boolean(downloadUrl) || formats.length > 0;
+---
+
+{
+  show && (
+    <div class="actions">
+      <slot />
+      {downloadUrl && (
+        <a class="original download" href={downloadUrl} rel="noopener noreferrer">Download</a>
+      )}
+      {formats.length > 0 && (
+        <span class="linkfield">
+          <label for="copy-format">Copy as</label>
+          <div class="copyrow">
+            <select id="copy-format" aria-label="Copy as format">
+              {formats.map((format) => <option value={format.id}>{format.label}</option>)}
+            </select>
+            <input
+              id="copy-value"
+              type="text"
+              readonly
+              value={defaultCopyValue}
+              aria-label="Value to copy"
+            />
+            <button
+              type="button"
+              id="copy-format-btn"
+              data-copy={defaultCopyValue}
+              aria-live="polite"
+            >
+              Copy
+            </button>
+          </div>
+        </span>
+      )}
+    </div>
+  )
+}
+
+{
+  formats.length > 0 && (
+    // dataset.copyLabel keeps the label stable across a rapid double-click
+    // while the "copied ✓" timeout is still pending.
+    <script define:vars={{ formats }}>
+      (function () {
+        const shell = document.querySelector(".shell");
+        if (!shell) return;
+
+        shell.addEventListener("click", (event) => {
+          const target = event.target;
+          if (!(target instanceof Element)) return;
+          const button = target.closest("button[data-copy]");
+          if (!(button instanceof HTMLButtonElement)) return;
+          void navigator.clipboard
+            .writeText(button.dataset.copy || "")
+            .then(() => {
+              const original = button.dataset.copyLabel ?? button.textContent ?? "Copy";
+              button.dataset.copyLabel = original;
+              button.textContent = "copied ✓";
+              setTimeout(() => {
+                button.textContent = original;
+              }, 1500);
+            })
+            .catch(() => {
+              // Clipboard blocked — leave the label.
+            });
+        });
+
+        const select = document.getElementById("copy-format");
+        const input = document.getElementById("copy-value");
+        const copyButton = document.getElementById("copy-format-btn");
+        if (
+          select instanceof HTMLSelectElement &&
+          input instanceof HTMLInputElement &&
+          copyButton instanceof HTMLButtonElement
+        ) {
+          select.addEventListener("change", () => {
+            const format = formats.find((f) => f.id === select.value) ?? formats[0];
+            if (!format) return;
+            input.value = format.value;
+            copyButton.dataset.copy = format.value;
+          });
+        }
+      })();
+    </script>
+  )
+}
+
+<style>
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-top: 14px;
+  }
+  /* :global so slotted Open original (parent scope) and Download match alike */
+  .actions :global(a.original) {
+    display: inline-block;
+    padding: 9px 15px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--panel);
+    color: var(--fg);
+    font: 12px var(--mono);
+    text-decoration: none;
+    margin-top: 0;
+  }
+  .actions :global(a.original:hover),
+  .actions :global(a.original:focus-visible) {
+    border-color: var(--accent);
+    color: var(--accent);
+    outline: none;
+  }
+  .linkfield {
+    flex: 1;
+    min-width: 260px;
+  }
+  .linkfield label {
+    display: block;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font: 11px var(--mono);
+    margin-bottom: 5px;
+  }
+  .copyrow {
+    display: flex;
+    gap: 6px;
+    align-items: stretch;
+  }
+  .copyrow select,
+  .copyrow input,
+  .copyrow button {
+    padding: 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    font: 12px var(--mono);
+  }
+  .copyrow select,
+  .copyrow input {
+    background: var(--bg);
+    color: var(--body);
+  }
+  .copyrow input {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
+  }
+  .copyrow button {
+    padding: 8px 12px;
+    background: var(--panel);
+    color: var(--fg);
+    cursor: pointer;
+  }
+  .copyrow button:hover,
+  .copyrow button:focus-visible {
+    border-color: var(--accent);
+    color: var(--accent);
+    outline: none;
+  }
+</style>

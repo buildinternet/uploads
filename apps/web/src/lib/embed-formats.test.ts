@@ -70,4 +70,13 @@ describe("buildEmbedFormats", () => {
     expect(alt).not.toContain('"');
     expect(alt).not.toContain("<");
   });
+
+  it.each([
+    // ] would close the link text early; \ must be escaped first so \] stays literal
+    ["a](evil).png", `[a\\](evil).png](${base.canonical})`],
+    ["a\\].png", `[a\\\\\\].png](${base.canonical})`],
+  ] as const)("escapes markdown-link filename %j", (filename, expected) => {
+    const formats = buildEmbedFormats({ ...base, filename, kind: "file" });
+    expect(formats.find((f) => f.id === "markdown-link")!.value).toBe(expected);
+  });
 });
