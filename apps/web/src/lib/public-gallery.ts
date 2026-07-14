@@ -8,6 +8,8 @@ export interface PublicGalleryItem {
   altText: string | null;
   status: "available" | "missing";
   url: string | null;
+  /** Embed-host URL when the dual-host policy applies; null otherwise. Always present (see gallery-service.ts). */
+  embedUrl: string | null;
   contentType: string | null;
 }
 
@@ -163,6 +165,7 @@ export function isPublicGallery(value: unknown): value is PublicGallery {
       nullableText(item.altText, 300) &&
       (item.status === "available" || item.status === "missing") &&
       safeUrl(item.url) &&
+      safeUrl(item.embedUrl) &&
       nullableText(item.contentType, 128) &&
       (item.status === "missing" ? item.url === null : item.url !== null)
     );

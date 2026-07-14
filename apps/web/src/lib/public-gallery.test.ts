@@ -25,6 +25,7 @@ const gallery = {
       altText: "Screenshot",
       status: "available",
       url: "https://storage.uploads.sh/screen.png",
+      embedUrl: "https://embed.uploads.sh/screen.png" as string | null,
       contentType: "image/png",
     },
   ],
@@ -85,6 +86,18 @@ describe("public gallery API", () => {
       isPublicGallery({
         ...gallery,
         items: Array.from({ length: 101 }, () => gallery.items[0]),
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts a null item embedUrl but rejects a non-https one", () => {
+    expect(isPublicGallery({ ...gallery, items: [{ ...gallery.items[0], embedUrl: null }] })).toBe(
+      true,
+    );
+    expect(
+      isPublicGallery({
+        ...gallery,
+        items: [{ ...gallery.items[0], embedUrl: "http://embed.uploads.sh/x" }],
       }),
     ).toBe(false);
   });

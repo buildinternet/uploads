@@ -15,6 +15,7 @@ const file = {
   workspace: "acme",
   key: "screenshots/shot.png",
   url: "https://storage.uploads.sh/acme/screenshots/shot.png",
+  embedUrl: "https://embed.uploads.sh/acme/screenshots/shot.png" as string | null,
   size: 20480,
   contentType: "image/png",
   uploaded: "2026-07-13T12:00:00.000Z",
@@ -59,6 +60,13 @@ describe("isPublicFile", () => {
     expect(isPublicFile({ ...file, uploaded: null })).toBe(true);
     const { uploaded: _omit, ...noUploaded } = file;
     expect(isPublicFile(noUploaded)).toBe(true);
+  });
+
+  it("accepts a null embedUrl but rejects a non-https one", () => {
+    expect(isPublicFile({ ...file, embedUrl: null })).toBe(true);
+    expect(isPublicFile({ ...file, embedUrl: "http://embed.uploads.sh/x" })).toBe(false);
+    const { embedUrl: _omit, ...noEmbedUrl } = file;
+    expect(isPublicFile(noEmbedUrl)).toBe(false);
   });
 
   it("rejects non-https URLs, bad sizes, and over-long content types", () => {

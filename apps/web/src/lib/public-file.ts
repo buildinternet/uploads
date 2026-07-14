@@ -18,6 +18,8 @@ export interface PublicFile {
   workspace: string;
   key: string;
   url: string;
+  /** Embed-host URL when the dual-host policy applies (GitHub Camo); null otherwise. */
+  embedUrl: string | null;
   size: number;
   contentType: string;
   uploaded: string | null;
@@ -148,6 +150,11 @@ function httpsUrl(value: unknown): value is string {
   }
 }
 
+/** `httpsUrl`, but also accepts `null` — for optional-but-typed URL fields like `embedUrl`. */
+function nullableHttpsUrl(value: unknown): value is string | null {
+  return value === null || httpsUrl(value);
+}
+
 /**
  * Validate a 401 error body against the bounded shape the API commits to
  * (issue #139 Task A): `{"error":{"code":"auth_required","message":"..."}}`.
@@ -202,6 +209,7 @@ export function isPublicFile(value: unknown): value is PublicFile {
     text(file.workspace, 64) &&
     text(file.key, 1024) &&
     httpsUrl(file.url) &&
+    nullableHttpsUrl(file.embedUrl) &&
     Number.isSafeInteger(file.size) &&
     (file.size as number) >= 0 &&
     text(file.contentType, 128) &&
