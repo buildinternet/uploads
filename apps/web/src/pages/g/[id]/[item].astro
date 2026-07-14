@@ -48,7 +48,9 @@ const embedFormats: EmbedFormatOption[] =
         url: item.url,
         embedUrl: item.embedUrl,
         filename: item.filename,
-        kind: itemKind === "missing" ? "file" : itemKind,
+        // item.status === "available" above means mediaKind() (itemKind) never
+        // returns "missing" here — that variant only occurs for missing items.
+        kind: itemKind as Exclude<typeof itemKind, "missing">,
       })
     : [];
 const downloadUrl =

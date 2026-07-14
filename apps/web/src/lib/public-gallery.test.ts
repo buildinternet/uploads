@@ -106,6 +106,8 @@ describe("public gallery API", () => {
         items: [{ ...gallery.items[0], embedUrl: "http://embed.uploads.sh/x" }],
       }),
     ).toBe(false);
+    const { embedUrl: _omit, ...noEmbedUrl } = gallery.items[0];
+    expect(isPublicGallery({ ...gallery, items: [noEmbedUrl] })).toBe(false);
   });
 
   it("bounds and sanitizes external references, tolerating their absence", () => {
