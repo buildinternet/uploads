@@ -232,6 +232,8 @@ On the default `screenshots/…` path, `put` also auto-derives GitHub context an
 stamps `gh.repo`/`gh.kind`/`gh.number`/`gh.ref` from the current branch's PR (or
 a numeric `--ref`), so the file's `/f/` page shows an "Attached to" link. This is
 on by default and best-effort; disable it with `--no-auto`, `--no-git`, or `UPLOADS_NO_AUTO_META=1`.
+On this auto path an explicit `--meta gh.*` overrides the auto-derived value — the
+opposite of the `--pr`/`--issue` precedence below, where the target's own `gh.*` always wins.
 
 **Re-upload semantics:** re-uploading to an existing key **with** `--meta` replaces
 that file's entire metadata set (delete-then-set, not a merge); re-uploading
@@ -378,7 +380,8 @@ uploads config init --api-url http://localhost:8787 --workspace default --token 
 
 Recognized keys: `UPLOADS_API_URL`, `UPLOADS_WORKSPACE`, `UPLOADS_TOKEN`,
 `UPLOADS_DEFAULT_PREFIX`, `UPLOADS_DEFAULT_REPO`, `UPLOADS_DEFAULT_REF`,
-`UPLOADS_DEFAULT_WIDTH`, `UPLOADS_NO_GIT`, `UPLOADS_NO_OPTIMIZE`, `UPLOADS_KEEP_EXIF`.
+`UPLOADS_DEFAULT_WIDTH`, `UPLOADS_NO_GIT`, `UPLOADS_NO_OPTIMIZE`, `UPLOADS_KEEP_EXIF`,
+`UPLOADS_NO_AUTO_META`.
 Also read (env only, not config-file keys): `UPLOADS_EMBED_PUBLIC_BASE_URL`.
 
 ## Local development

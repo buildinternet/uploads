@@ -648,7 +648,7 @@ export async function runPut(
         try {
           validateMetaMap(merged);
           metadata = merged;
-          attachedRef = autoMeta["gh.ref"];
+          attachedRef = merged["gh.ref"];
         } catch {
           // keep metadata = userMeta (already validated); skip auto gh.*
         }

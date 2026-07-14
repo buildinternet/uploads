@@ -459,7 +459,7 @@ if (ghTarget) {
 
 3d. Update `PUT_HELP` — add these lines in the gh/metadata section (after the `--no-git` line):
 
-```
+```text
   --auto                Resolve current PR/issue and stamp gh.* metadata (default on)
   --no-auto             Skip gh.* auto-resolution on the default path (or UPLOADS_NO_AUTO_META=1)
 ```

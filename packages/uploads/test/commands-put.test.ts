@@ -471,6 +471,19 @@ describe("runPut auto gh.* metadata (default path)", () => {
     expect(puts[0].metadata).toBeUndefined();
   });
 
+  it("UPLOADS_NO_AUTO_META=1 suppresses auto resolution end-to-end", async () => {
+    const prev = process.env.UPLOADS_NO_AUTO_META;
+    process.env.UPLOADS_NO_AUTO_META = "1";
+    try {
+      const { client, puts } = fakeClient();
+      await runPut(ctxWith(client), [tmpFile(), "--repo", "o/r"], false, ghRunner({ pr: 481 }));
+      expect(puts[0].metadata).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.UPLOADS_NO_AUTO_META;
+      else process.env.UPLOADS_NO_AUTO_META = prev;
+    }
+  });
+
   it("explicit --meta wins over auto-derived gh.*", async () => {
     const { client, puts } = fakeClient();
     await runPut(
