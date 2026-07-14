@@ -22,6 +22,7 @@ export const prerender = false;
     <p class="muted">How you sign in to the web app and approve <code>uploads login</code>.</p>
     <div id="accounts-status" class="muted detail-status">Loading…</div>
     <ul class="detail-list" id="accounts-list" hidden></ul>
+    <p id="accounts-error" class="detail-error" role="alert" hidden></p>
   </section>
 
   <section class="card">
@@ -57,6 +58,7 @@ export const prerender = false;
     import {
       getAccountInfo,
       getSession,
+      linkGitHub,
       listAccounts,
       listSessions,
       revokeSession,
@@ -88,6 +90,12 @@ export const prerender = false;
       return typeof value === "string" && value.length > 0 ? value : null;
     }
 
+    function setAccountsError(message: string | null): void {
+      const error = requireElement<HTMLElement>("#accounts-error", "account profile");
+      error.textContent = message ?? "";
+      error.hidden = !message;
+    }
+
     // Official GitHub mark (same path as releases AccountIcon) — not a Lucide
     // brand icon; Lucide dropped brand logos.
     const GITHUB_ICON = githubMarkSvg({ size: 14, className: "detail-icon" });
@@ -104,7 +112,13 @@ export const prerender = false;
       return parts.join(" · ");
     }
 
-    type MethodRow = { title: string; detail: string; ok: boolean; icon?: string };
+    type MethodRow = {
+      title: string;
+      detail: string;
+      ok: boolean;
+      icon?: string;
+      connectGithub?: boolean;
+    };
 
     async function loadAccounts(): Promise<void> {
       const status = requireElement<HTMLElement>("#accounts-status", "account profile");
@@ -118,8 +132,7 @@ export const prerender = false;
         return;
       }
 
-      // Live GitHub profile (username/email) when a linked account exists.
-      // account-info needs the numeric accountId from list-accounts.
+      // Live GitHub profile when linked (account-info needs list-accounts id).
       const github = accounts.find((a) => a.providerId === "github");
       const githubInfo = github
         ? await getAccountInfo(authOrigin, {
@@ -147,35 +160,40 @@ export const prerender = false;
             })
           : [{ title: "Email", detail: "Magic link sign-in", ok: true }];
 
-      // Surface a missing GitHub link without inventing connect/disconnect UI.
       if (!github) {
         rows.push({
           title: "GitHub",
-          detail: "Not connected — use GitHub next time you sign in to link it.",
+          detail: "Not connected — connect it to sign in with GitHub next time.",
           ok: false,
           icon: GITHUB_ICON,
+          connectGithub: true,
         });
       }
 
       status.hidden = true;
       list.hidden = false;
       list.innerHTML = rows
-        .map(
-          (row) => `<li>
+        .map((row) => {
+          const action = row.connectGithub
+            ? `<div class="detail-action">
+                <button type="button" class="text-btn" data-connect-github>Connect</button>
+              </div>`
+            : "";
+          const badge = row.ok
+            ? `<span class="ul-badge ul-badge--ok">Connected</span>`
+            : `<span class="ul-badge">Not connected</span>`;
+          return `<li>
             <div class="detail-main">
               <div class="detail-title">
                 ${row.icon ?? ""}
                 <span>${escapeHtml(row.title)}</span>
-                ${
-                  row.ok
-                    ? `<span class="ul-badge ul-badge--ok">Connected</span>`
-                    : `<span class="ul-badge">Not connected</span>`
-                }
+                ${badge}
               </div>
               <div class="detail-meta">${escapeHtml(row.detail)}</div>
             </div>
-          </li>`,
-        )
+            ${action}
+          </li>`;
+        })
         .join("");
     }
 
@@ -322,6 +340,41 @@ export const prerender = false;
         })();
       },
     );
+
+    requireElement<HTMLUListElement>("#accounts-list", "account profile").addEventListener(
+      "click",
+      (event) => {
+        void (async () => {
+          const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+            "button[data-connect-github]",
+          );
+          if (!button) return;
+          setAccountsError(null);
+          button.disabled = true;
+          button.textContent = "Redirecting…";
+          const returnTo = `${location.origin}/account/profile`;
+          if (!(await linkGitHub(authOrigin, returnTo))) {
+            setAccountsError("GitHub linking isn’t available right now.");
+            button.disabled = false;
+            button.textContent = "Connect";
+          }
+        })();
+      },
+    );
+
+    // Better Auth link-social failures redirect back with ?error=.
+    const linkError = new URLSearchParams(location.search).get("error");
+    if (linkError) {
+      setAccountsError(
+        linkError === "account_already_linked_to_different_user"
+          ? "That GitHub account is already linked to a different uploads.sh user."
+          : "Couldn’t connect GitHub. Try again.",
+      );
+      const clean = new URL(location.href);
+      clean.searchParams.delete("error");
+      clean.searchParams.delete("error_description");
+      history.replaceState(null, "", clean.pathname + clean.search + clean.hash);
+    }
 
     onSession((user) => {
       requireElement<HTMLElement>("#acct-email", "account profile").textContent = user.email;
