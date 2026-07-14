@@ -271,6 +271,45 @@ export async function setObjectVisibility(
   });
 }
 
+/** Non-ASCII-safe fallback for the `filename=` param (browsers that ignore `filename*`). */
+function asciiFilenameFallback(filename: string): string {
+  return filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+}
+
+/** RFC 5987 `filename*=UTF-8''...` value for a Content-Disposition header. */
+function encodeRfc5987Filename(filename: string): string {
+  return encodeURIComponent(filename)
+    .replace(/['()]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+    .replace(/\*/g, "%2A");
+}
+
+/**
+ * Stream a stored object as a forced-download `Response`. Shared by the
+ * public file (`routes/public-files.ts`, behind `?download=1`) and public
+ * gallery-item (`routes/public-galleries.ts`) download routes (design spec
+ * §3.4) — bytes are proxied through this Worker specifically for the download
+ * action (the inline-preview path keeps using the R2 custom domain directly,
+ * unchanged). Full-file only: no `Range` support. Uses `StoredFile.stream()`
+ * so the whole object is never buffered into Worker memory.
+ */
+export async function downloadResponse(
+  store: Files,
+  key: string,
+  filename: string,
+): Promise<Response> {
+  const file = await store.download(key);
+  const headers = new Headers();
+  headers.set("Content-Type", file.type || "application/octet-stream");
+  headers.set(
+    "Content-Disposition",
+    `attachment; filename="${asciiFilenameFallback(filename)}"; ` +
+      `filename*=UTF-8''${encodeRfc5987Filename(filename)}`,
+  );
+  if (typeof file.size === "number") headers.set("Content-Length", String(file.size));
+  headers.set("Cache-Control", "no-store");
+  return new Response(file.stream(), { headers });
+}
+
 /**
  * Provider object metadata → the JSON-safe `{ size, contentType, uploaded? }`
  * subset shared by HEAD and list responses. Normalizes the epoch `lastModified`
