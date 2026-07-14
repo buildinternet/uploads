@@ -566,6 +566,25 @@ describe("tools/call attach", () => {
     });
     expect(puts[0].metadata?.["gh.repo"]).toBe("buildinternet/uploads");
   });
+
+  it("rejects when 22 extras + the 4 automatic gh.* pairs exceed the 24-key cap", async () => {
+    const { run } = ghRunner();
+    const { server, puts } = serverWith({ runner: run });
+    const dir = mkdtempSync(join(tmpdir(), "uploads-mcp-test-"));
+    const file = join(dir, "before.png");
+    writeFileSync(file, "png");
+
+    const metadata: Record<string, string> = {};
+    for (let i = 0; i < 22; i++) metadata[`k${i}`] = "v";
+
+    const res = await rpc(server, "tools/call", {
+      name: "attach",
+      arguments: { files: [file], metadata },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("too many");
+    expect(puts.length).toBe(0);
+  });
 });
 
 describe("tools/call list, delete, comment", () => {

@@ -20,7 +20,7 @@ import { buildMarkdown } from "./embed.js";
 import { urlForGithubEmbed } from "./public-urls.js";
 import { UploadsError } from "./errors.js";
 import { writeJson, writeStdout } from "./io.js";
-import { parseMetaFlags } from "./metadata.js";
+import { parseMetaFlags, validateMetaMap } from "./metadata.js";
 import {
   ghAttachmentKey,
   ghKeyPrefix,
@@ -394,8 +394,12 @@ export async function runAttach(
   const contentTypeOverride = flagString(parsed.flags, "--content-type");
   // User-supplied extras first, then the resolved target's gh.* — explicit
   // target pairs always win over a same-named --meta extra (documented above).
+  // Validate the merged map (not just the extras) so the 24-key/8KB caps are
+  // enforced client-side even when extras alone are under the cap but extras
+  // + the 4 gh.* pairs push the merged map over it.
   const metaExtras = parseMetaFlags(flagValues(parsed.flags, "--meta"));
   const metadata = { ...metaExtras, ...ghMetadataFromTarget(target) };
+  if (Object.keys(metadata).length > 0) validateMetaMap(metadata);
   const results = [];
   for (const file of parsed.positionals) {
     if (file === "-")
@@ -919,6 +923,9 @@ async function runFindFiles(
   filters: Record<string, string>,
   flags: CommandFlags["flags"],
 ): Promise<number> {
+  if (flagString(flags, "--cursor") !== undefined) {
+    throw new UsageError("--cursor is not supported with metadata filters");
+  }
   const prefix = flagString(flags, "--prefix");
   const limit = flagInt(flags, "--limit", "--limit");
   const result = await ctx.client.findFiles(filters, { prefix, limit });

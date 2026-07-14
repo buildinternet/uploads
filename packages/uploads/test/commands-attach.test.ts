@@ -173,4 +173,14 @@ describe("runAttach gh.* metadata", () => {
     expect(metadata?.app).toBe("myapp");
     expect(metadata?.["gh.repo"]).toBe("buildinternet/uploads");
   });
+
+  it("rejects when 22 extras + the 4 automatic gh.* pairs exceed the 24-key cap", async () => {
+    const { client } = fakeClient();
+    const { run } = ghRunner();
+    const metaFlags: string[] = [];
+    for (let i = 0; i < 22; i++) metaFlags.push("--meta", `k${i}=v`);
+    await expect(
+      runAttach(ctxWith(client), [...files("shot.png"), ...metaFlags], false, run),
+    ).rejects.toThrow(UsageError);
+  });
 });

@@ -577,10 +577,13 @@ export function createUploadsMcpTools(opts: {
         const optimizeOpts = mcpOptimizeOptions(args, defaults);
         // User-supplied extras first, then the resolved target's gh.* —
         // explicit target pairs always win over a same-named metadata extra
-        // (mirrors runAttach in ../commands.js).
+        // (mirrors runAttach in ../commands.js). Validate the merged map (not
+        // just the extras) so the 24-key/8KB caps are enforced client-side —
+        // extras alone might pass while extras + the 4 gh.* pairs exceed the
+        // cap, which would otherwise only be caught server-side after upload.
         const metaExtras = optStringRecord(args, "metadata") ?? {};
-        if (Object.keys(metaExtras).length > 0) validateMetaMap(metaExtras);
         const metadata = { ...metaExtras, ...ghMetadataFromTarget(target) };
+        if (Object.keys(metadata).length > 0) validateMetaMap(metadata);
 
         const uploads = [];
         for (const file of files) {

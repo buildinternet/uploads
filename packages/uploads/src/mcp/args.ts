@@ -34,7 +34,12 @@ export function optStringRecord(args: ToolArgs, name: string): Record<string, st
   if (typeof v !== "object" || Array.isArray(v)) {
     usage(`${name} must be an object of string values`);
   }
-  const result: Record<string, string> = {};
+  // Object.create(null): a plain `{}` would silently drop a `__proto__` key
+  // (it hits the inherited setter instead of becoming an own property),
+  // turning a malicious/malformed key into a no-op rather than a rejected
+  // input. A null-prototype object makes every key a real own property so
+  // downstream validation (e.g. META_KEY_RE) sees and rejects it.
+  const result = Object.create(null) as Record<string, string>;
   for (const [key, value] of Object.entries(v as Record<string, unknown>)) {
     if (typeof value !== "string") usage(`${name}.${key} must be a string`);
     result[key] = value;

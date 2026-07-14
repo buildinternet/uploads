@@ -68,4 +68,11 @@ describe("runFind", () => {
     expect(calls[0].prefix).toBe("screenshots/");
     expect(calls[0].limit).toBe(5);
   });
+
+  it("rejects --cursor with metadata filters", async () => {
+    const { client } = fakeClient();
+    await expect(runFind(ctxWith(client), ["app=myapp", "--cursor", "abc"], false)).rejects.toThrow(
+      UsageError,
+    );
+  });
 });

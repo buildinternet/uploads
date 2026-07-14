@@ -233,6 +233,10 @@ that file's entire metadata set (delete-then-set, not a merge); re-uploading
 **without** `--meta` at all preserves the existing metadata untouched. Use
 `uploads meta set` to edit individual keys without disturbing the rest.
 
+Non-`gh.*` metadata values supplied via `--meta` (CLI) or `metadata` (MCP) render
+on the object's public `/f/<key>` file page. Treat them like the URL itself:
+don't put internal notes, secrets, tokens, IDs, or private paths in them.
+
 ## Public media galleries
 
 Use galleries when several existing public uploads should be shared as one ordered collection.

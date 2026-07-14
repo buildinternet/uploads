@@ -115,4 +115,11 @@ describe("runList --meta", () => {
       runList(ctxWith(client), ["--meta", "app=x", "--all"], false, noRun),
     ).rejects.toThrow(UsageError);
   });
+
+  it("rejects --meta combined with --cursor", async () => {
+    const { client } = fakeFindClient();
+    await expect(
+      runList(ctxWith(client), ["--meta", "app=x", "--cursor", "abc"], false, noRun),
+    ).rejects.toThrow(UsageError);
+  });
 });

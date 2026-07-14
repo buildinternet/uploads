@@ -191,6 +191,16 @@ export async function putObject(
     metadata: storageMetadata,
   });
 
+  // Usage accounting first: the object is already durably stored above, so
+  // the ledger must be updated regardless of whether the metadata batch
+  // below succeeds — otherwise a metadata failure leaves bytes/objects
+  // stored but under-counted (recordUsageSafe never throws).
+  await recordUsageSafe(env.DB, workspaceName, {
+    bytes: deltaBytes,
+    objects: prev === null ? 1 : 0,
+    uploads: 1,
+  });
+
   if (opts?.metadata) {
     // Full replace: an overwrite must not inherit a prior put's custom
     // metadata, so clear the row set before (re-)writing this request's, in
@@ -198,12 +208,6 @@ export async function putObject(
     // by a separate re-read-then-write.
     await replaceFileMetadata(env.DB, workspaceName, finalKey, opts.metadata);
   }
-
-  await recordUsageSafe(env.DB, workspaceName, {
-    bytes: deltaBytes,
-    objects: prev === null ? 1 : 0,
-    uploads: 1,
-  });
 
   const cfg = await storageConfig(env, ws);
   const urls = objectPublicUrls(env, cfg, finalKey);
