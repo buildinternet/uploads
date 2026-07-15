@@ -1,5 +1,22 @@
 # @buildinternet/uploads
 
+## 0.11.0
+
+### Minor Changes
+
+- 41fb17b: Anonymous, opt-out usage telemetry for the CLI and MCP server (command name, version, OS/arch, exit code, duration, optional error code — never paths or tokens). Opt out with `UPLOADS_TELEMETRY_DISABLED=1`, `DO_NOT_TRACK=1`, or `uploads telemetry disable`.
+
+  Also adds explicit opt-in diagnostic reports: `uploads report` and the MCP `report` tool can send a short message plus an optional text log/trace (max 256 KiB) when the user asks — never automatic.
+
+- 456f9f6: `uploads install` now installs two agent skills: the new `github-screenshots`
+  workflow skill (when and how to get screenshots, GIFs, and recordings into
+  GitHub PRs and issues) alongside the existing `uploads-cli` CLI reference.
+  Skill steps are reported separately in human and `--json` output.
+
+### Patch Changes
+
+- 1f611f4: Make `uploads usage` human-readable: formatted sizes/counts, local-timezone timestamps, and terminal progress bars (with web-matching % and high/full thresholds). Also shortens the first-run telemetry notice to a brief non-PII opt-out FYI.
+
 ## 0.10.1
 
 ### Patch Changes
