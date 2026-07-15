@@ -91,20 +91,29 @@ export function writeUpdateCache(path: string, cache: UpdateCache): void {
   }
 }
 
-/**
- * If a newer published version is known (or can be fetched within the timeout),
- * write a one-line stderr hint. Always resolves; never throws.
- */
-export async function maybeHintUpdate(opts: UpdateCheckOptions = {}): Promise<void> {
-  try {
-    if (opts.quiet || opts.command === "mcp") return;
-    if (truthyEnv("UPLOADS_NO_UPDATE") || truthyEnv("NO_UPDATE_NOTIFIER")) return;
+export interface UpdateStatus {
+  current: string;
+  latest?: string;
+  updateAvailable: boolean;
+}
 
-    const current = opts.currentVersion ?? packageVersion();
+/**
+ * Resolve current vs latest published version (cache + optional network).
+ * Always resolves; never throws. Does not print.
+ */
+export async function checkForUpdate(opts: UpdateCheckOptions = {}): Promise<UpdateStatus> {
+  const current = opts.currentVersion ?? packageVersion();
+  try {
+    if (opts.quiet || opts.command === "mcp") {
+      return { current, updateAvailable: false };
+    }
+    if (truthyEnv("UPLOADS_NO_UPDATE") || truthyEnv("NO_UPDATE_NOTIFIER")) {
+      return { current, updateAvailable: false };
+    }
+
     const cachePath = opts.cachePath ?? defaultCachePath();
     const now = opts.now ?? Date.now();
     const ttlMs = opts.ttlMs ?? DEFAULT_TTL_MS;
-    const write = opts.write ?? ((text: string) => process.stderr.write(text));
 
     const cached = readUpdateCache(cachePath);
     let latest: string | undefined;
@@ -124,11 +133,25 @@ export async function maybeHintUpdate(opts: UpdateCheckOptions = {}): Promise<vo
       }
     }
 
-    if (latest && isNewerVersion(latest, current)) {
-      write(
-        `hint: ${PACKAGE_NAME}@${latest} is available (you have ${current}). Update: npm i -g ${PACKAGE_NAME}\n`,
-      );
-    }
+    const updateAvailable = Boolean(latest && isNewerVersion(latest, current));
+    return { current, latest, updateAvailable };
+  } catch {
+    return { current, updateAvailable: false };
+  }
+}
+
+/**
+ * If a newer published version is known (or can be fetched within the timeout),
+ * write a one-line stderr hint. Always resolves; never throws.
+ */
+export async function maybeHintUpdate(opts: UpdateCheckOptions = {}): Promise<void> {
+  try {
+    const status = await checkForUpdate(opts);
+    if (!status.updateAvailable || !status.latest) return;
+    const write = opts.write ?? ((text: string) => process.stderr.write(text));
+    write(
+      `hint: ${PACKAGE_NAME}@${status.latest} is available (you have ${status.current}). Update: npm i -g ${PACKAGE_NAME}\n`,
+    );
   } catch {
     // Never surface update-check failures.
   }
