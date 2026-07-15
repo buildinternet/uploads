@@ -164,6 +164,8 @@ describe("runLogin device flow", () => {
     now: () => Date.now(),
     openUrl: () => {},
     write: () => {},
+    isTTY: false,
+    promptWorkspaceName: async () => "",
   };
 
   const deviceCode = (over: Record<string, unknown> = {}) =>
@@ -273,6 +275,98 @@ describe("runLogin device flow", () => {
     await expect(
       runLogin(["--path", path, "--no-check"], { json: true }, false, silentIo),
     ).rejects.toThrow("multiple workspaces");
+  });
+
+  it("errors actionably when the account has zero workspaces and is non-interactive", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode())
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      )
+      .mockResolvedValueOnce(response({ workspaces: [] }));
+    captureOutput();
+    await expect(
+      runLogin(["--path", path, "--no-check"], { json: true }, false, {
+        ...silentIo,
+        isTTY: false,
+      }),
+    ).rejects.toThrow(/no workspace access yet.*create one with a name.*uploads login/s);
+  });
+
+  it("prompts to create a workspace when zero exist and interactive, then mints for it", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    const token = "up_newteam_abcdefghijklmnopqrstuvwxyz";
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode())
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      )
+      .mockResolvedValueOnce(response({ workspaces: [] })) // GET /v1/tokens
+      .mockResolvedValueOnce(
+        response(
+          {
+            workspace: {
+              name: "newteam",
+              publicBaseUrl: "https://storage.uploads.sh/newteam",
+              selfServe: true,
+            },
+          },
+          201,
+        ),
+      ) // POST /v1/workspaces
+      .mockResolvedValueOnce(
+        response(
+          {
+            token,
+            workspace: "newteam",
+            scopes: ["files:read", "files:write"],
+            label: "host",
+            expiresAt: null,
+          },
+          201,
+        ),
+      ); // POST /v1/tokens
+    captureOutput();
+
+    expect(
+      await runLogin(["--path", path, "--no-check"], { json: true }, false, {
+        ...silentIo,
+        isTTY: true,
+        promptWorkspaceName: async () => "newteam",
+      }),
+    ).toBe(0);
+
+    const createCall = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/v1/workspaces"));
+    expect(createCall).toBeTruthy();
+    expect(JSON.parse(String((createCall![1] as RequestInit).body))).toEqual({
+      name: "newteam",
+    });
+    expect(loadConfigFile(path).UPLOADS_WORKSPACE).toBe("newteam");
+    expect(loadConfigFile(path).UPLOADS_TOKEN).toBe(token);
+  });
+
+  it("points at account/profile when workspace creation requires GitHub", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode())
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      )
+      .mockResolvedValueOnce(response({ workspaces: [] })) // GET /v1/tokens
+      .mockResolvedValueOnce(
+        response({ error: { code: "github_required", message: "GitHub account required" } }, 403),
+      ); // POST /v1/workspaces
+    captureOutput();
+
+    await expect(
+      runLogin(["--path", path, "--no-check"], { json: true }, false, {
+        ...silentIo,
+        isTTY: true,
+        promptWorkspaceName: async () => "newteam",
+      }),
+    ).rejects.toThrow(/linked GitHub account.*uploads\.sh\/account\/profile.*uploads login/s);
   });
 
   it("fails fast (no polling) in non-interactive mode with no enrollment code", async () => {

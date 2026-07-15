@@ -1,5 +1,6 @@
 import { inferContentType } from "./embed.js";
 import type { UploadsClientConfig } from "./config.js";
+import { UsageError } from "./cli-args.js";
 import { UploadsError } from "./errors.js";
 import { buildScreenshotKey } from "./keys.js";
 import { packageVersion } from "./package-version.js";
@@ -428,6 +429,44 @@ export function listMintWorkspaces(
   return jsonRequest(`${apiUrl.replace(/\/$/, "")}/v1/tokens`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
+}
+
+export interface CreateWorkspaceResult {
+  name: string;
+  publicBaseUrl: string;
+  selfServe: boolean;
+}
+
+/**
+ * POST /v1/workspaces — self-serve workspace creation from a device-flow
+ * session (presented as a bearer). Throws `UsageError` with a message tuned
+ * for CLI display: a linked-GitHub requirement gets an actionable pointer,
+ * everything else surfaces the server's message.
+ */
+export async function createWorkspaceRequest(
+  apiUrl: string,
+  accessToken: string,
+  name: string,
+): Promise<CreateWorkspaceResult> {
+  const response = await fetch(`${apiUrl.replace(/\/$/, "")}/v1/workspaces`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name }),
+  });
+  const body = (await response.json().catch(() => null)) as {
+    workspace?: CreateWorkspaceResult;
+    error?: { code?: string; message?: string };
+  } | null;
+  if (response.ok && body?.workspace) return body.workspace;
+  if (body?.error?.code === "github_required") {
+    throw new UsageError(
+      "creating a workspace requires a linked GitHub account — connect one at https://uploads.sh/account/profile and re-run `uploads login`",
+    );
+  }
+  throw new UsageError(body?.error?.message ?? "workspace creation failed");
 }
 
 export interface MintTokenResult {
