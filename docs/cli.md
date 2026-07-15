@@ -182,8 +182,7 @@ For agent runtimes, install the checked-in skills as well (`uploads install`
 does this for you):
 
 ```bash
-npx skills add buildinternet/uploads --skill github-screenshots
-npx skills add buildinternet/uploads --skill uploads-cli
+npx skills add buildinternet/uploads
 ```
 
 [`skills/github-screenshots/SKILL.md`](../skills/github-screenshots/SKILL.md)

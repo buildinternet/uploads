@@ -21,6 +21,7 @@ the storage layer is provider-agnostic (R2 today; any files-sdk adapter later).
 </p>
 
 <p>
+  <a href="https://skills.sh/buildinternet/uploads"><img alt="skills.sh" src="https://skills.sh/b/buildinternet/uploads"></a>
   <a href="https://github.com/buildinternet/uploads/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/buildinternet/uploads/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://www.npmjs.com/package/@buildinternet/uploads"><img alt="npm (CLI)" src="https://img.shields.io/npm/v/@buildinternet/uploads?color=cb3837&label=%40buildinternet%2Fuploads&logo=npm"></a>
   <a href="https://deepwiki.com/buildinternet/uploads"><img alt="Ask DeepWiki" src="https://deepwiki.com/badge.svg"></a>
@@ -85,9 +86,11 @@ secrets or sensitive UI.
 runtime without checking out anything (`uploads install` runs these for you):
 
 ```bash
-npx skills add buildinternet/uploads --skill github-screenshots   # visuals → PRs/issues
-npx skills add buildinternet/uploads --skill uploads-cli          # full CLI reference
+npx skills add buildinternet/uploads
 ```
+
+That installs both: `github-screenshots` (visuals → PRs/issues) and
+`uploads-cli` (full CLI reference).
 
 Full CLI usage — key conventions, stable PR/issue attachments, managed
 comments, and public galleries — lives in [docs/cli.md](docs/cli.md). REST
