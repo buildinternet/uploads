@@ -11,9 +11,33 @@ export const prerender = false;
     <div id="orgs-status" class="muted" style="margin-top:12px;font-size:13px">Loading…</div>
     <button id="orgs-retry" type="button" hidden>Try again</button>
     <ul class="plain" id="orgs-list" hidden></ul>
-    <p class="muted" style="margin-top:12px">
-      Joining another workspace is invite-only — someone who already manages
-      that workspace has to add you. Workspaces aren’t created from this page.
+  </section>
+
+  <section class="card" id="create" data-create-workspace hidden>
+    <h2>Create a workspace</h2>
+    <p>
+      Workspaces get a folder in the shared uploads bucket. Files you upload get
+      <strong>public, unguessable URLs</strong> under <code>storage.uploads.sh/&lt;name&gt;/…</code> —
+      made for embedding in PRs and issues. Free workspaces start at 1&nbsp;GB storage, 25&nbsp;MB per
+      file.
+    </p>
+    <form class="invite-form" data-create-form>
+      <label class="invite-label">
+        <span class="sr-only">Workspace name</span>
+        <input
+          name="name"
+          required
+          pattern="[a-z0-9][a-z0-9-]{1,62}"
+          placeholder="workspace-name"
+          autocomplete="off"
+        />
+      </label>
+      <button type="submit">Create workspace</button>
+    </form>
+    <p class="muted cli-note" data-create-error hidden></p>
+    <p class="muted cli-note" data-create-github hidden>
+      Creating a workspace requires a linked GitHub account.
+      <a href="/account/profile">Connect GitHub on your profile</a>, then come back.
     </p>
   </section>
 
@@ -24,6 +48,7 @@ export const prerender = false;
       getMyWorkspaceUsage,
       getMyWorkspaceGalleries,
       inviteToWorkspace,
+      createWorkspace,
       type GallerySummary,
     } from "../../lib/api-client";
     import { WorkspaceFiles } from "../../components/WorkspaceFiles";
@@ -143,7 +168,72 @@ export const prerender = false;
     const isWorkspaceAdminRole = (role: string) => role === "admin" || role === "owner";
 
     // Captured from onSession so the operator CLI block can gate on global role.
-    let sessionUser: { role?: string | null } | null = null;
+    let sessionUser: { role?: string | null; email?: string } | null = null;
+
+    const createSection = document.querySelector<HTMLElement>("[data-create-workspace]");
+    const createForm = document.querySelector<HTMLFormElement>("[data-create-form]");
+    const createError = document.querySelector<HTMLElement>("[data-create-error]");
+    const createGithub = document.querySelector<HTMLElement>("[data-create-github]");
+
+    function showCreateSection(prefill?: string): void {
+      if (!createSection) return;
+      createSection.hidden = false;
+      const input = createForm?.elements.namedItem("name") as HTMLInputElement | null;
+      if (input && prefill && !input.value) input.value = prefill;
+    }
+
+    function suggestedWorkspaceName(email: string | undefined): string {
+      const local = (email ?? "").split("@")[0] ?? "";
+      return local
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 63);
+    }
+
+    function createErrorCopy(code: string): string {
+      switch (code) {
+        case "invalid_workspace_name":
+          return "That name isn't available. Use 2–63 lowercase letters, digits, or hyphens, and try a different word.";
+        case "reserved_workspace_name":
+          return "That name is reserved — pick another.";
+        case "workspace_name_taken":
+          return "That name is taken — pick another.";
+        case "workspace_cap_reached":
+          return "You've reached the workspace limit for this account.";
+        default:
+          return "Workspace creation failed — try again.";
+      }
+    }
+
+    createForm?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void (async () => {
+        if (createError) createError.hidden = true;
+        if (createGithub) createGithub.hidden = true;
+        const input = createForm.elements.namedItem("name") as HTMLInputElement;
+        const button = createForm.querySelector("button");
+        if (button) button.disabled = true;
+        const result = await createWorkspace(apiOrigin, input.value.trim());
+        if (button) button.disabled = false;
+        if (result.kind === "created") {
+          input.value = "";
+          await loadWorkspaces();
+          return;
+        }
+        if (result.kind === "error" && result.code === "github_required") {
+          if (createGithub) createGithub.hidden = false;
+          return;
+        }
+        if (createError) {
+          createError.textContent =
+            result.kind === "unavailable"
+              ? "The API is unreachable right now — try again shortly."
+              : createErrorCopy(result.code);
+          createError.hidden = false;
+        }
+      })();
+    });
 
     function renderGalleries(container: HTMLElement, galleries: GallerySummary[]): void {
       const head = `<div class="ws-section-head">Galleries${galleries.length ? ` (${galleries.length})` : ""}</div>`;
@@ -177,9 +267,11 @@ export const prerender = false;
       const { workspaces } = result;
       if (!workspaces.length) {
         orgsStatus.textContent =
-          "No workspaces on this account yet — accept an invite to join one.";
+          "No workspaces yet — create one below, or accept an invite to join an existing one.";
+        showCreateSection(suggestedWorkspaceName(sessionUser?.email));
         return;
       }
+      showCreateSection();
       orgsStatus.hidden = true;
       orgsList.hidden = false;
       // Global Better Auth role (site operator), not workspace membership role.
