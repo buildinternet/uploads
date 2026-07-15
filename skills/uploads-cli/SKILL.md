@@ -1,16 +1,15 @@
 ---
 name: uploads-cli
 description: >-
-  Host a file on uploads.sh and get a stable, public URL — then embed it in a
-  GitHub PR or issue. Use this whenever you want to put a screenshot, diagram,
-  before/after image, GIF, or any binary into a PR description, issue body, or
-  PR/issue comment, or whenever you just need a durable public link to a local
-  file. Triggers include "upload this", "host this image", "attach a screenshot
-  to the PR", "add a before/after to the issue", "give me a public URL for this
-  file", "put this in the PR comment", or having just built/changed something
-  visual that a shot would make clearer. Reach for this instead of drag-and-drop
-  or the GitHub API (an agent can't upload to github.com/user-attachments) and
-  instead of hand-rolling cloud storage uploads.
+  Reference for the uploads CLI — host files on uploads.sh and manage them.
+  Covers put and attach, stable PR/issue keys, the managed attachments
+  comment, metadata and search, galleries, config defaults, login/doctor, and
+  output formats. Use when driving the `uploads` CLI or its MCP tools, when
+  you need a public URL for a local file ("upload this", "host this image",
+  "give me a public URL for this file"), or when you need exact flags, key
+  layouts, or setup and auth details. For the when-and-how of getting a
+  screenshot or recording into a GitHub PR or issue, start with the
+  github-screenshots skill — it defers here for CLI detail.
 ---
 
 # Uploading files to uploads.sh and embedding in GitHub

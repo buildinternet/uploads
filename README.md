@@ -21,6 +21,7 @@ the storage layer is provider-agnostic (R2 today; any files-sdk adapter later).
 </p>
 
 <p>
+  <a href="https://skills.sh/buildinternet/uploads"><img alt="skills.sh" src="https://skills.sh/b/buildinternet/uploads"></a>
   <a href="https://github.com/buildinternet/uploads/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/buildinternet/uploads/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://www.npmjs.com/package/@buildinternet/uploads"><img alt="npm (CLI)" src="https://img.shields.io/npm/v/@buildinternet/uploads?color=cb3837&label=%40buildinternet%2Fuploads&logo=npm"></a>
   <a href="https://deepwiki.com/buildinternet/uploads"><img alt="Ask DeepWiki" src="https://deepwiki.com/badge.svg"></a>
@@ -81,12 +82,15 @@ workspace token — see [enrollment](docs/enrollment.md). Hosted files are
 public, including media attached to private repositories. Do not upload
 secrets or sensitive UI.
 
-**Agent skill** — an auto-triggering playbook for the CLI, installable into
-any agent runtime without checking out anything:
+**Agent skills** — auto-triggering playbooks, installable into any agent
+runtime without checking out anything (`uploads install` runs these for you):
 
 ```bash
-npx skills add buildinternet/uploads --skill uploads-cli
+npx skills add buildinternet/uploads
 ```
+
+That installs both: `github-screenshots` (visuals → PRs/issues) and
+`uploads-cli` (full CLI reference).
 
 Full CLI usage — key conventions, stable PR/issue attachments, managed
 comments, and public galleries — lives in [docs/cli.md](docs/cli.md). REST
@@ -94,16 +98,17 @@ routes are in [docs/api.md](docs/api.md).
 
 ## What's in this repo
 
-| Path                  | What                                                      |
-| --------------------- | --------------------------------------------------------- |
-| `apps/api/`           | Hono worker — REST API, deploys to `api.uploads.sh`       |
-| `apps/auth/`          | Better Auth worker — sessions, enrollment, device flow    |
-| `apps/mcp/`           | Remote MCP server                                         |
-| `apps/web/`           | Astro site — uploads.sh, account and admin UI             |
-| `packages/storage/`   | `@uploads/storage` — files-sdk adapter factory            |
-| `packages/uploads/`   | `@buildinternet/uploads` — CLI + client, publishes to npm |
-| `packages/ui/`        | `@uploads/ui` — shared design system                      |
-| `skills/uploads-cli/` | Agent skill for driving the CLI                           |
+| Path                         | What                                                      |
+| ---------------------------- | --------------------------------------------------------- |
+| `apps/api/`                  | Hono worker — REST API, deploys to `api.uploads.sh`       |
+| `apps/auth/`                 | Better Auth worker — sessions, enrollment, device flow    |
+| `apps/mcp/`                  | Remote MCP server                                         |
+| `apps/web/`                  | Astro site — uploads.sh, account and admin UI             |
+| `packages/storage/`          | `@uploads/storage` — files-sdk adapter factory            |
+| `packages/uploads/`          | `@buildinternet/uploads` — CLI + client, publishes to npm |
+| `packages/ui/`               | `@uploads/ui` — shared design system                      |
+| `skills/github-screenshots/` | Workflow skill — visuals into PRs/issues/share links      |
+| `skills/uploads-cli/`        | Agent skill for driving the CLI                           |
 
 The workers and web app are separate deployables. All storage access goes
 through `createStorage()` in `packages/storage` — adding a provider is one new

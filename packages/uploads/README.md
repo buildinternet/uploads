@@ -136,7 +136,7 @@ Config layers (first match wins): CLI flags → env vars → `--env-file` → `~
 
 Or with `UPLOADS_TOKEN`/`UPLOADS_WORKSPACE` in the environment or user config. Claude Code: `claude mcp add uploads -- uploads --env-file /path/to/.env mcp`.
 
-For HTTP clients there's also a hosted variant at `https://agents.uploads.sh/mcp` — the workspace is inferred from the bearer token, so only the URL and token are needed (`https://agents.uploads.sh/<workspace>/mcp` and the `mcp.uploads.sh` hostname also work). Tools: file operations plus `gallery_create`, `gallery_get`, `gallery_add`, `gallery_link`, and `gallery_find_by_reference`; all use the same bearer-token workspace scopes and gallery URLs come from the API — see `apps/mcp` in the repo. The hosted `put` also accepts a `metadata` param. `uploads install` registers the skill + hosted MCP (short progress; `--verbose` for underlying output). Its `put` takes no content type: the stored type is sniffed server-side from the bytes and checked against the workspace allowlist, and writes are rate limited per workspace.
+For HTTP clients there's also a hosted variant at `https://agents.uploads.sh/mcp` — the workspace is inferred from the bearer token, so only the URL and token are needed (`https://agents.uploads.sh/<workspace>/mcp` and the `mcp.uploads.sh` hostname also work). Tools: file operations plus `gallery_create`, `gallery_get`, `gallery_add`, `gallery_link`, and `gallery_find_by_reference`; all use the same bearer-token workspace scopes and gallery URLs come from the API — see `apps/mcp` in the repo. The hosted `put` also accepts a `metadata` param. `uploads install` registers the skills + hosted MCP (short progress; `--verbose` for underlying output). Its `put` takes no content type: the stored type is sniffed server-side from the bytes and checked against the workspace allowlist, and writes are rate limited per workspace.
 
 ## Programmatic use
 
@@ -173,4 +173,4 @@ pnpm pack:check   # verify the npm tarball contents
 
 Maintainer release instructions: [`docs/releasing.md`](../../docs/releasing.md).
 
-Agent-oriented usage: [`skills/uploads-cli/SKILL.md`](../../skills/uploads-cli/SKILL.md). REST details: [`docs/api.md`](../../docs/api.md).
+Agent-oriented usage: [`skills/uploads-cli/SKILL.md`](../../skills/uploads-cli/SKILL.md) (full CLI reference) and [`skills/github-screenshots/SKILL.md`](../../skills/github-screenshots/SKILL.md) (visuals into PRs/issues). REST details: [`docs/api.md`](../../docs/api.md).
