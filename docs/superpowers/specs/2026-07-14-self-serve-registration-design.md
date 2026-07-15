@@ -43,7 +43,7 @@ No silent auto-provisioning at signup. After first GitHub sign-in, onboarding (w
 
 Session-authed (same `sessionAuth` used by `POST /v1/tokens`). Lives in `apps/api` because it owns REGISTRY KV. Behavior:
 
-1. **Validate slug:** `WS_NAME_RE`, plus a reserved-names list (at minimum: `default`, `admin`, `api`, `www`, `storage`, `embed`, `auth`, `mcp`, `f`, `public`, `account`, `me`, `invite`).
+1. **Validate slug:** `WS_NAME_RE`, plus a reserved-names list (at minimum: `default`, `admin`, `api`, `www`, `storage`, `embed`, `auth`, `mcp`, `f`, `public`, `account`, `me`, `invite`), plus an offensive-terms blocklist (racial slurs, hate terms, and similar — sourced from an established profanity/slur wordlist, matched against the slug including substring matches with a small allowlist for known false positives). Slugs appear in public URLs (`storage.uploads.sh/<name>/…`), so rejection happens at creation; blocklist rejections reuse the same invalid-slug error code without echoing why.
 2. **Require GitHub-linked account** on the session user (via the `AUTH` service binding).
 3. **Enforce per-user cap:** count orgs where the user is `owner` and which back self-serve workspaces; reject at 3.
 4. **Uniqueness guard:** check both the org slug (auth D1) and KV `ws:<name>` are free before creating.
@@ -75,7 +75,7 @@ Dedicated/BYO workspaces remain operator-provisioned via `add-workspace.mjs`. In
 
 ## Testing
 
-- Unit tests on the provisioning route: slug validation, reserved names, GitHub-required gate, cap enforcement, rollback on KV failure.
+- Unit tests on the provisioning route: slug validation, reserved names, blocklist rejections (including substring cases and allowlisted false positives), GitHub-required gate, cap enforcement, rollback on KV failure.
 - Integration test against fake-D1 following the device-flow test patterns (`docs`/existing test setup for seeded sessions).
 - Manual prod verification: GitHub sign-up → create workspace → `uploads login` → `uploads put` → public URL fetch.
 
