@@ -291,7 +291,115 @@ describe("runLogin device flow", () => {
         ...silentIo,
         isTTY: false,
       }),
-    ).rejects.toThrow(/no workspace access yet.*create one with a name.*uploads login/s);
+    ).rejects.toThrow(/no workspace access yet.*--workspace <name> --create.*uploads login/s);
+  });
+
+  it("provisions the workspace with --workspace --create when the account lacks it", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    const token = "up_newteam_abcdefghijklmnopqrstuvwxyz";
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode())
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      )
+      .mockResolvedValueOnce(response({ workspaces: [] })) // GET /v1/tokens
+      .mockResolvedValueOnce(
+        response(
+          {
+            workspace: {
+              name: "newteam",
+              publicBaseUrl: "https://storage.uploads.sh/newteam",
+              selfServe: true,
+            },
+          },
+          201,
+        ),
+      ) // POST /v1/workspaces
+      .mockResolvedValueOnce(
+        response(
+          {
+            token,
+            workspace: "newteam",
+            scopes: ["files:read", "files:write"],
+            label: "host",
+            expiresAt: null,
+          },
+          201,
+        ),
+      ); // POST /v1/tokens
+
+    // Non-interactive io: --create must work without any prompt.
+    expect(
+      await runLogin(
+        ["--path", path, "--workspace", "newteam", "--create", "--no-check"],
+        { json: true },
+        false,
+        { ...silentIo, isTTY: false },
+      ),
+    ).toBe(0);
+
+    const createCall = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/v1/workspaces"));
+    expect(createCall).toBeTruthy();
+    expect(JSON.parse(String((createCall![1] as RequestInit).body))).toEqual({ name: "newteam" });
+    expect(loadConfigFile(path).UPLOADS_WORKSPACE).toBe("newteam");
+  });
+
+  it("skips provisioning with --create when the workspace already exists", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    const token = "up_acme_abcdefghijklmnopqrstuvwxyz";
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode())
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      )
+      .mockResolvedValueOnce(response({ workspaces: [{ workspace: "acme", role: "owner" }] }))
+      .mockResolvedValueOnce(
+        response(
+          {
+            token,
+            workspace: "acme",
+            scopes: ["files:read", "files:write"],
+            label: "host",
+            expiresAt: null,
+          },
+          201,
+        ),
+      ); // POST /v1/tokens
+
+    expect(
+      await runLogin(
+        ["--path", path, "--workspace", "acme", "--create", "--no-check"],
+        { json: true },
+        false,
+        silentIo,
+      ),
+    ).toBe(0);
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/v1/workspaces"))).toBe(false);
+  });
+
+  it("rejects --create without --workspace", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    await expect(
+      runLogin(["--path", path, "--create"], { json: true }, false, silentIo),
+    ).rejects.toThrow(/--create requires --workspace/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects --create combined with an enrollment code", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    await expect(
+      runLogin(
+        ["--path", path, "--workspace", "acme", "--create", "--code", `upe_${"a".repeat(24)}`],
+        { json: true },
+        false,
+        silentIo,
+      ),
+    ).rejects.toThrow(/--create is device-flow only/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("prompts to create a workspace when zero exist and interactive, then mints for it", async () => {
