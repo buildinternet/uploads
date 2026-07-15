@@ -298,7 +298,7 @@ URL is safe to hard-code in a PR body you'll edit later:
 
 ```bash
 uploads put ./after.png --pr 123 --alt "Dashboard after"
-# key: gh/<owner>/<repo>/pull/123/after.png  → stable public URL
+# key: gh/<owner>/<repo>/pull/123/after.webp  → stable public URL (PNG optimized to WebP)
 ```
 
 `--issue <num>` does the same under `.../issues/<num>/`. The `<owner>/<repo>` comes

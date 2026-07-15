@@ -38,8 +38,8 @@ up local source; product docs and PR “how to try it” examples should use the
 global `uploads` form above.
 
 Commands: `attach`, `put`, `gallery`, `comment`, `list`, `find`, `meta`, `delete`, `usage`,
-`reconcile`, `purge-expired`, `setup`, `install`, `config`, `doctor`, `health`, `mcp`,
-`completion`.
+`reconcile`, `purge-expired`, `setup`, `install`, `login`, `whoami` (alias `status`),
+`logout`, `invite`, `admin`, `config`, `doctor`, `health`, `mcp`, `completion`.
 
 **Help:** bare `uploads` / `uploads help` / `--help` shows essentials; use
 `uploads help --all` (or `--help --all`) for the full command list. Per-command:
