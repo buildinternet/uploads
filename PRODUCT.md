@@ -13,7 +13,7 @@ Developers and the coding agents that work alongside them. The core workflow is
 CLI- and agent-first: one command takes a local file — a PR screenshot, an agent
 artifact, a quick share — and returns a stable, embeddable URL, usually landing in
 a GitHub PR or issue. Agents are first-class users, not an afterthought: they reach
-the product through the CLI, the agent skill, and the MCP server, and they can't
+the product through the CLI, the agent skills, and the MCP server, and they can't
 drag-and-drop into GitHub the way a human can.
 
 The web surfaces serve two moments: deciding (a landing page and docs that explain

@@ -191,7 +191,7 @@ ${section(style, "Examples:")}
   ${style.command("uploads logout")}
   ${style.command("uploads --version")}
 
-${section(style, "Agent/MCP:")} ${style.body("`uploads install` sets up the agent skill and the hosted MCP server")}
+${section(style, "Agent/MCP:")} ${style.body("`uploads install` sets up the agent skills and the hosted MCP server")}
 ${style.body("(https://agents.uploads.sh/mcp, workspace inferred from the token). Run")}
 ${style.body("`uploads mcp` for local stdio, or use createUploadsWorkerFileTools()")}
 ${style.body("from @buildinternet/uploads/agent on the Worker.")}

@@ -125,12 +125,12 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
   { name: "setup", summary: "Inspect/configure advanced CLI settings" },
   {
     name: "install",
-    summary: "Install the agent skill + register the remote MCP server",
+    summary: "Install the agent skills + register the remote MCP server",
     essential: true,
     subcommands: [
-      { name: "skill", summary: "Install the agent skill only" },
+      { name: "skill", summary: "Install the agent skills only" },
       { name: "mcp", summary: "Register the remote MCP server only" },
-      { name: "all", summary: "Install skill and MCP (default)" },
+      { name: "all", summary: "Install skills and MCP (default)" },
     ],
   },
   {
