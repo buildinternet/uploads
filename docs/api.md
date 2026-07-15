@@ -30,28 +30,28 @@ Throw `AppError` subclasses from `@uploads/errors` in route code; the API's
 
 ## Routes
 
-| Route                                                                | Description                                                                                      |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `GET /health`                                                        | Liveness (no auth)                                                                               |
-| `PUT /v1/:workspace/files/:key`                                      | Upload raw body (sniffed type). Bare keys → `f/<id>/<name>`. Optional provenance headers (below) |
-| `POST /v1/:workspace/files/sign`                                     | Presigned upload (`signedUploadUrl`); needs HTTP S3 credentials on the workspace                 |
-| `GET /v1/:workspace/files?prefix=&limit=&cursor=`                    | List objects                                                                                     |
-| `GET /v1/:workspace/files/:key`                                      | Object metadata (includes allowlisted `metadata` when set)                                       |
-| `DELETE /v1/:workspace/files/:key`                                   | Delete object                                                                                    |
-| `GET /v1/:workspace/usage`                                           | Workspace usage snapshot (`bytes`, `objects`, `uploadsInPeriod`, …); requires `files:read`       |
-| `POST /v1/:workspace/usage/reconcile`                                | Rebuild `bytes`/`objects` from storage; requires `files:write`                                   |
-| `POST /v1/:workspace/usage/purge-expired`                            | Delete objects older than `retentionDays`, then reconcile; requires `files:delete`               |
-| `POST /v1/:workspace/galleries`                                      | Create an empty public gallery; requires `files:write`                                           |
-| `GET /v1/:workspace/galleries`                                       | List workspace galleries with opaque cursor pagination; requires `files:read`                    |
-| `GET /v1/:workspace/galleries/:id`                                   | Read one owned gallery; requires `files:read`                                                    |
-| `PATCH/DELETE /v1/:workspace/galleries/:id`                          | Update or soft-delete gallery metadata; requires `files:write`                                   |
-| `POST /v1/:workspace/galleries/:id/items`                            | Add one existing, publicly served workspace object; requires `files:write`                       |
-| `PUT /v1/:workspace/galleries/:id/items/order`                       | Replace the complete item order; requires `files:write`                                          |
-| `DELETE /v1/:workspace/galleries/:id/items/:item`                    | Remove a gallery membership without deleting its object; requires `files:write`                  |
-| `GET /public/galleries/:id`                                          | Exact-ID public gallery read; no workspace listing or authentication                             |
-| `GET /v1/:workspace/galleries/by-reference`                          | Find linked gallery summaries by provider coordinate; requires `files:read`                      |
-| `GET/POST /v1/:workspace/galleries/:id/external-references`          | List or link coordinates; writes require `files:write`                                           |
-| `DELETE /v1/:workspace/galleries/:id/external-references/:reference` | Unlink a coordinate; requires `files:write`                                                      |
+| Route                                                                | Description                                                                                                                                                                   |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`                                                        | Liveness (no auth)                                                                                                                                                            |
+| `PUT /v1/:workspace/files/:key`                                      | Upload raw body (sniffed type). Bare keys → `f/<id>/<name>`. Response includes `replaced: true` when the key already existed (overwrite). Optional provenance headers (below) |
+| `POST /v1/:workspace/files/sign`                                     | Presigned upload (`signedUploadUrl`); needs HTTP S3 credentials on the workspace                                                                                              |
+| `GET /v1/:workspace/files?prefix=&limit=&cursor=`                    | List objects                                                                                                                                                                  |
+| `GET /v1/:workspace/files/:key`                                      | Object metadata (includes allowlisted `metadata` when set)                                                                                                                    |
+| `DELETE /v1/:workspace/files/:key`                                   | Delete object                                                                                                                                                                 |
+| `GET /v1/:workspace/usage`                                           | Workspace usage snapshot (`bytes`, `objects`, `uploadsInPeriod`, …); requires `files:read`                                                                                    |
+| `POST /v1/:workspace/usage/reconcile`                                | Rebuild `bytes`/`objects` from storage; requires `files:write`                                                                                                                |
+| `POST /v1/:workspace/usage/purge-expired`                            | Delete objects older than `retentionDays`, then reconcile; requires `files:delete`                                                                                            |
+| `POST /v1/:workspace/galleries`                                      | Create an empty public gallery; requires `files:write`                                                                                                                        |
+| `GET /v1/:workspace/galleries`                                       | List workspace galleries with opaque cursor pagination; requires `files:read`                                                                                                 |
+| `GET /v1/:workspace/galleries/:id`                                   | Read one owned gallery; requires `files:read`                                                                                                                                 |
+| `PATCH/DELETE /v1/:workspace/galleries/:id`                          | Update or soft-delete gallery metadata; requires `files:write`                                                                                                                |
+| `POST /v1/:workspace/galleries/:id/items`                            | Add one existing, publicly served workspace object; requires `files:write`                                                                                                    |
+| `PUT /v1/:workspace/galleries/:id/items/order`                       | Replace the complete item order; requires `files:write`                                                                                                                       |
+| `DELETE /v1/:workspace/galleries/:id/items/:item`                    | Remove a gallery membership without deleting its object; requires `files:write`                                                                                               |
+| `GET /public/galleries/:id`                                          | Exact-ID public gallery read; no workspace listing or authentication                                                                                                          |
+| `GET /v1/:workspace/galleries/by-reference`                          | Find linked gallery summaries by provider coordinate; requires `files:read`                                                                                                   |
+| `GET/POST /v1/:workspace/galleries/:id/external-references`          | List or link coordinates; writes require `files:write`                                                                                                                        |
+| `DELETE /v1/:workspace/galleries/:id/external-references/:reference` | Unlink a coordinate; requires `files:write`                                                                                                                                   |
 
 `url` in responses is the durable public CDN URL when the workspace has a
 `publicBaseUrl`, otherwise `null`. File put/list/head, presign, and gallery
@@ -59,6 +59,9 @@ item payloads also include `embedUrl`: the same object on the embed host when
 dual-host policy applies (default for `storage.uploads.sh` /
 `store.uploads.sh`), else `null`. Prefer `embedUrl` in GitHub markdown so
 in-place overwrites revalidate through Camo; keep `url` for durable links.
+Successful `PUT …/files/:key` also returns `replaced` (`true` when an object
+already lived at that key). Overwrites are intentional for stable attachment
+keys — there is no server-side confirmation gate.
 Worker override: optional `EMBED_PUBLIC_BASE_URL` (empty disables; any URL is
 a self-hosted embed base). See [ops.md](./ops.md#dual-public-hosts-stable-vs-embed--github-camo).
 

@@ -48,6 +48,7 @@ import {
 } from "./optimize.js";
 import { applyFrame, resolveFrameId, type FrameResult } from "./frame.js";
 import { buildCliProvenance } from "./provenance.js";
+import { formatByteSize } from "./format-bytes.js";
 import { packageVersion } from "./package-version.js";
 import type { PutDefaults } from "./config-file.js";
 
@@ -88,6 +89,9 @@ Optional --frame wraps the image in a device/browser chrome before optimize
 Uploads are public. --pr/--issue keys include the repo, number, and filename and
 remain public even for private/internal GitHub repositories. Upload only media
 that is safe at a predictable public URL.
+
+Re-uploading the same key overwrites in place (no prompt) so embeds hot-swap;
+human mode prints ">> replaced existing object (same URL)" when that happens.
 
 Human/json output includes durable url and (when dual-host applies) embedUrl.
 MARKDOWN prefers embedUrl for GitHub. Override: UPLOADS_EMBED_PUBLIC_BASE_URL.
@@ -213,12 +217,16 @@ export function optimizeOptionsFromFlags(
 
 function formatOptimizeNote(opt: OptimizeImageResult): string | undefined {
   if (opt.optimized) {
-    return `optimized ${opt.originalBytes} → ${opt.outputBytes} bytes (${opt.filename})`;
+    return `optimized ${formatByteSize(opt.originalBytes)} → ${formatByteSize(opt.outputBytes)} (${opt.filename})`;
   }
   if (opt.skippedReason && opt.skippedReason !== "disabled") {
     return `optimize skipped (${opt.skippedReason})`;
   }
   return undefined;
+}
+
+function writeReplacedNote(replaced: boolean | undefined, quiet: boolean): void {
+  if (!quiet && replaced) process.stderr.write(`>> replaced existing object (same URL)\n`);
 }
 
 export type PreparedUpload = OptimizeImageResult & {
@@ -358,6 +366,10 @@ Attachments are public and their repo/number/filename keys are predictable.
 Private/internal GitHub repository visibility does not restrict access; upload
 only media that is safe at a public URL.
 
+Same filename under the same PR/issue overwrites in place (no prompt) so the
+URL and every embed hot-swap. Human mode prints ">> replaced existing object
+(same URL)" when that happens.
+
 Still images are optimized to WebP by default (same as put). Use --no-optimize
 to upload originals. Optional --frame wraps images in device/browser chrome.
 
@@ -452,6 +464,7 @@ export async function runAttach(
       }),
       metadata,
     });
+    writeReplacedNote(result.replaced, ctx.quiet || ctx.json);
     const embedSrc = urlForGithubEmbed(result.url, result.embedUrl)!;
     results.push({
       ...result,
@@ -677,6 +690,7 @@ export async function runPut(
     }),
     metadata,
   });
+  if (!dryRun && format === "human") writeReplacedNote(result.replaced, ctx.quiet);
 
   const embedSrc = urlForGithubEmbed(result.url, result.embedUrl)!;
   const markdown = buildMarkdown(embedSrc, { alt, width });

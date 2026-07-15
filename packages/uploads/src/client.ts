@@ -75,6 +75,8 @@ export interface PutResult {
   embedUrl: string | null;
   size: number;
   contentType: string;
+  /** True when the put overwrote an existing key. Omitted on dry-run. */
+  replaced?: boolean;
   metadata?: Record<string, string>;
 }
 
@@ -716,6 +718,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
         embedUrl?: string | null;
         size: number;
         contentType: string;
+        replaced?: boolean;
         metadata?: Record<string, string>;
       }>("PUT", `${filesBase(config)}/${encodeKeyPath(key)}`, {
         body,
@@ -734,6 +737,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
         ...result,
         url: result.url,
         embedUrl: resolveEmbedUrl(result.url, result.embedUrl),
+        replaced: result.replaced === true,
       };
     },
 

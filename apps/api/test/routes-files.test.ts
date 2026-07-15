@@ -427,6 +427,17 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
     ).resolves.toEqual({});
   });
 
+  it("sets replaced=false on first put and replaced=true on overwrite", async () => {
+    const { env } = await makeEnv();
+    const first = await putShot(env);
+    expect(first.status).toBe(201);
+    expect(((await first.json()) as { replaced: boolean }).replaced).toBe(false);
+
+    const second = await putShot(env);
+    expect(second.status).toBe(201);
+    expect(((await second.json()) as { replaced: boolean }).replaced).toBe(true);
+  });
+
   it("re-PUT with at least one custom header still fully replaces prior custom metadata", async () => {
     const { env, db } = await makeEnv();
     const first = await putShot(env, {

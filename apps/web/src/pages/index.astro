@@ -126,7 +126,6 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       .titlebar {
         display: flex;
         align-items: center;
-        justify-content: space-between;
         padding: 8px 14px;
         border-bottom: 1px solid var(--line);
         color: var(--muted);
@@ -411,14 +410,13 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       <section class="terminal" aria-label="uploads.sh terminal">
         <div class="titlebar" aria-hidden="true">
           <span>uploads.sh — bash</span>
-          <span>80×24</span>
         </div>
         <div class="screen">
           <p class="line"><span class="prompt">$</span> <span class="cmd">uploads attach ./before.png ./after.png</span></p>
           <p class="line out hidden">&gt;&gt; uploading ./before.png</p>
-          <p class="line out hidden">&gt;&gt; optimized 421337 → 96412 bytes (before.webp)</p>
+          <p class="line out hidden">&gt;&gt; optimized 411.5 KB → 94.2 KB (before.webp)</p>
           <p class="line out hidden">&gt;&gt; uploading ./after.png</p>
-          <p class="line out hidden">&gt;&gt; optimized 407190 → 91205 bytes (after.webp)</p>
+          <p class="line out hidden">&gt;&gt; optimized 397.6 KB → 89.1 KB (after.webp)</p>
           <p class="line out hidden">URL: <span class="v">https://storage.uploads.sh/gh/you/app/pull/123/before.webp</span></p>
           <p class="line out hidden">MARKDOWN: ![before.png](https://storage.uploads.sh/gh/you/app/pull/123/before.webp)</p>
           <p class="line out hidden">URL: <span class="v">https://storage.uploads.sh/gh/you/app/pull/123/after.webp</span></p>

@@ -42,7 +42,10 @@ naming and output control.
 
 The killer feature for GitHub: `--pr`/`--issue` produce **hash-free, stable keys**
 (`gh/<owner>/<repo>/pull/<num>/<name>`), so re-uploading the same filename overwrites
-in place and the URL never changes. Responses include **two** public URLs when the
+in place and the URL never changes. There is **no confirmation prompt** — hot-swap is
+intentional for agents and re-runs. Human mode prints
+`>> replaced existing object (same URL)` when the key already existed; JSON has
+`"replaced": true|false`. Responses include **two** public URLs when the
 shared dual-host setup applies:
 
 | Field      | Host (default)       | Use for                                              |
@@ -210,14 +213,30 @@ uploads put ./shot.png --json              # {workspace,key,url,size,markdown}
 ## Custom metadata & search
 
 Every object can carry queryable key-value metadata (distinct from optimize/frame
-provenance) — tag uploads at put time, then find them later:
+provenance) — tag uploads at put time, then find them later. Useful pairs for
+screenshots:
+
+| Key    | Example                        | Use                                |
+| ------ | ------------------------------ | ---------------------------------- |
+| `url`  | `https://app.example/settings` | Page URL the screenshot represents |
+| `path` | `/settings`                    | In-app route or navigation path    |
+| `app`  | `web` / `ios` / `android`      | Which surface is shown             |
 
 ```bash
-uploads put ./shot.png --meta app=myapp --meta page=settings --meta device=iphone-16
-uploads meta get screenshots/myapp/42/shot.png
-uploads meta set screenshots/myapp/42/shot.png page=onboarding --delete device
-uploads list --meta app=myapp --meta page=settings   # ANDed, repeatable
-uploads find app=myapp page=settings                 # same filter, positional pairs
+uploads put ./settings.png \
+  --meta url=https://app.example/settings \
+  --meta path=/settings \
+  --meta app=web
+
+uploads attach ./checkout.png \
+  --meta url=https://app.example/checkout \
+  --meta path=/checkout \
+  --meta app=ios
+
+uploads meta get screenshots/myapp/42/settings.webp
+uploads meta set screenshots/myapp/42/settings.webp path=/onboarding --delete url
+uploads list --meta app=web --meta path=/settings   # ANDed, repeatable
+uploads find app=web path=/settings                 # same filter, positional pairs
 ```
 
 Rules (validated client-side, fail-fast, before uploading): key
