@@ -13,7 +13,20 @@ describe("validateSlug", () => {
     }
   });
   it("rejects reserved names with reserved_workspace_name", () => {
-    for (const s of ["default", "admin", "api", "storage", "me"]) {
+    for (const s of [
+      "default",
+      "admin",
+      "api",
+      "storage",
+      "me",
+      "workspaces",
+      "tokens",
+      "files",
+      "galleries",
+      "usage",
+      "health",
+      "admin-ui",
+    ]) {
       expect(validateSlug(s)).toEqual({ ok: false, code: "reserved_workspace_name" });
     }
   });
