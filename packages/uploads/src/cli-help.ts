@@ -17,7 +17,16 @@ function toRow(c: (typeof ROOT_COMMANDS)[number]): CmdRow {
 }
 
 /** Preferred order for the short essentials help (subset of ROOT_COMMANDS). */
-const ESSENTIAL_ORDER = ["put", "attach", "login", "list", "delete", "doctor", "install"] as const;
+const ESSENTIAL_ORDER = [
+  "put",
+  "attach",
+  "login",
+  "whoami",
+  "list",
+  "delete",
+  "doctor",
+  "install",
+] as const;
 
 /** Day-to-day commands shown on bare `uploads` / `uploads help`. */
 const ESSENTIALS: CmdRow[] = ESSENTIAL_ORDER.map((name) => {
@@ -117,6 +126,7 @@ ${section(style, "Globals (before command):")}
 
 ${section(style, "Examples:")}
   ${style.command("uploads login")}
+  ${style.command("uploads whoami")}
   ${style.command("uploads put")} ./shot.png --pr 123 --name hero.png
   ${style.command("uploads put")} ./after.png --pr 123 --comment
   ${style.command("uploads put")} ./bug.png --issue 45
@@ -126,6 +136,7 @@ ${section(style, "Examples:")}
   ${style.command("uploads attach")} ./shot.png --meta app=myapp --meta page=settings
   ${style.command("uploads doctor")}
   ${style.command("uploads install")}
+  ${style.command("uploads logout")}
 `;
 }
 
@@ -165,6 +176,7 @@ ${section(style, "Update hints")} ${style.muted("(stderr, once/day):")} silence 
 
 ${section(style, "Examples:")}
   ${style.command("uploads login")}
+  ${style.command("uploads whoami")}
   ${style.command("uploads put")} ./shot.png --pr 123 --name hero.png
   ${style.command("uploads put")} ./after.png --pr 123 --comment
   ${style.command("uploads put")} ./bug.png --issue 45 --repo myorg/myapp
@@ -176,6 +188,7 @@ ${section(style, "Examples:")}
   ${style.command("uploads attach")} ./shot.png --meta app=myapp --meta page=settings
   ${style.command("uploads gallery")} create --title "Release screenshots"
   ${style.command("uploads doctor")}
+  ${style.command("uploads logout")}
   ${style.command("uploads --version")}
 
 ${section(style, "Agent/MCP:")} ${style.body("`uploads install` sets up the agent skill and the hosted MCP server")}

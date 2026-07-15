@@ -35,6 +35,7 @@ import { runAdmin } from "./commands/admin-enrollment.js";
 import { runMcp } from "./commands/mcp.js";
 import { runInstall } from "./commands/install.js";
 import { runCompletion } from "./commands/completion.js";
+import { runLogout, runWhoami } from "./commands/session.js";
 import { packageVersion } from "./package-version.js";
 import { checkForUpdate, maybeHintUpdate } from "./update-check.js";
 
@@ -233,6 +234,23 @@ export async function runCli(argv: string[]): Promise<number> {
         break;
       case "login":
         code = await runLogin(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);
+        break;
+      case "whoami":
+      case "status":
+        code = await runWhoami(
+          cmdArgs,
+          {
+            json,
+            envFile: parsed.globals.envFile,
+            token: parsed.globals.token,
+            workspace: parsed.globals.workspace,
+            apiUrl: parsed.globals.apiUrl,
+          },
+          showHelp,
+        );
+        break;
+      case "logout":
+        code = await runLogout(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
         break;
       case "invite":
         code = await runInvite(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);

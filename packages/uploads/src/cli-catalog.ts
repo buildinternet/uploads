@@ -139,6 +139,15 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
     essential: true,
   },
   {
+    name: "whoami",
+    summary: "Show active workspace and token (alias: status)",
+    essential: true,
+  },
+  {
+    name: "logout",
+    summary: "Remove the saved UPLOADS_TOKEN from the config file",
+  },
+  {
     name: "invite",
     summary: "Invite a teammate to a workspace (workspace admin; device login)",
   },

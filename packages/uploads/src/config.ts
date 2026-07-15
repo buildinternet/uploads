@@ -8,6 +8,7 @@ export {
   loadConfigFile,
   redactToken,
   writeConfigKeys,
+  removeConfigKeys,
   configValuesFromClient,
   putDefaultsToConfigValues,
   resolvePutDefaults,
