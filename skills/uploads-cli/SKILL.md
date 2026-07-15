@@ -436,8 +436,9 @@ uploads --api-url http://localhost:8787 doctor
 - **Reports:** only when the user asks — `uploads report "what broke"` or
   `--file ./trace.log`. Never auto-send logs. MCP tool: `report`.
 - **MCP:** `uploads mcp` (stdio) mirrors CLI tools; hosted MCP at
-  `https://agents.uploads.sh/mcp`. `uploads install` sets up this skill + hosted MCP
-  (short progress; `--verbose` / `--dry-run` available).
+  `https://agents.uploads.sh/mcp`. Metadata: `get_metadata` / `set_metadata` /
+  `find_files` (same as `meta get` / `meta set` / `find`). `uploads install` sets
+  up this skill + hosted MCP (short progress; `--verbose` / `--dry-run` available).
 - **Agents on the Worker side:** the package also exports
   `createUploadsWorkerFileTools()` from `@buildinternet/uploads/agent` for exposing
   upload/list/delete as AI-SDK tools inside a Worker — only relevant if you're

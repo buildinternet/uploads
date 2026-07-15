@@ -700,9 +700,28 @@ export function createUploadsMcpTools(opts: {
       },
     },
     {
+      name: "get_metadata",
+      description:
+        "Read an object's queryable custom metadata (D1 key-value pairs, not R2 provenance). Returns `{ metadata }` (empty when none). Object must exist. Same as `uploads meta get`.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "Object key to inspect." },
+          workspace: workspaceProp,
+        },
+        required: ["key"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const key = optString(args, "key");
+        if (!key) usage("key is required");
+        return clientFor(args).client.getMetadata(key);
+      },
+    },
+    {
       name: "set_metadata",
       description:
-        "Merge-set and/or delete an object's queryable custom metadata (D1-backed key-value pairs; distinct from the R2 provenance headers put on upload). `set` pairs win over `delete` when a key appears in both. " +
+        "Merge-set and/or delete an object's queryable custom metadata (D1 key-value pairs, not R2 provenance). `set` wins over `delete` for the same key. " +
         METADATA_DESCRIPTION +
         " Requires at least one of `set` or `delete`. Same as `uploads meta set`.",
       inputSchema: {

@@ -319,6 +319,7 @@ describe("tools/list", () => {
       "attach",
       "list",
       "delete",
+      "get_metadata",
       "set_metadata",
       "find_files",
       "usage",
@@ -657,7 +658,35 @@ describe("tools/call list, delete, comment", () => {
   });
 });
 
-describe("tools/call set_metadata, find_files", () => {
+describe("tools/call get_metadata, set_metadata, find_files", () => {
+  it("get_metadata returns the map (or empty) and requires key", async () => {
+    const { server, metadataStore } = serverWith();
+    metadataStore.set("shots/a.png", { app: "myapp", page: "settings" });
+
+    const withMeta = await rpc(server, "tools/call", {
+      name: "get_metadata",
+      arguments: { key: "shots/a.png" },
+    });
+    expect(withMeta.result.isError).toBe(false);
+    expect(withMeta.result.structuredContent).toEqual({
+      metadata: { app: "myapp", page: "settings" },
+    });
+
+    const empty = await rpc(server, "tools/call", {
+      name: "get_metadata",
+      arguments: { key: "shots/empty.png" },
+    });
+    expect(empty.result.isError).toBe(false);
+    expect(empty.result.structuredContent).toEqual({ metadata: {} });
+
+    const missingKey = await rpc(server, "tools/call", {
+      name: "get_metadata",
+      arguments: {},
+    });
+    expect(missingKey.result.isError).toBe(true);
+    expect(missingKey.result.content[0].text).toContain("key is required");
+  });
+
   it("sets and deletes metadata, returning the merged map", async () => {
     const { server, metadataStore } = serverWith();
     metadataStore.set("shots/a.png", { app: "myapp", page: "old" });
