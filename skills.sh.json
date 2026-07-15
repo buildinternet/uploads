@@ -1,0 +1,11 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "notGrouped": "bottom",
+  "groupings": [
+    {
+      "title": "GitHub screenshots & file hosting",
+      "description": "Start with github-screenshots — it gets screenshots, GIFs, and recordings into PRs and issues. uploads-cli is the full CLI reference it defers to.",
+      "skills": ["github-screenshots", "uploads-cli"]
+    }
+  ]
+}
