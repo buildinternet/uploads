@@ -229,14 +229,9 @@ export function maybeShowFirstRunNotice(
 
   const write = opts.write ?? ((t: string) => process.stderr.write(t));
   write(
-    [
-      "",
-      "uploads collects anonymous usage data: command name, version, OS/arch,",
-      "runtime, exit code, duration, client kind, anonymous id, optional error code.",
-      "No arguments, paths, tokens, or file content are sent. Opt out with:",
-      "  uploads telemetry disable   # or set UPLOADS_TELEMETRY_DISABLED=1",
-      "",
-    ].join("\n"),
+    "\n" +
+      "Note: uploads collects anonymous non-PII usage data. " +
+      "Opt out with `uploads telemetry disable` or UPLOADS_TELEMETRY_DISABLED=1.\n\n",
   );
   safeWrite(marker, new Date().toISOString());
 }

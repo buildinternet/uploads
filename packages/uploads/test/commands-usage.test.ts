@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UploadsClient } from "../src/client.js";
 import { runUsage, runReconcile, runPurgeExpired, type CliContext } from "../src/commands.js";
 
@@ -19,6 +19,10 @@ function ctxWith(client: Partial<UploadsClient>, json = false): CliContext {
 }
 
 describe("runUsage / runReconcile / runPurgeExpired", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("usage returns the snapshot", async () => {
     const snap = {
       workspace: "test",
@@ -28,6 +32,12 @@ describe("runUsage / runReconcile / runPurgeExpired", () => {
       periodStart: "2026-07",
       updatedAt: "2026-07-11T00:00:00.000Z",
     };
+    const chunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+
     const code = await runUsage(
       ctxWith({
         usage: async () => snap,
@@ -35,6 +45,8 @@ describe("runUsage / runReconcile / runPurgeExpired", () => {
       [],
     );
     expect(code).toBe(0);
+    expect(chunks.join("")).toContain("storage:   10 B");
+    expect(chunks.join("")).not.toContain("bytes:");
   });
 
   it("reconcile reports change", async () => {

@@ -230,7 +230,10 @@ describe("maybeShowFirstRunNotice", () => {
       interactive: true,
       write: (t) => lines.push(t),
     });
-    expect(lines.join("")).toMatch(/anonymous usage/);
+    const text = lines.join("");
+    expect(text).toMatch(/anonymous non-PII usage/);
+    expect(text).toMatch(/telemetry disable/);
+    expect(text).not.toMatch(/command name/);
     expect(existsSync(join(dir, "telemetry-notice-shown"))).toBe(true);
     const first = lines.length;
     maybeShowFirstRunNotice({
