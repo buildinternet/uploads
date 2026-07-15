@@ -448,25 +448,27 @@ export async function createWorkspaceRequest(
   accessToken: string,
   name: string,
 ): Promise<CreateWorkspaceResult> {
-  const response = await fetch(`${apiUrl.replace(/\/$/, "")}/v1/workspaces`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ name }),
-  });
-  const body = (await response.json().catch(() => null)) as {
-    workspace?: CreateWorkspaceResult;
-    error?: { code?: string; message?: string };
-  } | null;
-  if (response.ok && body?.workspace) return body.workspace;
-  if (body?.error?.code === "github_required") {
-    throw new UsageError(
-      "creating a workspace requires a linked GitHub account — connect one at https://uploads.sh/account/profile and re-run `uploads login`",
+  try {
+    const { workspace } = await jsonRequest<{ workspace: CreateWorkspaceResult }>(
+      `${apiUrl.replace(/\/$/, "")}/v1/workspaces`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name }),
+      },
     );
+    return workspace;
+  } catch (err) {
+    if (err instanceof UploadsError && err.code === "GITHUB_REQUIRED") {
+      throw new UsageError(
+        "creating a workspace requires a linked GitHub account — connect one at https://uploads.sh/account/profile and re-run `uploads login`",
+      );
+    }
+    throw new UsageError(err instanceof Error ? err.message : "workspace creation failed");
   }
-  throw new UsageError(body?.error?.message ?? "workspace creation failed");
 }
 
 export interface MintTokenResult {
@@ -566,6 +568,9 @@ function mapApiError(status: number, error: string, code?: string): UploadsError
   }
   if (code === "upload_budget_exceeded") {
     return new UploadsError(error, "UPLOAD_BUDGET", status);
+  }
+  if (code === "github_required") {
+    return new UploadsError(error, "GITHUB_REQUIRED", status);
   }
   return new UploadsError(error, "API_ERROR", status);
 }

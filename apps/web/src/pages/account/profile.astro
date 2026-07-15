@@ -81,9 +81,17 @@ export const prerender = false;
         ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
       );
 
-    function showStatus(el: HTMLElement, text: string): void {
+    function showStatus(
+      el: HTMLElement,
+      content: string,
+      { html = false }: { html?: boolean } = {},
+    ): void {
       el.hidden = false;
-      el.textContent = text;
+      if (html) {
+        el.innerHTML = content;
+      } else {
+        el.textContent = content;
+      }
     }
 
     function asNonEmptyString(value: unknown): string | null {
@@ -210,9 +218,11 @@ export const prerender = false;
       }
       const { workspaces } = result;
       if (!workspaces.length) {
-        status.hidden = false;
-        status.innerHTML =
-          'No workspaces yet — <a href="/account/workspaces#create">create one</a> or accept an invite.';
+        showStatus(
+          status,
+          'No workspaces yet — <a href="/account/workspaces#create">create one</a> or accept an invite.',
+          { html: true },
+        );
         return;
       }
 
