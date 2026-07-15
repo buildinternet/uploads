@@ -25,7 +25,7 @@ describe("formatRootHelp", () => {
   it("shows essentials by default without the full catalog", () => {
     const text = formatRootHelp({ color: false });
     expect(text).toMatch(/Essentials:/);
-    expect(text).toMatch(/put <file>/);
+    expect(text).toMatch(/put <file\.\.\.>/);
     expect(text).toMatch(/attach <file\.\.\.>/);
     expect(text).toMatch(/uploads help --all/);
     // install ships multiple agent skills — keep catalog/help plural (#189 drift).

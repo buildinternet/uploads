@@ -9,6 +9,7 @@
  */
 import { UploadsError } from "../errors.js";
 import { errorCodeFromUnknown, recordEvent } from "../telemetry.js";
+import { ToolBatchError } from "./batch-error.js";
 
 export {
   METADATA_DESCRIPTION,
@@ -20,6 +21,7 @@ export {
   usage,
   type ToolArgs,
 } from "./args.js";
+export { ToolBatchError, batchFailureMessage } from "./batch-error.js";
 
 export interface McpTool {
   name: string;
@@ -98,6 +100,20 @@ export function createMcpServer(opts: {
         },
         { apiUrl },
       );
+      // Multi-file total failure: keep structuredContent so agents see every
+      // per-file error, not only the first message string.
+      if (err instanceof ToolBatchError) {
+        return response(id, {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(err.structuredContent, null, 2),
+            },
+          ],
+          structuredContent: err.structuredContent,
+          isError: true,
+        });
+      }
       return response(id, {
         content: [{ type: "text", text: toolErrorText(err) }],
         isError: true,

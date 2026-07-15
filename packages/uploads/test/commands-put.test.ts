@@ -85,6 +85,88 @@ const noRun: CommandRunner = () => {
   throw new Error("runner should not be called");
 };
 
+function tmpFiles(...names: string[]): string[] {
+  const dir = mkdtempSync(join(tmpdir(), "uploads-put-multi-"));
+  return names.map((name) => {
+    const path = join(dir, name);
+    writeFileSync(path, name);
+    return path;
+  });
+}
+
+describe("runPut multi-file", () => {
+  it("uploads multiple files and returns batch JSON", async () => {
+    const { client, puts } = fakeClient();
+    const paths = tmpFiles("a.png", "b.png");
+    const ctx = { ...ctxWith(client), json: true };
+    const chunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      expect(await runPut(ctx, paths, false, noRun)).toBe(0);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(puts.map((p) => p.filename).sort()).toEqual(["a.png", "b.png"]);
+    const payload = JSON.parse(chunks.join("")) as {
+      uploads: { file: string; url: string }[];
+      failures: unknown[];
+    };
+    expect(payload.uploads).toHaveLength(2);
+    expect(payload.failures).toEqual([]);
+  });
+
+  it("continues after a per-file failure (exit 1)", async () => {
+    const puts: string[] = [];
+    const client = {
+      put: async (_body: Uint8Array, opts: { filename: string; key?: string }) => {
+        if (opts.filename === "bad.png") {
+          throw new UploadsError("forced", "API_ERROR", 500);
+        }
+        puts.push(opts.filename);
+        return {
+          workspace: "test",
+          key: opts.key ?? `generated/${opts.filename}`,
+          url: `https://x.test/${opts.filename}`,
+          embedUrl: null,
+          size: 3,
+          contentType: "image/png",
+        };
+      },
+      list: async () => ({ items: [], cursor: null }),
+    } as unknown as UploadsClient;
+    const paths = tmpFiles("good.png", "bad.png");
+    const ctx = { ...ctxWith(client), json: true };
+    const chunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      expect(await runPut(ctx, paths, false, noRun)).toBe(1);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(puts).toEqual(["good.png"]);
+    const payload = JSON.parse(chunks.join("")) as {
+      uploads: { optimize: { filename: string } }[];
+      failures: { file: string; error: { code?: string } }[];
+    };
+    expect(payload.uploads).toHaveLength(1);
+    expect(payload.failures).toHaveLength(1);
+    expect(payload.failures[0]!.error.code).toBe("API_ERROR");
+  });
+
+  it("rejects --key with multiple files", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), [...tmpFiles("a.png", "b.png"), "--key", "x/y.png"], false, noRun),
+    ).rejects.toThrow(UsageError);
+  });
+});
+
 describe("runPut --pr/--issue", () => {
   it("builds a stable PR key with no hash", async () => {
     const { client, puts } = fakeClient();
