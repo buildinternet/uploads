@@ -1,15 +1,8 @@
 import { AppError } from "./base";
-import { type ErrorCode } from "./codes";
+import { type ErrorCodeInput } from "./codes";
 
-/**
- * Options for AppError subclasses thrown by producers. `code` is restricted to
- * the `ERROR_CODES` registry so a typo or unregistered string is a compile
- * error (e.g. `file_metadata_duplicate_filter` before it was listed). Wire
- * decoding stays open via `AppError` / `ErrorCodeInput` — only throw sites are
- * exhaustive.
- */
 interface SubclassOpts {
-  code?: ErrorCode;
+  code?: ErrorCodeInput;
   details?: unknown;
   cause?: unknown;
 }

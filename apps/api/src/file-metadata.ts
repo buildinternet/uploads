@@ -8,7 +8,7 @@
  * server/allowlist-controlled.
  */
 
-import { InternalError, isAppError, ValidationError } from "@uploads/errors";
+import { InternalError, ValidationError } from "@uploads/errors";
 import { PROVENANCE_SERVER_KEYS } from "./provenance";
 
 /** Lowercase key, optionally namespaced with dots (e.g. `gh.repo`). */
@@ -143,10 +143,7 @@ export async function getFileMetadata(
     for (const row of result.results) metadata[row.meta_key] = row.meta_value;
     return metadata;
   } catch (err) {
-    // Public `/f/` and authenticated metadata GET both call this — wrap raw D1
-    // failures so respondError serializes a typed internal 500 instead of an
-    // untyped crash (issue #159).
-    if (isAppError(err)) throw err;
+    // Public /f/ hits this path — keep D1 blips as typed AppErrors for respondError.
     throw new InternalError("failed to load file metadata", { cause: err });
   }
 }

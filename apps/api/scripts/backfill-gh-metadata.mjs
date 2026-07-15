@@ -22,10 +22,9 @@
  *   node --env-file=../../.env scripts/backfill-gh-metadata.mjs --workspace other-ws
  *   node --env-file=../../.env scripts/backfill-gh-metadata.mjs --workspace=other-ws
  *
- * UPLOADS_API_URL defaults to https://api.uploads.sh when unset — the script
- * prints an explicit warning in that case (this path bulk-writes). Never point
- * this at a production workspace during testing — use a local `wrangler dev`
- * stack (UPLOADS_API_URL=http://localhost:8787) first.
+ * Never point this at a production workspace during testing — use a local
+ * `wrangler dev` stack (UPLOADS_API_URL=http://localhost:8787) first. When
+ * UPLOADS_API_URL is unset this defaults to prod and prints a warning.
  */
 import { pathToFileURL } from "node:url";
 
@@ -147,30 +146,22 @@ export async function runBackfill({
   return counts;
 }
 
-/** @param {string[]} argv */
-export function parseArgs(argv) {
+function parseArgs(argv) {
   const opts = { dryRun: false, workspace: undefined };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--dry-run") {
       opts.dryRun = true;
-    } else if (arg === "--workspace" || arg.startsWith("--workspace=")) {
-      const inline = arg.startsWith("--workspace=") ? arg.slice("--workspace=".length) : undefined;
-      const value = inline !== undefined ? inline : argv[++i];
-      if (!value || value.startsWith("--")) {
-        throw new Error(
-          "--workspace requires a name (e.g. --workspace default or --workspace=default)",
-        );
-      }
-      opts.workspace = value;
+    } else if (arg.startsWith("--workspace=")) {
+      opts.workspace = arg.slice("--workspace=".length);
+    } else if (arg === "--workspace") {
+      opts.workspace = argv[++i];
     } else {
       throw new Error(`unexpected argument: ${arg}`);
     }
   }
   return opts;
 }
-
-const DEFAULT_API_URL = "https://api.uploads.sh";
 
 async function main() {
   let opts;
@@ -180,24 +171,21 @@ async function main() {
     console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
   }
-  const apiUrlFromEnv = process.env.UPLOADS_API_URL;
-  const apiUrl = apiUrlFromEnv ?? DEFAULT_API_URL;
+  const defaultedApi = !process.env.UPLOADS_API_URL;
+  const apiUrl = process.env.UPLOADS_API_URL ?? "https://api.uploads.sh";
   const workspace = opts.workspace ?? process.env.UPLOADS_WORKSPACE;
   const token = process.env.UPLOADS_TOKEN;
 
   if (!workspace) {
-    console.error("error: UPLOADS_WORKSPACE (or --workspace / --workspace=name) is required");
+    console.error("error: UPLOADS_WORKSPACE (or --workspace) is required");
     process.exit(1);
   }
   if (!token) {
     console.error("error: UPLOADS_TOKEN is required");
     process.exit(1);
   }
-
-  if (!apiUrlFromEnv) {
-    console.warn(
-      `warning: UPLOADS_API_URL unset; defaulting to ${DEFAULT_API_URL} (production). Set UPLOADS_API_URL explicitly for local/dev.`,
-    );
+  if (defaultedApi) {
+    console.warn(`warning: UPLOADS_API_URL unset; defaulting to ${apiUrl} (production)`);
   }
 
   console.log(

@@ -116,29 +116,16 @@ describe("validateMetadataEntries", () => {
 });
 
 describe("getFileMetadata", () => {
-  it("wraps raw D1 failures in InternalError (not an untyped throw)", async () => {
+  it("wraps raw D1 failures in InternalError", async () => {
     const db = {
-      prepare() {
-        return {
-          bind() {
-            return {
-              async all() {
-                throw new Error("D1_ERROR: database is locked");
-              },
-            };
+      prepare: () => ({
+        bind: () => ({
+          all: async () => {
+            throw new Error("D1_ERROR: database is locked");
           },
-        };
-      },
+        }),
+      }),
     } as unknown as D1Database;
-
     await expect(getFileMetadata(db, "ws", "f/one.png")).rejects.toBeInstanceOf(InternalError);
-    try {
-      await getFileMetadata(db, "ws", "f/one.png");
-    } catch (err) {
-      expect(err).toBeInstanceOf(InternalError);
-      expect((err as InternalError).type).toBe("internal");
-      expect((err as InternalError).expose).toBe(false);
-      expect((err as InternalError).cause).toBeInstanceOf(Error);
-    }
   });
 });

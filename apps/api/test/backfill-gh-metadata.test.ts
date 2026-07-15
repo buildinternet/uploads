@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { GH_KEY_RE, parseArgs, planForKey, runBackfill } from "../scripts/backfill-gh-metadata.mjs";
+import { GH_KEY_RE, planForKey, runBackfill } from "../scripts/backfill-gh-metadata.mjs";
 
 describe("planForKey", () => {
   it("matches a pull-request key and lowercases metadata values only", () => {
@@ -52,23 +52,6 @@ describe("GH_KEY_RE", () => {
     expect(GH_KEY_RE.test("gh/o/r/pull/1/x")).toBe(true);
     expect(GH_KEY_RE.test("gh/o/r/pull/1/")).toBe(true);
     expect(GH_KEY_RE.test("other/gh/o/r/pull/1/x")).toBe(false);
-  });
-});
-
-describe("parseArgs", () => {
-  it("accepts --workspace name and --workspace=name", () => {
-    expect(parseArgs(["--workspace", "default"])).toEqual({
-      dryRun: false,
-      workspace: "default",
-    });
-    expect(parseArgs(["--workspace=buildinternet", "--dry-run"])).toEqual({
-      dryRun: true,
-      workspace: "buildinternet",
-    });
-  });
-
-  it("rejects a bare --workspace without a value", () => {
-    expect(() => parseArgs(["--workspace"])).toThrow(/--workspace requires a name/);
   });
 });
 

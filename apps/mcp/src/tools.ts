@@ -99,8 +99,6 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     const key = requiredString(args, "key");
     if (badKey(key)) usage("invalid key");
     const store = await storage(env, workspace);
-    // Typed AppError so the tool path matches REST handlers (NotFoundError /
-    // respondError) instead of a bare Error("object not found").
     if (!(await store.exists(key))) throw new NotFoundError("object not found");
     return key;
   }
@@ -194,11 +192,15 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             storage(env, workspace),
             storageConfig(env, workspace),
           ]);
-          if (!(await store.exists(objectKey))) throw new NotFoundError("object not found");
+          if (!(await store.exists(objectKey))) throw new Error("object not found");
           if (publicUrl(config, objectKey) === null) throw new Error("object has no public URL");
         } catch (err) {
-          if (err instanceof NotFoundError) throw err;
-          if (err instanceof Error && err.message === "object has no public URL") throw err;
+          if (
+            err instanceof Error &&
+            ["object not found", "object has no public URL"].includes(err.message)
+          ) {
+            throw err;
+          }
           throw new Error("gallery storage unavailable");
         }
         const result = unwrapMutation(
