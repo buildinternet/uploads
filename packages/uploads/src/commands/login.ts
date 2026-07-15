@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { createInterface } from "node:readline/promises";
 import { spawn } from "node:child_process";
 import { stdin, stdout } from "node:process";
 import {
@@ -10,6 +11,7 @@ import {
 } from "../config.js";
 import {
   createUploadsClient,
+  createWorkspaceRequest,
   exchangeEnrollment,
   listMintWorkspaces,
   mintWorkspaceToken,
@@ -173,6 +175,21 @@ export interface DeviceLoginIo {
   now: () => number;
   openUrl: (url: string) => void;
   write: (text: string) => void;
+  /** Whether the CLI can prompt the user (a real TTY, not a script/CI pipe). */
+  isTTY: boolean;
+  /** Prompt for a new workspace name when the account has zero. */
+  promptWorkspaceName: () => Promise<string>;
+}
+
+async function promptWorkspaceName(): Promise<string> {
+  const rl = createInterface({ input: stdin, output: process.stderr });
+  try {
+    return (
+      await rl.question("no workspaces yet — enter a name to create one (lowercase, hyphens): ")
+    ).trim();
+  } finally {
+    rl.close();
+  }
 }
 
 export const defaultDeviceIo: DeviceLoginIo = {
@@ -182,6 +199,8 @@ export const defaultDeviceIo: DeviceLoginIo = {
   write: (text) => {
     process.stderr.write(text);
   },
+  isTTY: Boolean(stdin.isTTY),
+  promptWorkspaceName,
 };
 
 /**
@@ -223,7 +242,7 @@ async function runDeviceLogin(
 
   const accessToken = await obtainDeviceAccessToken(opts.authUrl, { noOpen: opts.noOpen }, io);
 
-  const workspace = await resolveMintWorkspace(opts.apiUrl, accessToken, requestedWorkspace);
+  const workspace = await resolveMintWorkspace(opts.apiUrl, accessToken, requestedWorkspace, io);
   const minted = await mintWorkspaceToken(opts.apiUrl, accessToken, { workspace, scopes, label });
   return { workspace: minted.workspace, token: minted.token, apiUrl: opts.apiUrl };
 }
@@ -287,14 +306,24 @@ async function resolveMintWorkspace(
   apiUrl: string,
   accessToken: string,
   requested: string | undefined,
+  io: DeviceLoginIo,
 ): Promise<string> {
   if (requested) return requested;
   const { workspaces } = await listMintWorkspaces(apiUrl, accessToken);
   if (workspaces.length === 1) return workspaces[0]!.workspace;
   if (workspaces.length === 0) {
-    throw new UsageError(
-      "your account has no workspace access yet — ask an administrator for an invitation",
+    if (!io.isTTY) {
+      throw new UsageError(
+        "your account has no workspace access yet — create one with a name, or ask an administrator for an invitation. Run `uploads login` interactively to create one.",
+      );
+    }
+    const name = (await io.promptWorkspaceName()).trim();
+    if (!name) throw new UsageError("workspace creation cancelled");
+    const created = await createWorkspaceRequest(apiUrl, accessToken, name);
+    io.write(
+      `created workspace "${created.name}" — files will get public URLs under ${created.publicBaseUrl}/\n`,
     );
+    return created.name;
   }
   const names = workspaces.map((w) => w.workspace).join(", ");
   throw new UsageError(`multiple workspaces available (${names}); pass --workspace <name>`);

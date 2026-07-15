@@ -1,5 +1,6 @@
 import { inferContentType } from "./embed.js";
 import type { UploadsClientConfig } from "./config.js";
+import { UsageError } from "./cli-args.js";
 import { UploadsError } from "./errors.js";
 import { buildScreenshotKey } from "./keys.js";
 import { packageVersion } from "./package-version.js";
@@ -430,6 +431,46 @@ export function listMintWorkspaces(
   });
 }
 
+export interface CreateWorkspaceResult {
+  name: string;
+  publicBaseUrl: string;
+  selfServe: boolean;
+}
+
+/**
+ * POST /v1/workspaces — self-serve workspace creation from a device-flow
+ * session (presented as a bearer). Throws `UsageError` with a message tuned
+ * for CLI display: a linked-GitHub requirement gets an actionable pointer,
+ * everything else surfaces the server's message.
+ */
+export async function createWorkspaceRequest(
+  apiUrl: string,
+  accessToken: string,
+  name: string,
+): Promise<CreateWorkspaceResult> {
+  try {
+    const { workspace } = await jsonRequest<{ workspace: CreateWorkspaceResult }>(
+      `${apiUrl.replace(/\/$/, "")}/v1/workspaces`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name }),
+      },
+    );
+    return workspace;
+  } catch (err) {
+    if (err instanceof UploadsError && err.code === "GITHUB_REQUIRED") {
+      throw new UsageError(
+        "creating a workspace requires a linked GitHub account — connect one at https://uploads.sh/account/profile and re-run `uploads login`",
+      );
+    }
+    throw new UsageError(err instanceof Error ? err.message : "workspace creation failed");
+  }
+}
+
 export interface MintTokenResult {
   token: string;
   workspace: string;
@@ -527,6 +568,9 @@ function mapApiError(status: number, error: string, code?: string): UploadsError
   }
   if (code === "upload_budget_exceeded") {
     return new UploadsError(error, "UPLOAD_BUDGET", status);
+  }
+  if (code === "github_required") {
+    return new UploadsError(error, "GITHUB_REQUIRED", status);
   }
   return new UploadsError(error, "API_ERROR", status);
 }

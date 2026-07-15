@@ -201,3 +201,20 @@ export async function allowWrite(
   const { success } = await limiter.limit({ key: workspaceName });
   return success;
 }
+
+/**
+ * Strict per-user rate limit for self-serve workspace creation. Kept separate
+ * from WRITE_LIMITER (60/60s) so the create-cap check (3 self-serve workspaces
+ * per user) can't be raced past via concurrent requests — this limiter's
+ * window matches the cap. Fails open when the binding is absent (some
+ * local/dev setups, tests).
+ */
+export async function allowWorkspaceCreate(
+  env: { WS_CREATE_LIMITER?: Env["WS_CREATE_LIMITER"] },
+  userId: string,
+): Promise<boolean> {
+  const limiter = env.WS_CREATE_LIMITER;
+  if (!limiter) return true;
+  const { success } = await limiter.limit({ key: userId });
+  return success;
+}

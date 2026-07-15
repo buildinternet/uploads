@@ -8,6 +8,7 @@ export type UploadsErrorCode =
   | "KEY_POLICY"
   | "STORAGE_QUOTA"
   | "UPLOAD_BUDGET"
+  | "GITHUB_REQUIRED"
   | "API_ERROR"
   | "NETWORK"
   | "USAGE";

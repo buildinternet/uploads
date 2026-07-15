@@ -262,6 +262,42 @@ export async function inviteToWorkspace(
   };
 }
 
+export type CreateWorkspaceResult =
+  | { kind: "created"; workspace: { name: string; publicBaseUrl?: string } }
+  | { kind: "error"; code: string; message: string }
+  | { kind: "unavailable" };
+
+/** POST /v1/workspaces — self-serve workspace creation (session cookie auth). */
+export async function createWorkspace(
+  apiOrigin: string,
+  name: string,
+): Promise<CreateWorkspaceResult> {
+  const result = await fetchWithTimeout(`${trimOrigin(apiOrigin)}/v1/workspaces`, {
+    method: "POST",
+    credentials: "include",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (result.kind === "unavailable") return { kind: "unavailable" };
+  const { response } = result;
+  const body = (await response.json().catch(() => null)) as {
+    workspace?: { name?: string; publicBaseUrl?: string };
+    error?: { code?: string; message?: string };
+  } | null;
+  if (response.ok && typeof body?.workspace?.name === "string") {
+    return {
+      kind: "created",
+      workspace: { name: body.workspace.name, publicBaseUrl: body.workspace.publicBaseUrl },
+    };
+  }
+  return {
+    kind: "error",
+    code: body?.error?.code ?? "unknown",
+    message: body?.error?.message ?? "Workspace creation failed.",
+  };
+}
+
 export interface SearchFileItem {
   key: string;
   url: string | null;

@@ -9,6 +9,7 @@ import { admin } from "./routes/admin";
 import { adminUi } from "./routes/admin-ui";
 import { auth } from "./routes/auth";
 import { tokens } from "./routes/tokens";
+import { workspaces } from "./routes/workspaces";
 import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
 import { galleries } from "./routes/galleries";
@@ -67,6 +68,7 @@ export const app = new Hono<WorkspaceVars>()
   // (no trailing segment), so `workspaceAuth` never runs for it — this route
   // brings its own session auth. See routes/tokens.ts.
   .route("/v1/tokens", tokens)
+  .route("/v1/workspaces", workspaces)
   .use("/v1/:workspace/*", workspaceAuth)
   .route("/v1/:workspace/galleries", galleries)
   .route("/v1/:workspace/files", files)

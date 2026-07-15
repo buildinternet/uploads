@@ -40,9 +40,29 @@ full flag list (`--label`, `--scopes`, `--auth-url`, `--no-open`,
 
 ## How you get access to a workspace
 
-Workspace access comes from an **organization invitation**, not a code you
-redeem. Someone who already **admins that workspace** (org role admin/owner)
-invites your email:
+There are three ways to get workspace access: **create your own** (self-serve,
+no admin needed), an **organization invitation** from someone who already
+admins a workspace, or an **enrollment code** shared out-of-band.
+
+### Self-serve: create your own workspace
+
+Any signed-in user with a **GitHub-linked account** can create a workspace
+without an invitation or `ADMIN_TOKEN` — `/account/workspaces` has a "Create a
+workspace" form, and `uploads login` offers the same prompt when your account
+has no workspaces yet. You become the owner of a new organization and a
+`<name>/` prefix on the shared bucket, capped at 3 self-serve workspaces per
+user and with tighter default limits than an operator-provisioned workspace.
+See [workspaces.md#self-serve-workspaces](workspaces.md#self-serve-workspaces)
+for the limits, name rules, and error codes.
+
+Magic-link-only accounts get a `github_required` prompt to connect GitHub
+first, in both the web UI and `uploads login`.
+
+### Organization invitation
+
+Workspace access also comes from an **organization invitation**, not a code
+you redeem. Someone who already **admins that workspace** (org role
+admin/owner) invites your email:
 
 - **Account UI** — `/account/workspaces` → “Invite a teammate”
 - **CLI** — `uploads invite create --email you@example.com --workspace <name>`

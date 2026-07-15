@@ -578,4 +578,334 @@ describe("DB-backed behavior", () => {
       });
     });
   });
+
+  describe("POST /internal/orgs/provision", () => {
+    it("creates the org and seeds an owner member", async () => {
+      const user = await seedUser({ id: "u1", email: "a@x.com" });
+      const res = await app().request(
+        "/internal/orgs/provision",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug: "zachbot", ownerUserId: user.id }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as {
+        organization: { id: string; slug: string; name: string };
+      };
+      expect(body.organization.slug).toBe("zachbot");
+
+      const rows = await orm
+        .select()
+        .from(schema.member)
+        .where(eq(schema.member.organizationId, body.organization.id));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ userId: user.id, role: "owner" });
+    });
+
+    it("409s when the slug already exists", async () => {
+      const org = await seedOrg({ slug: "zachbot" });
+      const user = await seedUser();
+      const res = await app().request(
+        "/internal/orgs/provision",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug: org.slug, ownerUserId: user.id }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(409);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "slug_taken" },
+      });
+    });
+
+    it("404s for an unknown ownerUserId", async () => {
+      const res = await app().request(
+        "/internal/orgs/provision",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug: `new-${crypto.randomUUID()}`, ownerUserId: "no-such-user" }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(404);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "user_not_found" },
+      });
+    });
+
+    it("400s when slug or ownerUserId is missing", async () => {
+      const res = await app().request(
+        "/internal/orgs/provision",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug: "only-slug" }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "invalid_request" },
+      });
+    });
+
+    it("treats a concurrent create-race as slug_taken (real UNIQUE-race re-query)", async () => {
+      // Same shape as the /internal/orgs race test above: the pre-check
+      // SELECT is made to see an empty table, a winner row is injected right
+      // after, and the route's INSERT then hits the UNIQUE slug constraint.
+      // The catch handler must re-query, find the winner row, and report the
+      // same 409 the pre-check would have — not a 500.
+      const user = await seedUser();
+      const slug = `race-${crypto.randomUUID()}`;
+      const winner = { id: crypto.randomUUID(), slug, name: "Winner" };
+      const realPrepare = db.prepare.bind(db);
+      let raceArmed = true;
+      db.prepare = ((sql: string) => {
+        const stmt = realPrepare(sql);
+        if (raceArmed && /select/i.test(sql) && sql.includes(`"organization"`)) {
+          raceArmed = false;
+          const emptied = Object.create(stmt) as typeof stmt;
+          emptied.bind = (...params: unknown[]) => {
+            db.__sqlite
+              .prepare("INSERT INTO organization (id, name, slug, created_at) VALUES (?, ?, ?, ?)")
+              .run(winner.id, winner.name, winner.slug, Date.now());
+            const bound = stmt.bind(...params);
+            return Object.assign(Object.create(bound), {
+              all: async () => ({ success: true, results: [], meta: {} }),
+              raw: async () => [],
+            });
+          };
+          return emptied;
+        }
+        return stmt;
+      }) as typeof db.prepare;
+
+      const res = await app().request(
+        "/internal/orgs/provision",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug, ownerUserId: user.id }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(409);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "slug_taken" },
+      });
+
+      // Only the winner's row exists — the loser's insert was rejected, and
+      // no member row was seeded for the loser's owner.
+      const rows = await orm
+        .select()
+        .from(schema.organization)
+        .where(eq(schema.organization.slug, slug));
+      expect(rows).toHaveLength(1);
+      expect(rows[0].name).toBe("Winner");
+    });
+
+    it("rethrows (surfacing as a 500) when the insert fails for a reason other than a slug race", async () => {
+      // Simulates a genuine D1 failure (outage, schema issue, etc.) rather
+      // than a UNIQUE-constraint race: the INSERT throws but no row for the
+      // slug ever lands, so the catch handler's re-query comes back empty
+      // and it must rethrow instead of misreporting 409 slug_taken.
+      const user = await seedUser();
+      const slug = `insert-fails-${crypto.randomUUID()}`;
+      const realPrepare = db.prepare.bind(db);
+      db.prepare = ((sql: string) => {
+        const stmt = realPrepare(sql);
+        if (/insert/i.test(sql) && sql.includes(`"organization"`)) {
+          const broken = Object.create(stmt) as typeof stmt;
+          broken.bind = (...params: unknown[]) => {
+            const bound = stmt.bind(...params);
+            return Object.assign(Object.create(bound), {
+              run: async () => {
+                throw new Error("simulated D1 outage");
+              },
+              all: async () => {
+                throw new Error("simulated D1 outage");
+              },
+            });
+          };
+          return broken;
+        }
+        return stmt;
+      }) as typeof db.prepare;
+
+      // Hono's fetch-style app.request() catches thrown errors at the top
+      // level rather than rejecting, so the observable effect of "rethrow
+      // instead of misreporting slug_taken" is a 500 (Hono's default error
+      // response), not a 409.
+      const res = await app().request(
+        "/internal/orgs/provision",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug, ownerUserId: user.id }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(500);
+
+      const rows = await orm
+        .select()
+        .from(schema.organization)
+        .where(eq(schema.organization.slug, slug));
+      expect(rows).toHaveLength(0);
+    });
+
+    it("deletes the org row (compensating delete) when the owner-member insert fails", async () => {
+      // The fake-D1 test harness doesn't support drizzle's db.batch, so the
+      // org and owner-member inserts aren't atomic — if the member insert
+      // fails, the route must delete the just-inserted org row rather than
+      // leaving an orphaned org/slug with no members, and rethrow (500).
+      const user = await seedUser();
+      const slug = `member-insert-fails-${crypto.randomUUID()}`;
+      const realPrepare = db.prepare.bind(db);
+      db.prepare = ((sql: string) => {
+        const stmt = realPrepare(sql);
+        if (/insert/i.test(sql) && sql.includes(`"member"`)) {
+          const broken = Object.create(stmt) as typeof stmt;
+          broken.bind = (...params: unknown[]) => {
+            const bound = stmt.bind(...params);
+            return Object.assign(Object.create(bound), {
+              run: async () => {
+                throw new Error("simulated D1 outage");
+              },
+              all: async () => {
+                throw new Error("simulated D1 outage");
+              },
+            });
+          };
+          return broken;
+        }
+        return stmt;
+      }) as typeof db.prepare;
+
+      const res = await app().request(
+        "/internal/orgs/provision",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug, ownerUserId: user.id }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(500);
+
+      const orgRows = await orm
+        .select()
+        .from(schema.organization)
+        .where(eq(schema.organization.slug, slug));
+      expect(orgRows).toHaveLength(0);
+    });
+  });
+
+  describe("DELETE /internal/orgs/:slug", () => {
+    it("deletes an org with a single (owner) member and its member rows", async () => {
+      const org = await seedOrg();
+      const user = await seedUser();
+      await orm.insert(schema.member).values({
+        id: crypto.randomUUID(),
+        organizationId: org.id,
+        userId: user.id,
+        role: "owner",
+        createdAt: new Date(),
+      });
+
+      const res = await app().request(`/internal/orgs/${org.slug}`, { method: "DELETE" }, dbEnv());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+
+      const orgRows = await orm
+        .select()
+        .from(schema.organization)
+        .where(eq(schema.organization.id, org.id));
+      expect(orgRows).toHaveLength(0);
+      const memberRows = await orm
+        .select()
+        .from(schema.member)
+        .where(eq(schema.member.organizationId, org.id));
+      expect(memberRows).toHaveLength(0);
+    });
+
+    it("409s when the org has more than one member", async () => {
+      const org = await seedOrg();
+      const user1 = await seedUser();
+      const user2 = await seedUser();
+      await orm.insert(schema.member).values([
+        {
+          id: crypto.randomUUID(),
+          organizationId: org.id,
+          userId: user1.id,
+          role: "owner",
+          createdAt: new Date(),
+        },
+        {
+          id: crypto.randomUUID(),
+          organizationId: org.id,
+          userId: user2.id,
+          role: "member",
+          createdAt: new Date(),
+        },
+      ]);
+
+      const res = await app().request(`/internal/orgs/${org.slug}`, { method: "DELETE" }, dbEnv());
+      expect(res.status).toBe(409);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "org_not_empty" },
+      });
+    });
+
+    it("404s for an unknown slug", async () => {
+      const res = await app().request(
+        "/internal/orgs/does-not-exist",
+        { method: "DELETE" },
+        dbEnv(),
+      );
+      expect(res.status).toBe(404);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "organization_not_found" },
+      });
+    });
+  });
+
+  describe("GET /internal/users/:id/github-linked", () => {
+    it("true when an account row with providerId github exists", async () => {
+      const user = await seedUser({ id: "u1" });
+      await orm.insert(schema.account).values({
+        id: crypto.randomUUID(),
+        userId: user.id,
+        accountId: "999",
+        providerId: "github",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const res = await app().request(`/internal/users/${user.id}/github-linked`, {}, dbEnv());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ githubLinked: true });
+    });
+
+    it("false otherwise (including unknown user)", async () => {
+      const user = await seedUser();
+      const res = await app().request(`/internal/users/${user.id}/github-linked`, {}, dbEnv());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ githubLinked: false });
+
+      const unknownRes = await app().request(
+        `/internal/users/${crypto.randomUUID()}/github-linked`,
+        {},
+        dbEnv(),
+      );
+      expect(unknownRes.status).toBe(200);
+      expect(await unknownRes.json()).toEqual({ githubLinked: false });
+    });
+  });
 });

@@ -16,7 +16,7 @@
  * database, by design, see plan D1's "ownership boundary").
  */
 
-import { ServiceUnavailableError } from "@uploads/errors";
+import { ConflictError, ServiceUnavailableError } from "@uploads/errors";
 
 export interface OrgSummary {
   id: string;
@@ -103,4 +103,53 @@ export async function workspacesForOrg(env: Env, orgIdOrSlug: string): Promise<s
   // callers of this module should prefer passing the slug they already have.
   const org = await orgForWorkspace(env, orgIdOrSlug);
   return org ? [org.slug] : [];
+}
+
+/** Self-serve org provisioning (spec 2026-07-14): org + owner member in one call. */
+export async function provisionOrg(
+  env: Env,
+  args: { slug: string; name?: string; ownerUserId: string },
+): Promise<OrgSummary> {
+  const headers = internalHeaders();
+  headers.set("content-type", "application/json");
+  const response = await env.AUTH.fetch(`${INTERNAL_ORIGIN}/internal/orgs/provision`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(args),
+  });
+  if (response.status === 409) {
+    throw new ConflictError("workspace name is taken", { code: "workspace_name_taken" });
+  }
+  const body = (await response.json().catch(() => null)) as { organization?: OrgSummary } | null;
+  if (!response.ok || !body?.organization) {
+    throw new ServiceUnavailableError("auth service failed to provision the organization", {
+      code: "auth_lookup_failed",
+      details: { status: response.status },
+    });
+  }
+  return body.organization;
+}
+
+/** Compensating delete for provisionOrg. Best-effort: callers catch failures. */
+export async function deleteOrg(env: Env, slug: string): Promise<void> {
+  await env.AUTH.fetch(`${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(slug)}`, {
+    method: "DELETE",
+    headers: internalHeaders(),
+  });
+}
+
+/** Whether the user has a linked GitHub account (self-serve gate). */
+export async function isGithubLinked(env: Env, userId: string): Promise<boolean> {
+  const response = await env.AUTH.fetch(
+    `${INTERNAL_ORIGIN}/internal/users/${encodeURIComponent(userId)}/github-linked`,
+    { headers: internalHeaders() },
+  );
+  if (!response.ok) {
+    throw new ServiceUnavailableError("auth service returned an unexpected status", {
+      code: "auth_lookup_failed",
+      details: { status: response.status },
+    });
+  }
+  const body = (await response.json().catch(() => null)) as { githubLinked?: boolean } | null;
+  return body?.githubLinked === true;
 }
