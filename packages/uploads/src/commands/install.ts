@@ -223,23 +223,60 @@ export async function runInstall(
 
   printHumanSteps(results, redact, verbose);
 
+  if (!dryRun) {
+    printClosingGuidance(results, failed, signedIn);
+  }
+
+  return failed ? 1 : 0;
+}
+
+/** Closing line(s) after per-step output — success, partial, or next-step hints. */
+function printClosingGuidance(
+  results: Record<string, StepResult>,
+  failed: boolean,
+  signedIn: boolean,
+): void {
   const skillResults = Object.entries(results)
     .filter(([step]) => step.startsWith("skill:"))
     .map(([, r]) => r);
-  const skillsOk = skillResults.length > 0 && skillResults.every((r) => r.ok);
+  const hasSkills = skillResults.length > 0;
+  const skillsOk = hasSkills && skillResults.every((r) => r.ok);
+  const skillsAnyOk = skillResults.some((r) => r.ok);
+  const skillsFailed = skillResults.some((r) => !r.ok);
+  const mcp = results.mcp;
 
-  if (!failed && !dryRun) {
+  if (!failed) {
     const stepLabels = [
       ...new Set(Object.keys(results).map((k) => (k.startsWith("skill:") ? "skills" : k))),
     ];
     printSuccessFooter(stepLabels, signedIn);
-  } else if (failed && !dryRun && skillsOk && results.mcp && !results.mcp.ok) {
+    return;
+  }
+
+  // Skills all ok, MCP failed/skipped — partial success with a clear next step.
+  if (skillsOk && mcp && !mcp.ok) {
     const next =
-      results.mcp.skipped === "sign-in"
+      mcp.skipped === "sign-in"
         ? "Sign in with `uploads login`, then re-run `uploads install mcp`."
         : "Fix the MCP step above, then re-run `uploads install mcp`.";
     process.stdout.write(`\nSkills are installed. ${next}\n`);
+    return;
   }
 
-  return failed ? 1 : 0;
+  // One or more skills failed (including mixed success). Always give a next step —
+  // previously skillsOk gated both footer branches, so half-installed skills printed
+  // only the per-step stderr lines with no guidance.
+  if (skillsFailed) {
+    const lead = skillsAnyOk ? "Some skills installed, some failed." : "Skills failed to install.";
+    process.stdout.write(
+      `\n${lead} Fix the errors above, then re-run \`uploads install skill\`.\n`,
+    );
+    if (mcp && !mcp.ok) {
+      const next =
+        mcp.skipped === "sign-in"
+          ? "Sign in with `uploads login`, then re-run `uploads install mcp`."
+          : "Fix the MCP step above, then re-run `uploads install mcp`.";
+      process.stdout.write(`${next}\n`);
+    }
+  }
 }

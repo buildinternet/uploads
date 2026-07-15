@@ -545,6 +545,8 @@ describe("mcp worker", () => {
       set: { app: "x" },
     });
     expect(result.isError).toBe(true);
+    // Typed NotFoundError surfaces as the tool error text (issue #159).
+    expect(result.content).toEqual([{ type: "text", text: "object not found" }]);
   });
 
   it("set_metadata rejects a reserved key as a tool error", async () => {

@@ -132,6 +132,28 @@ describe("registry", () => {
     expect(ERROR_CODES).toContain("storage_quota_exceeded");
   });
 
+  it("registers file-metadata codes used by producers", () => {
+    // Guard against the #157 review miss: code literals on ValidationError must
+    // exist in ERROR_CODES (SubclassOpts.code is typed as ErrorCode).
+    for (const code of [
+      "file_metadata_invalid_key",
+      "file_metadata_invalid_value",
+      "file_metadata_limit_exceeded",
+      "file_metadata_reserved_key",
+      "file_metadata_duplicate_filter",
+      "file_metadata_too_many_filters",
+    ] as const) {
+      expect(ERROR_CODES).toContain(code);
+      expect(isKnownErrorCode(code)).toBe(true);
+      // Type-level: code is assignable to ValidationError opts.
+      expect(new ValidationError("x", { code }).code).toBe(code);
+    }
+  });
+
+  it("ERROR_CODES has no duplicates", () => {
+    expect(new Set(ERROR_CODES).size).toBe(ERROR_CODES.length);
+  });
+
   it("isErrorEnvelope validates structure", () => {
     expect(
       isErrorEnvelope({

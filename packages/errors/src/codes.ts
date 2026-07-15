@@ -28,20 +28,52 @@ export const ERROR_CODES = [
 
   // Files / keys
   "invalid_key",
+  "invalid_body",
   "empty_body",
   "upload_too_large",
+  "file_too_large",
   "key_prefix_not_allowed",
   "key_too_deep",
   "presign_unavailable",
   "file_url_unavailable",
   "auth_required",
+  "invalid_visibility",
 
   // Budgets
   "storage_quota_exceeded",
   "upload_budget_exceeded",
 
-  // Auth / enrollment
+  // Auth / enrollment / session
   "invalid_enrollment",
+  "auth_lookup_failed",
+  "auth_session_unavailable",
+  "auth_unavailable",
+  "invalid_session",
+  "invalid_email",
+  "invalid_role",
+  "user_not_found",
+  "org_not_found",
+  "inviter_not_authorized",
+
+  // Workspaces / tokens
+  "invalid_workspace",
+  "invalid_workspace_name",
+  "reserved_workspace_name",
+  "workspace_not_found",
+  "workspace_name_taken",
+  "workspace_cap_reached",
+  "workspace_forbidden",
+  "workspace_admin_required",
+  "github_required",
+  "invalid_scopes",
+  "invalid_label",
+  "invalid_expires",
+  "invalid_request",
+  "invalid_grant",
+  "invalid_grants",
+  "invalid_ttl",
+  "multi_grant_unsupported",
+  "hash_prefix_or_label_required",
 
   // Galleries
   "gallery_not_found",
@@ -64,13 +96,12 @@ export const ERROR_CODES = [
   "file_metadata_duplicate_filter",
   "file_metadata_too_many_filters",
 
-  // Admin
-  "invalid_workspace",
-  "workspace_not_found",
-  "invalid_scopes",
-  "invalid_label",
-  "invalid_expires",
-  "hash_prefix_or_label_required",
+  // Reports
+  "reports_disabled",
+  "bad_request",
+  "attachment_too_large",
+  "attachment_unavailable",
+  "unsupported_attachment_type",
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

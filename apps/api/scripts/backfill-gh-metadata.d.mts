@@ -14,6 +14,13 @@ export interface GhMetadataPlan {
 
 export function planForKey(key: string): GhMetadataPlan | null;
 
+export interface ParseArgsResult {
+  dryRun: boolean;
+  workspace: string | undefined;
+}
+
+export function parseArgs(argv: string[]): ParseArgsResult;
+
 export interface RunBackfillSummary {
   matched: number;
   patched: number;

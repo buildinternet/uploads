@@ -1,5 +1,5 @@
 import { NotFoundError, ValidationError } from "@uploads/errors";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import {
   badKey,
   deleteObject,
@@ -19,6 +19,18 @@ import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { checkDeclaredLength, resolveUploadPolicy, writeRateLimit } from "../guards";
 import { sanitizeVisibility } from "../visibility";
+
+/**
+ * Shared gate for key-at-tail routes (GET/PATCH): structural key check + object
+ * existence. Callers already hold files:read/write scope.
+ */
+async function requireExistingObject(c: Context<WorkspaceVars>, key: string) {
+  if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
+  const ws = c.get("workspace");
+  const store = await storage(c.env, ws);
+  if (!(await store.exists(key))) throw new NotFoundError();
+  return { key, ws, store };
+}
 
 export const files = new Hono<WorkspaceVars>()
 
@@ -205,11 +217,7 @@ export const files = new Hono<WorkspaceVars>()
   // PATCH (which has no other meaning on this route) avoid the fragile
   // suffix pattern entirely.
   .get("/:key{.+}", requireScope("files:read"), async (c) => {
-    const key = c.req.param("key");
-    if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
-    const ws = c.get("workspace");
-    const store = await storage(c.env, ws);
-    if (!(await store.exists(key))) throw new NotFoundError();
+    const { key, ws, store } = await requireExistingObject(c, c.req.param("key"));
 
     const metadataParam = c.req.query("metadata");
     if (metadataParam === "1" || metadataParam === "true") {
@@ -223,11 +231,7 @@ export const files = new Hono<WorkspaceVars>()
   })
 
   .patch("/:key{.+}", writeRateLimit, requireScope("files:write"), async (c) => {
-    const key = c.req.param("key");
-    if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
-    const ws = c.get("workspace");
-    const store = await storage(c.env, ws);
-    if (!(await store.exists(key))) throw new NotFoundError();
+    const { key } = await requireExistingObject(c, c.req.param("key"));
 
     const body = await c.req.json().catch(() => null);
     if (body === null || typeof body !== "object" || Array.isArray(body)) {

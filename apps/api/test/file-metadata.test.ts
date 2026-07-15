@@ -1,6 +1,7 @@
-import { AppError } from "@uploads/errors";
+import { AppError, InternalError } from "@uploads/errors";
 import { describe, expect, it } from "vitest";
 import {
+  getFileMetadata,
   META_KEY_RE,
   META_MAX_KEYS,
   META_MAX_TOTAL_BYTES,
@@ -110,6 +111,34 @@ describe("validateMetadataEntries", () => {
       expect(err).toBeInstanceOf(AppError);
       expect((err as AppError).type).toBe("validation");
       expect((err as AppError).status).toBe(400);
+    }
+  });
+});
+
+describe("getFileMetadata", () => {
+  it("wraps raw D1 failures in InternalError (not an untyped throw)", async () => {
+    const db = {
+      prepare() {
+        return {
+          bind() {
+            return {
+              async all() {
+                throw new Error("D1_ERROR: database is locked");
+              },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+
+    await expect(getFileMetadata(db, "ws", "f/one.png")).rejects.toBeInstanceOf(InternalError);
+    try {
+      await getFileMetadata(db, "ws", "f/one.png");
+    } catch (err) {
+      expect(err).toBeInstanceOf(InternalError);
+      expect((err as InternalError).type).toBe("internal");
+      expect((err as InternalError).expose).toBe(false);
+      expect((err as InternalError).cause).toBeInstanceOf(Error);
     }
   });
 });

@@ -216,4 +216,62 @@ describe("uploads install", () => {
     expect(parsed.ok).toBe(true);
     expect(Object.keys(parsed.steps)).toEqual(["skill:uploads-cli", "skill:github-screenshots"]);
   });
+
+  it("mixed skill success/failure prints closing guidance (issue #191)", async () => {
+    let skillCalls = 0;
+    const run: CommandRunner = (cmd, args) => {
+      if (cmd === "npx") {
+        skillCalls += 1;
+        // Fail the second skill only (github-screenshots).
+        if (skillCalls === 2) {
+          throw new Error("skills add failed for github-screenshots");
+        }
+        return "ok\n";
+      }
+      return "mcp ok\n";
+    };
+    const { out, err } = captureStreams();
+    const code = await runInstall(["skill"], { globals: GLOBALS, runner: run });
+    expect(code).toBe(1);
+    expect(out.join("")).toMatch(/skill:uploads-cli: ok/);
+    expect(err.join("")).toMatch(/skill:github-screenshots: failed/);
+    expect(out.join("")).toMatch(/Some skills installed, some failed/);
+    expect(out.join("")).toMatch(/uploads install skill/);
+  });
+
+  it("all skills failed still prints a re-run hint", async () => {
+    const failAll: CommandRunner = () => {
+      throw new Error("npx skills boom");
+    };
+    const { out, err } = captureStreams();
+    const code = await runInstall(["skill"], { globals: GLOBALS, runner: failAll });
+    expect(code).toBe(1);
+    expect(err.join("")).toMatch(/skill:uploads-cli: failed/);
+    expect(err.join("")).toMatch(/skill:github-screenshots: failed/);
+    expect(out.join("")).toMatch(/Skills failed to install/);
+    expect(out.join("")).toMatch(/uploads install skill/);
+  });
+
+  it("mixed skills + mcp skip both get next-step hints", async () => {
+    let skillCalls = 0;
+    const run: CommandRunner = (cmd) => {
+      if (cmd === "npx") {
+        skillCalls += 1;
+        if (skillCalls === 1) return "ok\n";
+        throw new Error("second skill failed");
+      }
+      return "mcp ok\n";
+    };
+    const { out } = captureStreams();
+    const code = await runInstall(["all"], {
+      globals: { apiUrl: "https://x.test" },
+      runner: run,
+    });
+    expect(code).toBe(1);
+    const printed = out.join("");
+    expect(printed).toMatch(/Some skills installed, some failed/);
+    expect(printed).toMatch(/uploads install skill/);
+    expect(printed).toMatch(/uploads login/);
+    expect(printed).toMatch(/uploads install mcp/);
+  });
 });
