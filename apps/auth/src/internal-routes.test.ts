@@ -654,6 +654,111 @@ describe("DB-backed behavior", () => {
         error: { code: "invalid_request" },
       });
     });
+
+    it("treats a concurrent create-race as slug_taken (real UNIQUE-race re-query)", async () => {
+      // Same shape as the /internal/orgs race test above: the pre-check
+      // SELECT is made to see an empty table, a winner row is injected right
+      // after, and the route's INSERT then hits the UNIQUE slug constraint.
+      // The catch handler must re-query, find the winner row, and report the
+      // same 409 the pre-check would have — not a 500.
+      const user = await seedUser();
+      const slug = `race-${crypto.randomUUID()}`;
+      const winner = { id: crypto.randomUUID(), slug, name: "Winner" };
+      const realPrepare = db.prepare.bind(db);
+      let raceArmed = true;
+      db.prepare = ((sql: string) => {
+        const stmt = realPrepare(sql);
+        if (raceArmed && /select/i.test(sql) && sql.includes(`"organization"`)) {
+          raceArmed = false;
+          const emptied = Object.create(stmt) as typeof stmt;
+          emptied.bind = (...params: unknown[]) => {
+            db.__sqlite
+              .prepare("INSERT INTO organization (id, name, slug, created_at) VALUES (?, ?, ?, ?)")
+              .run(winner.id, winner.name, winner.slug, Date.now());
+            const bound = stmt.bind(...params);
+            return Object.assign(Object.create(bound), {
+              all: async () => ({ success: true, results: [], meta: {} }),
+              raw: async () => [],
+            });
+          };
+          return emptied;
+        }
+        return stmt;
+      }) as typeof db.prepare;
+
+      const res = await app().request(
+        "/internal/orgs/provision",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug, ownerUserId: user.id }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(409);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "slug_taken" },
+      });
+
+      // Only the winner's row exists — the loser's insert was rejected, and
+      // no member row was seeded for the loser's owner.
+      const rows = await orm
+        .select()
+        .from(schema.organization)
+        .where(eq(schema.organization.slug, slug));
+      expect(rows).toHaveLength(1);
+      expect(rows[0].name).toBe("Winner");
+    });
+
+    it("rethrows (surfacing as a 500) when the insert fails for a reason other than a slug race", async () => {
+      // Simulates a genuine D1 failure (outage, schema issue, etc.) rather
+      // than a UNIQUE-constraint race: the INSERT throws but no row for the
+      // slug ever lands, so the catch handler's re-query comes back empty
+      // and it must rethrow instead of misreporting 409 slug_taken.
+      const user = await seedUser();
+      const slug = `insert-fails-${crypto.randomUUID()}`;
+      const realPrepare = db.prepare.bind(db);
+      db.prepare = ((sql: string) => {
+        const stmt = realPrepare(sql);
+        if (/insert/i.test(sql) && sql.includes(`"organization"`)) {
+          const broken = Object.create(stmt) as typeof stmt;
+          broken.bind = (...params: unknown[]) => {
+            const bound = stmt.bind(...params);
+            return Object.assign(Object.create(bound), {
+              run: async () => {
+                throw new Error("simulated D1 outage");
+              },
+              all: async () => {
+                throw new Error("simulated D1 outage");
+              },
+            });
+          };
+          return broken;
+        }
+        return stmt;
+      }) as typeof db.prepare;
+
+      // Hono's fetch-style app.request() catches thrown errors at the top
+      // level rather than rejecting, so the observable effect of "rethrow
+      // instead of misreporting slug_taken" is a 500 (Hono's default error
+      // response), not a 409.
+      const res = await app().request(
+        "/internal/orgs/provision",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug, ownerUserId: user.id }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(500);
+
+      const rows = await orm
+        .select()
+        .from(schema.organization)
+        .where(eq(schema.organization.slug, slug));
+      expect(rows).toHaveLength(0);
+    });
   });
 
   describe("DELETE /internal/orgs/:slug", () => {

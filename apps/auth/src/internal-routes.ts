@@ -388,10 +388,24 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
         name: name || slug,
         createdAt: new Date(),
       });
-    } catch {
-      // UNIQUE-constraint race with a concurrent provision: the loser reports
-      // the same 409 the pre-check would have.
-      return c.json(errorJson("slug_taken", "an organization with that slug already exists"), 409);
+    } catch (err) {
+      // Re-query rather than assuming: a UNIQUE-constraint race with a
+      // concurrent provision means a row now exists for this slug, and the
+      // loser reports the same 409 the pre-check would have. Any other
+      // insert failure (D1 outage, schema issue) leaves no such row — rethrow
+      // it so it surfaces as a 500 instead of a misleading "slug taken".
+      const [winner] = await db
+        .select({ id: schema.organization.id })
+        .from(schema.organization)
+        .where(eq(schema.organization.slug, slug))
+        .limit(1);
+      if (winner) {
+        return c.json(
+          errorJson("slug_taken", "an organization with that slug already exists"),
+          409,
+        );
+      }
+      throw err;
     }
     await db.insert(schema.member).values({
       id: crypto.randomUUID(),
