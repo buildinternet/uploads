@@ -89,3 +89,66 @@ export function padCmd(name: string, width: number, style: CliStyle): string {
   const pad = Math.max(0, width - name.length);
   return style.command(name) + " ".repeat(pad);
 }
+
+/** Section labels used across command --help blocks. */
+const SECTION_RE =
+  /^(Options|Examples|Commands|Subcommands|Keys|Shells|Usage|What it does|What runs under the hood|Exit codes|Config|Workspace):\s*$/;
+
+/** Flag column: `  --pr <num>   …` or `  --workspace, -w <name>  …`. */
+const FLAG_RE = /^(\s+)(-[\w-]+(?:,\s*-[\w-]+)?(?:\s+<[^>]+>)?)(\s{2,})(.*)$/;
+
+/** Example / invocation line starting with the CLI name. */
+const EXAMPLE_RE = /^(\s*)(uploads(?:\s+\S+)*)(.*)$/;
+
+/**
+ * Apply root-help visual hierarchy to a plain multi-line command help string:
+ * accent section headers, green flags/commands, muted body.
+ * No-op when color is disabled (returns text unchanged aside from trailing newline).
+ */
+export function formatCommandHelp(
+  text: string,
+  style: CliStyle = createStyle(colorEnabled(process.stderr)),
+): string {
+  const normalized = text.endsWith("\n") ? text.slice(0, -1) : text;
+  if (!style.enabled) return `${normalized}\n`;
+
+  const lines = normalized.split("\n");
+  let firstContent = true;
+  const out = lines.map((line) => {
+    if (line.trim() === "") return line;
+
+    // Synopsis line (first non-empty): high emphasis
+    if (firstContent) {
+      firstContent = false;
+      return style.title(line);
+    }
+
+    if (SECTION_RE.test(line)) return style.heading(line);
+
+    const flag = FLAG_RE.exec(line);
+    if (flag) {
+      const [, indent, name, gap, desc] = flag;
+      return `${indent}${style.command(name)}${gap}${style.body(desc)}`;
+    }
+
+    const example = EXAMPLE_RE.exec(line);
+    if (example && line.trimStart().startsWith("uploads")) {
+      const [, indent, cmd, rest] = example;
+      return `${indent}${style.command(cmd)}${style.body(rest)}`;
+    }
+
+    return style.body(line);
+  });
+
+  return `${out.join("\n")}\n`;
+}
+
+/** Write styled command help to stderr (or a custom writer). */
+export function writeCommandHelp(
+  text: string,
+  write: (chunk: string) => void = (c) => {
+    process.stderr.write(c);
+  },
+): void {
+  write(formatCommandHelp(text));
+}

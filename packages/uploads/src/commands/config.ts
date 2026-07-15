@@ -12,6 +12,7 @@ import {
   type UploadsConfigKey,
 } from "../config.js";
 import { flagBool, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
+import { writeCommandHelp } from "../cli-style.js";
 
 const CONFIG_HELP = `uploads config — manage shared buildinternet config
 
@@ -61,7 +62,7 @@ export async function runConfig(
 ): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help || parsed.positionals.length === 0) {
-    process.stderr.write(CONFIG_HELP);
+    writeCommandHelp(CONFIG_HELP);
     return 0;
   }
 
@@ -79,7 +80,8 @@ export async function runConfig(
     case "set":
       return runConfigSet(rest, subArgs, opts, help);
     default:
-      process.stderr.write(`unknown config subcommand: ${sub}\n\n${CONFIG_HELP}`);
+      process.stderr.write(`unknown config subcommand: ${sub}\n\n`);
+      writeCommandHelp(CONFIG_HELP);
       return 2;
   }
 }
@@ -90,7 +92,7 @@ async function runConfigPath(
   help: boolean,
 ): Promise<number> {
   if (help || parseCommandArgs(args).help) {
-    process.stderr.write(`uploads config path\n\nPrint the resolved config file path.\n`);
+    writeCommandHelp(`uploads config path\n\nPrint the resolved config file path.\n`);
     return 0;
   }
   const path = resolveConfigPath({ envFile: opts.envFile });
@@ -106,7 +108,7 @@ async function runConfigShow(
   help: boolean,
 ): Promise<number> {
   if (help || parseCommandArgs(args).help) {
-    process.stderr.write(`uploads config show\n\nShow effective settings (token redacted).\n`);
+    writeCommandHelp(`uploads config show\n\nShow effective settings (token redacted).\n`);
     return 0;
   }
 
@@ -150,7 +152,7 @@ async function runConfigInit(
 ): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
-    process.stderr.write(`uploads config init [options]
+    writeCommandHelp(`uploads config init [options]
 
 Create or update UPLOADS_* keys in the shared config file.
 
@@ -210,7 +212,7 @@ async function runConfigSet(
 ): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
-    process.stderr.write(`uploads config set <key> <value> [--path <file>] [--force]
+    writeCommandHelp(`uploads config set <key> <value> [--path <file>] [--force]
 
 Examples:
   uploads config set UPLOADS_TOKEN up_default_…
@@ -222,7 +224,7 @@ Examples:
   const key = positionals[0] as UploadsConfigKey | undefined;
   const value = positionals[1];
   if (!key || !value) {
-    process.stderr.write(`uploads config set <key> <value>\n`);
+    writeCommandHelp(`uploads config set <key> <value>\n`);
     return 2;
   }
   if (!VALID_KEYS.has(key)) {

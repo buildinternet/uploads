@@ -7,6 +7,7 @@ import {
 } from "../cli-args.js";
 import { resolveConfig } from "../config.js";
 import { execRunner, type CommandRunner } from "../github-gh.js";
+import { writeCommandHelp } from "../cli-style.js";
 
 export const DEFAULT_MCP_URL = "https://agents.uploads.sh/mcp";
 const SKILL_SOURCE = "buildinternet/uploads";
@@ -153,7 +154,7 @@ export async function runInstall(
 ): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
-    process.stderr.write(INSTALL_HELP);
+    writeCommandHelp(INSTALL_HELP);
     return 0;
   }
 

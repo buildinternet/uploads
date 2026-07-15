@@ -8,6 +8,7 @@ import {
   isCompletionShell,
   type CompletionShell,
 } from "../cli-catalog.js";
+import { writeCommandHelp } from "../cli-style.js";
 
 const HELP = `uploads completion <shell>
 
@@ -286,7 +287,7 @@ export function generateCompletionScript(shell: CompletionShell): string {
 export async function runCompletion(args: string[], help = false): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help || parsed.positionals.length === 0) {
-    process.stderr.write(HELP);
+    writeCommandHelp(HELP);
     return help || parsed.help ? 0 : 2;
   }
 

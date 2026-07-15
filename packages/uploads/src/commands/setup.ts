@@ -15,6 +15,7 @@ import {
 } from "../config.js";
 import { flagBool, flagInt, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
 import { UploadsError } from "../errors.js";
+import { writeCommandHelp } from "../cli-style.js";
 
 const SETUP_HELP = `uploads setup — guided CLI configuration
 
@@ -133,7 +134,7 @@ export async function runSetup(
 ): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
-    process.stderr.write(SETUP_HELP);
+    writeCommandHelp(SETUP_HELP);
     return 0;
   }
 

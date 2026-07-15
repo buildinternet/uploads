@@ -229,14 +229,7 @@ export function writeConfigKeys(
     }
   }
 
-  const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tmp, lines.join("\n").replace(/\n*$/, "\n"), { encoding: "utf8", mode: 0o600 });
-  renameSync(tmp, path);
-  try {
-    chmodSync(path, 0o600);
-  } catch {
-    /* Windows/filesystems may not support modes. */
-  }
+  writeConfigFileAtomic(path, lines.join("\n"));
   return { path, created: !existed, updated };
 }
 
@@ -250,6 +243,49 @@ export function configValuesFromClient(
   if (config.token) out.UPLOADS_TOKEN = config.token;
   Object.assign(out, putDefaultsToConfigValues(defaults ?? {}));
   return out;
+}
+
+/**
+ * Remove keys from the shared config file (e.g. logout clears UPLOADS_TOKEN).
+ * No-op for missing file/keys. Preserves other lines and comments.
+ */
+export function removeConfigKeys(
+  path: string,
+  keys: readonly string[],
+): { path: string; removed: string[]; existed: boolean } {
+  if (!existsSync(path)) return { path, removed: [], existed: false };
+
+  const keySet = new Set(keys);
+  const removed: string[] = [];
+  const kept: string[] = [];
+
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    const parsed = parseEnvLine(line);
+    if (parsed && keySet.has(parsed.key)) {
+      if (!removed.includes(parsed.key)) removed.push(parsed.key);
+      continue;
+    }
+    kept.push(line);
+  }
+
+  if (removed.length === 0) return { path, removed: [], existed: true };
+
+  // Drop consecutive blank lines left by removals
+  const collapsed = kept.filter((line, i) => !(line === "" && i > 0 && kept[i - 1] === ""));
+  writeConfigFileAtomic(path, collapsed.join("\n"));
+  return { path, removed, existed: true };
+}
+
+/** Atomic write + mode 0o600 (best-effort on platforms without chmod). */
+function writeConfigFileAtomic(path: string, body: string): void {
+  const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
+  writeFileSync(tmp, body.replace(/\n*$/, "\n"), { encoding: "utf8", mode: 0o600 });
+  renameSync(tmp, path);
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    /* Windows/filesystems may not support modes. */
+  }
 }
 
 export { PUT_DEFAULT_KEY_MAP };
