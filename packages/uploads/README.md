@@ -38,10 +38,19 @@ up local source; product docs and PR “how to try it” examples should use the
 global `uploads` form above.
 
 Commands: `attach`, `put`, `gallery`, `comment`, `list`, `find`, `meta`, `delete`, `usage`,
-`reconcile`, `purge-expired`, `setup`, `install`, `config`, `doctor`, `health`, `mcp`.
+`reconcile`, `purge-expired`, `setup`, `install`, `config`, `doctor`, `health`, `mcp`,
+`completion`.
+
+**Help:** bare `uploads` / `uploads help` / `--help` shows essentials; use
+`uploads help --all` (or `--help --all`) for the full command list. Per-command:
+`uploads <cmd> --help`.
+
+**Shell completion:** `uploads completion bash|zsh|fish` prints a script to
+stdout. Example (zsh): `uploads completion zsh > ~/.zsh/completions/_uploads`.
 
 **Globals (before the command):** `--api-url`, `--token`, `--workspace` / `-w`,
-`--env-file`, `--json`, `--quiet`, `--version` / `-V`, `-h` / `--help`.
+`--env-file`, `--json`, `--quiet`, `--version` / `-V`, `-h` / `--help`, `--all`
+(with root help).
 
 **Update hints:** after a successful run the CLI may print one stderr line when a
 newer npm release is available (at most once/day, `~/.cache/uploads/`). Silence

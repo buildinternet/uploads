@@ -1,0 +1,198 @@
+/**
+ * Shared CLI surface for help text and shell completions.
+ * Keep in sync when adding root commands or nested subcommands.
+ */
+
+export interface CatalogCommand {
+  /** Root command name (no args). */
+  name: string;
+  summary: string;
+  /** Shown in help left column when set (e.g. `put <file>`). */
+  usage?: string;
+  /** Included in the short essentials help. */
+  essential?: boolean;
+  subcommands?: readonly { name: string; summary: string }[];
+}
+
+/** Global flags accepted before the subcommand. */
+export const GLOBAL_FLAGS: readonly { flag: string; summary: string }[] = [
+  { flag: "--api-url", summary: "API base URL" },
+  { flag: "--token", summary: "Bearer token" },
+  { flag: "--workspace", summary: "Workspace name" },
+  { flag: "-w", summary: "Workspace name (short)" },
+  { flag: "--env-file", summary: "Load env from file" },
+  { flag: "--json", summary: "JSON on stdout" },
+  { flag: "--quiet", summary: "Suppress stderr progress" },
+  { flag: "--version", summary: "Print package version" },
+  { flag: "-V", summary: "Print package version (short)" },
+  { flag: "--help", summary: "Show help" },
+  { flag: "-h", summary: "Show help (short)" },
+  { flag: "--all", summary: "Full root help listing" },
+];
+
+/** Common flags for put/attach (file-oriented commands). */
+export const PUT_LIKE_FLAGS: readonly string[] = [
+  "--destination",
+  "--prefix",
+  "--repo",
+  "--ref",
+  "--pr",
+  "--issue",
+  "--comment",
+  "--no-comment",
+  "--format",
+  "--dry-run",
+  "--name",
+  "--no-optimize",
+  "--frame",
+  "--frame-url",
+  "--gallery",
+  "--meta",
+  "--workspace",
+  "-w",
+  "--help",
+  "-h",
+];
+
+export const LIST_LIKE_FLAGS: readonly string[] = [
+  "--prefix",
+  "--limit",
+  "--cursor",
+  "--meta",
+  "--workspace",
+  "-w",
+  "--help",
+  "-h",
+];
+
+export const ROOT_COMMANDS: readonly CatalogCommand[] = [
+  {
+    name: "attach",
+    usage: "attach <file...>",
+    summary: "Attach media to the current PR (stable URLs + managed comment)",
+    essential: true,
+  },
+  {
+    name: "put",
+    usage: "put <file>",
+    summary: "Upload (+ URL + markdown for GitHub)",
+    essential: true,
+  },
+  {
+    name: "gallery",
+    summary: "Create and organize public media galleries",
+    subcommands: [
+      { name: "create", summary: "Create a gallery" },
+      { name: "show", summary: "Show a gallery" },
+      { name: "list", summary: "List galleries" },
+      { name: "delete", summary: "Delete a gallery record" },
+      { name: "add", summary: "Add objects to a gallery" },
+      { name: "link", summary: "Link a gallery to a GitHub issue/PR" },
+      { name: "unlink", summary: "Unlink a gallery from GitHub" },
+    ],
+  },
+  {
+    name: "comment",
+    summary: "Create/update a PR/issue attachments comment (via gh)",
+  },
+  {
+    name: "list",
+    summary: "List objects (--meta k=v filters by queryable metadata)",
+    essential: true,
+  },
+  {
+    name: "find",
+    usage: "find k=v...",
+    summary: "List objects matching metadata (alias for list --meta)",
+  },
+  {
+    name: "meta",
+    summary: "Get/set an object's queryable metadata",
+    subcommands: [
+      { name: "get", summary: "Show metadata for an object" },
+      { name: "set", summary: "Merge-set and/or delete metadata pairs" },
+    ],
+  },
+  {
+    name: "delete",
+    usage: "delete <key>",
+    summary: "Delete object",
+    essential: true,
+  },
+  { name: "usage", summary: "Workspace storage / upload counters" },
+  { name: "reconcile", summary: "Rebuild usage ledger from storage" },
+  { name: "purge-expired", summary: "Delete objects past retentionDays" },
+  { name: "setup", summary: "Inspect/configure advanced CLI settings" },
+  {
+    name: "install",
+    summary: "Install the agent skill + register the remote MCP server",
+    essential: true,
+    subcommands: [
+      { name: "skill", summary: "Install the agent skill only" },
+      { name: "mcp", summary: "Register the remote MCP server only" },
+      { name: "all", summary: "Install skill and MCP (default)" },
+    ],
+  },
+  {
+    name: "login",
+    summary: "Sign in via browser (or an enrollment code) and save credentials",
+    essential: true,
+  },
+  {
+    name: "invite",
+    summary: "Invite a teammate to a workspace (workspace admin; device login)",
+  },
+  {
+    name: "admin",
+    summary: "Site-operator invitation management (ADMIN_TOKEN)",
+    subcommands: [
+      { name: "invite", summary: "Create a workspace invitation" },
+      { name: "enrollment", summary: "Legacy alias for invite" },
+    ],
+  },
+  {
+    name: "config",
+    summary: "Show path, init, or set shared config",
+    subcommands: [
+      { name: "path", summary: "Print config file path" },
+      { name: "show", summary: "Show effective settings" },
+      { name: "init", summary: "Create or update UPLOADS_* keys" },
+      { name: "set", summary: "Set one UPLOADS_* key" },
+    ],
+  },
+  {
+    name: "doctor",
+    summary: "Health + auth + workspace checks",
+    essential: true,
+  },
+  { name: "health", summary: "API liveness (no auth)" },
+  { name: "mcp", summary: "Serve MCP over stdio (tools mirror the CLI)" },
+  {
+    name: "help",
+    summary: "Show this help (essentials; use --all for the full list)",
+    subcommands: [{ name: "--all", summary: "Full command list and config" }],
+  },
+  {
+    name: "completion",
+    summary: "Print shell completion script (bash, zsh, or fish)",
+    subcommands: [
+      { name: "bash", summary: "Bash completion script" },
+      { name: "zsh", summary: "Zsh completion script" },
+      { name: "fish", summary: "Fish completion script" },
+    ],
+  },
+];
+
+export const COMPLETION_SHELLS = ["bash", "zsh", "fish"] as const;
+export type CompletionShell = (typeof COMPLETION_SHELLS)[number];
+
+export function isCompletionShell(value: string): value is CompletionShell {
+  return (COMPLETION_SHELLS as readonly string[]).includes(value);
+}
+
+export function rootCommandNames(): string[] {
+  return ROOT_COMMANDS.map((c) => c.name);
+}
+
+/** Also accept plural alias for the completion command. */
+export const COMPLETION_ALIASES = ["completion", "completions"] as const;

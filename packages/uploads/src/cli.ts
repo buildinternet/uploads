@@ -9,6 +9,8 @@ import {
   parseCommandArgs,
   UsageError,
 } from "./cli-args.js";
+import { formatRootHelp, wantsFullHelp } from "./cli-help.js";
+import { colorEnabled, createStyle } from "./cli-style.js";
 import {
   runPut,
   runAttach,
@@ -32,76 +34,42 @@ import { runInvite } from "./commands/invite.js";
 import { runAdmin } from "./commands/admin-enrollment.js";
 import { runMcp } from "./commands/mcp.js";
 import { runInstall } from "./commands/install.js";
+import { runCompletion } from "./commands/completion.js";
 import { packageVersion } from "./package-version.js";
-import { maybeHintUpdate } from "./update-check.js";
+import { checkForUpdate, maybeHintUpdate } from "./update-check.js";
 
-const ROOT_HELP = `uploads — CLI for uploads.sh (GitHub image embeds)
-
-Usage:
-  uploads [globals] <command> [args]
-
-Config (first match wins, per key):
-  CLI flags           --api-url, --token, --workspace
-  environment         UPLOADS_API_URL, UPLOADS_TOKEN, UPLOADS_WORKSPACE
-  --env-file <path>
-  $BUILDINTERNET_CONFIG
-  ~/.config/buildinternet/config
-
-Workspace (within config layers):
-  --workspace, -w     override — global (before command) or per-command (after)
-  UPLOADS_WORKSPACE   env / config file
-  (else inferred from token up_<name>_…, else "default")
-
-Other globals (before command):
-  --api-url <url>     default: https://api.uploads.sh
-  --token <token>     or UPLOADS_TOKEN
-  --env-file <path>
-  --json              JSON on stdout
-  --quiet             Suppress stderr progress and update hints
-  --version, -V       Print package version and exit
-
-Commands:
-  attach <file...>     Attach media to the current PR (stable URLs + managed comment)
-  put <file>          Upload (+ URL + markdown for GitHub)
-  gallery             Create and organize public media galleries
-  comment             Create/update a PR/issue attachments comment (via gh)
-  list                List objects (--meta k=v filters by queryable metadata)
-  find k=v...         List objects matching metadata (alias for list --meta)
-  meta                Get/set an object's queryable metadata
-  delete <key>        Delete object
-  usage               Workspace storage / upload counters
-  reconcile           Rebuild usage ledger from storage
-  purge-expired       Delete objects past retentionDays
-  setup               Inspect/configure advanced CLI settings
-  install             Install the agent skill + register the remote MCP server
-  login               Sign in via browser (or an enrollment code) and save credentials
-  invite              Invite a teammate to a workspace (workspace admin; device login)
-  admin               Site-operator invitation management (ADMIN_TOKEN)
-  config              Show path, init, or set shared config
-  doctor              Health + auth + workspace checks
-  health              API liveness (no auth)
-  mcp                 Serve MCP over stdio (tools mirror the CLI)
-
-Put/list defaults (config file or env):
-  UPLOADS_DEFAULT_PREFIX, UPLOADS_DEFAULT_REPO, UPLOADS_DEFAULT_REF
-  UPLOADS_DEFAULT_WIDTH, UPLOADS_NO_GIT
-
-Update hints (stderr, once/day): silence with --quiet / UPLOADS_NO_UPDATE=1 / NO_UPDATE_NOTIFIER=1
-
-Examples:
-  uploads setup
-  uploads setup --token up_default_… --repo myorg/myapp
-  uploads attach ./before.png ./after.png
-  uploads put ./shot.png --ref 42
-  uploads gallery create --title "Release screenshots"
-  uploads doctor
-  uploads --version
-
-Agent/MCP: \`uploads install\` sets up the agent skill and the hosted MCP server
-(https://agents.uploads.sh/mcp, workspace inferred from the token). Run
-\`uploads mcp\` for local stdio, or use createUploadsWorkerFileTools()
-from @buildinternet/uploads/agent on the Worker.
-`;
+async function writeRootHelp(
+  options: {
+    full?: boolean;
+    /** Forwarded so token detection honors --token / --env-file. */
+    token?: string;
+    envFile?: string;
+  } = {},
+): Promise<void> {
+  // Best-effort version check so the help header can show a banner when outdated.
+  // Short timeout; cache still applies (once/day). Never blocks help on network.
+  const update = await checkForUpdate({ timeoutMs: 800 });
+  // Empty token (and no env/config) → first-run auth banner.
+  let needsAuth = true;
+  try {
+    const cfg = resolveConfig({
+      requireToken: false,
+      token: options.token,
+      envFile: options.envFile,
+    });
+    needsAuth = !cfg.token;
+  } catch {
+    needsAuth = true;
+  }
+  process.stderr.write(
+    formatRootHelp({
+      full: options.full,
+      version: update.current,
+      latestVersion: update.updateAvailable ? update.latest : undefined,
+      needsAuth,
+    }),
+  );
+}
 
 function createContext(
   globals: ReturnType<typeof parseArgv>["globals"],
@@ -235,9 +203,18 @@ export async function runCli(argv: string[]): Promise<number> {
       return 0;
     }
 
-    if (!parsed.command) {
-      process.stderr.write(ROOT_HELP);
-      return parsed.help ? 0 : 2;
+    // Root help: bare `uploads`, `--help`/`-h`, or `help` / `help --all`.
+    const isHelpCommand = parsed.command === "help";
+    if (!parsed.command || isHelpCommand) {
+      const helpArgs = isHelpCommand ? parsed.rest.slice(1) : parsed.rest;
+      const full = Boolean(parsed.globals.all) || wantsFullHelp(helpArgs);
+      await writeRootHelp({
+        full,
+        token: parsed.globals.token,
+        envFile: parsed.globals.envFile,
+      });
+      // Explicit help exits 0; bare `uploads` is usage → 2.
+      return parsed.help || isHelpCommand ? 0 : 2;
     }
 
     const cmdArgs = parsed.rest.slice(1);
@@ -268,6 +245,10 @@ export async function runCli(argv: string[]): Promise<number> {
         break;
       case "install":
         code = await runInstall(cmdArgs, { globals: parsed.globals, json }, showHelp);
+        break;
+      case "completion":
+      case "completions":
+        code = await runCompletion(cmdArgs, showHelp);
         break;
       case "attach":
       case "put":
@@ -322,9 +303,16 @@ export async function runCli(argv: string[]): Promise<number> {
         }
         break;
       }
-      default:
-        process.stderr.write(`unknown command: ${parsed.command}\n\n${ROOT_HELP}`);
+      default: {
+        const style = createStyle(colorEnabled(process.stderr));
+        process.stderr.write(`${style.error(`unknown command: ${parsed.command}`)}\n\n`);
+        await writeRootHelp({
+          full: false,
+          token: parsed.globals.token,
+          envFile: parsed.globals.envFile,
+        });
         return 2;
+      }
     }
 
     // Best-effort; skipped for mcp, --quiet/--json, and opt-out env vars.

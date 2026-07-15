@@ -7,6 +7,8 @@ export interface GlobalFlags {
   quiet?: boolean;
   /** `--version` / `-V` — print package version and exit. */
   version?: boolean;
+  /** `--all` — with root help, show the full command list. */
+  all?: boolean;
 }
 
 export interface ParsedArgv {
@@ -53,6 +55,11 @@ export function parseArgv(argv: string[]): ParsedArgv {
     }
     if (arg === "--version" || arg === "-V") {
       globals.version = true;
+      i++;
+      continue;
+    }
+    if (arg === "--all") {
+      globals.all = true;
       i++;
       continue;
     }
