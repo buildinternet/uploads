@@ -19,6 +19,7 @@ import {
 import { badKey } from "@uploads/api/files";
 import {
   findObjectsByMetadata,
+  getFileMetadata,
   setFileMetadata,
   validateMetadataEntries,
   validateMetadataFilters,
@@ -90,6 +91,15 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     const value = optString(args, name);
     if (!value) usage(name + " is required");
     return value;
+  }
+
+  /** Key format + object existence (shared by get_metadata / set_metadata). */
+  async function requireExistingObjectKey(args: Record<string, unknown>): Promise<string> {
+    const key = requiredString(args, "key");
+    if (badKey(key)) usage("invalid key");
+    const store = await storage(env, workspace);
+    if (!(await store.exists(key))) throw new Error("object not found");
+    return key;
   }
 
   async function ownerGallery(id: string) {
@@ -424,11 +434,29 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       },
     },
     {
+      name: "get_metadata",
+      description:
+        "Read an object's queryable custom metadata (D1 key-value pairs, not R2 provenance). Returns `{ metadata }` (empty when none). Object must exist. Same as `uploads meta get`.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "Object key to inspect." },
+        },
+        required: ["key"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:read");
+        const key = await requireExistingObjectKey(args);
+        return { metadata: await getFileMetadata(env.DB, workspaceName, key) };
+      },
+    },
+    {
       name: "set_metadata",
       description:
-        "Merge-set and/or delete an object's queryable custom metadata (D1-backed key-value pairs; distinct from the R2 provenance headers put on upload). `set` pairs win over `delete` when a key appears in both. " +
+        "Merge-set and/or delete an object's queryable custom metadata (D1 key-value pairs, not R2 provenance). `set` wins over `delete` for the same key. " +
         METADATA_DESCRIPTION +
-        " Requires at least one of `set` or `delete`. Same as the CLI/local MCP's `set_metadata` tool.",
+        " Requires at least one of `set` or `delete`. Same as `uploads meta set`.",
       inputSchema: {
         type: "object",
         properties: {
@@ -446,18 +474,15 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       async handler(args) {
         requireScope("files:write");
         await requireWriteBudget();
-        const key = optString(args, "key");
-        if (!key) usage("key is required");
-        if (badKey(key)) usage("invalid key");
         const set = optStringRecord(args, "set");
         const del = optStringArray(args, "delete");
         if ((!set || Object.keys(set).length === 0) && (!del || del.length === 0)) {
           usage("set_metadata requires set and/or delete");
         }
-        const store = await storage(env, workspace);
-        if (!(await store.exists(key))) throw new Error("object not found");
-        const metadata = await setFileMetadata(env.DB, workspaceName, key, set ?? {}, del ?? []);
-        return { metadata };
+        const key = await requireExistingObjectKey(args);
+        return {
+          metadata: await setFileMetadata(env.DB, workspaceName, key, set ?? {}, del ?? []),
+        };
       },
     },
     {

@@ -382,6 +382,7 @@ describe("mcp worker", () => {
       "gallery_find_by_reference",
       "gallery_get",
       "gallery_link",
+      "get_metadata",
       "health",
       "list",
       "purge_expired",
@@ -460,6 +461,46 @@ describe("mcp worker", () => {
       { type: "text", text: "invalid metadata key: Bad-Key (USAGE)" },
     ]);
     expect(bucket.store.size).toBe(0);
+  });
+
+  it("get_metadata returns stored pairs, empty map, or not-found", async () => {
+    const { env } = await makeEnv();
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/tagged.png",
+      metadata: { app: "myapp", page: "/checkout" },
+    });
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/plain.png",
+    });
+
+    const tagged = await callTool(env, "get_metadata", { key: "shots/tagged.png" });
+    expect(tagged.isError).toBe(false);
+    expect(tagged.structuredContent).toEqual({
+      metadata: { app: "myapp", page: "/checkout" },
+    });
+
+    const plain = await callTool(env, "get_metadata", { key: "shots/plain.png" });
+    expect(plain.isError).toBe(false);
+    expect(plain.structuredContent).toEqual({ metadata: {} });
+
+    const missing = await callTool(env, "get_metadata", { key: "shots/missing.png" });
+    expect(missing.isError).toBe(true);
+  });
+
+  it("get_metadata enforces files:read scope", async () => {
+    const token = "up_test-ws_write-only-token";
+    const { env } = await makeEnv({
+      d1: { tokenHash: await sha256Hex(token), scopes: JSON.stringify(["files:write"]) },
+    });
+    const result = await callTool(env, "get_metadata", { key: "shots/x.png" }, token);
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([
+      { type: "text", text: "forbidden: requires files:read scope" },
+    ]);
   });
 
   it("set_metadata merges set + delete and returns the resulting map", async () => {

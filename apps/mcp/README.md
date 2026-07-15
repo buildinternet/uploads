@@ -6,10 +6,10 @@ Remote MCP server for uploads.sh — a standalone Hono worker on
 the CLI package's transport-agnostic MCP core (`@buildinternet/uploads/mcp`).
 
 Stateless MCP Streamable HTTP: one JSON-RPC message per POST, no sessions or
-SSE (GET/DELETE on the endpoint are 405). Tools: `put` (base64 upload →
-public URL + GitHub-ready markdown), `list`, `delete`, `health`. Filesystem/
-`gh`-dependent tools (attach, comment, doctor) live only in the stdio server
-(`uploads mcp`).
+SSE (GET/DELETE on the endpoint are 405). Tools cover put/list/delete, metadata
+(`get_metadata` / `set_metadata` / `find_files`), galleries, usage, and
+`health`. Filesystem/`gh`-dependent tools (attach, comment, doctor) live only
+in the stdio server (`uploads mcp`).
 
 The REST API's upload guardrails apply: content type is sniffed server-side,
 size-capped, budget-checked, and subject to optional key policy
