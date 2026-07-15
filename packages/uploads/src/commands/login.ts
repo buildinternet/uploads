@@ -30,6 +30,9 @@ code only if you were given one from before device login (fallback path).
 Options:
   --workspace <name>  Workspace to mint a token for (device flow; required if
                       your account can access more than one)
+  --create            With --workspace: create the workspace first if your
+                      account doesn't have it yet (device flow only) — lets
+                      scripted/agent logins provision without a prompt
   --scopes <list>     Comma-separated scopes (default: files:read,files:write)
   --label <text>      Token label (default: this machine's hostname)
   --auth-url <url>    Auth base (default: https://auth.uploads.sh)
@@ -46,6 +49,7 @@ Options:
 Examples:
   uploads login
   uploads login --workspace acme
+  uploads login --workspace acme --create         # provision if it doesn't exist
   uploads login --code upe_… --force              # fallback: pre-existing invite
   printf '%s' upe_… | uploads login --code-stdin --non-interactive
 `;
@@ -247,7 +251,13 @@ async function runDeviceLogin(
   );
   const accessToken = await obtainDeviceAccessToken(opts.authUrl, { noOpen: opts.noOpen }, io);
 
-  const workspace = await resolveMintWorkspace(opts.apiUrl, accessToken, requestedWorkspace, io);
+  const workspace = await resolveMintWorkspace(
+    opts.apiUrl,
+    accessToken,
+    requestedWorkspace,
+    io,
+    flagBool(parsed.flags, "--create"),
+  );
   const minted = await mintWorkspaceToken(opts.apiUrl, accessToken, { workspace, scopes, label });
   return { workspace: minted.workspace, token: minted.token, apiUrl: opts.apiUrl };
 }
@@ -303,8 +313,9 @@ export async function pollForDeviceToken(
 }
 
 /**
- * Pick the workspace to mint for. An explicit --workspace wins; otherwise, if
- * the account can access exactly one workspace, use it — and if it can access
+ * Pick the workspace to mint for. An explicit --workspace wins (with --create,
+ * it's provisioned first when the account doesn't have it); otherwise, if the
+ * account can access exactly one workspace, use it — and if it can access
  * several, require the flag rather than guessing.
  */
 async function resolveMintWorkspace(
@@ -312,14 +323,25 @@ async function resolveMintWorkspace(
   accessToken: string,
   requested: string | undefined,
   io: DeviceLoginIo,
+  create = false,
 ): Promise<string> {
-  if (requested) return requested;
+  if (requested) {
+    if (!create) return requested;
+    // Idempotent from the caller's view: an existing membership just mints.
+    const { workspaces } = await listMintWorkspaces(apiUrl, accessToken);
+    if (workspaces.some((w) => w.workspace === requested)) return requested;
+    const created = await createWorkspaceRequest(apiUrl, accessToken, requested);
+    io.write(
+      `created workspace "${created.name}" — files will get public URLs under ${created.publicBaseUrl}/\n`,
+    );
+    return created.name;
+  }
   const { workspaces } = await listMintWorkspaces(apiUrl, accessToken);
   if (workspaces.length === 1) return workspaces[0]!.workspace;
   if (workspaces.length === 0) {
     if (!io.isTTY) {
       throw new UsageError(
-        "your account has no workspace access yet — create one with a name, or ask an administrator for an invitation. Run `uploads login` interactively to create one.",
+        "your account has no workspace access yet — pass `--workspace <name> --create` to provision one, run `uploads login` interactively, or ask an administrator for an invitation",
       );
     }
     const name = (await io.promptWorkspaceName()).trim();
@@ -356,8 +378,13 @@ export async function runLogin(
       "UPLOADS_TOKEN is already set in the environment; unset it or use --force",
     );
 
+  if (flagBool(parsed.flags, "--create") && !flagString(parsed.flags, "--workspace"))
+    throw new UsageError("--create requires --workspace <name>");
+
   let result: LoginResult;
   if (hasEnrollmentSource(parsed)) {
+    if (flagBool(parsed.flags, "--create"))
+      throw new UsageError("--create is device-flow only; enrollment codes are workspace-bound");
     const code = await resolveEnrollmentCode(parsed);
     result = await exchangeEnrollment(apiUrl, code);
   } else {

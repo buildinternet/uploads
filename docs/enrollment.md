@@ -49,7 +49,10 @@ admins a workspace, or an **enrollment code** shared out-of-band.
 Any signed-in user with a **GitHub-linked account** can create a workspace
 without an invitation or `ADMIN_TOKEN` — `/account/workspaces` has a "Create a
 workspace" form, and `uploads login` offers the same prompt when your account
-has no workspaces yet. You become the owner of a new organization and a
+has no workspaces yet. Scripted or agent logins can skip the prompt with
+`uploads login --workspace <name> --create`, which provisions the workspace
+during login when the account doesn't already have it (browser device
+approval is still required once). You become the owner of a new organization and a
 `<name>/` prefix on the shared bucket, capped at 3 self-serve workspaces per
 user and with tighter default limits than an operator-provisioned workspace.
 See [workspaces.md#self-serve-workspaces](workspaces.md#self-serve-workspaces)
