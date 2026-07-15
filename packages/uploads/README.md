@@ -39,7 +39,8 @@ global `uploads` form above.
 
 Commands: `attach`, `put`, `gallery`, `comment`, `list`, `find`, `meta`, `delete`, `usage`,
 `reconcile`, `purge-expired`, `setup`, `install`, `login`, `whoami` (alias `status`),
-`logout`, `invite`, `admin`, `config`, `doctor`, `health`, `mcp`, `completion`.
+`logout`, `invite`, `admin`, `config`, `telemetry`, `report`, `doctor`, `health`, `mcp`,
+`completion`.
 
 **Help:** bare `uploads` / `uploads help` / `--help` shows essentials; use
 `uploads help --all` (or `--help --all`) for the full command list. Per-command:
@@ -56,6 +57,19 @@ stdout. Example (zsh): `uploads completion zsh > ~/.zsh/completions/_uploads`.
 newer npm release is available (at most once/day, `~/.cache/uploads/`). Silence
 with `--quiet`, `--json`, `UPLOADS_NO_UPDATE=1`, or `NO_UPDATE_NOTIFIER=1`. Not used
 for `uploads mcp`.
+
+**Telemetry:** the CLI and MCP server send anonymous usage pings (command name,
+version, OS/arch, exit code, duration, optional error code) to
+`POST /v1/telemetry` on the configured API. No arguments, paths, tokens, workspace
+names, or file content. Opt out with `UPLOADS_TELEMETRY_DISABLED=1`,
+`DO_NOT_TRACK=1`, or `uploads telemetry disable`. First interactive run prints a
+one-line notice.
+
+**Diagnostic reports (opt-in):** `uploads report "what broke"` sends a short
+message to the team. Attach a log with `--file ./trace.log`, or pipe:
+`uploads doctor --json 2>&1 | uploads report "doctor failed"`. Never automatic —
+also available as the MCP `report` tool when the user asks to submit feedback.
+Attachments are text-only (max 256 KiB) and stored under an unguessable R2 key.
 
 **Exit codes:** `0` ok, `2` usage/token/file, `3` auth/policy, `4` network, `1` other.
 Failures go to stderr; under `--format json|url|markdown` they also go to stdout so

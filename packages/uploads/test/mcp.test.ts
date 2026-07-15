@@ -327,6 +327,7 @@ describe("tools/list", () => {
       "comment",
       "health",
       "doctor",
+      "report",
     ]);
     for (const tool of tools) {
       expect(tool.description.length).toBeGreaterThan(20);

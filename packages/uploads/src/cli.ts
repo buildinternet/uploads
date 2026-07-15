@@ -36,8 +36,16 @@ import { runMcp } from "./commands/mcp.js";
 import { runInstall } from "./commands/install.js";
 import { runCompletion } from "./commands/completion.js";
 import { runLogout, runWhoami } from "./commands/session.js";
+import { runTelemetry } from "./commands/telemetry.js";
+import { runReport } from "./commands/report.js";
 import { packageVersion } from "./package-version.js";
 import { checkForUpdate, maybeHintUpdate } from "./update-check.js";
+import {
+  errorCodeFromUnknown,
+  maybeShowFirstRunNotice,
+  recordEvent,
+  telemetryCommandName,
+} from "./telemetry.js";
 
 async function writeRootHelp(
   options: {
@@ -194,10 +202,44 @@ function usageHint(argv: string[]): void {
 }
 
 export async function runCli(argv: string[]): Promise<number> {
+  const telemetryStart = Date.now();
+  const telemetryCmd = telemetryCommandName(argv);
+  const skipTelemetry =
+    argv.includes("--version") ||
+    argv.includes("-V") ||
+    telemetryCmd === "telemetry" ||
+    telemetryCmd.startsWith("telemetry ") ||
+    // Report is itself a deliberate submit; skip the automatic usage ping.
+    telemetryCmd === "report";
+
+  // One-time notice for interactive humans (never MCP / json / quiet).
+  if (!skipTelemetry) {
+    const wantsQuiet = argv.includes("--json") || argv.includes("--quiet") || argv[2] === "mcp";
+    maybeShowFirstRunNotice({ interactive: wantsQuiet ? false : undefined });
+  }
+
+  const flushTelemetry = async (code: number, err?: unknown, apiUrl?: string): Promise<void> => {
+    if (skipTelemetry) return;
+    // Long-lived MCP process: per-tool events come from the MCP server; skip
+    // a process-level "mcp" ping so we don't double-count or hang exit.
+    if (telemetryCmd === "mcp") return;
+    await recordEvent(
+      {
+        surface: "cli",
+        command: telemetryCmd,
+        exitCode: code,
+        durationMs: Date.now() - telemetryStart,
+        errorCode: err !== undefined ? errorCodeFromUnknown(err) : undefined,
+      },
+      { apiUrl },
+    );
+  };
+
   try {
     const parsed = parseArgv(argv);
     const json = parsed.globals.json ?? false;
     const quiet = parsed.globals.quiet ?? false;
+    const apiUrl = resolveApiUrl(parsed.globals);
 
     if (parsed.globals.version) {
       process.stdout.write(`${packageVersion()}\n`);
@@ -215,7 +257,9 @@ export async function runCli(argv: string[]): Promise<number> {
         envFile: parsed.globals.envFile,
       });
       // Explicit help exits 0; bare `uploads` is usage → 2.
-      return parsed.help || isHelpCommand ? 0 : 2;
+      const code = parsed.help || isHelpCommand ? 0 : 2;
+      await flushTelemetry(code);
+      return code;
     }
 
     const cmdArgs = parsed.rest.slice(1);
@@ -224,7 +268,7 @@ export async function runCli(argv: string[]): Promise<number> {
 
     switch (parsed.command) {
       case "health":
-        code = await runHealth({ apiUrl: resolveApiUrl(parsed.globals), json }, cmdArgs, showHelp);
+        code = await runHealth({ apiUrl, json }, cmdArgs, showHelp);
         break;
       case "config":
         code = await runConfig(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
@@ -233,7 +277,7 @@ export async function runCli(argv: string[]): Promise<number> {
         code = await runSetup(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
         break;
       case "login":
-        code = await runLogin(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);
+        code = await runLogin(cmdArgs, { json, apiUrl }, showHelp);
         break;
       case "whoami":
       case "status":
@@ -253,10 +297,16 @@ export async function runCli(argv: string[]): Promise<number> {
         code = await runLogout(cmdArgs, { json, envFile: parsed.globals.envFile }, showHelp);
         break;
       case "invite":
-        code = await runInvite(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);
+        code = await runInvite(cmdArgs, { json, apiUrl }, showHelp);
         break;
       case "admin":
-        code = await runAdmin(cmdArgs, { json, apiUrl: resolveApiUrl(parsed.globals) }, showHelp);
+        code = await runAdmin(cmdArgs, { json, apiUrl }, showHelp);
+        break;
+      case "telemetry":
+        code = await runTelemetry(cmdArgs, { json, apiUrl }, showHelp);
+        break;
+      case "report":
+        code = await runReport(cmdArgs, { json, apiUrl }, showHelp);
         break;
       case "mcp":
         code = await runMcp(cmdArgs, { globals: parsed.globals }, showHelp);
@@ -329,6 +379,7 @@ export async function runCli(argv: string[]): Promise<number> {
           token: parsed.globals.token,
           envFile: parsed.globals.envFile,
         });
+        await flushTelemetry(2);
         return 2;
       }
     }
@@ -337,11 +388,14 @@ export async function runCli(argv: string[]): Promise<number> {
     if (code === 0 && !showHelp) {
       await maybeHintUpdate({ quiet: quiet || json, command: parsed.command });
     }
+    await flushTelemetry(code, undefined, apiUrl);
     return code;
   } catch (err) {
     const format = outputFormat(argv);
     errorOut(err, format);
     if (err instanceof UsageError && format !== "json") usageHint(argv);
-    return exitCode(err);
+    const code = exitCode(err);
+    await flushTelemetry(code, err);
+    return code;
   }
 }

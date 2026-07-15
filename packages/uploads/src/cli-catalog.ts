@@ -170,6 +170,20 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
     ],
   },
   {
+    name: "telemetry",
+    summary: "Manage anonymous usage telemetry (status / enable / disable)",
+    subcommands: [
+      { name: "status", summary: "Show whether telemetry is enabled" },
+      { name: "enable", summary: "Enable anonymous usage telemetry" },
+      { name: "disable", summary: "Disable anonymous usage telemetry" },
+    ],
+  },
+  {
+    name: "report",
+    usage: "report [message]",
+    summary: "Send a diagnostic report (optional log attachment; explicit opt-in)",
+  },
+  {
     name: "doctor",
     summary: "Health + auth + workspace checks",
     essential: true,

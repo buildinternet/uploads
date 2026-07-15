@@ -49,3 +49,8 @@ UPLOADS_DEFAULT_PREFIX=screenshots
 # Keep EXIF/XMP/ICC when optimizing (default: strip for privacy on public URLs).
 # Prefer for discussion-critical photo metadata; otherwise leave unset.
 # UPLOADS_KEEP_EXIF=1
+
+# --- Telemetry (optional) ---------------------------------------------------
+# Anonymous usage pings (command name, version, OS, exit code). No paths or
+# tokens. Also honored: DO_NOT_TRACK=1, or `uploads telemetry disable`.
+# UPLOADS_TELEMETRY_DISABLED=1

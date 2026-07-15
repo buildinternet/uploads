@@ -15,6 +15,8 @@ import { runRetentionSweep } from "./retention-sweep";
 import { galleries } from "./routes/galleries";
 import { publicGalleries } from "./routes/public-galleries";
 import { publicFiles } from "./routes/public-files";
+import { telemetry } from "./routes/telemetry";
+import { reports } from "./routes/reports";
 
 // Lets the browser console on the web origin (and local dev) call the token-
 // authenticated endpoints. CORS is not the security boundary — bearer tokens
@@ -69,6 +71,10 @@ export const app = new Hono<WorkspaceVars>()
   // brings its own session auth. See routes/tokens.ts.
   .route("/v1/tokens", tokens)
   .route("/v1/workspaces", workspaces)
+  // Anonymous CLI/MCP usage pings — no auth, before workspace guard.
+  .route("/v1/telemetry", telemetry)
+  // Explicit opt-in diagnostic reports (message + optional log) — no auth.
+  .route("/v1/reports", reports)
   .use("/v1/:workspace/*", workspaceAuth)
   .route("/v1/:workspace/galleries", galleries)
   .route("/v1/:workspace/files", files)
