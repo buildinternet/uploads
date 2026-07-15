@@ -34,6 +34,28 @@ export const prerender = false;
       </label>
       <button type="submit">Create workspace</button>
     </form>
+    <div class="ul-callout" data-create-success role="status" hidden>
+      <p>
+        Workspace <strong data-created-name></strong> is ready. Uploading happens
+        from the terminal; run these to get your first file URL:
+      </p>
+      <div class="command">
+        <code>npm install -g @buildinternet/uploads</code>
+        <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite">copy</button>
+      </div>
+      <div class="command">
+        <code>uploads login</code>
+        <button type="button" data-copy="uploads login" aria-live="polite">copy</button>
+      </div>
+      <div class="command">
+        <code>uploads put ./screenshot.png</code>
+        <button type="button" data-copy="uploads put ./screenshot.png" aria-live="polite">copy</button>
+      </div>
+      <p class="muted cli-note">
+        Using a coding agent? <code>uploads install</code> adds the uploads skill
+        and MCP server to Claude Code, so agents attach screenshots on their own.
+      </p>
+    </div>
     <p class="muted cli-note" data-create-error role="alert" hidden></p>
     <p class="muted cli-note" data-create-github role="status" hidden>
       Creating a workspace requires a linked GitHub account.
@@ -174,6 +196,8 @@ export const prerender = false;
     const createForm = document.querySelector<HTMLFormElement>("[data-create-form]");
     const createError = document.querySelector<HTMLElement>("[data-create-error]");
     const createGithub = document.querySelector<HTMLElement>("[data-create-github]");
+    const createSuccess = document.querySelector<HTMLElement>("[data-create-success]");
+    const createdName = document.querySelector<HTMLElement>("[data-created-name]");
 
     function showCreateSection(prefill?: string): void {
       if (!createSection) return;
@@ -219,13 +243,19 @@ export const prerender = false;
       void (async () => {
         if (createError) createError.hidden = true;
         if (createGithub) createGithub.hidden = true;
+        if (createSuccess) createSuccess.hidden = true;
         const input = createForm.elements.namedItem("name") as HTMLInputElement;
+        const name = input.value.trim();
         const button = createForm.querySelector("button");
         if (button) button.disabled = true;
-        const result = await createWorkspace(apiOrigin, input.value.trim());
+        const result = await createWorkspace(apiOrigin, name);
         if (button) button.disabled = false;
         if (result.kind === "created") {
           input.value = "";
+          // Hand off to the terminal: the web can create a workspace but not
+          // upload to it, so surface the exact next commands right here.
+          if (createdName) createdName.textContent = name;
+          if (createSuccess) createSuccess.hidden = false;
           await loadWorkspaces();
           return;
         }
@@ -408,7 +438,7 @@ export const prerender = false;
 
     // Delegated handlers for copy buttons + workspace invite forms.
     const orgsListEl = requireElement<HTMLUListElement>("#orgs-list", "account workspaces");
-    orgsListEl.addEventListener("click", (event) => {
+    const handleCopyClick = (event: Event) => {
       void (async () => {
         const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
           "button[data-copy]",
@@ -423,7 +453,9 @@ export const prerender = false;
           // Clipboard blocked (permissions/insecure context) — leave the label.
         }
       })();
-    });
+    };
+    orgsListEl.addEventListener("click", handleCopyClick);
+    createSection?.addEventListener("click", handleCopyClick);
     orgsListEl.addEventListener("submit", (event) => {
       void (async () => {
         const form = (event.target as HTMLElement).closest<HTMLFormElement>("form.invite-form");

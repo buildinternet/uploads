@@ -422,6 +422,10 @@ export async function runLogin(
     process[doctor.ok ? "stdout" : "stderr"].write(
       `doctor: ${checked ? (doctor.ok ? "ok" : `failed — ${doctor.error}`) : "skipped"}\n`,
     );
+    if (doctor.ok)
+      process.stdout.write(
+        "\nusing a coding agent? run `uploads install` to add the uploads skill + MCP server to Claude Code\n",
+      );
   }
   return doctor.ok ? 0 : 1;
 }
