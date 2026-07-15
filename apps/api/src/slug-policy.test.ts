@@ -26,7 +26,7 @@ describe("validateSlug", () => {
     });
     expect(validateSlug("boob-team")).toEqual({ ok: false, code: "invalid_workspace_name" });
     // Digit-lookalike folding: "5hit" -> "shit".
-    expect(validateSlug("5hit-team")).toMatchObject({ ok: false });
+    expect(validateSlug("5hit-team")).toEqual({ ok: false, code: "invalid_workspace_name" });
   });
   it("allows Scunthorpe-style false positives", () => {
     for (const s of ["scunthorpe", "assets-team", "classic-cars", "grape", "analytics"]) {

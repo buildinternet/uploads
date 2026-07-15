@@ -759,6 +759,52 @@ describe("DB-backed behavior", () => {
         .where(eq(schema.organization.slug, slug));
       expect(rows).toHaveLength(0);
     });
+
+    it("deletes the org row (compensating delete) when the owner-member insert fails", async () => {
+      // The fake-D1 test harness doesn't support drizzle's db.batch, so the
+      // org and owner-member inserts aren't atomic — if the member insert
+      // fails, the route must delete the just-inserted org row rather than
+      // leaving an orphaned org/slug with no members, and rethrow (500).
+      const user = await seedUser();
+      const slug = `member-insert-fails-${crypto.randomUUID()}`;
+      const realPrepare = db.prepare.bind(db);
+      db.prepare = ((sql: string) => {
+        const stmt = realPrepare(sql);
+        if (/insert/i.test(sql) && sql.includes(`"member"`)) {
+          const broken = Object.create(stmt) as typeof stmt;
+          broken.bind = (...params: unknown[]) => {
+            const bound = stmt.bind(...params);
+            return Object.assign(Object.create(bound), {
+              run: async () => {
+                throw new Error("simulated D1 outage");
+              },
+              all: async () => {
+                throw new Error("simulated D1 outage");
+              },
+            });
+          };
+          return broken;
+        }
+        return stmt;
+      }) as typeof db.prepare;
+
+      const res = await app().request(
+        "/internal/orgs/provision",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug, ownerUserId: user.id }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(500);
+
+      const orgRows = await orm
+        .select()
+        .from(schema.organization)
+        .where(eq(schema.organization.slug, slug));
+      expect(orgRows).toHaveLength(0);
+    });
   });
 
   describe("DELETE /internal/orgs/:slug", () => {

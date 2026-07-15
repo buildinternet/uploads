@@ -407,13 +407,23 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       }
       throw err;
     }
-    await db.insert(schema.member).values({
-      id: crypto.randomUUID(),
-      organizationId: id,
-      userId: owner.id,
-      role: "owner",
-      createdAt: new Date(),
-    });
+    try {
+      await db.insert(schema.member).values({
+        id: crypto.randomUUID(),
+        organizationId: id,
+        userId: owner.id,
+        role: "owner",
+        createdAt: new Date(),
+      });
+    } catch (err) {
+      // Compensating delete: the fake-D1 test harness (and D1 itself, for
+      // this call shape) doesn't support drizzle's db.batch, so the org and
+      // owner-member inserts aren't atomic. If the member insert fails,
+      // delete the just-inserted org row rather than leaving an orphaned
+      // org/slug with no members, then rethrow so this surfaces as a 500.
+      await db.delete(schema.organization).where(eq(schema.organization.id, id));
+      throw err;
+    }
     return c.json({ organization: { id, slug, name: name || slug } }, 201);
   })
   // Compensating action for self-serve provisioning: roll back an org whose

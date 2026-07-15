@@ -28,14 +28,14 @@ Anyone with a GitHub account can sign up. Self-serve workspaces get tight defaul
 
 - Storage quota: ~1 GB
 - Per-file size cap: 25 MB
-- Modest daily upload budget (pick a value consistent with existing budget fields)
+- Modest upload budget: 3000 uploads per UTC calendar month via the existing `maxUploadsPerPeriod` counter — the record has no daily field
 - Per-user workspace cap: 3 (personal + created)
 
 Raising limits is admin-only. Workspace deletion is out of scope for v1 (admin-only), avoiding slug-recycling and orphaned-bytes questions.
 
 ### D4. Creation is explicit-but-one-click, not silent
 
-No silent auto-provisioning at signup. After first GitHub sign-in, onboarding (web `/account` and CLI `uploads login`) offers a one-click "create your workspace" pre-filled with the GitHub handle (collision → suffix, e.g. `-1`). Personal and additional workspaces use the same endpoint and code path. This avoids orphan workspaces from drive-by sign-ins.
+No silent auto-provisioning at signup. After first GitHub sign-in, onboarding (web `/account` and CLI `uploads login`) offers a one-click "create your workspace" pre-filled with a suggested name derived from the GitHub/email handle. There's no automatic collision suffixing: if the name is taken, the API returns `workspace_name_taken` (409) and the user edits the field and resubmits. Personal and additional workspaces use the same endpoint and code path. This avoids orphan workspaces from drive-by sign-ins.
 
 ## Components
 
@@ -51,7 +51,7 @@ Session-authed (same `sessionAuth` used by `POST /v1/tokens`). Lives in `apps/ap
 6. **Write KV record** `ws:<name>` with shared-bucket defaults plus `selfServe: true` and the D3 limits.
 7. **Rollback:** if the KV write fails, delete the org (compensating action; requires an internal org-delete route if one doesn't exist). A slug race simply fails one side and rolls back — no distributed transaction needed.
 
-Response: the workspace summary the client needs to proceed (name, public base URL, next-step hint to mint a token).
+Response: `{ workspace: { name, publicBaseUrl, selfServe } }` — the client proceeds directly to minting a token, so no separate next-step hint field is needed.
 
 ### Web UI (apps/web)
 

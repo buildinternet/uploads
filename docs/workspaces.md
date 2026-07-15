@@ -164,14 +164,14 @@ like any workspace, remains admin-only.
 
 `POST /v1/workspaces` error codes:
 
-| Status | `code`                    | Meaning                                                                    |
-| ------ | ------------------------- | -------------------------------------------------------------------------- |
-| 400    | `invalid_workspace_name`  | Fails the name pattern, or blocklisted                                     |
-| 400    | `reserved_workspace_name` | Collides with a reserved name                                              |
-| 403    | `github_required`         | Account has no linked GitHub identity                                      |
-| 403    | `workspace_cap_reached`   | Caller already owns 3 self-serve workspaces                                |
-| 409    | `workspace_name_taken`    | Name already registered                                                    |
-| 429    | —                         | Rate-limited (same write limiter as other mutating routes, keyed per user) |
+| Status | `code`                    | Meaning                                                                                                                                  |
+| ------ | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | `invalid_workspace_name`  | Fails the name pattern, or blocklisted                                                                                                   |
+| 400    | `reserved_workspace_name` | Collides with a reserved name                                                                                                            |
+| 403    | `github_required`         | Account has no linked GitHub identity                                                                                                    |
+| 403    | `workspace_cap_reached`   | Caller already owns 3 self-serve workspaces                                                                                              |
+| 409    | `workspace_name_taken`    | Name already registered                                                                                                                  |
+| 429    | —                         | Rate-limited (dedicated creation limiter, 3 attempts per minute per user, checked before the GitHub gate — not the shared write limiter) |
 
 ## Bring-your-own-bucket
 

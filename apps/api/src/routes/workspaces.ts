@@ -89,8 +89,12 @@ export const workspaces = new Hono<SessionVars>().post(
       await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(record));
     } catch (err) {
       // Best-effort rollback; if this also fails the org is inert (no KV
-      // record → no storage access) and an admin can clean it up.
-      await deleteOrg(c.env, name).catch(() => {});
+      // record → no storage access) and an admin can clean it up. Log loudly
+      // so a failed rollback isn't silently swallowed — an orphaned org row
+      // needs a human to notice and clean up.
+      await deleteOrg(c.env, name).catch((rollbackErr) =>
+        console.error("self-serve rollback failed: org", name, "may be orphaned", rollbackErr),
+      );
       throw err;
     }
 

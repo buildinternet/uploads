@@ -34,8 +34,8 @@ export const prerender = false;
       </label>
       <button type="submit">Create workspace</button>
     </form>
-    <p class="muted cli-note" data-create-error hidden></p>
-    <p class="muted cli-note" data-create-github hidden>
+    <p class="muted cli-note" data-create-error role="alert" hidden></p>
+    <p class="muted cli-note" data-create-github role="status" hidden>
       Creating a workspace requires a linked GitHub account.
       <a href="/account/profile">Connect GitHub on your profile</a>, then come back.
     </p>
@@ -182,13 +182,21 @@ export const prerender = false;
       if (input && prefill && !input.value) input.value = prefill;
     }
 
+    // Matches the API's workspace-name pattern (see apps/api slug-policy):
+    // 2–63 lowercase letters/digits/hyphens, starting with a letter or digit.
+    const WORKSPACE_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
+
     function suggestedWorkspaceName(email: string | undefined): string {
       const local = (email ?? "").split("@")[0] ?? "";
-      return local
+      const sanitized = local
         .toLowerCase()
         .replace(/[^a-z0-9-]/g, "-")
         .replace(/^-+|-+$/g, "")
         .slice(0, 63);
+      // Guarantee validity or nothing at all — an all-symbol localpart (or a
+      // 1-char one) can sanitize down to something too short/empty to pass
+      // the API's pattern. Don't prefill garbage; let the user type their own.
+      return WORKSPACE_NAME_RE.test(sanitized) ? sanitized : "";
     }
 
     function createErrorCopy(code: string): string {
