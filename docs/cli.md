@@ -70,6 +70,15 @@ attachments comment. Use `--pr <number>` or `--issue <number>` when inference
 is not possible, and `--no-comment` when only the public URLs and Markdown are
 wanted.
 
+**Re-upload / hot-swap:** putting again to the same key overwrites the object
+in place. There is no confirmation prompt (agents and re-runs need this). The
+public URL stays the same so every embed updates after cache revalidation.
+Human mode prints `>> replaced existing object (same URL)` after a real put;
+JSON includes `"replaced": true|false`. Preview first with
+`uploads put … --dry-run` — if the key already exists it reports
+`>> would replace existing object (same URL)` (and `"replaced": true` in JSON)
+without writing.
+
 > **Privacy:** Hosted files are served from a public CDN with no link to GitHub
 > repo visibility. A screenshot on a private PR is still reachable by anyone who
 > knows or guesses the URL — `--pr`/`--issue` keys embed the repo path and
@@ -77,6 +86,45 @@ wanted.
 > to guess than hashed keys. Treat uploads as public; don't host secrets or
 > sensitive UI. Tighter access controls for private repos are planned — see
 > [roadmap](roadmap.md).
+
+## Custom metadata
+
+Tag uploads with queryable key/value pairs so you can find them later
+(`uploads find`, `uploads list --meta`, the account search UI). Distinct from
+optimize/frame provenance.
+
+Suggested pairs for screenshots:
+
+| Key    | Example                             | Meaning                          |
+| ------ | ----------------------------------- | -------------------------------- |
+| `url`  | `https://app.example/settings`      | Page URL the shot was taken from |
+| `path` | `/settings` or `Settings > Profile` | In-app route or nav path         |
+| `app`  | `web`, `ios`, `android`             | Surface / product shown          |
+
+```bash
+uploads put ./settings.png \
+  --meta url=https://app.example/settings \
+  --meta path=/settings \
+  --meta app=web
+
+uploads attach ./mobile-checkout.png \
+  --meta url=https://app.example/checkout \
+  --meta path=/checkout \
+  --meta app=ios
+
+uploads find app=web path=/settings
+uploads meta get screenshots/myapp/42/settings.webp
+uploads meta set screenshots/myapp/42/settings.webp page=onboarding --delete path
+```
+
+Rules: keys `^[a-z][a-z0-9._-]{0,63}$` (lowercase; dots allowed); values 1–512
+printable ASCII; at most 24 pairs per request. Re-upload **with** `--meta`
+replaces the whole metadata set; re-upload **without** `--meta` leaves existing
+pairs alone. `uploads attach` and `put --pr`/`--issue` also stamp `gh.repo` /
+`gh.kind` / `gh.number` / `gh.ref` automatically.
+
+Non-`gh.*` metadata may appear on the public `/f/…` file page — don't store
+secrets or private notes.
 
 ## Public galleries
 

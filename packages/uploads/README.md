@@ -25,10 +25,11 @@ uploads put ./capture-2026-…Z.png --pr 123 --name hero.png   # clean leaf, sta
 uploads put ./shot.png --pr 123 --name hero.png --dry-run --format url  # preview URL, no upload
 uploads gallery create --title "Release screenshots"
 uploads put ./after.png --gallery gal_example
-uploads put ./shot.png --meta app=myapp --meta page=settings   # queryable custom metadata
-uploads meta get screenshots/myapp/42/shot.png
-uploads meta set screenshots/myapp/42/shot.png page=onboarding --delete device
-uploads find app=myapp page=settings                            # or: list --meta app=myapp
+# custom metadata (queryable): page URL, in-app path, which surface
+uploads put ./shot.png --meta url=https://app.example/settings --meta path=/settings --meta app=web
+uploads meta get screenshots/myapp/42/shot.webp
+uploads meta set screenshots/myapp/42/shot.webp path=/onboarding --delete url
+uploads find app=web path=/settings                             # or: list --meta app=web
 uploads doctor
 ```
 
@@ -65,7 +66,13 @@ use `gh/…`. Workspaces may restrict put/sign to those roots via
 **Image optimization:** by default, still images are re-encoded to WebP (long edge
 capped, high quality) before upload so GitHub embeds stay small, and **EXIF is
 stripped**. Pass `--keep-exif` / `UPLOADS_KEEP_EXIF=1` to preserve image metadata, or
-`--no-optimize` / `UPLOADS_NO_OPTIMIZE=1` to upload originals unchanged.
+`--no-optimize` / `UPLOADS_NO_OPTIMIZE=1` to upload originals unchanged. Optimize
+notes print human sizes (e.g. `411.5 KB → 94.2 KB`).
+
+**Re-upload / hot-swap:** the same key overwrites in place with no prompt (stable
+`--pr` / `attach` paths). Human mode notes `>> replaced existing object (same URL)`;
+JSON includes `replaced`. Preview with `--dry-run` (reports _would replace_ when
+the key already exists).
 
 **Frames (opt-in):** `--frame phone|browser|iphone-16-pro` composites chrome
 **before** optimize. `phone`/`browser` are procedural; `iphone-16-pro` fetches

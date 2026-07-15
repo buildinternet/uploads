@@ -209,15 +209,29 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
       url: string;
       embedUrl: string | null;
       dryRun: boolean;
+      replaced: boolean;
     };
     expect(json).toEqual({
       workspace: "default",
       key: "screenshots/shot.png",
       url: "https://storage.uploads.sh/default/screenshots/shot.png",
       embedUrl: "https://embed.uploads.sh/default/screenshots/shot.png",
+      replaced: false,
       dryRun: true,
     });
     expect(bucket.store.has("default/screenshots/shot.png")).toBe(false);
+  });
+
+  it("dry run reports replaced=true when the key already exists", async () => {
+    const { env } = await makeEnv();
+    expect((await putShot(env)).status).toBe(201);
+    const res = await app.request(
+      "/v1/default/files/screenshots/shot.png?dryRun=1",
+      { method: "PUT", headers: { Authorization: `Bearer ${TOKEN}` }, body: new Uint8Array(0) },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { replaced: boolean; dryRun: boolean }).replaced).toBe(true);
   });
 
   it("dry run rejects a key the workspace policy disallows", async () => {
@@ -425,6 +439,17 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
     await expect(
       getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
     ).resolves.toEqual({});
+  });
+
+  it("sets replaced=false on first put and replaced=true on overwrite", async () => {
+    const { env } = await makeEnv();
+    const first = await putShot(env);
+    expect(first.status).toBe(201);
+    expect(((await first.json()) as { replaced: boolean }).replaced).toBe(false);
+
+    const second = await putShot(env);
+    expect(second.status).toBe(201);
+    expect(((await second.json()) as { replaced: boolean }).replaced).toBe(true);
   });
 
   it("re-PUT with at least one custom header still fully replaces prior custom metadata", async () => {

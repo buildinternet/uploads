@@ -137,6 +137,8 @@ export async function putObject(
   embedUrl: string | null;
   size: number;
   contentType: string;
+  /** True when this put overwrote an existing key (messaging only; no confirm). */
+  replaced: boolean;
   metadata?: ProvenanceMap;
   visibility?: Visibility;
 }> {
@@ -151,7 +153,10 @@ export async function putObject(
   if (!inspection.ok) throw inspection.error;
 
   const store = await storage(env, ws);
+  // Pre-upload head: size for ledger delta. files-sdk upload() has no
+  // replaced/exists flag on UploadResult, so we derive it here.
   const prev = await existingSize(store, finalKey);
+  const replaced = prev !== null;
   const newSize = bytes.byteLength;
   const deltaBytes = prev === null ? newSize : newSize - prev;
 
@@ -197,7 +202,7 @@ export async function putObject(
   // stored but under-counted (recordUsageSafe never throws).
   await recordUsageSafe(env.DB, workspaceName, {
     bytes: deltaBytes,
-    objects: prev === null ? 1 : 0,
+    objects: replaced ? 0 : 1,
     uploads: 1,
   });
 
@@ -217,6 +222,7 @@ export async function putObject(
     embedUrl: urls.embedUrl,
     size: newSize,
     contentType: inspection.contentType,
+    replaced,
     metadata: provenance,
     ...(storedVisibility ? { visibility: storedVisibility } : {}),
   };
