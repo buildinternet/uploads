@@ -25,9 +25,10 @@ import Footer from "../components/Footer.astro";
     <ol>
       <li>Install<div class="command"><code>npm install --global @buildinternet/uploads</code><button data-copy="npm install --global @buildinternet/uploads" aria-live="polite">copy</button></div></li>
       <li>Log in<div class="command"><code id="login-cmd">uploads login</code><button id="login-copy" data-copy="uploads login" aria-live="polite">copy</button></div></li>
+      <li id="code-step" hidden>Paste your code at the prompt<div class="command"><code id="code-value"></code><button id="code-copy" aria-live="polite">copy</button></div></li>
     </ol>
   </section>
-  <p class="security">Treat this link like a password — it's single-use and stops working once you log in.</p>
+  <p class="security">Treat this link like a password — it's single-use and stops working once you log in. Pasting the code at the prompt keeps it out of your shell history.</p>
   <Footer compact />
 </main>
 <script>
@@ -50,9 +51,15 @@ import Footer from "../components/Footer.astro";
   if (url.hash) history.replaceState(null, "", url.pathname + url.search);
 
   if (/^upe_[A-Za-z0-9_-]{20,}$/.test(code)) {
-    const command = `uploads login --code ${code}`;
+    // --code-stdin keeps the code out of shell history: the command itself
+    // carries no secret, and the code is pasted at the CLI's stdin prompt.
+    const command = "uploads login --code-stdin";
     loginCmd.textContent = command;
     loginCopy.dataset.copy = command;
+    const codeStep = requireElement<HTMLElement>("#code-step");
+    requireElement<HTMLElement>("#code-value").textContent = code;
+    requireElement<HTMLButtonElement>("#code-copy").dataset.copy = code;
+    codeStep.hidden = false;
   }
 
   async function checkInvitation() {
