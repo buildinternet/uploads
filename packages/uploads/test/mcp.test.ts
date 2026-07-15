@@ -751,6 +751,57 @@ describe("config resolution", () => {
     expect(res.result.structuredContent).toEqual({ ok: true, apiUrl: "https://x.test" });
   });
 
+  it("report rejects short messages", async () => {
+    const { server } = serverWith();
+    const res = await rpc(server, "tools/call", {
+      name: "report",
+      arguments: { message: "hi" },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toMatch(/too short/i);
+  });
+
+  it("report rejects oversized attachments", async () => {
+    const { server } = serverWith();
+    const res = await rpc(server, "tools/call", {
+      name: "report",
+      arguments: {
+        message: "log attached is too big",
+        attachmentText: "x".repeat(256 * 1024 + 1),
+      },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toMatch(/exceeds/i);
+  });
+
+  it("report submits successfully when the intake responds", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ ok: true, id: "rpt_test", hasAttachment: false }), {
+        status: 202,
+      })) as typeof fetch;
+    try {
+      const { server } = serverWith();
+      const res = await rpc(server, "tools/call", {
+        name: "report",
+        arguments: {
+          message: "put fails with KEY_POLICY in tests",
+          type: "error",
+          command: "put",
+          errorCode: "KEY_POLICY",
+        },
+      });
+      expect(res.result.isError).toBe(false);
+      expect(res.result.structuredContent).toEqual({
+        ok: true,
+        id: "rpt_test",
+        hasAttachment: false,
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("a per-call workspace argument overrides the globals", async () => {
     const { server, configs } = serverWith();
     await rpc(server, "tools/call", {

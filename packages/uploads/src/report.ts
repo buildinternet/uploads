@@ -53,10 +53,6 @@ export interface ReportPayload {
 export interface SubmitReportOptions {
   apiUrl?: string;
   fetchImpl?: typeof fetch;
-  version?: string;
-  dataDir?: string;
-  /** Include anonId only when telemetry is enabled (default). */
-  includeAnonId?: boolean;
 }
 
 export type ValidateMessageResult = { ok: true; message: string } | { ok: false; error: string };

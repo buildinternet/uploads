@@ -333,7 +333,10 @@ wrangler d1 execute uploads-production --remote \
   --command "SELECT id, created_at, type, command, error_code, substr(message,1,80)
              FROM uploads_cli_reports ORDER BY created_at DESC LIMIT 20"
 
-wrangler r2 object get uploads-default/_internal/uploads-cli-reports/<id>/<file> \
+# Quote placeholders so shell redirection is not triggered by unquoted <…>.
+REPORT_ID="rpt_…"
+REPORT_FILE="trace.log"
+wrangler r2 object get "uploads-default/_internal/uploads-cli-reports/${REPORT_ID}/${REPORT_FILE}" \
   --file ./trace.log
 ```
 

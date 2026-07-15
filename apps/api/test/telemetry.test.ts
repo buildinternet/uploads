@@ -90,7 +90,7 @@ describe("POST /v1/telemetry", () => {
     }
   });
 
-  it("rejects missing fields; honors kill switch; fails open without DB", async () => {
+  it("rejects missing fields, null JSON, and oversized bodies; honors kill switch", async () => {
     const sqlite = new SqliteD1(MIGRATION);
     try {
       const bad = await app.request(
@@ -103,6 +103,33 @@ describe("POST /v1/telemetry", () => {
         env({ db: database(sqlite) }),
       );
       expect(bad.status).toBe(400);
+
+      const nullBody = await app.request(
+        "http://localhost/v1/telemetry",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "null",
+        },
+        env({ db: database(sqlite) }),
+      );
+      expect(nullBody.status).toBe(400);
+
+      const oversized = await app.request(
+        "http://localhost/v1/telemetry",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", "content-length": "99999" },
+          body: JSON.stringify({
+            anonId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            surface: "cli",
+            command: "put",
+            cliVersion: "0.10.0",
+          }),
+        },
+        env({ db: database(sqlite) }),
+      );
+      expect(oversized.status).toBe(413);
 
       const disabled = await app.request(
         "http://localhost/v1/telemetry",

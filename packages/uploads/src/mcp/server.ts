@@ -56,8 +56,10 @@ function toolErrorText(err: unknown): string {
 export function createMcpServer(opts: {
   serverInfo: { name: string; version: string };
   tools: McpTool[];
+  /** API base for telemetry (honors uploads --api-url). */
+  apiUrl?: string;
 }): McpServer {
-  const { serverInfo, tools } = opts;
+  const { serverInfo, tools, apiUrl } = opts;
 
   async function callTool(id: JsonRpcId, params: Record<string, unknown>): Promise<string> {
     const name = params.name;
@@ -71,25 +73,31 @@ export function createMcpServer(opts: {
     const command = `tool ${tool.name}`.slice(0, 120);
     try {
       const result = await tool.handler(args as Record<string, unknown>);
-      void recordEvent({
-        surface: "mcp",
-        command,
-        exitCode: 0,
-        durationMs: Date.now() - start,
-      });
+      recordEvent(
+        {
+          surface: "mcp",
+          command,
+          exitCode: 0,
+          durationMs: Date.now() - start,
+        },
+        { apiUrl },
+      );
       return response(id, {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         structuredContent: result,
         isError: false,
       });
     } catch (err) {
-      void recordEvent({
-        surface: "mcp",
-        command,
-        exitCode: 1,
-        durationMs: Date.now() - start,
-        errorCode: errorCodeFromUnknown(err),
-      });
+      recordEvent(
+        {
+          surface: "mcp",
+          command,
+          exitCode: 1,
+          durationMs: Date.now() - start,
+          errorCode: errorCodeFromUnknown(err),
+        },
+        { apiUrl },
+      );
       return response(id, {
         content: [{ type: "text", text: toolErrorText(err) }],
         isError: true,

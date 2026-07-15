@@ -15,8 +15,8 @@ Subcommands:
 
 What is collected (when enabled):
   command name, CLI version, OS/arch, runtime, exit code, duration,
-  optional error code (e.g. KEY_POLICY). Never arguments, paths, tokens,
-  workspace names, or file content.
+  client kind/agent, anonymous id, optional allowlisted error code.
+  Never arguments, paths, tokens, workspace names, or file content.
 
 Opt out without this command:
   UPLOADS_TELEMETRY_DISABLED=1
@@ -64,15 +64,25 @@ export async function runTelemetry(
       process.stdout.write(`Kind:      ${s.clientKind}${s.agentName ? ` (${s.agentName})` : ""}\n`);
       process.stdout.write(`Endpoint:  ${s.endpoint}\n`);
       process.stdout.write(
-        "\nCollected: command name, version, OS/arch, runtime, exit code, duration, error code.\n",
+        "\nCollected: command name, version, OS/arch, runtime, exit code, duration,\n",
+      );
+      process.stdout.write(
+        "           client kind, anonymous id, optional allowlisted error code.\n",
       );
       process.stdout.write("Never:     arguments, paths, tokens, workspace names, or content.\n");
       return 0;
     }
     case "enable": {
       setTelemetryEnabled(true);
-      if (json) await writeJson({ enabled: true });
-      else process.stdout.write("Telemetry enabled.\n");
+      const s = telemetryStatus({ apiUrl: opts.apiUrl });
+      if (json) {
+        await writeJson({ enabled: s.enabled, reason: s.reason ?? null });
+      } else if (s.enabled) {
+        process.stdout.write("Telemetry enabled.\n");
+      } else {
+        process.stdout.write(`Telemetry still disabled (${s.reason ?? "opt-out active"}).\n`);
+        process.stdout.write("Cleared the local disable file; env opt-outs still apply.\n");
+      }
       return 0;
     }
     case "disable": {

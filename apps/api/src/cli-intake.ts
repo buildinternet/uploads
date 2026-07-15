@@ -2,6 +2,7 @@
  * Shared helpers for CLI/MCP intake routes (`/v1/telemetry`, `/v1/reports`).
  * Keep field allowlists and sanitizers in one place.
  */
+import { PayloadTooLargeError, ValidationError } from "@uploads/errors";
 
 export const MAX_STRING = 200;
 export const MAX_COMMAND = 120;
@@ -9,6 +10,10 @@ export const MAX_VERSION = 32;
 export const MAX_ANON_ID = 64;
 export const MAX_ERROR_CODE = 64;
 export const MAX_ATTACHMENT_BYTES = 256 * 1024;
+/** Telemetry JSON is tiny (no free text). */
+export const MAX_TELEMETRY_BODY_BYTES = 8 * 1024;
+/** Report JSON = short message + optional 256 KiB text attachment. */
+export const MAX_REPORT_BODY_BYTES = MAX_ATTACHMENT_BYTES + 8 * 1024;
 
 export const SURFACES = new Set(["cli", "mcp"]);
 export const CLIENT_KINDS = new Set(["external", "ci", "agent"]);
@@ -38,13 +43,53 @@ export function sanitizeString(value: unknown, max: number): string | null {
   return trimmed.slice(0, max);
 }
 
+/**
+ * Parse a finite integer within JavaScript's safe integer range.
+ * Returns null for invalid / non-safe values (callers apply field ranges).
+ */
 export function sanitizeInt(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
-  if (typeof value === "string" && value.trim() !== "") {
-    const n = Number(value);
-    if (Number.isFinite(n)) return Math.trunc(n);
+  let n: number | null = null;
+  if (typeof value === "number" && Number.isFinite(value)) n = Math.trunc(value);
+  else if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) n = Math.trunc(parsed);
   }
-  return null;
+  if (n === null || !Number.isSafeInteger(n)) return null;
+  return n;
+}
+
+/** Keep only when in [min, max] inclusive. */
+export function clampInt(value: number | null, min: number, max: number): number | null {
+  if (value === null || value < min || value > max) return null;
+  return value;
+}
+
+/**
+ * Read and parse a JSON object body with Content-Length + buffer size caps.
+ * Rejects null, arrays, and non-objects.
+ */
+export async function readJsonObjectBody(
+  req: Request,
+  maxBytes: number,
+): Promise<Record<string, unknown>> {
+  const declared = Number(req.headers.get("Content-Length") ?? 0);
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new PayloadTooLargeError(`request body exceeds ${maxBytes} bytes`);
+  }
+  const bytes = await req.arrayBuffer();
+  if (bytes.byteLength > maxBytes) {
+    throw new PayloadTooLargeError(`request body exceeds ${maxBytes} bytes`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw new ValidationError("invalid JSON body");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new ValidationError("invalid JSON body");
+  }
+  return parsed as Record<string, unknown>;
 }
 
 /** Drop C0 controls except tab/LF/CR (terminal-safe stored text). */

@@ -2,12 +2,19 @@
  * Explicit diagnostic reports → D1 `uploads_cli_reports` (+ optional R2 log).
  * Never automatic — requires `uploads report` / MCP `report`.
  */
-import { PayloadTooLargeError, RateLimitedError, ValidationError } from "@uploads/errors";
+import {
+  InternalError,
+  PayloadTooLargeError,
+  RateLimitedError,
+  ServiceUnavailableError,
+  ValidationError,
+} from "@uploads/errors";
 import { Hono } from "hono";
 import {
   MAX_ANON_ID,
   MAX_ATTACHMENT_BYTES,
   MAX_COMMAND,
+  MAX_REPORT_BODY_BYTES,
   MAX_STRING,
   MAX_VERSION,
   envFlagOn,
@@ -16,6 +23,7 @@ import {
   pickErrorCode,
   pickReportType,
   pickSurface,
+  readJsonObjectBody,
   safeFilename,
   sanitizeString,
   stripControl,
@@ -41,12 +49,11 @@ reports.post("/", async (c) => {
     }
   }
 
-  let body: Record<string, unknown>;
-  try {
-    body = (await c.req.json()) as Record<string, unknown>;
-  } catch {
-    throw new ValidationError("invalid JSON body");
+  if (!c.env.DB) {
+    throw new ServiceUnavailableError("report storage unavailable");
   }
+
+  const body = await readJsonObjectBody(c.req.raw, MAX_REPORT_BODY_BYTES);
 
   const rawMessage = sanitizeString(body.message, 4000);
   const message = rawMessage ? stripControl(rawMessage).trim() : null;
@@ -61,8 +68,10 @@ reports.post("/", async (c) => {
   const clientKind = pickClientKind(body.clientKind);
   const id = newId("rpt");
 
-  let attachmentKey: string | null = null;
+  let attachmentBytesPayload: Uint8Array | null = null;
   let attachmentFilename: string | null = null;
+  let attachmentContentType: string | null = null;
+  let attachmentKey: string | null = null;
   let attachmentBytes: number | null = null;
 
   if (body.attachment != null) {
@@ -90,8 +99,7 @@ reports.post("/", async (c) => {
         code: "unsupported_attachment_type",
       });
     }
-    const r2 = c.env.UPLOADS_DEFAULT;
-    if (!r2) {
+    if (!c.env.UPLOADS_DEFAULT) {
       throw new ValidationError("report attachments unavailable (no R2 binding)", {
         code: "attachment_unavailable",
       });
@@ -99,49 +107,72 @@ reports.post("/", async (c) => {
     const filename = safeFilename(sanitizeString(att.filename, 120));
     attachmentKey = `_internal/uploads-cli-reports/${id}/${filename}`;
     attachmentFilename = filename;
+    attachmentContentType = contentType;
     attachmentBytes = bytes.byteLength;
-    await r2.put(attachmentKey, bytes, {
-      httpMetadata: { contentType },
-      customMetadata: { reportId: id, surface, type },
-    });
+    attachmentBytesPayload = bytes;
   }
 
-  if (c.env.DB) {
-    try {
-      await c.env.DB.prepare(
-        `INSERT INTO uploads_cli_reports (
-          id, message, type, contact, surface, client_kind, anon_id,
-          cli_version, os, arch, runtime, command, error_code,
-          attachment_key, attachment_filename, attachment_bytes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  // Persist metadata first so a successful response always has a D1 row.
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO uploads_cli_reports (
+        id, message, type, contact, surface, client_kind, anon_id,
+        cli_version, os, arch, runtime, command, error_code,
+        attachment_key, attachment_filename, attachment_bytes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(
+        id,
+        message,
+        type,
+        contact,
+        surface,
+        clientKind,
+        sanitizeString(body.anonId, MAX_ANON_ID),
+        sanitizeString(body.cliVersion, MAX_VERSION),
+        sanitizeString(body.os, MAX_STRING),
+        sanitizeString(body.arch, MAX_STRING),
+        sanitizeString(body.runtime, MAX_STRING),
+        sanitizeString(body.command, MAX_COMMAND),
+        pickErrorCode(body.errorCode),
+        attachmentKey,
+        attachmentFilename,
+        attachmentBytes,
       )
-        .bind(
-          id,
-          message,
-          type,
-          contact,
-          surface,
-          clientKind,
-          sanitizeString(body.anonId, MAX_ANON_ID),
-          sanitizeString(body.cliVersion, MAX_VERSION),
-          sanitizeString(body.os, MAX_STRING),
-          sanitizeString(body.arch, MAX_STRING),
-          sanitizeString(body.runtime, MAX_STRING),
-          sanitizeString(body.command, MAX_COMMAND),
-          pickErrorCode(body.errorCode),
-          attachmentKey,
-          attachmentFilename,
-          attachmentBytes,
-        )
-        .run();
+      .run();
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message: "uploads_cli_reports insert failed",
+        error: err instanceof Error ? err.message : String(err),
+        id,
+      }),
+    );
+    throw new InternalError("failed to persist report");
+  }
+
+  // Attachment after D1 so failures don't orphan objects without a row.
+  // If R2 fails, delete the D1 row so we never report success without a complete write.
+  if (attachmentBytesPayload && attachmentKey && c.env.UPLOADS_DEFAULT) {
+    try {
+      await c.env.UPLOADS_DEFAULT.put(attachmentKey, attachmentBytesPayload, {
+        httpMetadata: { contentType: attachmentContentType ?? "text/plain; charset=utf-8" },
+        customMetadata: { reportId: id, surface, type },
+      });
     } catch (err) {
       console.error(
         JSON.stringify({
-          message: "uploads_cli_reports insert failed",
+          message: "report attachment put failed",
           error: err instanceof Error ? err.message : String(err),
           id,
         }),
       );
+      try {
+        await c.env.DB.prepare("DELETE FROM uploads_cli_reports WHERE id = ?").bind(id).run();
+      } catch {
+        // best-effort cleanup
+      }
+      throw new InternalError("failed to store report attachment");
     }
   }
 

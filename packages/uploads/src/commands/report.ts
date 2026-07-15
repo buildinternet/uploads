@@ -9,6 +9,8 @@ import {
   attachmentFromText,
   buildReportPayload,
   loadReportAttachment,
+  MAX_REPORT_ATTACHMENT_BYTES,
+  MAX_REPORT_MESSAGE,
   parseReportType,
   reportFallbackHint,
   REPORT_TYPES,
@@ -35,12 +37,26 @@ Examples:
   uploads doctor --json 2>&1 | uploads report "doctor failed"
 `;
 
-async function readStdinText(): Promise<string> {
+/**
+ * Bound stdin read. Stops once maxBytes is exceeded (returns what was read
+ * plus a flag so callers can reject oversized input).
+ */
+async function readStdinBounded(maxBytes: number): Promise<{ text: string; exceeded: boolean }> {
   const chunks: Buffer[] = [];
+  let total = 0;
+  let exceeded = false;
   for await (const chunk of process.stdin) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+    const buf = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    total += buf.byteLength;
+    if (total > maxBytes) {
+      exceeded = true;
+      const keep = maxBytes - (total - buf.byteLength);
+      if (keep > 0) chunks.push(buf.subarray(0, keep));
+      break; // stop reading; peer close drains the rest
+    }
+    chunks.push(buf);
   }
-  return Buffer.concat(chunks).toString("utf8");
+  return { text: Buffer.concat(chunks).toString("utf8"), exceeded };
 }
 
 export async function runReport(
@@ -64,11 +80,25 @@ export async function runReport(
   const json = opts.json || flagBool(parsed.flags, "--json");
   const filePath = flagString(parsed.flags, "--file");
   const positional = parsed.positionals.length > 0 ? parsed.positionals.join(" ") : undefined;
-  const piped = !process.stdin.isTTY ? await readStdinText() : "";
+  const hasPositional = Boolean(positional?.trim());
+  const stdinIsPipe = !process.stdin.isTTY;
+
+  // Only consume stdin when we still need a message or a piped attachment.
+  // Skip when --file already supplies the log and a positional message exists.
+  const needStdinAsMessage = stdinIsPipe && !hasPositional;
+  const needStdinAsAttachment = stdinIsPipe && hasPositional && !filePath;
+  let piped = "";
+  let pipedExceeded = false;
+  if (needStdinAsMessage || needStdinAsAttachment) {
+    const max = needStdinAsAttachment ? MAX_REPORT_ATTACHMENT_BYTES : MAX_REPORT_MESSAGE + 1; // +1 so we can detect "too long"
+    const result = await readStdinBounded(max);
+    piped = result.text;
+    pipedExceeded = result.exceeded;
+  }
   const pipedTrimmed = piped.trim();
 
   let raw: string | null = null;
-  if (positional?.trim()) raw = positional;
+  if (hasPositional) raw = positional!;
   else if (pipedTrimmed) raw = pipedTrimmed;
   else if (process.stdin.isTTY) {
     const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -86,20 +116,22 @@ export async function runReport(
     return 0;
   }
 
-  const validated = validateReportMessage(raw);
-  if (!validated.ok) {
-    if (!positional && pipedTrimmed.length > 4000) {
-      throw new UsageError(
-        'piped input is too long for the message — use: `… | uploads report "summary"`',
-      );
-    }
-    throw new UsageError(validated.error);
+  if (needStdinAsMessage && (pipedExceeded || raw.length > MAX_REPORT_MESSAGE)) {
+    throw new UsageError(
+      'piped input is too long for the message — use: `… | uploads report "summary"`',
+    );
   }
+
+  const validated = validateReportMessage(raw);
+  if (!validated.ok) throw new UsageError(validated.error);
 
   let attachment;
   try {
     if (filePath) attachment = loadReportAttachment(filePath);
-    else if (positional?.trim() && pipedTrimmed) {
+    else if (needStdinAsAttachment && pipedTrimmed) {
+      if (pipedExceeded) {
+        throw new Error(`attachment exceeds ${MAX_REPORT_ATTACHMENT_BYTES} bytes`);
+      }
       attachment = attachmentFromText(piped, "stdin.log");
     }
   } catch (err) {

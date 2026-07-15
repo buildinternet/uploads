@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -49,6 +49,24 @@ describe("telemetryCommandName", () => {
     );
     expect(telemetryCommandName(["node", "uploads", "telemetry", "disable"])).toBe(
       "telemetry disable",
+    );
+  });
+
+  it("skips value-bearing global flags and their values", () => {
+    expect(
+      telemetryCommandName([
+        "node",
+        "uploads",
+        "--token",
+        "up_secret_token",
+        "--api-url",
+        "https://api.example",
+        "put",
+        "./x.png",
+      ]),
+    ).toBe("put");
+    expect(telemetryCommandName(["node", "uploads", "--env-file", "/path/to/.env", "doctor"])).toBe(
+      "doctor",
     );
   });
 
@@ -124,7 +142,11 @@ describe("recordEvent", () => {
     const dir = tempDir();
     clearOptOutEnv();
     const bodies: unknown[] = [];
-    await recordEvent(
+    let resolvePosted!: () => void;
+    const posted = new Promise<void>((r) => {
+      resolvePosted = r;
+    });
+    recordEvent(
       {
         surface: "cli",
         command: "put",
@@ -141,10 +163,12 @@ describe("recordEvent", () => {
           expect(String(input)).toBe("https://api.example.test/v1/telemetry");
           expect(init?.method).toBe("POST");
           bodies.push(JSON.parse(String(init?.body)));
+          resolvePosted();
           return new Response(JSON.stringify({ ok: true }), { status: 202 });
         },
       },
     );
+    await posted;
 
     expect(bodies).toHaveLength(1);
     const body = bodies[0] as Record<string, unknown>;
@@ -159,20 +183,22 @@ describe("recordEvent", () => {
     expect(JSON.stringify(body)).not.toMatch(/secret|\.png|token|up_/i);
 
     setTelemetryEnabled(false, dir);
-    await recordEvent(
-      { surface: "cli", command: "put" },
-      {
-        dataDir: dir,
-        fetchImpl: async () => {
-          throw new Error("should not fetch");
+    expect(() =>
+      recordEvent(
+        { surface: "cli", command: "put" },
+        {
+          dataDir: dir,
+          fetchImpl: async () => {
+            throw new Error("should not fetch");
+          },
         },
-      },
-    );
+      ),
+    ).not.toThrow();
   });
 
   it("never throws on network failure", async () => {
     const dir = tempDir();
-    await expect(
+    expect(() =>
       recordEvent(
         { surface: "cli", command: "doctor" },
         {
@@ -182,7 +208,8 @@ describe("recordEvent", () => {
           },
         },
       ),
-    ).resolves.toBeUndefined();
+    ).not.toThrow();
+    await new Promise((r) => setTimeout(r, 10));
   });
 });
 
@@ -225,12 +252,23 @@ describe("telemetryStatus / errorCodeFromUnknown", () => {
     expect(s.endpoint).toBe("https://api.uploads.sh/v1/telemetry");
   });
 
-  it("maps known errors", () => {
+  it("maps allowlisted errors only", () => {
     expect(errorCodeFromUnknown(new UploadsError("nope", "UNAUTHORIZED", 401))).toBe(
       "UNAUTHORIZED",
     );
     expect(errorCodeFromUnknown(new UsageError("bad"))).toBe("USAGE");
     expect(errorCodeFromUnknown(new Error("boom"))).toBeUndefined();
+    expect(errorCodeFromUnknown(Object.assign(new Error("x"), { code: "SECRET_PATH" }))).toBe(
+      undefined,
+    );
+  });
+
+  it("rejects non-UUID anon ids and rewrites the file", () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, "telemetry-id"), "not-a-uuid\n");
+    const id = getOrCreateAnonId(dir);
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    expect(getOrCreateAnonId(dir)).toBe(id);
   });
 
   it("writes disable marker content", () => {

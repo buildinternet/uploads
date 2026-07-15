@@ -1,5 +1,5 @@
 import { createUploadsClient } from "./client.js";
-import { resolveApiUrl, resolveConfig } from "./config.js";
+import { DEFAULT_API_URL, resolveApiUrl, resolveConfig } from "./config.js";
 import { UploadsError } from "./errors.js";
 import {
   commandWorkspace,
@@ -204,6 +204,14 @@ function usageHint(argv: string[]): void {
 export async function runCli(argv: string[]): Promise<number> {
   const telemetryStart = Date.now();
   const telemetryCmd = telemetryCommandName(argv);
+  // Prefer --api-url from argv early so every exit path can pass it to telemetry.
+  let apiUrl = DEFAULT_API_URL;
+  try {
+    apiUrl = resolveApiUrl(parseArgv(argv).globals);
+  } catch {
+    // Usage errors while parsing globals fall through to the main try/catch.
+  }
+
   const skipTelemetry =
     argv.includes("--version") ||
     argv.includes("-V") ||
@@ -218,12 +226,12 @@ export async function runCli(argv: string[]): Promise<number> {
     maybeShowFirstRunNotice({ interactive: wantsQuiet ? false : undefined });
   }
 
-  const flushTelemetry = async (code: number, err?: unknown, apiUrl?: string): Promise<void> => {
+  const flushTelemetry = (code: number, err?: unknown): void => {
     if (skipTelemetry) return;
     // Long-lived MCP process: per-tool events come from the MCP server; skip
     // a process-level "mcp" ping so we don't double-count or hang exit.
     if (telemetryCmd === "mcp") return;
-    await recordEvent(
+    recordEvent(
       {
         surface: "cli",
         command: telemetryCmd,
@@ -239,7 +247,7 @@ export async function runCli(argv: string[]): Promise<number> {
     const parsed = parseArgv(argv);
     const json = parsed.globals.json ?? false;
     const quiet = parsed.globals.quiet ?? false;
-    const apiUrl = resolveApiUrl(parsed.globals);
+    apiUrl = resolveApiUrl(parsed.globals);
 
     if (parsed.globals.version) {
       process.stdout.write(`${packageVersion()}\n`);
@@ -258,7 +266,7 @@ export async function runCli(argv: string[]): Promise<number> {
       });
       // Explicit help exits 0; bare `uploads` is usage → 2.
       const code = parsed.help || isHelpCommand ? 0 : 2;
-      await flushTelemetry(code);
+      flushTelemetry(code);
       return code;
     }
 
@@ -379,7 +387,7 @@ export async function runCli(argv: string[]): Promise<number> {
           token: parsed.globals.token,
           envFile: parsed.globals.envFile,
         });
-        await flushTelemetry(2);
+        flushTelemetry(2);
         return 2;
       }
     }
@@ -388,14 +396,14 @@ export async function runCli(argv: string[]): Promise<number> {
     if (code === 0 && !showHelp) {
       await maybeHintUpdate({ quiet: quiet || json, command: parsed.command });
     }
-    await flushTelemetry(code, undefined, apiUrl);
+    flushTelemetry(code);
     return code;
   } catch (err) {
     const format = outputFormat(argv);
     errorOut(err, format);
     if (err instanceof UsageError && format !== "json") usageHint(argv);
     const code = exitCode(err);
-    await flushTelemetry(code, err);
+    flushTelemetry(code, err);
     return code;
   }
 }

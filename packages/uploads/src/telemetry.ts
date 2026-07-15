@@ -21,6 +21,7 @@ const DISABLE_FILE = "telemetry-disabled";
 const NOTICE_FILE = "telemetry-notice-shown";
 const POST_TIMEOUT_MS = 1500;
 const MAX_COMMAND = 120;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** Known root commands that take a subcommand as the second positional. */
 const NESTED_COMMANDS = new Set([
@@ -32,6 +33,26 @@ const NESTED_COMMANDS = new Set([
   "install",
   "meta",
   "telemetry",
+]);
+
+/** Global flags that consume a following value (must not become command names). */
+const VALUE_GLOBALS = new Set(["--api-url", "--workspace", "-w", "--token", "--env-file"]);
+
+/** Allowlisted error codes sent to telemetry (mirror server ERROR_CODES). */
+const TELEMETRY_ERROR_CODES = new Set([
+  "MISSING_TOKEN",
+  "NO_PUBLIC_URL",
+  "FILE_NOT_FOUND",
+  "NOT_FOUND",
+  "UNAUTHORIZED",
+  "INVALID_KEY",
+  "KEY_POLICY",
+  "STORAGE_QUOTA",
+  "UPLOAD_BUDGET",
+  "GITHUB_REQUIRED",
+  "API_ERROR",
+  "NETWORK",
+  "USAGE",
 ]);
 
 export type TelemetrySurface = "cli" | "mcp";
@@ -94,7 +115,7 @@ function safeWrite(path: string, content: string, mode?: number): void {
 export function getOrCreateAnonId(dataDir?: string): string {
   const path = filePath(ANON_ID_FILE, dataDir);
   const existing = safeRead(path);
-  if (existing && existing.length > 0) return existing;
+  if (existing && UUID_RE.test(existing)) return existing;
   const id = randomUUID();
   safeWrite(path, id, 0o600);
   return id;
@@ -160,10 +181,26 @@ function endpoint(apiUrl?: string): string {
 
 /**
  * Build a safe command label from argv. Only the root command (+ subcommand
- * for known nested commands). Never includes file paths or flag values.
+ * for known nested commands). Skips global flag/value pairs so
+ * `--token up_… put` never records the token as the command.
  */
 export function telemetryCommandName(argv: string[]): string {
-  const positional = argv.slice(2).filter((a) => !a.startsWith("-"));
+  const args = argv.slice(2);
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--") {
+      positional.push(...args.slice(i + 1).filter((a) => !a.startsWith("-")));
+      break;
+    }
+    if (VALUE_GLOBALS.has(arg)) {
+      i += 1; // skip value
+      continue;
+    }
+    if (arg.startsWith("--") && arg.includes("=")) continue;
+    if (arg.startsWith("-")) continue;
+    positional.push(arg);
+  }
   const root = positional[0];
   if (!root) return "(root)";
   if (!NESTED_COMMANDS.has(root)) return root.slice(0, MAX_COMMAND);
@@ -194,7 +231,8 @@ export function maybeShowFirstRunNotice(
   write(
     [
       "",
-      "uploads collects anonymous usage data (command name, version, OS, exit code).",
+      "uploads collects anonymous usage data: command name, version, OS/arch,",
+      "runtime, exit code, duration, client kind, anonymous id, optional error code.",
       "No arguments, paths, tokens, or file content are sent. Opt out with:",
       "  uploads telemetry disable   # or set UPLOADS_TELEMETRY_DISABLED=1",
       "",
@@ -203,51 +241,50 @@ export function maybeShowFirstRunNotice(
   safeWrite(marker, new Date().toISOString());
 }
 
-export async function recordEvent(
-  input: TelemetryEventInput,
-  opts: RecordEventOptions = {},
-): Promise<void> {
+/**
+ * Fire-and-forget usage ping. Never throws; delivery runs in the background
+ * so CLI exit is not delayed by the network.
+ */
+export function recordEvent(input: TelemetryEventInput, opts: RecordEventOptions = {}): void {
   if (!isTelemetryEnabled(opts.dataDir)) return;
-  try {
-    const ctx = detectClientKind();
-    const command = input.command.trim().slice(0, MAX_COMMAND);
-    if (!command) return;
+  const command = input.command.trim().slice(0, MAX_COMMAND);
+  if (!command) return;
 
-    const body = {
-      anonId: getOrCreateAnonId(opts.dataDir),
-      timestamp: opts.now ?? Date.now(),
-      surface: input.surface,
-      clientKind: ctx.kind,
-      agentName: ctx.agentName ?? null,
-      command,
-      exitCode: input.exitCode ?? null,
-      durationMs: input.durationMs ?? null,
-      errorCode: input.errorCode ?? null,
-      cliVersion: opts.version ?? packageVersion(),
-      os: process.platform,
-      arch: process.arch,
-      runtime: detectRuntime(),
-    };
+  const ctx = detectClientKind();
+  const body = {
+    anonId: getOrCreateAnonId(opts.dataDir),
+    timestamp: opts.now ?? Date.now(),
+    surface: input.surface,
+    clientKind: ctx.kind,
+    agentName: ctx.agentName ?? null,
+    command,
+    exitCode: input.exitCode ?? null,
+    durationMs: input.durationMs ?? null,
+    errorCode: input.errorCode ?? null,
+    cliVersion: opts.version ?? packageVersion(),
+    os: process.platform,
+    arch: process.arch,
+    runtime: detectRuntime(),
+  };
 
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), POST_TIMEOUT_MS);
-    const fetchImpl = opts.fetchImpl ?? fetch;
-    try {
-      await fetchImpl(`${endpoint(opts.apiUrl)}/v1/telemetry`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "user-agent": `uploads-cli/${body.cliVersion}`,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } finally {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), POST_TIMEOUT_MS);
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  void fetchImpl(`${endpoint(opts.apiUrl)}/v1/telemetry`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "user-agent": `uploads-cli/${body.cliVersion}`,
+    },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  })
+    .catch(() => {
+      // fire-and-forget
+    })
+    .finally(() => {
       clearTimeout(t);
-    }
-  } catch {
-    // fire-and-forget
-  }
+    });
 }
 
 export function telemetryStatus(opts: { dataDir?: string; apiUrl?: string } = {}): {
@@ -282,20 +319,19 @@ export function errorCodeFromUnknown(err: unknown): string | undefined {
   if (
     err &&
     typeof err === "object" &&
-    "code" in err &&
-    typeof (err as { code: unknown }).code === "string"
-  ) {
-    const code = (err as { code: string }).code;
-    // UploadsError codes + UsageError uses name USAGE via exit path
-    return code.slice(0, 64);
-  }
-  if (
-    err &&
-    typeof err === "object" &&
     "name" in err &&
     (err as { name: string }).name === "UsageError"
   ) {
     return "USAGE";
+  }
+  if (
+    err &&
+    typeof err === "object" &&
+    "code" in err &&
+    typeof (err as { code: unknown }).code === "string"
+  ) {
+    const code = (err as { code: string }).code.slice(0, 64);
+    return TELEMETRY_ERROR_CODES.has(code) ? code : undefined;
   }
   return undefined;
 }

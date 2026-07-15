@@ -43,6 +43,13 @@ describe("attachments", () => {
       /exceeds/,
     );
   });
+
+  it("rejects oversized on-disk attachments", () => {
+    const dir = mkdtempSync(join(tmpdir(), "uploads-report-"));
+    const path = join(dir, "huge.log");
+    writeFileSync(path, "x".repeat(MAX_REPORT_ATTACHMENT_BYTES + 1));
+    expect(() => loadReportAttachment(path)).toThrow(/exceeds/);
+  });
 });
 
 describe("buildReportPayload / submitReport", () => {

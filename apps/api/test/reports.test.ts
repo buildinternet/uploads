@@ -158,6 +158,24 @@ describe("POST /v1/reports", () => {
     }
   });
 
+  it("fails when DB is absent (no orphan attachment success)", async () => {
+    const r2 = fakeR2();
+    const res = await app.request(
+      "http://localhost/v1/reports",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "still long enough to send",
+          attachment: { filename: "trace.log", body: "log line" },
+        }),
+      },
+      env({ r2 }),
+    );
+    expect(res.status).toBe(503);
+    expect(r2.objects.size).toBe(0);
+  });
+
   it("sanitizes path traversal in attachment filenames", async () => {
     const sqlite = new SqliteD1(MIGRATION);
     const r2 = fakeR2();
