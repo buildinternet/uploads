@@ -49,9 +49,12 @@ import {
 import { applyFrame, resolveFrameId, type FrameResult } from "./frame.js";
 import { buildCliProvenance } from "./provenance.js";
 import { formatByteSize } from "./format-bytes.js";
+import { formatUsageHuman } from "./format-usage.js";
 import { packageVersion } from "./package-version.js";
 import type { PutDefaults } from "./config-file.js";
-import { writeCommandHelp } from "./cli-style.js";
+import { colorEnabled, writeCommandHelp } from "./cli-style.js";
+
+export { formatUsageHuman } from "./format-usage.js";
 
 export interface CliContext {
   config: ResolvedConfig;
@@ -1261,12 +1264,21 @@ export async function runComment(
 
 const USAGE_HELP = `uploads usage [--workspace <name>]
 
-Show workspace storage and monthly upload counters (and limits when set).
+Show workspace storage and monthly upload counters.
+
+When the API reports workspace quotas (typical on uploads.sh cloud /
+self-serve plans), human output includes progress bars toward those caps.
+Self-hosted or unlimited operator workspaces get usage totals only, plus a
+short unmetered note — no invented limits.
 
 Examples:
   uploads --env-file .env usage
   uploads usage --json
 `;
+
+function formatCount(n: number): string {
+  return Number.isFinite(n) ? Math.trunc(n).toLocaleString("en-US") : String(n);
+}
 
 export async function runUsage(ctx: CliContext, args: string[], help = false): Promise<number> {
   if (help || parseCommandArgs(args).help) {
@@ -1278,14 +1290,9 @@ export async function runUsage(ctx: CliContext, args: string[], help = false): P
     await writeJson(result);
     return 0;
   }
-  const lines = [
-    `workspace: ${result.workspace}`,
-    `bytes:     ${result.bytes}${result.maxStorageBytes != null ? ` / ${result.maxStorageBytes} (${result.storageRemainingBytes} remaining)` : ""}`,
-    `objects:   ${result.objects}`,
-    `uploads:   ${result.uploadsInPeriod} this period (${result.periodStart})${result.maxUploadsPerPeriod != null ? ` / ${result.maxUploadsPerPeriod} (${result.uploadsRemaining} remaining)` : ""}`,
-    `updated:   ${result.updatedAt}`,
-  ];
-  await writeStdout(lines.join("\n") + "\n");
+  await writeStdout(
+    formatUsageHuman(result, { color: colorEnabled(process.stdout) }).join("\n") + "\n",
+  );
   return 0;
 }
 
@@ -1512,7 +1519,7 @@ export async function runDoctor(ctx: CliContext, args: string[], help = false): 
   if (report.usage) {
     lines.push(
       report.usage.ok
-        ? `usage:     ${report.usage.bytes} bytes, ${report.usage.objects} objects, ${report.usage.uploadsInPeriod} uploads this period`
+        ? `usage:     ${formatByteSize(report.usage.bytes ?? 0)}, ${formatCount(report.usage.objects ?? 0)} objects, ${formatCount(report.usage.uploadsInPeriod ?? 0)} uploads this period`
         : `usage:     failed — ${report.usage.error ?? "unknown"}`,
     );
   }

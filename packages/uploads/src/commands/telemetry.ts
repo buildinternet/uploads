@@ -63,13 +63,8 @@ export async function runTelemetry(
       process.stdout.write(`Anon ID:   ${s.anonId}\n`);
       process.stdout.write(`Kind:      ${s.clientKind}${s.agentName ? ` (${s.agentName})` : ""}\n`);
       process.stdout.write(`Endpoint:  ${s.endpoint}\n`);
-      process.stdout.write(
-        "\nCollected: command name, version, OS/arch, runtime, exit code, duration,\n",
-      );
-      process.stdout.write(
-        "           client kind, anonymous id, optional allowlisted error code.\n",
-      );
-      process.stdout.write("Never:     arguments, paths, tokens, workspace names, or content.\n");
+      process.stdout.write("\nAnonymous non-PII usage only (no paths, tokens, or content).\n");
+      process.stdout.write("See `uploads telemetry --help` for what is sent and how to opt out.\n");
       return 0;
     }
     case "enable": {
