@@ -19,6 +19,13 @@ export const RESERVED_WORKSPACE_NAMES: ReadonlySet<string> = new Set([
   "uploads",
   "internal",
   "v1",
+  "workspaces",
+  "tokens",
+  "files",
+  "galleries",
+  "usage",
+  "health",
+  "admin-ui",
 ]);
 
 export type SlugVerdict =
