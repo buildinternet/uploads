@@ -1,5 +1,12 @@
 # Roadmap
 
+- **Self-serve workspace registration** — shipped: `POST /v1/workspaces`
+  (session-authed, GitHub-linked accounts only) lets a user provision their
+  own organization + `<name>/` prefix on the shared bucket, no `ADMIN_TOKEN`
+  or admin involved. Tighter default limits than operator-created workspaces,
+  capped at 3 self-serve workspaces per user, admin-only raises. Surfaced from
+  `/account/workspaces` and `uploads login`. See
+  [workspaces.md#self-serve-workspaces](workspaces.md#self-serve-workspaces).
 - **MCP server** — shipped in both variants: a local stdio server in the CLI
   (`uploads mcp`, tools mirror the CLI commands) and a remote worker on
   `agents.uploads.sh` (alt `mcp.uploads.sh`) (`apps/mcp`, standalone worker, per-workspace bearer auth

@@ -109,6 +109,70 @@ The prefix is applied in exactly one place — `createStorage()` in
 | --------- | ----------------- | ---------------------------------------------- |
 | `default` | `uploads-default` | `https://storage.uploads.sh` — generic hosting |
 
+## Self-serve workspaces
+
+Signed-in users with a **GitHub-linked account** can create their own
+workspace without an operator: `/account/workspaces` has a "Create a
+workspace" form (anchor `#create`), and `POST /v1/workspaces` (session-authed,
+no `ADMIN_TOKEN`) backs it. `uploads login` offers the same flow when the
+signed-in account has zero workspaces yet — interactively it prompts to
+create one; non-interactively it errors with guidance.
+
+Creation provisions a Better Auth organization (the caller as owner) and a
+`ws:<name>` KV record in the shared `uploads-default` bucket, same as the
+default model above: `prefix: "<name>/"`, `publicBaseUrl:
+https://storage.uploads.sh`. Files land at
+`https://storage.uploads.sh/<name>/<key>` — **public at an unguessable URL**,
+same as every other workspace on the shared bucket. There is no private tier
+today; don't put anything there you wouldn't want reachable by anyone who
+guesses or leaks the URL.
+
+A magic-link-only account gets a `403 github_required` and is prompted to
+connect GitHub first (the web UI redirects into the GitHub-connect flow from
+account settings).
+
+### Self-serve limits
+
+Self-serve workspaces start on a tighter template than the operator default,
+and only an admin can raise them (`pnpm workspace:limits`, see above):
+
+| Field                 | Self-serve default       |
+| --------------------- | ------------------------ |
+| `maxStorageBytes`     | 1 GB                     |
+| `maxUploadsPerPeriod` | 3000 / UTC month         |
+| `maxUploadBytes`      | 25 MB                    |
+| `maxVideoUploadBytes` | 8 MB                     |
+| `allowedKeyPrefixes`  | `f`, `screenshots`, `gh` |
+| `maxKeyDepth`         | 8                        |
+
+### Name rules
+
+Workspace names must match `WS_NAME_RE` (2–63 lowercase letters, digits, and
+hyphens). A short list of reserved names (`default`, `admin`, `api`, `www`,
+and similar route/subdomain collisions) is rejected with
+`400 reserved_workspace_name`. Names are also checked against a vendored
+offensive-terms blocklist; a blocklist hit is indistinguishable from any other
+invalid name and returns the generic `400 invalid_workspace_name` (the
+blocklist itself is not part of this doc).
+
+### Cap and errors
+
+Each user may own at most **3 self-serve workspaces** (owner-role,
+`selfServe`-flagged records only — BYO-bucket or operator-created workspaces
+you belong to don't count against the cap). Deleting a self-serve workspace,
+like any workspace, remains admin-only.
+
+`POST /v1/workspaces` error codes:
+
+| Status | `code`                    | Meaning                                                                    |
+| ------ | ------------------------- | -------------------------------------------------------------------------- |
+| 400    | `invalid_workspace_name`  | Fails the name pattern, or blocklisted                                     |
+| 400    | `reserved_workspace_name` | Collides with a reserved name                                              |
+| 403    | `github_required`         | Account has no linked GitHub identity                                      |
+| 403    | `workspace_cap_reached`   | Caller already owns 3 self-serve workspaces                                |
+| 409    | `workspace_name_taken`    | Name already registered                                                    |
+| 429    | —                         | Rate-limited (same write limiter as other mutating routes, keyed per user) |
+
 ## Bring-your-own-bucket
 
 Register with `--bucket` and the record points at a dedicated bucket (own
