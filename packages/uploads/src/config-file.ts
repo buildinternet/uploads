@@ -229,14 +229,7 @@ export function writeConfigKeys(
     }
   }
 
-  const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tmp, lines.join("\n").replace(/\n*$/, "\n"), { encoding: "utf8", mode: 0o600 });
-  renameSync(tmp, path);
-  try {
-    chmodSync(path, 0o600);
-  } catch {
-    /* Windows/filesystems may not support modes. */
-  }
+  writeConfigFileAtomic(path, lines.join("\n"));
   return { path, created: !existed, updated };
 }
 
@@ -263,11 +256,10 @@ export function removeConfigKeys(
   if (!existsSync(path)) return { path, removed: [], existed: false };
 
   const keySet = new Set(keys);
-  const lines = readFileSync(path, "utf8").split("\n");
   const removed: string[] = [];
   const kept: string[] = [];
 
-  for (const line of lines) {
+  for (const line of readFileSync(path, "utf8").split("\n")) {
     const parsed = parseEnvLine(line);
     if (parsed && keySet.has(parsed.key)) {
       if (!removed.includes(parsed.key)) removed.push(parsed.key);
@@ -278,25 +270,22 @@ export function removeConfigKeys(
 
   if (removed.length === 0) return { path, removed: [], existed: true };
 
-  // Collapse excess blank lines left by removals
-  const collapsed: string[] = [];
-  for (const line of kept) {
-    if (line === "" && collapsed.length > 0 && collapsed[collapsed.length - 1] === "") continue;
-    collapsed.push(line);
-  }
+  // Drop consecutive blank lines left by removals
+  const collapsed = kept.filter((line, i) => !(line === "" && i > 0 && kept[i - 1] === ""));
+  writeConfigFileAtomic(path, collapsed.join("\n"));
+  return { path, removed, existed: true };
+}
 
+/** Atomic write + mode 0o600 (best-effort on platforms without chmod). */
+function writeConfigFileAtomic(path: string, body: string): void {
   const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tmp, collapsed.join("\n").replace(/\n*$/, "\n"), {
-    encoding: "utf8",
-    mode: 0o600,
-  });
+  writeFileSync(tmp, body.replace(/\n*$/, "\n"), { encoding: "utf8", mode: 0o600 });
   renameSync(tmp, path);
   try {
     chmodSync(path, 0o600);
   } catch {
     /* Windows/filesystems may not support modes. */
   }
-  return { path, removed, existed: true };
 }
 
 export { PUT_DEFAULT_KEY_MAP };

@@ -76,6 +76,8 @@ describe("buildWhoamiReport / runWhoami", () => {
     expect(report.token).toMatch(/set \(/);
     expect(report.token).not.toContain("secrettokenvalue");
     expect(report.tokenInConfig).toBe(true);
+    // --path is resolved as env-file layer
+    expect(report.tokenSource).toBe("env-file");
   });
 
   it("exits 1 when signed out", async () => {

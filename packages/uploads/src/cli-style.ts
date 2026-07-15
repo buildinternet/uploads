@@ -137,8 +137,6 @@ export function formatCommandHelp(
       return `${indent}${style.command(cmd)}${style.body(rest)}`;
     }
 
-    // Indented continuation / option prose → body; top-level prose → muted-ish body
-    if (line.startsWith("  ") || line.startsWith("\t")) return style.body(line);
     return style.body(line);
   });
 

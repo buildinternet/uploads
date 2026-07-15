@@ -54,8 +54,6 @@ export interface WhoamiReport {
   workspaceFromToken: string | undefined;
   token: string;
   tokenSource: string;
-  /** True when a token is present only via process env (not config file). */
-  tokenFromEnv: boolean;
   /** True when the config file holds UPLOADS_TOKEN. */
   tokenInConfig: boolean;
   apiUrl: string;
@@ -70,22 +68,15 @@ export function buildWhoamiReport(opts: {
   workspace?: string;
   apiUrl?: string;
 }): WhoamiReport {
-  const config = resolveConfig({
+  const flags = {
     envFile: opts.envFile,
     token: opts.token,
     workspace: opts.workspace,
     apiUrl: opts.apiUrl,
-    requireToken: false,
-  });
-  const sources = describeConfigSources({
-    envFile: opts.envFile,
-    token: opts.token,
-    workspace: opts.workspace,
-    apiUrl: opts.apiUrl,
-  });
-  const fileRaw = loadConfigFile(config.configPath);
-  const tokenInConfig = Boolean(fileRaw.UPLOADS_TOKEN);
-  const tokenFromEnv = sources.token === "env" || sources.token === "env-file";
+  };
+  const config = resolveConfig({ ...flags, requireToken: false });
+  const sources = describeConfigSources(flags);
+  const tokenInConfig = Boolean(loadConfigFile(config.configPath).UPLOADS_TOKEN);
 
   return {
     signedIn: Boolean(config.token),
@@ -94,7 +85,6 @@ export function buildWhoamiReport(opts: {
     workspaceFromToken: config.token ? workspaceFromToken(config.token) : undefined,
     token: redactToken(config.token || undefined),
     tokenSource: sources.token,
-    tokenFromEnv: Boolean(config.token) && tokenFromEnv && !tokenInConfig,
     tokenInConfig,
     apiUrl: config.apiUrl,
     apiUrlSource: sources.apiUrl,
@@ -104,31 +94,33 @@ export function buildWhoamiReport(opts: {
 }
 
 function formatWhoami(report: WhoamiReport): string {
-  const lines: string[] = [];
-  if (!report.signedIn) {
-    lines.push("signed in:  no");
-    lines.push(`config:     ${report.configPath}${report.configExists ? "" : " (missing)"}`);
-    lines.push(`api:        ${report.apiUrl} (${report.apiUrlSource})`);
-    lines.push(`workspace:  ${report.workspace} (${report.workspaceSource})`);
-    lines.push("");
-    lines.push("hint: run uploads login to sign in");
-    return lines.join("\n") + "\n";
-  }
-
-  lines.push("signed in:  yes");
-  lines.push(`workspace:  ${report.workspace} (${report.workspaceSource})`);
+  const cfg = `${report.configPath}${report.configExists ? "" : " (missing)"}`;
+  const lines = [
+    `signed in:  ${report.signedIn ? "yes" : "no"}`,
+    `workspace:  ${report.workspace} (${report.workspaceSource})`,
+  ];
   if (report.workspaceFromToken && report.workspaceFromToken !== report.workspace) {
     lines.push(`token ws:   ${report.workspaceFromToken} (encoded in token)`);
   }
-  lines.push(`token:      ${report.token} (${report.tokenSource})`);
+  if (report.signedIn) {
+    lines.push(`token:      ${report.token} (${report.tokenSource})`);
+  }
   lines.push(`api:        ${report.apiUrl} (${report.apiUrlSource})`);
-  lines.push(`config:     ${report.configPath}${report.configExists ? "" : " (missing)"}`);
-  if (report.tokenFromEnv) {
-    lines.push("");
-    lines.push("note: token is from the environment, not the config file");
-    lines.push("      uploads logout only clears the config file");
+  lines.push(`config:     ${cfg}`);
+  if (!report.signedIn) {
+    lines.push("", "hint: run uploads login to sign in");
+  } else if (report.tokenSource === "env" && !report.tokenInConfig) {
+    lines.push(
+      "",
+      "note: token is from the environment, not the config file",
+      "      uploads logout only clears the config file",
+    );
   }
   return lines.join("\n") + "\n";
+}
+
+function wantsJson(opts: { json?: boolean }, parsed: ReturnType<typeof parseCommandArgs>): boolean {
+  return Boolean(opts.json || flagBool(parsed.flags, "--json"));
 }
 
 export async function runWhoami(
@@ -142,19 +134,15 @@ export async function runWhoami(
     return 0;
   }
 
-  const path = flagString(parsed.flags, "--path") ?? opts.envFile;
   const report = buildWhoamiReport({
-    envFile: path,
+    envFile: flagString(parsed.flags, "--path") ?? opts.envFile,
     token: opts.token,
     workspace: opts.workspace,
     apiUrl: opts.apiUrl,
   });
 
-  if (opts.json || flagBool(parsed.flags, "--json")) {
-    await writeJson(report);
-  } else {
-    process.stdout.write(formatWhoami(report));
-  }
+  if (wantsJson(opts, parsed)) await writeJson(report);
+  else process.stdout.write(formatWhoami(report));
   return report.signedIn ? 0 : 1;
 }
 
@@ -170,10 +158,8 @@ export async function runLogout(
   }
 
   const path = flagString(parsed.flags, "--path") ?? resolveConfigPath({ envFile: opts.envFile });
-  const before = loadConfigFile(path);
-  const hadFileToken = Boolean(before.UPLOADS_TOKEN);
-  const envToken = Boolean(process.env.UPLOADS_TOKEN);
-
+  const hadFileToken = Boolean(loadConfigFile(path).UPLOADS_TOKEN);
+  const envTokenStillSet = Boolean(process.env.UPLOADS_TOKEN);
   const result = removeConfigKeys(path, ["UPLOADS_TOKEN"]);
 
   const payload = {
@@ -181,10 +167,10 @@ export async function runLogout(
     removed: result.removed,
     configExisted: result.existed,
     hadTokenInConfig: hadFileToken,
-    envTokenStillSet: envToken,
+    envTokenStillSet,
   };
 
-  if (opts.json || flagBool(parsed.flags, "--json")) {
+  if (wantsJson(opts, parsed)) {
     await writeJson(payload);
     return 0;
   }
@@ -197,11 +183,10 @@ export async function runLogout(
     process.stdout.write(`no UPLOADS_TOKEN in ${result.path} — already signed out\n`);
   }
 
-  if (envToken) {
+  if (envTokenStillSet) {
     process.stderr.write(
       "note: UPLOADS_TOKEN is still set in the environment; unset it to fully sign out\n",
     );
   }
-
   return 0;
 }
