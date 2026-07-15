@@ -117,8 +117,11 @@ ${section(style, "Globals (before command):")}
 
 ${section(style, "Examples:")}
   ${style.command("uploads login")}
-  ${style.command("uploads put")} ./shot.png
+  ${style.command("uploads put")} ./shot.png --pr 123 --name hero.png
+  ${style.command("uploads put")} ./after.png --pr 123 --comment
+  ${style.command("uploads put")} ./bug.png --issue 45
   ${style.command("uploads attach")} ./before.png ./after.png
+  ${style.command("uploads attach")} ./shot.png --pr 123 --repo myorg/myapp
   ${style.command("uploads doctor")}
   ${style.command("uploads install")}
 `;
@@ -159,10 +162,14 @@ ${section(style, "Put/list defaults")} ${style.muted("(config file or env):")}
 ${section(style, "Update hints")} ${style.muted("(stderr, once/day):")} silence with --quiet / UPLOADS_NO_UPDATE=1 / NO_UPDATE_NOTIFIER=1
 
 ${section(style, "Examples:")}
-  ${style.command("uploads setup")}
-  ${style.command("uploads setup")} --token up_default_… --repo myorg/myapp
+  ${style.command("uploads login")}
+  ${style.command("uploads put")} ./shot.png --pr 123 --name hero.png
+  ${style.command("uploads put")} ./after.png --pr 123 --comment
+  ${style.command("uploads put")} ./bug.png --issue 45 --repo myorg/myapp
+  ${style.command("uploads put")} ./shot.png --dry-run --format url
   ${style.command("uploads attach")} ./before.png ./after.png
-  ${style.command("uploads put")} ./shot.png --ref 42
+  ${style.command("uploads attach")} ./shot.png --pr 123 --repo myorg/myapp
+  ${style.command("uploads attach")} ./artifact.zip --issue 45 --no-comment
   ${style.command("uploads gallery")} create --title "Release screenshots"
   ${style.command("uploads doctor")}
   ${style.command("uploads --version")}
