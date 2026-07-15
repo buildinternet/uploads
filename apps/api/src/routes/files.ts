@@ -95,16 +95,20 @@ export const files = new Hono<WorkspaceVars>()
 
     // ?dryRun=1 — validate key + resolve public URL; no R2 write, no usage/budget check.
     // Prefixed keys match a real put; bare keys may re-govern to a new f/<id>/… on upload.
+    // `replaced` is whether an object already lives at the final key (would overwrite).
     const dryRun = c.req.query("dryRun");
     if (dryRun === "1" || dryRun === "true") {
       const ws = c.get("workspace");
       const finalKey = finalizeUploadKey(key, ws);
+      const store = await storage(c.env, ws);
+      const replaced = await store.exists(finalKey);
       const urls = objectPublicUrls(c.env, await storageConfig(c.env, ws), finalKey);
       return c.json({
         workspace: c.get("workspaceName"),
         key: finalKey,
         url: urls.url,
         embedUrl: urls.embedUrl,
+        replaced,
         dryRun: true,
       });
     }

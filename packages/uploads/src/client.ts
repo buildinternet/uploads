@@ -75,7 +75,10 @@ export interface PutResult {
   embedUrl: string | null;
   size: number;
   contentType: string;
-  /** True when the put overwrote an existing key. Omitted on dry-run. */
+  /**
+   * True when the put overwrote an existing key, or (with dryRun) when a put
+   * at this key would overwrite. Always set by the API for put/dry-run.
+   */
   replaced?: boolean;
   metadata?: Record<string, string>;
 }
@@ -680,6 +683,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
           key: string;
           url: string | null;
           embedUrl?: string | null;
+          replaced?: boolean;
         }>("PUT", `${filesBase(config)}/${encodeKeyPath(key)}?dryRun=1`);
         if (preview.url == null) {
           throw new UploadsError(
@@ -694,6 +698,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
           embedUrl: resolveEmbedUrl(preview.url, preview.embedUrl),
           size: body.byteLength,
           contentType,
+          replaced: preview.replaced === true,
         };
       }
 

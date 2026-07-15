@@ -209,15 +209,29 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
       url: string;
       embedUrl: string | null;
       dryRun: boolean;
+      replaced: boolean;
     };
     expect(json).toEqual({
       workspace: "default",
       key: "screenshots/shot.png",
       url: "https://storage.uploads.sh/default/screenshots/shot.png",
       embedUrl: "https://embed.uploads.sh/default/screenshots/shot.png",
+      replaced: false,
       dryRun: true,
     });
     expect(bucket.store.has("default/screenshots/shot.png")).toBe(false);
+  });
+
+  it("dry run reports replaced=true when the key already exists", async () => {
+    const { env } = await makeEnv();
+    expect((await putShot(env)).status).toBe(201);
+    const res = await app.request(
+      "/v1/default/files/screenshots/shot.png?dryRun=1",
+      { method: "PUT", headers: { Authorization: `Bearer ${TOKEN}` }, body: new Uint8Array(0) },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { replaced: boolean; dryRun: boolean }).replaced).toBe(true);
   });
 
   it("dry run rejects a key the workspace policy disallows", async () => {

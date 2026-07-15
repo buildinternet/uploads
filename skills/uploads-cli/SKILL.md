@@ -44,8 +44,10 @@ The killer feature for GitHub: `--pr`/`--issue` produce **hash-free, stable keys
 (`gh/<owner>/<repo>/pull/<num>/<name>`), so re-uploading the same filename overwrites
 in place and the URL never changes. There is **no confirmation prompt** — hot-swap is
 intentional for agents and re-runs. Human mode prints
-`>> replaced existing object (same URL)` when the key already existed; JSON has
-`"replaced": true|false`. Responses include **two** public URLs when the
+`>> replaced existing object (same URL)` after overwrite; JSON has
+`"replaced": true|false`. Use `--dry-run` to preview: it prints
+`>> would replace existing object (same URL)` when the key already exists,
+without writing. Responses include **two** public URLs when the
 shared dual-host setup applies:
 
 | Field      | Host (default)       | Use for                                              |
@@ -146,28 +148,28 @@ capture them. Use `-` as the file to read from stdin.
 
 Key options (`uploads put --help` for all):
 
-| Flag                                  | Purpose                                                                                                                |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `--alt <text>`                        | Alt text for the markdown (default: filename). Always write meaningful alt text.                                       |
-| `--width <px>`                        | Emit sized `<img width=…>` HTML instead of `![]()` (markdown can't size images).                                       |
-| `--repo <owner/repo>`                 | Repo segment of the auto key (default: git remote, or `UPLOADS_DEFAULT_REPO`).                                         |
-| `--ref <id>`                          | PR/issue/branch/date segment (default: today, or `UPLOADS_DEFAULT_REF`).                                               |
-| `--destination <id>`                  | Typed root: `screenshots` \| `gh` \| `f` (sets key prefix).                                                            |
-| `--prefix <path>`                     | Key prefix (default: `screenshots`, or `UPLOADS_DEFAULT_PREFIX`).                                                      |
-| `--key <key>`                         | Set the object key explicitly; skips the auto-naming below.                                                            |
-| `--name <leaf>`                       | Clean filename for the key's leaf + default alt (no `/`); keeps the `--pr`/default path. Not with `--key`.             |
-| `--dry-run`                           | Resolve + print the key and final public URL without uploading (one read, no write). Not with `--comment`/`--gallery`. |
-| `--content-type <mime>`               | Override the content type (else inferred from extension; ignored when optimize rewrites the body).                     |
-| `--frame <id>`                        | Opt-in chrome before optimize: `phone`, `browser`, `iphone-16-pro`.                                                    |
-| `--frame-url <url>`                   | Address bar text for `--frame browser`.                                                                                |
-| `--frame-fit cover\|contain`          | How the shot fills the screen (default: `cover`).                                                                      |
-| `--no-optimize`                       | Skip client-side image optimization (default: still images → WebP). Or `UPLOADS_NO_OPTIMIZE=1`.                        |
-| `--optimize-max-edge <px>`            | Max long edge when optimizing (default: 2400).                                                                         |
-| `--optimize-quality <1-100>`          | WebP quality when optimizing (default: 85).                                                                            |
-| `--keep-exif`                         | Keep EXIF/XMP/ICC when optimizing (default: **strip** for privacy). Or `UPLOADS_KEEP_EXIF=1`.                          |
-| `--no-git`                            | Don't derive `--repo` from the git remote (or `UPLOADS_NO_GIT=1`).                                                     |
-| `--format human\|url\|markdown\|json` | Control stdout. `--json` (global) forces json.                                                                         |
-| `-w, --workspace <name>`              | Override workspace (wins over env and token inference).                                                                |
+| Flag                                  | Purpose                                                                                                                                                |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--alt <text>`                        | Alt text for the markdown (default: filename). Always write meaningful alt text.                                                                       |
+| `--width <px>`                        | Emit sized `<img width=…>` HTML instead of `![]()` (markdown can't size images).                                                                       |
+| `--repo <owner/repo>`                 | Repo segment of the auto key (default: git remote, or `UPLOADS_DEFAULT_REPO`).                                                                         |
+| `--ref <id>`                          | PR/issue/branch/date segment (default: today, or `UPLOADS_DEFAULT_REF`).                                                                               |
+| `--destination <id>`                  | Typed root: `screenshots` \| `gh` \| `f` (sets key prefix).                                                                                            |
+| `--prefix <path>`                     | Key prefix (default: `screenshots`, or `UPLOADS_DEFAULT_PREFIX`).                                                                                      |
+| `--key <key>`                         | Set the object key explicitly; skips the auto-naming below.                                                                                            |
+| `--name <leaf>`                       | Clean filename for the key's leaf + default alt (no `/`); keeps the `--pr`/default path. Not with `--key`.                                             |
+| `--dry-run`                           | Resolve + print the key and final public URL without uploading; reports if the key would replace an existing object. Not with `--comment`/`--gallery`. |
+| `--content-type <mime>`               | Override the content type (else inferred from extension; ignored when optimize rewrites the body).                                                     |
+| `--frame <id>`                        | Opt-in chrome before optimize: `phone`, `browser`, `iphone-16-pro`.                                                                                    |
+| `--frame-url <url>`                   | Address bar text for `--frame browser`.                                                                                                                |
+| `--frame-fit cover\|contain`          | How the shot fills the screen (default: `cover`).                                                                                                      |
+| `--no-optimize`                       | Skip client-side image optimization (default: still images → WebP). Or `UPLOADS_NO_OPTIMIZE=1`.                                                        |
+| `--optimize-max-edge <px>`            | Max long edge when optimizing (default: 2400).                                                                                                         |
+| `--optimize-quality <1-100>`          | WebP quality when optimizing (default: 85).                                                                                                            |
+| `--keep-exif`                         | Keep EXIF/XMP/ICC when optimizing (default: **strip** for privacy). Or `UPLOADS_KEEP_EXIF=1`.                                                          |
+| `--no-git`                            | Don't derive `--repo` from the git remote (or `UPLOADS_NO_GIT=1`).                                                                                     |
+| `--format human\|url\|markdown\|json` | Control stdout. `--json` (global) forces json.                                                                                                         |
+| `-w, --workspace <name>`              | Override workspace (wins over env and token inference).                                                                                                |
 
 **Image optimization (default on):** PNG/JPEG and similar still images are re-encoded to
 WebP (long edge capped at 2400px, quality 85) before upload so PR/issue embeds stay

@@ -73,8 +73,11 @@ wanted.
 **Re-upload / hot-swap:** putting again to the same key overwrites the object
 in place. There is no confirmation prompt (agents and re-runs need this). The
 public URL stays the same so every embed updates after cache revalidation.
-Human mode prints `>> replaced existing object (same URL)` when the API
-reports an overwrite; JSON includes `"replaced": true|false`.
+Human mode prints `>> replaced existing object (same URL)` after a real put;
+JSON includes `"replaced": true|false`. Preview first with
+`uploads put … --dry-run` — if the key already exists it reports
+`>> would replace existing object (same URL)` (and `"replaced": true` in JSON)
+without writing.
 
 > **Privacy:** Hosted files are served from a public CDN with no link to GitHub
 > repo visibility. A screenshot on a private PR is still reachable by anyone who

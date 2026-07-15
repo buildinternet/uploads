@@ -60,8 +60,10 @@ dual-host policy applies (default for `storage.uploads.sh` /
 `store.uploads.sh`), else `null`. Prefer `embedUrl` in GitHub markdown so
 in-place overwrites revalidate through Camo; keep `url` for durable links.
 Successful `PUT …/files/:key` also returns `replaced` (`true` when an object
-already lived at that key). Overwrites are intentional for stable attachment
-keys — there is no server-side confirmation gate.
+already lived at that key). `PUT …?dryRun=1` returns the same field without
+writing — `replaced: true` means a real put would overwrite. Overwrites are
+intentional for stable attachment keys — there is no server-side confirmation
+gate.
 Worker override: optional `EMBED_PUBLIC_BASE_URL` (empty disables; any URL is
 a self-hosted embed base). See [ops.md](./ops.md#dual-public-hosts-stable-vs-embed--github-camo).
 

@@ -222,6 +222,43 @@ describe("runPut --dry-run", () => {
     expect(puts[0].key).toBe("gh/o/r/pull/5/shot.png");
   });
 
+  it("prints would-replace note when dry-run reports replaced", async () => {
+    const puts: unknown[] = [];
+    const client = {
+      put: async (body: Uint8Array, opts: { filename: string; key?: string; dryRun?: boolean }) => {
+        puts.push(opts);
+        return {
+          workspace: "test",
+          key: opts.key ?? "k",
+          url: "https://x.test/k",
+          embedUrl: null,
+          size: body.byteLength,
+          contentType: "image/png",
+          replaced: true,
+        };
+      },
+    } as unknown as UploadsClient;
+    const stderr: string[] = [];
+    const write = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr.push(typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const ctx = { ...ctxWith(client), quiet: false };
+      const code = await runPut(
+        ctx,
+        [tmpFile(), "--pr", "5", "--repo", "o/r", "--dry-run", "--no-optimize"],
+        false,
+        noRun,
+      );
+      expect(code).toBe(0);
+      expect(stderr.join("")).toContain(">> would replace existing object (same URL)");
+    } finally {
+      process.stderr.write = write;
+    }
+  });
+
   it("rejects --dry-run with --comment", async () => {
     const { client } = fakeClient();
     await expect(

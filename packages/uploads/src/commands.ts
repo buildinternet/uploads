@@ -91,7 +91,9 @@ remain public even for private/internal GitHub repositories. Upload only media
 that is safe at a predictable public URL.
 
 Re-uploading the same key overwrites in place (no prompt) so embeds hot-swap;
-human mode prints ">> replaced existing object (same URL)" when that happens.
+human mode prints ">> replaced existing object (same URL)" after a real put,
+or ">> would replace existing object (same URL)" on --dry-run when the key
+already exists.
 
 Human/json output includes durable url and (when dual-host applies) embedUrl.
 MARKDOWN prefers embedUrl for GitHub. Override: UPLOADS_EMBED_PUBLIC_BASE_URL.
@@ -126,7 +128,7 @@ Options:
                         Re-uploading to an existing key WITH --meta replaces that file's
                         entire metadata set; without --meta the existing metadata is
                         preserved. Use "uploads meta set" to edit individual keys.
-  --dry-run             Print key + public URL without uploading. Not with --comment/--gallery
+  --dry-run             Print key + public URL without uploading; reports if the key would replace an existing object. Not with --comment/--gallery
 
 Exit codes: 0 ok · 2 usage/token/file · 3 auth/policy · 4 network · 1 other.
 Scripted formats (json|url|markdown) also print failures on stdout.
@@ -225,8 +227,14 @@ function formatOptimizeNote(opt: OptimizeImageResult): string | undefined {
   return undefined;
 }
 
-function writeReplacedNote(replaced: boolean | undefined, quiet: boolean): void {
-  if (!quiet && replaced) process.stderr.write(`>> replaced existing object (same URL)\n`);
+function writeReplacedNote(replaced: boolean | undefined, quiet: boolean, dryRun = false): void {
+  if (!quiet && replaced) {
+    process.stderr.write(
+      dryRun
+        ? `>> would replace existing object (same URL)\n`
+        : `>> replaced existing object (same URL)\n`,
+    );
+  }
 }
 
 export type PreparedUpload = OptimizeImageResult & {
@@ -690,7 +698,7 @@ export async function runPut(
     }),
     metadata,
   });
-  if (!dryRun && format === "human") writeReplacedNote(result.replaced, ctx.quiet);
+  if (format === "human") writeReplacedNote(result.replaced, ctx.quiet, dryRun);
 
   const embedSrc = urlForGithubEmbed(result.url, result.embedUrl)!;
   const markdown = buildMarkdown(embedSrc, { alt, width });

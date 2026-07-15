@@ -71,7 +71,8 @@ notes print human sizes (e.g. `411.5 KB → 94.2 KB`).
 
 **Re-upload / hot-swap:** the same key overwrites in place with no prompt (stable
 `--pr` / `attach` paths). Human mode notes `>> replaced existing object (same URL)`;
-JSON includes `replaced`.
+JSON includes `replaced`. Preview with `--dry-run` (reports _would replace_ when
+the key already exists).
 
 **Frames (opt-in):** `--frame phone|browser|iphone-16-pro` composites chrome
 **before** optimize. `phone`/`browser` are procedural; `iphone-16-pro` fetches
