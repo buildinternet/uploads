@@ -240,6 +240,11 @@ async function runDeviceLogin(
   const label = flagString(parsed.flags, "--label") ?? safeHostname();
   const requestedWorkspace = flagString(parsed.flags, "--workspace");
 
+  // Make the target explicit: a bare `uploads login` on a self-hosted install
+  // would otherwise silently sign in to the cloud service.
+  io.write(
+    `signing in to ${opts.authUrl} (self-hosted? pass --api-url or set UPLOADS_API_URL)\n\n`,
+  );
   const accessToken = await obtainDeviceAccessToken(opts.authUrl, { noOpen: opts.noOpen }, io);
 
   const workspace = await resolveMintWorkspace(opts.apiUrl, accessToken, requestedWorkspace, io);
@@ -410,6 +415,7 @@ export async function runLogin(
   const payload = {
     ok: doctor.ok,
     configPath: path,
+    apiUrl: savedApiUrl,
     workspace: result.workspace,
     token: redactToken(result.token),
     doctor: checked ? doctor : { skipped: true },
@@ -417,11 +423,15 @@ export async function runLogin(
   if (opts.json) process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
   else {
     process.stdout.write(
-      `saved credentials to ${path}\nworkspace: ${result.workspace}\ntoken: ${redactToken(result.token)}\n`,
+      `saved credentials to ${path}\napi: ${savedApiUrl}\nworkspace: ${result.workspace}\ntoken: ${redactToken(result.token)}\n`,
     );
     process[doctor.ok ? "stdout" : "stderr"].write(
       `doctor: ${checked ? (doctor.ok ? "ok" : `failed — ${doctor.error}`) : "skipped"}\n`,
     );
+    if (doctor.ok)
+      process.stdout.write(
+        "\nusing a coding agent? run `uploads install` to add the uploads skill + MCP server to Claude Code\n",
+      );
   }
   return doctor.ok ? 0 : 1;
 }
