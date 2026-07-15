@@ -59,6 +59,19 @@ describe("uploads install", () => {
         "*",
       ],
       [
+        "npx",
+        "-y",
+        "skills",
+        "add",
+        "buildinternet/uploads",
+        "--skill",
+        "github-screenshots",
+        "-g",
+        "-y",
+        "-a",
+        "*",
+      ],
+      [
         "claude",
         "mcp",
         "add",
@@ -78,9 +91,10 @@ describe("uploads install", () => {
     const code = await runInstall([], { globals: GLOBALS, runner: run });
     expect(code).toBe(0);
     const printed = out.join("");
-    expect(printed).toContain("Installing skill…");
+    expect(printed).toContain("Installing skills…");
     expect(printed).toContain("Installing MCP server…");
-    expect(printed).toMatch(/skill: ok/);
+    expect(printed).toMatch(/skill:uploads-cli: ok/);
+    expect(printed).toMatch(/skill:github-screenshots: ok/);
     expect(printed).toMatch(/mcp: ok/);
     // Child process noise stays out of the happy path.
     expect(printed).not.toContain("multi-line child output");
@@ -100,8 +114,8 @@ describe("uploads install", () => {
   it("install skill runs only the skills step", async () => {
     const { run, calls } = fakeRunner();
     expect(await runInstall(["skill"], { globals: GLOBALS, runner: run })).toBe(0);
-    expect(calls).toHaveLength(1);
-    expect(calls[0][0]).toBe("npx");
+    expect(calls).toHaveLength(2);
+    expect(calls.every((c) => c[0] === "npx")).toBe(true);
   });
 
   it("skill-only success still nudges login when unsigned", async () => {
@@ -159,13 +173,14 @@ describe("uploads install", () => {
       runner: run,
     });
     expect(code).toBe(1);
-    expect(calls).toHaveLength(1);
-    expect(calls[0][0]).toBe("npx");
-    expect(out.join("")).toMatch(/skill: ok/);
+    expect(calls).toHaveLength(2);
+    expect(calls.every((c) => c[0] === "npx")).toBe(true);
+    expect(out.join("")).toMatch(/skill:uploads-cli: ok/);
+    expect(out.join("")).toMatch(/skill:github-screenshots: ok/);
     expect(out.join("")).toMatch(/mcp: skipped/);
     expect(out.join("")).not.toMatch(/mcp: failed/);
     expect(out.join("")).toMatch(/uploads login/);
-    expect(out.join("")).toMatch(/Skill is installed/);
+    expect(out.join("")).toMatch(/Skills are installed/);
     expect(err.join("")).not.toMatch(/error:/i);
   });
 
@@ -190,5 +205,15 @@ describe("uploads install", () => {
     await expect(runInstall(["nope"], { globals: GLOBALS, runner: run })).rejects.toThrow(
       /unknown install target/,
     );
+  });
+
+  it("--json reports each skill step under its own key", async () => {
+    const { run } = fakeRunner();
+    const { out } = captureStreams();
+    const code = await runInstall(["skill"], { globals: GLOBALS, json: true, runner: run });
+    expect(code).toBe(0);
+    const parsed = JSON.parse(out.join(""));
+    expect(parsed.ok).toBe(true);
+    expect(Object.keys(parsed.steps)).toEqual(["skill:uploads-cli", "skill:github-screenshots"]);
   });
 });

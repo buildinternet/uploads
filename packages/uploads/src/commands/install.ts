@@ -11,23 +11,25 @@ import { writeCommandHelp } from "../cli-style.js";
 
 export const DEFAULT_MCP_URL = "https://agents.uploads.sh/mcp";
 const SKILL_SOURCE = "buildinternet/uploads";
-const SKILL_NAME = "uploads-cli";
+const SKILL_NAMES = ["uploads-cli", "github-screenshots"];
 
-const INSTALL_HELP = `uploads install — set up agent integrations (skill + remote MCP)
+const INSTALL_HELP = `uploads install — set up agent integrations (skills + remote MCP)
 
-Installs the uploads-cli agent skill and registers the hosted MCP server
-with Claude Code. The remote MCP endpoint infers your workspace from the
-bearer token, so only the token is needed.
+Installs the github-screenshots and uploads-cli agent skills and registers
+the hosted MCP server with Claude Code. The remote MCP endpoint infers your
+workspace from the bearer token, so only the token is needed.
 
 Usage:
   uploads install [skill|mcp|all]     (default: all)
 
 What it does:
-  skill   Agent skill (via npx skills) — when to host files / embed in PRs
+  skill   Agent skills (via npx skills) — github-screenshots: visuals into
+          PRs/issues; uploads-cli: full CLI reference
   mcp     Hosted MCP server in Claude Code — put, list, attach, galleries
 
 What runs under the hood:
-  skill   npx -y skills add ${SKILL_SOURCE} --skill ${SKILL_NAME} -g -y -a '*'
+  skill   npx -y skills add ${SKILL_SOURCE} --skill <name> -g -y -a '*'
+          (once per skill: ${SKILL_NAMES.join(", ")})
   mcp     claude mcp add --transport http uploads ${DEFAULT_MCP_URL} \\
             --header "Authorization: Bearer <token>"
 
@@ -75,9 +77,9 @@ function runStep(run: CommandRunner, command: string[]): StepResult {
   }
 }
 
-function skillCommand(): string[] {
+function skillCommand(skill: string): string[] {
   // -g global, -y non-interactive, -a '*' every agent (skips the multi-select TUI)
-  return ["npx", "-y", "skills", "add", SKILL_SOURCE, "--skill", SKILL_NAME, "-g", "-y", "-a", "*"];
+  return ["npx", "-y", "skills", "add", SKILL_SOURCE, "--skill", skill, "-g", "-y", "-a", "*"];
 }
 
 function mcpCommand(name: string, url: string, bearer: string): string[] {
@@ -176,9 +178,13 @@ export async function runInstall(
   const results: Record<string, StepResult> = {};
 
   if (target === "skill" || target === "all") {
-    const command = skillCommand();
-    if (human) process.stdout.write("Installing skill…\n");
-    results.skill = dryRun ? { command, ok: true, skipped: "dry-run" } : runStep(run, command);
+    if (human) process.stdout.write("Installing skills…\n");
+    for (const skill of SKILL_NAMES) {
+      const command = skillCommand(skill);
+      results[`skill:${skill}`] = dryRun
+        ? { command, ok: true, skipped: "dry-run" }
+        : runStep(run, command);
+    }
   }
 
   if (target === "mcp" || target === "all") {
@@ -217,14 +223,22 @@ export async function runInstall(
 
   printHumanSteps(results, redact, verbose);
 
+  const skillResults = Object.entries(results)
+    .filter(([step]) => step.startsWith("skill:"))
+    .map(([, r]) => r);
+  const skillsOk = skillResults.length > 0 && skillResults.every((r) => r.ok);
+
   if (!failed && !dryRun) {
-    printSuccessFooter(Object.keys(results), signedIn);
-  } else if (failed && !dryRun && results.skill?.ok && results.mcp && !results.mcp.ok) {
+    const stepLabels = [
+      ...new Set(Object.keys(results).map((k) => (k.startsWith("skill:") ? "skills" : k))),
+    ];
+    printSuccessFooter(stepLabels, signedIn);
+  } else if (failed && !dryRun && skillsOk && results.mcp && !results.mcp.ok) {
     const next =
       results.mcp.skipped === "sign-in"
         ? "Sign in with `uploads login`, then re-run `uploads install mcp`."
         : "Fix the MCP step above, then re-run `uploads install mcp`.";
-    process.stdout.write(`\nSkill is installed. ${next}\n`);
+    process.stdout.write(`\nSkills are installed. ${next}\n`);
   }
 
   return failed ? 1 : 0;
