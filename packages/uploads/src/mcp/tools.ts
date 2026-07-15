@@ -14,6 +14,7 @@ import {
   prepareImageForUpload,
   readFileArg,
   syncAttachmentsComment,
+  uploadAttachments,
 } from "../commands.js";
 import { resolveFrameId } from "../frame.js";
 import {
@@ -522,7 +523,7 @@ export function createUploadsMcpTools(opts: {
     {
       name: "attach",
       description:
-        "Upload one or more files as stable PR/issue attachments and maintain a single managed GitHub comment listing them. Each upload returns `url`, `embedUrl` (when dual-host applies), and `markdown` (uses embedUrl for GitHub). With no pr/issue, targets the pull request for the current branch. Attachments are public and keys are predictable; upload only non-sensitive media.",
+        "Upload one or more files as stable PR/issue attachments (in parallel) and maintain a managed GitHub comment. Returns `uploads` and `failures` (one bad file does not abort the batch). Each success has `url`, `embedUrl`, and `markdown` (prefer embedUrl for GitHub). With no pr/issue, targets the current branch PR. Attachments are public and keys are predictable; upload only non-sensitive media.",
       inputSchema: {
         type: "object",
         properties: {
@@ -594,45 +595,25 @@ export function createUploadsMcpTools(opts: {
         const metadata = { ...metaExtras, ...ghMetadataFromTarget(target) };
         if (Object.keys(metadata).length > 0) validateMetaMap(metadata);
 
-        const uploads = [];
-        for (const file of files) {
-          const sourceName = basename(file);
-          const prepared = await prepareImageForUpload(readFileArg(file), sourceName, {
-            ...frameOpts,
-            optimize: optimizeOpts,
-          });
-          const result = await client.put(prepared.bytes, {
-            filename: prepared.filename,
-            key: ghAttachmentKey(target, prepared.filename),
-            contentType: prepared.optimized ? prepared.contentType : contentType,
-            provenance: buildCliProvenance({
-              sourceName,
-              client: "uploads-mcp",
-              optimized: prepared.optimized,
-              frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
-              keepExif: optimizeOpts.keepExif === true,
-            }),
-            metadata,
-          });
-          uploads.push({
-            ...result,
-            markdown: buildMarkdown(urlForGithubEmbed(result.url, result.embedUrl)!, {
-              alt: sourceName,
-            }),
-            frame: prepared.frame,
-            optimize: {
-              optimized: prepared.optimized,
-              skippedReason: prepared.skippedReason,
-              originalBytes: prepared.originalBytes,
-              outputBytes: prepared.outputBytes,
-              filename: prepared.filename,
-            },
-          });
+        const { uploads, failures, firstError } = await uploadAttachments({
+          client,
+          target,
+          files,
+          contentType,
+          optimize: optimizeOpts,
+          frame: frameOpts,
+          metadata,
+          provenanceClient: "uploads-mcp",
+        });
+
+        // Total failure → tool error (isError) so agents notice.
+        if (uploads.length === 0 && failures.length > 0) {
+          throw firstError instanceof Error ? firstError : new Error(String(firstError));
         }
 
-        if (optBool(args, "noComment")) return { target, uploads };
+        if (optBool(args, "noComment")) return { target, uploads, failures };
         const { comment, commentError } = await syncComment(client, target);
-        return { target, uploads, comment, commentError };
+        return { target, uploads, failures, comment, commentError };
       },
     },
     {

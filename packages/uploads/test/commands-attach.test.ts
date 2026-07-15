@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import type { UploadsClient } from "../src/client.js";
 import { runAttach, type CliContext } from "../src/commands.js";
+import { UploadsError } from "../src/errors.js";
 import type { CommandRunner } from "../src/github-gh.js";
 
 function files(...names: string[]): string[] {
@@ -16,7 +17,10 @@ function files(...names: string[]): string[] {
   });
 }
 
-function fakeClient() {
+function fakeClient(opts?: {
+  /** Reject put for keys whose leaf matches this predicate. */
+  failLeaf?: (leaf: string) => boolean | Error;
+}) {
   const puts: string[] = [];
   const metadataByKey: Record<string, Record<string, string> | undefined> = {};
   const list = async ({ prefix }: { prefix?: string } = {}) => ({
@@ -26,20 +30,29 @@ function fakeClient() {
     cursor: null,
   });
   const client = {
-    put: async (_body: Uint8Array, opts: { key: string; metadata?: Record<string, string> }) => {
-      puts.push(opts.key);
-      metadataByKey[opts.key] = opts.metadata;
+    put: async (_body: Uint8Array, putOpts: { key: string; metadata?: Record<string, string> }) => {
+      const leaf = putOpts.key.split("/").at(-1) ?? putOpts.key;
+      if (opts?.failLeaf) {
+        const fail = opts.failLeaf(leaf);
+        if (fail) {
+          throw fail instanceof Error
+            ? fail
+            : new UploadsError(`forced fail: ${leaf}`, "API_ERROR", 500);
+        }
+      }
+      puts.push(putOpts.key);
+      metadataByKey[putOpts.key] = putOpts.metadata;
       return {
         workspace: "test",
-        key: opts.key,
-        url: `https://x.test/${opts.key}`,
+        key: putOpts.key,
+        url: `https://x.test/${putOpts.key}`,
         embedUrl: null,
         size: 3,
         contentType: "image/png",
       };
     },
     list,
-    listAll: async (opts: { prefix?: string } = {}) => (await list(opts)).items,
+    listAll: async (listOpts: { prefix?: string } = {}) => (await list(listOpts)).items,
     findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
     getGallery: async () => ({ items: [] }),
   } as unknown as UploadsClient;
@@ -84,14 +97,90 @@ describe("runAttach", () => {
     const { client, puts } = fakeClient();
     const { run, calls } = ghRunner();
     expect(await runAttach(ctxWith(client), files("before.png", "after.png"), false, run)).toBe(0);
-    expect(puts).toEqual([
-      "gh/buildinternet/uploads/pull/123/before.png",
-      "gh/buildinternet/uploads/pull/123/after.png",
-    ]);
+    expect(puts.sort()).toEqual(
+      [
+        "gh/buildinternet/uploads/pull/123/before.png",
+        "gh/buildinternet/uploads/pull/123/after.png",
+      ].sort(),
+    );
     expect(calls.some((call) => call[1] === "pr" && call[2] === "view")).toBe(true);
     expect(
       calls.some((call) => call.includes("repos/buildinternet/uploads/issues/123/comments")),
     ).toBe(true);
+  });
+
+  it("uploads multiple files with bounded concurrency", async () => {
+    const { client, puts } = fakeClient();
+    const { run } = ghRunner();
+    // Count overlap at the put boundary (after prepare). Hold each put open so
+    // concurrent workers can stack before any resolves.
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const originalPut = client.put.bind(client);
+    client.put = async (body, opts) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 40));
+      inFlight -= 1;
+      return originalPut(body, opts);
+    };
+    const paths = files("a.png", "b.png", "c.png", "d.png");
+    expect(await runAttach(ctxWith(client), [...paths, "--no-comment"], false, run)).toBe(0);
+    expect(puts).toHaveLength(4);
+    expect(maxInFlight).toBeGreaterThan(1);
+  });
+
+  it("continues after a per-file failure and reports failures (exit 1)", async () => {
+    const { client, puts } = fakeClient({
+      failLeaf: (leaf) => leaf === "bad.png",
+    });
+    const { run, calls } = ghRunner();
+    const paths = files("good.png", "bad.png", "also-good.png");
+    const ctx = { ...ctxWith(client), json: true };
+    const jsonChunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      jsonChunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      expect(await runAttach(ctx, paths, false, run)).toBe(1);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(puts.sort()).toEqual(
+      [
+        "gh/buildinternet/uploads/pull/123/good.png",
+        "gh/buildinternet/uploads/pull/123/also-good.png",
+      ].sort(),
+    );
+    const payload = JSON.parse(jsonChunks.join("")) as {
+      uploads: { key: string }[];
+      failures: { file: string; error: { message: string; code?: string } }[];
+    };
+    expect(payload.uploads.map((u) => u.key).sort()).toEqual(
+      [
+        "gh/buildinternet/uploads/pull/123/good.png",
+        "gh/buildinternet/uploads/pull/123/also-good.png",
+      ].sort(),
+    );
+    expect(payload.failures).toHaveLength(1);
+    expect(payload.failures[0]!.file).toContain("bad.png");
+    expect(payload.failures[0]!.error.code).toBe("API_ERROR");
+    // Partial success still refreshes the managed comment.
+    expect(
+      calls.some((call) => call.includes("repos/buildinternet/uploads/issues/123/comments")),
+    ).toBe(true);
+  });
+
+  it("rethrows a single-file total failure for exit-code mapping", async () => {
+    const { client } = fakeClient({
+      failLeaf: () => new UploadsError("nope", "UNAUTHORIZED", 401),
+    });
+    const { run } = ghRunner();
+    await expect(runAttach(ctxWith(client), files("only.png"), false, run)).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+      status: 401,
+    });
   });
 
   it("supports an explicit issue and skips the managed comment with --no-comment", async () => {

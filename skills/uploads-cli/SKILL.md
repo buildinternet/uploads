@@ -28,8 +28,9 @@ also create and maintain a single "attachments" comment for you via your local
 `gh` auth.
 
 For the common case, use `uploads attach <file...>`. It infers the current branch's
-PR, uploads every file under stable attachment keys, and maintains the comment by
-default:
+PR, uploads every file under stable attachment keys (in parallel), and maintains
+the comment by default. One bad file does not block the rest — JSON includes
+`uploads` and `failures` (exit `1` when any failed):
 
 ```bash
 uploads attach ./before.png ./after.png
