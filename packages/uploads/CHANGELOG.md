@@ -1,5 +1,19 @@
 # @buildinternet/uploads
 
+## 0.10.0
+
+### Minor Changes
+
+- bb2f34f: Style command-level --help like the root overview; add --meta examples; add whoami/status and logout
+- 3e0ceb9: Improve CLI overview: curated help, `help` + `completion`, brand-token colors, half-block mark header, auth/update banners
+
+### Patch Changes
+
+- 9458b2b: Print human-readable optimize sizes (e.g. `411.5 KB → 94.2 KB`) and note when a put overwrites an existing object (`replaced` on the API/JSON, `>> replaced existing object (same URL)` in human mode). `--dry-run` reports `would replace` / `"replaced": true` when the key already exists, without writing.
+- 3daebbb: `uploads invite create` now says whether the invitation was emailed or whether the install has no email configured and the accept link must be shared by hand (`emailConfigured` also appears in `--json` output). Older auth workers that don't report the field keep the previous hedged copy.
+- ef7fa68: `uploads login --workspace <name> --create` provisions the workspace during login when the account doesn't have it yet, so scripted and agent logins can self-onboard without an interactive prompt (device approval in a browser is still required once). The zero-workspace non-interactive error now points at the flag.
+- a5f2e49: `uploads login` now says which auth host it is signing in to (with a self-hosting hint), includes the saved API URL in its success output and `--json` payload, and ends with a pointer to `uploads install` so agent users discover the skill + MCP setup command.
+
 ## 0.9.0
 
 ### Minor Changes
