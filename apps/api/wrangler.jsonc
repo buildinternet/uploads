@@ -81,6 +81,16 @@
           "period": 60,
         },
       },
+      {
+        // Self-serve workspace creation, keyed by user — keeps the burst window at the cap.
+        "name": "WS_CREATE_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1003",
+        "simple": {
+          "limit": 3,
+          "period": 60,
+        },
+      },
     ],
   },
   // Transactional email (Cloudflare Email Sending). uploads.sh is onboarded for

@@ -7,7 +7,7 @@
  */
 import { ConflictError, ForbiddenError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
-import { allowWrite } from "../guards";
+import { allowWorkspaceCreate } from "../guards";
 import { deleteOrg, isGithubLinked, membershipsForUser, provisionOrg } from "../org-workspaces";
 import { selfServeWorkspaceRecord } from "../self-serve-defaults";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
@@ -46,16 +46,18 @@ export const workspaces = new Hono<SessionVars>().post(
 
     const user = c.get("sessionUser")!;
 
+    // Rate-limit before the GitHub round-trip so unthrottled probes can't
+    // hammer the auth worker. Dedicated strict limiter (3/60s, matching the
+    // create cap) rather than the shared WRITE_LIMITER — that keeps
+    // concurrent requests from racing past the per-user cap check below.
+    if (!(await allowWorkspaceCreate(c.env, user.id))) {
+      throw new RateLimitedError("workspace creation rate limit exceeded");
+    }
+
     if (!(await isGithubLinked(c.env, user.id))) {
       throw new ForbiddenError("connect a GitHub account to create workspaces", {
         code: "github_required",
       });
-    }
-
-    // Same WRITE_LIMITER other mutating routes use, keyed per user so one
-    // account can't hammer creation while others stay unaffected.
-    if (!(await allowWrite(c.env, `wscreate:${user.id}`))) {
-      throw new RateLimitedError("workspace creation rate limit exceeded");
     }
 
     // Cap counts only self-serve workspaces the user OWNS — BYO/operator

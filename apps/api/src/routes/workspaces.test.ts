@@ -13,6 +13,7 @@ interface EnvOpts {
   provision?: () => { status: number; organization?: { id: string; slug: string; name: string } };
   onDeleteOrg?: (slug: string) => void;
   putThrows?: boolean;
+  wsCreateLimiterAllows?: boolean;
 }
 
 function stubAuth(handler: (req: Request) => Response | Promise<Response>): Pick<Fetcher, "fetch"> {
@@ -36,6 +37,7 @@ function stubEnv(opts: EnvOpts = {}): Env {
     }),
     onDeleteOrg,
     putThrows = false,
+    wsCreateLimiterAllows,
   } = opts;
 
   const auth = stubAuth((req) => {
@@ -79,8 +81,16 @@ function stubEnv(opts: EnvOpts = {}): Env {
     }) as unknown as KVNamespace["put"],
   };
 
+  const wsCreateLimiter =
+    wsCreateLimiterAllows === undefined
+      ? undefined
+      : ({
+          limit: (async () => ({ success: wsCreateLimiterAllows })) as unknown,
+        } as unknown as Env["WS_CREATE_LIMITER"]);
+
   return Object.assign({ AUTH: auth, REGISTRY: registry, __puts: puts } as unknown as Env, {
     __puts: puts,
+    ...(wsCreateLimiter ? { WS_CREATE_LIMITER: wsCreateLimiter } : {}),
   });
 }
 
@@ -123,11 +133,27 @@ describe("POST /v1/workspaces", () => {
   });
 
   it("403s code github_required when no GitHub account is linked", async () => {
-    const res = await post(stubEnv({ githubLinked: false }), { name: "zachbot" });
+    const res = await post(stubEnv({ githubLinked: false, wsCreateLimiterAllows: true }), {
+      name: "zachbot",
+    });
     expect(res.status).toBe(403);
     expect((await res.json()) as { error: { code: string } }).toMatchObject({
       error: { code: "github_required" },
     });
+  });
+
+  it("429s when the workspace-create limiter denies", async () => {
+    const res = await post(stubEnv({ wsCreateLimiterAllows: false }), { name: "zachbot" });
+    expect(res.status).toBe(429);
+  });
+
+  it("checks the create-rate-limit before the GitHub-linked gate", async () => {
+    // Limiter denies AND GitHub isn't linked — rate limit must win, proving
+    // the limiter check runs first and doesn't require the AUTH round-trip.
+    const res = await post(stubEnv({ wsCreateLimiterAllows: false, githubLinked: false }), {
+      name: "zachbot",
+    });
+    expect(res.status).toBe(429);
   });
 
   it("403s code workspace_cap_reached at 3 owned self-serve workspaces", async () => {
