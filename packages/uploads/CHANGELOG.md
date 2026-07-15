@@ -1,5 +1,14 @@
 # @buildinternet/uploads
 
+## 0.11.1
+
+### Patch Changes
+
+- 4bc3637: Parallel multi-file `attach` (CLI + MCP) with partial-failure `uploads`/`failures` results
+- 2a4b2ac: `uploads install` now prints a closing next-step hint when only some agent skills succeed (or all fail), instead of leaving a half-installed state with no guidance after the per-step failure lines.
+- cd5c89f: Add MCP `get_metadata` (stdio + hosted) so agents can read an object's queryable custom metadata by key — same as `uploads meta get`.
+- dd84103: Multi-file `put` (CLI + stdio MCP) with partial failures; MCP total-failure keeps structured `failures[]`
+
 ## 0.11.0
 
 ### Minor Changes
