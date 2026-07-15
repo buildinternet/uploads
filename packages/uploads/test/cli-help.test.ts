@@ -28,6 +28,8 @@ describe("formatRootHelp", () => {
     expect(text).toMatch(/put <file>/);
     expect(text).toMatch(/attach <file\.\.\.>/);
     expect(text).toMatch(/uploads help --all/);
+    // install ships multiple agent skills — keep catalog/help plural (#189 drift).
+    expect(text).toMatch(/agent skills/);
     expect(text).not.toMatch(/purge-expired/);
     expect(text).not.toMatch(/ADMIN_TOKEN/);
     expect(text).not.toMatch(/BUILDINTERNET_CONFIG/);
@@ -41,6 +43,7 @@ describe("formatRootHelp", () => {
     expect(text).toMatch(/admin/);
     expect(text).toMatch(/BUILDINTERNET_CONFIG/);
     expect(text).toMatch(/help --all/);
+    expect(text).toMatch(/agent skills/);
   });
 
   it("emits ANSI hierarchy when color is on", () => {

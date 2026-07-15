@@ -227,6 +227,7 @@ export async function runInstall(
     .filter(([step]) => step.startsWith("skill:"))
     .map(([, r]) => r);
   const skillsOk = skillResults.length > 0 && skillResults.every((r) => r.ok);
+  const skillsFailed = skillResults.some((r) => !r.ok);
 
   if (!failed && !dryRun) {
     const stepLabels = [
@@ -239,6 +240,11 @@ export async function runInstall(
         ? "Sign in with `uploads login`, then re-run `uploads install mcp`."
         : "Fix the MCP step above, then re-run `uploads install mcp`.";
     process.stdout.write(`\nSkills are installed. ${next}\n`);
+  } else if (failed && !dryRun && skillsFailed) {
+    // Mixed or total skill failure used to print only per-step lines (#191).
+    process.stdout.write(
+      "\nSkill install incomplete. Fix the errors above, then re-run `uploads install skill`.\n",
+    );
   }
 
   return failed ? 1 : 0;

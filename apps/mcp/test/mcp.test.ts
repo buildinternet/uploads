@@ -545,6 +545,7 @@ describe("mcp worker", () => {
       set: { app: "x" },
     });
     expect(result.isError).toBe(true);
+    expect(result.content).toEqual([{ type: "text", text: "object not found" }]);
   });
 
   it("set_metadata rejects a reserved key as a tool error", async () => {

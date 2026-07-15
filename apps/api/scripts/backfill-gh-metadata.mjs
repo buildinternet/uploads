@@ -20,9 +20,11 @@
  *   node --env-file=../../.env scripts/backfill-gh-metadata.mjs --dry-run
  *   node --env-file=../../.env scripts/backfill-gh-metadata.mjs
  *   node --env-file=../../.env scripts/backfill-gh-metadata.mjs --workspace other-ws
+ *   node --env-file=../../.env scripts/backfill-gh-metadata.mjs --workspace=other-ws
  *
  * Never point this at a production workspace during testing — use a local
- * `wrangler dev` stack (UPLOADS_API_URL=http://localhost:8787) first.
+ * `wrangler dev` stack (UPLOADS_API_URL=http://localhost:8787) first. When
+ * UPLOADS_API_URL is unset this defaults to prod and prints a warning.
  */
 import { pathToFileURL } from "node:url";
 
@@ -150,6 +152,8 @@ function parseArgs(argv) {
     const arg = argv[i];
     if (arg === "--dry-run") {
       opts.dryRun = true;
+    } else if (arg.startsWith("--workspace=")) {
+      opts.workspace = arg.slice("--workspace=".length);
     } else if (arg === "--workspace") {
       opts.workspace = argv[++i];
     } else {
@@ -167,6 +171,7 @@ async function main() {
     console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
   }
+  const defaultedApi = !process.env.UPLOADS_API_URL;
   const apiUrl = process.env.UPLOADS_API_URL ?? "https://api.uploads.sh";
   const workspace = opts.workspace ?? process.env.UPLOADS_WORKSPACE;
   const token = process.env.UPLOADS_TOKEN;
@@ -178,6 +183,9 @@ async function main() {
   if (!token) {
     console.error("error: UPLOADS_TOKEN is required");
     process.exit(1);
+  }
+  if (defaultedApi) {
+    console.warn(`warning: UPLOADS_API_URL unset; defaulting to ${apiUrl} (production)`);
   }
 
   console.log(

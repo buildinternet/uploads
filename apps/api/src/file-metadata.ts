@@ -8,7 +8,7 @@
  * server/allowlist-controlled.
  */
 
-import { ValidationError } from "@uploads/errors";
+import { InternalError, ValidationError } from "@uploads/errors";
 import { PROVENANCE_SERVER_KEYS } from "./provenance";
 
 /** Lowercase key, optionally namespaced with dots (e.g. `gh.repo`). */
@@ -132,15 +132,20 @@ export async function getFileMetadata(
   workspace: string,
   objectKey: string,
 ): Promise<Record<string, string>> {
-  const result = await db
-    .prepare(
-      `SELECT meta_key, meta_value FROM file_metadata WHERE workspace = ? AND object_key = ?`,
-    )
-    .bind(workspace, objectKey)
-    .all<MetaRow>();
-  const metadata: Record<string, string> = {};
-  for (const row of result.results) metadata[row.meta_key] = row.meta_value;
-  return metadata;
+  try {
+    const result = await db
+      .prepare(
+        `SELECT meta_key, meta_value FROM file_metadata WHERE workspace = ? AND object_key = ?`,
+      )
+      .bind(workspace, objectKey)
+      .all<MetaRow>();
+    const metadata: Record<string, string> = {};
+    for (const row of result.results) metadata[row.meta_key] = row.meta_value;
+    return metadata;
+  } catch (err) {
+    // Public /f/ hits this path — keep D1 blips as typed AppErrors for respondError.
+    throw new InternalError("failed to load file metadata", { cause: err });
+  }
 }
 
 /**

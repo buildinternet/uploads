@@ -216,4 +216,23 @@ describe("uploads install", () => {
     expect(parsed.ok).toBe(true);
     expect(Object.keys(parsed.steps)).toEqual(["skill:uploads-cli", "skill:github-screenshots"]);
   });
+
+  it("mixed skill success/failure prints closing guidance (issue #191)", async () => {
+    let skillCalls = 0;
+    const run: CommandRunner = (cmd) => {
+      if (cmd === "npx") {
+        skillCalls += 1;
+        if (skillCalls === 2) throw new Error("skills add failed for github-screenshots");
+        return "ok\n";
+      }
+      return "mcp ok\n";
+    };
+    const { out, err } = captureStreams();
+    const code = await runInstall(["skill"], { globals: GLOBALS, runner: run });
+    expect(code).toBe(1);
+    expect(out.join("")).toMatch(/skill:uploads-cli: ok/);
+    expect(err.join("")).toMatch(/skill:github-screenshots: failed/);
+    expect(out.join("")).toMatch(/Skill install incomplete/);
+    expect(out.join("")).toMatch(/uploads install skill/);
+  });
 });

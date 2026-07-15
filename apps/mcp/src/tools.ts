@@ -16,6 +16,7 @@ import {
   usage,
   type McpTool,
 } from "@buildinternet/uploads/mcp";
+import { NotFoundError } from "@uploads/errors";
 import { badKey } from "@uploads/api/files";
 import {
   findObjectsByMetadata,
@@ -98,7 +99,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     const key = requiredString(args, "key");
     if (badKey(key)) usage("invalid key");
     const store = await storage(env, workspace);
-    if (!(await store.exists(key))) throw new Error("object not found");
+    if (!(await store.exists(key))) throw new NotFoundError("object not found");
     return key;
   }
 
