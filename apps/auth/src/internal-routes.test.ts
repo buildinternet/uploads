@@ -432,9 +432,12 @@ describe("DB-backed behavior", () => {
       const body = (await res.json()) as {
         invitation: { id: string; status: string; email: string };
         acceptUrl: string;
+        emailConfigured: boolean;
       };
       expect(body.acceptUrl).toContain(`/accept-invitation/${body.invitation.id}`);
       expect(body.invitation.email).toBe("invitee@example.com");
+      // Test env has no EMAIL binding, so the install reports it can't email.
+      expect(body.emailConfigured).toBe(false);
 
       const rows = await orm
         .select()

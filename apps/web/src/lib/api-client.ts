@@ -223,7 +223,14 @@ export async function setFileVisibility(
 }
 
 export type InviteResult =
-  | { kind: "ok"; invitationId?: string; status?: string; acceptUrl?: string }
+  | {
+      kind: "ok";
+      invitationId?: string;
+      status?: string;
+      acceptUrl?: string;
+      /** Whether this install can send invite emails; undefined = older auth worker. */
+      emailConfigured?: boolean;
+    }
   | { kind: "unavailable"; reason: RequestFailure | "server" | "forbidden" | "invalid" };
 
 /**
@@ -253,12 +260,14 @@ export async function inviteToWorkspace(
   const body = (await response.json().catch(() => null)) as {
     invitation?: { id?: string; status?: string };
     acceptUrl?: string;
+    emailConfigured?: boolean;
   } | null;
   return {
     kind: "ok",
     invitationId: body?.invitation?.id,
     status: body?.invitation?.status,
     acceptUrl: typeof body?.acceptUrl === "string" ? body.acceptUrl : undefined,
+    emailConfigured: typeof body?.emailConfigured === "boolean" ? body.emailConfigured : undefined,
   };
 }
 

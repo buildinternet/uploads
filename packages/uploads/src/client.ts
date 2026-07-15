@@ -498,6 +498,8 @@ export function createWorkspaceInvite(
 ): Promise<{
   invitation: { id: string; email: string; role: string; status: string };
   acceptUrl?: string;
+  /** Whether the install can send invite emails; absent on older auth workers. */
+  emailConfigured?: boolean;
 }> {
   return jsonRequest(
     `${apiUrl.replace(/\/$/, "")}/me/workspaces/${encodeURIComponent(workspace)}/invites`,

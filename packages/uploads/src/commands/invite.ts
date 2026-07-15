@@ -114,16 +114,28 @@ export async function runInvite(
     invitationId: result.invitation.id,
     status: result.invitation.status,
     acceptUrl: result.acceptUrl ?? null,
+    emailConfigured: result.emailConfigured ?? null,
   };
   if (opts.json) process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
   else {
     process.stdout.write(
       `Invited ${email} to ${workspace} as ${role} (${result.invitation.status}).\n`,
     );
-    if (result.acceptUrl) {
+    if (result.emailConfigured === true) {
+      process.stdout.write(`Invitation emailed to ${email}.\n`);
+    } else if (result.emailConfigured === false) {
       process.stdout.write(
-        `Accept link (share if email isn't configured):\n  ${result.acceptUrl}\n`,
+        "Email isn't configured on this install — share the accept link yourself.\n",
       );
+    }
+    if (result.acceptUrl) {
+      const label =
+        result.emailConfigured === true
+          ? "Accept link (backup)"
+          : result.emailConfigured === false
+            ? "Accept link"
+            : "Accept link (share if email isn't configured)";
+      process.stdout.write(`${label}:\n  ${result.acceptUrl}\n`);
     }
     process.stdout.write("They accept, then run: uploads login\n");
   }
