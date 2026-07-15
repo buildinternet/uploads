@@ -303,6 +303,7 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
           },
           // Always return so self-hosted (no EMAIL binding) can share the link.
           acceptUrl: acceptUrlFor(existingInvite.id),
+          emailConfigured: Boolean(c.env.EMAIL),
         },
         200,
       );
@@ -343,6 +344,9 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
           expiresAt,
         },
         acceptUrl,
+        // Binding presence, not delivery confirmation — sendAuthEmail is
+        // fire-and-forget. Lets clients say "emailed" vs "share this link".
+        emailConfigured: Boolean(c.env.EMAIL),
       },
       201,
     );

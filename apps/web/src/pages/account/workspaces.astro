@@ -446,7 +446,14 @@ export const prerender = false;
         const result = await inviteToWorkspace(apiOrigin, workspace, email);
         submit.disabled = false;
         if (result.kind === "ok") {
-          status.textContent = `Invite created for ${email}.`;
+          // emailConfigured is binding presence on the auth worker; undefined
+          // means an older worker that doesn't report it — keep neutral copy.
+          status.textContent =
+            result.emailConfigured === true
+              ? `Invitation emailed to ${email}.`
+              : result.emailConfigured === false
+                ? `Invite created for ${email} — email isn't configured on this install, so share the accept link below yourself.`
+                : `Invite created for ${email}.`;
           if (emailInput) emailInput.value = "";
           if (linkEl && result.acceptUrl) {
             linkEl.hidden = false;
