@@ -578,4 +578,183 @@ describe("DB-backed behavior", () => {
       });
     });
   });
+
+  describe("POST /internal/orgs/provision", () => {
+    it("creates the org and seeds an owner member", async () => {
+      const user = await seedUser({ id: "u1", email: "a@x.com" });
+      const res = await app().request(
+        "/internal/orgs/provision",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug: "zachbot", ownerUserId: user.id }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as {
+        organization: { id: string; slug: string; name: string };
+      };
+      expect(body.organization.slug).toBe("zachbot");
+
+      const rows = await orm
+        .select()
+        .from(schema.member)
+        .where(eq(schema.member.organizationId, body.organization.id));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ userId: user.id, role: "owner" });
+    });
+
+    it("409s when the slug already exists", async () => {
+      const org = await seedOrg({ slug: "zachbot" });
+      const user = await seedUser();
+      const res = await app().request(
+        "/internal/orgs/provision",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug: org.slug, ownerUserId: user.id }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(409);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "slug_taken" },
+      });
+    });
+
+    it("404s for an unknown ownerUserId", async () => {
+      const res = await app().request(
+        "/internal/orgs/provision",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug: `new-${crypto.randomUUID()}`, ownerUserId: "no-such-user" }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(404);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "user_not_found" },
+      });
+    });
+
+    it("400s when slug or ownerUserId is missing", async () => {
+      const res = await app().request(
+        "/internal/orgs/provision",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slug: "only-slug" }),
+        },
+        dbEnv(),
+      );
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "invalid_request" },
+      });
+    });
+  });
+
+  describe("DELETE /internal/orgs/:slug", () => {
+    it("deletes an org with a single (owner) member and its member rows", async () => {
+      const org = await seedOrg();
+      const user = await seedUser();
+      await orm.insert(schema.member).values({
+        id: crypto.randomUUID(),
+        organizationId: org.id,
+        userId: user.id,
+        role: "owner",
+        createdAt: new Date(),
+      });
+
+      const res = await app().request(`/internal/orgs/${org.slug}`, { method: "DELETE" }, dbEnv());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+
+      const orgRows = await orm
+        .select()
+        .from(schema.organization)
+        .where(eq(schema.organization.id, org.id));
+      expect(orgRows).toHaveLength(0);
+      const memberRows = await orm
+        .select()
+        .from(schema.member)
+        .where(eq(schema.member.organizationId, org.id));
+      expect(memberRows).toHaveLength(0);
+    });
+
+    it("409s when the org has more than one member", async () => {
+      const org = await seedOrg();
+      const user1 = await seedUser();
+      const user2 = await seedUser();
+      await orm.insert(schema.member).values([
+        {
+          id: crypto.randomUUID(),
+          organizationId: org.id,
+          userId: user1.id,
+          role: "owner",
+          createdAt: new Date(),
+        },
+        {
+          id: crypto.randomUUID(),
+          organizationId: org.id,
+          userId: user2.id,
+          role: "member",
+          createdAt: new Date(),
+        },
+      ]);
+
+      const res = await app().request(`/internal/orgs/${org.slug}`, { method: "DELETE" }, dbEnv());
+      expect(res.status).toBe(409);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "org_not_empty" },
+      });
+    });
+
+    it("404s for an unknown slug", async () => {
+      const res = await app().request(
+        "/internal/orgs/does-not-exist",
+        { method: "DELETE" },
+        dbEnv(),
+      );
+      expect(res.status).toBe(404);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "organization_not_found" },
+      });
+    });
+  });
+
+  describe("GET /internal/users/:id/github-linked", () => {
+    it("true when an account row with providerId github exists", async () => {
+      const user = await seedUser({ id: "u1" });
+      await orm.insert(schema.account).values({
+        id: crypto.randomUUID(),
+        userId: user.id,
+        accountId: "999",
+        providerId: "github",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const res = await app().request(`/internal/users/${user.id}/github-linked`, {}, dbEnv());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ githubLinked: true });
+    });
+
+    it("false otherwise (including unknown user)", async () => {
+      const user = await seedUser();
+      const res = await app().request(`/internal/users/${user.id}/github-linked`, {}, dbEnv());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ githubLinked: false });
+
+      const unknownRes = await app().request(
+        `/internal/users/${crypto.randomUUID()}/github-linked`,
+        {},
+        dbEnv(),
+      );
+      expect(unknownRes.status).toBe(200);
+      expect(await unknownRes.json()).toEqual({ githubLinked: false });
+    });
+  });
 });

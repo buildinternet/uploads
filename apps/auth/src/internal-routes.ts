@@ -347,6 +347,97 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       201,
     );
   })
+  // Self-serve provisioning (spec 2026-07-14): create an org WITH the caller
+  // as owner member, non-idempotent — a taken slug is a 409 the API surfaces
+  // to the user, unlike POST /orgs (admin backfill, idempotent by design).
+  .post("/orgs/provision", async (c) => {
+    const body = await c.req
+      .json<{ slug?: unknown; name?: unknown; ownerUserId?: unknown }>()
+      .catch(() => ({}) as { slug?: unknown; name?: unknown; ownerUserId?: unknown });
+    const slug = typeof body.slug === "string" ? body.slug.trim() : "";
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const ownerUserId = typeof body.ownerUserId === "string" ? body.ownerUserId.trim() : "";
+    if (!slug || !ownerUserId) {
+      return c.json(errorJson("invalid_request", "slug and ownerUserId are required"), 400);
+    }
+
+    const db = drizzle(c.env.DB, { schema });
+    const [owner] = await db
+      .select()
+      .from(schema.user)
+      .where(eq(schema.user.id, ownerUserId))
+      .limit(1);
+    if (!owner) {
+      return c.json(errorJson("user_not_found", "no user with that id"), 404);
+    }
+
+    const [existing] = await db
+      .select({ id: schema.organization.id })
+      .from(schema.organization)
+      .where(eq(schema.organization.slug, slug))
+      .limit(1);
+    if (existing) {
+      return c.json(errorJson("slug_taken", "an organization with that slug already exists"), 409);
+    }
+
+    const id = crypto.randomUUID();
+    try {
+      await db.insert(schema.organization).values({
+        id,
+        slug,
+        name: name || slug,
+        createdAt: new Date(),
+      });
+    } catch {
+      // UNIQUE-constraint race with a concurrent provision: the loser reports
+      // the same 409 the pre-check would have.
+      return c.json(errorJson("slug_taken", "an organization with that slug already exists"), 409);
+    }
+    await db.insert(schema.member).values({
+      id: crypto.randomUUID(),
+      organizationId: id,
+      userId: owner.id,
+      role: "owner",
+      createdAt: new Date(),
+    });
+    return c.json({ organization: { id, slug, name: name || slug } }, 201);
+  })
+  // Compensating action for self-serve provisioning: roll back an org whose
+  // KV workspace write failed. Refuses orgs that have grown past their sole
+  // owner so it can never be used to destroy a real team.
+  .delete("/orgs/:slug", async (c) => {
+    const slug = c.req.param("slug");
+    const db = drizzle(c.env.DB, { schema });
+    const [org] = await db
+      .select()
+      .from(schema.organization)
+      .where(eq(schema.organization.slug, slug))
+      .limit(1);
+    if (!org) {
+      return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
+    }
+    const members = await db
+      .select({ id: schema.member.id })
+      .from(schema.member)
+      .where(eq(schema.member.organizationId, org.id));
+    if (members.length > 1) {
+      return c.json(errorJson("org_not_empty", "organization has more than one member"), 409);
+    }
+    await db.delete(schema.member).where(eq(schema.member.organizationId, org.id));
+    await db.delete(schema.organization).where(eq(schema.organization.id, org.id));
+    return c.json({ ok: true });
+  })
+  // Self-serve gate: does this user have a linked GitHub account?
+  .get("/users/:id/github-linked", async (c) => {
+    const userId = c.req.param("id");
+    const db = drizzle(c.env.DB, { schema });
+    const [row] = await db
+      .select({ id: schema.account.id })
+      .from(schema.account)
+      .where(and(eq(schema.account.userId, userId), eq(schema.account.providerId, "github")))
+      .limit(1);
+    return c.json({ githubLinked: Boolean(row) });
+  })
   // D9 fallback: ADMIN_TOKEN-gated promote endpoint on apps/api proxies here.
   // Looked up by email since that's the only identifier ops/CI reliably has;
   // 404s (rather than a generic 400) if no such user has ever signed in.
