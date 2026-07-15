@@ -65,6 +65,12 @@ export interface WorkspaceRecord {
    * Omit = only structural key validation (`badKey`).
    */
   maxKeyDepth?: number;
+  /** True for workspaces provisioned by the self-serve flow (POST /v1/workspaces). */
+  selfServe?: boolean;
+  /** Better Auth user id that created this workspace via self-serve. */
+  createdByUserId?: string;
+  /** ISO timestamp of self-serve creation. */
+  createdAt?: string;
 }
 
 export type WorkspaceVars = {
