@@ -46,6 +46,15 @@ import {
   type ToolArgs,
 } from "./args.js";
 import type { McpTool } from "./server.js";
+import {
+  attachmentFromText,
+  buildReportPayload,
+  parseReportType,
+  REPORT_TYPES,
+  submitReport,
+  validateReportMessage,
+} from "../report.js";
+import { resolveApiUrl } from "../config.js";
 
 function optBool(args: ToolArgs, name: string): boolean {
   const v = args[name];
@@ -839,6 +848,93 @@ export function createUploadsMcpTools(opts: {
       async handler(args) {
         const { config, client } = clientFor(args);
         return buildDoctorReport(config, client);
+      },
+    },
+    {
+      name: "report",
+      description:
+        "Send an explicit diagnostic report to the uploads team (message + optional text log). " +
+        "Only call this when the user asked to submit feedback, a bug report, or error logs — " +
+        "never automatically. Do not include tokens, secrets, or private file contents. " +
+        "Same as `uploads report`.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          message: {
+            type: "string",
+            description: "Short description of the problem (required, 5–4000 chars).",
+          },
+          type: {
+            type: "string",
+            description: `One of: ${REPORT_TYPES.join(", ")} (default: other).`,
+          },
+          contact: {
+            type: "string",
+            description: "Optional contact for follow-up (email or handle).",
+          },
+          command: {
+            type: "string",
+            description: "Command that failed (e.g. put) — name only, no paths or args.",
+          },
+          errorCode: {
+            type: "string",
+            description: "Optional UploadsError code (e.g. KEY_POLICY).",
+          },
+          attachmentText: {
+            type: "string",
+            description:
+              "Optional text log/trace body the user consented to send (max 256 KiB). Not a file path.",
+          },
+          attachmentFilename: {
+            type: "string",
+            description: "Filename label for attachmentText (default: trace.txt).",
+          },
+        },
+        required: ["message"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const messageRaw = optString(args, "message");
+        if (!messageRaw) usage("message is required");
+        const validated = validateReportMessage(messageRaw);
+        if (!validated.ok) usage(validated.error);
+
+        const typeRaw = optString(args, "type");
+        if (typeRaw && !parseReportType(typeRaw)) {
+          usage(`type must be one of: ${REPORT_TYPES.join(", ")}`);
+        }
+        const type = parseReportType(typeRaw) ?? "other";
+
+        let attachment;
+        const attachmentText = optString(args, "attachmentText");
+        if (attachmentText) {
+          try {
+            attachment = attachmentFromText(
+              attachmentText,
+              optString(args, "attachmentFilename") ?? "trace.txt",
+            );
+          } catch (err) {
+            usage(err instanceof Error ? err.message : String(err));
+          }
+        }
+
+        const payload = buildReportPayload(validated.message, {
+          type,
+          contact: optString(args, "contact"),
+          surface: "mcp",
+          command: optString(args, "command"),
+          errorCode: optString(args, "errorCode"),
+          attachment,
+        });
+
+        const apiUrl = resolveApiUrl(globals);
+        const result = await submitReport(payload, { apiUrl });
+        if (!result.ok) usage(`couldn't send report: ${result.error}`);
+        return {
+          ok: true,
+          id: result.id,
+          hasAttachment: result.hasAttachment,
+        };
       },
     },
   ];

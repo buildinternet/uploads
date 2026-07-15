@@ -432,6 +432,10 @@ uploads --api-url http://localhost:8787 doctor
   `hint: uploads <cmd> --help`.
 - **Update hints (stderr):** successful human runs may note a newer npm release
   (daily). Silence with `--quiet` / `--json` / `UPLOADS_NO_UPDATE=1`.
+- **Telemetry:** anonymous command-name pings (no paths/tokens). Opt out with
+  `UPLOADS_TELEMETRY_DISABLED=1`, `DO_NOT_TRACK=1`, or `uploads telemetry disable`.
+- **Reports:** only when the user asks — `uploads report "what broke"` or
+  `--file ./trace.log`. Never auto-send logs. MCP tool: `report`.
 - **MCP:** `uploads mcp` (stdio) mirrors CLI tools; hosted MCP at
   `https://agents.uploads.sh/mcp`. `uploads install` sets up this skill + hosted MCP
   (short progress; `--verbose` / `--dry-run` available).

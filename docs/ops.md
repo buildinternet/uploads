@@ -295,6 +295,51 @@ Console visibility controls links, not security — the console is bearer-token 
 
 Resolution order (see apps/web `src/lib/console-mode.ts`): the Flagship `console-mode` flag (app "uploads", `FLAGS` binding) wins when present, so prod can flip modes without a redeploy — `wrangler flagship flags update <app-id> console-mode --default <mode>`. The `CONSOLE_MODE` var in apps/web `wrangler.jsonc` is the fallback. Self-hosters without Flagship: delete the `flagship` block from wrangler.jsonc and set the var.
 
+## CLI observability (telemetry + reports)
+
+Both live on the **existing** D1 binding (`uploads-production` / `DB`) — no new
+database. One migration creates two tables
+(`20260715120000_uploads_cli_observability.sql`):
+
+| Table                      | Role                                                     |
+| -------------------------- | -------------------------------------------------------- |
+| `uploads_telemetry_events` | Automatic command-name pings (high volume, no free text) |
+| `uploads_cli_reports`      | Explicit opt-in messages (+ optional log metadata)       |
+
+**Why D1, not KV:** we need append + aggregate (`GROUP BY command`, recent
+errors). KV is a key lookup store, not a query log. Report **blobs** use R2;
+only metadata is in D1.
+
+**Why two tables:** different volume, retention, and shape. Telemetry is
+fire-and-forget counters; reports are sparse free text with optional
+attachments. Sharing one polymorphic table would mostly add null columns.
+
+### Telemetry (`POST /v1/telemetry`)
+
+Command name, version, OS/arch, exit code, duration, allowlisted error code.
+Opt-out: `UPLOADS_TELEMETRY_DISABLED=1`, `DO_NOT_TRACK=1`, or
+`uploads telemetry disable`. Kill switch: `TELEMETRY_DISABLED=1`.
+
+### Reports (`POST /v1/reports`)
+
+Explicit only (`uploads report` / MCP `report`). Message + optional text
+attachment (max 256 KiB) at
+`_internal/uploads-cli-reports/<rpt_id>/<file>` on `UPLOADS_DEFAULT`.
+Rate limit: `INVITE_LIMITER` key `cli-report:<ip>`. Kill switch:
+`REPORTS_DISABLED=1`.
+
+```bash
+wrangler d1 execute uploads-production --remote \
+  --command "SELECT id, created_at, type, command, error_code, substr(message,1,80)
+             FROM uploads_cli_reports ORDER BY created_at DESC LIMIT 20"
+
+# Quote placeholders so shell redirection is not triggered by unquoted <…>.
+REPORT_ID="rpt_…"
+REPORT_FILE="trace.log"
+wrangler r2 object get "uploads-default/_internal/uploads-cli-reports/${REPORT_ID}/${REPORT_FILE}" \
+  --file ./trace.log
+```
+
 ## Deploys
 
 Code via Workers Builds / `pnpm run deploy`. D1 migrations on merge. npm CLI via changesets.
