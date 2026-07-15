@@ -1,25 +1,53 @@
 # CLI guide
 
 The `@buildinternet/uploads` package wraps the API for scripting and GitHub
-image embeds. Examples use the global `uploads` binary (same as after
-`npm install -g @buildinternet/uploads`).
+image embeds. Examples use the global `uploads` binary; install it with
+`npm install -g @buildinternet/uploads`. Inside this monorepo only,
+`pnpm uploads …` builds the package first so you pick up local source.
+
+This guide covers the everyday flows. For the exhaustive command list, globals,
+and exit codes, run `uploads help --all` or see
+[`packages/uploads/README.md`](../packages/uploads/README.md).
+
+## Getting started
 
 ```bash
-uploads put ./shot.png
-# stdout: public URL + ready-to-paste markdown; stderr: human summary
+uploads login          # sign in via browser; saves your workspace token, then runs doctor
+uploads whoami         # show the active workspace + token (alias: uploads status)
+uploads install        # install the agent skill + register the hosted MCP server
+uploads put ./shot.png # stdout: public URL + ready-to-paste markdown; stderr: human summary
 ```
 
-Inside this monorepo only, `pnpm uploads …` builds the package first so you
-pick up local source.
-
-## Tokens
-
-An uploads.sh administrator invites your email to a workspace; `uploads login`
-opens a browser to sign in (GitHub or a magic link) and saves the resulting
-workspace token. For local development, `pnpm workspace:add` prints a bearer
-token once — save it with `uploads setup --token <token>` or into `.env` /
-user config. Routine agents never receive or need `ADMIN_TOKEN`. See
+An uploads.sh administrator invites your email to a workspace first; `login`
+trades that invite for a saved workspace token (GitHub or a magic link) and
+`logout` removes it. `uploads doctor` checks health, auth, and workspace access
+when something's off. Routine agents never receive or need `ADMIN_TOKEN`. See
 [enrollment](enrollment.md).
+
+For local development, `pnpm workspace:add` prints a bearer token once — save it
+with `uploads setup --token <token>` or into `.env` / user config.
+
+## Command overview
+
+| Command                 | What it does                                             |
+| ----------------------- | -------------------------------------------------------- |
+| `attach <file…>`        | Attach media to the current PR (stable URLs + comment)   |
+| `put <file>`            | Upload one file → public URL + GitHub markdown           |
+| `comment`               | Create/update a PR/issue attachments comment (via `gh`)  |
+| `list` / `find k=v`     | List objects, optionally filtered by queryable metadata  |
+| `meta get` / `meta set` | Read or merge-set an object's queryable metadata         |
+| `gallery …`             | Create and organize public media galleries               |
+| `delete <key>`          | Delete an object                                         |
+| `usage`                 | Workspace storage / upload counters                      |
+| `install`               | Install the agent skill + register the remote MCP server |
+| `login` / `logout`      | Sign in (browser or enrollment code) / clear saved token |
+| `whoami` (`status`)     | Show the active workspace and token                      |
+| `invite`                | Invite a teammate to a workspace (workspace admin)       |
+| `doctor` / `health`     | Health + auth + workspace checks / API liveness          |
+| `setup` / `config`      | Inspect and configure CLI settings                       |
+| `mcp`                   | Serve MCP over stdio (tools mirror the CLI)              |
+
+Run `uploads <command> --help` for per-command flags.
 
 ## How keys work
 
@@ -38,8 +66,8 @@ uploads --version
 uploads doctor
 ```
 
-See [`packages/uploads/README.md`](../packages/uploads/README.md) for globals
-(`--version`, update hints, quiet/json) and the full command list.
+Globals like `--json`, `--quiet`, and update hints are covered in
+[`packages/uploads/README.md`](../packages/uploads/README.md).
 
 ## GitHub embeds
 
@@ -52,7 +80,7 @@ re-uploading the same filename overwrites in place and the URL never changes:
 
 ```bash
 uploads put ./after.png --pr 123 --alt "Dashboard after"
-# key: gh/<owner>/<repo>/pull/123/after.png
+# key: gh/<owner>/<repo>/pull/123/after.webp  (PNG optimized to WebP; extension follows the output)
 ```
 
 **Managed attachments comment** (`--comment`, requires local `gh` auth)
