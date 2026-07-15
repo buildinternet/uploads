@@ -4,6 +4,7 @@
  */
 import { createWorkspaceInvite, listMintWorkspaces } from "../client.js";
 import { flagBool, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
+import { writeCommandHelp } from "../cli-style.js";
 import {
   defaultDeviceIo,
   obtainDeviceAccessToken,
@@ -72,7 +73,7 @@ export async function runInvite(
 ): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
-    process.stderr.write(HELP);
+    writeCommandHelp(HELP);
     return 0;
   }
   if (parsed.positionals[0] !== "create") {

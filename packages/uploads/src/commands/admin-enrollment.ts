@@ -1,5 +1,6 @@
 import { createEnrollment } from "../client.js";
 import { flagBool, flagInt, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
+import { writeCommandHelp } from "../cli-style.js";
 
 const HELP = `uploads admin invite create [options]
 
@@ -74,7 +75,7 @@ export async function runAdmin(
 ): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
-    process.stderr.write(HELP);
+    writeCommandHelp(HELP);
     return 0;
   }
   if (

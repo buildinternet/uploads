@@ -20,6 +20,7 @@ import {
 } from "../client.js";
 import { flagBool, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
 import { parseScopes } from "./admin-enrollment.js";
+import { writeCommandHelp } from "../cli-style.js";
 
 const HELP = `uploads login [options]
 
@@ -364,7 +365,7 @@ export async function runLogin(
 ): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
-    process.stderr.write(HELP);
+    writeCommandHelp(HELP);
     return 0;
   }
   const apiUrl = flagString(parsed.flags, "--api-url") ?? opts.apiUrl ?? "https://api.uploads.sh";

@@ -51,6 +51,7 @@ import { buildCliProvenance } from "./provenance.js";
 import { formatByteSize } from "./format-bytes.js";
 import { packageVersion } from "./package-version.js";
 import type { PutDefaults } from "./config-file.js";
+import { writeCommandHelp } from "./cli-style.js";
 
 export interface CliContext {
   config: ResolvedConfig;
@@ -418,11 +419,11 @@ export async function runAttach(
 ): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
-    process.stderr.write(ATTACH_HELP);
+    writeCommandHelp(ATTACH_HELP);
     return 0;
   }
   if (parsed.positionals.length === 0) {
-    process.stderr.write(ATTACH_HELP);
+    writeCommandHelp(ATTACH_HELP);
     return 2;
   }
   if (parsed.flags.has("--no-comment") && typeof parsed.flags.get("--no-comment") === "string") {
@@ -525,18 +526,18 @@ export async function runPut(
   run: CommandRunner = execRunner,
 ): Promise<number> {
   if (help) {
-    process.stderr.write(PUT_HELP);
+    writeCommandHelp(PUT_HELP);
     return 0;
   }
   const parsed = parseCommandArgs(args);
   if (parsed.help) {
-    process.stderr.write(PUT_HELP);
+    writeCommandHelp(PUT_HELP);
     return 0;
   }
 
   const fileArg = parsed.positionals[0];
   if (!fileArg) {
-    process.stderr.write(PUT_HELP);
+    writeCommandHelp(PUT_HELP);
     return 2;
   }
 
@@ -837,7 +838,7 @@ export async function runGallery(ctx: CliContext, args: string[], help = false):
   const parsed = parseCommandArgs(args);
   const action = parsed.positionals[0];
   if (help || parsed.help || !action) {
-    process.stderr.write(GALLERY_HELP);
+    writeCommandHelp(GALLERY_HELP);
     return help || parsed.help ? 0 : 2;
   }
 
@@ -1051,7 +1052,7 @@ export async function runList(
 ): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
-    process.stderr.write(LIST_HELP);
+    writeCommandHelp(LIST_HELP);
     return 0;
   }
   const metaPairs = flagValues(parsed.flags, "--meta");
@@ -1110,11 +1111,11 @@ Examples:
 export async function runFind(ctx: CliContext, args: string[], help = false): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
-    process.stderr.write(FIND_HELP);
+    writeCommandHelp(FIND_HELP);
     return 0;
   }
   if (parsed.positionals.length === 0) {
-    process.stderr.write(FIND_HELP);
+    writeCommandHelp(FIND_HELP);
     return 2;
   }
   const filters = parseMetaFlags(parsed.positionals);
@@ -1142,7 +1143,7 @@ export async function runMeta(ctx: CliContext, args: string[], help = false): Pr
   const parsed = parseCommandArgs(args);
   const action = parsed.positionals[0];
   if (help || parsed.help || !action) {
-    process.stderr.write(META_HELP);
+    writeCommandHelp(META_HELP);
     return help || parsed.help ? 0 : 2;
   }
 
@@ -1196,12 +1197,12 @@ Examples:
 export async function runDelete(ctx: CliContext, args: string[], help = false): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
-    process.stderr.write(DELETE_HELP);
+    writeCommandHelp(DELETE_HELP);
     return 0;
   }
   const key = parsed.positionals[0];
   if (!key) {
-    process.stderr.write(DELETE_HELP);
+    writeCommandHelp(DELETE_HELP);
     return 2;
   }
   if (flagBool(parsed.flags, "--dry-run")) {
@@ -1237,7 +1238,7 @@ export async function runComment(
 ): Promise<number> {
   const parsed = parseCommandArgs(args);
   if (help || parsed.help) {
-    process.stderr.write(COMMENT_HELP);
+    writeCommandHelp(COMMENT_HELP);
     return 0;
   }
   const target = ghTargetFromFlags(parsed.flags, run);
@@ -1269,7 +1270,7 @@ Examples:
 
 export async function runUsage(ctx: CliContext, args: string[], help = false): Promise<number> {
   if (help || parseCommandArgs(args).help) {
-    process.stderr.write(USAGE_HELP);
+    writeCommandHelp(USAGE_HELP);
     return 0;
   }
   const result = await ctx.client.usage();
@@ -1299,7 +1300,7 @@ Examples:
 
 export async function runReconcile(ctx: CliContext, args: string[], help = false): Promise<number> {
   if (help || parseCommandArgs(args).help) {
-    process.stderr.write(RECONCILE_HELP);
+    writeCommandHelp(RECONCILE_HELP);
     return 0;
   }
   const result = await ctx.client.reconcile();
@@ -1330,7 +1331,7 @@ export async function runPurgeExpired(
   help = false,
 ): Promise<number> {
   if (help || parseCommandArgs(args).help) {
-    process.stderr.write(PURGE_HELP);
+    writeCommandHelp(PURGE_HELP);
     return 0;
   }
   const result = await ctx.client.purgeExpired();
@@ -1365,7 +1366,7 @@ export async function runHealth(
   help = false,
 ): Promise<number> {
   if (help || parseCommandArgs(args).help) {
-    process.stderr.write(HEALTH_HELP);
+    writeCommandHelp(HEALTH_HELP);
     return 0;
   }
   const result = await createUploadsClient({
@@ -1490,7 +1491,7 @@ export async function buildDoctorReport(
 
 export async function runDoctor(ctx: CliContext, args: string[], help = false): Promise<number> {
   if (help || parseCommandArgs(args).help) {
-    process.stderr.write(DOCTOR_HELP);
+    writeCommandHelp(DOCTOR_HELP);
     return 0;
   }
 

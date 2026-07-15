@@ -3,6 +3,7 @@ import { createMcpServer } from "../mcp/server.js";
 import { serveStdio } from "../mcp/stdio.js";
 import { createUploadsMcpTools } from "../mcp/tools.js";
 import { packageVersion } from "../package-version.js";
+import { writeCommandHelp } from "../cli-style.js";
 
 const MCP_HELP = `uploads [globals] mcp
 
@@ -30,7 +31,7 @@ export async function runMcp(
   help = false,
 ): Promise<number> {
   if (help || parseCommandArgs(args).help) {
-    process.stderr.write(MCP_HELP);
+    writeCommandHelp(MCP_HELP);
     return 0;
   }
   const server = createMcpServer({
