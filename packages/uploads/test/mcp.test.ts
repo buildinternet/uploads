@@ -458,11 +458,77 @@ describe("tools/call put", () => {
     expect(res.result.content[0].text).toContain("mutually exclusive");
   });
 
-  it("requires exactly one of file and contentBase64", async () => {
+  it("requires exactly one of file, files, or contentBase64", async () => {
     const { server } = serverWith();
     const res = await rpc(server, "tools/call", { name: "put", arguments: {} });
     expect(res.result.isError).toBe(true);
-    expect(res.result.content[0].text).toContain("file or contentBase64");
+    expect(res.result.content[0].text).toContain("file, files, or contentBase64");
+  });
+
+  it("uploads multiple files in parallel and returns uploads + failures", async () => {
+    const { UploadsError } = await import("../src/errors.js");
+    const { server } = serverWith({
+      factory: () =>
+        ({
+          put: async (_body: Uint8Array, opts: { key: string; filename: string }) => {
+            if (opts.filename === "bad.png") {
+              throw new UploadsError("forced fail", "API_ERROR", 500);
+            }
+            return {
+              workspace: "test",
+              key: opts.key ?? `generated/${opts.filename}`,
+              url: `https://x.test/${opts.filename}`,
+              embedUrl: null,
+              size: 3,
+              contentType: "image/png",
+            };
+          },
+          listAll: async () => [],
+          findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+          getGallery: async () => ({ items: [] }),
+        }) as never,
+    });
+    const dir = mkdtempSync(join(tmpdir(), "uploads-mcp-put-"));
+    const good = join(dir, "good.png");
+    const bad = join(dir, "bad.png");
+    writeFileSync(good, "png");
+    writeFileSync(bad, "png");
+
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { files: [good, bad], noGit: true },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.structuredContent.uploads).toHaveLength(1);
+    expect(res.result.structuredContent.failures).toHaveLength(1);
+    expect(res.result.structuredContent.failures[0].file).toContain("bad.png");
+  });
+
+  it("surfaces all failures with isError when every multi-file put fails", async () => {
+    const { UploadsError } = await import("../src/errors.js");
+    const { server } = serverWith({
+      factory: () =>
+        ({
+          put: async () => {
+            throw new UploadsError("forced fail", "API_ERROR", 500);
+          },
+        }) as never,
+    });
+    const dir = mkdtempSync(join(tmpdir(), "uploads-mcp-put-"));
+    const a = join(dir, "a.png");
+    const b = join(dir, "b.png");
+    writeFileSync(a, "png");
+    writeFileSync(b, "png");
+
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { files: [a, b], noGit: true },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.structuredContent.uploads).toEqual([]);
+    expect(res.result.structuredContent.failures).toHaveLength(2);
+    expect(res.result.content[0].text).toContain("a.png");
+    expect(res.result.content[0].text).toContain("b.png");
   });
 
   it("passes custom metadata through to the client", async () => {
@@ -572,6 +638,39 @@ describe("tools/call attach", () => {
     expect(res.result.structuredContent.failures).toHaveLength(1);
     expect(res.result.structuredContent.failures[0].file).toContain("bad.png");
     expect(putCalls.some((k) => k.includes("good.png"))).toBe(true);
+  });
+
+  it("on total multi-file failure returns isError with every failure in structuredContent", async () => {
+    const { run } = ghRunner();
+    const { UploadsError } = await import("../src/errors.js");
+    const { server } = serverWith({
+      runner: run,
+      factory: () =>
+        ({
+          put: async () => {
+            throw new UploadsError("forced fail", "API_ERROR", 500);
+          },
+          listAll: async () => [],
+          findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+          getGallery: async () => ({ items: [] }),
+        }) as never,
+    });
+    const dir = mkdtempSync(join(tmpdir(), "uploads-mcp-test-"));
+    const a = join(dir, "a.png");
+    const b = join(dir, "b.png");
+    writeFileSync(a, "png");
+    writeFileSync(b, "png");
+
+    const res = await rpc(server, "tools/call", {
+      name: "attach",
+      arguments: { files: [a, b], noComment: true },
+    });
+    expect(res.result.isError).toBe(true);
+    expect(res.result.structuredContent.uploads).toEqual([]);
+    expect(res.result.structuredContent.failures).toHaveLength(2);
+    expect(res.result.structuredContent.failures[0].file).toContain("a.png");
+    expect(res.result.content[0].text).toContain("a.png");
+    expect(res.result.content[0].text).toContain("b.png");
   });
 
   it("rejects an empty files array", async () => {

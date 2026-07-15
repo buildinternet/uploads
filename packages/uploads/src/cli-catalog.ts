@@ -74,7 +74,7 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
   },
   {
     name: "put",
-    usage: "put <file>",
+    usage: "put <file...>",
     summary: "Upload (+ URL + markdown for GitHub)",
     essential: true,
   },

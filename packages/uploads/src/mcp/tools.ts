@@ -15,6 +15,7 @@ import {
   readFileArg,
   syncAttachmentsComment,
   uploadAttachments,
+  uploadPuts,
 } from "../commands.js";
 import { resolveFrameId } from "../frame.js";
 import {
@@ -46,7 +47,7 @@ import {
   usage,
   type ToolArgs,
 } from "./args.js";
-import type { McpTool } from "./server.js";
+import { batchFailureMessage, ToolBatchError, type McpTool } from "./server.js";
 import {
   attachmentFromText,
   buildReportPayload,
@@ -330,14 +331,20 @@ export function createUploadsMcpTools(opts: {
     {
       name: "put",
       description:
-        "Upload a file to uploads.sh and get a public URL plus GitHub-ready embed markdown. Returns `url` (durable CDN) and `embedUrl` (same object, freshness-oriented host for GitHub Camo — prefer this in PR/issue markdown). The returned `markdown` already uses embedUrl when available. Pass `file` or `contentBase64` + `filename`; with `pr`/`issue` the key is stable and `comment` syncs the managed attachments comment. All uploads are public; pr/issue keys are predictable, so upload only non-sensitive media.",
+        "Upload one or more files to uploads.sh and get public URL(s) plus GitHub-ready embed markdown. Single-file: pass `file` or `contentBase64`+`filename` (flat result with `url`/`embedUrl`/`markdown`). Multi-file: pass `files` (paths; parallel; returns `uploads`+`failures`). Prefer `embedUrl` in PR/issue markdown. With `pr`/`issue` keys are stable and `comment` syncs the managed attachments comment. All uploads are public; pr/issue keys are predictable — upload only non-sensitive media.",
       inputSchema: {
         type: "object",
         properties: {
           file: {
             type: "string",
             description:
-              "Path of the file to upload. Exactly one of file or contentBase64 is required.",
+              "Path of a single file to upload. Exactly one of file, files, or contentBase64 is required.",
+          },
+          files: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Paths of multiple files to upload in parallel. Returns { uploads, failures }. Cannot combine with file, contentBase64, key, or filename.",
           },
           contentBase64: {
             type: "string",
@@ -346,12 +353,12 @@ export function createUploadsMcpTools(opts: {
           filename: {
             type: "string",
             description:
-              "Filename for contentBase64 content (drives the key and content type). With `file`, overrides the key's leaf (clean name) while keeping the pr/default path.",
+              "Filename for contentBase64 content (drives the key and content type). With single `file`, overrides the key's leaf (clean name) while keeping the pr/default path.",
           },
           key: {
             type: "string",
             description:
-              "Explicit object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>). Cannot be combined with pr/issue.",
+              "Explicit object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>). Single file only; cannot be combined with pr/issue.",
           },
           destination: {
             type: "string",
@@ -374,7 +381,11 @@ export function createUploadsMcpTools(opts: {
             description:
               "PR/issue/branch key segment (default: today, or UPLOADS_DEFAULT_REF). Cannot be combined with pr/issue.",
           },
-          alt: { type: "string", description: "Alt text for the markdown (default: filename)." },
+          alt: {
+            type: "string",
+            description:
+              "Alt text for the markdown (default: each file's name; with multiple files applies to all).",
+          },
           width: {
             type: "number",
             description: "Emit <img width=…> markdown instead of a plain image embed.",
@@ -419,14 +430,23 @@ export function createUploadsMcpTools(opts: {
       },
       async handler(args) {
         const file = optString(args, "file");
+        const filesArg = optStringArray(args, "files");
         const contentBase64 = optString(args, "contentBase64");
-        if ((file === undefined) === (contentBase64 === undefined)) {
-          usage("exactly one of file or contentBase64 is required");
+        if (filesArg !== undefined && filesArg.length === 0) {
+          usage("files must be a non-empty array of paths");
         }
+        const multi = filesArg !== undefined;
+        const sources = [file !== undefined, multi, contentBase64 !== undefined];
+        if (sources.filter(Boolean).length !== 1) {
+          usage("exactly one of file, files, or contentBase64 is required");
+        }
+
         const filenameArg = optString(args, "filename");
         if (contentBase64 !== undefined && !filenameArg) {
           usage("filename is required with contentBase64");
         }
+        if (multi && filenameArg) usage("filename cannot be combined with files");
+        if (multi && optString(args, "key")) usage("key cannot be combined with files");
 
         const target = ghTargetFromArgs(args, run);
         const wantComment = optBool(args, "comment");
@@ -460,64 +480,127 @@ export function createUploadsMcpTools(opts: {
         }
 
         const { client } = clientFor(args);
-        const bytes =
-          file !== undefined
-            ? readFileArg(file)
-            : new Uint8Array(Buffer.from(contentBase64!, "base64"));
-        const sourceName = file !== undefined ? (filenameArg ?? basename(file)) : filenameArg!;
-
         const defaults = resolvePutDefaults({ envFile: globals.envFile });
         const frameOpts = mcpFrameOptions(args);
         const optimizeOpts = mcpOptimizeOptions(args, defaults);
-        const prepared = await prepareImageForUpload(bytes, sourceName, {
-          ...frameOpts,
-          optimize: optimizeOpts,
-        });
-        const filename = prepared.filename;
-        let key = target ? ghAttachmentKey(target, filename) : keyArg;
-        if (key && prepared.optimized) key = rewriteKeyExtension(key, filename);
         const noGit = optBool(args, "noGit") || defaults.noGit === true;
-        const result = await client.put(prepared.bytes, {
-          filename,
-          key,
+        const alt = optString(args, "alt");
+        const width = optPosInt(args, "width") ?? defaults.width;
+        const contentType = optString(args, "contentType");
+        const putShared = {
+          client,
+          ghTarget: target,
           prefix: resolvedPrefix ?? defaults.prefix,
           repo: optString(args, "repo") ?? defaults.repo,
           ref: refArg ?? defaults.ref,
-          contentType: prepared.optimized ? prepared.contentType : optString(args, "contentType"),
           deriveRepoFromGit: !noGit,
+          contentType,
           dryRun,
-          provenance: buildCliProvenance({
-            sourceName,
-            client: "uploads-mcp",
-            optimized: prepared.optimized,
-            frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
-            keepExif: optimizeOpts.keepExif === true,
-          }),
+          optimize: optimizeOpts,
+          frame: frameOpts,
           metadata,
-        });
-        const markdown = buildMarkdown(urlForGithubEmbed(result.url, result.embedUrl)!, {
-          alt: optString(args, "alt") ?? sourceName,
-          width: optPosInt(args, "width") ?? defaults.width,
-        });
-        const optimize = {
-          optimized: prepared.optimized,
-          skippedReason: prepared.skippedReason,
-          originalBytes: prepared.originalBytes,
-          outputBytes: prepared.outputBytes,
-          filename: prepared.filename,
+          provenanceClient: "uploads-mcp" as const,
+          alt,
+          width,
         };
 
-        if (wantComment && target) {
-          const { comment, commentError } = await syncComment(client, target);
-          return { ...result, markdown, optimize, frame: prepared.frame, comment, commentError };
+        // Multi-file path (paths only — no base64 batch).
+        if (multi) {
+          const { uploads, failures } = await uploadPuts({
+            ...putShared,
+            files: filesArg!,
+          });
+          if (uploads.length === 0 && failures.length > 0) {
+            throw new ToolBatchError(batchFailureMessage(failures), { uploads, failures });
+          }
+          if (wantComment && target && uploads.length > 0) {
+            const { comment, commentError } = await syncComment(client, target);
+            return { uploads, failures, comment, commentError };
+          }
+          return { uploads, failures };
         }
-        return {
-          ...result,
-          markdown,
-          optimize,
-          frame: prepared.frame,
+
+        // Single-file: contentBase64 still supported; paths go through uploadPuts.
+        if (contentBase64 !== undefined) {
+          const sourceName = filenameArg!;
+          const bytes = new Uint8Array(Buffer.from(contentBase64, "base64"));
+          const prepared = await prepareImageForUpload(bytes, sourceName, {
+            ...frameOpts,
+            optimize: optimizeOpts,
+          });
+          const filename = prepared.filename;
+          let key = target ? ghAttachmentKey(target, filename) : keyArg;
+          if (key && prepared.optimized) key = rewriteKeyExtension(key, filename);
+          const result = await client.put(prepared.bytes, {
+            filename,
+            key,
+            prefix: resolvedPrefix ?? defaults.prefix,
+            repo: optString(args, "repo") ?? defaults.repo,
+            ref: refArg ?? defaults.ref,
+            contentType: prepared.optimized ? prepared.contentType : contentType,
+            deriveRepoFromGit: !noGit,
+            dryRun,
+            provenance: buildCliProvenance({
+              sourceName,
+              client: "uploads-mcp",
+              optimized: prepared.optimized,
+              frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
+              keepExif: optimizeOpts.keepExif === true,
+            }),
+            metadata,
+          });
+          const markdown = buildMarkdown(urlForGithubEmbed(result.url, result.embedUrl)!, {
+            alt: alt ?? sourceName,
+            width,
+          });
+          const optimize = {
+            optimized: prepared.optimized,
+            skippedReason: prepared.skippedReason,
+            originalBytes: prepared.originalBytes,
+            outputBytes: prepared.outputBytes,
+            filename: prepared.filename,
+          };
+          if (wantComment && target) {
+            const { comment, commentError } = await syncComment(client, target);
+            return { ...result, markdown, optimize, frame: prepared.frame, comment, commentError };
+          }
+          return {
+            ...result,
+            markdown,
+            optimize,
+            frame: prepared.frame,
+            ...(dryRun ? { dryRun: true } : {}),
+          };
+        }
+
+        const { uploads, failures, firstError } = await uploadPuts({
+          ...putShared,
+          files: [file!],
+          nameOverride: filenameArg,
+          explicitKey: keyArg,
+        });
+        if (uploads.length === 0 && failures.length > 0) {
+          throw firstError instanceof Error ? firstError : new Error(String(firstError));
+        }
+        const u = uploads[0]!;
+        const flat = {
+          workspace: u.workspace,
+          key: u.key,
+          url: u.url,
+          embedUrl: u.embedUrl,
+          size: u.size,
+          contentType: u.contentType,
+          replaced: u.replaced,
+          markdown: u.markdown,
+          optimize: u.optimize,
+          frame: u.frame,
           ...(dryRun ? { dryRun: true } : {}),
         };
+        if (wantComment && target) {
+          const { comment, commentError } = await syncComment(client, target);
+          return { ...flat, comment, commentError };
+        }
+        return flat;
       },
     },
     {
@@ -595,7 +678,7 @@ export function createUploadsMcpTools(opts: {
         const metadata = { ...metaExtras, ...ghMetadataFromTarget(target) };
         if (Object.keys(metadata).length > 0) validateMetaMap(metadata);
 
-        const { uploads, failures, firstError } = await uploadAttachments({
+        const { uploads, failures } = await uploadAttachments({
           client,
           target,
           files,
@@ -606,9 +689,13 @@ export function createUploadsMcpTools(opts: {
           provenanceClient: "uploads-mcp",
         });
 
-        // Total failure → tool error (isError) so agents notice.
+        // Total failure → isError with full failures[] for agents.
         if (uploads.length === 0 && failures.length > 0) {
-          throw firstError instanceof Error ? firstError : new Error(String(firstError));
+          throw new ToolBatchError(batchFailureMessage(failures), {
+            target,
+            uploads,
+            failures,
+          });
         }
 
         if (optBool(args, "noComment")) return { target, uploads, failures };

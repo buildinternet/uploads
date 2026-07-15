@@ -183,6 +183,31 @@ describe("runAttach", () => {
     });
   });
 
+  it("returns exit 1 with failures when every multi-file upload fails", async () => {
+    const { client, puts } = fakeClient({
+      failLeaf: () => new UploadsError("nope", "API_ERROR", 500),
+    });
+    const { run } = ghRunner();
+    const ctx = { ...ctxWith(client), json: true };
+    const chunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      expect(await runAttach(ctx, files("a.png", "b.png"), false, run)).toBe(1);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(puts).toEqual([]);
+    const payload = JSON.parse(chunks.join("")) as {
+      uploads: unknown[];
+      failures: { file: string }[];
+    };
+    expect(payload.uploads).toEqual([]);
+    expect(payload.failures).toHaveLength(2);
+  });
+
   it("supports an explicit issue and skips the managed comment with --no-comment", async () => {
     const { client, puts } = fakeClient();
     const { run, calls } = ghRunner();

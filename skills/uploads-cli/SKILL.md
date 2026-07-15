@@ -137,10 +137,13 @@ commands" for setting put defaults
 
 ## Core workflow: `uploads put`
 
-Upload a file and get back a URL plus ready-to-paste markdown:
+Upload one or more files and get back URL(s) plus ready-to-paste markdown.
+Multiple paths upload in parallel; multi-file JSON is `{ uploads, failures }`
+(exit `1` when any failed). Single-file JSON stays a flat object.
 
 ```bash
 uploads put ./shot.png --repo myorg/myapp --ref 1722 --alt "New live feed cards" --width 700
+uploads put ./before.png ./after.png
 ```
 
 Human output goes to stderr; the URL and markdown to stdout, so you can pipe or
