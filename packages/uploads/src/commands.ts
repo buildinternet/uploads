@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
-import { createUploadsClient, type GalleryItem, type UploadsClient } from "./client.js";
+import { mapBounded } from "./async.js";
+import {
+  createUploadsClient,
+  type GalleryItem,
+  type PutResult,
+  type UploadsClient,
+} from "./client.js";
 import {
   parseCommandArgs,
   flagString,
@@ -53,6 +59,9 @@ import { formatUsageHuman } from "./format-usage.js";
 import { packageVersion } from "./package-version.js";
 import type { PutDefaults } from "./config-file.js";
 import { colorEnabled, writeCommandHelp } from "./cli-style.js";
+
+/** Parallel fan-out for multi-file attach (matches files-sdk bulk default). */
+export const ATTACH_CONCURRENCY = 8;
 
 export { formatUsageHuman } from "./format-usage.js";
 
@@ -221,7 +230,13 @@ export function optimizeOptionsFromFlags(
   };
 }
 
-function formatOptimizeNote(opt: OptimizeImageResult): string | undefined {
+function formatOptimizeNote(opt: {
+  optimized: boolean;
+  skippedReason?: OptimizeImageResult["skippedReason"];
+  originalBytes: number;
+  outputBytes: number;
+  filename: string;
+}): string | undefined {
   if (opt.optimized) {
     return `optimized ${formatByteSize(opt.originalBytes)} → ${formatByteSize(opt.outputBytes)} (${opt.filename})`;
   }
@@ -374,6 +389,9 @@ const ATTACH_HELP = `uploads attach <file...> [options]
 Upload one or more stable PR/issue attachments and maintain a single GitHub
 comment. With no target, uses the pull request for the current branch.
 
+Multiple files upload in parallel (bounded concurrency). One bad file does not
+block the rest; JSON includes uploads + failures (exit 1 when any failed).
+
 Attachments are public and their repo/number/filename keys are predictable.
 Private/internal GitHub repository visibility does not restrict access; upload
 only media that is safe at a public URL.
@@ -414,6 +432,117 @@ Examples:
   uploads attach ./shot.png --meta app=myapp --meta page=settings
 `;
 
+export type AttachUploadItem = PutResult & {
+  file: string;
+  markdown: string;
+  optimize: {
+    optimized: boolean;
+    skippedReason?: OptimizeImageResult["skippedReason"];
+    originalBytes: number;
+    outputBytes: number;
+    filename: string;
+  };
+  frame?: PreparedUpload["frame"];
+};
+
+export type AttachFailure = {
+  file: string;
+  error: { message: string; code?: string; status?: number };
+};
+
+/**
+ * Prepare + put each path as a PR/issue attachment with bounded concurrency.
+ * Per-file errors collect in `failures` (does not throw). `firstError` is the
+ * original cause of the first failure — for rethrowing single-file CLI paths.
+ */
+export async function uploadAttachments(opts: {
+  client: UploadsClient;
+  target: GhTarget;
+  files: readonly string[];
+  contentType?: string;
+  optimize: OptimizeImageOptions;
+  frame: {
+    frameId?: string;
+    frameUrl?: string;
+    frameFit?: "cover" | "contain";
+  };
+  metadata?: Record<string, string>;
+  /** Provenance `client` field (default uploads-cli). */
+  provenanceClient?: string;
+  concurrency?: number;
+}): Promise<{ uploads: AttachUploadItem[]; failures: AttachFailure[]; firstError?: unknown }> {
+  if (opts.files.some((f) => f === "-")) {
+    throw new UsageError("attach does not support stdin; pass one or more file paths");
+  }
+
+  type Slot = { ok: true; upload: AttachUploadItem } | { ok: false; file: string; err: unknown };
+
+  const slots = await mapBounded(
+    opts.files,
+    opts.concurrency ?? ATTACH_CONCURRENCY,
+    async (file): Promise<Slot> => {
+      try {
+        const sourceName = basename(file);
+        const prepared = await prepareImageForUpload(readFileArg(file), sourceName, {
+          ...opts.frame,
+          optimize: opts.optimize,
+        });
+        const result = await opts.client.put(prepared.bytes, {
+          filename: prepared.filename,
+          key: ghAttachmentKey(opts.target, prepared.filename),
+          contentType: prepared.optimized ? prepared.contentType : opts.contentType,
+          provenance: buildCliProvenance({
+            sourceName,
+            client: opts.provenanceClient,
+            optimized: prepared.optimized,
+            frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
+            keepExif: opts.optimize.keepExif === true,
+          }),
+          metadata: opts.metadata,
+        });
+        return {
+          ok: true,
+          upload: {
+            ...result,
+            file,
+            markdown: buildMarkdown(urlForGithubEmbed(result.url, result.embedUrl)!, {
+              alt: sourceName,
+            }),
+            optimize: {
+              optimized: prepared.optimized,
+              skippedReason: prepared.skippedReason,
+              originalBytes: prepared.originalBytes,
+              outputBytes: prepared.outputBytes,
+              filename: prepared.filename,
+            },
+            frame: prepared.frame,
+          },
+        };
+      } catch (err) {
+        return { ok: false, file, err };
+      }
+    },
+  );
+
+  const uploads: AttachUploadItem[] = [];
+  const failures: AttachFailure[] = [];
+  let firstError: unknown;
+  for (const slot of slots) {
+    if (slot.ok) uploads.push(slot.upload);
+    else {
+      firstError ??= slot.err;
+      failures.push({ file: slot.file, error: errorDetail(slot.err) });
+    }
+  }
+  return { uploads, failures, firstError };
+}
+
+function errorDetail(err: unknown): { message: string; code?: string; status?: number } {
+  if (err instanceof UploadsError)
+    return { message: err.message, code: err.code, status: err.status };
+  return { message: err instanceof Error ? err.message : String(err) };
+}
+
 export async function runAttach(
   ctx: CliContext,
   args: string[],
@@ -449,52 +578,32 @@ export async function runAttach(
   const metaExtras = parseMetaFlags(flagValues(parsed.flags, "--meta"));
   const metadata = { ...metaExtras, ...ghMetadataFromTarget(target) };
   if (Object.keys(metadata).length > 0) validateMetaMap(metadata);
-  const results = [];
-  for (const file of parsed.positionals) {
-    if (file === "-")
-      throw new UsageError("attach does not support stdin; pass one or more file paths");
-    const sourceName = basename(file);
-    if (!ctx.quiet && !ctx.json) process.stderr.write(`>> uploading ${file}\n`);
-    const prepared = await prepareImageForUpload(readFileArg(file), sourceName, {
-      ...frameOpts,
-      optimize: optimizeOpts,
-    });
-    if (prepared.frame?.framed && !ctx.quiet && !ctx.json) {
-      process.stderr.write(`>> framed with ${prepared.frame.frameId}\n`);
-    }
-    const note = formatOptimizeNote(prepared);
-    if (note && !ctx.quiet && !ctx.json) process.stderr.write(`>> ${note}\n`);
-    const result = await ctx.client.put(prepared.bytes, {
-      filename: prepared.filename,
-      key: ghAttachmentKey(target, prepared.filename),
-      contentType: prepared.optimized ? prepared.contentType : contentTypeOverride,
-      provenance: buildCliProvenance({
-        sourceName,
-        optimized: prepared.optimized,
-        frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
-        keepExif: optimizeOpts.keepExif === true,
-      }),
-      metadata,
-    });
-    writeReplacedNote(result.replaced, ctx.quiet || ctx.json);
-    const embedSrc = urlForGithubEmbed(result.url, result.embedUrl)!;
-    results.push({
-      ...result,
-      markdown: buildMarkdown(embedSrc, { alt: sourceName }),
-      optimize: {
-        optimized: prepared.optimized,
-        skippedReason: prepared.skippedReason,
-        originalBytes: prepared.originalBytes,
-        outputBytes: prepared.outputBytes,
-        filename: prepared.filename,
-      },
-      frame: prepared.frame,
-    });
+
+  const logHuman = !ctx.quiet && !ctx.json;
+  if (logHuman) {
+    const n = parsed.positionals.length;
+    process.stderr.write(`>> uploading ${n} file${n === 1 ? "" : "s"}\n`);
+  }
+
+  const { uploads, failures, firstError } = await uploadAttachments({
+    client: ctx.client,
+    target,
+    files: parsed.positionals,
+    contentType: contentTypeOverride,
+    optimize: optimizeOpts,
+    frame: frameOpts,
+    metadata,
+  });
+
+  // Single-file total failure: rethrow so CLI exit codes stay auth/network-aware.
+  if (uploads.length === 0 && failures.length === 1 && parsed.positionals.length === 1) {
+    throw firstError instanceof Error ? firstError : new Error(String(firstError));
   }
 
   let comment: { action: "created" | "updated" | "skipped"; count: number } | undefined;
   let commentError: string | undefined;
-  if (!parsed.flags.has("--no-comment")) {
+  // Skip comment refresh when every upload failed — nothing new from this batch.
+  if (!parsed.flags.has("--no-comment") && uploads.length > 0) {
     try {
       comment = await syncAttachmentsComment(ctx.client, target, run);
     } catch (err) {
@@ -506,20 +615,32 @@ export async function runAttach(
   }
 
   if (ctx.json) {
-    await writeJson({ target, uploads: results, comment, commentError });
+    await writeJson({ target, uploads, failures, comment, commentError });
   } else {
-    for (const result of results) {
+    for (const result of uploads) {
+      if (logHuman) {
+        if (result.frame?.framed) {
+          process.stderr.write(
+            `>> ${basename(result.file)}: framed with ${result.frame.frameId}\n`,
+          );
+        }
+        const note = formatOptimizeNote(result.optimize);
+        if (note) process.stderr.write(`>> ${basename(result.file)}: ${note}\n`);
+        writeReplacedNote(result.replaced, false);
+      }
       const embedLine = result.embedUrl ? `EMBED: ${result.embedUrl}\n` : "";
       await writeStdout(`URL: ${result.url}\n${embedLine}MARKDOWN: ${result.markdown}\n`);
     }
+    for (const failure of failures) {
+      process.stderr.write(`warning: could not upload ${failure.file}: ${failure.error.message}\n`);
+    }
     if (!ctx.quiet && comment) process.stderr.write(`>> attachments comment ${comment.action}\n`);
-    // attach auto-writes gh.* metadata; point the user at how to find it later.
-    if (!ctx.quiet) {
+    if (!ctx.quiet && uploads.length > 0) {
       const ref = ghMetadataFromTarget(target)["gh.ref"];
       process.stderr.write(`>> find these later: uploads find gh.ref=${ref}\n`);
     }
   }
-  return 0;
+  return failures.length === 0 ? 0 : 1;
 }
 
 export async function runPut(
@@ -725,7 +846,7 @@ export async function runPut(
       });
       gallery = { id: galleryId, url: current.url, item };
     } catch (err) {
-      gallery = { id: galleryId, error: galleryError(err) };
+      gallery = { id: galleryId, error: errorDetail(err) };
     }
   }
   const optimizeMeta = {
@@ -790,12 +911,6 @@ export async function runPut(
   }
 
   return gallery?.error ? 1 : 0;
-}
-
-function galleryError(err: unknown): { message: string; code?: string; status?: number } {
-  if (err instanceof UploadsError)
-    return { message: err.message, code: err.code, status: err.status };
-  return { message: err instanceof Error ? err.message : String(err) };
 }
 
 // --- galleries ---
@@ -982,7 +1097,7 @@ export async function runGallery(ctx: CliContext, args: string[], help = false):
             }),
           );
         } catch (err) {
-          failures.push({ objectKey, error: galleryError(err) });
+          failures.push({ objectKey, error: errorDetail(err) });
         }
       }
       const output = { galleryId: id, galleryUrl: galleryUrl ?? null, added, failures };

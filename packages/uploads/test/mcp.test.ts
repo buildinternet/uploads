@@ -524,8 +524,54 @@ describe("tools/call attach", () => {
       num: 123,
     });
     expect(res.result.structuredContent.uploads[0].markdown).toContain("before.png");
+    expect(res.result.structuredContent.failures).toEqual([]);
     expect(res.result.structuredContent.comment).toEqual({ action: "created", count: 1 });
     expect(calls.some((call) => call[1] === "pr" && call[2] === "view")).toBe(true);
+  });
+
+  it("uploads multiple files and reports per-file failures without aborting the batch", async () => {
+    const { run } = ghRunner();
+    const { UploadsError } = await import("../src/errors.js");
+    const putCalls: string[] = [];
+    const { server } = serverWith({
+      runner: run,
+      factory: () =>
+        ({
+          put: async (_body: Uint8Array, opts: { key: string; filename: string }) => {
+            putCalls.push(opts.key);
+            if (opts.filename === "bad.png") {
+              throw new UploadsError("forced fail", "API_ERROR", 500);
+            }
+            return {
+              workspace: "test",
+              key: opts.key,
+              url: `https://x.test/${opts.key}`,
+              embedUrl: null,
+              size: 3,
+              contentType: "image/png",
+            };
+          },
+          listAll: async () => [],
+          findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+          getGallery: async () => ({ items: [] }),
+        }) as never,
+    });
+    const dir = mkdtempSync(join(tmpdir(), "uploads-mcp-test-"));
+    const good = join(dir, "good.png");
+    const bad = join(dir, "bad.png");
+    writeFileSync(good, "png");
+    writeFileSync(bad, "png");
+
+    const res = await rpc(server, "tools/call", {
+      name: "attach",
+      arguments: { files: [good, bad], noComment: true },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.structuredContent.uploads).toHaveLength(1);
+    expect(res.result.structuredContent.uploads[0].key).toContain("good.png");
+    expect(res.result.structuredContent.failures).toHaveLength(1);
+    expect(res.result.structuredContent.failures[0].file).toContain("bad.png");
+    expect(putCalls.some((k) => k.includes("good.png"))).toBe(true);
   });
 
   it("rejects an empty files array", async () => {

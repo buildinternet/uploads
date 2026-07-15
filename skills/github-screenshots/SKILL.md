@@ -42,8 +42,9 @@ images (PNG/JPEG → WebP). No special flags needed for motion.
 ## Step 2 — Host and embed
 
 For the common case — files attached to the current branch's PR — use
-`uploads attach`. It infers the PR, uploads under stable keys, and maintains
-a single managed "attachments" comment:
+`uploads attach`. It infers the PR, uploads under stable keys in parallel, and
+maintains a single managed "attachments" comment. Multi-file runs keep going if
+one path fails (`failures` in `--json`; exit `1` when any failed):
 
 ```bash
 uploads attach ./before.png ./after.png
