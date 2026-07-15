@@ -59,12 +59,18 @@ export const prerender = false;
     <p class="muted cli-note" data-create-error role="alert" hidden></p>
     <p class="muted cli-note" data-create-github role="status" hidden>
       Creating a workspace requires a linked GitHub account.
-      <a href="/account/profile">Connect GitHub on your profile</a>, then come back.
+      <button type="button" class="text-btn" data-connect-github>Connect GitHub</button>
+      — you'll come right back here.
+    </p>
+    <p class="muted cli-note" data-github-error role="alert" hidden>
+      GitHub linking isn't available right now —
+      <a href="/account/profile">try from your profile</a>.
     </p>
   </section>
 
   <script>
     import { onSession, requireElement } from "../../lib/account-shell";
+    import { linkGitHub, listAccounts } from "../../lib/auth-client";
     import {
       getMyWorkspaces,
       getMyWorkspaceUsage,
@@ -84,8 +90,10 @@ export const prerender = false;
 
     const w = window as unknown as {
       __UPLOADS_API_ORIGIN__: string;
+      __UPLOADS_AUTH_ORIGIN__: string;
     };
     const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+    const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
     // Deep-link restore: ?ws=<name>&path=screenshots/releases/
     const browseOnLoad = readBrowseLocation(window.location.search);
     // Deep-link restore: ?ws=<name>&meta.gh.repo=owner/name&…
@@ -198,12 +206,41 @@ export const prerender = false;
     const createGithub = document.querySelector<HTMLElement>("[data-create-github]");
     const createSuccess = document.querySelector<HTMLElement>("[data-create-success]");
     const createdName = document.querySelector<HTMLElement>("[data-created-name]");
+    const githubError = document.querySelector<HTMLElement>("[data-github-error]");
+    const connectGithubBtn = document.querySelector<HTMLButtonElement>("[data-connect-github]");
 
     function showCreateSection(prefill?: string): void {
       if (!createSection) return;
       createSection.hidden = false;
       const input = createForm?.elements.namedItem("name") as HTMLInputElement | null;
       if (input && prefill && !input.value) input.value = prefill;
+      // Surface the GitHub requirement before the user types a name and gets a
+      // 403 — link status comes from the auth worker, so best-effort only (a
+      // null/failed lookup stays quiet and the submit path still catches it).
+      void listAccounts(authOrigin).then((accounts) => {
+        if (!accounts || !createGithub) return;
+        if (!accounts.some((a) => a.providerId === "github")) createGithub.hidden = false;
+      });
+    }
+
+    connectGithubBtn?.addEventListener("click", () => {
+      void (async () => {
+        if (githubError) githubError.hidden = true;
+        connectGithubBtn.disabled = true;
+        connectGithubBtn.textContent = "Redirecting…";
+        // Round-trips through GitHub OAuth and lands back on this form.
+        const returnTo = `${location.origin}/account/workspaces#create`;
+        if (!(await linkGitHub(authOrigin, returnTo))) {
+          connectGithubBtn.disabled = false;
+          connectGithubBtn.textContent = "Connect GitHub";
+          if (githubError) githubError.hidden = false;
+        }
+      })();
+    });
+
+    // Better Auth link-social failures redirect back with ?error=.
+    if (new URLSearchParams(location.search).get("error") && githubError) {
+      githubError.hidden = false;
     }
 
     // Matches the API's workspace-name pattern (see apps/api slug-policy):
