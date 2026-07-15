@@ -29,8 +29,13 @@ describe("validateSlug", () => {
     expect(validateSlug("5hit-team")).toMatchObject({ ok: false });
   });
   it("allows Scunthorpe-style false positives", () => {
-    for (const s of ["scunthorpe", "assets-team", "classic-cars"]) {
+    for (const s of ["scunthorpe", "assets-team", "classic-cars", "grape", "analytics"]) {
       expect(validateSlug(s)).toEqual({ ok: true });
+    }
+  });
+  it("rejects a standalone blocklist term even when an allowlisted word appears elsewhere in the slug", () => {
+    for (const s of ["grape-rape", "canal-anal", "analytics-anal"]) {
+      expect(validateSlug(s)).toEqual({ ok: false, code: "invalid_workspace_name" });
     }
   });
 });

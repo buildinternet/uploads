@@ -44,17 +44,19 @@ function lettersOnly(slug: string): string {
 
 function blocked(slug: string): boolean {
   const flat = lettersOnly(slug);
-  // Any allowlisted word neutralizes the exact span it covers; simplest sound
-  // approximation: if the flat string equals or contains only allowlisted
-  // words around the hit, skip. We keep it simple: a slug whose flat form
-  // contains an allowlisted word that itself contains the blocklist hit is OK.
+  // Per-occurrence allowlisting: remove every span covered by an allowlisted
+  // word first, then scan what's left for blocklist terms. This prevents an
+  // allowlisted word from excusing a *different*, standalone occurrence of a
+  // blocklist term elsewhere in the slug (e.g. "grape-rape" must not let
+  // "grape" excuse the separate "rape"). Removed spans are replaced with "#",
+  // a character that can never appear in `flat` or in any blocklist/allow
+  // term, so remaining fragments can't be stitched back together into a hit.
+  let remainder = flat;
+  for (const allow of SLUG_BLOCKLIST_ALLOW) {
+    remainder = remainder.split(allow).join("#".repeat(allow.length));
+  }
   for (const term of SLUG_BLOCKLIST) {
-    const at = flat.indexOf(term);
-    if (at === -1) continue;
-    const excused = SLUG_BLOCKLIST_ALLOW.some(
-      (allow) => allow.includes(term) && flat.includes(allow),
-    );
-    if (!excused) return true;
+    if (remainder.includes(term)) return true;
   }
   return false;
 }
