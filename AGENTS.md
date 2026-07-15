@@ -16,13 +16,17 @@ packages/errors     @uploads/errors — typed AppError hierarchy + nested wire e
 packages/storage    @uploads/storage — files-sdk adapter factory
 packages/uploads    @buildinternet/uploads — CLI + client for GitHub image embeds
                     (also ships `uploads mcp`, a stdio MCP server mirroring the CLI commands)
-skills/uploads-cli  Agent skill for driving the CLI (host a file → embed in a PR/issue)
+skills/github-screenshots  Workflow skill — screenshots/recordings into PRs, issues, share links
+skills/uploads-cli  Agent skill for driving the CLI (full reference: commands, flags, keys)
 ```
 
-The `uploads-cli` skill in `skills/uploads-cli/SKILL.md` is checked in at the repo
-root so it's installable via the `npx skills add` convention (`--skill uploads-cli`),
-and is the API-backed successor to the `github-screenshots` skill's bundled R2
-scripts. Keep it in sync when the CLI's commands or flags change.
+Two agent skills are checked in at the repo root so they're installable via
+the `npx skills add` convention (and by `uploads install`):
+`skills/github-screenshots` is the thin workflow skill (when a screenshot or
+recording should go into a PR/issue or be shared as a link — the in-repo
+successor to the external `github-screenshots` skill's bundled R2 scripts),
+and `skills/uploads-cli` is the full CLI reference it defers to. Keep both in
+sync when the CLI's commands or flags change.
 
 Keep API and web separate deployables. All storage access goes through
 `createStorage()` in `packages/storage` — never import files-sdk adapters or

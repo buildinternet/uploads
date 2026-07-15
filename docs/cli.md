@@ -14,7 +14,7 @@ and exit codes, run `uploads help --all` or see
 ```bash
 uploads login          # sign in via browser; saves your workspace token, then runs doctor
 uploads whoami         # show the active workspace + token (alias: uploads status)
-uploads install        # install the agent skill + register the hosted MCP server
+uploads install        # install the agent skills + register the hosted MCP server
 uploads put ./shot.png # stdout: public URL + ready-to-paste markdown; stderr: human summary
 ```
 
@@ -29,23 +29,23 @@ with `uploads setup --token <token>` or into `.env` / user config.
 
 ## Command overview
 
-| Command                 | What it does                                             |
-| ----------------------- | -------------------------------------------------------- |
-| `attach <file…>`        | Attach media to the current PR (stable URLs + comment)   |
-| `put <file>`            | Upload one file → public URL + GitHub markdown           |
-| `comment`               | Create/update a PR/issue attachments comment (via `gh`)  |
-| `list` / `find k=v`     | List objects, optionally filtered by queryable metadata  |
-| `meta get` / `meta set` | Read or merge-set an object's queryable metadata         |
-| `gallery …`             | Create and organize public media galleries               |
-| `delete <key>`          | Delete an object                                         |
-| `usage`                 | Workspace storage / upload counters                      |
-| `install`               | Install the agent skill + register the remote MCP server |
-| `login` / `logout`      | Sign in (browser or enrollment code) / clear saved token |
-| `whoami` (`status`)     | Show the active workspace and token                      |
-| `invite`                | Invite a teammate to a workspace (workspace admin)       |
-| `doctor` / `health`     | Health + auth + workspace checks / API liveness          |
-| `setup` / `config`      | Inspect and configure CLI settings                       |
-| `mcp`                   | Serve MCP over stdio (tools mirror the CLI)              |
+| Command                 | What it does                                              |
+| ----------------------- | --------------------------------------------------------- |
+| `attach <file…>`        | Attach media to the current PR (stable URLs + comment)    |
+| `put <file>`            | Upload one file → public URL + GitHub markdown            |
+| `comment`               | Create/update a PR/issue attachments comment (via `gh`)   |
+| `list` / `find k=v`     | List objects, optionally filtered by queryable metadata   |
+| `meta get` / `meta set` | Read or merge-set an object's queryable metadata          |
+| `gallery …`             | Create and organize public media galleries                |
+| `delete <key>`          | Delete an object                                          |
+| `usage`                 | Workspace storage / upload counters                       |
+| `install`               | Install the agent skills + register the remote MCP server |
+| `login` / `logout`      | Sign in (browser or enrollment code) / clear saved token  |
+| `whoami` (`status`)     | Show the active workspace and token                       |
+| `invite`                | Invite a teammate to a workspace (workspace admin)        |
+| `doctor` / `health`     | Health + auth + workspace checks / API liveness           |
+| `setup` / `config`      | Inspect and configure CLI settings                        |
+| `mcp`                   | Serve MCP over stdio (tools mirror the CLI)               |
 
 Run `uploads <command> --help` for per-command flags.
 
@@ -176,13 +176,17 @@ does not change gallery identity or visibility.
 > GitHub or repository visibility. Removing or deleting a gallery does not
 > delete its uploaded media or exempt it from retention.
 
-## Agent skill
+## Agent skills
 
-For agent runtimes, install the checked-in skill as well:
+For agent runtimes, install the checked-in skills as well (`uploads install`
+does this for you):
 
 ```bash
+npx skills add buildinternet/uploads --skill github-screenshots
 npx skills add buildinternet/uploads --skill uploads-cli
 ```
 
-See [`skills/uploads-cli/SKILL.md`](../skills/uploads-cli/SKILL.md) for
-agent-oriented usage and [api.md](api.md) for REST routes.
+[`skills/github-screenshots/SKILL.md`](../skills/github-screenshots/SKILL.md)
+is the workflow skill (screenshots/recordings into PRs and issues);
+[`skills/uploads-cli/SKILL.md`](../skills/uploads-cli/SKILL.md) is the full
+CLI reference it defers to. See [api.md](api.md) for REST routes.

@@ -81,11 +81,12 @@ workspace token — see [enrollment](docs/enrollment.md). Hosted files are
 public, including media attached to private repositories. Do not upload
 secrets or sensitive UI.
 
-**Agent skill** — an auto-triggering playbook for the CLI, installable into
-any agent runtime without checking out anything:
+**Agent skills** — auto-triggering playbooks, installable into any agent
+runtime without checking out anything (`uploads install` runs these for you):
 
 ```bash
-npx skills add buildinternet/uploads --skill uploads-cli
+npx skills add buildinternet/uploads --skill github-screenshots   # visuals → PRs/issues
+npx skills add buildinternet/uploads --skill uploads-cli          # full CLI reference
 ```
 
 Full CLI usage — key conventions, stable PR/issue attachments, managed
@@ -94,16 +95,17 @@ routes are in [docs/api.md](docs/api.md).
 
 ## What's in this repo
 
-| Path                  | What                                                      |
-| --------------------- | --------------------------------------------------------- |
-| `apps/api/`           | Hono worker — REST API, deploys to `api.uploads.sh`       |
-| `apps/auth/`          | Better Auth worker — sessions, enrollment, device flow    |
-| `apps/mcp/`           | Remote MCP server                                         |
-| `apps/web/`           | Astro site — uploads.sh, account and admin UI             |
-| `packages/storage/`   | `@uploads/storage` — files-sdk adapter factory            |
-| `packages/uploads/`   | `@buildinternet/uploads` — CLI + client, publishes to npm |
-| `packages/ui/`        | `@uploads/ui` — shared design system                      |
-| `skills/uploads-cli/` | Agent skill for driving the CLI                           |
+| Path                         | What                                                      |
+| ---------------------------- | --------------------------------------------------------- |
+| `apps/api/`                  | Hono worker — REST API, deploys to `api.uploads.sh`       |
+| `apps/auth/`                 | Better Auth worker — sessions, enrollment, device flow    |
+| `apps/mcp/`                  | Remote MCP server                                         |
+| `apps/web/`                  | Astro site — uploads.sh, account and admin UI             |
+| `packages/storage/`          | `@uploads/storage` — files-sdk adapter factory            |
+| `packages/uploads/`          | `@buildinternet/uploads` — CLI + client, publishes to npm |
+| `packages/ui/`               | `@uploads/ui` — shared design system                      |
+| `skills/github-screenshots/` | Workflow skill — visuals into PRs/issues/share links      |
+| `skills/uploads-cli/`        | Agent skill for driving the CLI                           |
 
 The workers and web app are separate deployables. All storage access goes
 through `createStorage()` in `packages/storage` — adding a provider is one new
