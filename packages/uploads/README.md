@@ -15,6 +15,8 @@ npx @buildinternet/uploads --help
 uploads setup
 uploads --version
 uploads attach ./before.png ./after.png
+uploads screenshot https://app.example --pr 123 --comment   # capture + host in one step
+uploads screenshot ./report.html --dark --selector "main"
 uploads put ./shot.png
 uploads put ./shot.png --destination screenshots
 uploads put ./shot.png --no-optimize
@@ -37,7 +39,7 @@ Inside this monorepo only, `pnpm uploads …` builds the package first so you pi
 up local source; product docs and PR “how to try it” examples should use the
 global `uploads` form above.
 
-Commands: `attach`, `put`, `gallery`, `comment`, `list`, `find`, `meta`, `delete`, `usage`,
+Commands: `attach`, `put`, `screenshot`, `gallery`, `comment`, `list`, `find`, `meta`, `delete`, `usage`,
 `reconcile`, `purge-expired`, `setup`, `install`, `login`, `whoami` (alias `status`),
 `logout`, `invite`, `admin`, `config`, `telemetry`, `report`, `doctor`, `health`, `mcp`,
 `completion`.
@@ -80,6 +82,15 @@ previews the key + public URL without uploading.
 infers the pull request for the current branch via `gh`, uploads stable URLs, and creates
 or updates one marker-owned GitHub comment. It keeps loose `gh/...` attachments and linked public galleries in distinct sections, shows up to three available gallery images inline, and updates that same comment in place on every sync. Use `--pr`, `--issue`, and `--repo` to select
 the target explicitly, or `--no-comment` to upload without changing GitHub comments.
+
+**Screenshot capture:** `uploads screenshot <url|file.html>` renders a page to a
+hosted image in one step — no separate browser tooling needed. `--via auto`
+(default) drives a Chrome/Chromium already on the machine (`playwright-core`
+ships no browser; `--browser <path>`, `--cdp <endpoint>`, or the Playwright/
+Puppeteer caches all work), and falls back to server-side rendering when none
+is found. localhost/private URLs are local-only; `.html` files work on both
+backends. After capture it joins the same pipeline as `put` (optimize, frames,
+`--pr`/`--issue` comments, galleries). See `uploads screenshot --help`.
 
 **Keys / destinations:** default put uses the `screenshots` layout. Typed destinations
 (`--destination screenshots|gh|f`, MCP `destination`) set the root; `--pr`/`--issue`
