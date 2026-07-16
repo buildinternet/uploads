@@ -5,6 +5,7 @@ import { env } from "cloudflare:workers";
 import { resolveConsoleMode } from "../lib/console-mode";
 import Brand from "../components/Brand.astro";
 import BaseHead from "../components/BaseHead.astro";
+import Footer from "../components/Footer.astro";
 
 export const prerender = false;
 
@@ -42,9 +43,9 @@ const authOrigin =
         font: 14px/1.5 var(--mono);
         font-variant-ligatures: none;
         font-feature-settings: "calt" 0, "liga" 0;
-        padding: 32px 20px 48px;
+        padding: 40px 24px 64px;
       }
-      main { max-width: 720px; margin: 0 auto; display: grid; gap: 16px; }
+      main { width: min(var(--width-content, 720px), 100%); margin: 0 auto; display: grid; gap: 16px; }
       h1 { font-size: 1.15rem; font-weight: 600; margin: 0; }
       p.muted { color: var(--muted); margin: 0; font-size: 0.9rem; }
       label {
@@ -205,6 +206,8 @@ const authOrigin =
           <button type="button" id="btn-invite-copy" hidden aria-live="polite">Copy invite link</button>
         </div>
       </section>
+
+      <Footer />
     </main>
     <script define:vars={{ authOrigin }}>
       window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;

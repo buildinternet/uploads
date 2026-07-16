@@ -2,11 +2,10 @@
 // uploads.sh — landing. Beats: headline + star CTA, the real two-command demo,
 // the GitHub comment it produces, what else it does, and copyable setup rows.
 import BaseHead from "../components/BaseHead.astro";
-import AuthIndicator from "../components/AuthIndicator.astro";
-import Brand from "../components/Brand.astro";
 import Footer from "../components/Footer.astro";
+import GitHubMark from "../components/GitHubMark.astro";
+import SiteHeader from "../components/SiteHeader.astro";
 
-const REPO = "https://github.com/buildinternet/uploads";
 // Static page (no `prerender = false`) — auth origin is baked at build time,
 // not read from request-time env. See src/lib/auth-client.ts.
 const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.uploads.sh";
@@ -15,25 +14,25 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
 <html lang="en">
   <head>
     <BaseHead preloadSans />
-    <title>uploads.sh — screenshots on GitHub PRs, from agents &amp; the CLI</title>
+    <title>uploads.sh — now agents can show their work on GitHub PRs</title>
     <meta
       name="description"
-      content="One command hosts a file at a stable URL and keeps a tidy attachments comment on your GitHub PR. Hosted and open source — CLI, agent skill, and MCP server."
+      content="GitHub doesn't have first-class uploads for agents. One command puts screenshots and recordings on the PR, hosted at stable URLs with tagged metadata, in one tidy comment. Open source — CLI, agent skill, and MCP server."
     />
     <link rel="canonical" href="https://uploads.sh/" />
     <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://uploads.sh/" />
-    <meta property="og:title" content="uploads.sh — screenshots on GitHub PRs, from agents & the CLI" />
+    <meta property="og:title" content="uploads.sh — now agents can show their work on GitHub PRs" />
     <meta
       property="og:description"
-      content="One command hosts a file at a stable URL and keeps a tidy attachments comment on your GitHub PR. Hosted and open source — CLI, agent skill, and MCP server."
+      content="GitHub doesn't have first-class uploads for agents. One command puts screenshots and recordings on the PR, hosted at stable URLs with tagged metadata, in one tidy comment. Open source — CLI, agent skill, and MCP server."
     />
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="uploads.sh — screenshots on GitHub PRs, from agents & the CLI" />
+    <meta name="twitter:title" content="uploads.sh — now agents can show their work on GitHub PRs" />
     <meta
       name="twitter:description"
-      content="One command hosts a file at a stable URL and keeps a tidy attachments comment on your GitHub PR."
+      content="GitHub doesn't have first-class uploads for agents. One command puts screenshots and recordings on the PR, in one tidy comment."
     />
     <style>
       * { box-sizing: border-box; }
@@ -45,10 +44,10 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         font: 14.5px/1.65 var(--mono);
         display: grid;
         justify-items: center;
-        padding: 36px 24px 56px;
+        padding: 40px 24px 64px;
       }
       main {
-        width: min(680px, 100%);
+        width: min(var(--width-content, 720px), 100%);
         display: grid;
         gap: 18px;
       }
@@ -57,51 +56,13 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         .hidden { visibility: visible; }
       }
 
-      /* ---------- header: brand + star CTA ---------- */
-      .top {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 12px;
-        margin-bottom: 6px;
-      }
-      @media (max-width: 420px) {
-        .star-cta .count { display: none; }
-      }
-      .star-cta {
-        margin-left: auto;
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        color: var(--fg);
-        text-decoration: none;
-        font-size: 12.5px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-sm);
-        padding: 6px 11px;
-        background: var(--panel);
-      }
-      .star-cta:hover,
-      .star-cta:focus-visible {
-        border-color: var(--accent);
-        outline: none;
-        background: var(--panel);
-      }
-      .star-cta svg { width: 14px; height: 14px; fill: currentColor; }
-      .star-cta .count {
-        color: var(--muted);
-        border-left: 1px solid var(--line);
-        padding-left: 7px;
-        font-variant-numeric: tabular-nums;
-      }
-      .star-cta .count:empty { display: none; }
-
       /* ---------- headline ---------- */
       h1 {
         font: 600 clamp(24px, 5vw, 32px)/1.25 var(--sans);
         letter-spacing: -0.015em;
         margin: 6px 0 0;
       }
+      h1 .nb { white-space: nowrap; }
       .lede {
         font: 15px/1.65 var(--sans);
         color: var(--body);
@@ -260,18 +221,16 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         margin: 0 0 10px 2px;
       }
 
-      /* ---------- features ---------- */
+      /* ---------- features (spec-sheet list, not cards) ---------- */
       .features { margin-top: 14px; }
       .features .grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 8px;
+        gap: 22px 32px;
       }
       .feature {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: var(--radius-md);
-        padding: 12px 14px;
+        border-top: 1px solid var(--line);
+        padding-top: 12px;
       }
       .feature h3 {
         font: 600 13px/1.4 var(--mono);
@@ -279,40 +238,37 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         margin: 0 0 4px;
       }
       .feature p {
-        font: 12.5px/1.55 var(--sans);
+        font: 13px/1.6 var(--sans);
         color: var(--body);
         margin: 0;
       }
       .feature code {
         font: 11.5px var(--mono);
         color: var(--fg);
-        background: var(--bg);
+        background: var(--panel);
         border: 1px solid var(--line);
         border-radius: 4px;
         padding: 0 4px;
       }
       @media (max-width: 560px) {
-        .features .grid { grid-template-columns: 1fr; }
+        .features .grid { grid-template-columns: 1fr; gap: 18px; }
       }
 
       /* ---------- guide callout ---------- */
       .guide {
         font: 13.5px/1.6 var(--sans);
-        color: var(--muted);
-        margin: 2px 2px 0;
+        color: var(--body);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 13px 16px;
+        margin: 6px 0 4px;
       }
+      .guide .arrow { color: var(--accent); }
 
       /* ---------- install panel ---------- */
-      .install { font-size: 13px; margin-top: 6px; }
-      .install .rows { display: grid; gap: 8px; }
-      .install .sub {
-        margin-left: 14px;
-        padding-left: 16px;
-        border-left: 1px solid var(--line);
-        display: grid;
-        gap: 8px;
-      }
-      .install .sub-lead { color: var(--muted); font-size: 12px; margin: 2px 0 0; }
+      .install { font-size: 13px; margin-top: 14px; }
+      .install .rows { display: grid; gap: 10px; }
       .cmdrow {
         display: grid;
         grid-template-columns: 74px 1fr auto;
@@ -337,6 +293,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       }
       .cmdrow .cmdtext::before { content: "$ "; color: var(--accent); }
       .cmdrow .cmdtext .url { color: var(--body); }
+      .cmdrow .cmdtext .comment { color: var(--muted); user-select: none; }
       .cmdrow button {
         font: 11px var(--mono);
         letter-spacing: 0.06em;
@@ -353,13 +310,63 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         outline: none;
       }
       .cmdrow button.done { color: var(--green); border-color: var(--green); }
+
+      /* The one loudest action on the page: the install row. Accent-washed
+         panel, solid accent copy button. */
       .hero-install {
         font-size: 14px;
         margin-bottom: 2px;
-        border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+        border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+        background: color-mix(in srgb, var(--accent) 7%, var(--panel));
       }
       .hero-install .cmdtext { font-weight: 500; }
-      .install .foot { color: var(--muted); margin: 10px 2px 0; font-size: 12px; }
+      .hero-install button {
+        color: var(--bg);
+        background: var(--accent);
+        border-color: var(--accent);
+        font-weight: 600;
+      }
+      .hero-install button:hover,
+      .hero-install button:focus-visible {
+        background: color-mix(in srgb, var(--accent) 88%, #fff);
+        border-color: color-mix(in srgb, var(--accent) 88%, #fff);
+      }
+      .hero-install button.done {
+        color: var(--bg);
+        background: var(--green);
+        border-color: var(--green);
+      }
+
+      /* ---------- closing CTA ---------- */
+      .cta-row {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        margin: 44px 0 10px;
+        text-align: center;
+      }
+      .cta-solid {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font: 600 13.5px var(--mono);
+        letter-spacing: 0.02em;
+        color: var(--bg);
+        background: var(--accent);
+        border: 1px solid var(--accent);
+        border-radius: var(--radius-md);
+        padding: 10px 16px;
+        text-decoration: none;
+      }
+      .cta-solid:hover,
+      .cta-solid:focus-visible {
+        color: var(--bg);
+        background: color-mix(in srgb, var(--accent) 88%, #fff);
+        border-color: color-mix(in srgb, var(--accent) 88%, #fff);
+        outline: none;
+      }
+      .cta-note { color: var(--muted); font-size: 12.5px; }
       a {
         color: var(--fg);
         text-decoration: underline;
@@ -382,23 +389,13 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
   </head>
   <body>
     <main>
-      <div class="top">
-        <Brand />
-        <a class="star-cta" href={REPO} aria-label="Star buildinternet/uploads on GitHub">
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"></path>
-          </svg>
-          Star on GitHub
-          <span class="count" id="star-count"></span>
-        </a>
-        <AuthIndicator authOrigin={authOrigin} />
-      </div>
+      <SiteHeader star authOrigin={authOrigin} />
 
-      <h1>Agents can put screenshots on pull requests now, too.</h1>
+      <h1>Now agents can show their work on <span class="nb">pull requests, too.</span></h1>
       <p class="lede">
-        You add a screenshot to GitHub by dragging it into the comment box. Agents can't.
-        uploads.sh gives them one command: <code>uploads attach</code>&#32;
-        hosts the file at a stable URL and keeps one tidy comment on the PR.
+        GitHub doesn't have first-class uploads for agents. The uploads CLI gives them
+        one command: <code>uploads attach</code> puts screenshots and recordings on the PR,
+        hosted at stable URLs with tagged metadata, in one tidy comment.
       </p>
 
       <div class="cmdrow hero-install">
@@ -520,7 +517,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       </section>
 
       <p class="guide">
-        Setting up an agent to do this end to end? Read the guide:&#32;
+        <span class="arrow">▸</span> Setting up an agent to do this end to end? Read the guide:&#32;
         <a href="/github-screenshots">how to get agents to upload screenshots &amp; video to GitHub</a>.
       </p>
 
@@ -534,24 +531,17 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
           </div>
           <div class="cmdrow">
             <span class="tag">agents</span>
-            <span class="cmdtext">uploads install</span>
+            <span class="cmdtext">uploads install <span class="comment"># skill + mcp</span></span>
             <button type="button" data-copy="uploads install" aria-live="polite">copy</button>
           </div>
-          <div class="sub" aria-label="What uploads install sets up, also available individually">
-            <p class="sub-lead">runs both of these — grab one on its own if you'd rather:</p>
-            <div class="cmdrow">
-              <span class="tag">skill</span>
-              <span class="cmdtext">npx skills add buildinternet/uploads</span>
-              <button type="button" data-copy="npx skills add buildinternet/uploads" aria-live="polite">copy</button>
-            </div>
-            <div class="cmdrow">
-              <span class="tag">mcp</span>
-              <span class="cmdtext">claude mcp add --transport http uploads <span class="url">https://agents.uploads.sh/mcp</span></span>
-              <button type="button" data-copy="claude mcp add --transport http uploads https://agents.uploads.sh/mcp" aria-live="polite">copy</button>
-            </div>
-          </div>
         </div>
-        <p class="foot">free to start: <a href="/login">sign in with GitHub</a> and create a workspace</p>
+        <div class="cta-row">
+          <a class="cta-solid" href="/login">
+            <GitHubMark size={15} />
+            sign in with GitHub
+          </a>
+          <span class="cta-note">free to start in the cloud · open source to self-host</span>
+        </div>
       </section>
 
       <Footer />
@@ -571,30 +561,6 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       } else {
         hidden.forEach((el) => el.classList.remove("hidden"));
       }
-
-      // Live star count — cached for an hour, silently absent on failure.
-      (async () => {
-        const el = document.getElementById("star-count");
-        if (!el) return;
-        const show = (n: number) => {
-          el.textContent = n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-        };
-        try {
-          const cached = JSON.parse(localStorage.getItem("gh-stars") ?? "null");
-          if (cached && typeof cached.n === "number" && Date.now() - cached.t < 3_600_000) {
-            show(cached.n);
-            return;
-          }
-          const res = await fetch("https://api.github.com/repos/buildinternet/uploads");
-          if (!res.ok) return;
-          const n = ((await res.json()) as { stargazers_count?: unknown }).stargazers_count;
-          if (typeof n !== "number") return;
-          localStorage.setItem("gh-stars", JSON.stringify({ t: Date.now(), n }));
-          show(n);
-        } catch {
-          /* leave the count empty — the CTA still works */
-        }
-      })();
 
       for (const btn of document.querySelectorAll(".cmdrow button")) {
         btn.addEventListener("click", async () => {

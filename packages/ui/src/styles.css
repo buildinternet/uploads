@@ -62,6 +62,12 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 40px;
+
+  /* Content widths (page containers; pair with `width: min(var(--width-*), 100%)`) */
+  --width-card: 480px; /* centered auth/error cards */
+  --width-content: 720px; /* reading/marketing pages: landing, docs, guides, legal */
+  --width-shell: 960px; /* signed-in shells: account, admin */
+  --width-viewer: 1080px; /* media viewers: /f, /g */
 }
 
 /* ── Surface (theme root) ──────────────────────────────────────────────── */
@@ -189,6 +195,18 @@
 .ul-btn--ghost:focus-visible {
   color: var(--fg);
   border-color: var(--line);
+}
+.ul-btn--solid {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+.ul-btn--solid:hover,
+.ul-btn--solid:focus-visible {
+  color: var(--bg);
+  background: color-mix(in srgb, var(--accent) 88%, #ffffff);
+  border-color: color-mix(in srgb, var(--accent) 88%, #ffffff);
 }
 .ul-btn--danger {
   color: var(--red);

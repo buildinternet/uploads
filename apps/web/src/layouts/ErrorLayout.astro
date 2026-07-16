@@ -34,9 +34,9 @@ const { status, title, message, hint } = Astro.props;
         font: 14.5px/1.65 var(--mono);
         display: grid;
         place-items: center;
-        padding: 40px 24px 56px;
+        padding: 28px;
       }
-      main { width: min(420px, 100%); }
+      main { width: min(var(--width-card, 480px), 100%); }
       .brandbar { display: flex; justify-content: center; margin-bottom: 18px; }
       .card {
         background: var(--panel);
