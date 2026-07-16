@@ -61,13 +61,13 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         font: 600 clamp(24px, 5vw, 32px)/1.25 var(--sans);
         letter-spacing: -0.015em;
         margin: 6px 0 0;
+        text-wrap: balance;
       }
       h1 .nb { white-space: nowrap; }
       .lede {
         font: 15px/1.65 var(--sans);
         color: var(--body);
         margin: 0 0 8px;
-        max-width: 58ch;
       }
       .lede code {
         font: 0.9em var(--mono);
@@ -254,6 +254,24 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         .features .grid { grid-template-columns: 1fr; gap: 18px; }
       }
 
+      /* Full-width worked examples under the grid — slim, titlebar-less takes
+         on the hero terminal. */
+      .examples { display: grid; gap: 14px; margin-top: 24px; }
+      .example { margin: 0; }
+      .example-cap {
+        font: 12.5px/1.5 var(--sans);
+        color: var(--muted);
+        margin: 0 0 6px 2px;
+      }
+      .example-cap .arrow { color: var(--accent); }
+      .example-screen {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 12px 14px;
+        font-size: 12.5px;
+      }
+
       /* ---------- guide callout ---------- */
       .guide {
         font: 13.5px/1.6 var(--sans);
@@ -381,7 +399,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       }
       /* Geist Mono merges " --" into a joined dash via calt - keep CLI flags literal.
          Declared last: the font shorthand in earlier rules resets feature settings. */
-      code, pre, .cmd, .block, .screen, .cmdtext, .cmdrow, .terminal, .feature h3 {
+      code, pre, .cmd, .block, .screen, .example-screen, .cmdtext, .cmdrow, .terminal, .feature h3 {
         font-variant-ligatures: none;
         font-feature-settings: "calt" 0, "liga" 0;
       }
@@ -500,6 +518,21 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
             </p>
           </div>
           <div class="feature">
+            <h3>queryable metadata</h3>
+            <p>
+              Tag any upload with <code>--meta path=/settings</code> and query it back with
+              <code>uploads find</code>. <code>attach</code> stamps <code>gh.repo</code> and PR
+              context automatically.
+            </p>
+          </div>
+          <div class="feature">
+            <h3>one-command screenshots</h3>
+            <p>
+              <code>uploads screenshot &lt;url&gt;</code> captures and hosts in one step — your
+              local browser if you have one, remote render if you don't.
+            </p>
+          </div>
+          <div class="feature">
             <h3>shareable galleries</h3>
             <p>
               Group uploads into a public gallery page at <code>uploads.sh/g/…</code> — one
@@ -513,6 +546,30 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
               rules. Nothing is shared between them.
             </p>
           </div>
+        </div>
+
+        <div class="examples">
+          <figure class="example">
+            <figcaption class="example-cap">
+              <span class="arrow">▸</span> tag uploads as you attach them
+            </figcaption>
+            <div class="example-screen">
+              <p class="line"><span class="prompt">$</span> <span class="cmd">uploads attach ./settings.png --meta path=/settings --meta app=web</span></p>
+              <p class="line out">&gt;&gt; uploading ./settings.png</p>
+              <p class="line out">&gt;&gt; optimized 402.3 KB → 91.7 KB (settings.webp)</p>
+              <p class="line out"><span class="ok">&gt;&gt; attachments comment updated</span></p>
+              <p class="line out">&gt;&gt; find these later: <span class="v">uploads find gh.ref=pull/123</span></p>
+            </div>
+          </figure>
+          <figure class="example">
+            <figcaption class="example-cap">
+              <span class="arrow">▸</span> find them later, and see exactly where they're attached
+            </figcaption>
+            <div class="example-screen">
+              <p class="line"><span class="prompt">$</span> <span class="cmd">uploads find path=/settings</span></p>
+              <p class="line out"><span class="v">gh/you/app/pull/123/settings.webp</span>&#32;&#32;app=web gh.number=123 gh.repo=you/app path=/settings</p>
+            </div>
+          </figure>
         </div>
       </section>
 
