@@ -130,6 +130,108 @@ export async function applyUsageDelta(
   ]);
 }
 
+export type UploadReservation =
+  | { ok: true }
+  | { ok: false; usage: WorkspaceUsage; maxUploadsPerPeriod: number };
+
+/**
+ * Atomically reserve `count` uploads against the monthly budget BEFORE the
+ * paid work (Browser Run render / R2 put) happens. A guarded UPDATE increments
+ * `uploads_in_period` only while the workspace stays within
+ * `maxUploadsPerPeriod`, so concurrent requests at the cap boundary cannot all
+ * pass a read-then-check and overshoot the cap. Callers must
+ * `releaseUploadsSafe` the reservation if the work fails, and must NOT count
+ * the upload again in their post-work `recordUsageSafe` delta.
+ *
+ * Unlike recordUsageSafe this throws on D1 failure — the budget gate is a
+ * precondition of the work, not best-effort metering.
+ */
+export async function reserveUploads(
+  db: D1Database,
+  workspace: string,
+  count: number,
+  maxUploadsPerPeriod: number | undefined,
+  now = new Date(),
+): Promise<UploadReservation> {
+  if (maxUploadsPerPeriod === undefined) {
+    // Unlimited: still count at reservation time so failure/release semantics
+    // stay uniform with capped workspaces.
+    await applyUsageDelta(db, workspace, { bytes: 0, objects: 0, uploads: count }, now);
+    return { ok: true };
+  }
+
+  const period = usagePeriodStart(now);
+  const updatedAt = now.toISOString();
+
+  // Ensure row, then a conditional increment: the WHERE clause re-derives the
+  // current period's upload count (a stale period_start means the month rolled
+  // over, so it counts as 0) and only matches while the guarded increment
+  // stays within the cap. `meta.changes === 0` means the budget is spent.
+  const results = await db.batch([
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO workspace_usage
+           (workspace, bytes, objects, uploads_in_period, period_start, updated_at)
+         VALUES (?, 0, 0, 0, ?, ?)`,
+      )
+      .bind(workspace, period, updatedAt),
+    db
+      .prepare(
+        `UPDATE workspace_usage SET
+           uploads_in_period = (CASE WHEN period_start = ? THEN uploads_in_period ELSE 0 END) + ?,
+           period_start = ?,
+           updated_at = ?
+         WHERE workspace = ?
+           AND (CASE WHEN period_start = ? THEN uploads_in_period ELSE 0 END) + ? <= ?`,
+      )
+      .bind(period, count, period, updatedAt, workspace, period, count, maxUploadsPerPeriod),
+  ]);
+
+  const changes = results[1]?.meta?.changes ?? 0;
+  if (changes > 0) return { ok: true };
+  return { ok: false, usage: await getWorkspaceUsage(db, workspace, now), maxUploadsPerPeriod };
+}
+
+/**
+ * Return a reservation taken by `reserveUploads` after the reserved work
+ * failed. Best-effort like recordUsageSafe: the reservation is already spent
+ * budget, so a failed release only over-counts (never under-counts). A release
+ * that lands after the month rolled over is a deliberate no-op — the
+ * reservation belonged to the old period.
+ */
+export async function releaseUploadsSafe(
+  db: D1Database,
+  workspace: string,
+  count: number,
+  now = new Date(),
+): Promise<void> {
+  const period = usagePeriodStart(now);
+  try {
+    await db
+      .prepare(
+        `UPDATE workspace_usage SET
+           uploads_in_period = CASE
+             WHEN period_start = ? THEN MAX(0, uploads_in_period - ?)
+             ELSE uploads_in_period
+           END,
+           updated_at = ?
+         WHERE workspace = ?`,
+      )
+      .bind(period, count, now.toISOString(), workspace)
+      .run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      JSON.stringify({
+        message: "upload reservation release failed",
+        workspace,
+        count,
+        error: message,
+      }),
+    );
+  }
+}
+
 /** Best-effort metering: log and continue if D1 fails. */
 export async function recordUsageSafe(
   db: D1Database,

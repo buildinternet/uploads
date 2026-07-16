@@ -84,6 +84,45 @@ describe("workspace budget enforcement", () => {
     expect(body.error.type).toBe("rate_limited");
   });
 
+  it("admits exactly the remaining budget under concurrent puts at the cap boundary", async () => {
+    // Five simultaneous puts against a cap of 2: the atomic D1 reservation in
+    // putObject must admit exactly 2 — a read-then-check would let all five
+    // pass the check before any of them recorded an upload.
+    const { env, db } = await makeEnv({ maxUploadsPerPeriod: 2 });
+    const responses = await Promise.all(
+      Array.from({ length: 5 }, (_, i) => put(env, `concurrent-${i}.png`)),
+    );
+
+    const statuses = responses.map((r) => r.status);
+    expect(statuses.filter((s) => s === 201)).toHaveLength(2);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(3);
+
+    const denied = responses.find((r) => r.status === 429)!;
+    const body = (await denied.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("upload_budget_exceeded");
+
+    expect(db.usage.get("default")?.uploads_in_period).toBe(2);
+  });
+
+  it("releases the reserved upload when the storage write fails", async () => {
+    const { env, db } = await makeEnv({ maxUploadsPerPeriod: 1 });
+    const bucket = (env as { UPLOADS_DEFAULT: FakeR2Bucket }).UPLOADS_DEFAULT;
+    const realPut = bucket.put.bind(bucket);
+    bucket.put = async () => {
+      throw new Error("simulated R2 outage");
+    };
+
+    const failed = await put(env, "a.png");
+    expect(failed.status).toBeGreaterThanOrEqual(500);
+    // The failed put must not consume the monthly budget…
+    expect(db.usage.get("default")?.uploads_in_period ?? 0).toBe(0);
+
+    // …so a retry still fits under maxUploadsPerPeriod: 1.
+    bucket.put = realPut;
+    expect((await put(env, "a.png")).status).toBe(201);
+    expect(db.usage.get("default")?.uploads_in_period).toBe(1);
+  });
+
   it("surfaces limits on GET /usage", async () => {
     const { env } = await makeEnv({
       maxStorageBytes: 10_000,

@@ -5,14 +5,14 @@
  * from `@uploads/errors`; REST serializes via `respondError`, MCP surfaces
  * `message` in the tool error.
  */
-import {
-  InsufficientStorageError,
-  NotFoundError,
-  RateLimitedError,
-  ValidationError,
-} from "@uploads/errors";
+import { NotFoundError, ValidationError } from "@uploads/errors";
 import type { Files } from "@uploads/storage";
-import { checkPutBudget } from "./budget";
+import {
+  budgetDenialError,
+  checkPutBudget,
+  resolveBudgetLimits,
+  uploadBudgetDenial,
+} from "./budget";
 import { deleteFileMetadata, replaceFileMetadata, validateMetadataEntries } from "./file-metadata";
 import { DEFAULT_MAX_UPLOAD_BYTES, inspectUpload, resolveUploadPolicy } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
@@ -23,7 +23,7 @@ import {
   type ProvenanceMap,
 } from "./provenance";
 import { objectPublicUrls, storage, storageConfig } from "./storage";
-import { getWorkspaceUsage, recordUsageSafe } from "./usage";
+import { getWorkspaceUsage, recordUsageSafe, releaseUploadsSafe, reserveUploads } from "./usage";
 import { objectVisibility, VISIBILITY_META_KEY, type Visibility } from "./visibility";
 import type { WorkspaceRecord } from "./workspace";
 
@@ -162,17 +162,18 @@ export async function putObject(
 
   const usage = await getWorkspaceUsage(env.DB, workspaceName);
   const denial = checkPutBudget(usage, ws, { bytes: deltaBytes, uploads: 1 });
-  if (denial) {
-    if (denial.status === 507) {
-      throw new InsufficientStorageError(denial.message, {
-        code: denial.code,
-        details: denial.detail,
-      });
-    }
-    throw new RateLimitedError(denial.message, {
-      code: denial.code,
-      details: denial.detail,
-    });
+  if (denial) throw budgetDenialError(denial);
+
+  // The read-side check above handles the storage cap and rejects
+  // obviously-spent budgets cheaply, but it races with concurrent puts at the
+  // upload-cap boundary. Reserve the upload atomically (guarded D1 increment)
+  // before the R2 write; the reservation IS the upload count, so the post-put
+  // recordUsageSafe below must not count it again, and a failed write
+  // releases it.
+  const { maxUploadsPerPeriod } = resolveBudgetLimits(ws);
+  const reservation = await reserveUploads(env.DB, workspaceName, 1, maxUploadsPerPeriod);
+  if (!reservation.ok) {
+    throw budgetDenialError(uploadBudgetDenial(reservation.usage, reservation.maxUploadsPerPeriod));
   }
 
   // Client headers first; always attach content-sha256 of the final stored body
@@ -190,20 +191,27 @@ export async function putObject(
     ...(storedVisibility ? { [VISIBILITY_META_KEY]: storedVisibility } : {}),
   };
 
-  await store.upload(finalKey, bytes, {
-    contentType: inspection.contentType,
-    cacheControl: UPLOAD_CACHE_CONTROL,
-    metadata: storageMetadata,
-  });
+  try {
+    await store.upload(finalKey, bytes, {
+      contentType: inspection.contentType,
+      cacheControl: UPLOAD_CACHE_CONTROL,
+      metadata: storageMetadata,
+    });
+  } catch (err) {
+    // Nothing was stored, so the reserved upload goes back to the budget.
+    await releaseUploadsSafe(env.DB, workspaceName, 1);
+    throw err;
+  }
 
   // Usage accounting first: the object is already durably stored above, so
   // the ledger must be updated regardless of whether the metadata batch
   // below succeeds — otherwise a metadata failure leaves bytes/objects
-  // stored but under-counted (recordUsageSafe never throws).
+  // stored but under-counted (recordUsageSafe never throws). The upload
+  // itself was already counted by reserveUploads, hence `uploads: 0`.
   await recordUsageSafe(env.DB, workspaceName, {
     bytes: deltaBytes,
     objects: replaced ? 0 : 1,
-    uploads: 1,
+    uploads: 0,
   });
 
   if (opts?.metadata) {

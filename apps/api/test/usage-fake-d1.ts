@@ -85,6 +85,55 @@ export class UsageFakeD1 {
           return { success: true as const, meta: { changes: 1 }, results: [] };
         }
         if (normalized.startsWith("UPDATE workspace_usage SET")) {
+          // Guarded reservation from reserveUploads: increments
+          // uploads_in_period only while within the cap; changes: 0 signals
+          // a spent budget. Atomic within a single run(), like D1's UPDATE.
+          if (normalized.includes("<= ?")) {
+            const [period, count, periodSet, updatedAt, workspace, , , max] = values as [
+              string,
+              number,
+              string,
+              string,
+              string,
+              string,
+              number,
+              number,
+            ];
+            const row = this.usage.get(workspace);
+            if (!row) throw new Error(`update before insert for ${workspace}`);
+            const current = row.period_start === period ? row.uploads_in_period : 0;
+            if (current + count > max) {
+              return { success: true as const, meta: { changes: 0 }, results: [] };
+            }
+            this.usage.set(workspace, {
+              ...row,
+              uploads_in_period: current + count,
+              period_start: periodSet,
+              updated_at: updatedAt,
+            });
+            return { success: true as const, meta: { changes: 1 }, results: [] };
+          }
+          // Reservation release from releaseUploadsSafe: same-period
+          // decrement clamped at zero; a rolled-over period is a no-op.
+          if (normalized.includes("MAX(0, uploads_in_period - ?)")) {
+            const [period, count, updatedAt, workspace] = values as [
+              string,
+              number,
+              string,
+              string,
+            ];
+            const row = this.usage.get(workspace);
+            if (!row) return { success: true as const, meta: { changes: 0 }, results: [] };
+            this.usage.set(workspace, {
+              ...row,
+              uploads_in_period:
+                row.period_start === period
+                  ? Math.max(0, row.uploads_in_period - count)
+                  : row.uploads_in_period,
+              updated_at: updatedAt,
+            });
+            return { success: true as const, meta: { changes: 1 }, results: [] };
+          }
           // Absolute totals from setUsageTotals: bytes, objects, updated_at, workspace
           if (
             normalized.includes("bytes = ?") &&
