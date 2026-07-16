@@ -1,0 +1,154 @@
+---
+import AccountLayout from "../../../layouts/AccountLayout.astro";
+
+export const prerender = false;
+---
+
+<AccountLayout section="workspaces" creating title="New workspace">
+  <section class="card" id="create">
+    <h2>Create a workspace</h2>
+    <p class="ws-lead">
+      Public folder on the shared bucket — unguessable URLs under
+      <code>storage.uploads.sh/&lt;name&gt;/…</code> for PR embeds.
+      Free: 1&nbsp;GB · 25&nbsp;MB per file.
+    </p>
+
+    <form class="ws-form" data-create-form>
+      <div class="input-group">
+        <label class="input-group__field">
+          <span class="sr-only">Workspace name</span>
+          <input
+            name="name"
+            required
+            pattern="[a-z0-9][a-z0-9-]{1,62}"
+            placeholder="workspace-name"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </label>
+        <button type="submit" class="input-group__action">Create</button>
+      </div>
+      <p class="ws-hint muted">2–63 chars · lowercase letters, digits, hyphens</p>
+    </form>
+
+    <div class="ws-messages">
+      <div class="ul-callout" data-create-success role="status" hidden>
+        <p><strong data-created-name></strong> is ready. Upload from the terminal:</p>
+        <div class="command">
+          <code>npm install -g @buildinternet/uploads</code>
+          <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite">copy</button>
+        </div>
+        <div class="command">
+          <code>uploads login</code>
+          <button type="button" data-copy="uploads login" aria-live="polite">copy</button>
+        </div>
+        <div class="command">
+          <code>uploads put ./screenshot.png</code>
+          <button type="button" data-copy="uploads put ./screenshot.png" aria-live="polite">copy</button>
+        </div>
+        <p class="muted cli-note">
+          Agents: <code>uploads install</code> adds the skill + MCP.
+        </p>
+        <p class="muted cli-note">
+          <a data-open-workspace href="/account/workspaces">Open this workspace →</a>
+        </p>
+      </div>
+      <p class="muted cli-note" data-create-error role="alert" hidden></p>
+      <p class="muted cli-note" data-create-github role="status" hidden>
+        Requires a linked GitHub account.
+        <button type="button" class="text-btn" data-connect-github>Connect GitHub</button>
+      </p>
+      <p class="muted cli-note" data-github-error role="alert" hidden>
+        GitHub linking isn't available —
+        <a href="/account/profile">try from your profile</a>.
+      </p>
+    </div>
+  </section>
+
+  <script>
+    import { onSession, requireElement } from "../../../lib/account-shell";
+    import { linkGitHub, listAccounts } from "../../../lib/auth-client";
+    import { createWorkspace } from "../../../lib/api-client";
+    import {
+      bindCopyButtons,
+      createErrorCopy,
+      suggestedWorkspaceName,
+    } from "../../../lib/workspace-ui";
+
+    const w = window as unknown as {
+      __UPLOADS_API_ORIGIN__: string;
+      __UPLOADS_AUTH_ORIGIN__: string;
+    };
+    const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+    const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
+    const page = "create workspace";
+
+    const form = requireElement<HTMLFormElement>("[data-create-form]", page);
+    const errorEl = requireElement<HTMLElement>("[data-create-error]", page);
+    const githubEl = requireElement<HTMLElement>("[data-create-github]", page);
+    const successEl = requireElement<HTMLElement>("[data-create-success]", page);
+    const createdName = requireElement<HTMLElement>("[data-created-name]", page);
+    const githubError = requireElement<HTMLElement>("[data-github-error]", page);
+    const connectBtn = requireElement<HTMLButtonElement>("[data-connect-github]", page);
+    const openLink = requireElement<HTMLAnchorElement>("[data-open-workspace]", page);
+    const input = form.elements.namedItem("name") as HTMLInputElement;
+    const submit = form.querySelector<HTMLButtonElement>("button[type='submit']");
+
+    void listAccounts(authOrigin).then((accounts) => {
+      if (accounts && !accounts.some((a) => a.providerId === "github")) githubEl.hidden = false;
+    });
+
+    if (new URLSearchParams(location.search).get("error")) githubError.hidden = false;
+
+    connectBtn.addEventListener("click", () => {
+      void (async () => {
+        githubError.hidden = true;
+        connectBtn.disabled = true;
+        connectBtn.textContent = "Redirecting…";
+        if (!(await linkGitHub(authOrigin, `${location.origin}/account/workspaces/new`))) {
+          connectBtn.disabled = false;
+          connectBtn.textContent = "Connect GitHub";
+          githubError.hidden = false;
+        }
+      })();
+    });
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void (async () => {
+        errorEl.hidden = true;
+        githubEl.hidden = true;
+        successEl.hidden = true;
+        const name = input.value.trim();
+        if (submit) submit.disabled = true;
+        const result = await createWorkspace(apiOrigin, name);
+        if (submit) submit.disabled = false;
+        if (result.kind === "created") {
+          input.value = "";
+          createdName.textContent = name;
+          openLink.href = `/account/workspaces/${encodeURIComponent(name)}`;
+          successEl.hidden = false;
+          return;
+        }
+        if (result.kind === "error" && result.code === "github_required") {
+          githubEl.hidden = false;
+          return;
+        }
+        errorEl.textContent =
+          result.kind === "unavailable"
+            ? "The API is unreachable right now — try again shortly."
+            : createErrorCopy(result.code);
+        errorEl.hidden = false;
+      })();
+    });
+
+    bindCopyButtons(requireElement<HTMLElement>("#create", page));
+
+    onSession((user) => {
+      if (!input.value) {
+        const suggestion = suggestedWorkspaceName(user.email);
+        if (suggestion) input.value = suggestion;
+      }
+    });
+  </script>
+</AccountLayout>

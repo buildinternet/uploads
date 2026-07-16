@@ -112,11 +112,12 @@ The prefix is applied in exactly one place — `createStorage()` in
 ## Self-serve workspaces
 
 Signed-in users with a **GitHub-linked account** can create their own
-workspace without an operator: `/account/workspaces` has a "Create a
-workspace" form (anchor `#create`), and `POST /v1/workspaces` (session-authed,
-no `ADMIN_TOKEN`) backs it. `uploads login` offers the same flow when the
-signed-in account has zero workspaces yet — interactively it prompts to
-create one; non-interactively it errors with guidance.
+workspace without an operator: `/account/workspaces/new` is the create form
+(also linked from the account sidebar), and `POST /v1/workspaces`
+(session-authed, no `ADMIN_TOKEN`) backs it. Each membership has a dedicated
+page at `/account/workspaces/<name>`. `uploads login` offers the same create
+flow when the signed-in account has zero workspaces yet — interactively it
+prompts to create one; non-interactively it errors with guidance.
 
 Creation provisions a Better Auth organization (the caller as owner) and a
 `ws:<name>` KV record in the shared `uploads-default` bucket, same as the

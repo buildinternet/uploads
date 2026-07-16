@@ -217,7 +217,12 @@ section.card.is-pending {
   gap: 8px;
   margin-top: 14px;
 }
-.cli-steps .command {
+/* Single-row follow-on under a note (e.g. uploads install). */
+.cli-steps--solo {
+  margin-top: 8px;
+}
+/* Shared copyable command row (CLI setup, workspace invite, create success). */
+section.card .command {
   display: flex;
   gap: 10px;
   align-items: center;
@@ -225,7 +230,7 @@ section.card.is-pending {
   border-radius: var(--radius-sm);
   background: var(--bg);
 }
-.cli-steps .command code {
+section.card .command code {
   flex: 1;
   min-width: 0;
   white-space: nowrap;
@@ -236,7 +241,7 @@ section.card.is-pending {
   padding: 0;
   font-size: 12px;
 }
-.cli-steps .command button {
+section.card .command button {
   flex-shrink: 0;
   font: 11px var(--mono);
   letter-spacing: 0.05em;
@@ -247,8 +252,8 @@ section.card.is-pending {
   background: var(--panel);
   cursor: pointer;
 }
-.cli-steps .command button:hover,
-.cli-steps .command button:focus-visible {
+section.card .command button:hover,
+section.card .command button:focus-visible {
   border-color: var(--accent);
   outline: none;
 }
@@ -363,6 +368,185 @@ ul.detail-list .detail-current {
   letter-spacing: 0.04em;
 }
 
+/* Dedicated workspace page (/account/workspaces/:name) ────────────────── */
+
+.ws-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+.ws-page-header .ws-title-block {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.ws-page-header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  text-wrap: balance;
+}
+.ws-page-header .ws-role {
+  flex-shrink: 0;
+}
+.ws-page-header .usage {
+  width: 100%;
+  color: var(--muted);
+  font-size: 12px;
+  display: grid;
+  gap: 6px;
+  min-height: 1.2em;
+  margin-top: 4px;
+}
+.ws-page-header .usage .usage-text,
+.ws-page-header .usage .usage-meta {
+  line-height: 1.35;
+}
+.ws-page-header .usage .usage-meta {
+  font-size: 11px;
+  opacity: 0.9;
+}
+section.card .ws-section-head {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+section.card .ws-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+}
+section.card .ws-items li {
+  font-size: 13px;
+}
+section.card .ws-empty,
+section.card .ws-note {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+section.card .ws-note {
+  color: var(--body);
+}
+/* Workspace page copy + joined input group ────────────────────────────── */
+
+.ws-lead {
+  margin: 8px 0 0;
+  max-width: 36rem;
+  text-wrap: pretty;
+}
+.ws-status {
+  margin-top: 12px;
+  font-size: 13px;
+}
+.ws-form {
+  margin-top: 16px;
+  max-width: 28rem;
+}
+/* Joined control: one outer border, hairline between input and action. */
+.input-group {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  overflow: hidden;
+}
+.input-group:focus-within {
+  border-color: var(--accent);
+}
+.input-group__field {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  display: block;
+}
+.input-group__field input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--fg);
+  padding: 10px 12px;
+  font: 13px var(--mono);
+  outline: none;
+}
+.input-group__field input::placeholder {
+  color: var(--muted);
+}
+.input-group__action {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--accent);
+  padding: 0 14px;
+  font: 12px var(--mono);
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+.input-group:focus-within .input-group__action {
+  border-left-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.input-group__action:hover,
+.input-group__action:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  outline: none;
+}
+.input-group__action:active {
+  transform: scale(0.96);
+}
+.input-group__action:disabled {
+  opacity: 0.55;
+  cursor: default;
+  transform: none;
+}
+.ws-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+}
+.ws-messages {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+.ws-messages:not(:has(:not([hidden]))) {
+  display: none;
+  margin: 0;
+}
+.ws-messages .cli-note {
+  margin: 0;
+}
+.ws-messages .ul-callout p {
+  margin: 0;
+}
+.ws-messages .ul-callout .command {
+  margin-top: 8px;
+}
+.ws-messages .ul-callout .command + .command {
+  margin-top: 6px;
+}
+.ws-messages .ul-callout .cli-note {
+  margin-top: 10px;
+}
+/* Operator / create-success command rows sit under copy, not in .cli-steps. */
+section.card .command + .command,
+section.card .ws-messages .command,
+section.card #ws-operator-card .command {
+  margin-top: 10px;
+}
 /* Workspace file browser: metadata search entry + results ─────────────── */
 
 .ws-search-bar {

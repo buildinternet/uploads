@@ -1,6 +1,9 @@
 /**
- * Query-param deep links for the account file browser:
- *   /account/workspaces?ws=<workspace>&path=screenshots/releases/
+ * Deep links for the account file browser:
+ *   /account/workspaces/<workspace>?path=screenshots/releases/
+ *
+ * Legacy query form (`?ws=`) is still parsed so old links and profile
+ * bookmarks keep working; new writes prefer the path-based route.
  *
  * files-sdk's FileBrowser owns navigation in React state and only offers
  * `initialPrefix` / `onSelect` — no URL sync — so the account shell wires
@@ -10,6 +13,9 @@
 /** Workspace slug shape used by the API (`apps/api` WS_NAME_RE). */
 const WS_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 
+/** Static segments under /account/workspaces that are not workspace slugs. */
+const WORKSPACE_ROUTE_RESERVED = new Set(["new"]);
+
 export interface BrowseLocation {
   workspace: string;
   /** Folder prefix with trailing `/`, or `""` for workspace root. */
@@ -18,7 +24,18 @@ export interface BrowseLocation {
 
 /** True when `value` is a valid workspace name for query use. */
 export function isBrowseWorkspace(value: string): boolean {
-  return WS_SLUG_RE.test(value);
+  return WS_SLUG_RE.test(value) && !WORKSPACE_ROUTE_RESERVED.has(value);
+}
+
+/**
+ * Extract a workspace slug from `/account/workspaces/:name` (not `/new`).
+ * Returns "" when the path is the index, create page, or unrelated.
+ */
+export function workspaceFromPathname(pathname: string): string {
+  const match = pathname.match(/^\/account\/workspaces\/([^/]+)\/?$/);
+  if (!match) return "";
+  const slug = decodeURIComponent(match[1] ?? "");
+  return isBrowseWorkspace(slug) ? slug : "";
 }
 
 function hasControlChars(value: string): boolean {
@@ -47,26 +64,41 @@ export function normalizeBrowsePath(path: string): string {
   return `${segments.join("/")}/`;
 }
 
-/** Read `ws` + `path` from a query string or full search (`?…`). */
-export function readBrowseLocation(search: string): BrowseLocation {
+/**
+ * Read workspace + folder path from the current location.
+ * Prefers the path-based workspace slug; falls back to `?ws=`.
+ * Pass `pathname` when not reading from `window` (tests / SSR).
+ */
+export function readBrowseLocation(search: string, pathname = ""): BrowseLocation {
   const raw = search.startsWith("?") ? search.slice(1) : search;
   const params = new URLSearchParams(raw);
-  const workspaceRaw = (params.get("ws") ?? "").trim();
+  const fromPath = pathname ? workspaceFromPathname(pathname) : "";
+  const workspaceRaw = fromPath || (params.get("ws") ?? "").trim();
   const workspace = isBrowseWorkspace(workspaceRaw) ? workspaceRaw : "";
   const path = workspace ? normalizeBrowsePath(params.get("path") ?? "") : "";
   return { workspace, path };
 }
 
 /**
- * Apply browse location onto a URL (mutates a copy). Clears params when
- * workspace is empty. Returns the new URL for `history.replaceState`.
+ * Apply browse location onto a URL. When already under
+ * `/account/workspaces/:name` (or navigating to one), the workspace lives in
+ * the pathname and `ws` is stripped from the query. Returns a new URL for
+ * `history.replaceState`.
  */
 export function applyBrowseLocation(current: URL, location: BrowseLocation): URL {
   const next = new URL(current.href);
   const workspace = isBrowseWorkspace(location.workspace) ? location.workspace : "";
   const path = workspace ? normalizeBrowsePath(location.path) : "";
-  if (workspace) next.searchParams.set("ws", workspace);
-  else next.searchParams.delete("ws");
+  const pathWorkspace = workspaceFromPathname(next.pathname);
+
+  if (workspace) {
+    if (pathWorkspace !== workspace) {
+      next.pathname = `/account/workspaces/${encodeURIComponent(workspace)}`;
+    }
+    next.searchParams.delete("ws");
+  } else {
+    next.searchParams.delete("ws");
+  }
   if (path) next.searchParams.set("path", path);
   else next.searchParams.delete("path");
   return next;

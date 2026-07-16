@@ -37,6 +37,8 @@ describe.each([
   { path: "/accept-invitation/upi_abc123", title: "Accept invitation · uploads.sh" },
   { path: "/account", title: "Account · uploads.sh" },
   { path: "/account/workspaces", title: "Workspaces · uploads.sh" },
+  { path: "/account/workspaces/new", title: "New workspace · uploads.sh" },
+  { path: "/account/workspaces/buildinternet", title: "buildinternet · uploads.sh" },
   { path: "/account/profile", title: "Account · uploads.sh" },
   { path: "/account/developers", title: "Developers · uploads.sh" },
   { path: "/console", title: "uploads.sh console" },

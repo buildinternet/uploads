@@ -1,551 +1,98 @@
 ---
+/**
+ * Workspaces index.
+ * Legacy `?ws=` deep links redirect to `/account/workspaces/<name>`.
+ * Single membership auto-opens that workspace; otherwise pick from the list/sidebar.
+ */
 import AccountLayout from "../../layouts/AccountLayout.astro";
+import { isBrowseWorkspace } from "../../lib/workspace-browse-url";
 
 export const prerender = false;
+
+const legacyWs = (Astro.url.searchParams.get("ws") ?? "").trim();
+if (isBrowseWorkspace(legacyWs)) {
+  const dest = new URL(`/account/workspaces/${encodeURIComponent(legacyWs)}`, Astro.url);
+  dest.search = "";
+  for (const [key, value] of Astro.url.searchParams) {
+    if (key !== "ws") dest.searchParams.append(key, value);
+  }
+  return Astro.redirect(`${dest.pathname}${dest.search}${dest.hash}`);
+}
 ---
 
 <AccountLayout section="workspaces">
   <section class="card">
     <h2>Workspaces</h2>
-    <p>Workspaces group your files and tokens. You belong to these:</p>
-    <div id="orgs-status" class="muted" style="margin-top:12px;font-size:13px">Loading…</div>
+    <p class="ws-lead">
+      Choose one from the sidebar, or
+      <a href="/account/workspaces/new">create a new workspace</a>.
+    </p>
+    <div id="orgs-status" class="ws-status muted">Loading…</div>
     <button id="orgs-retry" type="button" hidden>Try again</button>
     <ul class="plain" id="orgs-list" hidden></ul>
   </section>
 
-  <section class="card" id="create" data-create-workspace hidden>
-    <h2>Create a workspace</h2>
-    <p>
-      Workspaces get a folder in the shared uploads bucket. Files you upload get
-      <strong>public, unguessable URLs</strong> under <code>storage.uploads.sh/&lt;name&gt;/…</code> —
-      made for embedding in PRs and issues. Free workspaces start at 1&nbsp;GB storage, 25&nbsp;MB per
-      file.
-    </p>
-    <form class="invite-form" data-create-form>
-      <label class="invite-label">
-        <span class="sr-only">Workspace name</span>
-        <input
-          name="name"
-          required
-          pattern="[a-z0-9][a-z0-9-]{1,62}"
-          placeholder="workspace-name"
-          autocomplete="off"
-        />
-      </label>
-      <button type="submit">Create workspace</button>
-    </form>
-    <div class="ul-callout" data-create-success role="status" hidden>
-      <p>
-        Workspace <strong data-created-name></strong> is ready. Uploading happens
-        from the terminal; run these to get your first file URL:
-      </p>
-      <div class="command">
-        <code>npm install -g @buildinternet/uploads</code>
-        <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite">copy</button>
-      </div>
-      <div class="command">
-        <code>uploads login</code>
-        <button type="button" data-copy="uploads login" aria-live="polite">copy</button>
-      </div>
-      <div class="command">
-        <code>uploads put ./screenshot.png</code>
-        <button type="button" data-copy="uploads put ./screenshot.png" aria-live="polite">copy</button>
-      </div>
-      <p class="muted cli-note">
-        Using a coding agent? <code>uploads install</code> adds the uploads skill
-        and MCP server to Claude Code, so agents attach screenshots on their own.
-      </p>
-    </div>
-    <p class="muted cli-note" data-create-error role="alert" hidden></p>
-    <p class="muted cli-note" data-create-github role="status" hidden>
-      Creating a workspace requires a linked GitHub account.
-      <button type="button" class="text-btn" data-connect-github>Connect GitHub</button>
-      — you'll come right back here.
-    </p>
-    <p class="muted cli-note" data-github-error role="alert" hidden>
-      GitHub linking isn't available right now —
-      <a href="/account/profile">try from your profile</a>.
-    </p>
-  </section>
-
   <script>
     import { onSession, requireElement } from "../../lib/account-shell";
-    import { linkGitHub, listAccounts } from "../../lib/auth-client";
-    import {
-      getMyWorkspaces,
-      getMyWorkspaceUsage,
-      getMyWorkspaceGalleries,
-      inviteToWorkspace,
-      createWorkspace,
-      type GallerySummary,
-    } from "../../lib/api-client";
-    import { WorkspaceFiles } from "../../components/WorkspaceFiles";
-    import {
-      readBrowseLocation,
-      replaceBrowseLocation,
-    } from "../../lib/workspace-browse-url";
-    import { readSearchFilters } from "../../lib/workspace-search-url";
-    import { createElement } from "react";
-    import { createRoot } from "react-dom/client";
+    import { getMyWorkspaces } from "../../lib/api-client";
+    import { escapeHtml } from "../../lib/workspace-ui";
 
-    const w = window as unknown as {
-      __UPLOADS_API_ORIGIN__: string;
-      __UPLOADS_AUTH_ORIGIN__: string;
-    };
-    const apiOrigin = w.__UPLOADS_API_ORIGIN__;
-    const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
-    // Deep-link restore: ?ws=<name>&path=screenshots/releases/
-    const browseOnLoad = readBrowseLocation(window.location.search);
-    // Deep-link restore: ?ws=<name>&meta.gh.repo=owner/name&…
-    const searchFiltersOnLoad = readSearchFilters(window.location.search);
+    const apiOrigin = (window as unknown as { __UPLOADS_API_ORIGIN__: string })
+      .__UPLOADS_API_ORIGIN__;
+    const page = "workspaces index";
+    const status = requireElement<HTMLElement>("#orgs-status", page);
+    const list = requireElement<HTMLUListElement>("#orgs-list", page);
+    const retry = requireElement<HTMLButtonElement>("#orgs-retry", page);
 
-    const escapeHtml = (value: string) =>
-      value.replace(/[&<>"']/g, (ch) =>
-        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
-      );
-
-    // Workspace names are already restricted to [a-z0-9-] on the API, but
-    // escape defensively for the attribute-selector lookup below regardless.
-    const cssEscape = (value: string) =>
-      typeof CSS !== "undefined" && CSS.escape
-        ? CSS.escape(value)
-        : value.replace(/["\\]/g, "\\$&");
-
-    function formatBytes(bytes: number): string {
-      if (bytes < 1024) return `${bytes} B`;
-      const units = ["KB", "MB", "GB", "TB"];
-      let value = bytes / 1024;
-      let unit = 0;
-      while (value >= 1024 && unit < units.length - 1) {
-        value /= 1024;
-        unit += 1;
-      }
-      return `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10} ${units[unit]}`;
-    }
-
-    type UsageSnapshot = {
-      bytes: number;
-      objects: number;
-      uploadsInPeriod: number;
-      maxStorageBytes?: number;
-      maxUploadsPerPeriod?: number;
-    };
-
-    /** Plain one-liner when no cumulative caps are set (no bars to attach labels to). */
-    function formatUsagePlain(usage: UsageSnapshot): string {
-      const size = formatBytes(usage.bytes);
-      const objects = `${usage.objects} object${usage.objects === 1 ? "" : "s"}`;
-      const parts = [size, objects];
-      if (usage.uploadsInPeriod > 0) {
-        parts.push(`${usage.uploadsInPeriod} uploads this month`);
-      }
-      return parts.join(" · ");
-    }
-
-    /** 0–100, one decimal. Missing/invalid caps → no bar. */
-    function usagePct(value: number, max: number | undefined): number | null {
-      if (typeof max !== "number" || !(max > 0) || !Number.isFinite(value)) return null;
-      return Math.min(100, Math.max(0, Math.round((value / max) * 1000) / 10));
-    }
-
-    /**
-     * One labeled meter: label + detail above the bar.
-     * Keep markup in sync with `Progress` in @uploads/ui.
-     */
-    function progressRowHtml(label: string, detail: string, pct: number): string {
-      let levelAttr = "";
-      if (pct >= 100) levelAttr = ' data-level="full"';
-      else if (pct >= 85) levelAttr = ' data-level="high"';
-      return `<div class="ul-progress__row">
-        <div class="ul-progress__head">
-          <span class="ul-progress__label">${escapeHtml(label)}</span>
-          <span class="ul-progress__value">${escapeHtml(detail)}</span>
-        </div>
-        <div class="ul-progress__track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}" aria-label="${escapeHtml(label)}">
-          <div class="ul-progress__fill"${levelAttr} style="width:${pct}%"></div>
-        </div>
-      </div>`;
-    }
-
-    function renderUsageHtml(usage: UsageSnapshot): string {
-      const meters: { label: string; detail: string; pct: number }[] = [];
-      const storagePct = usagePct(usage.bytes, usage.maxStorageBytes);
-      if (storagePct !== null && usage.maxStorageBytes) {
-        const detail = `${formatBytes(usage.bytes)} of ${formatBytes(usage.maxStorageBytes)}`;
-        meters.push({ label: "Storage", detail, pct: storagePct });
-      }
-      const uploadsPct = usagePct(usage.uploadsInPeriod, usage.maxUploadsPerPeriod);
-      if (uploadsPct !== null && usage.maxUploadsPerPeriod) {
-        meters.push({
-          label: "Uploads this month",
-          detail: `${usage.uploadsInPeriod} of ${usage.maxUploadsPerPeriod}`,
-          pct: uploadsPct,
-        });
-      }
-      if (!meters.length) {
-        return `<div class="usage-text">${escapeHtml(formatUsagePlain(usage))}</div>`;
-      }
-      // Object count is informational (no quota) — keep it as a quiet footer.
-      const objects = `${usage.objects} object${usage.objects === 1 ? "" : "s"}`;
-      const rows = meters.map((m) => progressRowHtml(m.label, m.detail, m.pct)).join("");
-      return `<div class="ul-progress">${rows}</div><div class="usage-meta">${escapeHtml(objects)}</div>`;
-    }
-
-    // Operator enrollment CLI — site-wide ADMIN_TOKEN only (not workspace role).
-    const operatorInviteCommand = (workspace: string) =>
-      `uploads admin invite create --workspace ${workspace} --email teammate@example.com`;
-
-    const isWorkspaceAdminRole = (role: string) => role === "admin" || role === "owner";
-
-    // Captured from onSession so the operator CLI block can gate on global role.
-    let sessionUser: { role?: string | null; email?: string } | null = null;
-
-    const createSection = document.querySelector<HTMLElement>("[data-create-workspace]");
-    const createForm = document.querySelector<HTMLFormElement>("[data-create-form]");
-    const createError = document.querySelector<HTMLElement>("[data-create-error]");
-    const createGithub = document.querySelector<HTMLElement>("[data-create-github]");
-    const createSuccess = document.querySelector<HTMLElement>("[data-create-success]");
-    const createdName = document.querySelector<HTMLElement>("[data-created-name]");
-    const githubError = document.querySelector<HTMLElement>("[data-github-error]");
-    const connectGithubBtn = document.querySelector<HTMLButtonElement>("[data-connect-github]");
-
-    function showCreateSection(prefill?: string): void {
-      if (!createSection) return;
-      createSection.hidden = false;
-      const input = createForm?.elements.namedItem("name") as HTMLInputElement | null;
-      if (input && prefill && !input.value) input.value = prefill;
-      // Surface the GitHub requirement before the user types a name and gets a
-      // 403 — link status comes from the auth worker, so best-effort only (a
-      // null/failed lookup stays quiet and the submit path still catches it).
-      void listAccounts(authOrigin).then((accounts) => {
-        if (!accounts || !createGithub) return;
-        if (!accounts.some((a) => a.providerId === "github")) createGithub.hidden = false;
-      });
-    }
-
-    connectGithubBtn?.addEventListener("click", () => {
-      void (async () => {
-        if (githubError) githubError.hidden = true;
-        connectGithubBtn.disabled = true;
-        connectGithubBtn.textContent = "Redirecting…";
-        // Round-trips through GitHub OAuth and lands back on this form.
-        const returnTo = `${location.origin}/account/workspaces#create`;
-        if (!(await linkGitHub(authOrigin, returnTo))) {
-          connectGithubBtn.disabled = false;
-          connectGithubBtn.textContent = "Connect GitHub";
-          if (githubError) githubError.hidden = false;
-        }
-      })();
-    });
-
-    // Better Auth link-social failures redirect back with ?error=.
-    if (new URLSearchParams(location.search).get("error") && githubError) {
-      githubError.hidden = false;
-    }
-
-    // Matches the API's workspace-name pattern (see apps/api slug-policy):
-    // 2–63 lowercase letters/digits/hyphens, starting with a letter or digit.
-    const WORKSPACE_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
-
-    function suggestedWorkspaceName(email: string | undefined): string {
-      const local = (email ?? "").split("@")[0] ?? "";
-      const sanitized = local
-        .toLowerCase()
-        .replace(/[^a-z0-9-]/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 63);
-      // Guarantee validity or nothing at all — an all-symbol localpart (or a
-      // 1-char one) can sanitize down to something too short/empty to pass
-      // the API's pattern. Don't prefill garbage; let the user type their own.
-      return WORKSPACE_NAME_RE.test(sanitized) ? sanitized : "";
-    }
-
-    function createErrorCopy(code: string): string {
-      switch (code) {
-        case "invalid_workspace_name":
-          return "That name isn't available. Use 2–63 lowercase letters, digits, or hyphens, and try a different word.";
-        case "reserved_workspace_name":
-          return "That name is reserved — pick another.";
-        case "workspace_name_taken":
-          return "That name is taken — pick another.";
-        case "workspace_cap_reached":
-          return "You've reached the workspace limit for this account.";
-        default:
-          return "Workspace creation failed — try again.";
-      }
-    }
-
-    createForm?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      void (async () => {
-        if (createError) createError.hidden = true;
-        if (createGithub) createGithub.hidden = true;
-        if (createSuccess) createSuccess.hidden = true;
-        const input = createForm.elements.namedItem("name") as HTMLInputElement;
-        const name = input.value.trim();
-        const button = createForm.querySelector("button");
-        if (button) button.disabled = true;
-        const result = await createWorkspace(apiOrigin, name);
-        if (button) button.disabled = false;
-        if (result.kind === "created") {
-          input.value = "";
-          // Hand off to the terminal: the web can create a workspace but not
-          // upload to it, so surface the exact next commands right here.
-          if (createdName) createdName.textContent = name;
-          if (createSuccess) createSuccess.hidden = false;
-          await loadWorkspaces();
-          return;
-        }
-        if (result.kind === "error" && result.code === "github_required") {
-          if (createGithub) createGithub.hidden = false;
-          return;
-        }
-        if (createError) {
-          createError.textContent =
-            result.kind === "unavailable"
-              ? "The API is unreachable right now — try again shortly."
-              : createErrorCopy(result.code);
-          createError.hidden = false;
-        }
-      })();
-    });
-
-    function renderGalleries(container: HTMLElement, galleries: GallerySummary[]): void {
-      const head = `<div class="ws-section-head">Galleries${galleries.length ? ` (${galleries.length})` : ""}</div>`;
-      if (!galleries.length) {
-        container.innerHTML = `${head}<p class="ws-empty">No galleries yet.</p>`;
-        return;
-      }
-      const items = galleries
-        .map(
-          (g) =>
-            `<li><a href="${escapeHtml(g.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(g.title)}</a></li>`,
-        )
-        .join("");
-      container.innerHTML = `${head}<ul class="ws-items">${items}</ul>`;
-    }
-
-    async function loadWorkspaces(): Promise<void> {
-      const orgsStatus = requireElement<HTMLElement>("#orgs-status", "account workspaces");
-      const orgsList = requireElement<HTMLUListElement>("#orgs-list", "account workspaces");
-      const retry = requireElement<HTMLButtonElement>("#orgs-retry", "account workspaces");
-      orgsStatus.hidden = false;
-      orgsList.hidden = true;
+    async function loadIndex(): Promise<void> {
+      status.hidden = false;
+      list.hidden = true;
       retry.hidden = true;
-      orgsStatus.textContent = "Loading…";
+      status.textContent = "Loading…";
+
       const result = await getMyWorkspaces(apiOrigin);
       if (result.kind === "unavailable") {
-        orgsStatus.textContent = "Workspaces are temporarily unavailable. Check the local stack or try again.";
+        status.textContent =
+          "Workspaces are temporarily unavailable. Check the local stack or try again.";
         retry.hidden = false;
         return;
       }
+
       const { workspaces } = result;
       if (!workspaces.length) {
-        orgsStatus.textContent =
-          "No workspaces yet — create one below, or accept an invite to join an existing one.";
-        showCreateSection(suggestedWorkspaceName(sessionUser?.email));
+        status.innerHTML =
+          'No workspaces yet — <a href="/account/workspaces/new">create one</a>, or accept an invite.';
         return;
       }
-      showCreateSection();
-      orgsStatus.hidden = true;
-      orgsList.hidden = false;
-      // Global Better Auth role (site operator), not workspace membership role.
-      // Only operators hold ADMIN_TOKEN and should see the enrollment CLI snippet.
-      const isSiteOperator = sessionUser?.role === "admin";
-      orgsList.innerHTML = workspaces
+
+      if (workspaces.length === 1) {
+        const only = workspaces[0]!;
+        status.textContent = `Opening ${only.organization.name || only.workspace}…`;
+        location.replace(`/account/workspaces/${encodeURIComponent(only.workspace)}`);
+        return;
+      }
+
+      status.hidden = true;
+      list.hidden = false;
+      list.innerHTML = workspaces
         .map((ws) => {
-          // Communal workspace = the shared, world-readable dumping ground; it
-          // gets a short note instead of the personal galleries/files browser.
-          const body = ws.communal
-            ? `<p class="ws-note">This is the shared, public space — anything here is world-readable at <code>storage.uploads.sh</code>. Browse and upload with the CLI.</p>`
-            : `<div class="ws-section" data-galleries><div class="ws-section-head">Galleries</div><p class="ws-empty">Loading&#32;…</p></div>
-               <div class="ws-section" data-files><div class="ws-section-head">Files</div><p class="ws-empty">Loading&#32;…</p></div>`;
-          // Workspace org admin|owner: invite by email (session). Accept URL is
-          // always returned so installs without outbound email still work.
-          const memberInvite = isWorkspaceAdminRole(ws.role)
-            ? `<div class="ws-section" data-invite>
-                 <div class="ws-section-head">Invite a teammate</div>
-                 <form class="invite-form" data-workspace="${escapeHtml(ws.workspace)}">
-                   <label class="invite-label">
-                     <span class="sr-only">Email</span>
-                     <input type="email" name="email" required autocomplete="email" placeholder="teammate@example.com" />
-                   </label>
-                   <button type="submit">Invite</button>
-                 </form>
-                 <p class="muted cli-note" data-invite-status role="status"></p>
-                 <p class="muted cli-note" data-invite-link hidden></p>
-                 <p class="muted cli-note">They open the accept link, then run <code>uploads login</code>.</p>
-               </div>`
-            : "";
-          // Site operators only: enrollment codes need ADMIN_TOKEN (separate product path).
-          const cmd = operatorInviteCommand(ws.workspace);
-          const operatorInvite = isSiteOperator
-            ? `<div class="ws-section">
-                 <div class="ws-section-head">Operator enrollment code</div>
-                 <div class="command"><code>${escapeHtml(cmd)}</code><button type="button" aria-live="polite" data-copy="${escapeHtml(cmd)}">copy</button></div>
-                 <p class="muted cli-note"><code>ADMIN_TOKEN</code> only — not for everyday teammate invites.</p>
-               </div>`
-            : "";
-          return `<li data-workspace="${escapeHtml(ws.workspace)}">
-              <div class="row">
-                <span>${escapeHtml(ws.organization.name)}</span>
-                <span class="slug">${escapeHtml(ws.role)}</span>
-              </div>
-              <div class="usage">Loading usage&#32;…</div>
-              <div class="ws-detail">${body}${memberInvite}${operatorInvite}</div>
-            </li>`;
+          const name = ws.organization.name || ws.workspace;
+          const href = `/account/workspaces/${encodeURIComponent(ws.workspace)}`;
+          return `<li>
+            <div class="row">
+              <a href="${escapeHtml(href)}">${escapeHtml(name)}</a>
+              <span class="slug">${escapeHtml(ws.role)}</span>
+            </div>
+          </li>`;
         })
         .join("");
-
-      // Usage, galleries, and files are fetched per workspace, concurrently,
-      // after the list renders, so a slow or failing call for one workspace (or
-      // one surface) never blocks the others. Communal workspaces skip the
-      // galleries/files fetch entirely — the API returns them empty anyway.
-      await Promise.all(
-        workspaces.map(async (ws) => {
-          const li = orgsList.querySelector<HTMLElement>(
-            `li[data-workspace="${cssEscape(ws.workspace)}"]`,
-          );
-          if (!li) return;
-          const tasks: Promise<void>[] = [];
-          const usageEl = li.querySelector<HTMLElement>(".usage");
-          if (usageEl) {
-            tasks.push(
-              getMyWorkspaceUsage(apiOrigin, ws.workspace).then((usage) => {
-                if (!usage) {
-                  usageEl.textContent = "Usage unavailable.";
-                  return;
-                }
-                usageEl.innerHTML = renderUsageHtml(usage);
-              }),
-            );
-          }
-          if (!ws.communal) {
-            const galleriesEl = li.querySelector<HTMLElement>("[data-galleries]");
-            if (galleriesEl) {
-              tasks.push(
-                getMyWorkspaceGalleries(apiOrigin, ws.workspace).then((galleries) => {
-                  renderGalleries(galleriesEl, galleries);
-                }),
-              );
-            }
-            const filesEl = li.querySelector<HTMLElement>("[data-files]");
-            if (filesEl) {
-              const isDeepLinked = browseOnLoad.workspace === ws.workspace;
-              // Mount lazily near the viewport; deep-linked workspaces mount now
-              // so `?path=` restores before the user scrolls.
-              const mount = () => {
-                createRoot(filesEl).render(
-                  createElement(WorkspaceFiles, {
-                    apiOrigin,
-                    workspace: ws.workspace,
-                    hasPublicUrl: ws.hasPublicUrl,
-                    initialPrefix: isDeepLinked ? browseOnLoad.path : "",
-                    initialFilters: isDeepLinked ? searchFiltersOnLoad : [],
-                    onPrefixChange: (path: string) => {
-                      replaceBrowseLocation({ workspace: ws.workspace, path });
-                    },
-                  }),
-                );
-              };
-              if (isDeepLinked || typeof IntersectionObserver === "undefined") {
-                mount();
-                if (isDeepLinked) {
-                  requestAnimationFrame(() => {
-                    li.scrollIntoView({ block: "start", behavior: "smooth" });
-                  });
-                }
-              } else {
-                const observer = new IntersectionObserver(
-                  (entries) => {
-                    if (!entries.some((entry) => entry.isIntersecting)) return;
-                    observer.disconnect();
-                    mount();
-                  },
-                  { rootMargin: "200px" },
-                );
-                observer.observe(filesEl);
-              }
-            }
-          }
-          await Promise.all(tasks);
-        }),
-      );
     }
 
-    // Delegated handlers for copy buttons + workspace invite forms.
-    const orgsListEl = requireElement<HTMLUListElement>("#orgs-list", "account workspaces");
-    const handleCopyClick = (event: Event) => {
-      void (async () => {
-        const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
-          "button[data-copy]",
-        );
-        if (!button) return;
-        try {
-          await navigator.clipboard.writeText(button.dataset.copy ?? "");
-          const previous = button.textContent;
-          button.textContent = "copied ✓";
-          setTimeout(() => (button.textContent = previous), 1500);
-        } catch {
-          // Clipboard blocked (permissions/insecure context) — leave the label.
-        }
-      })();
-    };
-    orgsListEl.addEventListener("click", handleCopyClick);
-    createSection?.addEventListener("click", handleCopyClick);
-    orgsListEl.addEventListener("submit", (event) => {
-      void (async () => {
-        const form = (event.target as HTMLElement).closest<HTMLFormElement>("form.invite-form");
-        if (!form) return;
-        event.preventDefault();
-        const workspace = form.dataset.workspace;
-        if (!workspace) return;
-        const emailInput = form.querySelector<HTMLInputElement>('input[name="email"]');
-        const status = form.parentElement?.querySelector<HTMLElement>("[data-invite-status]");
-        const linkEl = form.parentElement?.querySelector<HTMLElement>("[data-invite-link]");
-        const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
-        const email = emailInput?.value.trim() ?? "";
-        if (!email || !status || !submit) return;
-        status.textContent = "Creating invite…";
-        if (linkEl) {
-          linkEl.hidden = true;
-          linkEl.textContent = "";
-        }
-        submit.disabled = true;
-        const result = await inviteToWorkspace(apiOrigin, workspace, email);
-        submit.disabled = false;
-        if (result.kind === "ok") {
-          // emailConfigured is binding presence on the auth worker; undefined
-          // means an older worker that doesn't report it — keep neutral copy.
-          status.textContent =
-            result.emailConfigured === true
-              ? `Invitation emailed to ${email}.`
-              : result.emailConfigured === false
-                ? `Invite created for ${email} — email isn't configured on this install, so share the accept link below yourself.`
-                : `Invite created for ${email}.`;
-          if (emailInput) emailInput.value = "";
-          if (linkEl && result.acceptUrl) {
-            linkEl.hidden = false;
-            linkEl.innerHTML = `Accept link: <a href="${escapeHtml(result.acceptUrl)}">${escapeHtml(result.acceptUrl)}</a>`;
-          }
-          return;
-        }
-        status.textContent =
-          result.reason === "forbidden"
-            ? "You need workspace admin access to invite."
-            : result.reason === "invalid"
-              ? "That email doesn’t look valid."
-              : "Couldn’t create the invite. Try again.";
-      })();
+    retry.addEventListener("click", () => {
+      void loadIndex();
     });
-
-    requireElement<HTMLButtonElement>("#orgs-retry", "account workspaces").addEventListener("click", () => {
-      void loadWorkspaces();
-    });
-
-    onSession((user) => {
-      sessionUser = user;
-      void loadWorkspaces();
+    onSession(() => {
+      void loadIndex();
     });
   </script>
 </AccountLayout>

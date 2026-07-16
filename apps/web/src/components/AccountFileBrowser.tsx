@@ -18,7 +18,7 @@ interface Props {
   hasPublicUrl: boolean;
   /** Folder prefix to open on mount (from `?path=`). */
   initialPrefix?: string;
-  /** Fired on folder navigation for `?ws=&path=` URL sync. */
+  /** Fired on folder navigation for `/account/workspaces/:name?path=` URL sync. */
   onPrefixChange?: (prefix: string) => void;
 }
 

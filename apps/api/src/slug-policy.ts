@@ -26,6 +26,8 @@ export const RESERVED_WORKSPACE_NAMES: ReadonlySet<string> = new Set([
   "usage",
   "health",
   "admin-ui",
+  // Account UI route: /account/workspaces/new
+  "new",
 ]);
 
 export type SlugVerdict =

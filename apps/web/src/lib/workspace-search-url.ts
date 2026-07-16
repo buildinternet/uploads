@@ -1,12 +1,12 @@
 /**
  * Query-param sync for the account file browser's metadata search mode:
- *   /account/workspaces?ws=<workspace>&meta.gh.repo=owner/name&meta.app=web
+ *   /account/workspaces/<workspace>?meta.gh.repo=owner/name&meta.app=web
  *
- * Sibling to workspace-browse-url.ts (which owns `ws` + `path`). Search mode
+ * Sibling to workspace-browse-url.ts (which owns folder `path`). Search mode
  * replaces `path` with one or more `meta.*` pairs. Validation mirrors the
  * API's META_KEY_RE / META_VALUE_MAX so bad input is caught before a request.
  */
-import { isBrowseWorkspace } from "./workspace-browse-url";
+import { isBrowseWorkspace, workspaceFromPathname } from "./workspace-browse-url";
 
 export interface MetaFilter {
   key: string;
@@ -58,9 +58,10 @@ export function buildSearchQuery(filters: MetaFilter[]): string {
 }
 
 /**
- * Write `ws` + `meta.*` into the address bar (no history entry). Clears
- * `path` (search and folder-browse are mutually exclusive) and all prior
- * `meta.*` params. Empty filters + empty workspace clears search entirely.
+ * Write `meta.*` into the address bar (no history entry). Clears `path`
+ * (search and folder-browse are mutually exclusive) and all prior `meta.*`
+ * params. Workspace identity prefers the path-based route; legacy `?ws=` is
+ * stripped when the pathname already carries the slug.
  */
 export function replaceSearchLocation(workspace: string, filters: MetaFilter[]): void {
   if (typeof window === "undefined") return;
@@ -70,8 +71,14 @@ export function replaceSearchLocation(workspace: string, filters: MetaFilter[]):
   }
   next.searchParams.delete("path");
   const ws = isBrowseWorkspace(workspace) ? workspace : "";
-  if (ws) next.searchParams.set("ws", ws);
-  else next.searchParams.delete("ws");
+  if (ws) {
+    if (workspaceFromPathname(next.pathname) !== ws) {
+      next.pathname = `/account/workspaces/${encodeURIComponent(ws)}`;
+    }
+    next.searchParams.delete("ws");
+  } else {
+    next.searchParams.delete("ws");
+  }
   for (const { key, value } of filters) {
     if (isValidMetaKey(key) && isValidMetaValue(value)) next.searchParams.set(`meta.${key}`, value);
   }
