@@ -24,7 +24,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   <style>
     *{box-sizing:border-box}
     body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:28px;background:var(--bg);color:var(--fg);font:14.5px/1.65 var(--mono)}
-    main{width:min(480px,100%);background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);padding:clamp(24px,6vw,40px)}
+    main{width:min(var(--width-card, 480px),100%);background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);padding:clamp(24px,6vw,40px)}
     .brandbar{display:flex;justify-content:center;margin-bottom:24px}
     h1{margin:0 0 8px;font-size:clamp(21px,5vw,26px);font-weight:600;letter-spacing:-.015em;line-height:1.25}
     p{color:var(--body);margin:0 0 20px}

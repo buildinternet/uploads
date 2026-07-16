@@ -27,9 +27,9 @@ const { title, description, path } = Astro.props;
         background: var(--bg);
         color: var(--fg);
         font: 15.5px/1.7 var(--sans);
-        padding: 48px 24px 64px;
+        padding: 40px 24px 64px;
       }
-      main { width: min(680px, 100%); margin: 0 auto; }
+      main { width: min(var(--width-content, 720px), 100%); margin: 0 auto; }
       .brandbar { margin-bottom: 30px; }
       h1 {
         font-size: clamp(26px, 5vw, 34px);

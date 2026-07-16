@@ -3,9 +3,8 @@
 // the GitHub README covers, in plain language with click-to-copy commands.
 // Purpose-first: getting media onto GitHub PRs, issues, and code reviews.
 import BaseHead from "../components/BaseHead.astro";
-import AuthIndicator from "../components/AuthIndicator.astro";
-import Brand from "../components/Brand.astro";
 import Footer from "../components/Footer.astro";
+import SiteHeader from "../components/SiteHeader.astro";
 
 const REPO = "https://github.com/buildinternet/uploads";
 // Static page (no `prerender = false`) — auth origin is baked at build time,
@@ -48,10 +47,9 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         background: var(--bg);
         color: var(--fg);
         font: 15.5px/1.7 var(--sans);
-        padding: 48px 24px 64px;
+        padding: 40px 24px 64px;
       }
-      main { width: min(720px, 100%); margin: 0 auto; }
-      .doc-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      main { width: min(var(--width-content, 720px), 100%); margin: 0 auto; }
       h1 {
         font-size: clamp(26px, 5vw, 34px);
         font-weight: 600;
@@ -310,10 +308,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
   </head>
   <body>
     <main>
-      <div class="doc-top">
-        <Brand />
-        <AuthIndicator authOrigin={authOrigin} />
-      </div>
+      <SiteHeader star authOrigin={authOrigin} />
       <h1>Docs</h1>
       <p class="tagline">
         Put screenshots and other media on GitHub — PRs, issues, code reviews — with one command.

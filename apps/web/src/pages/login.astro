@@ -24,13 +24,14 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   <style>
     *{box-sizing:border-box}
     body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:28px;background:var(--bg);color:var(--fg);font:14.5px/1.65 var(--mono)}
-    main{width:min(420px,100%);background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);padding:clamp(24px,6vw,40px)}
+    main{width:min(var(--width-card, 480px),100%);background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);padding:clamp(24px,6vw,40px)}
     .brandbar{display:flex;justify-content:center;margin-bottom:24px}
     h1{margin:0 0 8px;font-size:clamp(21px,5vw,26px);font-weight:600;letter-spacing:-.015em;line-height:1.25}
     p{color:var(--body);margin:0 0 20px}
     .status{margin:16px 0}
-    button.github{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;font:14px var(--mono);letter-spacing:.02em;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-md);padding:12px 16px;cursor:pointer}
-    button.github:hover,button.github:focus-visible{border-color:var(--accent);outline:none}
+    /* The page's one primary action — solid accent (mirrors .ul-btn--solid). */
+    button.github{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;font:600 14px var(--mono);letter-spacing:.02em;color:var(--bg);background:var(--accent);border:1px solid var(--accent);border-radius:var(--radius-md);padding:12px 16px;cursor:pointer}
+    button.github:hover,button.github:focus-visible{background:color-mix(in srgb,var(--accent) 88%,#fff);border-color:color-mix(in srgb,var(--accent) 88%,#fff);outline:none}
     .divider{display:flex;align-items:center;gap:12px;margin:22px 0;color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
     .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line)}
     form{display:grid;gap:10px}

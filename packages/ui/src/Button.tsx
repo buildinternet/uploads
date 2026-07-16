@@ -2,8 +2,10 @@ import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 export interface ButtonProps extends ComponentPropsWithoutRef<"button"> {
   /** Visual weight. `default` is the neutral bordered control; `primary` tints the
-   *  label with the accent violet; `ghost` is borderless; `danger` is destructive. */
-  variant?: "default" | "primary" | "ghost" | "danger";
+   *  label with the accent violet; `solid` fills with the accent (the one loudest
+   *  action on a page — use at most once per surface); `ghost` is borderless;
+   *  `danger` is destructive. */
+  variant?: "default" | "primary" | "solid" | "ghost" | "danger";
   /** Control size. */
   size?: "sm" | "md" | "lg";
   /** Stretch to fill the container width (the full-width form-submit treatment). */

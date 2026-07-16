@@ -51,7 +51,7 @@ code {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 960px;
+  max-width: var(--width-shell, 960px);
   margin: 0 auto;
   padding: 28px 20px 28px;
   box-sizing: border-box;
