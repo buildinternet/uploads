@@ -217,7 +217,12 @@ section.card.is-pending {
   gap: 8px;
   margin-top: 14px;
 }
-.cli-steps .command {
+/* Single-row follow-on under a note (e.g. uploads install). */
+.cli-steps--solo {
+  margin-top: 8px;
+}
+/* Shared copyable command row (CLI setup, workspace invite, create success). */
+section.card .command {
   display: flex;
   gap: 10px;
   align-items: center;
@@ -225,7 +230,7 @@ section.card.is-pending {
   border-radius: var(--radius-sm);
   background: var(--bg);
 }
-.cli-steps .command code {
+section.card .command code {
   flex: 1;
   min-width: 0;
   white-space: nowrap;
@@ -236,7 +241,7 @@ section.card.is-pending {
   padding: 0;
   font-size: 12px;
 }
-.cli-steps .command button {
+section.card .command button {
   flex-shrink: 0;
   font: 11px var(--mono);
   letter-spacing: 0.05em;
@@ -247,8 +252,8 @@ section.card.is-pending {
   background: var(--panel);
   cursor: pointer;
 }
-.cli-steps .command button:hover,
-.cli-steps .command button:focus-visible {
+section.card .command button:hover,
+section.card .command button:focus-visible {
   border-color: var(--accent);
   outline: none;
 }
@@ -536,45 +541,11 @@ section.card .ws-note {
 .ws-messages .ul-callout .cli-note {
   margin-top: 10px;
 }
-section.card .command {
-  display: flex;
-  gap: 10px;
-  align-items: center;
+/* Operator / create-success command rows sit under copy, not in .cli-steps. */
+section.card .command + .command,
+section.card .ws-messages .command,
+section.card #ws-operator-card .command {
   margin-top: 10px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--bg);
-}
-section.card .command code {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow-x: auto;
-  display: block;
-  border: 0;
-  background: none;
-  padding: 0;
-  font-size: 12px;
-}
-section.card .command button {
-  flex-shrink: 0;
-  font: 11px var(--mono);
-  letter-spacing: 0.05em;
-  color: var(--accent);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 5px 10px;
-  background: var(--panel);
-  cursor: pointer;
-}
-section.card .command button:hover,
-section.card .command button:focus-visible {
-  border-color: var(--accent);
-  outline: none;
-}
-section.card .cli-note {
-  margin: 10px 0 0;
-  font-size: 12px;
 }
 /* Workspace file browser: metadata search entry + results ─────────────── */
 
