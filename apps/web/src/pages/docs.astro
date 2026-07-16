@@ -321,6 +321,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
           <li><a href="#install">Install &amp; sign in</a></li>
           <li><a href="#attach">Attach files to a PR</a></li>
           <li><a href="#put">Get a URL for any file</a></li>
+          <li><a href="#screenshot">Capture a screenshot</a></li>
           <li><a href="#agents">Set up your agent</a></li>
           <li><a href="#manage">Manage what you uploaded</a></li>
           <li><a href="#good-to-know">Good to know</a></li>
@@ -496,6 +497,43 @@ MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot
           By default, images are re-encoded to WebP (capped size, high quality) so GitHub embeds
           stay fast, and <strong>EXIF metadata is stripped</strong>. Use <code>--keep-exif</code>&#32;
           to keep metadata, or <code>--no-optimize</code> to skip all processing.
+        </p>
+      </section>
+
+      <section id="screenshot">
+        <h2>Capture a screenshot <a class="anchor" href="#screenshot" aria-label="Link to this section">#</a></h2>
+        <p>
+          Don't have the image yet? <code>screenshot</code> renders a URL or a local
+          <code>.html</code> file and hosts the result in one step, with no browser
+          install required.
+        </p>
+        <div class="cmd">
+          <span class="text">uploads screenshot https://app.example --pr 123 --comment</span>
+          <button type="button" data-copy="uploads screenshot https://app.example --pr 123 --comment" aria-live="polite">copy</button>
+        </div>
+        <div class="block" aria-label="Example output">
+          <pre>&gt;&gt; capturing https://app.example
+&gt;&gt; captured via local backend
+&gt;&gt; optimized 29.3 KB → 13.4 KB (app.example.webp)
+&gt;&gt; key: gh/app/example/pull/123/app.example.webp
+
+URL: <span class="v">https://storage.uploads.sh/gh/app/example/pull/123/app.example.webp</span>
+MARKDOWN: ![app.example](https://storage.uploads.sh/gh/app/example/pull/123/app.example.webp)</pre>
+        </div>
+        <p>A few useful variations:</p>
+        <div class="cmd">
+          <span class="text">uploads screenshot ./report.html --dark --selector "main" <span class="cm"># dark scheme</span></span>
+          <button type="button" data-copy='uploads screenshot ./report.html --dark --selector "main"' aria-live="polite">copy</button>
+        </div>
+        <div class="cmd">
+          <span class="text">uploads screenshot ./card.html --no-upload --out ./card.png <span class="cm"># no hosting</span></span>
+          <button type="button" data-copy="uploads screenshot ./card.html --no-upload --out ./card.png" aria-live="polite">copy</button>
+        </div>
+        <p>
+          If a Chrome or Chromium is already on the machine, <code>screenshot</code> drives it
+          directly (nothing to download); otherwise it renders on uploads.sh servers. Force
+          either side with <code>--via local</code> or <code>--via remote</code>. Note that
+          <code>localhost</code> URLs are only reachable locally.
         </p>
       </section>
 
