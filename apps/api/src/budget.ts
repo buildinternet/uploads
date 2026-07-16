@@ -6,6 +6,7 @@
  * without redeploying. Omit a field (or set null via the script) for unlimited.
  */
 
+import { InsufficientStorageError, RateLimitedError } from "@uploads/errors";
 import type { WorkspaceUsage } from "./usage";
 
 /** Cumulative caps from the workspace registry record. */
@@ -42,6 +43,35 @@ export function resolveBudgetLimits(record: WorkspaceBudgetLimits): {
   };
 }
 
+/** The 429 monthly-upload-budget denial, shared by the read-side check and
+ * the atomic reservation path (usage.ts reserveUploads) so both reject with
+ * identical shape. */
+export function uploadBudgetDenial(
+  usage: WorkspaceUsage,
+  maxUploadsPerPeriod: number,
+): BudgetDenial {
+  return {
+    code: "upload_budget_exceeded",
+    status: 429,
+    message: `upload budget exceeded (${usage.uploadsInPeriod}/${maxUploadsPerPeriod} this period)`,
+    detail: {
+      uploadsInPeriod: usage.uploadsInPeriod,
+      maxUploadsPerPeriod,
+      periodStart: usage.periodStart,
+    },
+  };
+}
+
+/** Map a denial to the thrown error type: 507 storage, 429 upload budget. */
+export function budgetDenialError(
+  denial: BudgetDenial,
+): InsufficientStorageError | RateLimitedError {
+  const options = { code: denial.code, details: denial.detail };
+  return denial.status === 507
+    ? new InsufficientStorageError(denial.message, options)
+    : new RateLimitedError(denial.message, options);
+}
+
 /**
  * Whether a put that would apply `delta` is allowed under the workspace limits.
  * `delta.bytes` is the net storage change (newSize − previousSize for overwrites).
@@ -56,16 +86,7 @@ export function checkPutBudget(
 
   if (maxUploadsPerPeriod !== undefined && delta.uploads > 0) {
     if (usage.uploadsInPeriod + delta.uploads > maxUploadsPerPeriod) {
-      return {
-        code: "upload_budget_exceeded",
-        status: 429,
-        message: `upload budget exceeded (${usage.uploadsInPeriod}/${maxUploadsPerPeriod} this period)`,
-        detail: {
-          uploadsInPeriod: usage.uploadsInPeriod,
-          maxUploadsPerPeriod,
-          periodStart: usage.periodStart,
-        },
-      };
+      return uploadBudgetDenial(usage, maxUploadsPerPeriod);
     }
   }
 

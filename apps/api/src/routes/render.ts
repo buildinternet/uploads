@@ -8,17 +8,19 @@
  * rather than a path segment.
  *
  * Quota: renders draw against the *existing* monthly upload budget
- * (`maxUploadsPerPeriod` / `checkPutBudget`) with a zero-byte delta — no new
- * ledger. A burst limiter (`RENDER_LIMITER`) additionally guards against a
- * hot loop within a single window, independent of the monthly cap.
+ * (`maxUploadsPerPeriod`) — no new ledger. The upload is reserved atomically
+ * in D1 (`reserveUploads`) BEFORE the paid Browser Run call and released if
+ * the render fails, so concurrent requests at the cap boundary cannot all
+ * pass a read-then-check and overshoot the cap. A burst limiter
+ * (`RENDER_LIMITER`) additionally guards against a hot loop within a single
+ * window, independent of the monthly cap.
  */
-import { InsufficientStorageError, RateLimitedError } from "@uploads/errors";
 import { Hono } from "hono";
-import { checkPutBudget } from "../budget";
+import { budgetDenialError, resolveBudgetLimits, uploadBudgetDenial } from "../budget";
 import { readJsonObjectBody } from "../cli-intake";
 import { renderRateLimit } from "../guards";
 import { browserRenderer, MAX_RENDER_HTML_BYTES, parseRenderRequest } from "../render";
-import { getWorkspaceUsage, recordUsageSafe } from "../usage";
+import { releaseUploadsSafe, reserveUploads } from "../usage";
 import { requireScope, tokenWorkspaceAuth, type WorkspaceVars } from "../workspace";
 
 // Headroom over the 2 MiB `html` cap for JSON-encoding overhead (escaped
@@ -42,30 +44,26 @@ export const render = new Hono<WorkspaceVars>().post(
     const workspaceName = c.get("workspaceName");
     const ws = c.get("workspace");
 
-    // Renders never move stored bytes, so the delta is uploads-only — this
-    // deliberately reuses the existing monthly upload budget (not a
-    // render-specific ledger): checkPutBudget's storage-cap branch only
-    // triggers on delta.bytes > 0, so a zero-byte delta here can only ever
-    // trip maxUploadsPerPeriod.
-    const usage = await getWorkspaceUsage(c.env.DB, workspaceName);
-    const denial = checkPutBudget(usage, ws, { bytes: 0, uploads: 1 });
-    if (denial) {
-      if (denial.status === 507) {
-        throw new InsufficientStorageError(denial.message, {
-          code: denial.code,
-          details: denial.detail,
-        });
-      }
-      throw new RateLimitedError(denial.message, {
-        code: denial.code,
-        details: denial.detail,
-      });
+    // Renders never move stored bytes, so only the monthly upload budget
+    // applies (this deliberately reuses the put budget, not a render-specific
+    // ledger). Reserve the upload atomically before the metered Browser Run
+    // call; the reservation IS the count, so success records nothing further
+    // and failure releases it.
+    const { maxUploadsPerPeriod } = resolveBudgetLimits(ws);
+    const reservation = await reserveUploads(c.env.DB, workspaceName, 1, maxUploadsPerPeriod);
+    if (!reservation.ok) {
+      throw budgetDenialError(
+        uploadBudgetDenial(reservation.usage, reservation.maxUploadsPerPeriod),
+      );
     }
 
-    const renderer = browserRenderer(c.env.BROWSER);
-    const result = await renderer.screenshot(input);
-
-    await recordUsageSafe(c.env.DB, workspaceName, { bytes: 0, objects: 0, uploads: 1 });
+    let result;
+    try {
+      result = await browserRenderer(c.env.BROWSER).screenshot(input);
+    } catch (err) {
+      await releaseUploadsSafe(c.env.DB, workspaceName, 1);
+      throw err;
+    }
 
     return new Response(result.png, {
       status: 200,
