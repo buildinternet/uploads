@@ -326,6 +326,29 @@ describe("POST /v1/render quota + rate limiting", () => {
     expect(json.error.code).toBe("upload_budget_exceeded");
     expect(browser.calls).toHaveLength(1); // only the first (successful) render
   });
+
+  it("admits exactly the remaining budget under concurrent renders at the cap boundary", async () => {
+    // Five simultaneous renders against a cap of 2: the atomic D1 reservation
+    // (reserveUploads) must admit exactly 2 — a read-then-check would let all
+    // five pass the check before any of them recorded an upload.
+    const { env, db, browser } = await makeEnv({ overrides: { maxUploadsPerPeriod: 2 } });
+    const responses = await Promise.all(
+      Array.from({ length: 5 }, () => renderReq(env, { url: "https://example.com" })),
+    );
+
+    const statuses = responses.map((r) => r.status);
+    expect(statuses.filter((s) => s === 200)).toHaveLength(2);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(3);
+
+    const denied = responses.find((r) => r.status === 429)!;
+    const json = (await denied.json()) as { error: { code: string } };
+    expect(json.error.code).toBe("upload_budget_exceeded");
+
+    // Only the admitted renders reached the metered Browser Run call, and the
+    // ledger never overshoots the cap.
+    expect(browser.calls).toHaveLength(2);
+    expect(db.usage.get("default")?.uploads_in_period).toBe(2);
+  });
 });
 
 describe("POST /v1/render Browser Run error passthrough", () => {
