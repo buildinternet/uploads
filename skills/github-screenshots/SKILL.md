@@ -36,6 +36,10 @@ file:
 - An OS screenshot or screen recording the user already made.
 - Any existing image, GIF, or diagram file.
 
+No browser tool on hand? `uploads screenshot <url|file.html>` captures
+**and** hosts in one step — it drives an installed Chrome itself, or falls
+back to a server-side render when none is found. See the uploads-cli skill.
+
 GIFs and video upload as-is — the client-side optimizer only rewrites still
 images (PNG/JPEG → WebP). No special flags needed for motion.
 

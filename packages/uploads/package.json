@@ -64,5 +64,8 @@
   },
   "dependencies": {
     "sharp": "^0.35.3"
+  },
+  "optionalDependencies": {
+    "playwright-core": "^1.61.1"
   }
 }

@@ -17,6 +17,7 @@ import { publicGalleries } from "./routes/public-galleries";
 import { publicFiles } from "./routes/public-files";
 import { telemetry } from "./routes/telemetry";
 import { reports } from "./routes/reports";
+import { render } from "./routes/render";
 
 // Lets the browser console on the web origin (and local dev) call the token-
 // authenticated endpoints. CORS is not the security boundary — bearer tokens
@@ -75,6 +76,12 @@ export const app = new Hono<WorkspaceVars>()
   .route("/v1/telemetry", telemetry)
   // Explicit opt-in diagnostic reports (message + optional log) — no auth.
   .route("/v1/reports", reports)
+  // Screenshot render (phase 1, POST /v1/render). Brings its own auth
+  // (tokenWorkspaceAuth resolves the workspace from the token, not the path)
+  // so — like /v1/tokens — it must be registered before the `/v1/:workspace/*`
+  // guard: that pattern requires a trailing segment and never matches this
+  // route. See src/routes/render.ts.
+  .route("/v1/render", render)
   .use("/v1/:workspace/*", workspaceAuth)
   .route("/v1/:workspace/galleries", galleries)
   .route("/v1/:workspace/files", files)

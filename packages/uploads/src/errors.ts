@@ -11,7 +11,10 @@ export type UploadsErrorCode =
   | "GITHUB_REQUIRED"
   | "API_ERROR"
   | "NETWORK"
-  | "USAGE";
+  | "USAGE"
+  | "BROWSER_NOT_FOUND"
+  | "RENDER_FAILED"
+  | "RATE_LIMITED";
 
 export class UploadsError extends Error {
   readonly code: UploadsErrorCode;

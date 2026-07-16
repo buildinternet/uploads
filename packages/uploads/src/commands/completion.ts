@@ -4,6 +4,7 @@ import {
   GLOBAL_FLAGS,
   LIST_LIKE_FLAGS,
   PUT_LIKE_FLAGS,
+  SCREENSHOT_FLAGS,
   ROOT_COMMANDS,
   isCompletionShell,
   type CompletionShell,
@@ -38,6 +39,7 @@ function bashScript(): string {
   const globals = GLOBAL_FLAGS.map((g) => g.flag).join(" ");
   const putFlags = PUT_LIKE_FLAGS.join(" ");
   const listFlags = LIST_LIKE_FLAGS.join(" ");
+  const screenshotFlags = SCREENSHOT_FLAGS.join(" ");
 
   const subMaps = ROOT_COMMANDS.filter((c) => c.subcommands?.length).map((c) => {
     const names = c.subcommands!.map((s) => s.name).join(" ");
@@ -64,6 +66,7 @@ _uploads() {
   local -a globals=(${globals})
   local -a put_flags=(${putFlags})
   local -a list_flags=(${listFlags})
+  local -a screenshot_flags=(${screenshotFlags})
 
   # Find the first non-global positional (the subcommand).
   local cmd="" i=1
@@ -114,6 +117,9 @@ ${subMaps.join("\n")}
       put|attach)
         COMPREPLY=( $(compgen -W "\${put_flags[*]}" -- "$cur") )
         ;;
+      screenshot)
+        COMPREPLY=( $(compgen -W "\${screenshot_flags[*]}" -- "$cur") )
+        ;;
       list|find)
         COMPREPLY=( $(compgen -W "\${list_flags[*]}" -- "$cur") )
         ;;
@@ -126,7 +132,7 @@ ${subMaps.join("\n")}
 
   # File paths for upload-style commands.
   case "$cmd" in
-    put|attach)
+    put|attach|screenshot)
       COMPREPLY=( $(compgen -f -- "$cur") )
       ;;
   esac
@@ -201,7 +207,7 @@ ${globalArgs} \\
     args)
       case $line[1] in
 ${subCases}
-      put|attach)
+      put|attach|screenshot)
         _files
         ;;
       esac
@@ -260,6 +266,12 @@ function fishScript(): string {
       `complete -c uploads -n '__fish_seen_subcommand_from put attach' -l ${flag.slice(2)}`,
     );
   }
+  for (const flag of SCREENSHOT_FLAGS) {
+    if (!flag.startsWith("--")) continue;
+    lines.push(
+      `complete -c uploads -n '__fish_seen_subcommand_from screenshot' -l ${flag.slice(2)}`,
+    );
+  }
   for (const flag of LIST_LIKE_FLAGS) {
     if (!flag.startsWith("--")) continue;
     lines.push(
@@ -267,8 +279,8 @@ function fishScript(): string {
     );
   }
 
-  // File completion for put/attach
-  lines.push(`complete -c uploads -n '__fish_seen_subcommand_from put attach' -F`);
+  // File completion for put/attach/screenshot
+  lines.push(`complete -c uploads -n '__fish_seen_subcommand_from put attach screenshot' -F`);
 
   return lines.join("\n") + "\n";
 }

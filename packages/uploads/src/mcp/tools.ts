@@ -5,16 +5,14 @@
  * per-call `workspace` argument behaves like the CLI's --workspace flag, and
  * a missing token surfaces as a tool error rather than a startup failure.
  */
-import { basename } from "node:path";
 import type { GlobalFlags } from "../cli-args.js";
 import { createUploadsClient, type UploadsClient } from "../client.js";
 import {
   buildDoctorReport,
   makeGhTarget,
-  prepareImageForUpload,
-  readFileArg,
   syncAttachmentsComment,
   uploadAttachments,
+  uploadPreparedImage,
   uploadPuts,
 } from "../commands.js";
 import { resolveFrameId } from "../frame.js";
@@ -24,13 +22,10 @@ import {
   type ResolvedConfig,
   type UploadsClientConfig,
 } from "../config.js";
-import { buildMarkdown } from "../embed.js";
-import { urlForGithubEmbed } from "../public-urls.js";
 import { resolvePutPrefix } from "../destinations.js";
-import { ghAttachmentKey, ghKeyPrefix, ghMetadataFromTarget, type GhTarget } from "../github.js";
+import { ghKeyPrefix, ghMetadataFromTarget, type GhTarget } from "../github.js";
 import { validateMetaMap } from "../metadata.js";
-import { rewriteKeyExtension, type OptimizeImageOptions } from "../optimize.js";
-import { buildCliProvenance } from "../provenance.js";
+import { type OptimizeImageOptions } from "../optimize.js";
 import {
   execRunner,
   resolveCurrentPullRequest,
@@ -524,35 +519,27 @@ export function createUploadsMcpTools(opts: {
         if (contentBase64 !== undefined) {
           const sourceName = filenameArg!;
           const bytes = new Uint8Array(Buffer.from(contentBase64, "base64"));
-          const prepared = await prepareImageForUpload(bytes, sourceName, {
-            ...frameOpts,
-            optimize: optimizeOpts,
-          });
-          const filename = prepared.filename;
-          let key = target ? ghAttachmentKey(target, filename) : keyArg;
-          if (key && prepared.optimized) key = rewriteKeyExtension(key, filename);
-          const result = await client.put(prepared.bytes, {
-            filename,
-            key,
-            prefix: resolvedPrefix ?? defaults.prefix,
-            repo: optString(args, "repo") ?? defaults.repo,
-            ref: refArg ?? defaults.ref,
-            contentType: prepared.optimized ? prepared.contentType : contentType,
-            deriveRepoFromGit: !noGit,
-            dryRun,
-            provenance: buildCliProvenance({
-              sourceName,
-              client: "uploads-mcp",
-              optimized: prepared.optimized,
-              frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
-              keepExif: optimizeOpts.keepExif === true,
-            }),
-            metadata,
-          });
-          const markdown = buildMarkdown(urlForGithubEmbed(result.url, result.embedUrl)!, {
-            alt: alt ?? sourceName,
-            width,
-          });
+          const { result, prepared, markdown } = await uploadPreparedImage(
+            client,
+            bytes,
+            sourceName,
+            {
+              frame: frameOpts,
+              optimize: optimizeOpts,
+              ghTarget: target,
+              key: keyArg,
+              prefix: resolvedPrefix ?? defaults.prefix,
+              repo: optString(args, "repo") ?? defaults.repo,
+              ref: refArg ?? defaults.ref,
+              contentType,
+              deriveRepoFromGit: !noGit,
+              dryRun,
+              metadata,
+              provenanceClient: "uploads-mcp",
+              alt: () => alt ?? sourceName,
+              width,
+            },
+          );
           const optimize = {
             optimized: prepared.optimized,
             skippedReason: prepared.skippedReason,
@@ -594,6 +581,261 @@ export function createUploadsMcpTools(opts: {
           markdown: u.markdown,
           optimize: u.optimize,
           frame: u.frame,
+          ...(dryRun ? { dryRun: true } : {}),
+        };
+        if (wantComment && target) {
+          const { comment, commentError } = await syncComment(client, target);
+          return { ...flat, comment, commentError };
+        }
+        return flat;
+      },
+    },
+    {
+      name: "screenshot",
+      description:
+        "Capture a URL or a local .html file and host it — a hosted, PR-embeddable image in one call. Backend `local` drives an already-installed Chrome/Chromium (dynamically loaded; unavailable in some runtimes); `remote` renders server-side via the workspace's render endpoint and counts against the monthly upload budget. Default via=auto prefers local when found, else remote. localhost/private-network URLs and .html files are local-only — via=remote (or auto falling back to remote) fails fast instead of a doomed request. Shares the put upload pipeline: optional frame, optimize-by-default, pr/issue attachment + comment, gallery, metadata. Uploads are public.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          target: {
+            type: "string",
+            description: "http(s) URL, or a path to a local .html file.",
+          },
+          via: {
+            type: "string",
+            description: "Capture backend: auto (default) | local | remote.",
+          },
+          browser: {
+            type: "string",
+            description: "Explicit local browser executable path (local backend only).",
+          },
+          cdp: {
+            type: "string",
+            description:
+              "Attach to a running Chrome via CDP instead of launching one (local backend only).",
+          },
+          viewport: {
+            type: "string",
+            description: "WIDTHxHEIGHT[@SCALEx], e.g. 1280x800@2x (default: 1280x800@2).",
+          },
+          selector: { type: "string", description: "Capture one element instead of the viewport." },
+          fullPage: { type: "boolean", description: "Capture the full scrollable page." },
+          colorScheme: {
+            type: "string",
+            description:
+              "Emulate prefers-color-scheme: dark | light. Full media-query emulation requires via: \"local\" — the remote backend only sets the CSS color-scheme property and won't flip a page's own prefers-color-scheme queries.",
+          },
+          wait: {
+            type: "string",
+            description:
+              'Settle strategy: load (default) | domcontentloaded | networkidle | a millisecond count (millisecond counts are local-only — via: "local").',
+          },
+          key: {
+            type: "string",
+            description:
+              "Explicit object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.png). Cannot be combined with pr/issue.",
+          },
+          destination: {
+            type: "string",
+            description:
+              "Typed destination root: screenshots | gh | f. With pr/issue must be gh or omitted.",
+          },
+          prefix: {
+            type: "string",
+            description: "Key prefix (default: screenshots, or UPLOADS_DEFAULT_PREFIX).",
+          },
+          ...ghTargetProps("Attach to"),
+          repo: {
+            type: "string",
+            description: "owner/name repo segment (default: git remote, or UPLOADS_DEFAULT_REPO).",
+          },
+          ref: {
+            type: "string",
+            description: "PR/issue/branch key segment (default: today, or UPLOADS_DEFAULT_REF).",
+          },
+          alt: {
+            type: "string",
+            description: "Alt text for the markdown (default: derived filename).",
+          },
+          width: {
+            type: "number",
+            description: "Emit <img width=…> markdown instead of a plain embed.",
+          },
+          noOptimize: {
+            type: "boolean",
+            description: "Skip client-side image optimization (default: optimize to WebP).",
+          },
+          optimizeMaxEdge: {
+            type: "number",
+            description: "Max long edge in pixels when optimizing.",
+          },
+          optimizeQuality: { type: "number", description: "WebP quality 1-100 when optimizing." },
+          keepExif: { type: "boolean", description: "Keep EXIF/XMP/ICC when optimizing." },
+          ...frameProps,
+          noGit: { type: "boolean", description: "Don't derive the repo segment from git." },
+          comment: {
+            type: "boolean",
+            description:
+              "With pr/issue: create/update the managed attachments comment (best-effort).",
+          },
+          galleryId: {
+            type: "string",
+            description: "Add the uploaded object to this public gallery.",
+          },
+          dryRun: {
+            type: "boolean",
+            description:
+              "Capture + resolve key/URL without uploading. Not with comment or galleryId.",
+          },
+          metadata: metadataProp,
+          workspace: workspaceProp,
+        },
+        required: ["target"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const targetArg = optString(args, "target");
+        if (!targetArg) usage("target is required");
+        const viaArg = optString(args, "via") ?? "auto";
+        if (viaArg !== "auto" && viaArg !== "local" && viaArg !== "remote") {
+          usage("via must be auto, local, or remote");
+        }
+        const colorSchemeArg = optString(args, "colorScheme");
+        if (colorSchemeArg && colorSchemeArg !== "dark" && colorSchemeArg !== "light") {
+          usage("colorScheme must be dark or light");
+        }
+
+        const target = ghTargetFromArgs(args, run);
+        const wantComment = optBool(args, "comment");
+        const dryRun = optBool(args, "dryRun");
+        const keyArg = optString(args, "key");
+        const destArg = optString(args, "destination");
+        const prefixArg = optString(args, "prefix");
+        const refArg = optString(args, "ref");
+        const galleryIdArg = optString(args, "galleryId");
+        if (wantComment && !target) usage("comment requires pr or issue");
+        if (dryRun && wantComment) usage("dryRun cannot be combined with comment");
+        if (dryRun && galleryIdArg) usage("dryRun cannot be combined with galleryId");
+        if (target) {
+          if (keyArg) usage("key cannot be combined with pr/issue");
+          if (refArg) usage("ref cannot be combined with pr/issue");
+          if (prefixArg) usage("prefix cannot be combined with pr/issue");
+        }
+        const metadata = optStringRecord(args, "metadata");
+        if (metadata) validateMetaMap(metadata);
+        let resolvedPrefix: string | undefined;
+        try {
+          resolvedPrefix = resolvePutPrefix({
+            destination: destArg,
+            prefix: prefixArg,
+            key: keyArg,
+            ghAttachment: Boolean(target),
+          });
+        } catch (err) {
+          usage(err instanceof Error ? err.message : String(err));
+        }
+
+        const { config, client } = clientFor(args);
+        const defaults = resolvePutDefaults({ envFile: globals.envFile });
+        const frameOpts = mcpFrameOptions(args);
+        const optimizeOpts = mcpOptimizeOptions(args, defaults);
+        const noGit = optBool(args, "noGit") || defaults.noGit === true;
+        const alt = optString(args, "alt");
+        const width = optPosInt(args, "width") ?? defaults.width;
+
+        // Dynamic import only: keeps mcp/tools.ts (and therefore anything
+        // that statically imports it) free of a static reference to the
+        // local-backend chain. If this fails, the runtime can't do Node-side
+        // capture at all — point the caller at the remote backend instead.
+        let screenshotModule: typeof import("../screenshot.js");
+        try {
+          screenshotModule = await import("../screenshot.js");
+        } catch (err) {
+          usage(
+            `screenshot capture is unavailable in this runtime; try via: "remote" instead (${
+              err instanceof Error ? err.message : String(err)
+            })`,
+          );
+        }
+
+        let captured: Awaited<ReturnType<typeof screenshotModule.captureScreenshot>>;
+        try {
+          captured = await screenshotModule.captureScreenshot({
+            target: targetArg!,
+            via: viaArg,
+            browserPath: optString(args, "browser"),
+            cdp: optString(args, "cdp"),
+            viewport: screenshotModule.parseViewport(optString(args, "viewport")),
+            selector: optString(args, "selector"),
+            fullPage: optBool(args, "fullPage"),
+            colorScheme: colorSchemeArg as "dark" | "light" | undefined,
+            waitUntil: screenshotModule.parseWaitUntil(optString(args, "wait")),
+            apiUrl: config.apiUrl,
+            token: config.token,
+          });
+        } catch (err) {
+          if (
+            err instanceof Error &&
+            "code" in err &&
+            (err as { code?: string }).code === "BROWSER_NOT_FOUND" &&
+            viaArg === "local"
+          ) {
+            usage(`${err.message} — try via: "remote" instead`);
+          }
+          throw err;
+        }
+
+        const { result, prepared, markdown } = await uploadPreparedImage(
+          client,
+          captured.png,
+          captured.filename,
+          {
+            frame: frameOpts,
+            optimize: optimizeOpts,
+            ghTarget: target,
+            key: keyArg,
+            prefix: resolvedPrefix ?? defaults.prefix,
+            repo: optString(args, "repo") ?? defaults.repo,
+            ref: refArg ?? defaults.ref,
+            deriveRepoFromGit: !noGit,
+            dryRun,
+            metadata,
+            provenanceClient: "uploads-mcp-screenshot",
+            alt: (p) => alt ?? p.filename,
+            width,
+          },
+        );
+
+        let gallery: { id: string; url?: string; error?: string } | undefined;
+        if (galleryIdArg) {
+          try {
+            const current = await client.getGallery(galleryIdArg);
+            await client.addGalleryItem(galleryIdArg, result.key, {
+              expectedVersion: current.version,
+              altText: alt ?? prepared.filename,
+            });
+            gallery = { id: galleryIdArg, url: current.url };
+          } catch (err) {
+            gallery = {
+              id: galleryIdArg,
+              error: err instanceof Error ? err.message : String(err),
+            };
+          }
+        }
+
+        const flat = {
+          ...result,
+          markdown,
+          backend: captured.backend,
+          optimize: {
+            optimized: prepared.optimized,
+            skippedReason: prepared.skippedReason,
+            originalBytes: prepared.originalBytes,
+            outputBytes: prepared.outputBytes,
+            filename: prepared.filename,
+          },
+          frame: prepared.frame,
+          gallery,
           ...(dryRun ? { dryRun: true } : {}),
         };
         if (wantComment && target) {
