@@ -229,7 +229,10 @@ export async function captureScreenshot(
   const waitUntil = opts.waitUntil ?? "load";
   const filename = deriveFilename(target);
 
-  const localOnly = target.kind === "html-file" || target.localOnly;
+  // Only private-network URLs are truly unreachable remotely; an .html file
+  // is sent to the remote backend as an inline `html` body (though anything
+  // it references via file:// or relative paths won't resolve there).
+  const localOnly = target.kind === "url" && target.localOnly;
 
   // Populated only when auto-routing actually probes the filesystem, so it
   // can be threaded into captureLocalImpl below to avoid a second scan.

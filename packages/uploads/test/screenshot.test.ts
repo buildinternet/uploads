@@ -193,18 +193,43 @@ describe("captureScreenshot backend selection", () => {
     expect(usedRemote).toBe(false);
   });
 
-  it("--via remote on an .html file target fails fast", async () => {
+  it("--via remote on an .html file POSTs its contents as inline html", async () => {
     const dir = mkdtempSync(join(tmpdir(), "uploads-screenshot-"));
     const file = join(dir, "card.html");
-    writeFileSync(file, "<html></html>");
+    writeFileSync(file, "<html><body>hi</body></html>");
+    let sentHtml: string | undefined;
+    const result = await captureScreenshot({
+      target: file,
+      via: "remote",
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureRemoteImpl: async (body) => {
+        sentHtml = (body as { html?: string }).html;
+        return png;
+      },
+    });
+    expect(sentHtml).toBe("<html><body>hi</body></html>");
+    expect(result.backend).toBe("remote");
+  });
+
+  it("--via remote rejects an .html file over the 2 MiB inline limit", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "uploads-screenshot-"));
+    const file = join(dir, "big.html");
+    writeFileSync(file, `<html>${"x".repeat(2 * 1024 * 1024)}</html>`);
+    let usedRemote = false;
     await expect(
       captureScreenshot({
         target: file,
         via: "remote",
         apiUrl: "https://api.uploads.sh",
         token: "t",
+        captureRemoteImpl: async () => {
+          usedRemote = true;
+          return png;
+        },
       }),
-    ).rejects.toThrow(UploadsError);
+    ).rejects.toMatchObject({ code: "USAGE" });
+    expect(usedRemote).toBe(false);
   });
 
   it("auto falls back to remote when no local browser is detected", async () => {

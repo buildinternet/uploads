@@ -244,9 +244,12 @@ else falls back to remote. Set a persistent default with
 `UPLOADS_SCREENSHOT_VIA=auto|local|remote` (env, `--env-file`, or the user
 config file — see "Config commands"); the `--via` flag always wins.
 
-**localhost/private-network targets and local `.html` files are local-only.**
-With `--via remote` (or `auto` falling back to remote) these fail fast with a
-clear error instead of sending a request that could never work. A numeric
+**localhost/private-network targets are local-only.** With `--via remote`
+(or `auto` falling back to remote) these fail fast with a clear error instead
+of sending a request that could never work. Local `.html` files work on both
+backends — the remote backend receives the file's contents inline (≤ 2 MiB),
+so anything the page references via `file://` or relative paths only resolves
+with `--via local`. A numeric
 `--wait <ms>` (fixed settle delay after load) is also local-only; use
 `--wait load|domcontentloaded|networkidle` for a backend-agnostic wait.
 

@@ -42,7 +42,9 @@ uploads.sh render endpoint (no local browser needed, counts against the
 workspace's monthly upload budget). Default --via auto prefers local when a
 browser is found, else remote.
 
-localhost/private-network URLs and .html files are reachable only by the
+.html files work on both backends (sent inline to remote, ≤ 2 MiB; anything
+they reference via file:// or relative paths only resolves with --via local).
+localhost/private-network URLs are reachable only by the
 local backend — with --via remote (or auto falling back to remote) these
 fail fast with a clear error instead of sending a doomed request.
 
