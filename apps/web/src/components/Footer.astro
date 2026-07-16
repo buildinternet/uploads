@@ -1,27 +1,95 @@
 ---
 /**
- * Canonical site footer: attribution + the standing links (source, docs, legal).
- * Single source of truth so every page's footer is identical — mirrors how
- * <Brand /> standardizes the header lockup.
+ * Canonical site footer. The default (non-compact) variant is the columned
+ * treatment shared by content pages: brand blurb, link columns, and a family
+ * bar with the maintainer credit + a cross-link to the sibling Build Internet
+ * tool (releases.sh links back to us the same way).
  *
- * `compact` trims the top spacing for the centered auth/error cards; the default
- * is the full-width content-page treatment (the style docs/legal already used).
+ * `compact` keeps the original one-liner for the centered auth/error cards.
  */
 interface Props {
   compact?: boolean;
 }
 const { compact = false } = Astro.props;
 const REPO = "https://github.com/buildinternet/uploads";
+
+// Sibling tool in the Build Internet family — a registry of release notes.
+// rel omits "noreferrer" so releases.sh sees the referral traffic (mirrors
+// how its footer links to uploads.sh).
+const RELEASES_URL = "https://releases.sh";
+
+type FooterLink = { label: string; href: string };
+type FooterColumn = { title: string; links: FooterLink[] };
+
+// Adding a future link is a one-line edit here — no markup changes needed.
+const COLUMNS: FooterColumn[] = [
+  {
+    title: "Product",
+    links: [
+      { label: "Docs", href: "/docs" },
+      { label: "Agent guide", href: "/github-screenshots" },
+      { label: "Console", href: "/console" },
+      { label: "Sign in", href: "/login" },
+    ],
+  },
+  {
+    title: "Project",
+    links: [
+      { label: "GitHub", href: REPO },
+      { label: "Terms", href: "/terms" },
+      { label: "Privacy", href: "/privacy" },
+    ],
+  },
+];
 ---
 
-<footer class:list={["site-footer", { compact }]}>
-  {compact ? null : <Fragment>uploads.sh · </Fragment>}a <a href="https://buildinternet.com">Build Internet</a> project · <a href={REPO}>source</a> · <a href="/docs">docs</a> · <a href="/terms">terms</a> · <a href="/privacy">privacy</a>
-</footer>
+{
+  compact ? (
+    <footer class="site-footer compact">
+      a <a href="https://buildinternet.com">Build Internet</a> project · <a href={REPO}>source</a>{" "}
+      · <a href="/docs">docs</a> · <a href="/terms">terms</a> · <a href="/privacy">privacy</a>
+    </footer>
+  ) : (
+    <footer class="site-footer">
+      <div class="cols">
+        <div class="brand">
+          <a class="wordmark" href="/">
+            uploads.sh
+          </a>
+          <p>Screenshots &amp; recordings for agent PRs.</p>
+        </div>
+        {COLUMNS.map((column) => (
+          <nav aria-label={column.title}>
+            <div class="col-title">{column.title}</div>
+            <ul>
+              {column.links.map((link) => (
+                <li>
+                  <a href={link.href}>{link.label}</a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))}
+      </div>
+      <div class="family">
+        <p>
+          Maintained by <a href="https://zachdunn.com">Zach Dunn</a> /{" "}
+          <a href="https://buildinternet.com">Build Internet</a>.
+        </p>
+        <p>
+          Release notes for the tools you use —{" "}
+          <a href={RELEASES_URL} rel="noopener">
+            releases.sh →
+          </a>
+        </p>
+      </div>
+    </footer>
+  )
+}
 
 <style>
   .site-footer {
     margin-top: 56px;
-    padding-top: 20px;
     border-top: 1px solid var(--line, #232327);
     color: var(--muted, #7d7d77);
     font: 12px var(--mono, ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace);
@@ -41,5 +109,62 @@ const REPO = "https://github.com/buildinternet/uploads";
   .site-footer a:focus-visible {
     color: var(--accent, #c27eff);
     outline: none;
+  }
+
+  /* ---- columned (default) variant ---- */
+  .cols {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr;
+    gap: 24px 32px;
+    padding: 24px 0 10px;
+  }
+  .wordmark {
+    font-weight: 600;
+    color: var(--fg, #e8e8e3);
+  }
+  .site-footer a.wordmark { color: var(--fg, #e8e8e3); }
+  .site-footer a.wordmark:hover,
+  .site-footer a.wordmark:focus-visible { color: var(--accent, #c27eff); }
+  .brand p {
+    margin: 4px 0 0;
+    max-width: 30ch;
+  }
+  .col-title {
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .cols ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 3px;
+  }
+  .family {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 4px 24px;
+    border-top: 1px solid var(--line, #232327);
+    margin-top: 14px;
+    padding: 12px 0 0;
+    font-size: 11.5px;
+  }
+  .family p {
+    margin: 0;
+  }
+  @media (max-width: 560px) {
+    .cols {
+      grid-template-columns: 1fr 1fr;
+      gap: 20px 24px;
+    }
+    .brand {
+      grid-column: 1 / -1;
+    }
+    .family {
+      flex-direction: column;
+    }
   }
 </style>
