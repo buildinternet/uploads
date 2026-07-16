@@ -220,7 +220,7 @@ export const prerender = false;
       if (!workspaces.length) {
         showStatus(
           status,
-          'No workspaces yet — <a href="/account/workspaces#create">create one</a> or accept an invite.',
+          'No workspaces yet — <a href="/account/workspaces/new">create one</a> or accept an invite.',
           { html: true },
         );
         return;
@@ -231,7 +231,7 @@ export const prerender = false;
       list.innerHTML = workspaces
         .map((ws) => {
           const name = ws.organization.name || ws.workspace;
-          const href = `/account/workspaces?ws=${encodeURIComponent(ws.workspace)}`;
+          const href = `/account/workspaces/${encodeURIComponent(ws.workspace)}`;
           const meta = [
             ws.workspace !== name ? ws.workspace : null,
             ws.role,

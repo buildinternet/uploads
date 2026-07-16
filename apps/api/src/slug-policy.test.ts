@@ -26,6 +26,7 @@ describe("validateSlug", () => {
       "usage",
       "health",
       "admin-ui",
+      "new",
     ]) {
       expect(validateSlug(s)).toEqual({ ok: false, code: "reserved_workspace_name" });
     }

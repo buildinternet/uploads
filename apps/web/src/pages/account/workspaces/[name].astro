@@ -1,0 +1,280 @@
+---
+/**
+ * Dedicated workspace page: header · files · galleries · invite · operator.
+ */
+import AccountLayout from "../../../layouts/AccountLayout.astro";
+import { isBrowseWorkspace } from "../../../lib/workspace-browse-url";
+
+export const prerender = false;
+
+const nameParam = Astro.params.name ?? "";
+const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
+if (!workspace) return Astro.redirect("/account/workspaces");
+---
+
+<AccountLayout section="workspaces" workspace={workspace} title={workspace}>
+  <div id="ws-status" class="ul-callout status" role="status">Loading workspace…</div>
+  <button id="ws-retry" type="button" hidden>Try again</button>
+
+  <div id="ws-app" hidden>
+    <section class="card">
+      <div class="ws-page-header">
+        <div class="ws-title-block">
+          <h2 id="ws-name"></h2>
+          <p class="muted" id="ws-slug" hidden></p>
+        </div>
+        <span class="pill ws-role" id="ws-role" hidden></span>
+        <div class="usage" id="ws-usage">Loading usage…</div>
+      </div>
+    </section>
+
+    <section class="card" id="ws-communal" hidden>
+      <h2>Shared space</h2>
+      <p class="ws-note">
+        Shared, public space — world-readable at <code>storage.uploads.sh</code>.
+        Browse and upload with the CLI.
+      </p>
+    </section>
+
+    <section class="card" id="ws-files-card" hidden>
+      <h2 class="ws-section-head">Files</h2>
+      <div id="ws-files"></div>
+    </section>
+
+    <section class="card" id="ws-galleries-card" hidden>
+      <h2 class="ws-section-head">Galleries</h2>
+      <div id="ws-galleries"><p class="ws-empty">Loading…</p></div>
+    </section>
+
+    <section class="card" id="ws-invite-card" hidden>
+      <h2>Invite a teammate</h2>
+      <p class="ws-lead">They open the accept link, then run <code>uploads login</code>.</p>
+      <form class="ws-form" id="ws-invite-form">
+        <div class="input-group">
+          <label class="input-group__field">
+            <span class="sr-only">Email</span>
+            <input
+              type="email"
+              name="email"
+              required
+              autocomplete="email"
+              placeholder="teammate@example.com"
+            />
+          </label>
+          <button type="submit" class="input-group__action">Invite</button>
+        </div>
+      </form>
+      <div class="ws-messages">
+        <p class="muted cli-note" id="ws-invite-status" role="status" hidden></p>
+        <p class="muted cli-note" id="ws-invite-link" hidden></p>
+      </div>
+    </section>
+
+    <section class="card" id="ws-operator-card" hidden>
+      <h2>Operator enrollment code</h2>
+      <p class="muted"><code>ADMIN_TOKEN</code> only — not for everyday invites.</p>
+      <div class="command">
+        <code id="ws-operator-cmd"></code>
+        <button type="button" id="ws-operator-copy" aria-live="polite">copy</button>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    import { onSession, requireElement } from "../../../lib/account-shell";
+    import {
+      getMyWorkspaces,
+      getMyWorkspaceUsage,
+      getMyWorkspaceGalleries,
+      inviteToWorkspace,
+      type GallerySummary,
+    } from "../../../lib/api-client";
+    import { WorkspaceFiles } from "../../../components/WorkspaceFiles";
+    import {
+      readBrowseLocation,
+      replaceBrowseLocation,
+    } from "../../../lib/workspace-browse-url";
+    import { readSearchFilters } from "../../../lib/workspace-search-url";
+    import {
+      bindCopyButtons,
+      escapeHtml,
+      isWorkspaceAdminRole,
+      operatorInviteCommand,
+      renderUsageHtml,
+    } from "../../../lib/workspace-ui";
+    import { createElement } from "react";
+    import { createRoot } from "react-dom/client";
+
+    const page = "workspace page";
+    const w = window as unknown as {
+      __UPLOADS_API_ORIGIN__: string;
+      __UPLOADS_ACTIVE_WORKSPACE__: string;
+    };
+    const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+    const workspaceName = w.__UPLOADS_ACTIVE_WORKSPACE__;
+    const browseOnLoad = readBrowseLocation(window.location.search, window.location.pathname);
+    const searchFiltersOnLoad = readSearchFilters(window.location.search);
+
+    const statusEl = requireElement<HTMLElement>("#ws-status", page);
+    const retryBtn = requireElement<HTMLButtonElement>("#ws-retry", page);
+    const appEl = requireElement<HTMLElement>("#ws-app", page);
+    const nameEl = requireElement<HTMLElement>("#ws-name", page);
+    const slugEl = requireElement<HTMLElement>("#ws-slug", page);
+    const roleEl = requireElement<HTMLElement>("#ws-role", page);
+    const usageEl = requireElement<HTMLElement>("#ws-usage", page);
+    const communalCard = requireElement<HTMLElement>("#ws-communal", page);
+    const filesCard = requireElement<HTMLElement>("#ws-files-card", page);
+    const galleriesCard = requireElement<HTMLElement>("#ws-galleries-card", page);
+    const inviteCard = requireElement<HTMLElement>("#ws-invite-card", page);
+    const operatorCard = requireElement<HTMLElement>("#ws-operator-card", page);
+    const filesEl = requireElement<HTMLElement>("#ws-files", page);
+    const galleriesEl = requireElement<HTMLElement>("#ws-galleries", page);
+    const inviteStatus = requireElement<HTMLElement>("#ws-invite-status", page);
+    const inviteLink = requireElement<HTMLElement>("#ws-invite-link", page);
+    const operatorCmd = requireElement<HTMLElement>("#ws-operator-cmd", page);
+    const operatorCopy = requireElement<HTMLButtonElement>("#ws-operator-copy", page);
+
+    let sessionRole: string | null | undefined;
+    let filesRoot: ReturnType<typeof createRoot> | null = null;
+
+    function showError(message: string, retry = true): void {
+      statusEl.hidden = false;
+      statusEl.textContent = message;
+      statusEl.dataset.state = "error";
+      appEl.hidden = true;
+      retryBtn.hidden = !retry;
+    }
+
+    function renderGalleries(galleries: GallerySummary[]): void {
+      if (!galleries.length) {
+        galleriesEl.innerHTML = `<p class="ws-empty">No galleries yet.</p>`;
+        return;
+      }
+      galleriesEl.innerHTML = `<ul class="ws-items">${galleries
+        .map(
+          (g) =>
+            `<li><a href="${escapeHtml(g.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(g.title)}</a></li>`,
+        )
+        .join("")}</ul>`;
+    }
+
+    async function loadWorkspace(): Promise<void> {
+      statusEl.hidden = false;
+      statusEl.textContent = "Loading workspace…";
+      statusEl.removeAttribute("data-state");
+      retryBtn.hidden = true;
+      appEl.hidden = true;
+
+      const result = await getMyWorkspaces(apiOrigin);
+      if (result.kind === "unavailable") {
+        showError("Workspaces are temporarily unavailable. Check the local stack or try again.");
+        return;
+      }
+
+      const ws = result.workspaces.find((item) => item.workspace === workspaceName);
+      if (!ws) {
+        showError("You don’t have access to this workspace.", false);
+        return;
+      }
+
+      statusEl.hidden = true;
+      appEl.hidden = false;
+
+      const displayName = ws.organization.name || ws.workspace;
+      nameEl.textContent = displayName;
+      slugEl.textContent = ws.workspace;
+      slugEl.hidden = ws.workspace === displayName;
+      roleEl.textContent = ws.role;
+      roleEl.hidden = false;
+      document.title = `${displayName} · uploads.sh`;
+
+      void getMyWorkspaceUsage(apiOrigin, ws.workspace).then((usage) => {
+        usageEl.innerHTML = usage ? renderUsageHtml(usage) : "Usage unavailable.";
+      });
+
+      communalCard.hidden = !ws.communal;
+      filesCard.hidden = ws.communal;
+      galleriesCard.hidden = ws.communal;
+      inviteCard.hidden = !isWorkspaceAdminRole(ws.role);
+
+      if (!ws.communal) {
+        if (!filesRoot) filesRoot = createRoot(filesEl);
+        filesRoot.render(
+          createElement(WorkspaceFiles, {
+            apiOrigin,
+            workspace: ws.workspace,
+            hasPublicUrl: ws.hasPublicUrl,
+            initialPrefix:
+              !browseOnLoad.workspace || browseOnLoad.workspace === ws.workspace
+                ? browseOnLoad.path
+                : "",
+            initialFilters: searchFiltersOnLoad,
+            onPrefixChange: (path: string) => {
+              replaceBrowseLocation({ workspace: ws.workspace, path });
+            },
+          }),
+        );
+        void getMyWorkspaceGalleries(apiOrigin, ws.workspace).then(renderGalleries);
+      }
+
+      const isOperator = sessionRole === "admin";
+      operatorCard.hidden = !isOperator;
+      if (isOperator) {
+        const cmd = operatorInviteCommand(ws.workspace);
+        operatorCmd.textContent = cmd;
+        operatorCopy.dataset.copy = cmd;
+      }
+    }
+
+    bindCopyButtons(document);
+
+    requireElement<HTMLFormElement>("#ws-invite-form", page).addEventListener("submit", (event) => {
+      void (async () => {
+        event.preventDefault();
+        const form = event.currentTarget as HTMLFormElement;
+        const emailInput = form.querySelector<HTMLInputElement>('input[name="email"]');
+        const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+        const email = emailInput?.value.trim() ?? "";
+        if (!email || !submit) return;
+
+        inviteStatus.hidden = false;
+        inviteStatus.textContent = "Creating invite…";
+        inviteLink.hidden = true;
+        inviteLink.textContent = "";
+        submit.disabled = true;
+        const result = await inviteToWorkspace(apiOrigin, workspaceName, email);
+        submit.disabled = false;
+
+        if (result.kind === "ok") {
+          inviteStatus.textContent =
+            result.emailConfigured === true
+              ? `Invitation emailed to ${email}.`
+              : result.emailConfigured === false
+                ? `Invite created for ${email} — share the accept link below.`
+                : `Invite created for ${email}.`;
+          if (emailInput) emailInput.value = "";
+          if (result.acceptUrl) {
+            inviteLink.hidden = false;
+            inviteLink.innerHTML = `Accept link: <a href="${escapeHtml(result.acceptUrl)}">${escapeHtml(result.acceptUrl)}</a>`;
+          }
+          return;
+        }
+        inviteStatus.textContent =
+          result.reason === "forbidden"
+            ? "You need workspace admin access to invite."
+            : result.reason === "invalid"
+              ? "That email doesn’t look valid."
+              : "Couldn’t create the invite. Try again.";
+      })();
+    });
+
+    retryBtn.addEventListener("click", () => {
+      void loadWorkspace();
+    });
+
+    onSession((user) => {
+      sessionRole = user.role;
+      void loadWorkspace();
+    });
+  </script>
+</AccountLayout>

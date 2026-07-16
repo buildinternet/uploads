@@ -2,6 +2,9 @@
 /**
  * Shared shell for /account and /account/* — sidebar nav with real paths
  * (file-based routing), session gate chrome, and sign-out.
+ *
+ * Workspaces nest under the Workspaces parent: each membership is a
+ * client-filled sidebar link, plus a static "New workspace" action.
  */
 import { env } from "cloudflare:workers";
 import {
@@ -20,9 +23,15 @@ export type AccountSection = "overview" | "workspaces" | "profile" | "developers
 
 interface Props {
   section: AccountSection;
+  /** Active workspace slug on /account/workspaces/:name */
+  workspace?: string;
+  /** True on /account/workspaces/new */
+  creating?: boolean;
+  /** Optional document title override (e.g. workspace name). */
+  title?: string;
 }
 
-const { section } = Astro.props;
+const { section, workspace = "", creating = false, title } = Astro.props;
 
 const titles: Record<AccountSection, string> = {
   overview: "Account",
@@ -30,19 +39,16 @@ const titles: Record<AccountSection, string> = {
   profile: "Account",
   developers: "Developers",
 };
-const docTitle = `${titles[section]} · uploads.sh`;
+const pageHeading = title ?? (workspace || titles[section]);
+const docTitle = `${pageHeading} · uploads.sh`;
 
 const showConsoleLinks = await resolveShowConsoleLinks(env);
 const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
 // Header (not meta): frame-ancestors is ignored on meta CSP.
 applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrigin));
 
-const nav: { href: string; section: AccountSection; label: string }[] = [
-  { href: "/account", section: "overview", label: "Overview" },
-  { href: "/account/workspaces", section: "workspaces", label: "Workspaces" },
-  { href: "/account/profile", section: "profile", label: "Account" },
-  { href: "/account/developers", section: "developers", label: "Developers" },
-];
+const workspacesActive = section === "workspaces";
+const workspacesParentCurrent = workspacesActive && !workspace && !creating;
 ---
 
 <html lang="en">
@@ -52,7 +58,7 @@ const nav: { href: string; section: AccountSection; label: string }[] = [
 </head>
 <body>
 <div class="shell">
-  <h1 class="sr-only">{titles[section]}</h1>
+  <h1 class="sr-only">{pageHeading}</h1>
   <div id="checking" class="ul-callout status" role="status">Checking your session…</div>
 
   <div id="signed-out" hidden>
@@ -75,14 +81,48 @@ const nav: { href: string; section: AccountSection; label: string }[] = [
 
     <div class="layout">
       <nav class="side" aria-label="Account sections">
-        {nav.map((item) => (
+        <a
+          href="/account"
+          aria-current={section === "overview" ? "page" : undefined}
+        >
+          Overview
+        </a>
+
+        <div class="side-group">
           <a
-            href={item.href}
-            aria-current={item.section === section ? "page" : undefined}
+            href="/account/workspaces"
+            class="side-parent"
+            aria-current={workspacesParentCurrent ? "page" : undefined}
           >
-            {item.label}
+            Workspaces
           </a>
-        ))}
+          <div class="side-nested">
+            <div id="workspaces-nav-list" class="side-nested-list" aria-label="Your workspaces">
+              {/* Filled client-side after session + /me/workspaces. */}
+            </div>
+            <a
+              href="/account/workspaces/new"
+              class="side-nested-item side-new"
+              aria-current={creating ? "page" : undefined}
+            >
+              + New workspace
+            </a>
+          </div>
+        </div>
+
+        <a
+          href="/account/profile"
+          aria-current={section === "profile" ? "page" : undefined}
+        >
+          Account
+        </a>
+        <a
+          href="/account/developers"
+          aria-current={section === "developers" ? "page" : undefined}
+        >
+          Developers
+        </a>
+
         <div class="side-foot">
           {showConsoleLinks ? <a href="/console">console →</a> : null}
           <a href="/admin" id="admin-link" hidden>admin →</a>
@@ -123,9 +163,10 @@ const nav: { href: string; section: AccountSection; label: string }[] = [
   })();
 </script>
 
-<script define:vars={{ authOrigin, apiOrigin }}>
+<script define:vars={{ authOrigin, apiOrigin, workspace }}>
   window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
   window.__UPLOADS_API_ORIGIN__ = apiOrigin;
+  window.__UPLOADS_ACTIVE_WORKSPACE__ = workspace;
 </script>
 <script>
   import {
@@ -133,13 +174,22 @@ const nav: { href: string; section: AccountSection; label: string }[] = [
     requireElement,
     resolveSessionGate,
   } from "../lib/account-shell";
+  import { initWorkspacesNav } from "../lib/workspaces-nav";
 
   const w = window as unknown as {
     __UPLOADS_AUTH_ORIGIN__: string;
+    __UPLOADS_API_ORIGIN__: string;
+    __UPLOADS_ACTIVE_WORKSPACE__: string;
   };
   const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
+  const apiOrigin = w.__UPLOADS_API_ORIGIN__;
 
   initSignOut(authOrigin);
+  initWorkspacesNav(
+    apiOrigin,
+    requireElement<HTMLElement>("#workspaces-nav-list", "account"),
+    w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+  );
 
   void resolveSessionGate({
     authOrigin,
@@ -149,8 +199,8 @@ const nav: { href: string; section: AccountSection; label: string }[] = [
     app: requireElement<HTMLElement>("#app", "account"),
     who: requireElement<HTMLElement>("#who", "account"),
   }).then((result) => {
-    const adminLink = requireElement<HTMLElement>("#admin-link", "account");
-    adminLink.hidden = result?.user.role !== "admin";
+    requireElement<HTMLElement>("#admin-link", "account").hidden =
+      result?.user.role !== "admin";
   });
 
   requireElement<HTMLButtonElement>("#session-retry", "account").addEventListener("click", () => {

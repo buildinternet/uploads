@@ -105,8 +105,8 @@ config file is written, every later `uploads` invocation — including from a
 non-interactive agent — just reads the saved token. Routine agents never need
 `ADMIN_TOKEN`.
 
-**Inviting a teammate** (workspace admin/owner only): `/account/workspaces` in the
-browser, or:
+**Inviting a teammate** (workspace admin/owner only): open the workspace under
+`/account/workspaces/<name>` in the browser, or:
 
 ```bash
 uploads invite create --email teammate@example.com --workspace acme
