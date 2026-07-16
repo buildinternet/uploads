@@ -67,9 +67,11 @@ export async function captureRemote(
   const fetchImpl = opts.fetchImpl ?? fetch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? POST_TIMEOUT_MS);
-  let res: Response;
+  // The body reads stay inside the abort-guarded scope: the timer must cover
+  // the full response (a server stalling mid-stream would otherwise hang
+  // res.arrayBuffer() forever once the headers had arrived).
   try {
-    res = await fetchImpl(`${base}/v1/render`, {
+    const res = await fetchImpl(`${base}/v1/render`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -78,7 +80,19 @@ export async function captureRemote(
       body: JSON.stringify(body),
       signal: controller.signal,
     });
+
+    if (!res.ok) {
+      const { message, code } = await parseErrorEnvelope(res, "render failed");
+      throw mapRenderError(res.status, message, code);
+    }
+
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.byteLength === 0) {
+      throw new UploadsError("render endpoint returned an empty response", "RENDER_FAILED");
+    }
+    return bytes;
   } catch (err) {
+    if (err instanceof UploadsError) throw err;
     const message = err instanceof Error ? err.message : "network request failed";
     throw new UploadsError(
       message.includes("abort") ? "render request timed out" : message,
@@ -87,15 +101,4 @@ export async function captureRemote(
   } finally {
     clearTimeout(timer);
   }
-
-  if (!res.ok) {
-    const { message, code } = await parseErrorEnvelope(res, "render failed");
-    throw mapRenderError(res.status, message, code);
-  }
-
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  if (bytes.byteLength === 0) {
-    throw new UploadsError("render endpoint returned an empty response", "RENDER_FAILED");
-  }
-  return bytes;
 }

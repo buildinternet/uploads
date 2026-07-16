@@ -27,6 +27,9 @@ const MAX_DEVICE_SCALE_FACTOR = 3;
 
 /** Navigation timeout handed to Browser Run — below its 60s ceiling. */
 const NAVIGATION_TIMEOUT_MS = 30_000;
+/** Upstream cap on the post-load action (screenshot) so Browser Run can't
+ *  keep a billed session running after the handler's own window lapses. */
+const ACTION_TIMEOUT_MS = 30_000;
 /** Safety margin above `NAVIGATION_TIMEOUT_MS` for the local handler-side race,
  * in case Browser Run hangs without ever resolving `quickAction`'s promise. */
 const HANDLER_TIMEOUT_MS = 35_000;
@@ -276,6 +279,10 @@ function toBrowserRunOptions(input: RenderInput): BrowserRunScreenshotOptions {
   const options: BrowserRunScreenshotOptions = {
     ...base,
     gotoOptions: { timeout: NAVIGATION_TIMEOUT_MS, waitUntil },
+    // Bound the post-load action upstream too: withTimeout() only stops the
+    // handler waiting — without this, Browser Run keeps the (billed) action
+    // running past our window.
+    actionTimeout: ACTION_TIMEOUT_MS,
     screenshotOptions: { type: "png", fullPage: input.fullPage ?? false },
   } as BrowserRunScreenshotOptions;
 

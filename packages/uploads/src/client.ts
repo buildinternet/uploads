@@ -623,7 +623,7 @@ export async function parseErrorEnvelope(
 }
 
 async function parseErrorResponse(res: Response): Promise<UploadsError> {
-  const { message, code } = await parseErrorEnvelope(res, "request failed");
+  const { message, code } = await parseErrorEnvelope(res, res.statusText || "request failed");
   return mapApiError(res.status, message, code);
 }
 

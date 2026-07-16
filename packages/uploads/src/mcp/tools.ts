@@ -672,6 +672,7 @@ export function createUploadsMcpTools(opts: {
           optimizeQuality: { type: "number", description: "WebP quality 1-100 when optimizing." },
           keepExif: { type: "boolean", description: "Keep EXIF/XMP/ICC when optimizing." },
           ...frameProps,
+          noGit: { type: "boolean", description: "Don't derive the repo segment from git." },
           comment: {
             type: "boolean",
             description:
