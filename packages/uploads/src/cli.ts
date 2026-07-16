@@ -38,6 +38,7 @@ import { runCompletion } from "./commands/completion.js";
 import { runLogout, runWhoami } from "./commands/session.js";
 import { runTelemetry } from "./commands/telemetry.js";
 import { runReport } from "./commands/report.js";
+import { runScreenshot } from "./commands/screenshot.js";
 import { packageVersion } from "./package-version.js";
 import { checkForUpdate, maybeHintUpdate } from "./update-check.js";
 import {
@@ -116,7 +117,12 @@ function exitCode(err: unknown): number {
       case "STORAGE_QUOTA":
       case "UPLOAD_BUDGET":
         return 3;
+      case "BROWSER_NOT_FOUND":
+        return 2;
       case "NETWORK":
+      // Transient — same "retry, don't reconfigure" family as a network
+      // hiccup, not an auth/policy/budget denial (those are exit 3).
+      case "RATE_LIMITED":
         return 4;
       default:
         return 1;
@@ -146,6 +152,9 @@ const ERROR_HINTS: Partial<Record<UploadsError["code"], string>> = {
     "hint: use a typed destination (`--destination screenshots|gh`) or an allowed prefix; operators set allowlists with `pnpm workspace:limits --allowed-prefixes`\n",
   UNAUTHORIZED:
     "hint: token rejected — run `uploads login` to sign in again, or check UPLOADS_TOKEN / --token\n",
+  BROWSER_NOT_FOUND:
+    "hint: no local browser found; try --via remote, or install Chrome / npx playwright install chromium\n",
+  RATE_LIMITED: "hint: transient rate limit — wait ~60s and retry\n",
 };
 
 function errorOut(err: unknown, format: OutputFormat): void {
@@ -328,6 +337,7 @@ export async function runCli(argv: string[]): Promise<number> {
         break;
       case "attach":
       case "put":
+      case "screenshot":
       case "gallery":
       case "list":
       case "find":
@@ -345,6 +355,9 @@ export async function runCli(argv: string[]): Promise<number> {
             break;
           case "put":
             code = await runPut(ctx, cmdArgs, showHelp);
+            break;
+          case "screenshot":
+            code = await runScreenshot(ctx, cmdArgs, showHelp);
             break;
           case "gallery":
             code = await runGallery(ctx, cmdArgs, showHelp);

@@ -58,6 +58,7 @@ import { formatByteSize } from "./format-bytes.js";
 import { formatUsageHuman } from "./format-usage.js";
 import { packageVersion } from "./package-version.js";
 import type { PutDefaults } from "./config-file.js";
+import type { DetectRoots } from "./screenshot-local.js";
 import { colorEnabled, writeCommandHelp } from "./cli-style.js";
 
 /** Parallel fan-out for multi-file put/attach (matches files-sdk bulk default). */
@@ -183,7 +184,10 @@ export function makeGhTarget(
 }
 
 /** Reads --pr/--issue (+ --repo) into a GhTarget; undefined when neither flag is present. */
-function ghTargetFromFlags(flags: CommandFlags["flags"], run: CommandRunner): GhTarget | undefined {
+export function ghTargetFromFlags(
+  flags: CommandFlags["flags"],
+  run: CommandRunner,
+): GhTarget | undefined {
   return makeGhTarget(
     flagInt(flags, "--pr", "--pr"),
     flagInt(flags, "--issue", "--issue"),
@@ -303,7 +307,89 @@ export async function prepareImageForUpload(
   return { ...optimized, frame: frameMeta };
 }
 
-function frameOptionsFromFlags(flags: CommandFlags["flags"]): {
+export interface UploadPreparedImageOptions {
+  frame: {
+    frameId?: string;
+    frameUrl?: string;
+    frameFit?: "cover" | "contain";
+  };
+  optimize: OptimizeImageOptions;
+  /** gh attachment key wins over `key` when both are set (matches every call site). */
+  ghTarget?: GhTarget;
+  key?: string;
+  prefix?: string;
+  repo?: string;
+  ref?: string;
+  deriveRepoFromGit?: boolean;
+  contentType?: string;
+  dryRun?: boolean;
+  metadata?: Record<string, string>;
+  provenanceClient?: string;
+  /**
+   * Alt text for the markdown. Takes the prepared result so callers whose
+   * default depends on the post-frame/optimize filename can use it — each
+   * call site's existing default is preserved verbatim (see
+   * .context/2026-07-16-screenshot-command-RESULT.md, "Simplify pass").
+   */
+  alt: (prepared: PreparedUpload) => string;
+  width?: number;
+}
+
+export interface UploadPreparedImageResult {
+  result: PutResult;
+  prepared: PreparedUpload;
+  markdown: string;
+}
+
+/**
+ * Shared bytes-oriented upload tail: frame + optimize the bytes, resolve the
+ * object key (gh attachment key wins over an explicit key; extension
+ * rewritten post-optimize), put, and build the GitHub embed markdown. Used by
+ * the screenshot CLI command, the MCP screenshot tool, and the MCP put
+ * tool's contentBase64 path — the three in-memory-bytes call sites.
+ * uploadPuts/uploadAttachments loop over file paths with their own bounded
+ * concurrency and delegate here per item.
+ */
+export async function uploadPreparedImage(
+  client: UploadsClient,
+  bytes: Uint8Array,
+  sourceName: string,
+  opts: UploadPreparedImageOptions,
+): Promise<UploadPreparedImageResult> {
+  const prepared = await prepareImageForUpload(bytes, sourceName, {
+    frameId: opts.frame.frameId,
+    frameUrl: opts.frame.frameUrl,
+    frameFit: opts.frame.frameFit,
+    optimize: opts.optimize,
+  });
+  let key = opts.ghTarget ? ghAttachmentKey(opts.ghTarget, prepared.filename) : opts.key;
+  if (key && prepared.optimized) key = rewriteKeyExtension(key, prepared.filename);
+  const result = await client.put(prepared.bytes, {
+    filename: prepared.filename,
+    key,
+    prefix: opts.prefix,
+    repo: opts.repo,
+    ref: opts.ref,
+    contentType: prepared.optimized ? prepared.contentType : opts.contentType,
+    deriveRepoFromGit: opts.deriveRepoFromGit,
+    dryRun: opts.dryRun,
+    provenance: buildCliProvenance({
+      sourceName,
+      client: opts.provenanceClient,
+      optimized: prepared.optimized,
+      frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
+      keepExif: opts.optimize.keepExif === true,
+    }),
+    metadata: opts.metadata,
+  });
+  const markdown = buildMarkdown(urlForGithubEmbed(result.url, result.embedUrl)!, {
+    alt: opts.alt(prepared),
+    width: opts.width,
+  });
+  return { result, prepared, markdown };
+}
+
+export function frameOptionsFromFlags(flags: CommandFlags["flags"]): {
   frameId?: string;
   frameUrl?: string;
   frameFit?: "cover" | "contain";
@@ -612,42 +698,33 @@ export async function uploadPuts(opts: {
               ? basename(opts.explicitKey)
               : "stdin.bin"
             : basename(file));
-        const prepared = await prepareImageForUpload(readFileArg(file), sourceName, {
-          ...opts.frame,
-          optimize: opts.optimize,
-        });
-        let key = opts.ghTarget
-          ? ghAttachmentKey(opts.ghTarget, prepared.filename)
-          : opts.explicitKey;
-        if (key && prepared.optimized) key = rewriteKeyExtension(key, prepared.filename);
-        const result = await opts.client.put(prepared.bytes, {
-          filename: prepared.filename,
-          key,
-          prefix: opts.prefix,
-          repo: opts.repo,
-          ref: opts.ref,
-          contentType: prepared.optimized ? prepared.contentType : opts.contentType,
-          deriveRepoFromGit: opts.deriveRepoFromGit,
-          dryRun: opts.dryRun,
-          provenance: buildCliProvenance({
-            sourceName,
-            client: opts.provenanceClient,
-            optimized: prepared.optimized,
-            frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
-            keepExif: opts.optimize.keepExif === true,
-          }),
-          metadata: opts.metadata,
-        });
-        const alt = opts.alt ?? basename(sourceName);
+        const { result, prepared, markdown } = await uploadPreparedImage(
+          opts.client,
+          readFileArg(file),
+          sourceName,
+          {
+            frame: opts.frame,
+            optimize: opts.optimize,
+            ghTarget: opts.ghTarget,
+            key: opts.explicitKey,
+            prefix: opts.prefix,
+            repo: opts.repo,
+            ref: opts.ref,
+            deriveRepoFromGit: opts.deriveRepoFromGit,
+            contentType: opts.contentType,
+            dryRun: opts.dryRun,
+            metadata: opts.metadata,
+            provenanceClient: opts.provenanceClient,
+            alt: () => opts.alt ?? basename(sourceName),
+            width: opts.width,
+          },
+        );
         return {
           ok: true,
           upload: {
             ...result,
             file,
-            markdown: buildMarkdown(urlForGithubEmbed(result.url, result.embedUrl)!, {
-              alt,
-              width: opts.width,
-            }),
+            markdown,
             optimize: {
               optimized: prepared.optimized,
               skippedReason: prepared.skippedReason,
@@ -1734,12 +1811,69 @@ export interface DoctorReport {
   /** Workspace/token mismatch warning (also present in hints). */
   warning?: string;
   hints: string[];
+  /** `screenshot`'s local-browser detection (fs scans only — never launches a browser). */
+  browser: {
+    /** false when this runtime has no Node fs/process (e.g. the apps/mcp Worker). */
+    supported: boolean;
+    found: boolean;
+    /** Which backend `uploads screenshot --via auto` would pick right now. */
+    autoBackend: "local" | "remote";
+    candidates: { source: string; kind: string; executablePath: string }[];
+    /** The best candidate by rank (may differ from candidates[0], which is scan order). */
+    winner?: { source: string; kind: string; executablePath: string };
+    note?: string;
+  };
+}
+
+/**
+ * Best-effort local-browser detection for doctor. fs scans only, no browser
+ * launch. Guarded for non-Node runtimes as a precaution for any future
+ * non-Node consumer of this module — apps/mcp today only imports
+ * `buildMarkdown`/`buildScreenshotKey` from the package root, not
+ * `buildDoctorReport`, so this guard isn't exercised on that path currently.
+ */
+async function detectBrowserForDoctor(detectRoots?: DetectRoots): Promise<DoctorReport["browser"]> {
+  if (typeof process === "undefined" || !process.versions?.node) {
+    return {
+      supported: false,
+      found: false,
+      autoBackend: "remote",
+      candidates: [],
+      note: "browser detection is not supported in this runtime",
+    };
+  }
+  try {
+    const { detectLocalBrowser } = await import("./screenshot-local.js");
+    const { candidates, winner } = detectLocalBrowser(detectRoots);
+    return {
+      supported: true,
+      found: Boolean(winner),
+      autoBackend: winner ? "local" : "remote",
+      candidates: candidates.map((c) => ({
+        source: c.source,
+        kind: c.kind,
+        executablePath: c.executablePath,
+      })),
+      winner: winner
+        ? { source: winner.source, kind: winner.kind, executablePath: winner.executablePath }
+        : undefined,
+    };
+  } catch (err) {
+    return {
+      supported: true,
+      found: false,
+      autoBackend: "remote",
+      candidates: [],
+      note: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 /** Doctor's health + auth + workspace checks, shared by the CLI and the MCP tool. */
 export async function buildDoctorReport(
   config: ResolvedConfig,
   client: UploadsClient,
+  detectRoots?: DetectRoots,
 ): Promise<DoctorReport> {
   const mismatch = workspaceMismatch(config);
   const hints: string[] = [];
@@ -1747,8 +1881,13 @@ export async function buildDoctorReport(
   if (config.apiUrl.includes("localhost") || config.apiUrl.includes("127.0.0.1")) {
     hints.push("local API uses dev KV — prod tokens won't work unless minted with --local");
   }
+  // Independent checks — fs-based browser detection doesn't depend on the
+  // network health probe (or vice versa).
+  const [browser, health] = await Promise.all([
+    detectBrowserForDoctor(detectRoots),
+    client.health(),
+  ]);
 
-  const health = await client.health();
   let authOk = false;
   let authError: string | undefined;
   try {
@@ -1807,6 +1946,7 @@ export async function buildDoctorReport(
     usage,
     warning: mismatch,
     hints,
+    browser,
   };
 }
 
@@ -1836,6 +1976,15 @@ export async function runDoctor(ctx: CliContext, args: string[], help = false): 
         ? `usage:     ${formatByteSize(report.usage.bytes ?? 0)}, ${formatCount(report.usage.objects ?? 0)} objects, ${formatCount(report.usage.uploadsInPeriod ?? 0)} uploads this period`
         : `usage:     failed — ${report.usage.error ?? "unknown"}`,
     );
+  }
+  if (report.browser.supported) {
+    lines.push(
+      report.browser.found
+        ? `browser:   found (${report.browser.winner?.source}/${report.browser.winner?.kind}) — screenshot --via auto uses local`
+        : `browser:   none found — screenshot --via auto uses remote`,
+    );
+  } else {
+    lines.push(`browser:   ${report.browser.note ?? "not supported in this runtime"}`);
   }
   if (report.warning) lines.push(`warning:   ${report.warning}`);
   for (const h of report.hints) if (h !== report.warning) lines.push(`hint:      ${h}`);

@@ -175,32 +175,58 @@ export function inspectUpload(bytes: Uint8Array, policy: UploadPolicy): UploadIn
 }
 
 /**
- * Per-workspace rate limit for mutating requests. Keyed by workspace name so
- * one tenant's traffic can't exhaust another's budget. The window and quota are
- * fixed in wrangler.jsonc (`WRITE_LIMITER`, a fixed sliding window); it's
- * per-colo rather than globally exact — enough to blunt abuse, not billing.
- * Fails open when the binding is absent (some local/dev setups, tests).
+ * Builds a per-workspace rate-limit guard on top of a named `RateLimit`
+ * binding: a Hono middleware that 429s when the limit is exceeded, plus the
+ * standalone `allow` check for non-route callers. Keyed by workspace name so
+ * one tenant's traffic can't exhaust another's budget. Fails open when the
+ * binding is absent (some local/dev setups, tests) — the window/quota
+ * themselves are fixed per-binding in wrangler.jsonc (fixed sliding windows,
+ * per-colo rather than globally exact — enough to blunt abuse, not billing).
  */
-export const writeRateLimit: MiddlewareHandler<WorkspaceVars> = async (c, next) => {
-  if (!(await allowWrite(c.env, c.get("workspaceName")))) {
-    throw new RateLimitedError("rate limit exceeded");
-  }
-  await next();
-};
+function makeRateLimitGuard<BindingKey extends keyof Env>(
+  bindingKey: BindingKey,
+  message: string,
+): {
+  middleware: MiddlewareHandler<WorkspaceVars>;
+  allow: (env: { [K in BindingKey]?: Env[BindingKey] }, workspaceName: string) => Promise<boolean>;
+} {
+  const allow = async (
+    env: { [K in BindingKey]?: Env[BindingKey] },
+    workspaceName: string,
+  ): Promise<boolean> => {
+    const limiter = env[bindingKey] as unknown as RateLimit | undefined;
+    if (!limiter) return true;
+    const { success } = await limiter.limit({ key: workspaceName });
+    return success;
+  };
+
+  const middleware: MiddlewareHandler<WorkspaceVars> = async (c, next) => {
+    if (!(await allow(c.env, c.get("workspaceName")))) {
+      throw new RateLimitedError(message);
+    }
+    await next();
+  };
+
+  return { middleware, allow };
+}
 
 /**
- * The check behind writeRateLimit, for non-route callers (the MCP worker's
- * put/delete tools). False = over budget; fails open without the binding.
+ * Per-workspace rate limit for mutating requests (`WRITE_LIMITER`), used by
+ * the file put/delete routes and the MCP worker's put/delete tools.
  */
-export async function allowWrite(
-  env: { WRITE_LIMITER?: Env["WRITE_LIMITER"] },
-  workspaceName: string,
-): Promise<boolean> {
-  const limiter = env.WRITE_LIMITER;
-  if (!limiter) return true;
-  const { success } = await limiter.limit({ key: workspaceName });
-  return success;
-}
+const writeRateLimitGuard = makeRateLimitGuard("WRITE_LIMITER", "rate limit exceeded");
+export const writeRateLimit = writeRateLimitGuard.middleware;
+export const allowWrite = writeRateLimitGuard.allow;
+
+/**
+ * Burst rate limit for POST /v1/render (`RENDER_LIMITER`) — browser-hours
+ * bill to our account, so this guards against a hot loop hammering the
+ * endpoint independent of the monthly upload-budget check (`checkPutBudget`,
+ * reused for renders in routes/render.ts).
+ */
+const renderRateLimitGuard = makeRateLimitGuard("RENDER_LIMITER", "render rate limit exceeded");
+export const renderRateLimit = renderRateLimitGuard.middleware;
+export const allowRender = renderRateLimitGuard.allow;
 
 /**
  * Strict per-user rate limit for self-serve workspace creation. Kept separate

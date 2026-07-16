@@ -316,6 +316,7 @@ describe("tools/list", () => {
       "gallery_link",
       "gallery_find_by_reference",
       "put",
+      "screenshot",
       "attach",
       "list",
       "delete",

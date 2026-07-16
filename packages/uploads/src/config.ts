@@ -13,10 +13,13 @@ export {
   putDefaultsToConfigValues,
   resolvePutDefaults,
   mergePutDefaults,
+  resolveScreenshotDefaults,
   UPLOADS_CONFIG_KEYS,
   type UploadsConfigKey,
   type UploadsConfigValues,
   type PutDefaults,
+  type ScreenshotDefaults,
+  type ScreenshotBackendPref,
 } from "./config-file.js";
 
 export interface UploadsClientConfig {

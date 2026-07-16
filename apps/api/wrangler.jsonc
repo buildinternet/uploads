@@ -40,6 +40,14 @@
       "id": "808bc1c3a86a4675b134e11b6dca303d",
     },
   ],
+  // Browser Run binding (POST /v1/render, phase 1). "remote": true is
+  // required — quickAction has no Miniflare/local simulation and always
+  // proxies to the real metered service, even under `wrangler dev`. Unit
+  // tests substitute a `Renderer`/FakeBrowser (see src/render.ts) instead.
+  "browser": {
+    "binding": "BROWSER",
+    "remote": true,
+  },
   "d1_databases": [
     {
       "binding": "DB",
@@ -88,6 +96,18 @@
         "namespace_id": "1003",
         "simple": {
           "limit": 3,
+          "period": 60,
+        },
+      },
+      {
+        // POST /v1/render burst guard, keyed by workspace. Independent of the
+        // monthly upload-budget check (checkPutBudget) that also gates
+        // renders — this one blunts a hot loop within a single period.
+        "name": "RENDER_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1004",
+        "simple": {
+          "limit": 10,
           "period": 60,
         },
       },

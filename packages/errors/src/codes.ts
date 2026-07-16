@@ -64,6 +64,9 @@ export const ERROR_CODES = [
   "file_metadata_duplicate_filter",
   "file_metadata_too_many_filters",
 
+  // Render (POST /v1/render)
+  "render_failed",
+
   // Admin
   "invalid_workspace",
   "workspace_not_found",

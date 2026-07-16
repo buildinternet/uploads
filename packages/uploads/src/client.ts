@@ -585,15 +585,20 @@ function mapApiError(status: number, error: string, code?: string): UploadsError
 /**
  * Parse API error bodies. Prefers the nested envelope
  * `{ error: { code, type, message, details? } }`; still accepts the legacy
- * flat `{ error: string, code?: string }` shape.
+ * flat `{ error: string, code?: string }` shape. Exported so other backends
+ * (e.g. the screenshot render endpoint) share this parsing instead of
+ * duplicating it — each caller supplies its own `fallback` message.
  */
-function extractErrorFields(body: unknown): { message: string; code?: string } {
+export function extractErrorFields(
+  body: unknown,
+  fallback = "request failed",
+): { message: string; code?: string } {
   if (typeof body === "object" && body && "error" in body) {
     const err = (body as { error: unknown }).error;
     if (typeof err === "object" && err && "message" in err) {
       const nested = err as { message?: unknown; code?: unknown };
       return {
-        message: typeof nested.message === "string" ? nested.message : "request failed",
+        message: typeof nested.message === "string" ? nested.message : fallback,
         code: typeof nested.code === "string" ? nested.code : undefined,
       };
     }
@@ -605,13 +610,21 @@ function extractErrorFields(body: unknown): { message: string; code?: string } {
       return { message: err, code };
     }
   }
-  return { message: "request failed" };
+  return { message: fallback };
+}
+
+/** Fetch + parse an error-response body via {@link extractErrorFields}. */
+export async function parseErrorEnvelope(
+  res: Response,
+  fallback = "request failed",
+): Promise<{ message: string; code?: string }> {
+  const body = await res.json().catch(() => ({}));
+  return extractErrorFields(body, fallback);
 }
 
 async function parseErrorResponse(res: Response): Promise<UploadsError> {
-  const body = await res.json().catch(() => ({}));
-  const { message, code } = extractErrorFields(body);
-  return mapApiError(res.status, message || res.statusText || "request failed", code);
+  const { message, code } = await parseErrorEnvelope(res, "request failed");
+  return mapApiError(res.status, message, code);
 }
 
 export function createUploadsClient(config: UploadsClientConfig) {

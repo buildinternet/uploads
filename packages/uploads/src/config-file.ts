@@ -15,6 +15,7 @@ export const UPLOADS_CONFIG_KEYS = [
   "UPLOADS_NO_OPTIMIZE",
   "UPLOADS_KEEP_EXIF",
   "UPLOADS_NO_AUTO_META",
+  "UPLOADS_SCREENSHOT_VIA",
 ] as const;
 
 export type UploadsConfigKey = (typeof UPLOADS_CONFIG_KEYS)[number];
@@ -162,14 +163,77 @@ export function mergePutDefaults(...layers: PutDefaults[]): PutDefaults {
   return out;
 }
 
+/** Raw `--env-file` / user-config-file contents, keyed the way both `resolve*Defaults` need. */
+export interface RawDefaultsConfig {
+  fromEnvFile: UploadsConfigValues;
+  fromUser: UploadsConfigValues;
+}
+
+/**
+ * Read the on-disk config once (`--env-file` when given, else the user
+ * config file) so callers that need both put-style and screenshot-style
+ * defaults from the same invocation (e.g. `runScreenshot`) don't each read
+ * the file separately. Pass the result to `resolvePutDefaults` /
+ * `resolveScreenshotDefaults` as their second argument.
+ */
+export function loadDefaultsRaw(flags?: { envFile?: string }): RawDefaultsConfig {
+  const fromEnvFile = flags?.envFile ? loadConfigFile(flags.envFile) : {};
+  const fromUser = flags?.envFile ? {} : loadConfigFile(resolveConfigPath(flags));
+  return { fromEnvFile, fromUser };
+}
+
 /** Put defaults from env, optional env-file, and user config (same precedence as client config). */
-export function resolvePutDefaults(flags?: { envFile?: string }): PutDefaults {
+export function resolvePutDefaults(
+  flags?: { envFile?: string },
+  preloaded?: RawDefaultsConfig,
+): PutDefaults {
   const fromEnv = parsePutDefaultsFromEnv();
-  const fromEnvFile = flags?.envFile ? parsePutDefaultsFromRaw(loadConfigFile(flags.envFile)) : {};
-  const fromUser = flags?.envFile
-    ? {}
-    : parsePutDefaultsFromRaw(loadConfigFile(resolveConfigPath(flags)));
-  return mergePutDefaults(fromUser, fromEnvFile, fromEnv);
+  const { fromEnvFile, fromUser } = preloaded ?? loadDefaultsRaw(flags);
+  return mergePutDefaults(
+    parsePutDefaultsFromRaw(fromUser),
+    parsePutDefaultsFromRaw(fromEnvFile),
+    fromEnv,
+  );
+}
+
+export type ScreenshotBackendPref = "auto" | "local" | "remote";
+
+export interface ScreenshotDefaults {
+  via?: ScreenshotBackendPref;
+}
+
+function isScreenshotBackendPref(value: string | undefined): value is ScreenshotBackendPref {
+  return value === "auto" || value === "local" || value === "remote";
+}
+
+function parseScreenshotDefaultsFromRaw(raw: UploadsConfigValues): ScreenshotDefaults {
+  const out: ScreenshotDefaults = {};
+  if (isScreenshotBackendPref(raw.UPLOADS_SCREENSHOT_VIA)) out.via = raw.UPLOADS_SCREENSHOT_VIA;
+  return out;
+}
+
+function parseScreenshotDefaultsFromEnv(): ScreenshotDefaults {
+  const raw: UploadsConfigValues = {};
+  if (process.env.UPLOADS_SCREENSHOT_VIA)
+    raw.UPLOADS_SCREENSHOT_VIA = process.env.UPLOADS_SCREENSHOT_VIA;
+  return parseScreenshotDefaultsFromRaw(raw);
+}
+
+/**
+ * `screenshot --via` default: flag (applied by the caller) > env >
+ * --env-file > user config file > "auto" (the caller's own fallback).
+ */
+export function resolveScreenshotDefaults(
+  flags?: { envFile?: string },
+  preloaded?: RawDefaultsConfig,
+): ScreenshotDefaults {
+  const fromEnv = parseScreenshotDefaultsFromEnv();
+  const { fromEnvFile, fromUser } = preloaded ?? loadDefaultsRaw(flags);
+  return {
+    ...parseScreenshotDefaultsFromRaw(fromUser),
+    ...parseScreenshotDefaultsFromRaw(fromEnvFile),
+    ...fromEnv,
+  };
 }
 
 export function redactToken(token: string | undefined): string {

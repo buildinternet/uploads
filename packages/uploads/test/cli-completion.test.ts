@@ -24,7 +24,7 @@ describe("generateCompletionScript", () => {
   it("bash script registers complete -F and lists root commands", () => {
     const script = generateCompletionScript("bash");
     expect(script).toMatch(/complete -o default -F _uploads uploads/);
-    expect(script).toMatch(/local -a root_cmds=\(attach put gallery/);
+    expect(script).toMatch(/local -a root_cmds=\(attach put screenshot gallery/);
     for (const cmd of ROOT_COMMANDS) {
       expect(script).toContain(cmd.name);
     }
@@ -47,6 +47,25 @@ describe("generateCompletionScript", () => {
       /complete -c uploads -n '__fish_seen_subcommand_from gallery' -a 'create'/,
     );
     expect(script).toMatch(/__fish_seen_subcommand_from put attach/);
+  });
+
+  it("screenshot completions use their own explicit flag list, not put's --name/--no-comment", () => {
+    const bash = generateCompletionScript("bash");
+    const screenshotVarMatch = /local -a screenshot_flags=\(([^)]*)\)/.exec(bash);
+    expect(screenshotVarMatch).not.toBeNull();
+    const screenshotFlags = screenshotVarMatch![1]!.split(" ");
+    expect(screenshotFlags).toContain("--key");
+    expect(screenshotFlags).toContain("--via");
+    expect(screenshotFlags).not.toContain("--name");
+    expect(screenshotFlags).not.toContain("--no-comment");
+
+    const fish = generateCompletionScript("fish");
+    expect(fish).toMatch(/complete -c uploads -n '__fish_seen_subcommand_from screenshot' -l key/);
+    expect(fish).not.toMatch(
+      /complete -c uploads -n '__fish_seen_subcommand_from screenshot' -l name/,
+    );
+    // put/attach still get their own flags, without screenshot in that group.
+    expect(fish).toMatch(/__fish_seen_subcommand_from put attach' -l name/);
   });
 });
 

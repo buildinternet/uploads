@@ -54,6 +54,52 @@ export const PUT_LIKE_FLAGS: readonly string[] = [
   "-h",
 ];
 
+/**
+ * All flags `uploads screenshot` actually reads (verified against
+ * commands/screenshot.ts) — kept as its own explicit list rather than
+ * spreading PUT_LIKE_FLAGS, which includes `--name`/`--no-comment` that
+ * screenshot never parses.
+ */
+export const SCREENSHOT_FLAGS: readonly string[] = [
+  "--via",
+  "--browser",
+  "--cdp",
+  "--viewport",
+  "--selector",
+  "--full-page",
+  "--dark",
+  "--light",
+  "--wait",
+  "--out",
+  "--no-upload",
+  "--destination",
+  "--prefix",
+  "--repo",
+  "--ref",
+  "--key",
+  "--alt",
+  "--width",
+  "--frame",
+  "--frame-url",
+  "--frame-fit",
+  "--no-optimize",
+  "--optimize-max-edge",
+  "--optimize-quality",
+  "--keep-exif",
+  "--no-git",
+  "--pr",
+  "--issue",
+  "--comment",
+  "--gallery",
+  "--meta",
+  "--dry-run",
+  "--format",
+  "--workspace",
+  "-w",
+  "--help",
+  "-h",
+];
+
 export const LIST_LIKE_FLAGS: readonly string[] = [
   "--prefix",
   "--limit",
@@ -76,6 +122,12 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
     name: "put",
     usage: "put <file...>",
     summary: "Upload (+ URL + markdown for GitHub)",
+    essential: true,
+  },
+  {
+    name: "screenshot",
+    usage: "screenshot <target>",
+    summary: "Capture a URL or .html file and host it (local browser or remote render)",
     essential: true,
   },
   {

@@ -2,9 +2,10 @@
 name: uploads-cli
 description: >-
   Reference for the uploads CLI — host files on uploads.sh and manage them.
-  Covers put and attach, stable PR/issue keys, the managed attachments
-  comment, metadata and search, galleries, config defaults, login/doctor, and
-  output formats. Use when driving the `uploads` CLI or its MCP tools, when
+  Covers put and attach, screenshot capture (local browser or server-side
+  render), stable PR/issue keys, the managed attachments comment, metadata
+  and search, galleries, config defaults, login/doctor, and output formats.
+  Use when driving the `uploads` CLI or its MCP tools, when
   you need a public URL for a local file ("upload this", "host this image",
   "give me a public URL for this file"), or when you need exact flags, key
   layouts, or setup and auth details. For the when-and-how of getting a
@@ -215,6 +216,75 @@ uploads put ./shot.png --format markdown   # just the ![]()/<img> snippet
 uploads put ./shot.png --json              # {workspace,key,url,size,markdown}
 ```
 
+## Capturing a screenshot: `uploads screenshot`
+
+Capture a URL or a local `.html` file and host it — no separate screenshot
+tool needed, and no browser install required for the default path:
+
+```bash
+uploads screenshot https://uploads.sh --pr 128 --comment
+uploads screenshot ./card.html --out ./card.png
+uploads screenshot ./card.html --no-upload --out ./card.png
+```
+
+After capture, a screenshot shares the exact `put` upload pipeline described
+above: optional `--frame`, optimize-by-default, `--pr`/`--issue` attachment +
+`--comment`, `--gallery`, `--meta`, and the same output formats. It also
+ships as an MCP tool (`screenshot`) alongside the CLI command.
+
+**Two capture backends**, selected with `--via`:
+
+| Backend  | What it is                                                        | Needs                                                               |
+| -------- | ----------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `local`  | Drives an already-installed Chrome/Chromium via `playwright-core` | A discoverable browser on disk, or `--cdp`                          |
+| `remote` | Renders server-side via the uploads.sh render endpoint            | Nothing local; counts against the workspace's monthly upload budget |
+
+`--via auto` (the default) prefers local when a usable browser is found,
+else falls back to remote. Set a persistent default with
+`UPLOADS_SCREENSHOT_VIA=auto|local|remote` (env, `--env-file`, or the user
+config file — see "Config commands"); the `--via` flag always wins.
+
+**localhost/private-network targets and local `.html` files are local-only.**
+With `--via remote` (or `auto` falling back to remote) these fail fast with a
+clear error instead of sending a request that could never work. A numeric
+`--wait <ms>` (fixed settle delay after load) is also local-only; use
+`--wait load|domcontentloaded|networkidle` for a backend-agnostic wait.
+
+Use `--cdp <endpoint>` to attach to a Chrome that's already running
+(`http://host:port` or `ws://…`) instead of launching a new one — handy when
+an agent already has a Playwright MCP or `agent-browser` session open.
+`--browser <path>` (or `UPLOADS_CHROME_PATH` / `CHROME_PATH`) points at an
+explicit executable.
+
+Key options (`uploads screenshot --help` for all):
+
+| Flag                                                 | Purpose                                                                                                                                                                                                  |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--via auto\|local\|remote`                          | Capture backend (default: `auto`, or `UPLOADS_SCREENSHOT_VIA`).                                                                                                                                          |
+| `--browser <path>`                                   | Explicit local browser executable (or `UPLOADS_CHROME_PATH` / `CHROME_PATH`).                                                                                                                            |
+| `--cdp <endpoint>`                                   | Attach to a running Chrome via CDP instead of launching one (local backend only).                                                                                                                        |
+| `--viewport <WxH[@Sx]>`                              | Size + device scale factor (default: `1280x800@2`).                                                                                                                                                      |
+| `--selector <css>`                                   | Capture one element instead of the viewport.                                                                                                                                                             |
+| `--full-page`                                        | Capture the full scrollable page.                                                                                                                                                                        |
+| `--dark` / `--light`                                 | Emulate `prefers-color-scheme` (full media-query emulation on `--via local` only — `--via remote` only sets the CSS `color-scheme` property, so a page's own `prefers-color-scheme` queries won't flip). |
+| `--wait <load\|domcontentloaded\|networkidle\|ms>`   | Settle strategy (default: `load`); a millisecond count is local-only.                                                                                                                                    |
+| `--out <file>`                                       | Also write the PNG to a local file.                                                                                                                                                                      |
+| `--no-upload`                                        | Skip hosting; requires `--out` (local file only).                                                                                                                                                        |
+| `--key` / `--pr` / `--issue` / `--comment`           | Same destination and attachment options as `put` (see above); `--pr`/`--issue` also give a stable, hash-free key.                                                                                        |
+| `--frame` / `--no-optimize` / `--gallery` / `--meta` | Same as `put` — reused from the shared upload pipeline.                                                                                                                                                  |
+
+**Errors and hints:** a local capture with no usable browser fails with
+`BROWSER_NOT_FOUND` (exit `2`) — hint: try `--via remote`, or install a
+browser (`npx playwright install chromium`). A remote render that the server
+can't complete returns `RENDER_FAILED`. A burst rate limit on the render
+endpoint returns `RATE_LIMITED` (exit `4`) — hint: wait ~60s and retry. A
+remote render over the workspace's monthly upload budget surfaces the usual
+`UPLOAD_BUDGET` code and hint (`uploads usage`, then delete objects or raise
+limits) — renders and puts share one monthly counter.
+
+`uploads doctor` reports which local browser (if any) was detected and which
+backend `--via auto` would currently pick.
+
 ## Custom metadata & search
 
 Every object can carry queryable key-value metadata (distinct from optimize/frame
@@ -405,7 +475,7 @@ uploads config init --api-url http://localhost:8787 --workspace default --token 
 Recognized keys: `UPLOADS_API_URL`, `UPLOADS_WORKSPACE`, `UPLOADS_TOKEN`,
 `UPLOADS_DEFAULT_PREFIX`, `UPLOADS_DEFAULT_REPO`, `UPLOADS_DEFAULT_REF`,
 `UPLOADS_DEFAULT_WIDTH`, `UPLOADS_NO_GIT`, `UPLOADS_NO_OPTIMIZE`, `UPLOADS_KEEP_EXIF`,
-`UPLOADS_NO_AUTO_META`.
+`UPLOADS_NO_AUTO_META`, `UPLOADS_SCREENSHOT_VIA`.
 Also read (env only, not config-file keys): `UPLOADS_EMBED_PUBLIC_BASE_URL`.
 
 ## Local development
