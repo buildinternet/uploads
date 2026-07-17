@@ -42,6 +42,8 @@ pnpm install
 pnpm dev                 # API on :8787 (local R2 + KV + D1 simulation)
 pnpm dev:web             # Astro site
 pnpm typecheck           # wrangler types + tsc across workspaces
+pnpm test                # whole suite in one vitest process (all packages); CI's Test job runs this
+pnpm --filter @uploads/api test   # single package still works (uses vitest defaults, not the root config)
 pnpm run deploy          # all workers; or deploy:api / deploy:web / deploy:mcp
 pnpm workspace:add <name> [--bucket <bucket>] [--binding X] [--local] \
   [--no-default-limits] [--max-storage …]   # shared/agent limit template by default

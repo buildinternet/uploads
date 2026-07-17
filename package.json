@@ -31,6 +31,8 @@
     "format:check": "oxfmt --check",
     "check": "pnpm run lint && pnpm run format:check",
     "typecheck": "pnpm --filter @buildinternet/uploads run build && pnpm -r typecheck",
+    "pretest": "pnpm --filter @buildinternet/uploads run build",
+    "test": "vitest run --config vitest.projects.ts",
     "workspace:add": "pnpm --filter @uploads/api run workspace:add",
     "workspace:limits": "pnpm --filter @uploads/api run workspace:limits",
     "workspace:reencrypt-secrets": "pnpm --filter @uploads/api run workspace:reencrypt-secrets",
@@ -49,7 +51,8 @@
     "oxfmt": "^0.57.0",
     "oxlint": "^1.72.0",
     "oxlint-tsgolint": "^0.24.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=24",

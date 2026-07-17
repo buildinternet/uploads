@@ -73,8 +73,12 @@ jobs:
       - name: Generate Wrangler types
         run: pnpm types
 
+      # Single-process Vitest across every workspace project (see vitest.config.ts).
+      # The root `pretest` builds @buildinternet/uploads first — apps/mcp imports
+      # it from dist. Replaces the former serial `pnpm --filter … test` chain and
+      # adds apps/web, packages/email, and packages/errors to CI coverage.
       - name: Run tests
-        run: pnpm --filter @uploads/api test && pnpm --filter @uploads/mcp test && pnpm --filter @uploads/auth test && pnpm --filter @uploads/storage test && pnpm --filter @buildinternet/uploads test
+        run: pnpm test
 
       - name: Verify npm package
         run: pnpm --filter @buildinternet/uploads run build && pnpm --filter @buildinternet/uploads run pack:check
