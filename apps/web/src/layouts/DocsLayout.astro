@@ -1,6 +1,6 @@
 ---
 // Shared shell for the /docs pages: a hub (/docs) plus focused subject pages
-// (/docs/attach, /docs/agents, /docs/reference). Three-column docs layout —
+// (/docs/attach-pull-request-images, /docs/agents, /docs/reference). Three-column layout —
 // a persistent left nav sidebar, the article, and an optional right "on this
 // page" TOC rail — modeled on the releases.sh docs layout. Below the wide
 // breakpoint the TOC rail drops, then the left nav collapses to a dropdown.
@@ -20,13 +20,14 @@ interface TocEntry {
 interface Props {
   title: string;
   description: string;
-  path: string; // canonical path, e.g. "/docs/attach"
+  path: string; // canonical path, e.g. "/docs/attach-pull-request-images"
   heading: string;
   tagline: string;
   active: string; // slug of the current page, matched against DOCS_NAV
   toc?: TocEntry[];
+  ogType?: string; // "website" for the subject pages, "article" for the guide
 }
-const { title, description, path, heading, tagline, active, toc } = Astro.props;
+const { title, description, path, heading, tagline, active, toc, ogType = "website" } = Astro.props;
 
 // Static page (no `prerender = false`) — auth origin is baked at build time,
 // not read from request-time env. See src/lib/auth-client.ts.
@@ -38,7 +39,7 @@ const DOCS_NAV = [
     title: "Docs",
     items: [
       { slug: "overview", href: "/docs", label: "Overview" },
-      { slug: "attach", href: "/docs/attach", label: "Attach & share" },
+      { slug: "attach", href: "/docs/attach-pull-request-images", label: "Attach & share" },
       { slug: "agents", href: "/docs/agents", label: "Set up your agent" },
       { slug: "reference", href: "/docs/reference", label: "Reference" },
     ],
@@ -60,13 +61,14 @@ const fullTitle = `${title} · uploads.sh`;
     <meta name="description" content={description} />
     <link rel="canonical" href={`https://uploads.sh${path}`} />
     <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content={ogType} />
     <meta property="og:url" content={`https://uploads.sh${path}`} />
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content={fullTitle} />
     <meta name="twitter:description" content={description} />
+    <slot name="head" />
     <style is:global>
       * { box-sizing: border-box; }
       html { scroll-behavior: smooth; }
@@ -92,7 +94,7 @@ const fullTitle = `${title} · uploads.sh`;
         display: flex;
         align-items: flex-start;
         gap: 44px;
-        margin-top: 8px;
+        margin-top: 28px;
       }
       main.docs-main { flex: 1 1 auto; min-width: 0; max-width: 720px; }
       main.docs-main > h1 {
@@ -239,8 +241,14 @@ const fullTitle = `${title} · uploads.sh`;
       .doc section h2 .anchor:focus-visible { color: var(--accent); background: none; }
       /* the first section shouldn't add a rule directly under the page title */
       .doc section.lead h2 { border-top: none; padding-top: 0; margin-top: 22px; }
+      .doc h3 { font: 600 15px/1.4 var(--sans); margin: 22px 0 6px; color: var(--fg); }
       .doc p, .doc li { color: var(--body); }
       .doc strong { color: var(--fg); }
+
+      /* FAQ definition list (used by the agent guide) */
+      .doc .faq { margin: 0; }
+      .doc .faq dt { color: var(--fg); font-weight: 600; margin-top: 18px; }
+      .doc .faq dd { margin: 6px 0 0; color: var(--body); }
       .doc ul { padding-left: 22px; }
       .doc li { margin: 8px 0; }
       .doc code {
