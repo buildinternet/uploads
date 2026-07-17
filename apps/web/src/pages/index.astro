@@ -1,6 +1,7 @@
 ---
-// uploads.sh — landing. Beats: headline + star CTA, the real two-command demo,
-// the GitHub comment it produces, what else it does, and copyable setup rows.
+// uploads.sh — landing. Beats: headline + star CTA, install for humans and a
+// copyable setup prompt for agents, the attach demo terminal, the GitHub
+// comment it produces, tag-and-find, what else it does, and setup rows.
 import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
 import GitHubMark from "../components/GitHubMark.astro";
@@ -9,30 +10,51 @@ import SiteHeader from "../components/SiteHeader.astro";
 // Static page (no `prerender = false`) — auth origin is baked at build time,
 // not read from request-time env. See src/lib/auth-client.ts.
 const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.uploads.sh";
+
+// The agent setup prompt: copied via button, never rendered in full on the page.
+const agentPrompt = `Help me set up the uploads CLI (uploads.sh) and attach my first screenshot to a GitHub pull request.
+
+uploads.sh is the missing upload command for coding agents: one CLI that hosts screenshots and screen recordings at stable URLs and keeps them in a single managed attachments comment on the PR or issue. It's open source, and free to start in the cloud.
+
+Setup:
+1. Install the CLI: npm install -g @buildinternet/uploads
+2. Authenticate: uploads login (opens a browser sign-in — wait for me to approve it)
+3. Wire it into you: uploads install (adds the agent skill + MCP server so future sessions know how to use it)
+
+Then get one attachment working end to end:
+- From a branch with an open PR, capture a screenshot of something that changed. uploads screenshot <url> captures and hosts in one step if that's easier.
+- Run uploads attach <files> from that branch — it creates or updates the single attachments comment on the PR.
+- Tag uploads with --meta key=value (e.g. --meta path=/settings) so we can find them again later with uploads find.
+
+Finally, update AGENTS.md (or CLAUDE.md) so that whenever UI changes, before/after screenshots get attached to the PR going forward.
+
+Docs: https://uploads.sh/docs
+Agent guide: https://uploads.sh/github-screenshots
+Source (and where to look if something breaks): https://github.com/buildinternet/uploads`;
 ---
 
 <html lang="en">
   <head>
     <BaseHead preloadSans />
-    <title>uploads.sh — now agents can show their work on GitHub PRs</title>
+    <title>uploads.sh — the missing upload command for coding agents</title>
     <meta
       name="description"
-      content="GitHub doesn't have first-class uploads for agents. One command puts screenshots and recordings on the PR, hosted at stable URLs with tagged metadata, in one tidy comment. Open source — CLI, agent skill, and MCP server."
+      content="GitHub has no real way for an agent to show their work. uploads attach puts screenshots and screen recordings on the PR in one tidy comment — plus one-command captures, device frames, and tags you can search later. Open source — CLI, agent skill, and MCP server."
     />
     <link rel="canonical" href="https://uploads.sh/" />
     <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://uploads.sh/" />
-    <meta property="og:title" content="uploads.sh — now agents can show their work on GitHub PRs" />
+    <meta property="og:title" content="uploads.sh — the missing upload command for coding agents" />
     <meta
       property="og:description"
-      content="GitHub doesn't have first-class uploads for agents. One command puts screenshots and recordings on the PR, hosted at stable URLs with tagged metadata, in one tidy comment. Open source — CLI, agent skill, and MCP server."
+      content="GitHub has no real way for an agent to show their work. uploads attach puts screenshots and screen recordings on the PR in one tidy comment — plus one-command captures, device frames, and tags you can search later."
     />
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="uploads.sh — now agents can show their work on GitHub PRs" />
+    <meta name="twitter:title" content="uploads.sh — the missing upload command for coding agents" />
     <meta
       name="twitter:description"
-      content="GitHub doesn't have first-class uploads for agents. One command puts screenshots and recordings on the PR, in one tidy comment."
+      content="GitHub has no real way for an agent to show their work. uploads attach puts screenshots and screen recordings on the PR in one tidy comment."
     />
     <style>
       * { box-sizing: border-box; }
@@ -204,7 +226,6 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         justify-content: space-between;
         gap: 8px;
       }
-      .ghc figcaption .host { color: #58a6ff; }
       .skel { height: 8px; border-radius: 4px; background: #2d333b; margin: 8px 0; }
       .skel.w70 { width: 70%; }
       .skel.w45 { width: 45%; }
@@ -220,9 +241,23 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         text-transform: uppercase;
         margin: 0 0 10px 2px;
       }
+      .sect-lede {
+        font: 13px/1.6 var(--sans);
+        color: var(--body);
+        margin: 0 0 12px 2px;
+      }
+      .sect-lede code {
+        font: 11.5px var(--mono);
+        color: var(--fg);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 0 4px;
+      }
 
       /* ---------- features (spec-sheet list, not cards) ---------- */
       .features { margin-top: 14px; }
+      .features .later { margin: 32px 0 10px; }
       .features .grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -254,16 +289,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         .features .grid { grid-template-columns: 1fr; gap: 18px; }
       }
 
-      /* Full-width worked examples under the grid — slim, titlebar-less takes
-         on the hero terminal. */
-      .examples { display: grid; gap: 14px; margin-top: 24px; }
-      .example { margin: 0; }
-      .example-cap {
-        font: 12.5px/1.5 var(--sans);
-        color: var(--muted);
-        margin: 0 0 6px 2px;
-      }
-      .example-cap .arrow { color: var(--accent); }
+      /* Slim, titlebar-less take on the hero terminal for worked examples. */
       .example-screen {
         background: var(--panel);
         border: 1px solid var(--line);
@@ -271,18 +297,6 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         padding: 12px 14px;
         font-size: 12.5px;
       }
-
-      /* ---------- guide callout ---------- */
-      .guide {
-        font: 13.5px/1.6 var(--sans);
-        color: var(--body);
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: var(--radius-md);
-        padding: 13px 16px;
-        margin: 6px 0 4px;
-      }
-      .guide .arrow { color: var(--accent); }
 
       /* ---------- install panel ---------- */
       .install { font-size: 13px; margin-top: 14px; }
@@ -310,9 +324,23 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         scrollbar-width: none;
       }
       .cmdrow .cmdtext::before { content: "$ "; color: var(--accent); }
-      .cmdrow .cmdtext .url { color: var(--body); }
       .cmdrow .cmdtext .comment { color: var(--muted); user-select: none; }
-      .cmdrow button {
+      .cmdrow .agent-desc {
+        color: var(--body);
+        font: 12.5px/1.65 var(--sans);
+      }
+      .cmdrow .agent-desc strong { color: var(--fg); font-weight: 600; }
+      .agent-byline {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        font: 12.5px/1.5 var(--sans);
+        color: var(--muted);
+        margin: -6px 0 0;
+      }
+      .cmdrow button,
+      .agent-byline button {
         font: 11px var(--mono);
         letter-spacing: 0.06em;
         color: var(--accent);
@@ -323,11 +351,20 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         cursor: pointer;
       }
       .cmdrow button:hover,
-      .cmdrow button:focus-visible {
+      .cmdrow button:focus-visible,
+      .agent-byline button:hover,
+      .agent-byline button:focus-visible {
         border-color: var(--accent);
         outline: none;
       }
-      .cmdrow button.done { color: var(--green); border-color: var(--green); }
+      .cmdrow button.done,
+      .agent-byline button.done { color: var(--green); border-color: var(--green); }
+      .prompt-note {
+        font: 12px/1.5 var(--sans);
+        color: var(--muted);
+        margin: -2px 0 0 2px;
+      }
+      .prompt-note .arrow { color: var(--accent); }
 
       /* The one loudest action on the page: the install row. Accent-washed
          panel, solid accent copy button. */
@@ -399,7 +436,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       }
       /* Geist Mono merges " --" into a joined dash via calt - keep CLI flags literal.
          Declared last: the font shorthand in earlier rules resets feature settings. */
-      code, pre, .cmd, .block, .screen, .example-screen, .cmdtext, .cmdrow, .terminal, .feature h3 {
+      code, pre, .cmd, .screen, .example-screen, .cmdtext, .cmdrow, .terminal, .feature h3 {
         font-variant-ligatures: none;
         font-feature-settings: "calt" 0, "liga" 0;
       }
@@ -409,11 +446,11 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
     <main>
       <SiteHeader star authOrigin={authOrigin} />
 
-      <h1>Now agents can show their work on <span class="nb">pull requests, too.</span></h1>
+      <h1>The missing upload command for <span class="nb">coding agents.</span></h1>
       <p class="lede">
-        GitHub doesn't have first-class uploads for agents. The uploads CLI gives them
-        one command: <code>uploads attach</code> puts screenshots and recordings on the PR,
-        hosted at stable URLs with tagged metadata, in one tidy comment.
+        GitHub has no real way for an agent to show their work. <code>uploads attach</code> puts
+        screenshots and screen recordings on the PR in one tidy comment — and it comes with the
+        rest of the kit: one-command captures, device frames, and tags you can search later.
       </p>
 
       <div class="cmdrow hero-install">
@@ -421,28 +458,27 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         <span class="cmdtext">npm install -g @buildinternet/uploads</span>
         <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite">copy</button>
       </div>
+      <p class="agent-byline">
+        Or have your agent set it up
+        <button type="button" data-copy={agentPrompt} aria-live="polite">copy prompt</button>
+      </p>
 
       <section class="terminal" aria-label="uploads.sh terminal">
         <div class="titlebar" aria-hidden="true">
-          <span>uploads.sh — bash</span>
+          <span>bash</span>
         </div>
         <div class="screen">
+          <p class="line out"># attach media to the PR for this branch</p>
           <p class="line"><span class="prompt">$</span> <span class="cmd">uploads attach ./before.png ./after.png</span></p>
           <p class="line out hidden">&gt;&gt; uploading ./before.png</p>
-          <p class="line out hidden">&gt;&gt; optimized 411.5 KB → 94.2 KB (before.webp)</p>
           <p class="line out hidden">&gt;&gt; uploading ./after.png</p>
-          <p class="line out hidden">&gt;&gt; optimized 397.6 KB → 89.1 KB (after.webp)</p>
-          <p class="line out hidden">URL: <span class="v">https://storage.uploads.sh/gh/you/app/pull/123/before.webp</span></p>
-          <p class="line out hidden">MARKDOWN: ![before.png](https://storage.uploads.sh/gh/you/app/pull/123/before.webp)</p>
-          <p class="line out hidden">URL: <span class="v">https://storage.uploads.sh/gh/you/app/pull/123/after.webp</span></p>
-          <p class="line out hidden">MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp)</p>
-          <p class="line out hidden"><span class="ok">&gt;&gt; attachments comment updated</span></p>
+          <p class="line hidden"><span class="ok">&gt;&gt; attachments comment updated</span></p>
           <div class="gap"></div>
           <p class="line hidden"><span class="prompt">$</span> <span class="cursor" aria-hidden="true"></span></p>
         </div>
       </section>
 
-      <p class="flow-note"><span class="arrow">└─▶</span> which lands on your pull request as:</p>
+      <p class="flow-note"><span class="arrow">└─▶</span> And on your pull request:</p>
 
       <section
         class="ghc"
@@ -454,7 +490,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
           <div class="head">
             <span class="user">you</span>
             <span>commented just now</span>
-            <span class="badge">managed by uploads</span>
+            <span class="badge">managed by uploads.sh</span>
           </div>
           <div class="body">
             <p class="md-title">📎 Attachments</p>
@@ -467,7 +503,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
                     <path d="M3 17 L9.5 12.5 L13.5 15.5 L17 13 L21 16"></path>
                   </svg>
                 </div>
-                <figcaption><span>before.webp</span><span class="host">storage.uploads.sh</span></figcaption>
+                <figcaption><span>before.webp</span></figcaption>
               </figure>
               <figure>
                 <div class="ph" aria-hidden="true">
@@ -477,7 +513,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
                     <path d="M3 17 L9.5 12.5 L13.5 15.5 L17 13 L21 16"></path>
                   </svg>
                 </div>
-                <figcaption><span>after.webp</span><span class="host">storage.uploads.sh</span></figcaption>
+                <figcaption><span>after.webp</span></figcaption>
               </figure>
             </div>
             <div class="skel w70"></div>
@@ -487,27 +523,31 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       </section>
 
       <section class="features" aria-label="Features">
-        <h2 class="sect-head"># what else it does</h2>
+        <h2 class="sect-head"># tag it, find it later</h2>
+        <p class="sect-lede">
+          Every upload can carry custom tags — add your own with <code>--meta</code>, and&#32;
+          <code>uploads find</code> brings it all back. Use it to organize visuals from specific
+          parts of your app, form factor, etc.
+        </p>
+        <div class="example-screen">
+          <p class="line out"># tag it on the way up (source URL, app, etc)</p>
+          <p class="line"><span class="prompt">$</span> <span class="cmd">uploads put ./settings.png --meta path=/account/settings</span></p>
+          <p class="line out">MARKDOWN: <span class="v">![settings.webp](https://storage.uploads.sh/gh/you/app/pull/123/settings.webp)</span></p>
+          <div class="gap"></div>
+          <p class="line out"># find it again later ("Do we have any recent screenshots of settings?")</p>
+          <p class="line"><span class="prompt">$</span> <span class="cmd">uploads find path=/settings</span></p>
+          <p class="line out"><span class="v">gh/you/app/pull/123/settings.webp</span>&#32;&#32;path=/account/settings</p>
+          <p class="line out"><span class="v">gh/you/app/pull/456/redesign.webp</span>&#32;&#32;path=/settings</p>
+        </div>
+
+        <h2 class="sect-head later"># what else it does</h2>
         <div class="grid">
           <div class="feature">
-            <h3>one managed comment</h3>
+            <h3>update-in-place comments</h3>
             <p>
               <code>attach</code> keeps a single attachments comment per PR or issue. Run it
-              again and the same comment updates — no comment spam.
-            </p>
-          </div>
-          <div class="feature">
-            <h3>stable, hash-free urls</h3>
-            <p>
-              Keys like <code>gh/you/app/pull/123/shot.webp</code> never change. Re-upload the
-              same filename and every embed shows the new image in about a minute.
-            </p>
-          </div>
-          <div class="feature">
-            <h3>images optimized, video passed through</h3>
-            <p>
-              Images are re-encoded to WebP with EXIF stripped. MP4, WebM, GIFs, and other
-              files upload as-is.
+              again and the same comment updates — no comment spam. Agents can manually link
+              visuals too, of course.
             </p>
           </div>
           <div class="feature">
@@ -518,65 +558,21 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
             </p>
           </div>
           <div class="feature">
-            <h3>queryable metadata</h3>
+            <h3>one-shot screenshots</h3>
             <p>
-              Tag any upload with <code>--meta path=/settings</code> and query it back with&#32;
-              <code>uploads find</code>. <code>attach</code> stamps <code>gh.repo</code> and PR
-              context automatically.
-            </p>
-          </div>
-          <div class="feature">
-            <h3>one-command screenshots</h3>
-            <p>
-              <code>uploads screenshot &lt;url&gt;</code> captures and hosts in one step — your
-              local browser if you have one, remote render if you don't.
+              <code>uploads screenshot &lt;url&gt;</code> captures and hosts in one step, with
+              both local and remote browser support.
             </p>
           </div>
           <div class="feature">
             <h3>shareable galleries</h3>
             <p>
-              Group uploads into a public gallery page at <code>uploads.sh/g/…</code> — one
-              link for a whole set of media (via the API).
+              Group uploads into a gallery that can live across multiple PRs — one link for the
+              whole set that shows linked issues and pull requests.
             </p>
           </div>
-          <div class="feature">
-            <h3>workspaces</h3>
-            <p>
-              Each workspace gets its own tokens, storage caps, upload limits, and retention
-              rules. Nothing is shared between them.
-            </p>
-          </div>
-        </div>
-
-        <div class="examples">
-          <figure class="example">
-            <figcaption class="example-cap">
-              <span class="arrow">▸</span> tag uploads as you attach them
-            </figcaption>
-            <div class="example-screen">
-              <p class="line"><span class="prompt">$</span> <span class="cmd">uploads attach ./settings.png --meta path=/settings --meta app=web</span></p>
-              <p class="line out">&gt;&gt; uploading ./settings.png</p>
-              <p class="line out">&gt;&gt; optimized 402.3 KB → 91.7 KB (settings.webp)</p>
-              <p class="line out"><span class="ok">&gt;&gt; attachments comment updated</span></p>
-              <p class="line out">&gt;&gt; find these later: <span class="v">uploads find gh.ref=pull/123</span></p>
-            </div>
-          </figure>
-          <figure class="example">
-            <figcaption class="example-cap">
-              <span class="arrow">▸</span> find them later, and see exactly where they're attached
-            </figcaption>
-            <div class="example-screen">
-              <p class="line"><span class="prompt">$</span> <span class="cmd">uploads find path=/settings</span></p>
-              <p class="line out"><span class="v">gh/you/app/pull/123/settings.webp</span>&#32;&#32;app=web gh.number=123 gh.repo=you/app path=/settings</p>
-            </div>
-          </figure>
         </div>
       </section>
-
-      <p class="guide">
-        <span class="arrow">▸</span> Setting up an agent to do this end to end? Read the guide:&#32;
-        <a href="/github-screenshots">how to get agents to upload screenshots &amp; video to GitHub</a>.
-      </p>
 
       <section class="install" aria-label="Install commands">
         <h2 class="sect-head"># get set up</h2>
@@ -591,6 +587,17 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
             <span class="cmdtext">uploads install <span class="comment"># skill + mcp</span></span>
             <button type="button" data-copy="uploads install" aria-live="polite">copy</button>
           </div>
+          <div class="cmdrow">
+            <span class="tag">prompt</span>
+            <span class="agent-desc">
+              <strong>Set up with your agent</strong>
+            </span>
+            <button type="button" data-copy={agentPrompt} aria-live="polite">copy prompt</button>
+          </div>
+          <p class="prompt-note">
+            <span class="arrow">▸</span> paste the prompt into your coding agent — or read the&#32;
+            <a href="/github-screenshots">full guide</a>.
+          </p>
         </div>
         <div class="cta-row">
           <a class="cta-solid" href="/login">
@@ -619,9 +626,10 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         hidden.forEach((el) => el.classList.remove("hidden"));
       }
 
-      for (const btn of document.querySelectorAll(".cmdrow button")) {
+      for (const btn of document.querySelectorAll("button[data-copy]")) {
         btn.addEventListener("click", async () => {
           const text = btn.getAttribute("data-copy") ?? "";
+          const label = btn.textContent ?? "copy";
           let ok = false;
           try {
             await navigator.clipboard.writeText(text);
@@ -643,7 +651,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
           btn.textContent = ok ? "copied ✓" : "copy failed";
           btn.classList.toggle("done", ok);
           setTimeout(() => {
-            btn.textContent = "copy";
+            btn.textContent = label;
             btn.classList.remove("done");
           }, 1500);
         });
