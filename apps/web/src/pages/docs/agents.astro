@@ -1,0 +1,59 @@
+---
+// uploads.sh — docs / agents. Wiring the CLI into a coding agent: the one-command
+// install, or the skill + MCP server set up by hand.
+import DocsLayout from "../../layouts/DocsLayout.astro";
+---
+
+<DocsLayout
+  title="Set up your agent"
+  description="Install the uploads agent skill and MCP server so Claude Code and other agents can attach screenshots to GitHub on their own."
+  path="/docs/agents"
+  heading="Set up your agent"
+  tagline="Teach a coding agent to upload and attach media on its own."
+  active="agents"
+>
+  <section class="lead" id="install">
+    <h2>One command <a class="anchor" href="#install" aria-label="Link to this section">#</a></h2>
+    <p>
+      If you use Claude Code or another agent runtime, one command installs both the agent
+      skill and the hosted MCP server:
+    </p>
+    <div class="cmd">
+      <span class="text">uploads install</span>
+      <button type="button" data-copy="uploads install" aria-live="polite">copy</button>
+    </div>
+    <p>Or set up each piece yourself:</p>
+    <div class="cmd">
+      <span class="text">npx skills add buildinternet/uploads --skill uploads-cli</span>
+      <button type="button" data-copy="npx skills add buildinternet/uploads --skill uploads-cli" aria-live="polite">copy</button>
+    </div>
+    <div class="cmd">
+      <span class="text">claude mcp add --transport http uploads <span class="url">https://agents.uploads.sh/mcp</span></span>
+      <button type="button" data-copy="claude mcp add --transport http uploads https://agents.uploads.sh/mcp" aria-live="polite">copy</button>
+    </div>
+  </section>
+
+  <section id="skill-vs-mcp">
+    <h2>Skill vs. MCP <a class="anchor" href="#skill-vs-mcp" aria-label="Link to this section">#</a></h2>
+    <p>
+      The <strong>skill</strong> teaches the agent when and how to use the CLI, for example
+      attaching before/after screenshots to the PR it just opened. The <strong>MCP
+      server</strong> gives agents the same tools (<code>put</code>, <code>attach</code>,&#32;
+      <code>list</code>, <code>delete</code>, and more) over HTTP, using the same token as the
+      CLI. There's also a local stdio variant if you prefer:
+    </p>
+    <div class="cmd">
+      <span class="text">claude mcp add uploads -- uploads mcp</span>
+      <button type="button" data-copy="claude mcp add uploads -- uploads mcp" aria-live="polite">copy</button>
+    </div>
+    <div class="note">
+      Want the guided version? The <a href="/github-screenshots">agent walkthrough</a> takes a
+      coding agent from install to a first before/after attachment on a PR.
+    </div>
+  </section>
+
+  <nav class="page-nav" aria-label="More docs">
+    <a class="prev" href="/docs/attach"><span class="dir">← Back</span>Attach &amp; share</a>
+    <a class="next" href="/docs/reference"><span class="dir">Next →</span>Reference</a>
+  </nav>
+</DocsLayout>
