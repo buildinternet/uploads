@@ -474,7 +474,11 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           usage("key cannot be combined with prefix/repo/ref");
         }
 
-        const maxBytes = resolveUploadPolicy(workspace).maxBytes;
+        const policy = resolveUploadPolicy(workspace);
+        // Pre-decode gate uses the policy ceiling (video caps can exceed
+        // maxBytes); putObject's inspectUpload enforces the content-specific
+        // limit after sniffing, so an over-cap image still fails per item.
+        const maxBytes = Math.max(policy.maxBytes, policy.maxVideoBytes);
         const alt = optString(args, "alt");
         const width = optPosInt(args, "width");
         const putOpts = metadata !== undefined ? { metadata } : undefined;
@@ -492,23 +496,42 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
               );
             }
           });
+          // Keys are deterministic (sanitized name + content hash), so two
+          // items can collide — e.g. the same file listed twice. Reject
+          // before any write: concurrent same-key puts would double-count
+          // the usage ledger and report more uploads than stored objects.
+          const keys = await Promise.all(
+            decoded.map((bytes, i) =>
+              buildScreenshotKey({
+                filename: items[i]!.filename,
+                fileBytes: bytes,
+                prefix,
+                repo,
+                ref,
+                deriveRepoFromGit: false,
+              }),
+            ),
+          );
+          const firstIndexByKey = new Map<string, number>();
+          keys.forEach((key, i) => {
+            const first = firstIndexByKey.get(key);
+            if (first === undefined) {
+              firstIndexByKey.set(key, i);
+              return;
+            }
+            usage(
+              `files[${i}] (${items[i]!.filename}) resolves to the same key as files[${first}] (${items[first]!.filename}): ${key}`,
+            );
+          });
           type Slot =
             | { ok: true; upload: Record<string, unknown> }
             | { ok: false; file: string; err: unknown };
           const slots: Slot[] = await mapBounded(items, PUT_CONCURRENCY, async (item, i) => {
             try {
-              const key = await buildScreenshotKey({
-                filename: item.filename,
-                fileBytes: decoded[i]!,
-                prefix,
-                repo,
-                ref,
-                deriveRepoFromGit: false,
-              });
               const result = await putObject(
                 env,
                 workspace,
-                key,
+                keys[i]!,
                 decoded[i]!,
                 workspaceName,
                 putOpts,

@@ -516,8 +516,9 @@ uploads --api-url http://localhost:8787 doctor
   `https://agents.uploads.sh/mcp`. Metadata: `get_metadata` / `set_metadata` /
   `find_files` (same as `meta get` / `meta set` / `find`). Both support
   multi-file `put` in one call — stdio takes `files` as paths, hosted takes
-  `files: [{ filename, contentBase64 }]` (max 20/call) — returning
-  `{ uploads, failures }` with per-item results. `uploads install` sets
+  `files: [{ filename, contentBase64, alt? }]` (max 20/call; per-item `alt`
+  overrides the top-level one) — returning `{ uploads, failures }` with
+  per-item results. `uploads install` sets
   up this skill + hosted MCP (short progress; `--verbose` / `--dry-run` available).
 - **Agents on the Worker side:** the package also exports
   `createUploadsWorkerFileTools()` from `@buildinternet/uploads/agent` for exposing

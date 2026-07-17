@@ -42,6 +42,7 @@ async function makeEnv(
   options: {
     d1?: { tokenHash: string; scopes: string };
     rateLimitOk?: boolean;
+    record?: Partial<WorkspaceRecord>;
   } = {},
 ): Promise<{
   env: Env;
@@ -51,6 +52,7 @@ async function makeEnv(
   const record: WorkspaceRecord = {
     ...workspace,
     tokenHash: await sha256Hex(TOKEN),
+    ...options.record,
   };
   const bucket = new FakeR2Bucket();
   // Keyed by `${workspace} ${objectKey}` -> ordered meta_key -> meta_value,
@@ -572,6 +574,44 @@ describe("mcp worker", () => {
     };
     expect(body.uploads).toEqual([]);
     expect(body.failures.map((f) => f.file)).toEqual(["a.txt", "b.txt"]);
+    expect(bucket.store.size).toBe(0);
+  });
+
+  it("multi-file put rejects duplicate generated keys before any write", async () => {
+    const { env, bucket } = await makeEnv();
+    // Same filename + same content → same sanitized-name/content-hash key.
+    const result = await callTool(env, "put", {
+      files: [
+        { filename: "shot.png", contentBase64: PNG_B64 },
+        { filename: "shot.png", contentBase64: PNG_B64 },
+      ],
+    });
+    expect(result.isError).toBe(true);
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toMatch(
+      /^files\[1\] \(shot\.png\) resolves to the same key as files\[0\] \(shot\.png\): /,
+    );
+    expect(bucket.store.size).toBe(0);
+  });
+
+  it("multi-file put pre-decode gate uses the video cap ceiling; per-item limits still apply", async () => {
+    // Image cap below the 11-byte PNG, video cap above it: the batch must
+    // decode (ceiling gate), then fail the PNG per item — not whole-batch.
+    const { env, bucket } = await makeEnv({
+      record: { maxUploadBytes: 8, maxVideoUploadBytes: 4096 },
+    });
+    const result = await callTool(env, "put", {
+      files: [{ filename: "big.png", contentBase64: PNG_B64 }],
+    });
+    expect(result.isError).toBe(true);
+    const body = result.structuredContent as {
+      uploads: unknown[];
+      failures: Array<{ file: string; error: { status?: number } }>;
+    };
+    expect(body.uploads).toEqual([]);
+    expect(body.failures).toHaveLength(1);
+    expect(body.failures[0].file).toBe("big.png");
+    expect(body.failures[0].error.status).toBe(413);
     expect(bucket.store.size).toBe(0);
   });
 
