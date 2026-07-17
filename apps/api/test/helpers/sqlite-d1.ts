@@ -8,7 +8,14 @@
  */
 
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath, URL as NodeURL } from "node:url";
+
+// Resolve migration paths against apps/api rather than process.cwd(), so the
+// helper works under both per-package vitest (cwd = apps/api) and the unified
+// root runner (cwd = repo root). Absolute paths pass through resolve() unchanged.
+const API_ROOT = fileURLToPath(new NodeURL("../../", import.meta.url));
 
 type SqliteValue = string | number | bigint | null | Uint8Array;
 
@@ -63,7 +70,7 @@ export class SqliteD1 {
   constructor(migrationPaths: string | string[], pragmas: string[] = []) {
     for (const pragma of pragmas) this.db.exec(pragma);
     const paths = Array.isArray(migrationPaths) ? migrationPaths : [migrationPaths];
-    for (const path of paths) this.db.exec(readFileSync(path, "utf8"));
+    for (const path of paths) this.db.exec(readFileSync(resolve(API_ROOT, path), "utf8"));
   }
 
   prepare(sql: string) {
