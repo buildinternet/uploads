@@ -39,6 +39,7 @@
     "preuploads": "pnpm --filter @buildinternet/uploads run build",
     "uploads": "pnpm exec uploads",
     "changeset": "changeset",
+    "changeset:lint": "node scripts/changeset-lint.mjs",
     "changeset:version": "changeset version && pnpm install --lockfile-only",
     "changeset:publish": "changeset publish",
     "prepare": "husky"

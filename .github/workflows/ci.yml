@@ -52,6 +52,11 @@ jobs:
       - name: Oxfmt
         run: pnpm format:check
 
+      # A changeset for an ignored package yields an empty version PR and blocks
+      # the npm publish — reject it here before it can merge.
+      - name: Changeset lint
+        run: pnpm changeset:lint
+
   test:
     name: Test
     runs-on: ubuntu-latest
