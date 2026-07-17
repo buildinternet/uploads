@@ -1,8 +1,9 @@
 ---
 // Shared shell for the /docs pages: a hub (/docs) plus focused subject pages
-// (/docs/attach, /docs/agents, /docs/reference). Holds the head, the shared
-// dark palette + command/output/wireframe CSS, the cross-page docs nav, and the
-// copy-to-clipboard + scroll-spy behavior so each page only carries its content.
+// (/docs/attach, /docs/agents, /docs/reference). Three-column docs layout —
+// a persistent left nav sidebar, the article, and an optional right "on this
+// page" TOC rail — modeled on the releases.sh docs layout. Below the wide
+// breakpoint the TOC rail drops, then the left nav collapses to a dropdown.
 //
 // The page body is slotted into `.doc`. Astro scopes <style> to this component,
 // which would NOT reach slotted page content — so the block is `is:global` and
@@ -31,13 +32,24 @@ const { title, description, path, heading, tagline, active, toc } = Astro.props;
 // not read from request-time env. See src/lib/auth-client.ts.
 const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.uploads.sh";
 
-// The subject pages, shown as the cross-page nav on every docs page.
+// Left-nav sections. The four subject pages plus the standalone agent guide.
 const DOCS_NAV = [
-  { slug: "overview", href: "/docs", label: "Overview" },
-  { slug: "attach", href: "/docs/attach", label: "Attach & share" },
-  { slug: "agents", href: "/docs/agents", label: "Agents" },
-  { slug: "reference", href: "/docs/reference", label: "Reference" },
+  {
+    title: "Docs",
+    items: [
+      { slug: "overview", href: "/docs", label: "Overview" },
+      { slug: "attach", href: "/docs/attach", label: "Attach & share" },
+      { slug: "agents", href: "/docs/agents", label: "Set up your agent" },
+      { slug: "reference", href: "/docs/reference", label: "Reference" },
+    ],
+  },
+  {
+    title: "Guides",
+    items: [{ slug: "walkthrough", href: "/github-screenshots", label: "Agent walkthrough" }],
+  },
 ];
+const currentLabel =
+  DOCS_NAV.flatMap((s) => s.items).find((item) => item.slug === active)?.label ?? "Docs";
 const fullTitle = `${title} · uploads.sh`;
 ---
 
@@ -67,95 +79,135 @@ const fullTitle = `${title} · uploads.sh`;
         background: var(--bg);
         color: var(--fg);
         font: 15.5px/1.7 var(--sans);
+        padding: 0;
+      }
+
+      /* ---------- shell + three-column grid ---------- */
+      .docs-shell {
+        width: min(1120px, 100%);
+        margin: 0 auto;
         padding: 40px 24px 64px;
       }
-      main { width: min(var(--width-content, 720px), 100%); margin: 0 auto; }
-      main > h1 {
+      .docs-grid {
+        display: flex;
+        align-items: flex-start;
+        gap: 44px;
+        margin-top: 8px;
+      }
+      main.docs-main { flex: 1 1 auto; min-width: 0; max-width: 720px; }
+      main.docs-main > h1 {
         font-size: clamp(26px, 5vw, 34px);
         font-weight: 600;
         letter-spacing: -0.015em;
         line-height: 1.25;
-        margin: 20px 0 4px;
+        margin: 4px 0 4px;
       }
-      main > .tagline { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+      main.docs-main > .tagline { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
 
-      /* cross-page docs nav — the four subjects, current one highlighted */
-      nav.docs-nav {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin: 0 0 4px;
-        padding-bottom: 20px;
-        border-bottom: 1px solid var(--line);
+      /* ---------- left nav sidebar ---------- */
+      .docs-side {
+        width: 188px;
+        flex-shrink: 0;
+        position: sticky;
+        top: 24px;
+        align-self: flex-start;
       }
-      nav.docs-nav a {
-        font: 12.5px var(--mono);
-        color: var(--muted);
-        text-decoration: none;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        padding: 5px 12px;
-      }
-      nav.docs-nav a:hover,
-      nav.docs-nav a:focus-visible { color: var(--fg); border-color: var(--accent); outline: none; }
-      nav.docs-nav a[aria-current="page"] {
-        color: var(--accent);
-        border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
-        background: color-mix(in srgb, var(--accent) 8%, var(--panel));
-      }
-
-      /* on-page nav — in-flow box on narrow screens, sticky rail on wide */
-      nav.toc {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: var(--radius-lg);
-        padding: 14px 18px;
-        font-size: 13px;
-        margin: 20px 0 12px;
-      }
-      nav.toc .head {
-        color: var(--muted);
-        font-size: 11px;
+      .docs-side .group { margin-bottom: 22px; }
+      .docs-side .group:last-child { margin-bottom: 0; }
+      .docs-nav-title {
+        font: 11px var(--mono);
         letter-spacing: 0.14em;
         text-transform: uppercase;
+        color: var(--muted);
         margin: 0 0 8px;
       }
-      nav.toc ol {
-        margin: 0;
-        padding-left: 22px;
+      .docs-side ul,
+      .docs-nav-m ul { list-style: none; margin: 0; padding: 0; }
+      .docs-side li,
+      .docs-nav-m li { margin: 1px 0; }
+      .docs-side a,
+      .docs-nav-m .panel a {
+        display: block;
+        font: 13.5px/1.5 var(--sans);
+        color: var(--muted);
+        text-decoration: none;
+        padding: 3px 0;
       }
-      nav.toc li { margin: 3px 0; }
-      nav.toc a {
-        color: var(--body);
-        text-decoration: underline;
-        text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
-        text-underline-offset: 3px;
+      .docs-side a:hover,
+      .docs-side a:focus-visible,
+      .docs-nav-m .panel a:hover,
+      .docs-nav-m .panel a:focus-visible { color: var(--fg); outline: none; }
+      .docs-side a[aria-current="page"],
+      .docs-nav-m .panel a[aria-current="page"] { color: var(--accent); font-weight: 600; }
+
+      /* mobile: the left nav collapses to a dropdown (hidden on wider screens) */
+      .docs-nav-m { display: none; }
+
+      /* ---------- right "on this page" TOC rail ---------- */
+      .docs-toc {
+        width: 196px;
+        flex-shrink: 0;
+        position: sticky;
+        top: 24px;
+        align-self: flex-start;
       }
-      nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); outline: none; }
-      @media (min-width: 1240px) {
-        nav.toc {
-          position: fixed;
-          top: 48px;
-          left: calc(50% - 360px - 250px);
-          width: 210px;
-          background: none;
-          border: none;
-          border-left: 1px solid var(--line);
-          border-radius: 0;
-          padding: 4px 0 4px 18px;
-          margin: 0;
+      .docs-toc .head {
+        font: 11px var(--mono);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 10px;
+      }
+      .docs-toc ol { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--line); }
+      .docs-toc li { margin: 0; }
+      .docs-toc a {
+        display: block;
+        border-left: 1px solid transparent;
+        margin-left: -1px;
+        padding: 3px 0 3px 14px;
+        font: 13px/1.45 var(--sans);
+        color: var(--muted);
+        text-decoration: none;
+      }
+      .docs-toc a:hover, .docs-toc a:focus-visible { color: var(--fg); outline: none; }
+      .docs-toc a[aria-current="true"] { color: var(--accent); border-left-color: var(--accent); }
+
+      /* drop the TOC rail first, then collapse the left nav to a dropdown */
+      @media (max-width: 1180px) {
+        .docs-toc { display: none; }
+      }
+      @media (max-width: 880px) {
+        .docs-grid { flex-direction: column; align-items: stretch; gap: 18px; }
+        main.docs-main { max-width: none; }
+        .docs-side { display: none; }
+        .docs-nav-m {
+          display: block;
+          border: 1px solid var(--line);
+          border-radius: var(--radius-md);
         }
-        nav.toc ol {
+        .docs-nav-m > summary {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding: 10px 14px;
+          font: 13.5px var(--sans);
+          color: var(--fg);
+          cursor: pointer;
           list-style: none;
-          padding-left: 0;
         }
-        nav.toc a {
-          color: var(--muted);
-          text-decoration: none;
+        .docs-nav-m > summary::-webkit-details-marker { display: none; }
+        .docs-nav-m .chev { color: var(--muted); transition: transform 0.15s ease; }
+        @media (prefers-reduced-motion: reduce) {
+          .docs-nav-m .chev { transition: none; }
         }
-        nav.toc a:hover,
-        nav.toc a:focus-visible { color: var(--fg); background: none; }
-        nav.toc a[aria-current="true"] { color: var(--accent); }
+        .docs-nav-m[open] .chev { transform: rotate(180deg); }
+        .docs-nav-m .panel {
+          padding: 6px 14px 12px;
+          border-top: 1px solid var(--line);
+        }
+        .docs-nav-m .group { margin-bottom: 16px; }
+        .docs-nav-m .group:last-child { margin-bottom: 0; }
       }
 
       /* ---------- slotted page content (scoped to .doc) ---------- */
@@ -171,7 +223,7 @@ const fullTitle = `${title} · uploads.sh`;
         font-size: 19px;
         font-weight: 600;
         letter-spacing: -0.01em;
-        margin: 44px 0 10px;
+        margin: 40px 0 10px;
         padding-top: 24px;
         border-top: 1px solid var(--line);
         scroll-margin-top: 24px;
@@ -185,8 +237,8 @@ const fullTitle = `${title} · uploads.sh`;
       }
       .doc section h2 .anchor:hover,
       .doc section h2 .anchor:focus-visible { color: var(--accent); background: none; }
-      /* the first section under the nav shouldn't add a second rule on top */
-      .doc section.lead h2 { border-top: none; padding-top: 0; margin-top: 28px; }
+      /* the first section shouldn't add a rule directly under the page title */
+      .doc section.lead h2 { border-top: none; padding-top: 0; margin-top: 22px; }
       .doc p, .doc li { color: var(--body); }
       .doc strong { color: var(--fg); }
       .doc ul { padding-left: 22px; }
@@ -286,7 +338,7 @@ const fullTitle = `${title} · uploads.sh`;
         display: flex;
         justify-content: space-between;
         gap: 12px;
-        margin: 44px 0 0;
+        margin: 40px 0 0;
         padding-top: 20px;
         border-top: 1px solid var(--line);
         font: 13px var(--sans);
@@ -399,47 +451,91 @@ const fullTitle = `${title} · uploads.sh`;
     </style>
   </head>
   <body>
-    <main>
+    <div class="docs-shell">
       <SiteHeader star authOrigin={authOrigin} />
-      <h1>{heading}</h1>
-      <p class="tagline">{tagline}</p>
 
-      <nav class="docs-nav" aria-label="Docs sections">
+      <div class="docs-grid">
+        <nav class="docs-side" aria-label="Docs navigation">
+          {
+            DOCS_NAV.map((section) => (
+              <div class="group">
+                <p class="docs-nav-title">{section.title}</p>
+                <ul>
+                  {section.items.map((item) => (
+                    <li>
+                      <a href={item.href} aria-current={item.slug === active ? "page" : undefined}>
+                        {item.label}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          }
+        </nav>
+
+        <main class="docs-main">
+          <details class="docs-nav-m">
+            <summary>
+              <span>{currentLabel}</span>
+              <svg class="chev" width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path
+                  fill-rule="evenodd"
+                  d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z"
+                  clip-rule="evenodd"></path>
+              </svg>
+            </summary>
+            <div class="panel">
+              {
+                DOCS_NAV.map((section) => (
+                  <div class="group">
+                    <p class="docs-nav-title">{section.title}</p>
+                    <ul>
+                      {section.items.map((item) => (
+                        <li>
+                          <a href={item.href} aria-current={item.slug === active ? "page" : undefined}>
+                            {item.label}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))
+              }
+            </div>
+          </details>
+
+          <h1>{heading}</h1>
+          <p class="tagline">{tagline}</p>
+
+          <div class="doc">
+            <slot />
+          </div>
+        </main>
+
         {
-          DOCS_NAV.map((item) => (
-            <a href={item.href} aria-current={item.slug === active ? "page" : undefined}>
-              {item.label}
-            </a>
-          ))
+          toc && toc.length > 0 && (
+            <aside class="docs-toc" aria-label="On this page">
+              <p class="head">On this page</p>
+              <ol>
+                {toc.map((entry) => (
+                  <li>
+                    <a href={`#${entry.id}`}>{entry.label}</a>
+                  </li>
+                ))}
+              </ol>
+            </aside>
+          )
         }
-      </nav>
-
-      {
-        toc && toc.length > 0 && (
-          <nav class="toc" aria-label="On this page">
-            <p class="head"># on this page</p>
-            <ol>
-              {toc.map((entry) => (
-                <li>
-                  <a href={`#${entry.id}`}>{entry.label}</a>
-                </li>
-              ))}
-            </ol>
-          </nav>
-        )
-      }
-
-      <div class="doc">
-        <slot />
       </div>
 
       <Footer />
-    </main>
+    </div>
 
     <script>
-      // Scroll-spy for the wide-screen TOC rail: highlight the section in view.
+      // Scroll-spy for the right-hand TOC rail: highlight the section in view.
       const tocLinks = new Map(
-        [...document.querySelectorAll("nav.toc a")].map((a) => [a.getAttribute("href")?.slice(1), a]),
+        [...document.querySelectorAll(".docs-toc a")].map((a) => [a.getAttribute("href")?.slice(1), a]),
       );
       if (tocLinks.size > 0) {
         const spy = new IntersectionObserver(
