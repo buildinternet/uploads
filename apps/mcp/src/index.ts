@@ -11,6 +11,7 @@
 import { createMcpServer } from "@buildinternet/uploads/mcp";
 import { AppError, isAppError, MethodNotAllowedError, NotFoundError } from "@uploads/errors";
 import { tokenWorkspaceAuth, workspaceAuth, type WorkspaceVars } from "@uploads/api/workspace";
+import { protectedResourceMetadata, requestOrigin } from "@uploads/api/well-known";
 import { Hono, type Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import pkg from "../package.json";
@@ -82,10 +83,31 @@ function mcpServerCard() {
   };
 }
 
+/** RFC 9728 metadata for the MCP endpoint, keyed to the request host. */
+function respondProtectedResource(c: Context<WorkspaceVars>): Response {
+  return c.json(
+    protectedResourceMetadata({
+      // The protected resource is the `/mcp` endpoint itself (matches the
+      // server-card transport endpoint and the RFC 8707 resource an MCP
+      // client indicates when requesting a token).
+      resource: `${requestOrigin(c.req.url)}/mcp`,
+      resourceName: "uploads.sh MCP server",
+      webOrigin: c.env.WEB_ORIGIN || "https://uploads.sh",
+    }),
+    200,
+    { "Cache-Control": "public, max-age=300", "Access-Control-Allow-Origin": "*" },
+  );
+}
+
 const app = new Hono<WorkspaceVars>()
   .get("/health", (c) => c.json({ ok: true }))
   // Public discovery — registered before /:workspace/* so ".well-known" is not a tenant.
   .get("/.well-known/mcp/server-card.json", (c) => c.json(mcpServerCard()))
+  // OAuth Protected Resource Metadata (RFC 9728). Served at both the origin
+  // root (where scanners probe) and the RFC path-suffixed location a strict
+  // client derives from `resource` = `<origin>/mcp`.
+  .get("/.well-known/oauth-protected-resource", respondProtectedResource)
+  .get("/.well-known/oauth-protected-resource/mcp", respondProtectedResource)
   // Primary endpoint: the workspace is inferred from the bearer token
   // (up_<workspace>_…), so clients only need the URL and the token.
   .post("/mcp", tokenWorkspaceAuth, handleMcp)

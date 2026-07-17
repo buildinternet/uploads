@@ -18,6 +18,7 @@ import { publicFiles } from "./routes/public-files";
 import { telemetry } from "./routes/telemetry";
 import { reports } from "./routes/reports";
 import { render } from "./routes/render";
+import { protectedResourceMetadata, requestOrigin } from "./well-known";
 
 // Lets the browser console on the web origin (and local dev) call the token-
 // authenticated endpoints. CORS is not the security boundary — bearer tokens
@@ -54,6 +55,20 @@ const adminUiCors = cors({
 /** Hono app — also re-exported for vitest (`app.request`). */
 export const app = new Hono<WorkspaceVars>()
   .get("/health", (c) => c.json({ ok: true }))
+  // RFC 9728 discovery: this API is an OAuth resource server (workspace bearer
+  // tokens with `files:*` scopes). Public, uncached-cross-origin so browser
+  // agents can read it. See src/well-known.ts.
+  .get("/.well-known/oauth-protected-resource", (c) =>
+    c.json(
+      protectedResourceMetadata({
+        resource: requestOrigin(c.req.url),
+        resourceName: "uploads.sh REST API",
+        webOrigin: c.env.WEB_ORIGIN || "https://uploads.sh",
+      }),
+      200,
+      { "Cache-Control": "public, max-age=300", "Access-Control-Allow-Origin": "*" },
+    ),
+  )
   .use("/admin/*", consoleCors)
   .use("/admin-ui/*", adminUiCors)
   .use("/me/*", adminUiCors)

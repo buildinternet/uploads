@@ -7,6 +7,8 @@
   Link: </auth.md>; rel="describedby"; type="text/markdown"
   Link: </.well-known/mcp/server-card.json>; rel="alternate"; type="application/json"
   Link: </.well-known/agent-skills/index.json>; rel="alternate"; type="application/json"
+  Link: <https://api.uploads.sh/.well-known/oauth-protected-resource>; rel="oauth-protected-resource"; type="application/json"
+  Link: <https://agents.uploads.sh/.well-known/oauth-protected-resource>; rel="oauth-protected-resource"; type="application/json"
   Link: </sitemap.xml>; rel="sitemap"; type="application/xml"
   X-Content-Type-Options: nosniff
 

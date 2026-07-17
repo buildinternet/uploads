@@ -375,6 +375,35 @@ describe("mcp worker", () => {
     expect(body.authentication.required).toBe(true);
   });
 
+  it("serves OAuth Protected Resource Metadata (RFC 9728) for the MCP endpoint", async () => {
+    const { env } = await makeEnv();
+    for (const path of [
+      "/.well-known/oauth-protected-resource",
+      "/.well-known/oauth-protected-resource/mcp",
+    ]) {
+      const response = await app.request(
+        `https://agents.uploads.sh${path}`,
+        { method: "GET" },
+        env,
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+      const body = (await response.json()) as {
+        resource: string;
+        scopes_supported: string[];
+        bearer_methods_supported: string[];
+        resource_documentation: string;
+        authorization_servers?: unknown;
+      };
+      expect(body.resource).toBe("https://agents.uploads.sh/mcp");
+      expect(body.scopes_supported).toEqual(["files:read", "files:write", "files:delete"]);
+      expect(body.bearer_methods_supported).toEqual(["header"]);
+      expect(body.resource_documentation).toBe("https://uploads.sh/auth.md");
+      // No public authorization server for third-party clients — must not dangle a reference.
+      expect(body.authorization_servers).toBeUndefined();
+    }
+  });
+
   it("rejects a wrong token with a uniform 401 before any MCP handling", async () => {
     const { env } = await makeEnv();
     const response = await rpc(env, { jsonrpc: "2.0", id: 1, method: "initialize" }, "wrong");
