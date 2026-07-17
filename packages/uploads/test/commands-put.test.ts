@@ -534,6 +534,7 @@ describe("runPut gh.* metadata (explicit target)", () => {
 /** Fake gh: answers `gh pr view` (branch→PR) and `gh api` (classify). */
 function ghRunner(opts: { pr?: number; classify?: "pull" | "issue" }): CommandRunner {
   return (cmd, args) => {
+    if (cmd === "git" && args[0] === "rev-parse") return "feature/thing\n"; // current branch
     if (cmd === "gh" && args[0] === "repo") return "o/r\n"; // resolveRepo fallback
     if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
       if (opts.pr) return `${opts.pr}\n`;
