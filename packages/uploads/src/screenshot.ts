@@ -18,6 +18,40 @@ import type { DetectRoots } from "./screenshot-local.js";
 export type ScreenshotBackend = "auto" | "local" | "remote";
 export type WaitUntil = "load" | "domcontentloaded" | "networkidle" | number;
 
+/**
+ * Host selectors for framework dev toolbars/overlays that otherwise pollute a
+ * screenshot of a running dev server. Hidden (display:none) automatically when
+ * the target is a localhost/private URL, unless `--no-hide-dev-tools`. Hiding
+ * the custom-element host also hides its shadow-DOM contents, so a single
+ * host-level rule is enough for the web-component toolbars.
+ */
+export const DEV_TOOLBAR_SELECTORS: readonly string[] = [
+  "astro-dev-toolbar", // Astro
+  "#__next-build-watcher", // Next.js (legacy build-activity indicator)
+  "nextjs-portal", // Next.js dev overlay / indicators (App Router)
+  "#nuxt-devtools-anchor", // Nuxt DevTools launcher
+  "#nuxt-devtools-container",
+  "vite-plugin-checker-error-overlay", // vite-plugin-checker overlay
+  "vite-error-overlay", // Vite HMR error overlay
+];
+
+/**
+ * Reject a `--hide` selector that could break out of the generated
+ * `selector{display:none}` rule (or inject markup server-side). The selectors
+ * are the caller's own, so this guards against footguns, not a trust boundary.
+ * `@` is rejected too: a leading at-rule (e.g. `@import url(...);*`) needs no
+ * braces to smuggle an `@import` into the injected stylesheet — and `@` is
+ * never valid in a CSS selector anyway.
+ */
+export function assertHideSelector(selector: string): void {
+  if (selector.length === 0 || /[@{}<>]/.test(selector)) {
+    throw new UploadsError(
+      `invalid hide selector: ${JSON.stringify(selector)} (a CSS selector, no @, {, }, <, or >)`,
+      "USAGE",
+    );
+  }
+}
+
 export interface ScreenshotViewport {
   width: number;
   height: number;
@@ -156,6 +190,19 @@ export interface CaptureScreenshotOptions {
   fullPage?: boolean;
   colorScheme?: "dark" | "light";
   waitUntil?: WaitUntil;
+  /** Extra CSS selectors to hide (display:none) before capture. */
+  hide?: string[];
+  /**
+   * Auto-hide known framework dev toolbars. Defaults to on for localhost/
+   * private-network targets and off otherwise; pass `false` to opt out.
+   */
+  hideDevTools?: boolean;
+  /** Emulate prefers-reduced-motion: reduce so CSS/JS animations settle. */
+  reducedMotion?: boolean;
+  /** Run this JS in the page after settle, before capture (local backend only). */
+  evalJs?: string;
+  /** Inject this JS as an init script before navigation (local backend only). */
+  initScript?: string;
   apiUrl: string;
   token: string;
   /** Injectable for tests; forwarded to detectLocalBrowser. */
@@ -170,6 +217,10 @@ export interface CaptureScreenshotOptions {
     fullPage?: boolean;
     colorScheme?: "dark" | "light";
     waitUntil: WaitUntil;
+    hide?: string[];
+    reducedMotion?: boolean;
+    evalJs?: string;
+    initScript?: string;
     detectRoots?: DetectRoots;
     /** Pre-computed detection result from auto-routing, to avoid a second fs scan. */
     detectResult?: import("./screenshot-local.js").DetectResult;
@@ -234,6 +285,13 @@ export async function captureScreenshot(
   // it references via file:// or relative paths won't resolve there).
   const localOnly = target.kind === "url" && target.localOnly;
 
+  // Auto-hide framework dev toolbars only makes sense for a running dev server
+  // (a localhost/private URL); default off elsewhere. Combine with any
+  // explicit --hide selectors into one list shared by both backends.
+  const autoHideDevTools = opts.hideDevTools ?? localOnly;
+  for (const sel of opts.hide ?? []) assertHideSelector(sel);
+  const hide = [...(opts.hide ?? []), ...(autoHideDevTools ? DEV_TOOLBAR_SELECTORS : [])];
+
   // Populated only when auto-routing actually probes the filesystem, so it
   // can be threaded into captureLocalImpl below to avoid a second scan.
   let detected: import("./screenshot-local.js").DetectResult | undefined;
@@ -276,6 +334,13 @@ export async function captureScreenshot(
     );
   }
 
+  // Arbitrary pre-capture JS runs only on the local backend — the shared
+  // remote renderer intentionally has no eval escape hatch (different security
+  // posture). Fail fast rather than silently dropping it.
+  if (backend === "remote" && (opts.evalJs !== undefined || opts.initScript !== undefined)) {
+    throw new UploadsError("--eval and --init-script are local-only — use --via local", "USAGE");
+  }
+
   if (backend === "local") {
     const captureLocalImpl =
       opts.captureLocalImpl ??
@@ -292,6 +357,10 @@ export async function captureScreenshot(
       fullPage: opts.fullPage,
       colorScheme: opts.colorScheme,
       waitUntil,
+      hide,
+      reducedMotion: opts.reducedMotion,
+      evalJs: opts.evalJs,
+      initScript: opts.initScript,
       detectRoots: opts.detectRoots,
       detectResult: detected,
     });
@@ -317,6 +386,8 @@ export async function captureScreenshot(
       fullPage: opts.fullPage,
       colorScheme: opts.colorScheme,
       waitUntil,
+      ...(hide.length > 0 ? { hide } : {}),
+      ...(opts.reducedMotion ? { reducedMotion: true } : {}),
     },
     { apiUrl: opts.apiUrl, token: opts.token },
   );

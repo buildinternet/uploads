@@ -298,6 +298,14 @@ export interface LocalCaptureOptions {
   colorScheme?: "dark" | "light";
   /** "load" | "domcontentloaded" | "networkidle", or a millisecond settle delay. */
   waitUntil: "load" | "domcontentloaded" | "networkidle" | number;
+  /** CSS selectors hidden (display:none) just before capture. */
+  hide?: string[];
+  /** Emulate prefers-reduced-motion: reduce so animations settle deterministically. */
+  reducedMotion?: boolean;
+  /** JS run via page.evaluate after settle, before capture. */
+  evalJs?: string;
+  /** JS injected via addInitScript before navigation. */
+  initScript?: string;
   timeoutMs?: number;
   detectRoots?: DetectRoots;
   /**
@@ -407,18 +415,36 @@ export async function captureLocal(opts: LocalCaptureOptions): Promise<Uint8Arra
           viewport: { width: opts.viewport.width, height: opts.viewport.height },
           deviceScaleFactor: opts.viewport.deviceScaleFactor,
           colorScheme: opts.colorScheme,
+          reducedMotion: opts.reducedMotion ? "reduce" : undefined,
         });
+    // Runs before every navigation on this context — must be registered before
+    // the goto below so it's present when the page's own scripts first run.
+    if (opts.initScript) await context.addInitScript({ content: opts.initScript });
     const page = usingCdp
       ? await context.newPage()
       : (context.pages()[0] ?? (await context.newPage()));
     if (usingCdp) {
       await page.setViewportSize({ width: opts.viewport.width, height: opts.viewport.height });
-      if (opts.colorScheme) await page.emulateMedia({ colorScheme: opts.colorScheme });
+      // deviceScaleFactor + reducedMotion can't be set on an already-launched
+      // CDP context, but emulateMedia (colorScheme + reduced-motion) still can.
+      if (opts.colorScheme || opts.reducedMotion) {
+        await page.emulateMedia({
+          colorScheme: opts.colorScheme,
+          reducedMotion: opts.reducedMotion ? "reduce" : undefined,
+        });
+      }
     }
 
     const waitUntil = typeof opts.waitUntil === "string" ? opts.waitUntil : "load";
     await page.goto(opts.url, { waitUntil, timeout: opts.timeoutMs ?? 30_000 });
     if (typeof opts.waitUntil === "number") await page.waitForTimeout(opts.waitUntil);
+
+    // Hide overlays first, then run any user eval (which may depend on, or
+    // deliberately override, the hidden state).
+    if (opts.hide && opts.hide.length > 0) {
+      await page.addStyleTag({ content: `${opts.hide.join(",")}{display:none !important}` });
+    }
+    if (opts.evalJs) await page.evaluate(opts.evalJs);
 
     const png = opts.selector
       ? await page.locator(opts.selector).screenshot({ timeout: opts.timeoutMs ?? 30_000 })

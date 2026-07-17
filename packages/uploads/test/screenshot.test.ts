@@ -6,6 +6,7 @@ import { UploadsError } from "../src/errors.js";
 import {
   captureScreenshot,
   classifyTarget,
+  DEV_TOOLBAR_SELECTORS,
   isPrivateOrLocalHost,
   parseViewport,
   parseWaitUntil,
@@ -357,6 +358,130 @@ describe("captureScreenshot backend selection", () => {
     });
     expect(seenWait).toBe(500);
     expect(result.backend).toBe("local");
+  });
+
+  it("auto-hides dev toolbars on a localhost target, passing them to the local backend", async () => {
+    let seenHide: string[] | undefined;
+    await captureScreenshot({
+      target: "http://localhost:3000",
+      via: "local",
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureLocalImpl: async (opts) => {
+        seenHide = opts.hide;
+        return png;
+      },
+    });
+    expect(seenHide).toEqual([...DEV_TOOLBAR_SELECTORS]);
+  });
+
+  it("does not auto-hide dev toolbars on a public target", async () => {
+    let seenHide: string[] | undefined;
+    await captureScreenshot({
+      target: "https://example.com",
+      via: "local",
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureLocalImpl: async (opts) => {
+        seenHide = opts.hide;
+        return png;
+      },
+    });
+    expect(seenHide).toEqual([]);
+  });
+
+  it("--no-hide-dev-tools (hideDevTools:false) suppresses auto-hide but keeps explicit --hide", async () => {
+    let seenHide: string[] | undefined;
+    await captureScreenshot({
+      target: "http://localhost:3000",
+      via: "local",
+      hide: [".banner"],
+      hideDevTools: false,
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureLocalImpl: async (opts) => {
+        seenHide = opts.hide;
+        return png;
+      },
+    });
+    expect(seenHide).toEqual([".banner"]);
+  });
+
+  it("combines explicit --hide with auto-hidden dev toolbars", async () => {
+    let seenHide: string[] | undefined;
+    await captureScreenshot({
+      target: "http://localhost:3000",
+      via: "local",
+      hide: [".banner"],
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureLocalImpl: async (opts) => {
+        seenHide = opts.hide;
+        return png;
+      },
+    });
+    expect(seenHide).toEqual([".banner", ...DEV_TOOLBAR_SELECTORS]);
+  });
+
+  it("rejects a --hide selector that could break out of the injected rule", async () => {
+    await expect(
+      captureScreenshot({
+        target: "https://example.com",
+        via: "local",
+        hide: ["ok", "evil}{body{display:none"],
+        apiUrl: "https://api.uploads.sh",
+        token: "t",
+        captureLocalImpl: async () => png,
+      }),
+    ).rejects.toMatchObject({ code: "USAGE" });
+  });
+
+  it("rejects a --hide at-rule that would smuggle an @import (no braces needed)", async () => {
+    await expect(
+      captureScreenshot({
+        target: "https://example.com",
+        via: "local",
+        hide: ["@import url(http://127.0.0.1);*"],
+        apiUrl: "https://api.uploads.sh",
+        token: "t",
+        captureLocalImpl: async () => png,
+      }),
+    ).rejects.toMatchObject({ code: "USAGE" });
+  });
+
+  it("forwards reducedMotion and hide to the remote backend body", async () => {
+    let sentBody: Record<string, unknown> | undefined;
+    await captureScreenshot({
+      target: "https://example.com",
+      via: "remote",
+      hide: [".banner"],
+      reducedMotion: true,
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureRemoteImpl: async (body) => {
+        sentBody = body as unknown as Record<string, unknown>;
+        return png;
+      },
+    });
+    expect(sentBody).toMatchObject({ hide: [".banner"], reducedMotion: true });
+  });
+
+  it("rejects --eval on the remote backend (local-only) before any request", async () => {
+    let usedRemote = false;
+    await expect(
+      captureScreenshot({
+        target: "https://example.com",
+        via: "remote",
+        evalJs: "document.title = 'x'",
+        apiUrl: "https://api.uploads.sh",
+        token: "t",
+        captureRemoteImpl: async () => {
+          usedRemote = true;
+          return png;
+        },
+      }),
+    ).rejects.toMatchObject({ code: "USAGE" });
+    expect(usedRemote).toBe(false);
   });
 
   it("auto on a localhost target errors clearly when no local browser is found (no doomed remote request)", async () => {

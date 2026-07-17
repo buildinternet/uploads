@@ -630,6 +630,22 @@ export function createUploadsMcpTools(opts: {
             description:
               'Settle strategy: load (default) | domcontentloaded | networkidle | a millisecond count (millisecond counts are local-only — via: "local").',
           },
+          hide: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "CSS selectors to hide (display:none) before capture. Works on both backends.",
+          },
+          noHideDevTools: {
+            type: "boolean",
+            description:
+              "Don't auto-hide framework dev toolbars (Astro/Next/Nuxt/Vite), which are hidden by default for localhost/private-network targets.",
+          },
+          reducedMotion: {
+            type: "boolean",
+            description:
+              'Emulate prefers-reduced-motion: reduce so animations settle. Best-effort on via: "remote" (neutralizes animations via injected CSS).',
+          },
           key: {
             type: "string",
             description:
@@ -770,6 +786,9 @@ export function createUploadsMcpTools(opts: {
             fullPage: optBool(args, "fullPage"),
             colorScheme: colorSchemeArg as "dark" | "light" | undefined,
             waitUntil: screenshotModule.parseWaitUntil(optString(args, "wait")),
+            hide: optStringArray(args, "hide"),
+            hideDevTools: optBool(args, "noHideDevTools") ? false : undefined,
+            reducedMotion: optBool(args, "reducedMotion"),
             apiUrl: config.apiUrl,
             token: config.token,
           });

@@ -179,6 +179,28 @@ describe("POST /v1/render happy path", () => {
     });
   });
 
+  it("injects hide, reducedMotion, and colorScheme as combined addStyleTag entries", async () => {
+    const { env, browser } = await makeEnv();
+    const res = await renderReq(env, {
+      url: "https://example.com",
+      colorScheme: "dark",
+      hide: ["astro-dev-toolbar", ".cookie-banner"],
+      reducedMotion: true,
+    });
+    expect(res.status).toBe(200);
+    const tags = (browser.calls[0].options as { addStyleTag: { content: string }[] }).addStyleTag;
+    const joined = tags.map((t) => t.content).join("\n");
+    expect(joined).toContain("color-scheme:dark");
+    expect(joined).toContain("astro-dev-toolbar,.cookie-banner{display:none !important}");
+    expect(joined).toContain("animation-duration:0s");
+  });
+
+  it("omits addStyleTag entirely when no appearance options are set", async () => {
+    const { env, browser } = await makeEnv();
+    await renderReq(env, { url: "https://example.com" });
+    expect(browser.calls[0].options).not.toHaveProperty("addStyleTag");
+  });
+
   it("increments uploads_in_period on a successful render (shares the monthly upload budget)", async () => {
     const { env, db } = await makeEnv();
     await renderReq(env, { url: "https://example.com" });
@@ -303,6 +325,39 @@ describe("POST /v1/render validation", () => {
   it("rejects an invalid waitUntil", async () => {
     const { env } = await makeEnv();
     const res = await renderReq(env, { url: "https://example.com", waitUntil: "eventually" });
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a non-array hide", async () => {
+    const { env, browser } = await makeEnv();
+    const res = await renderReq(env, { url: "https://example.com", hide: "astro-dev-toolbar" });
+    expect(res.status).toBe(400);
+    expect(browser.calls).toHaveLength(0);
+  });
+
+  it("rejects a hide selector that could break out of the injected rule", async () => {
+    const { env, browser } = await makeEnv();
+    const res = await renderReq(env, {
+      url: "https://example.com",
+      hide: ["ok", "evil}{body{display:block"],
+    });
+    expect(res.status).toBe(400);
+    expect(browser.calls).toHaveLength(0);
+  });
+
+  it("rejects a hide at-rule that would smuggle an @import (no braces needed)", async () => {
+    const { env, browser } = await makeEnv();
+    const res = await renderReq(env, {
+      url: "https://example.com",
+      hide: ["@import url(http://127.0.0.1);*"],
+    });
+    expect(res.status).toBe(400);
+    expect(browser.calls).toHaveLength(0);
+  });
+
+  it("rejects a non-boolean reducedMotion", async () => {
+    const { env } = await makeEnv();
+    const res = await renderReq(env, { url: "https://example.com", reducedMotion: "yes" });
     expect(res.status).toBe(400);
   });
 });

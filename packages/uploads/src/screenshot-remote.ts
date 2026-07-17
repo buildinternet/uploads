@@ -18,6 +18,14 @@ export interface RemoteRenderRequest {
   fullPage?: boolean;
   colorScheme?: "dark" | "light";
   waitUntil?: "load" | "domcontentloaded" | "networkidle" | number;
+  /** CSS selectors hidden (display:none) server-side before capture. */
+  hide?: string[];
+  /**
+   * Best-effort reduced-motion on the remote backend: the render endpoint has
+   * no true media-feature emulation, so it neutralizes animations/transitions
+   * with an injected stylesheet (documented gap, like colorScheme).
+   */
+  reducedMotion?: boolean;
 }
 
 export interface RemoteRenderOptions {
