@@ -25,6 +25,7 @@ import { execRunner, type CommandRunner } from "../github-gh.js";
 import { parseMetaFlags, validateMetaMap } from "../metadata.js";
 import { writeJson, writeStdout } from "../io.js";
 import {
+  assertHideSelector,
   captureScreenshot,
   parseViewport,
   parseWaitUntil,
@@ -167,11 +168,9 @@ export async function runScreenshot(
   const waitUntil = parseWaitUntil(flagString(parsed.flags, "--wait"));
 
   const hide = flagValues(parsed.flags, "--hide");
-  for (const sel of hide) {
-    if (sel.length === 0 || /[{}<>]/.test(sel)) {
-      throw new UsageError(`invalid --hide selector: ${JSON.stringify(sel)} (a CSS selector)`);
-    }
-  }
+  // Fail fast before capture, using the shared policy (throws UploadsError
+  // code USAGE → exit 2, same as UsageError) so there's one source of truth.
+  for (const sel of hide) assertHideSelector(sel);
   // --no-hide-dev-tools opts out of auto-hiding framework toolbars; undefined
   // lets captureScreenshot apply its localhost-aware default.
   const hideDevTools = flagBool(parsed.flags, "--no-hide-dev-tools") ? false : undefined;

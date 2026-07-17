@@ -34,10 +34,11 @@ skip a separate host call. It takes `--viewport WxH@Nx`, `--wait`, `--selector`,
 `--full-page`, and `--out <file>` (to also save the PNG).
 
 Capturing your **own dev server**? It hides known framework dev toolbars
-(Astro/Next/Nuxt/Vite) automatically and takes `--reduced-motion` to settle
-animations — no manual DOM surgery. Use `--hide <selector>` for any other
-overlay (repeatable), and `--eval <js>` / `--init-script <file>` (local backend)
-as an escape hatch to dismiss a banner or freeze a specific animation.
+(Astro/Next/Nuxt/Vite) automatically (opt out with `--no-hide-dev-tools`) and
+takes `--reduced-motion` to settle animations — no manual DOM surgery. Use
+`--hide <selector>` for any other overlay (repeatable), and `--eval <js>` /
+`--init-script <file>` (local backend) as an escape hatch to dismiss a banner or
+freeze a specific animation.
 
 ```bash
 uploads screenshot http://localhost:4321 --viewport 1520x960@1x --out home.png --reduced-motion

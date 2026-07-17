@@ -345,6 +345,16 @@ describe("POST /v1/render validation", () => {
     expect(browser.calls).toHaveLength(0);
   });
 
+  it("rejects a hide at-rule that would smuggle an @import (no braces needed)", async () => {
+    const { env, browser } = await makeEnv();
+    const res = await renderReq(env, {
+      url: "https://example.com",
+      hide: ["@import url(http://127.0.0.1);*"],
+    });
+    expect(res.status).toBe(400);
+    expect(browser.calls).toHaveLength(0);
+  });
+
   it("rejects a non-boolean reducedMotion", async () => {
     const { env } = await makeEnv();
     const res = await renderReq(env, { url: "https://example.com", reducedMotion: "yes" });

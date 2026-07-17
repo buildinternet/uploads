@@ -282,8 +282,10 @@ export function parseRenderRequest(parsed: unknown): RenderInput {
     }
     for (const sel of body.hide) {
       // Non-empty, and can't break out of the generated `sel{display:none}`
-      // rule or inject markup via the addStyleTag content.
-      if (typeof sel !== "string" || sel.length === 0 || /[{}<>]/.test(sel)) {
+      // rule or inject markup via the addStyleTag content. `@` is rejected so a
+      // leading at-rule (`@import url(...);*`) can't smuggle an `@import` into
+      // the injected stylesheet — mirrors assertHideSelector in the SDK.
+      if (typeof sel !== "string" || sel.length === 0 || /[@{}<>]/.test(sel)) {
         throw new ValidationError("each hide selector must be a plain CSS selector string", {
           code: "invalid_request",
         });

@@ -39,11 +39,14 @@ export const DEV_TOOLBAR_SELECTORS: readonly string[] = [
  * Reject a `--hide` selector that could break out of the generated
  * `selector{display:none}` rule (or inject markup server-side). The selectors
  * are the caller's own, so this guards against footguns, not a trust boundary.
+ * `@` is rejected too: a leading at-rule (e.g. `@import url(...);*`) needs no
+ * braces to smuggle an `@import` into the injected stylesheet — and `@` is
+ * never valid in a CSS selector anyway.
  */
 export function assertHideSelector(selector: string): void {
-  if (selector.length === 0 || /[{}<>]/.test(selector)) {
+  if (selector.length === 0 || /[@{}<>]/.test(selector)) {
     throw new UploadsError(
-      `invalid hide selector: ${JSON.stringify(selector)} (a CSS selector, no {, }, <, or >)`,
+      `invalid hide selector: ${JSON.stringify(selector)} (a CSS selector, no @, {, }, <, or >)`,
       "USAGE",
     );
   }

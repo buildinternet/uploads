@@ -436,6 +436,19 @@ describe("captureScreenshot backend selection", () => {
     ).rejects.toMatchObject({ code: "USAGE" });
   });
 
+  it("rejects a --hide at-rule that would smuggle an @import (no braces needed)", async () => {
+    await expect(
+      captureScreenshot({
+        target: "https://example.com",
+        via: "local",
+        hide: ["@import url(http://127.0.0.1);*"],
+        apiUrl: "https://api.uploads.sh",
+        token: "t",
+        captureLocalImpl: async () => png,
+      }),
+    ).rejects.toMatchObject({ code: "USAGE" });
+  });
+
   it("forwards reducedMotion and hide to the remote backend body", async () => {
     let sentBody: Record<string, unknown> | undefined;
     await captureScreenshot({
