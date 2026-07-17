@@ -26,22 +26,28 @@ already point at something publicly hosted. The **`uploads` CLI** provides
 that: it hosts the file on uploads.sh and returns a stable public URL plus
 ready-to-paste markdown.
 
-## Step 1 — Get the visual (any tool)
+## Step 1 — Capture the visual
 
-Capture is tool-agnostic. Use whatever this environment has and save a local
-file:
+**Prefer `uploads screenshot <url|file.html>`** — it captures **and** hosts in
+one step (drives a local Chrome, or falls back to a server-side render), so you
+skip a separate host call. It takes `--viewport WxH@Nx`, `--wait`, `--selector`,
+`--full-page`, and `--out <file>` (to also save the PNG).
 
-- The agent harness's own browser tools (screenshot the preview pane).
-- A Playwright/browser MCP, `agent-browser`, or similar automation.
-- An OS screenshot or screen recording the user already made.
-- Any existing image, GIF, or diagram file.
+Capturing your **own dev server**? It hides known framework dev toolbars
+(Astro/Next/Nuxt/Vite) automatically and takes `--reduced-motion` to settle
+animations — no manual DOM surgery. Use `--hide <selector>` for any other
+overlay (repeatable), and `--eval <js>` / `--init-script <file>` (local backend)
+as an escape hatch to dismiss a banner or freeze a specific animation.
 
-No browser tool on hand? `uploads screenshot <url|file.html>` captures
-**and** hosts in one step — it drives an installed Chrome itself, or falls
-back to a server-side render when none is found. See the uploads-cli skill.
+```bash
+uploads screenshot http://localhost:4321 --viewport 1520x960@1x --out home.png --reduced-motion
+uploads screenshot https://uploads.sh --selector main --dark
+```
 
-GIFs and video upload as-is — the client-side optimizer only rewrites still
-images (PNG/JPEG → WebP). No special flags needed for motion.
+Only reach for your harness's browser tools / Playwright / an existing file when
+`uploads screenshot` can't reach the target (e.g. a flow that needs auth or
+interaction first). GIFs and video: capture with any tool and upload as-is — the
+optimizer only rewrites still images (PNG/JPEG → WebP).
 
 ## Step 2 — Host and embed
 

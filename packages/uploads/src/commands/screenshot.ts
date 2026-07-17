@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import {
   flagBool,
@@ -63,6 +63,12 @@ Options:
                             own prefers-color-scheme queries won't flip)
   --wait <load|domcontentloaded|networkidle|ms>  Settle strategy (default: load); a millisecond
                             count is local-only — use --via local
+  --hide <css>              Hide matching elements before capture (repeatable)
+  --no-hide-dev-tools       Don't auto-hide framework dev toolbars (auto-hidden on localhost/private)
+  --reduced-motion          Emulate prefers-reduced-motion: reduce so animations settle (best-effort
+                            on --via remote — neutralizes animations via injected CSS)
+  --eval <js>               Run JS in the page after settle, before capture (--via local only)
+  --init-script <file>      Inject a JS file before navigation (--via local only)
   --out <file>              Also write the PNG to a local file
   --no-upload                Skip hosting; requires --out (local file only)
   --destination <id>        Typed root: screenshots | gh | f
@@ -159,6 +165,30 @@ export async function runScreenshot(
   const fullPage = flagBool(parsed.flags, "--full-page");
   const colorScheme = colorSchemeFromFlags(parsed.flags);
   const waitUntil = parseWaitUntil(flagString(parsed.flags, "--wait"));
+
+  const hide = flagValues(parsed.flags, "--hide");
+  for (const sel of hide) {
+    if (sel.length === 0 || /[{}<>]/.test(sel)) {
+      throw new UsageError(`invalid --hide selector: ${JSON.stringify(sel)} (a CSS selector)`);
+    }
+  }
+  // --no-hide-dev-tools opts out of auto-hiding framework toolbars; undefined
+  // lets captureScreenshot apply its localhost-aware default.
+  const hideDevTools = flagBool(parsed.flags, "--no-hide-dev-tools") ? false : undefined;
+  const reducedMotion = flagBool(parsed.flags, "--reduced-motion");
+  const evalJs = flagString(parsed.flags, "--eval");
+  const initScriptPath = flagString(parsed.flags, "--init-script");
+  let initScript: string | undefined;
+  if (initScriptPath !== undefined) {
+    try {
+      initScript = readFileSync(initScriptPath, "utf8");
+    } catch (err) {
+      throw new UsageError(
+        `could not read --init-script ${initScriptPath}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
   const outFile = flagString(parsed.flags, "--out");
   const noUpload = flagBool(parsed.flags, "--no-upload");
   if (noUpload && !outFile) throw new UsageError("--no-upload requires --out");
@@ -233,6 +263,11 @@ export async function runScreenshot(
     fullPage,
     colorScheme,
     waitUntil,
+    hide,
+    hideDevTools,
+    reducedMotion,
+    evalJs,
+    initScript,
     apiUrl: ctx.config.apiUrl,
     token: ctx.config.token,
   });

@@ -154,11 +154,22 @@ MARKDOWN: ![app.example](https://storage.uploads.sh/gh/app/example/pull/123/app.
       <span class="text">uploads screenshot ./card.html --no-upload --out ./card.png <span class="cm"># no hosting</span></span>
       <button type="button" data-copy="uploads screenshot ./card.html --no-upload --out ./card.png" aria-live="polite">copy</button>
     </div>
+    <div class="cmd">
+      <span class="text">uploads screenshot http://localhost:4321 --reduced-motion <span class="cm"># clean dev-server shot</span></span>
+      <button type="button" data-copy="uploads screenshot http://localhost:4321 --reduced-motion" aria-live="polite">copy</button>
+    </div>
     <p>
       If a Chrome or Chromium is already on the machine, <code>screenshot</code> drives it
       directly (nothing to download); otherwise it renders on uploads.sh servers. Force
       either side with <code>--via local</code> or <code>--via remote</code>. Note that
       <code>localhost</code> URLs are only reachable locally.
+    </p>
+    <p>
+      Shooting your own dev server, it hides known framework dev toolbars
+      (Astro, Next, Nuxt, Vite) automatically and takes <code>--reduced-motion</code> to
+      settle animations. Hide any other overlay with <code>--hide &lt;selector&gt;</code>
+      (repeatable), or run setup JS first with <code>--eval &lt;js&gt;</code> /
+      <code>--init-script &lt;file&gt;</code> (local backend).
     </p>
   </section>
 

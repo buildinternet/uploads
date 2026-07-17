@@ -40,6 +40,21 @@ export interface RenderViewport {
   deviceScaleFactor?: number;
 }
 
+/** Cap on `hide` selectors — a screenshot never needs many, and it bounds the
+ * injected-stylesheet size. */
+const MAX_HIDE_SELECTORS = 50;
+
+/**
+ * Neutralizes CSS/JS animations and transitions so a page settles to its
+ * finished state deterministically. Browser Run's typed surface has no
+ * prefers-reduced-motion / emulateMediaFeatures option (only emulateMediaType +
+ * addStyleTag), so `reducedMotion` is a documented best-effort here — the same
+ * kind of gap as `colorScheme`. It forces end-state rather than honoring a
+ * page's own reduced-motion rules, which is what our screenshot use case wants.
+ */
+const REDUCED_MOTION_CSS =
+  "*,*::before,*::after{animation-duration:0s !important;animation-delay:0s !important;animation-iteration-count:1 !important;transition-duration:0s !important;transition-delay:0s !important;scroll-behavior:auto !important}";
+
 export interface RenderInput {
   url?: string;
   html?: string;
@@ -48,6 +63,8 @@ export interface RenderInput {
   fullPage?: boolean;
   colorScheme?: "dark" | "light";
   waitUntil?: "load" | "domcontentloaded" | "networkidle";
+  hide?: string[];
+  reducedMotion?: boolean;
 }
 
 export interface RenderResult {
@@ -252,6 +269,36 @@ export function parseRenderRequest(parsed: unknown): RenderInput {
     input.waitUntil = body.waitUntil;
   }
 
+  if (body.hide !== undefined) {
+    if (!Array.isArray(body.hide)) {
+      throw new ValidationError("hide must be an array of CSS selectors", {
+        code: "invalid_request",
+      });
+    }
+    if (body.hide.length > MAX_HIDE_SELECTORS) {
+      throw new ValidationError(`hide accepts at most ${MAX_HIDE_SELECTORS} selectors`, {
+        code: "invalid_request",
+      });
+    }
+    for (const sel of body.hide) {
+      // Non-empty, and can't break out of the generated `sel{display:none}`
+      // rule or inject markup via the addStyleTag content.
+      if (typeof sel !== "string" || sel.length === 0 || /[{}<>]/.test(sel)) {
+        throw new ValidationError("each hide selector must be a plain CSS selector string", {
+          code: "invalid_request",
+        });
+      }
+    }
+    input.hide = body.hide as string[];
+  }
+
+  if (body.reducedMotion !== undefined) {
+    if (typeof body.reducedMotion !== "boolean") {
+      throw new ValidationError("reducedMotion must be a boolean", { code: "invalid_request" });
+    }
+    input.reducedMotion = body.reducedMotion;
+  }
+
   return input;
 }
 
@@ -296,6 +343,10 @@ function toBrowserRunOptions(input: RenderInput): BrowserRunScreenshotOptions {
         : {}),
     };
   }
+  // Browser Run's typed surface only exposes `addStyleTag` (+ emulateMediaType)
+  // for media/appearance control, so colorScheme, hide, and reduced-motion all
+  // flow through injected stylesheets. Accumulate into one array.
+  const styleTags: { content: string }[] = [];
   if (input.colorScheme !== undefined) {
     // DEVIATION (see RESULT.md): quickAction's typed surface has no
     // prefers-color-scheme / emulateMediaFeatures option — only
@@ -306,8 +357,15 @@ function toBrowserRunOptions(input: RenderInput): BrowserRunScreenshotOptions {
     // injected stylesheet cannot spoof). Good enough for our own
     // `screenshots/` templated-card use case; documented as a known gap for
     // arbitrary third-party pages.
-    options.addStyleTag = [{ content: `:root{color-scheme:${input.colorScheme};}` }];
+    styleTags.push({ content: `:root{color-scheme:${input.colorScheme};}` });
   }
+  if (input.hide !== undefined && input.hide.length > 0) {
+    styleTags.push({ content: `${input.hide.join(",")}{display:none !important}` });
+  }
+  if (input.reducedMotion) {
+    styleTags.push({ content: REDUCED_MOTION_CSS });
+  }
+  if (styleTags.length > 0) options.addStyleTag = styleTags;
 
   return options;
 }
