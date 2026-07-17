@@ -1,0 +1,588 @@
+---
+// Shared shell for the /docs pages: a hub (/docs) plus focused subject pages
+// (/docs/attach, /docs/agents, /docs/reference). Three-column docs layout —
+// a persistent left nav sidebar, the article, and an optional right "on this
+// page" TOC rail — modeled on the releases.sh docs layout. Below the wide
+// breakpoint the TOC rail drops, then the left nav collapses to a dropdown.
+//
+// The page body is slotted into `.doc`. Astro scopes <style> to this component,
+// which would NOT reach slotted page content — so the block is `is:global` and
+// every content rule is prefixed with `.doc` to stay off the shared SiteHeader
+// and Footer (which live outside `.doc`).
+import BaseHead from "../components/BaseHead.astro";
+import Footer from "../components/Footer.astro";
+import SiteHeader from "../components/SiteHeader.astro";
+
+interface TocEntry {
+  id: string;
+  label: string;
+}
+interface Props {
+  title: string;
+  description: string;
+  path: string; // canonical path, e.g. "/docs/attach"
+  heading: string;
+  tagline: string;
+  active: string; // slug of the current page, matched against DOCS_NAV
+  toc?: TocEntry[];
+}
+const { title, description, path, heading, tagline, active, toc } = Astro.props;
+
+// Static page (no `prerender = false`) — auth origin is baked at build time,
+// not read from request-time env. See src/lib/auth-client.ts.
+const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.uploads.sh";
+
+// Left-nav sections. The four subject pages plus the standalone agent guide.
+const DOCS_NAV = [
+  {
+    title: "Docs",
+    items: [
+      { slug: "overview", href: "/docs", label: "Overview" },
+      { slug: "attach", href: "/docs/attach", label: "Attach & share" },
+      { slug: "agents", href: "/docs/agents", label: "Set up your agent" },
+      { slug: "reference", href: "/docs/reference", label: "Reference" },
+    ],
+  },
+  {
+    title: "Guides",
+    items: [{ slug: "walkthrough", href: "/github-screenshots", label: "Agent walkthrough" }],
+  },
+];
+const currentLabel =
+  DOCS_NAV.flatMap((s) => s.items).find((item) => item.slug === active)?.label ?? "Docs";
+const fullTitle = `${title} · uploads.sh`;
+---
+
+<html lang="en">
+  <head>
+    <BaseHead preloadSans />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={`https://uploads.sh${path}`} />
+    <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={`https://uploads.sh${path}`} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    <style is:global>
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      @media (prefers-reduced-motion: reduce) {
+        html { scroll-behavior: auto; }
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        background: var(--bg);
+        color: var(--fg);
+        font: 15.5px/1.7 var(--sans);
+        padding: 0;
+      }
+
+      /* ---------- shell + three-column grid ---------- */
+      .docs-shell {
+        width: min(1120px, 100%);
+        margin: 0 auto;
+        padding: 40px 24px 64px;
+      }
+      .docs-grid {
+        display: flex;
+        align-items: flex-start;
+        gap: 44px;
+        margin-top: 8px;
+      }
+      main.docs-main { flex: 1 1 auto; min-width: 0; max-width: 720px; }
+      main.docs-main > h1 {
+        font-size: clamp(26px, 5vw, 34px);
+        font-weight: 600;
+        letter-spacing: -0.015em;
+        line-height: 1.25;
+        margin: 4px 0 4px;
+      }
+      main.docs-main > .tagline { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
+
+      /* ---------- left nav sidebar ---------- */
+      .docs-side {
+        width: 188px;
+        flex-shrink: 0;
+        position: sticky;
+        top: 24px;
+        align-self: flex-start;
+      }
+      .docs-side .group { margin-bottom: 22px; }
+      .docs-side .group:last-child { margin-bottom: 0; }
+      .docs-nav-title {
+        font: 11px var(--mono);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 8px;
+      }
+      .docs-side ul,
+      .docs-nav-m ul { list-style: none; margin: 0; padding: 0; }
+      .docs-side li,
+      .docs-nav-m li { margin: 1px 0; }
+      .docs-side a,
+      .docs-nav-m .panel a {
+        display: block;
+        font: 13.5px/1.5 var(--sans);
+        color: var(--muted);
+        text-decoration: none;
+        padding: 3px 0;
+      }
+      .docs-side a:hover,
+      .docs-side a:focus-visible,
+      .docs-nav-m .panel a:hover,
+      .docs-nav-m .panel a:focus-visible { color: var(--fg); outline: none; }
+      .docs-side a[aria-current="page"],
+      .docs-nav-m .panel a[aria-current="page"] { color: var(--accent); font-weight: 600; }
+
+      /* mobile: the left nav collapses to a dropdown (hidden on wider screens) */
+      .docs-nav-m { display: none; }
+
+      /* ---------- right "on this page" TOC rail ---------- */
+      .docs-toc {
+        width: 196px;
+        flex-shrink: 0;
+        position: sticky;
+        top: 24px;
+        align-self: flex-start;
+      }
+      .docs-toc .head {
+        font: 11px var(--mono);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 10px;
+      }
+      .docs-toc ol { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--line); }
+      .docs-toc li { margin: 0; }
+      .docs-toc a {
+        display: block;
+        border-left: 1px solid transparent;
+        margin-left: -1px;
+        padding: 3px 0 3px 14px;
+        font: 13px/1.45 var(--sans);
+        color: var(--muted);
+        text-decoration: none;
+      }
+      .docs-toc a:hover, .docs-toc a:focus-visible { color: var(--fg); outline: none; }
+      .docs-toc a[aria-current="true"] { color: var(--accent); border-left-color: var(--accent); }
+
+      /* drop the TOC rail first, then collapse the left nav to a dropdown */
+      @media (max-width: 1180px) {
+        .docs-toc { display: none; }
+      }
+      @media (max-width: 880px) {
+        .docs-grid { flex-direction: column; align-items: stretch; gap: 18px; }
+        main.docs-main { max-width: none; }
+        .docs-side { display: none; }
+        .docs-nav-m {
+          display: block;
+          border: 1px solid var(--line);
+          border-radius: var(--radius-md);
+        }
+        .docs-nav-m > summary {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding: 10px 14px;
+          font: 13.5px var(--sans);
+          color: var(--fg);
+          cursor: pointer;
+          list-style: none;
+        }
+        .docs-nav-m > summary::-webkit-details-marker { display: none; }
+        .docs-nav-m .chev { color: var(--muted); transition: transform 0.15s ease; }
+        @media (prefers-reduced-motion: reduce) {
+          .docs-nav-m .chev { transition: none; }
+        }
+        .docs-nav-m[open] .chev { transform: rotate(180deg); }
+        .docs-nav-m .panel {
+          padding: 6px 14px 12px;
+          border-top: 1px solid var(--line);
+        }
+        .docs-nav-m .group { margin-bottom: 16px; }
+        .docs-nav-m .group:last-child { margin-bottom: 0; }
+      }
+
+      /* ---------- slotted page content (scoped to .doc) ---------- */
+      .doc a {
+        color: var(--body);
+        text-decoration: underline;
+        text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+        text-underline-offset: 3px;
+      }
+      .doc a:hover, .doc a:focus-visible { color: var(--accent); outline: none; }
+
+      .doc section h2 {
+        font-size: 19px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        margin: 40px 0 10px;
+        padding-top: 24px;
+        border-top: 1px solid var(--line);
+        scroll-margin-top: 24px;
+        position: relative;
+      }
+      .doc section h2 .anchor {
+        color: color-mix(in srgb, var(--accent) 55%, transparent);
+        text-decoration: none;
+        margin-left: 8px;
+        font-weight: 400;
+      }
+      .doc section h2 .anchor:hover,
+      .doc section h2 .anchor:focus-visible { color: var(--accent); background: none; }
+      /* the first section shouldn't add a rule directly under the page title */
+      .doc section.lead h2 { border-top: none; padding-top: 0; margin-top: 22px; }
+      .doc p, .doc li { color: var(--body); }
+      .doc strong { color: var(--fg); }
+      .doc ul { padding-left: 22px; }
+      .doc li { margin: 8px 0; }
+      .doc code {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 1px 6px;
+        font: 0.88em var(--mono);
+      }
+
+      /* copyable command rows */
+      .doc .cmd {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 12px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 10px 12px;
+        margin: 12px 0;
+        font: 13px var(--mono);
+      }
+      .doc .cmd .text {
+        color: var(--fg);
+        overflow-x: auto;
+        white-space: nowrap;
+        scrollbar-width: none;
+      }
+      .doc .cmd .text::before { content: "$ "; color: var(--accent); }
+      .doc .cmd .text .url { color: var(--body); }
+      .doc .cmd .text .cm { color: var(--muted); }
+      .doc .cmd button {
+        font: 11px var(--mono);
+        letter-spacing: 0.06em;
+        color: var(--accent);
+        background: none;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      .doc .cmd button:hover,
+      .doc .cmd button:focus-visible {
+        outline: none;
+        border-color: var(--accent);
+      }
+      .doc .cmd button.done { color: var(--green); border-color: var(--green); }
+
+      /* multi-line output block (not copyable) */
+      .doc .block {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 12px 14px;
+        margin: 12px 0;
+        font: 12.5px/1.6 var(--mono);
+        color: var(--muted);
+        overflow-x: auto;
+      }
+      .doc .block .ok { color: var(--green); }
+      .doc .block .v { color: var(--body); }
+      .doc .block pre { margin: 0; white-space: pre; }
+
+      /* hub "explore" cards linking to the subject pages */
+      .doc .cards {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin: 16px 0 8px;
+      }
+      .doc .card {
+        display: block;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 14px 16px;
+        text-decoration: none;
+      }
+      .doc .card:hover,
+      .doc .card:focus-visible { border-color: var(--accent); outline: none; }
+      .doc .card h3 {
+        font: 600 14px var(--sans);
+        color: var(--fg);
+        margin: 0 0 4px;
+      }
+      .doc .card p { font-size: 13px; color: var(--muted); margin: 0; }
+      .doc .card .go { color: var(--accent); }
+      @media (max-width: 560px) {
+        .doc .cards { grid-template-columns: 1fr; }
+      }
+
+      /* prev/next footer nav between subject pages */
+      .doc .page-nav {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 40px 0 0;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+        font: 13px var(--sans);
+      }
+      .doc .page-nav a { color: var(--body); text-decoration: none; }
+      .doc .page-nav a:hover, .doc .page-nav a:focus-visible { color: var(--accent); }
+      .doc .page-nav .next { margin-left: auto; text-align: right; }
+      .doc .page-nav .dir { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; display: block; }
+
+      /* ---------- wireframe github comment (same treatment as the landing page) ---------- */
+      .doc .ghc {
+        display: grid;
+        grid-template-columns: 40px 1fr;
+        gap: 12px;
+        margin: 18px 0;
+        font: 13px/1.5 var(--sans);
+      }
+      .doc .ghc .avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #21262e;
+        border: 1px solid #30363d;
+      }
+      .doc .ghc .bubble {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        position: relative;
+      }
+      .doc .ghc .bubble::before {
+        content: "";
+        position: absolute;
+        left: -6px;
+        top: 14px;
+        width: 10px;
+        height: 10px;
+        background: #1c2129;
+        border-left: 1px solid #30363d;
+        border-bottom: 1px solid #30363d;
+        transform: rotate(45deg);
+      }
+      .doc .ghc .head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        background: #1c2129;
+        border-bottom: 1px solid #30363d;
+        padding: 8px 14px;
+        color: #8b949e;
+      }
+      .doc .ghc .head .user { color: #e6edf3; font-weight: 600; }
+      .doc .ghc .head .badge {
+        font: 11px var(--mono);
+        color: #8b949e;
+        border: 1px solid #30363d;
+        border-radius: 999px;
+        padding: 1px 8px;
+        margin-left: auto;
+      }
+      .doc .ghc .body { padding: 14px; }
+      .doc .ghc .md-title { color: #e6edf3; font-weight: 600; margin: 0 0 10px; }
+      .doc .ghc .imgs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+      .doc .ghc figure { margin: 0; }
+      .doc .ghc .ph {
+        aspect-ratio: 16 / 10;
+        border: 1.5px dashed #444c56;
+        border-radius: 6px;
+        background: linear-gradient(135deg, rgba(139, 148, 158, 0.06) 0%, rgba(139, 148, 158, 0.02) 100%);
+        display: grid;
+        place-items: center;
+        color: #545d68;
+      }
+      .doc .ghc .ph svg { width: 42px; height: 42px; }
+      .doc .ghc figcaption {
+        font: 11px var(--mono);
+        color: #8b949e;
+        margin-top: 6px;
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .doc .ghc figcaption .host { color: #58a6ff; }
+      .doc .skel { height: 8px; border-radius: 4px; background: #2d333b; margin: 8px 0; }
+      .doc .skel.w70 { width: 70%; }
+      .doc .skel.w45 { width: 45%; }
+      @media (max-width: 560px) {
+        .doc .ghc .imgs { grid-template-columns: 1fr; }
+      }
+      .doc .note {
+        margin: 20px 0 0;
+        color: var(--muted);
+        font-size: 13.5px;
+      }
+      .doc .note a { color: var(--muted); }
+
+      /* Geist Mono merges " --" into a joined dash via calt - keep CLI flags literal.
+         Declared last: the font shorthand in earlier rules resets feature settings. */
+      .doc code, .doc pre, .doc .cmd, .doc .block {
+        font-variant-ligatures: none;
+        font-feature-settings: "calt" 0, "liga" 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="docs-shell">
+      <SiteHeader star authOrigin={authOrigin} />
+
+      <div class="docs-grid">
+        <nav class="docs-side" aria-label="Docs navigation">
+          {
+            DOCS_NAV.map((section) => (
+              <div class="group">
+                <p class="docs-nav-title">{section.title}</p>
+                <ul>
+                  {section.items.map((item) => (
+                    <li>
+                      <a href={item.href} aria-current={item.slug === active ? "page" : undefined}>
+                        {item.label}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          }
+        </nav>
+
+        <main class="docs-main">
+          <details class="docs-nav-m">
+            <summary>
+              <span>{currentLabel}</span>
+              <svg class="chev" width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path
+                  fill-rule="evenodd"
+                  d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z"
+                  clip-rule="evenodd"></path>
+              </svg>
+            </summary>
+            <div class="panel">
+              {
+                DOCS_NAV.map((section) => (
+                  <div class="group">
+                    <p class="docs-nav-title">{section.title}</p>
+                    <ul>
+                      {section.items.map((item) => (
+                        <li>
+                          <a href={item.href} aria-current={item.slug === active ? "page" : undefined}>
+                            {item.label}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))
+              }
+            </div>
+          </details>
+
+          <h1>{heading}</h1>
+          <p class="tagline">{tagline}</p>
+
+          <div class="doc">
+            <slot />
+          </div>
+        </main>
+
+        {
+          toc && toc.length > 0 && (
+            <aside class="docs-toc" aria-label="On this page">
+              <p class="head">On this page</p>
+              <ol>
+                {toc.map((entry) => (
+                  <li>
+                    <a href={`#${entry.id}`}>{entry.label}</a>
+                  </li>
+                ))}
+              </ol>
+            </aside>
+          )
+        }
+      </div>
+
+      <Footer />
+    </div>
+
+    <script>
+      // Scroll-spy for the right-hand TOC rail: highlight the section in view.
+      const tocLinks = new Map(
+        [...document.querySelectorAll(".docs-toc a")].map((a) => [a.getAttribute("href")?.slice(1), a]),
+      );
+      if (tocLinks.size > 0) {
+        const spy = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (!entry.isIntersecting) continue;
+              for (const link of tocLinks.values()) link.removeAttribute("aria-current");
+              tocLinks.get(entry.target.id)?.setAttribute("aria-current", "true");
+            }
+          },
+          { rootMargin: "0px 0px -70% 0px" },
+        );
+        for (const id of tocLinks.keys()) {
+          const section = id && document.getElementById(id);
+          if (section) spy.observe(section);
+        }
+      }
+
+      for (const btn of document.querySelectorAll(".cmd button")) {
+        btn.addEventListener("click", async () => {
+          const text = btn.getAttribute("data-copy") ?? "";
+          let ok = false;
+          try {
+            await navigator.clipboard.writeText(text);
+            ok = true;
+          } catch {
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            ta.style.position = "fixed";
+            ta.style.opacity = "0";
+            document.body.appendChild(ta);
+            ta.select();
+            try {
+              ok = document.execCommand("copy");
+            } catch {
+              ok = false;
+            }
+            ta.remove();
+          }
+          btn.textContent = ok ? "copied ✓" : "copy failed";
+          btn.classList.toggle("done", ok);
+          setTimeout(() => {
+            btn.textContent = "copy";
+            btn.classList.remove("done");
+          }, 1500);
+        });
+      }
+    </script>
+  </body>
+</html>

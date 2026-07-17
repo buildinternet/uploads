@@ -31,7 +31,7 @@ const FAQ = [
 	},
 	{
 		q: "Are uploaded files private?",
-		a: "No. Files are public to anyone with the URL — even media attached to private repos. Don't upload secrets or sensitive UI. Uploading itself requires an invite-issued workspace token.",
+		a: "No. Files are public to anyone with the URL, even media attached to private repos. Don't upload secrets or sensitive UI. Uploading itself requires an invite-issued workspace token.",
 	},
 ];
 
@@ -194,7 +194,7 @@ const FAQ_JSON_LD = JSON.stringify({
 
       <h1>How to get agents to upload screenshots &amp; video to GitHub</h1>
       <p class="tagline">
-        Claude Code, CI jobs, review bots, plain scripts — anything without a browser.
+        Claude Code, CI jobs, review bots, plain scripts: anything without a browser.
       </p>
 
       <section id="problem">
@@ -211,7 +211,7 @@ const FAQ_JSON_LD = JSON.stringify({
         <ul>
           <li><strong>Committing images to the repo</strong> bloats it forever, for a screenshot that matters once.</li>
           <li><strong>Random image hosts</strong> give you random URLs, expiring links, or need a browser anyway.</li>
-          <li><strong>A hand-rolled S3 script</strong> works — until you want stable URLs, image optimization, and comment cleanup.</li>
+          <li><strong>A hand-rolled S3 script</strong> works fine until you want stable URLs, image optimization, and comment cleanup.</li>
         </ul>
         <p>
           The fix: host the file at a public URL the agent can create itself, then write
@@ -221,7 +221,7 @@ const FAQ_JSON_LD = JSON.stringify({
       </section>
 
       <section id="setup">
-        <h2>Step 1 — install the CLI and sign in (once)</h2>
+        <h2>Step 1: install the CLI and sign in (once)</h2>
         <div class="cmd">
           <span class="text">npm install -g @buildinternet/uploads</span>
           <button type="button" data-copy="npm install -g @buildinternet/uploads">copy</button>
@@ -232,13 +232,13 @@ const FAQ_JSON_LD = JSON.stringify({
         </div>
         <p>
           <code>uploads login</code> trades an invite code for a workspace token and saves it.
-          You do this once per machine. Access is invite-only for now — ask via&#32;
+          You do this once per machine. Access is invite-only for now; ask via&#32;
           <a href={REPO}>the GitHub repo</a>. Check your setup with <code>uploads doctor</code>.
         </p>
       </section>
 
       <section id="agents">
-        <h2>Step 2 — teach your agent</h2>
+        <h2>Step 2: teach your agent</h2>
         <p>One command sets up Claude Code:</p>
         <div class="cmd">
           <span class="text">uploads install</span>
@@ -246,7 +246,7 @@ const FAQ_JSON_LD = JSON.stringify({
         </div>
         <ul>
           <li>
-            The <strong>agent skill</strong> teaches the agent when to attach screenshots —
+            The <strong>agent skill</strong> teaches the agent when to attach screenshots,
             like before/after shots on a PR it just opened.
           </li>
           <li>
@@ -267,7 +267,7 @@ const FAQ_JSON_LD = JSON.stringify({
       </section>
 
       <section id="attach">
-        <h2>Step 3 — the agent attaches media with one command</h2>
+        <h2>Step 3: the agent attaches media with one command</h2>
         <p>
           From a branch with an open pull request, <code>attach</code> only needs the files.
           It finds the PR through <code>gh</code>, uploads each file to a stable URL, and
@@ -278,14 +278,9 @@ const FAQ_JSON_LD = JSON.stringify({
           <button type="button" data-copy="uploads attach ./before.png ./after.png">copy</button>
         </div>
         <div class="block" aria-label="Example output">
-          <pre>&gt;&gt; uploading ./before.png
-&gt;&gt; optimized 411.5 KB → 94.2 KB (before.webp)
+          <pre># optimizes each image, then keeps one comment on the PR up to date
+&gt;&gt; uploading ./before.png
 &gt;&gt; uploading ./after.png
-&gt;&gt; optimized 397.6 KB → 89.1 KB (after.webp)
-URL: <span class="v">https://storage.uploads.sh/gh/you/app/pull/123/before.webp</span>
-MARKDOWN: ![before.png](https://storage.uploads.sh/gh/you/app/pull/123/before.webp)
-URL: <span class="v">https://storage.uploads.sh/gh/you/app/pull/123/after.webp</span>
-MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp)
 <span class="ok">&gt;&gt; attachments comment updated</span></pre>
         </div>
         <p>Not on a PR branch? Point it somewhere:</p>
@@ -298,7 +293,7 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
           <button type="button" data-copy="uploads attach ./shot.png --repo owner/name --pr 123">copy</button>
         </div>
         <p>
-          Want to place the image yourself — in a PR description or README?&#32;
+          Want to place the image yourself, in a PR description or README?&#32;
           <code>--no-comment</code> prints the URL and Markdown without posting anything.&#32;
           <code>uploads put</code> gives full control over naming and output.
         </p>
@@ -314,7 +309,7 @@ MARKDOWN: ![after.png](https://storage.uploads.sh/gh/you/app/pull/123/after.webp
         <h2>Video and everything else</h2>
         <p>
           A short screen recording is often the best proof that a change works. MP4, WebM,
-          GIFs, zips, logs — anything uploads as-is:
+          GIFs, zips, logs all upload as-is:
         </p>
         <div class="cmd">
           <span class="text">uploads attach ./demo.mp4 <span class="cm"># linked from the comment</span></span>

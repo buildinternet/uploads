@@ -1,0 +1,169 @@
+---
+// uploads.sh — docs / attach & share. The three commands that get media onto
+// GitHub or a URL: attach (managed PR/issue comment), put (any file → URL),
+// and screenshot (render + host in one step).
+import DocsLayout from "../../layouts/DocsLayout.astro";
+
+const TOC = [
+  { id: "attach", label: "Attach files to a PR" },
+  { id: "put", label: "Get a URL for any file" },
+  { id: "screenshot", label: "Capture a screenshot" },
+];
+---
+
+<DocsLayout
+  title="Attach & share"
+  description="Attach screenshots and video to GitHub PRs and issues, get a public URL for any file, and capture a screenshot in one step with the uploads CLI."
+  path="/docs/attach"
+  heading="Attach & share"
+  tagline="The three commands that get media onto a PR, an issue, or a plain URL."
+  active="attach"
+  toc={TOC}
+>
+  <section class="lead" id="attach">
+    <h2>Attach files to a PR <a class="anchor" href="#attach" aria-label="Link to this section">#</a></h2>
+    <p>
+      <code>attach</code> is the command you'll use most. From a checked-out branch with an
+      open pull request, it needs no arguments beyond the files:
+    </p>
+    <div class="cmd">
+      <span class="text">uploads attach ./screenshot.png</span>
+      <button type="button" data-copy="uploads attach ./screenshot.png" aria-live="polite">copy</button>
+    </div>
+    <p>…which lands on the pull request as one managed comment:</p>
+    <div
+      class="ghc"
+      role="img"
+      aria-label="Wireframe of the managed GitHub attachments comment with an inline image"
+    >
+      <div class="avatar"></div>
+      <div class="bubble">
+        <div class="head">
+          <span class="user">you</span>
+          <span>commented just now</span>
+          <span class="badge">managed by uploads</span>
+        </div>
+        <div class="body">
+          <p class="md-title">📎 Attachments</p>
+          <div class="imgs">
+            <figure>
+              <div class="ph" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+                  <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+                  <circle cx="9" cy="10" r="1.8"></circle>
+                  <path d="M3 17 L9.5 12.5 L13.5 15.5 L17 13 L21 16"></path>
+                </svg>
+              </div>
+              <figcaption><span>screenshot.png</span><span class="host">storage.uploads.sh</span></figcaption>
+            </figure>
+          </div>
+          <div class="skel w70"></div>
+          <div class="skel w45"></div>
+        </div>
+      </div>
+    </div>
+    <p>
+      Run <code>attach</code> again with new files and this same comment updates in place, so
+      your PR doesn't collect a trail of stale screenshot comments.
+    </p>
+    <p>
+      It uses the <code>gh</code> CLI to find the current repo and PR. If you're not on a PR
+      branch, or you want a different target, say so explicitly:
+    </p>
+    <div class="cmd">
+      <span class="text">uploads attach ./shot.png --pr 123 <span class="cm"># a specific PR</span></span>
+      <button type="button" data-copy="uploads attach ./shot.png --pr 123" aria-live="polite">copy</button>
+    </div>
+    <div class="cmd">
+      <span class="text">uploads attach ./shot.png --issue 45 <span class="cm"># an issue instead</span></span>
+      <button type="button" data-copy="uploads attach ./shot.png --issue 45" aria-live="polite">copy</button>
+    </div>
+    <div class="cmd">
+      <span class="text">uploads attach ./shot.png --repo owner/name --pr 123 <span class="cm"># a different repo</span></span>
+      <button type="button" data-copy="uploads attach ./shot.png --repo owner/name --pr 123" aria-live="polite">copy</button>
+    </div>
+    <p>
+      Want the URLs and ready-to-paste Markdown without touching any GitHub comment (say, to
+      drop an image into a PR description yourself)?
+    </p>
+    <div class="cmd">
+      <span class="text">uploads attach ./shot.png --no-comment <span class="cm"># print URLs, post nothing</span></span>
+      <button type="button" data-copy="uploads attach ./shot.png --no-comment" aria-live="polite">copy</button>
+    </div>
+  </section>
+
+  <section id="put">
+    <h2>Get a URL for any file <a class="anchor" href="#put" aria-label="Link to this section">#</a></h2>
+    <p>
+      <code>put</code> is the simpler building block: upload one file, get back a public URL
+      and Markdown you can paste anywhere.
+    </p>
+    <div class="cmd">
+      <span class="text">uploads put ./shot.png</span>
+      <button type="button" data-copy="uploads put ./shot.png" aria-live="polite">copy</button>
+    </div>
+    <div class="block" aria-label="Example output">
+      <pre># re-encoded to WebP, then hosted at a stable public URL
+&gt;&gt; optimized 411.5 KB → 94.2 KB (shot.webp)
+URL: <span class="v">https://storage.uploads.sh/screenshots/app/2026-07-12/shot-9f2c1a.webp</span>
+MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot-9f2c1a.webp)</pre>
+    </div>
+    <p>A few useful variations:</p>
+    <div class="cmd">
+      <span class="text">uploads put ./shot.png --pr 123 --comment <span class="cm"># also post to the PR</span></span>
+      <button type="button" data-copy="uploads put ./shot.png --pr 123 --comment" aria-live="polite">copy</button>
+    </div>
+    <div class="cmd">
+      <span class="text">uploads put ./shot.png --no-optimize <span class="cm"># upload the original bytes</span></span>
+      <button type="button" data-copy="uploads put ./shot.png --no-optimize" aria-live="polite">copy</button>
+    </div>
+    <div class="cmd">
+      <span class="text">uploads put ./mobile.png --frame phone <span class="cm"># add device chrome</span></span>
+      <button type="button" data-copy="uploads put ./mobile.png --frame phone" aria-live="polite">copy</button>
+    </div>
+    <p>
+      By default, images are re-encoded to WebP (capped size, high quality) so GitHub embeds
+      stay fast, and <strong>EXIF metadata is stripped</strong>. Use <code>--keep-exif</code>&#32;
+      to keep metadata, or <code>--no-optimize</code> to skip all processing.
+    </p>
+  </section>
+
+  <section id="screenshot">
+    <h2>Capture a screenshot <a class="anchor" href="#screenshot" aria-label="Link to this section">#</a></h2>
+    <p>
+      Don't have the image yet? <code>screenshot</code> renders a URL or a local
+      <code>.html</code> file and hosts the result in one step, with no browser
+      install required.
+    </p>
+    <div class="cmd">
+      <span class="text">uploads screenshot https://app.example --pr 123 --comment</span>
+      <button type="button" data-copy="uploads screenshot https://app.example --pr 123 --comment" aria-live="polite">copy</button>
+    </div>
+    <div class="block" aria-label="Example output">
+      <pre># renders the page, then hosts the WebP in one step
+&gt;&gt; captured via local backend
+URL: <span class="v">https://storage.uploads.sh/gh/app/example/pull/123/app.example.webp</span>
+MARKDOWN: ![app.example](https://storage.uploads.sh/gh/app/example/pull/123/app.example.webp)</pre>
+    </div>
+    <p>A few useful variations:</p>
+    <div class="cmd">
+      <span class="text">uploads screenshot ./report.html --dark --selector "main" <span class="cm"># dark scheme</span></span>
+      <button type="button" data-copy='uploads screenshot ./report.html --dark --selector "main"' aria-live="polite">copy</button>
+    </div>
+    <div class="cmd">
+      <span class="text">uploads screenshot ./card.html --no-upload --out ./card.png <span class="cm"># no hosting</span></span>
+      <button type="button" data-copy="uploads screenshot ./card.html --no-upload --out ./card.png" aria-live="polite">copy</button>
+    </div>
+    <p>
+      If a Chrome or Chromium is already on the machine, <code>screenshot</code> drives it
+      directly (nothing to download); otherwise it renders on uploads.sh servers. Force
+      either side with <code>--via local</code> or <code>--via remote</code>. Note that
+      <code>localhost</code> URLs are only reachable locally.
+    </p>
+  </section>
+
+  <nav class="page-nav" aria-label="More docs">
+    <a class="prev" href="/docs"><span class="dir">← Back</span>Overview</a>
+    <a class="next" href="/docs/agents"><span class="dir">Next →</span>Set up your agent</a>
+  </nav>
+</DocsLayout>

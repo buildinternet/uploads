@@ -1,0 +1,69 @@
+---
+// uploads.sh — docs / reference. Managing what you've uploaded (list, delete,
+// usage) and the things worth knowing before relying on it.
+import DocsLayout from "../../layouts/DocsLayout.astro";
+
+const REPO = "https://github.com/buildinternet/uploads";
+---
+
+<DocsLayout
+  title="Reference"
+  description="Manage uploaded files with the uploads CLI (list, delete, usage), plus what to know about visibility, access, and stability."
+  path="/docs/reference"
+  heading="Reference"
+  tagline="Manage what you've uploaded, and what's worth knowing before you rely on it."
+  active="reference"
+>
+  <section class="lead" id="manage">
+    <h2>Manage what you uploaded <a class="anchor" href="#manage" aria-label="Link to this section">#</a></h2>
+    <div class="cmd">
+      <span class="text">uploads list <span class="cm"># see your files</span></span>
+      <button type="button" data-copy="uploads list" aria-live="polite">copy</button>
+    </div>
+    <div class="cmd">
+      <span class="text">uploads delete &lt;key&gt; <span class="cm"># remove a file</span></span>
+      <button type="button" data-copy="uploads delete" aria-live="polite">copy</button>
+    </div>
+    <div class="cmd">
+      <span class="text">uploads usage <span class="cm"># storage used by your workspace</span></span>
+      <button type="button" data-copy="uploads usage" aria-live="polite">copy</button>
+    </div>
+    <div class="cmd">
+      <span class="text">uploads --help <span class="cm"># everything else</span></span>
+      <button type="button" data-copy="uploads --help" aria-live="polite">copy</button>
+    </div>
+  </section>
+
+  <section id="good-to-know">
+    <h2>Good to know <a class="anchor" href="#good-to-know" aria-label="Link to this section">#</a></h2>
+    <ul>
+      <li>
+        <strong>Hosted files are public.</strong> Anyone with the URL can view them, even
+        media attached to private repositories. Don't upload secrets or sensitive UI.
+      </li>
+      <li>
+        <strong>Access is by invitation.</strong> There's no self-serve signup right now. If
+        you'd like in, reach out via <a href={REPO}>the GitHub repo</a>.
+      </li>
+      <li>
+        <strong>Everything lands in your workspace.</strong> Files are stored under a prefix
+        for your workspace, and PR/issue attachments get stable, predictable paths, so
+        re-attaching an updated screenshot replaces the old URL's spot instead of littering.
+      </li>
+      <li>
+        <strong>Still early.</strong> uploads.sh is built in the open and APIs may change
+        without notice. Don't depend on it for anything you can't afford to re-key.
+      </li>
+    </ul>
+    <div class="note">
+      Looking for deeper material like the REST API, enrollment internals, self-hosting, or
+      operator docs? It all lives in <a href={REPO}>the GitHub repository</a>. Agents can also
+      read <a href="/llms.txt">/llms.txt</a> for a machine-friendly index.
+    </div>
+  </section>
+
+  <nav class="page-nav" aria-label="More docs">
+    <a class="prev" href="/docs/agents"><span class="dir">← Back</span>Set up your agent</a>
+    <a class="next" href="/docs"><span class="dir">Docs →</span>Overview</a>
+  </nav>
+</DocsLayout>

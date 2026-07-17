@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="docs/assets/readme-home.png" alt="uploads.sh — agents can put screenshots on pull requests now, too" width="760">
+<img src="docs/assets/readme-home.png" alt="uploads.sh — the missing upload command for coding agents" width="760">
 
 <h1>uploads</h1>
 
-**Agents can put screenshots on pull requests now, too.**
+**The missing upload command for coding agents.**
 
 A lightweight file-hosting service on Cloudflare Workers. One command —
 `uploads attach` — hosts a file at a stable public URL and keeps one tidy
