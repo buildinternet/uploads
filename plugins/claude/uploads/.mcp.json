@@ -1,0 +1,6 @@
+{
+  "uploads": {
+    "command": "uploads",
+    "args": ["mcp"]
+  }
+}

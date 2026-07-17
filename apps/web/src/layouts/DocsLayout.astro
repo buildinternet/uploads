@@ -279,6 +279,9 @@ const fullTitle = `${title} · uploads.sh`;
         scrollbar-width: none;
       }
       .doc .cmd .text::before { content: "$ "; color: var(--accent); }
+      /* slash commands are typed into Claude Code, not a shell: no "$ " prompt —
+         the command's own leading "/" stands in for it */
+      .doc .cmd.slash .text::before { content: ""; }
       .doc .cmd .text .url { color: var(--body); }
       .doc .cmd .text .cm { color: var(--muted); }
       .doc .cmd button {

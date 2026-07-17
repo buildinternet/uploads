@@ -33,6 +33,29 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
     </div>
   </section>
 
+  <section id="plugin">
+    <h2>Claude Code plugin <a class="anchor" href="#plugin" aria-label="Link to this section">#</a></h2>
+    <p>
+      On Claude Code you can install everything as one plugin — both agent skills, an
+      MCP server, and an <code>/uploads:attach</code> command — from the uploads
+      marketplace. Add the marketplace, then install:
+    </p>
+    <div class="cmd slash">
+      <span class="text">/plugin marketplace add buildinternet/uploads</span>
+      <button type="button" data-copy="/plugin marketplace add buildinternet/uploads" aria-live="polite">copy</button>
+    </div>
+    <div class="cmd slash">
+      <span class="text">/plugin install uploads@uploads</span>
+      <button type="button" data-copy="/plugin install uploads@uploads" aria-live="polite">copy</button>
+    </div>
+    <p>
+      The bundled MCP server runs the local <code>uploads mcp</code> over stdio and
+      reads the token <code>uploads login</code> already stored, so once you've signed
+      in there's nothing else to wire up — just make sure the <code>uploads</code> CLI
+      is on your <code>PATH</code>.
+    </p>
+  </section>
+
   <section id="skill-vs-mcp">
     <h2>Skill vs. MCP <a class="anchor" href="#skill-vs-mcp" aria-label="Link to this section">#</a></h2>
     <p>
