@@ -22,6 +22,7 @@ export {
   type ToolArgs,
 } from "./args.js";
 export { ToolBatchError, batchFailureMessage } from "./batch-error.js";
+export { mapBounded } from "../async.js";
 
 export interface McpTool {
   name: string;
@@ -155,7 +156,11 @@ export function createMcpServer(opts: {
             const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.has(requested)
               ? requested
               : LATEST_PROTOCOL_VERSION;
-            return response(id, { protocolVersion, capabilities: { tools: {} }, serverInfo });
+            return response(id, {
+              protocolVersion,
+              capabilities: { tools: {} },
+              serverInfo,
+            });
           }
           case "ping":
             return response(id, {});
