@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./workspace": "./src/workspace.ts",
+    "./well-known": "./src/well-known.ts",
     "./storage": "./src/storage.ts",
     "./files": "./src/files-core.ts",
     "./file-metadata": "./src/file-metadata.ts",
