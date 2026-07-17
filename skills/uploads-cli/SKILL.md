@@ -514,7 +514,10 @@ uploads --api-url http://localhost:8787 doctor
   `--file ./trace.log`. Never auto-send logs. MCP tool: `report`.
 - **MCP:** `uploads mcp` (stdio) mirrors CLI tools; hosted MCP at
   `https://agents.uploads.sh/mcp`. Metadata: `get_metadata` / `set_metadata` /
-  `find_files` (same as `meta get` / `meta set` / `find`). `uploads install` sets
+  `find_files` (same as `meta get` / `meta set` / `find`). Both support
+  multi-file `put` in one call — stdio takes `files` as paths, hosted takes
+  `files: [{ filename, contentBase64 }]` (max 20/call) — returning
+  `{ uploads, failures }` with per-item results. `uploads install` sets
   up this skill + hosted MCP (short progress; `--verbose` / `--dry-run` available).
 - **Agents on the Worker side:** the package also exports
   `createUploadsWorkerFileTools()` from `@buildinternet/uploads/agent` for exposing

@@ -8,6 +8,9 @@
 import { buildMarkdown, buildScreenshotKey } from "@buildinternet/uploads";
 import {
   METADATA_DESCRIPTION,
+  ToolBatchError,
+  batchFailureMessage,
+  mapBounded,
   metadataProp,
   optPosInt,
   optString,
@@ -16,7 +19,7 @@ import {
   usage,
   type McpTool,
 } from "@buildinternet/uploads/mcp";
-import { NotFoundError } from "@uploads/errors";
+import { AppError, NotFoundError } from "@uploads/errors";
 import { badKey } from "@uploads/api/files";
 import {
   findObjectsByMetadata,
@@ -74,6 +77,58 @@ function decodeBase64(value: string, maxBytes: number): Uint8Array {
   return Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
 }
 
+/** Max items per multi-file put call — bounds decoded bytes held in isolate memory. */
+export const MAX_PUT_FILES = 20;
+/** Bounded parallelism for batch writes (each is a D1 budget check + R2 put). */
+const PUT_CONCURRENCY = 5;
+
+interface PutFileItem {
+  filename: string;
+  contentBase64: string;
+  alt?: string;
+}
+
+/** Validate the multi-file `files` argument shape (content, not paths — no filesystem here). */
+function optPutFileItems(args: Record<string, unknown>): PutFileItem[] | undefined {
+  const v = args.files;
+  if (v === undefined || v === null) return undefined;
+  if (!Array.isArray(v)) usage("files must be an array of { filename, contentBase64 } objects");
+  return v.map((entry, i) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      usage(`files[${i}] must be an object with filename and contentBase64`);
+    }
+    const rec = entry as Record<string, unknown>;
+    for (const key of Object.keys(rec)) {
+      if (!["filename", "contentBase64", "alt"].includes(key)) {
+        usage(`files[${i}].${key} is not a valid property`);
+      }
+    }
+    const { filename, contentBase64, alt } = rec;
+    if (typeof filename !== "string" || !filename) usage(`files[${i}].filename is required`);
+    if (typeof contentBase64 !== "string" || !contentBase64) {
+      usage(`files[${i}].contentBase64 is required`);
+    }
+    if (alt !== undefined && typeof alt !== "string") usage(`files[${i}].alt must be a string`);
+    return {
+      filename,
+      contentBase64,
+      ...(typeof alt === "string" ? { alt } : {}),
+    };
+  });
+}
+
+/** Per-item failure detail, same shape as the CLI/stdio `failures[]` entries. */
+function errorDetail(err: unknown): {
+  message: string;
+  code?: string;
+  status?: number;
+} {
+  if (err instanceof AppError) {
+    return { message: err.message, code: String(err.code), status: err.status };
+  }
+  return { message: err instanceof Error ? err.message : String(err) };
+}
+
 export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
   const { env, workspace, workspaceName } = ctx;
 
@@ -122,8 +177,14 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       inputSchema: {
         type: "object",
         properties: {
-          title: { type: "string", description: "Gallery title (1–120 characters)." },
-          description: { type: "string", description: "Optional public gallery description." },
+          title: {
+            type: "string",
+            description: "Gallery title (1–120 characters).",
+          },
+          description: {
+            type: "string",
+            description: "Optional public gallery description.",
+          },
         },
         required: ["title"],
         additionalProperties: false,
@@ -147,7 +208,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         "Get a workspace-owned gallery, including its ordered media and canonical public URL. Gallery media is public to anyone with the URL.",
       inputSchema: {
         type: "object",
-        properties: { galleryId: { type: "string", description: "Opaque gallery ID." } },
+        properties: {
+          galleryId: { type: "string", description: "Opaque gallery ID." },
+        },
         required: ["galleryId"],
         additionalProperties: false,
       },
@@ -164,7 +227,10 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         type: "object",
         properties: {
           galleryId: { type: "string", description: "Opaque gallery ID." },
-          objectKey: { type: "string", description: "Existing public object key to add." },
+          objectKey: {
+            type: "string",
+            description: "Existing public object key to add.",
+          },
           caption: { type: "string", description: "Optional public caption." },
           altText: { type: "string", description: "Optional public alt text." },
         },
@@ -224,7 +290,10 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         type: "object",
         properties: {
           galleryId: { type: "string", description: "Opaque gallery ID." },
-          provider: { type: "string", description: "External provider (currently github)." },
+          provider: {
+            type: "string",
+            description: "External provider (currently github).",
+          },
           coordinate: {
             type: "string",
             description: "Provider-native external reference coordinate.",
@@ -257,12 +326,18 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       inputSchema: {
         type: "object",
         properties: {
-          provider: { type: "string", description: "External provider (currently github)." },
+          provider: {
+            type: "string",
+            description: "External provider (currently github).",
+          },
           coordinate: {
             type: "string",
             description: "Provider-native external reference coordinate.",
           },
-          limit: { type: "number", description: "Page size (default 50, max 100)." },
+          limit: {
+            type: "number",
+            description: "Page size (default 50, max 100).",
+          },
         },
         required: ["provider", "coordinate"],
         additionalProperties: false,
@@ -288,17 +363,42 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     {
       name: "put",
       description:
-        "Upload base64-encoded content to the workspace and get a public URL plus GitHub-ready embed markdown (the returned `markdown` is ready to paste into a PR or issue). The key defaults to <prefix>/<repo>/<ref>/<name>-<hash>.<ext>; pass `key` for an explicit path instead. Uploads are public regardless of GitHub repository visibility; explicit predictable keys must contain only non-sensitive media. The stored content type is sniffed from the bytes and restricted to the workspace's allowlist (images plus mp4/webm by default).",
+        "Upload base64-encoded content to the workspace and get a public URL plus GitHub-ready embed markdown (the returned `markdown` is ready to paste into a PR or issue). Single file: pass `contentBase64` + `filename` (flat result). Multiple files: pass `files` (uploaded in parallel; returns `uploads` + `failures`, one bad item does not abort the rest). The key defaults to <prefix>/<repo>/<ref>/<name>-<hash>.<ext>; pass `key` for an explicit path instead (single-file only). Uploads are public regardless of GitHub repository visibility; explicit predictable keys must contain only non-sensitive media. The stored content type is sniffed from the bytes and restricted to the workspace's allowlist (images plus mp4/webm by default).",
       inputSchema: {
         type: "object",
         properties: {
           contentBase64: {
             type: "string",
-            description: "Base64-encoded file content to upload (must be non-empty).",
+            description:
+              "Base64-encoded file content to upload (must be non-empty). Exactly one of contentBase64 or files is required.",
           },
           filename: {
             type: "string",
             description: "Filename for the content (drives the key and content type).",
+          },
+          files: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                filename: {
+                  type: "string",
+                  description: "Filename for this item (drives the key and content type).",
+                },
+                contentBase64: {
+                  type: "string",
+                  description: "Base64-encoded content for this item (must be non-empty).",
+                },
+                alt: {
+                  type: "string",
+                  description:
+                    "Per-item alt text override (default: top-level alt, then filename).",
+                },
+              },
+              required: ["filename", "contentBase64"],
+              additionalProperties: false,
+            },
+            description: `Multiple files to upload in one call (max ${MAX_PUT_FILES} items). Cannot be combined with contentBase64, filename, or key; prefix/repo/ref/width/metadata apply to every item. Returns { uploads, failures } with per-item results.`,
           },
           key: {
             type: "string",
@@ -317,7 +417,10 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             type: "string",
             description: "PR/issue/branch key segment for the default key layout (default: today).",
           },
-          alt: { type: "string", description: "Alt text for the markdown (default: filename)." },
+          alt: {
+            type: "string",
+            description: "Alt text for the markdown (default: filename).",
+          },
           width: {
             type: "number",
             description: "Emit <img width=…> markdown instead of a plain image embed.",
@@ -329,16 +432,30 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
               "Queryable custom metadata (key→value), separate from provenance. Omit to leave any metadata already stored for this key untouched; pass an object (even {}) to fully replace it. Keys: lowercase, ^[a-z][a-z0-9._-]{0,63}$. Values: 1-512 printable ASCII characters. Caps: at most 24 keys, at most 8192 total key+value bytes. Suggested keys: app, url, page, device, resolution, commit, branch. `gh.*` is reserved by convention for GitHub PR/issue attachment context (repo/kind/number/ref), normally system-managed by the attach flow.",
           },
         },
-        required: ["contentBase64", "filename"],
         additionalProperties: false,
       },
       async handler(args) {
         requireScope("files:write");
+        // One limiter hit per tool call, single or batch — the batch's cost
+        // ceiling is bounded by MAX_PUT_FILES instead.
         await requireWriteBudget();
         const contentBase64 = optString(args, "contentBase64");
         const filename = optString(args, "filename");
-        if (!contentBase64) usage("contentBase64 is required");
-        if (!filename) usage("filename is required");
+        const items = optPutFileItems(args);
+        const multi = items !== undefined;
+        if (multi) {
+          if (contentBase64 !== undefined || filename !== undefined) {
+            usage("contentBase64/filename cannot be combined with files");
+          }
+          if (items.length === 0) usage("files must be a non-empty array");
+          if (items.length > MAX_PUT_FILES) {
+            usage(`files supports at most ${MAX_PUT_FILES} items per call`);
+          }
+          if (optString(args, "key")) usage("key cannot be combined with files");
+        } else {
+          if (!contentBase64) usage("contentBase64 is required");
+          if (!filename) usage("filename is required");
+        }
 
         const metadata = optStringRecord(args, "metadata");
         if (metadata) {
@@ -357,13 +474,82 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           usage("key cannot be combined with prefix/repo/ref");
         }
 
-        const bytes = decodeBase64(contentBase64, resolveUploadPolicy(workspace).maxBytes);
+        const maxBytes = resolveUploadPolicy(workspace).maxBytes;
+        const alt = optString(args, "alt");
+        const width = optPosInt(args, "width");
+        const putOpts = metadata !== undefined ? { metadata } : undefined;
+
+        if (multi) {
+          // Decode (and size-gate) every item before any write, so a
+          // structurally invalid batch fails whole with a usage error
+          // instead of leaving partial writes behind.
+          const decoded = items.map((item, i) => {
+            try {
+              return decodeBase64(item.contentBase64, maxBytes);
+            } catch (err) {
+              usage(
+                `files[${i}] (${item.filename}): ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+          });
+          type Slot =
+            | { ok: true; upload: Record<string, unknown> }
+            | { ok: false; file: string; err: unknown };
+          const slots: Slot[] = await mapBounded(items, PUT_CONCURRENCY, async (item, i) => {
+            try {
+              const key = await buildScreenshotKey({
+                filename: item.filename,
+                fileBytes: decoded[i]!,
+                prefix,
+                repo,
+                ref,
+                deriveRepoFromGit: false,
+              });
+              const result = await putObject(
+                env,
+                workspace,
+                key,
+                decoded[i]!,
+                workspaceName,
+                putOpts,
+              );
+              const markdown =
+                result.url === null
+                  ? undefined
+                  : buildMarkdown(result.url, {
+                      alt: item.alt ?? alt ?? item.filename,
+                      width,
+                    });
+              return {
+                ok: true,
+                upload: { file: item.filename, ...result, markdown },
+              };
+            } catch (err) {
+              return { ok: false, file: item.filename, err };
+            }
+          });
+          const uploads = slots.flatMap((slot) => (slot.ok ? [slot.upload] : []));
+          const failures = slots.flatMap((slot) =>
+            slot.ok ? [] : [{ file: slot.file, error: errorDetail(slot.err) }],
+          );
+          if (uploads.length === 0 && failures.length > 0) {
+            // Total failure → isError with structuredContent, same as stdio.
+            throw new ToolBatchError(batchFailureMessage(failures), {
+              workspace: workspaceName,
+              uploads,
+              failures,
+            });
+          }
+          return { workspace: workspaceName, uploads, failures };
+        }
+
+        const bytes = decodeBase64(contentBase64!, maxBytes);
 
         const key =
           explicitKey ??
           // deriveRepoFromGit: false — no git (or child_process) on a worker.
           (await buildScreenshotKey({
-            filename,
+            filename: filename!,
             fileBytes: bytes,
             prefix,
             repo,
@@ -375,20 +561,13 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         // shared with the REST API — the stored content type is sniffed there.
         // metadata is undefined when omitted (leave existing D1 rows
         // untouched); passing opts only when defined preserves that.
-        const result = await putObject(
-          env,
-          workspace,
-          key,
-          bytes,
-          workspaceName,
-          metadata !== undefined ? { metadata } : undefined,
-        );
+        const result = await putObject(env, workspace, key, bytes, workspaceName, putOpts);
         const markdown =
           result.url === null
             ? undefined
             : buildMarkdown(result.url, {
-                alt: optString(args, "alt") ?? filename,
-                width: optPosInt(args, "width"),
+                alt: alt ?? filename!,
+                width,
               });
         return { workspace: workspaceName, ...result, markdown };
       },
@@ -401,8 +580,14 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         type: "object",
         properties: {
           prefix: { type: "string", description: "Key prefix filter." },
-          limit: { type: "number", description: "Page size (default 100, max 1000)." },
-          cursor: { type: "string", description: "Pagination cursor from a previous call." },
+          limit: {
+            type: "number",
+            description: "Page size (default 100, max 1000).",
+          },
+          cursor: {
+            type: "string",
+            description: "Pagination cursor from a previous call.",
+          },
         },
         additionalProperties: false,
       },
@@ -462,7 +647,10 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         type: "object",
         properties: {
           key: { type: "string", description: "Object key to update." },
-          set: { ...metadataProp, description: "Keys to set/overwrite. " + METADATA_DESCRIPTION },
+          set: {
+            ...metadataProp,
+            description: "Keys to set/overwrite. " + METADATA_DESCRIPTION,
+          },
           delete: {
             type: "array",
             items: { type: "string" },
@@ -497,8 +685,14 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             ...metadataProp,
             description: "Metadata equality filters (at least one pair). " + METADATA_DESCRIPTION,
           },
-          prefix: { type: "string", description: "Key prefix filter, combinable with filters." },
-          limit: { type: "number", description: "Page size (default 50, max 500)." },
+          prefix: {
+            type: "string",
+            description: "Key prefix filter, combinable with filters.",
+          },
+          limit: {
+            type: "number",
+            description: "Page size (default 50, max 500).",
+          },
         },
         required: ["filters"],
         additionalProperties: false,
@@ -532,7 +726,11 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       name: "usage",
       description:
         "Workspace storage and monthly upload counters (and remaining headroom when budgets are configured).",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
       async handler() {
         requireScope("files:read");
         const snapshot = await getWorkspaceUsage(env.DB, workspaceName);
@@ -543,7 +741,11 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       name: "reconcile",
       description:
         "Rebuild usage ledger bytes/objects from storage (source of truth). Preserves the monthly upload counter. Requires files:write.",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
       async handler() {
         requireScope("files:write");
         await requireWriteBudget();
@@ -558,7 +760,11 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       name: "purge_expired",
       description:
         "Delete objects older than the workspace retentionDays setting, then reconcile. Skips if retention is unset. Requires files:delete.",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
       async handler() {
         requireScope("files:delete");
         await requireWriteBudget();
@@ -576,7 +782,11 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     {
       name: "health",
       description: "Check uploads.sh MCP server liveness. No scope required.",
-      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
       async handler() {
         return { ok: true };
       },

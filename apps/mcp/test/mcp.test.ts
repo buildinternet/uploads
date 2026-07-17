@@ -39,9 +39,19 @@ beforeAll(() => {
  * path (mirrors apps/api/test/routes-files.test.ts).
  */
 async function makeEnv(
-  options: { d1?: { tokenHash: string; scopes: string }; rateLimitOk?: boolean } = {},
-): Promise<{ env: Env; bucket: FakeR2Bucket; metadata: Map<string, Map<string, string>> }> {
-  const record: WorkspaceRecord = { ...workspace, tokenHash: await sha256Hex(TOKEN) };
+  options: {
+    d1?: { tokenHash: string; scopes: string };
+    rateLimitOk?: boolean;
+  } = {},
+): Promise<{
+  env: Env;
+  bucket: FakeR2Bucket;
+  metadata: Map<string, Map<string, string>>;
+}> {
+  const record: WorkspaceRecord = {
+    ...workspace,
+    tokenHash: await sha256Hex(TOKEN),
+  };
   const bucket = new FakeR2Bucket();
   // Keyed by `${workspace} ${objectKey}` -> ordered meta_key -> meta_value,
   // real enough to exercise putObject's file_metadata read/write/delete path
@@ -145,8 +155,11 @@ async function makeEnv(
               normalized.startsWith("SELECT object_key, meta_key, meta_value FROM file_metadata")
             ) {
               const [ws, ...keys] = values as string[];
-              const results: Array<{ object_key: string; meta_key: string; meta_value: string }> =
-                [];
+              const results: Array<{
+                object_key: string;
+                meta_key: string;
+                meta_value: string;
+              }> = [];
               for (const objectKey of keys) {
                 const map = metadata.get(scopeKey(ws, objectKey));
                 if (!map) continue;
@@ -167,7 +180,11 @@ async function makeEnv(
     UPLOADS: bucket,
     ...(options.rateLimitOk === undefined
       ? {}
-      : { WRITE_LIMITER: { limit: async () => ({ success: options.rateLimitOk }) } }),
+      : {
+          WRITE_LIMITER: {
+            limit: async () => ({ success: options.rateLimitOk }),
+          },
+        }),
   } as unknown as Env;
   return { env, bucket, metadata };
 }
@@ -229,13 +246,22 @@ async function callTool(
 ) {
   const response = await rpc(
     env,
-    { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } },
+    {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name, arguments: args },
+    },
     token,
     path,
   );
   expect(response.status).toBe(200);
   const body = (await response.json()) as {
-    result: { isError: boolean; structuredContent?: Record<string, unknown>; content: unknown[] };
+    result: {
+      isError: boolean;
+      structuredContent?: Record<string, unknown>;
+      content: unknown[];
+    };
   };
   return body.result;
 }
@@ -259,7 +285,11 @@ describe("hosted gallery tenant isolation", () => {
       alphaPath,
     );
     expect(created.isError).toBe(false);
-    const gallery = created.structuredContent as { id: string; url: string; version: number };
+    const gallery = created.structuredContent as {
+      id: string;
+      url: string;
+      version: number;
+    };
     expect(gallery.url).toBe("https://uploads.test/g/" + gallery.id);
 
     const added = await callTool(
@@ -319,7 +349,10 @@ describe("hosted gallery tenant isolation", () => {
       BETA_TOKEN,
       betaPath,
     );
-    expect(betaFound.structuredContent).toEqual({ galleries: [], nextCursor: null });
+    expect(betaFound.structuredContent).toEqual({
+      galleries: [],
+      nextCursor: null,
+    });
   });
 });
 
@@ -372,8 +405,14 @@ describe("mcp worker", () => {
 
   it("lists exactly the remote tools", async () => {
     const { env } = await makeEnv();
-    const response = await rpc(env, { jsonrpc: "2.0", id: 2, method: "tools/list" });
-    const body = (await response.json()) as { result: { tools: { name: string }[] } };
+    const response = await rpc(env, {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/list",
+    });
+    const body = (await response.json()) as {
+      result: { tools: { name: string }[] };
+    };
     expect(body.result.tools.map((tool) => tool.name).sort()).toEqual([
       "delete",
       "find_files",
@@ -463,6 +502,134 @@ describe("mcp worker", () => {
     expect(bucket.store.size).toBe(0);
   });
 
+  it("uploads multiple files in one call with per-item results", async () => {
+    const { env, bucket } = await makeEnv();
+    const result = await callTool(env, "put", {
+      files: [
+        { filename: "one.png", contentBase64: PNG_B64 },
+        { filename: "two.png", contentBase64: PNG_B64, alt: "second shot" },
+      ],
+      prefix: "shots",
+      repo: "acme/app",
+      ref: "42",
+    });
+    expect(result.isError).toBe(false);
+    const body = result.structuredContent as {
+      workspace: string;
+      uploads: Array<{
+        file: string;
+        key: string;
+        url: string;
+        markdown: string;
+      }>;
+      failures: unknown[];
+    };
+    expect(body.workspace).toBe("test-ws");
+    expect(body.failures).toEqual([]);
+    expect(body.uploads).toHaveLength(2);
+    expect(body.uploads[0].file).toBe("one.png");
+    expect(body.uploads[0].key).toMatch(/^shots\/acme-app\/42\/one-/);
+    expect(body.uploads[0].markdown).toContain("![one.png](");
+    expect(body.uploads[1].markdown).toContain("![second shot](");
+    expect(bucket.store.size).toBe(2);
+  });
+
+  it("multi-file put returns partial failures without aborting the batch", async () => {
+    const { env, bucket } = await makeEnv();
+    const textB64 = btoa("not an image");
+    const result = await callTool(env, "put", {
+      files: [
+        { filename: "good.png", contentBase64: PNG_B64 },
+        { filename: "bad.txt", contentBase64: textB64 },
+      ],
+    });
+    expect(result.isError).toBe(false);
+    const body = result.structuredContent as {
+      uploads: Array<{ file: string }>;
+      failures: Array<{ file: string; error: { message: string } }>;
+    };
+    expect(body.uploads).toHaveLength(1);
+    expect(body.uploads[0].file).toBe("good.png");
+    expect(body.failures).toHaveLength(1);
+    expect(body.failures[0].file).toBe("bad.txt");
+    expect(body.failures[0].error.message).toBeTruthy();
+    expect(bucket.store.size).toBe(1);
+  });
+
+  it("multi-file total failure is isError with structured failures", async () => {
+    const { env, bucket } = await makeEnv();
+    const textB64 = btoa("not an image");
+    const result = await callTool(env, "put", {
+      files: [
+        { filename: "a.txt", contentBase64: textB64 },
+        { filename: "b.txt", contentBase64: textB64 },
+      ],
+    });
+    expect(result.isError).toBe(true);
+    const body = result.structuredContent as {
+      uploads: unknown[];
+      failures: Array<{ file: string }>;
+    };
+    expect(body.uploads).toEqual([]);
+    expect(body.failures.map((f) => f.file)).toEqual(["a.txt", "b.txt"]);
+    expect(bucket.store.size).toBe(0);
+  });
+
+  it("multi-file put rejects invalid combinations and shapes before writing", async () => {
+    const { env, bucket } = await makeEnv();
+    const combined = await callTool(env, "put", {
+      files: [{ filename: "one.png", contentBase64: PNG_B64 }],
+      contentBase64: PNG_B64,
+      filename: "extra.png",
+    });
+    expect(combined.isError).toBe(true);
+    expect(combined.content).toEqual([
+      {
+        type: "text",
+        text: "contentBase64/filename cannot be combined with files (USAGE)",
+      },
+    ]);
+
+    const withKey = await callTool(env, "put", {
+      files: [{ filename: "one.png", contentBase64: PNG_B64 }],
+      key: "shots/one.png",
+    });
+    expect(withKey.isError).toBe(true);
+    expect(withKey.content).toEqual([
+      { type: "text", text: "key cannot be combined with files (USAGE)" },
+    ]);
+
+    const overCap = await callTool(env, "put", {
+      files: Array.from({ length: 21 }, (_, i) => ({
+        filename: `f${i}.png`,
+        contentBase64: PNG_B64,
+      })),
+    });
+    expect(overCap.isError).toBe(true);
+    expect(overCap.content).toEqual([
+      {
+        type: "text",
+        text: "files supports at most 20 items per call (USAGE)",
+      },
+    ]);
+
+    // One bad base64 item fails the whole batch before any write.
+    const badBase64 = await callTool(env, "put", {
+      files: [
+        { filename: "one.png", contentBase64: PNG_B64 },
+        { filename: "two.png", contentBase64: "%%%" },
+      ],
+    });
+    expect(badBase64.isError).toBe(true);
+    expect(badBase64.content).toEqual([
+      {
+        type: "text",
+        text: "files[1] (two.png): contentBase64 must be valid base64 (USAGE)",
+      },
+    ]);
+    expect(bucket.store.size).toBe(0);
+  });
+
   it("get_metadata returns stored pairs, empty map, or not-found", async () => {
     const { env } = await makeEnv();
     await callTool(env, "put", {
@@ -477,24 +644,33 @@ describe("mcp worker", () => {
       key: "shots/plain.png",
     });
 
-    const tagged = await callTool(env, "get_metadata", { key: "shots/tagged.png" });
+    const tagged = await callTool(env, "get_metadata", {
+      key: "shots/tagged.png",
+    });
     expect(tagged.isError).toBe(false);
     expect(tagged.structuredContent).toEqual({
       metadata: { app: "myapp", page: "/checkout" },
     });
 
-    const plain = await callTool(env, "get_metadata", { key: "shots/plain.png" });
+    const plain = await callTool(env, "get_metadata", {
+      key: "shots/plain.png",
+    });
     expect(plain.isError).toBe(false);
     expect(plain.structuredContent).toEqual({ metadata: {} });
 
-    const missing = await callTool(env, "get_metadata", { key: "shots/missing.png" });
+    const missing = await callTool(env, "get_metadata", {
+      key: "shots/missing.png",
+    });
     expect(missing.isError).toBe(true);
   });
 
   it("get_metadata enforces files:read scope", async () => {
     const token = "up_test-ws_write-only-token";
     const { env } = await makeEnv({
-      d1: { tokenHash: await sha256Hex(token), scopes: JSON.stringify(["files:write"]) },
+      d1: {
+        tokenHash: await sha256Hex(token),
+        scopes: JSON.stringify(["files:write"]),
+      },
     });
     const result = await callTool(env, "get_metadata", { key: "shots/x.png" }, token);
     expect(result.isError).toBe(true);
@@ -531,7 +707,9 @@ describe("mcp worker", () => {
       filename: "shot.png",
       key: "shots/tagged.png",
     });
-    const result = await callTool(env, "set_metadata", { key: "shots/tagged.png" });
+    const result = await callTool(env, "set_metadata", {
+      key: "shots/tagged.png",
+    });
     expect(result.isError).toBe(true);
     expect(result.content).toEqual([
       { type: "text", text: "set_metadata requires set and/or delete (USAGE)" },
@@ -565,7 +743,10 @@ describe("mcp worker", () => {
   it("set_metadata enforces files:write scope", async () => {
     const token = "up_test-ws_read-only-token";
     const { env } = await makeEnv({
-      d1: { tokenHash: await sha256Hex(token), scopes: JSON.stringify(["files:read"]) },
+      d1: {
+        tokenHash: await sha256Hex(token),
+        scopes: JSON.stringify(["files:read"]),
+      },
     });
     const result = await callTool(
       env,
@@ -643,21 +824,30 @@ describe("mcp worker", () => {
 
     const listed = await callTool(env, "list", { prefix: "shots/" });
     expect(listed.isError).toBe(false);
-    const items = listed.structuredContent?.items as { key: string; url: string }[];
+    const items = listed.structuredContent?.items as {
+      key: string;
+      url: string;
+    }[];
     expect(items).toHaveLength(1);
     expect(items[0].key).toBe("shots/shot.png");
     expect(items[0].url).toBe("https://storage.example.com/shots/shot.png");
 
     const deleted = await callTool(env, "delete", { key: "shots/shot.png" });
     expect(deleted.isError).toBe(false);
-    expect(deleted.structuredContent).toEqual({ key: "shots/shot.png", deleted: true });
+    expect(deleted.structuredContent).toEqual({
+      key: "shots/shot.png",
+      deleted: true,
+    });
     expect(bucket.store.size).toBe(0);
   });
 
   it("enforces token scopes inside tool handlers", async () => {
     const token = "up_test-ws_read-only-token";
     const { env, bucket } = await makeEnv({
-      d1: { tokenHash: await sha256Hex(token), scopes: JSON.stringify(["files:read"]) },
+      d1: {
+        tokenHash: await sha256Hex(token),
+        scopes: JSON.stringify(["files:read"]),
+      },
     });
     const result = await callTool(
       env,
@@ -746,7 +936,10 @@ describe("mcp worker", () => {
 
   it("returns 202 with an empty body for notifications", async () => {
     const { env } = await makeEnv();
-    const response = await rpc(env, { jsonrpc: "2.0", method: "notifications/initialized" });
+    const response = await rpc(env, {
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+    });
     expect(response.status).toBe(202);
     expect(await response.text()).toBe("");
   });
@@ -791,7 +984,11 @@ describe("token-inferred /mcp endpoint", () => {
           method: "tools/call",
           params: {
             name: "put",
-            arguments: { contentBase64: PNG_B64, filename: "shot.png", key: "shots/shot.png" },
+            arguments: {
+              contentBase64: PNG_B64,
+              filename: "shot.png",
+              key: "shots/shot.png",
+            },
           },
         },
         TOKEN,
@@ -799,7 +996,10 @@ describe("token-inferred /mcp endpoint", () => {
       );
       expect(response.status).toBe(200);
       return (await response.json()) as {
-        result: { isError: boolean; structuredContent?: Record<string, unknown> };
+        result: {
+          isError: boolean;
+          structuredContent?: Record<string, unknown>;
+        };
       };
     })();
     expect(result.result.isError).toBe(false);
