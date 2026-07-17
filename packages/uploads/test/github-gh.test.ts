@@ -3,6 +3,7 @@ import { UsageError } from "../src/cli-args.js";
 import { ATTACHMENTS_MARKER, type GhTarget } from "../src/github.js";
 import {
   classifyGhNumber,
+  resolveCurrentPullRequest,
   resolveRepo,
   upsertAttachmentsComment,
   type CommandRunner,
@@ -51,6 +52,54 @@ describe("resolveRepo", () => {
   it("throws UsageError when nothing resolves", () => {
     const { run } = fakeRunner({});
     expect(() => resolveRepo(undefined, run)).toThrow(UsageError);
+  });
+});
+
+describe("resolveCurrentPullRequest", () => {
+  it("passes the current branch as the selector so --repo stays honored", () => {
+    const { run, calls } = fakeRunner({
+      git: (args) => {
+        expect(args).toEqual(["rev-parse", "--abbrev-ref", "HEAD"]);
+        return "feature/thing\n";
+      },
+      gh: () => "208\n",
+    });
+    expect(resolveCurrentPullRequest("buildinternet/uploads", run)).toEqual({
+      repo: "buildinternet/uploads",
+      kind: "pull",
+      num: 208,
+    });
+    const gh = calls.find((c) => c.cmd === "gh");
+    expect(gh?.args).toEqual([
+      "pr",
+      "view",
+      "feature/thing",
+      "--repo",
+      "buildinternet/uploads",
+      "--json",
+      "number",
+      "--jq",
+      ".number",
+    ]);
+  });
+
+  it("throws UsageError on a detached HEAD instead of calling gh", () => {
+    const { run, calls } = fakeRunner({
+      git: () => "HEAD\n",
+      gh: () => "1\n",
+    });
+    expect(() => resolveCurrentPullRequest("o/r", run)).toThrow(UsageError);
+    expect(calls.some((c) => c.cmd === "gh")).toBe(false);
+  });
+
+  it("throws UsageError when gh finds no PR for the branch", () => {
+    const { run } = fakeRunner({
+      git: () => "feature/thing\n",
+      gh: () => {
+        throw new Error("no pull requests found for branch");
+      },
+    });
+    expect(() => resolveCurrentPullRequest("o/r", run)).toThrow(/could not infer a pull request/);
   });
 });
 

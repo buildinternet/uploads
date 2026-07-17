@@ -50,9 +50,14 @@ export function resolveRepo(explicit: string | undefined, run: CommandRunner = e
 /** Resolve the pull request associated with the current branch. */
 export function resolveCurrentPullRequest(repo: string, run: CommandRunner = execRunner): GhTarget {
   try {
+    // `gh pr view --repo` requires an explicit selector (it refuses to infer
+    // from the current branch), so pass the branch name as the selector.
+    const branch = run("git", ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+    if (branch === "" || branch === "HEAD") throw new Error("detached HEAD");
     const out = run("gh", [
       "pr",
       "view",
+      branch,
       "--repo",
       repo,
       "--json",
