@@ -1,0 +1,27 @@
+{
+  "name": "uploads",
+  "owner": {
+    "name": "Build Internet",
+    "url": "https://uploads.sh"
+  },
+  "description": "Host screenshots, GIFs, recordings, and files on uploads.sh and embed them in GitHub PRs and issues.",
+  "plugins": [
+    {
+      "name": "uploads",
+      "source": "./",
+      "description": "Get screenshots, GIFs, recordings, and files into GitHub PRs and issues via uploads.sh. Bundles the github-screenshots + uploads-cli skills, a local MCP server, and the /uploads:attach command.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Build Internet"
+      },
+      "homepage": "https://uploads.sh",
+      "repository": "https://github.com/buildinternet/uploads",
+      "license": "MIT",
+      "keywords": ["uploads", "screenshots", "github", "file-hosting", "images", "mcp"],
+      "strict": false,
+      "skills": ["./skills/github-screenshots", "./skills/uploads-cli"],
+      "commands": "./plugins/claude/uploads/commands",
+      "mcpServers": "./plugins/claude/uploads/.mcp.json"
+    }
+  ]
+}
