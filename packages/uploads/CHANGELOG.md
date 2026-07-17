@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.12.1
+
+### Patch Changes
+
+- 4d0bfad: Fix PR inference from the current branch: `gh pr view --repo` requires an explicit selector, so pass the current branch name. `uploads attach`/`put` from a branch with an open PR now resolve it instead of erroring.
+
 ## 0.12.0
 
 ### Minor Changes
