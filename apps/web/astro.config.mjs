@@ -7,6 +7,10 @@ export default defineConfig({
   adapter: cloudflare({ imageService: "compile" }),
   integrations: [react()],
   trailingSlash: "never",
+  redirects: {
+    // Renamed for a more recognizable slug; keep the old path working.
+    "/docs/attach": "/docs/attach-pull-request-images",
+  },
   build: {
     format: "file",
   },
