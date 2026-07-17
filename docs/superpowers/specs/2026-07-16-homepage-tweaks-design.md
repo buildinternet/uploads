@@ -65,7 +65,7 @@ keeps today's one-liner.
 - **Project column:** GitHub (repo), Terms, Privacy
 - **Family bar** below a divider: left, "Maintained by Zach Dunn / Build
   Internet" (links to zachdunn.com / buildinternet.com); right, "Release notes
-  for the tools you use — releases.sh →" with `rel="noopener"` only (no
+  registry for agents — releases.sh →" with `rel="noopener"` only (no
   `noreferrer`), mirroring how releases.sh links back to uploads.sh.
 
 Styling stays in-system: mono 12px, `var(--line)` borders, muted links with
