@@ -39,8 +39,12 @@ function fakeRegistry(records: Record<string, unknown>) {
   };
 }
 
+/** createdAt comfortably past ORPHAN_ORG_MIN_AGE_MS so age-gating doesn't skip test orgs. */
+const OLD_ORG_CREATED_AT = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
 /** Fake AUTH service binding: GET /internal/orgs + DELETE /internal/orgs/:slug. */
-function fakeAuth(orgs: { id: string; slug: string }[]) {
+function fakeAuth(orgs: { id: string; slug: string; createdAt?: string }[]) {
+  orgs = orgs.map((o) => ({ createdAt: OLD_ORG_CREATED_AT, ...o }));
   const deletedSlugs: string[] = [];
   const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = input instanceof Request ? input : new Request(input, init);
@@ -303,6 +307,24 @@ describe("runRetentionSweep — orphan-org sweep (#250)", () => {
     }
   });
 
+  it("never deletes a young or createdAt-less org (provisioning window)", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const auth = fakeAuth([
+        { id: "o1", slug: "just-provisioned", createdAt: new Date().toISOString() },
+        { id: "o2", slug: "no-created-at", createdAt: undefined },
+      ]);
+      const { env } = makeEnv({ kvRecords: {}, db: sqlite, auth });
+
+      const result = await runRetentionSweep(env);
+
+      expect(result.orgsSwept).toEqual([]);
+      expect(auth.deletedSlugs).toEqual([]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it("isolates a per-org delete failure without dropping other orgs", async () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     try {
@@ -312,8 +334,8 @@ describe("runRetentionSweep — orphan-org sweep (#250)", () => {
         if (req.method === "GET" && url.pathname === "/internal/orgs") {
           return Response.json({
             organizations: [
-              { id: "o1", slug: "bad-org" },
-              { id: "o2", slug: "good-org" },
+              { id: "o1", slug: "bad-org", createdAt: OLD_ORG_CREATED_AT },
+              { id: "o2", slug: "good-org", createdAt: OLD_ORG_CREATED_AT },
             ],
           });
         }

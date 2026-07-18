@@ -34,6 +34,14 @@ export interface SweepResult {
   }>;
 }
 
+/**
+ * Orgs younger than this are never treated as orphans: self-serve
+ * registration creates the org before the `ws:` KV write, so a sweep landing
+ * in that gap would otherwise delete a brand-new org mid-signup. A day dwarfs
+ * both the provisioning window and KV propagation.
+ */
+const ORPHAN_ORG_MIN_AGE_MS = 24 * 60 * 60 * 1000;
+
 export async function runRetentionSweep(env: Env): Promise<SweepResult> {
   let cursor: string | undefined;
   let workspacesScanned = 0;
@@ -152,6 +160,14 @@ export async function runRetentionSweep(env: Env): Promise<SweepResult> {
     const orgs = await listOrgs(env);
     for (const org of orgs) {
       if (org.slug === communalWorkspace) continue;
+      // Registration provisions the org BEFORE writing the ws: KV record
+      // (routes/workspaces.ts), so a just-created org can look orphaned for a
+      // moment. Skip anything inside the provisioning window — or with no
+      // parseable createdAt at all — rather than risk deleting it mid-signup.
+      const createdAtMs = org.createdAt ? Date.parse(org.createdAt) : Number.NaN;
+      if (!Number.isFinite(createdAtMs) || Date.now() - createdAtMs < ORPHAN_ORG_MIN_AGE_MS) {
+        continue;
+      }
       try {
         const record = await env.REGISTRY.get<WorkspaceRecord | PurgedTombstone>(
           `ws:${org.slug}`,

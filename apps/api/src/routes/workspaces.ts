@@ -15,7 +15,7 @@ import {
 } from "@uploads/errors";
 import { Hono } from "hono";
 import { isCommunal } from "./me";
-import { allowWorkspaceCreate } from "../guards";
+import { allowWorkspaceCreate, allowWrite } from "../guards";
 import { deleteOrg, isGithubLinked, membershipsForUser, provisionOrg } from "../org-workspaces";
 import { selfServeWorkspaceRecord } from "../self-serve-defaults";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
@@ -164,6 +164,9 @@ async function loadOwnedSelfServeRecord(c: { env: Env }, name: string, userId: s
 workspaces.delete("/:name", sessionAuth, requireSessionUser, async (c) => {
   const name = c.req.param("name");
   requireWorkspaceName(name);
+  if (!(await allowWrite(c.env, name))) {
+    throw new RateLimitedError("rate limit exceeded");
+  }
   const user = c.get("sessionUser")!;
 
   const record = await loadOwnedSelfServeRecord(c, name, user.id);
@@ -206,6 +209,9 @@ workspaces.delete("/:name", sessionAuth, requireSessionUser, async (c) => {
 workspaces.post("/:name/restore", sessionAuth, requireSessionUser, async (c) => {
   const name = c.req.param("name");
   requireWorkspaceName(name);
+  if (!(await allowWrite(c.env, name))) {
+    throw new RateLimitedError("rate limit exceeded");
+  }
   const user = c.get("sessionUser")!;
 
   const record = await loadOwnedSelfServeRecord(c, name, user.id);

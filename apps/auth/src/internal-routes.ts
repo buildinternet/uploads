@@ -243,7 +243,11 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
   .get("/orgs", async (c) => {
     const db = drizzle(c.env.DB, { schema });
     const rows = await db
-      .select({ id: schema.organization.id, slug: schema.organization.slug })
+      .select({
+        id: schema.organization.id,
+        slug: schema.organization.slug,
+        createdAt: schema.organization.createdAt,
+      })
       .from(schema.organization);
     return c.json({ organizations: rows });
   })
