@@ -15,6 +15,9 @@ import {
   type SessionResponse,
   type SessionUser,
 } from "./auth-client";
+import { markPageLoad } from "./page-visit";
+
+export { getPageVisit, isCurrentPageVisit } from "./page-visit";
 
 const SESSION_EVENT = "uploads:session";
 
@@ -105,15 +108,27 @@ export function initSignOut(authOrigin: string): void {
   });
 }
 
+let pageVisitTrackingInstalled = false;
+
 /**
  * Run after every Astro ClientRouter navigation (and the initial load when
  * `<ClientRouter />` is present). Bundled module scripts only execute once per
  * session — page/layout boot that queries the DOM must register here so it
  * re-attaches after body swap.
  *
+ * Also bumps the shared page-visit id (see `page-visit.ts`) once per event so
+ * async handlers can drop stale results after the user navigates away.
+ *
  * Prefer this over top-level side effects in account/admin page scripts.
  */
 export function onAstroPageLoad(callback: () => void): void {
+  if (!pageVisitTrackingInstalled) {
+    pageVisitTrackingInstalled = true;
+    // Register before page callbacks so they observe the bumped id.
+    document.addEventListener("astro:page-load", () => {
+      markPageLoad();
+    });
+  }
   document.addEventListener("astro:page-load", callback);
 }
 

@@ -126,10 +126,12 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
   })();
 </script>
 
-<script is:inline data-astro-rerun define:vars={{ authOrigin, apiOrigin }}>
-  window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
-  window.__UPLOADS_API_ORIGIN__ = apiOrigin;
-</script>
+{/* Window assigns only — see AccountLayout (define:vars const breaks data-astro-rerun). */}
+<script
+  is:inline
+  data-astro-rerun
+  set:html={`window.__UPLOADS_AUTH_ORIGIN__=${JSON.stringify(authOrigin)};window.__UPLOADS_API_ORIGIN__=${JSON.stringify(apiOrigin)};`}
+></script>
 <script>
   import {
     initSignOut,

@@ -9,28 +9,29 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
 ---
 
 <AccountLayout section="developers">
-  <section class="card dev-page">
-    <h2>Developers</h2>
-    <p class="dev-lead">
-      Most people just need <code>uploads login</code> from the{" "}
-      <a href="/account#cli-setup">account overview</a>. These are for API and CI
-      use.
-    </p>
-    <ul class="dev-links">
-      {showConsoleLinks ? (
+  <section class="card settings-page dev-page">
+    <div class="settings-section">
+      <h2>Developers</h2>
+      <p class="settings-note muted">
+        API and CI. Day to day: <code>uploads login</code> from the{" "}
+        <a href="/account#cli-setup">overview</a>.
+      </p>
+      <ul class="dev-links">
+        {showConsoleLinks ? (
+          <li>
+            <a href="/console">Console</a>
+            <span class="slug">token-based ops</span>
+          </li>
+        ) : null}
         <li>
-          <a href="/console">Console</a>
-          <span class="slug">usage, files, invites — bring a token</span>
+          <a href="/docs">API docs</a>
+          <span class="slug">endpoints &amp; auth</span>
         </li>
-      ) : null}
-      <li>
-        <a href="/docs">API docs</a>
-        <span class="slug">endpoints &amp; auth</span>
-      </li>
-      <li>
-        <a href="https://github.com/buildinternet/uploads">GitHub</a>
-        <span class="slug">source &amp; issues</span>
-      </li>
-    </ul>
+        <li>
+          <a href="https://github.com/buildinternet/uploads">GitHub</a>
+          <span class="slug">source &amp; issues</span>
+        </li>
+      </ul>
+    </div>
   </section>
 </AccountLayout>

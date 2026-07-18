@@ -5,52 +5,41 @@ export const prerender = false;
 ---
 
 <AccountLayout section="profile">
-  <section class="card">
-    <h2>Account</h2>
-    <dl class="kv">
-      <dt>Email</dt><dd id="acct-email"></dd>
-      <dt>Name</dt><dd id="acct-name"></dd>
-      <dt>Role</dt><dd id="acct-role"></dd>
-    </dl>
-    <p class="muted" style="margin-top:14px">
-      Name and avatar come from your sign-in provider. Nothing to edit here yet.
-    </p>
-  </section>
-
-  <section class="card">
-    <h2>Sign-in methods</h2>
-    <p class="muted">How you sign in to the web app and approve <code>uploads login</code>.</p>
-    <div id="accounts-status" class="muted detail-status">Loading…</div>
-    <ul class="detail-list" id="accounts-list" hidden></ul>
-    <p id="accounts-error" class="detail-error" role="alert" hidden></p>
-  </section>
-
-  <section class="card">
-    <h2>Workspace access</h2>
-    <p class="muted">
-      Workspaces this account can use. Membership expands as you’re invited;
-      open a workspace to browse files.
-    </p>
-    <div id="access-status" class="muted detail-status">Loading…</div>
-    <ul class="detail-list" id="access-list" hidden></ul>
-  </section>
-
-  <section class="card">
-    <h2>Active sessions</h2>
-    <p class="muted">
-      Browsers and CLI devices signed in to this account. Revoking a CLI session
-      doesn’t remove workspace tokens already saved on that machine.
-    </p>
-    <div id="sessions-status" class="muted detail-status">Loading…</div>
-    <ul class="detail-list" id="sessions-list" hidden></ul>
-    <div id="sessions-recover" class="sessions-recover" hidden>
-      <p class="muted">
-        Couldn’t load the session list. Sign in again to refresh it — browsing
-        still works with your current session.
-      </p>
-      <a class="text-btn" id="sessions-reauth" href="/login">Sign in again</a>
+  {/* One surface, hairline sections — avoids stacked cards + nested list boxes. */}
+  <section class="card settings-page">
+    <div class="settings-section">
+      <h2>Account</h2>
+      <dl class="kv">
+        <dt>Email</dt><dd id="acct-email"></dd>
+        <dt>Name</dt><dd id="acct-name"></dd>
+        <dt>Role</dt><dd id="acct-role"></dd>
+      </dl>
+      <p class="muted settings-note">From your sign-in provider.</p>
     </div>
-    <p id="sessions-error" class="detail-error" role="alert" hidden></p>
+
+    <div class="settings-section">
+      <h2>Sign-in methods</h2>
+      <div id="accounts-status" class="muted detail-status">Loading…</div>
+      <ul class="detail-list" id="accounts-list" hidden></ul>
+      <p id="accounts-error" class="detail-error" role="alert" hidden></p>
+    </div>
+
+    <div class="settings-section">
+      <h2>Workspaces</h2>
+      <div id="access-status" class="muted detail-status">Loading…</div>
+      <ul class="detail-list" id="access-list" hidden></ul>
+    </div>
+
+    <div class="settings-section">
+      <h2>Sessions</h2>
+      <div id="sessions-status" class="muted detail-status">Loading…</div>
+      <ul class="detail-list" id="sessions-list" hidden></ul>
+      <div id="sessions-recover" class="sessions-recover" hidden>
+        <p class="muted">Couldn’t load sessions — sign in again to refresh.</p>
+        <a class="text-btn" id="sessions-reauth" href="/login">Sign in again</a>
+      </div>
+      <p id="sessions-error" class="detail-error" role="alert" hidden></p>
+    </div>
   </section>
 
   <script>
@@ -174,7 +163,7 @@ export const prerender = false;
       if (!github) {
         rows.push({
           title: "GitHub",
-          detail: "Not connected — connect it to sign in with GitHub next time.",
+          detail: "Not connected",
           ok: false,
           icon: GITHUB_ICON,
           connectGithub: true,
