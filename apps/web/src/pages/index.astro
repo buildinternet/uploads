@@ -419,13 +419,6 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         padding: 10px 16px;
         text-decoration: none;
       }
-      .cta-solid:hover,
-      .cta-solid:focus-visible {
-        color: var(--bg);
-        background: color-mix(in srgb, var(--accent) 88%, #fff);
-        border-color: color-mix(in srgb, var(--accent) 88%, #fff);
-        outline: none;
-      }
       .cta-note { color: var(--muted); font-size: 12.5px; }
       /* Scope to main so header auth menu hover/active paint is not overridden
          (global `a` styles were bleeding into the avatar dropdown). */
@@ -437,6 +430,19 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       main a:hover,
       main a:focus-visible { color: var(--accent); outline: none; }
+      /* Beat `main a:hover` so the solid CTA keeps dark text on a lighter fill
+         (otherwise accent-on-accent is nearly unreadable). */
+      main a.cta-solid {
+        color: var(--bg);
+        text-decoration: none;
+      }
+      main a.cta-solid:hover,
+      main a.cta-solid:focus-visible {
+        color: var(--bg);
+        background: color-mix(in srgb, var(--accent) 82%, #fff);
+        border-color: color-mix(in srgb, var(--accent) 82%, #fff);
+        outline: none;
+      }
       @media (max-width: 560px) {
         .cmdrow { grid-template-columns: 1fr auto; }
         .cmdrow .tag { grid-column: 1 / -1; }
