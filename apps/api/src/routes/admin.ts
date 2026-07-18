@@ -450,9 +450,10 @@ export const admin = new Hono<{ Bindings: Env }>()
    * `/enrollments` above.
    *
    * Default (no `?hard=1`): **soft delete**. Stamps `deletedAt`/`purgeAt`
-   * (14-day grace window) on the record and puts it back — access denies
-   * immediately (`loadWorkspaceRecord` treats a `deletedAt` record as not
-   * found), data untouched. Deleting an already-soft-deleted workspace 409s.
+   * (14-day grace window) on the record and puts it back — access denies at
+   * the record layer (`loadWorkspaceRecord` treats a `deletedAt` record as
+   * not found; its 60s KV cacheTtl means auth may trail up to a minute),
+   * data untouched. Deleting an already-soft-deleted workspace 409s.
    * The daily retention sweep finalizes (full hard teardown + permanent
    * purged tombstone) once `purgeAt` passes.
    *
@@ -517,6 +518,18 @@ export const admin = new Hono<{ Bindings: Env }>()
           { code: "workspace_not_empty", details: { objectCount } },
         );
       }
+    }
+
+    // Stamp the record non-serving before any destructive step: if teardown
+    // crashes partway, the workspace denies access instead of serving a
+    // half-wiped state, and the retention sweep finalizes it (purgeAt is
+    // already past) on its next run. Skip if already soft-deleted.
+    if (!record.deletedAt) {
+      const now = new Date().toISOString();
+      await c.env.REGISTRY.put(
+        `ws:${name}`,
+        JSON.stringify({ ...record, deletedAt: now, purgeAt: now }),
+      );
     }
 
     const result = await teardownWorkspace(c.env, name, record, {

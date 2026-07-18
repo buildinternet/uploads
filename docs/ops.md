@@ -86,8 +86,10 @@ into the sweep's `workspacesFinalized` field.
 
 `DELETE /admin/workspaces/:name` is **soft by default** (#247): it stamps
 `deletedAt`/`purgeAt` (14-day grace window, `WORKSPACE_DELETE_GRACE_DAYS`) on
-the KV record and puts it back. Access denies immediately — every
-auth/serving path treats a `deletedAt` record as not found — but R2 objects,
+the KV record and puts it back. Access denies at the record layer — every
+auth/serving path treats a `deletedAt` record as not found — subject to the
+60-second KV `cacheTtl` on workspace reads, so token auth may keep succeeding
+for up to a minute after deletion (see `docs/deletion.md`). R2 objects,
 file metadata, and galleries are untouched. Deleting an already-soft-deleted
 workspace 409s `already_deleted` with the existing `purgeAt`.
 

@@ -106,6 +106,29 @@ describe("runRetentionSweep — soft-delete finalization (#247)", () => {
     }
   });
 
+  it("refuses to finalize a workspace whose purgeAt is unparseable", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const bucket = new FakeR2Bucket();
+      await bucket.put("f/one.png", new Uint8Array([1, 2, 3]));
+      const record: WorkspaceRecord = {
+        ...RECORD,
+        deletedAt: new Date().toISOString(),
+        purgeAt: "not-a-timestamp",
+      };
+      const { env, registry } = makeEnv({ kvRecords: { "ws:acme": record }, bucket, db: sqlite });
+
+      const result = await runRetentionSweep(env);
+
+      expect(result.workspacesFinalized).toHaveLength(1);
+      expect(result.workspacesFinalized[0]?.error).toMatch(/unparseable purgeAt/);
+      expect(bucket.store.has("f/one.png")).toBe(true);
+      expect(registry.store.get("ws:acme")).toEqual(record);
+    } finally {
+      sqlite.close();
+    }
+  });
+
   it("skips a purged tombstone harmlessly on a later sweep", async () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     try {

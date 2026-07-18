@@ -60,8 +60,22 @@ export async function runRetentionSweep(env: Env): Promise<SweepResult> {
 
       if (record.deletedAt) {
         // Soft-deleted: skip normal retention purge; finalize once the grace
-        // window has elapsed.
-        if (!record.purgeAt || Date.now() < Date.parse(record.purgeAt)) continue;
+        // window has elapsed. A missing or unparseable purgeAt must never
+        // fall through to teardown (NaN comparisons are false, which would
+        // otherwise read as "grace elapsed") — surface it as an error instead.
+        if (!record.purgeAt) continue;
+        const purgeAtMs = Date.parse(record.purgeAt);
+        if (!Number.isFinite(purgeAtMs)) {
+          workspacesFinalized.push({
+            workspace: name,
+            objectsDeleted: 0,
+            freedBytes: 0,
+            galleriesDeleted: 0,
+            error: `unparseable purgeAt: ${record.purgeAt}`,
+          });
+          continue;
+        }
+        if (Date.now() < purgeAtMs) continue;
 
         try {
           const result = await teardownWorkspace(env, name, record, {
