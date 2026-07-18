@@ -4,14 +4,144 @@
  * applied in src/index.ts before this router is even reached).
  */
 import { drizzle } from "drizzle-orm/d1";
-import { and, eq } from "drizzle-orm";
+import { and, count, countDistinct, eq, gt, isNull, max } from "drizzle-orm";
 import { Hono } from "hono";
-import type { AuthEnv } from "./auth";
+import { OAUTH_SCOPES, type AuthEnv } from "./auth";
 import { sendAuthEmail } from "./email";
 import * as schema from "./schema";
 
 function errorJson(code: string, message: string) {
   return { error: { code, message } } as const;
+}
+
+// Lane 1 (operator OAuth admin panel contract, .context/2026-07-18-oauth-admin-panel-contract.md):
+// validation error shape differs from the rest of this file's errorJson —
+// the contract locks in `{error:"invalid_request", message}` for these routes.
+function invalidRequest(message: string) {
+  return { error: "invalid_request", message } as const;
+}
+
+const REDIRECT_SCHEME_ALLOWLIST = new Set(["https:", "http:"]);
+
+function isLoopbackHost(host: string): boolean {
+  return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1";
+}
+
+/** Validates a redirect/homepage/icon URL per the contract's scheme allowlist. */
+function isAllowedUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (!REDIRECT_SCHEME_ALLOWLIST.has(url.protocol)) return false;
+  if (url.protocol === "http:" && !isLoopbackHost(url.hostname)) return false;
+  return true;
+}
+
+type OauthClientRow = typeof schema.oauthClient.$inferSelect;
+
+/** Reads the `official` flag out of the client's metadata JSON blob. */
+function isOfficial(row: OauthClientRow): boolean {
+  const metadata = row.metadata as Record<string, unknown> | null;
+  return Boolean(metadata && metadata.official === true);
+}
+
+function toEpochMs(value: Date | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  return value instanceof Date ? value.getTime() : value;
+}
+
+type OauthClientStats = {
+  consentCount: number;
+  activeTokenCount: number;
+  lastConsentAt: number | null;
+};
+
+async function statsForClient(
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  clientId: string,
+): Promise<OauthClientStats> {
+  const [consentRow] = await db
+    .select({
+      consentCount: countDistinct(schema.oauthConsent.userId),
+      lastConsentAt: max(schema.oauthConsent.createdAt),
+    })
+    .from(schema.oauthConsent)
+    .where(eq(schema.oauthConsent.clientId, clientId));
+  const [tokenRow] = await db
+    .select({ activeTokenCount: count() })
+    .from(schema.oauthRefreshToken)
+    .where(
+      and(
+        eq(schema.oauthRefreshToken.clientId, clientId),
+        isNull(schema.oauthRefreshToken.revoked),
+        gt(schema.oauthRefreshToken.expiresAt, new Date()),
+      ),
+    );
+  return {
+    consentCount: consentRow?.consentCount ?? 0,
+    activeTokenCount: tokenRow?.activeTokenCount ?? 0,
+    lastConsentAt: toEpochMs(consentRow?.lastConsentAt ?? null),
+  };
+}
+
+function serializeClient(row: OauthClientRow, stats: OauthClientStats) {
+  return {
+    clientId: row.clientId,
+    name: row.name,
+    type: row.type,
+    public: Boolean(row.public),
+    disabled: Boolean(row.disabled),
+    official: isOfficial(row),
+    redirectUris: row.redirectUris ?? [],
+    scopes: row.scopes ?? [],
+    uri: row.uri,
+    icon: row.icon,
+    userId: row.userId,
+    skipConsent: Boolean(row.skipConsent),
+    createdAt: toEpochMs(row.createdAt),
+    updatedAt: toEpochMs(row.updatedAt),
+    ...stats,
+  };
+}
+
+function validateName(name: unknown): string | null {
+  if (typeof name !== "string") return null;
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.length > 200) return null;
+  return trimmed;
+}
+
+function validateRedirectUris(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 20) return null;
+  const uris: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string" || !isAllowedUrl(entry)) return null;
+    uris.push(entry);
+  }
+  return uris;
+}
+
+function validateScopes(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const scopes: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string" || !(OAUTH_SCOPES as readonly string[]).includes(entry)) {
+      return null;
+    }
+    scopes.push(entry);
+  }
+  return scopes;
+}
+
+/** Optional https(-or-loopback) URL field (uri/icon). Undefined = "not provided". */
+function validateOptionalUrl(value: unknown): { ok: true; value: string | null } | { ok: false } {
+  if (value === undefined) return { ok: true, value: null };
+  if (value === null) return { ok: true, value: null };
+  if (typeof value !== "string" || !isAllowedUrl(value)) return { ok: false };
+  return { ok: true, value };
 }
 
 export const internal = new Hono<{ Bindings: AuthEnv }>()
@@ -497,4 +627,207 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       ok: true,
       user: { id: updated.id, email: updated.email, role: updated.role },
     });
+  })
+  // Lane 1 (operator OAuth admin panel contract): operator CRUD over
+  // Better Auth's oauth-provider tables. Always creates/keeps a public PKCE
+  // client — no client-secret handling anywhere in this file.
+  .get("/oauth-clients", async (c) => {
+    const db = drizzle(c.env.DB, { schema });
+    const rows = await db.select().from(schema.oauthClient).orderBy(schema.oauthClient.createdAt);
+    // orderBy asc by default; contract wants createdAt desc.
+    rows.reverse();
+    const clients = await Promise.all(
+      rows.map(async (row) => serializeClient(row, await statsForClient(db, row.clientId))),
+    );
+    return c.json({ clients });
+  })
+  .get("/oauth-clients/:clientId", async (c) => {
+    const clientId = c.req.param("clientId");
+    const db = drizzle(c.env.DB, { schema });
+    const [row] = await db
+      .select()
+      .from(schema.oauthClient)
+      .where(eq(schema.oauthClient.clientId, clientId))
+      .limit(1);
+    if (!row) {
+      return c.json({ error: "not_found" }, 404);
+    }
+    const stats = await statsForClient(db, clientId);
+    return c.json(serializeClient(row, stats));
+  })
+  .post("/oauth-clients", async (c) => {
+    const body = await c.req.json().catch(() => ({}) as Record<string, unknown>);
+
+    const name = validateName(body.name);
+    if (!name) {
+      return c.json(invalidRequest("name is required and must be ≤ 200 characters"), 400);
+    }
+    const redirectUris = validateRedirectUris(body.redirectUris);
+    if (!redirectUris) {
+      return c.json(
+        invalidRequest("redirectUris must be 1-20 valid http(s) URLs (http only for loopback)"),
+        400,
+      );
+    }
+    const scopes = validateScopes(body.scopes);
+    if (!scopes) {
+      return c.json(invalidRequest("scopes must be a non-empty subset of OAUTH_SCOPES"), 400);
+    }
+    const uriResult = validateOptionalUrl(body.uri);
+    if (!uriResult.ok) {
+      return c.json(invalidRequest("uri must be a valid https (or loopback http) URL"), 400);
+    }
+    const iconResult = validateOptionalUrl(body.icon);
+    if (!iconResult.ok) {
+      return c.json(invalidRequest("icon must be a valid https (or loopback http) URL"), 400);
+    }
+    const type = typeof body.type === "string" && body.type ? body.type : "web";
+    const official = body.official === true;
+
+    const db = drizzle(c.env.DB, { schema });
+    const clientId = crypto.randomUUID();
+    const now = new Date();
+    await db.insert(schema.oauthClient).values({
+      id: crypto.randomUUID(),
+      clientId,
+      clientSecret: null,
+      name,
+      icon: iconResult.value,
+      uri: uriResult.value,
+      redirectUris,
+      scopes,
+      grantTypes: ["authorization_code", "refresh_token"],
+      responseTypes: ["code"],
+      tokenEndpointAuthMethod: "none",
+      type,
+      public: true,
+      requirePKCE: true,
+      disabled: false,
+      skipConsent: false,
+      userId: null,
+      metadata: official ? { official: true } : null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const [row] = await db
+      .select()
+      .from(schema.oauthClient)
+      .where(eq(schema.oauthClient.clientId, clientId))
+      .limit(1);
+    const stats = await statsForClient(db, clientId);
+    return c.json(serializeClient(row, stats), 201);
+  })
+  .patch("/oauth-clients/:clientId", async (c) => {
+    const clientId = c.req.param("clientId");
+    const db = drizzle(c.env.DB, { schema });
+    const [existing] = await db
+      .select()
+      .from(schema.oauthClient)
+      .where(eq(schema.oauthClient.clientId, clientId))
+      .limit(1);
+    if (!existing) {
+      return c.json({ error: "not_found" }, 404);
+    }
+
+    const body = await c.req.json().catch(() => ({}) as Record<string, unknown>);
+    const updates: Partial<OauthClientRow> = {};
+
+    if ("name" in body) {
+      const name = validateName(body.name);
+      if (!name) {
+        return c.json(invalidRequest("name is required and must be ≤ 200 characters"), 400);
+      }
+      updates.name = name;
+    }
+    if ("redirectUris" in body) {
+      const redirectUris = validateRedirectUris(body.redirectUris);
+      if (!redirectUris) {
+        return c.json(
+          invalidRequest("redirectUris must be 1-20 valid http(s) URLs (http only for loopback)"),
+          400,
+        );
+      }
+      updates.redirectUris = redirectUris;
+    }
+    if ("scopes" in body) {
+      const scopes = validateScopes(body.scopes);
+      if (!scopes) {
+        return c.json(invalidRequest("scopes must be a non-empty subset of OAUTH_SCOPES"), 400);
+      }
+      updates.scopes = scopes;
+    }
+    if ("uri" in body) {
+      const uriResult = validateOptionalUrl(body.uri);
+      if (!uriResult.ok) {
+        return c.json(invalidRequest("uri must be a valid https (or loopback http) URL"), 400);
+      }
+      updates.uri = uriResult.value;
+    }
+    if ("icon" in body) {
+      const iconResult = validateOptionalUrl(body.icon);
+      if (!iconResult.ok) {
+        return c.json(invalidRequest("icon must be a valid https (or loopback http) URL"), 400);
+      }
+      updates.icon = iconResult.value;
+    }
+    if ("disabled" in body) {
+      if (typeof body.disabled !== "boolean") {
+        return c.json(invalidRequest("disabled must be a boolean"), 400);
+      }
+      updates.disabled = body.disabled;
+    }
+    if ("skipConsent" in body) {
+      if (typeof body.skipConsent !== "boolean") {
+        return c.json(invalidRequest("skipConsent must be a boolean"), 400);
+      }
+      updates.skipConsent = body.skipConsent;
+    }
+    if ("official" in body) {
+      if (typeof body.official !== "boolean") {
+        return c.json(invalidRequest("official must be a boolean"), 400);
+      }
+      const metadata = { ...(existing.metadata as Record<string, unknown> | null) };
+      if (body.official) {
+        metadata.official = true;
+      } else {
+        delete metadata.official;
+      }
+      updates.metadata = Object.keys(metadata).length > 0 ? metadata : null;
+    }
+
+    updates.updatedAt = new Date();
+    await db
+      .update(schema.oauthClient)
+      .set(updates)
+      .where(eq(schema.oauthClient.clientId, clientId));
+
+    const [row] = await db
+      .select()
+      .from(schema.oauthClient)
+      .where(eq(schema.oauthClient.clientId, clientId))
+      .limit(1);
+    const stats = await statsForClient(db, clientId);
+    return c.json(serializeClient(row, stats));
+  })
+  .delete("/oauth-clients/:clientId", async (c) => {
+    const clientId = c.req.param("clientId");
+    const db = drizzle(c.env.DB, { schema });
+    const [existing] = await db
+      .select()
+      .from(schema.oauthClient)
+      .where(eq(schema.oauthClient.clientId, clientId))
+      .limit(1);
+    if (!existing) {
+      return c.json({ error: "not_found" }, 404);
+    }
+
+    await db.delete(schema.oauthAccessToken).where(eq(schema.oauthAccessToken.clientId, clientId));
+    await db
+      .delete(schema.oauthRefreshToken)
+      .where(eq(schema.oauthRefreshToken.clientId, clientId));
+    await db.delete(schema.oauthConsent).where(eq(schema.oauthConsent.clientId, clientId));
+    await db.delete(schema.oauthClient).where(eq(schema.oauthClient.clientId, clientId));
+
+    return c.json({ ok: true });
   });

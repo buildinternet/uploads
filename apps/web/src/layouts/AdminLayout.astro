@@ -20,7 +20,7 @@ import SiteHeader from "../components/SiteHeader.astro";
 import ViewTransitions from "../components/ViewTransitions.astro";
 import "../styles/signed-in-shell.css";
 
-export type AdminSection = "workspaces" | "users";
+export type AdminSection = "workspaces" | "users" | "oauth";
 
 interface Props {
   section: AdminSection;
@@ -31,6 +31,7 @@ const { section } = Astro.props;
 const titles: Record<AdminSection, string> = {
   workspaces: "Admin",
   users: "Users · Admin",
+  oauth: "OAuth apps · Admin",
 };
 const docTitle = `${titles[section]} · uploads.sh`;
 
@@ -42,6 +43,7 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
 const nav: { href: string; section: AdminSection; label: string }[] = [
   { href: "/admin", section: "workspaces", label: "Workspaces" },
   { href: "/admin/users", section: "users", label: "Users" },
+  { href: "/admin/oauth", section: "oauth", label: "OAuth apps" },
 ];
 ---
 

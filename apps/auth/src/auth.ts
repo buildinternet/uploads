@@ -57,7 +57,7 @@ export function isCliSessionUserAgent(ua?: string | null): boolean {
  * dependency on that package. Keep in lockstep with `FILE_SCOPES` in
  * `apps/api/src/auth-db.ts`.
  */
-const OAUTH_SCOPES = ["files:read", "files:write", "files:delete"] as const;
+export const OAUTH_SCOPES = ["files:read", "files:write", "files:delete"] as const;
 
 /** Default scopes granted to a dynamically registered client that requests none. */
 const OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES = ["files:read", "files:write"] as const;
