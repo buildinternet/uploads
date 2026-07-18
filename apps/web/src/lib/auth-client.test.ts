@@ -319,6 +319,22 @@ describe("submitOAuthConsent", () => {
     ).resolves.toEqual({ ok: true, redirectUri: "https://client.example/callback?code=1" });
   });
 
+  it("returns the redirect from better-auth 1.6.23's `{ redirect, url }` shape (prod-verified)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ redirect: true, url: "https://client.example/callback?code=2" }),
+      ),
+    );
+    await expect(
+      submitOAuthConsent("https://auth.uploads.sh", {
+        accept: true,
+        scope: "files:read",
+        oauthQuery: "client_id=c1&sig=x",
+      }),
+    ).resolves.toEqual({ ok: true, redirectUri: "https://client.example/callback?code=2" });
+  });
+
   it("surfaces the AS error description on rejection", async () => {
     vi.stubGlobal(
       "fetch",
