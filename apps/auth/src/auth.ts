@@ -37,14 +37,30 @@ import {
 } from "./secrets";
 
 /**
- * Static OAuth client id for the CLI's device flow (plan D5/Phase 4). The
- * `deviceAuthorization` plugin accepts ANY `client_id` unless `validateClient`
- * is supplied, so this is the sole allowlisted id — the CLI
- * (`@buildinternet/uploads`) sends the same literal when starting a device
- * flow. The full `oauthProvider` plugin (dynamic third-party clients) is out
- * of scope for v1 (D3); when it lands, this stays the CLI's reserved id.
+ * RFC 8628 device-flow client gate (issue #251). The CLI's client id
+ * (`uploads-cli`, seeded by migration 20260719000000 as a managed official
+ * oauth_client row) is no longer a string allowlist: any registered, enabled
+ * client whose grant_types include the device-code grant may start a device
+ * flow. Fail-closed — a missing row, a disabled toggle (admin panel
+ * /admin/oauth), or an absent grant type all reject. Exported for direct unit
+ * testing (device.test.ts).
  */
-export const UPLOADS_CLI_CLIENT_ID = "uploads-cli";
+export const DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
+export async function isDeviceFlowClientAllowed(
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  clientId: string,
+): Promise<boolean> {
+  const [row] = await db
+    .select({
+      disabled: schema.oauthClient.disabled,
+      grantTypes: schema.oauthClient.grantTypes,
+    })
+    .from(schema.oauthClient)
+    .where(eq(schema.oauthClient.clientId, clientId))
+    .limit(1);
+  if (!row || row.disabled) return false;
+  return Array.isArray(row.grantTypes) && row.grantTypes.includes(DEVICE_CODE_GRANT);
+}
 
 /** CLI device-flow User-Agent — keep in sync with apps/web `CLI_USER_AGENT_RE`. */
 export function isCliSessionUserAgent(ua?: string | null): boolean {
@@ -307,10 +323,11 @@ function buildAuth(
       // `.uploads.sh`-scoped (crossSubDomainCookies below) so it rides across
       // the two subdomains.
       //
-      // validateClient is a fail-closed allowlist: only the static CLI client
-      // id may start a device flow or exchange a code. Without it the plugin
-      // accepts ANY client_id — an unknown id could never obtain a token
-      // (approval is interactive) but the allowlist is defense in depth.
+      // validateClient is fail-closed against the oauth_client table: the id
+      // must be registered, enabled, and carry the device-code grant type
+      // (issue #251 — the CLI's `uploads-cli` id is a seeded managed row, so
+      // the admin panel's disable toggle now actually gates the device flow).
+      // Without validateClient the plugin accepts ANY client_id.
       //
       // No `schema: {}` workaround needed: better-auth 1.6.23 declares the
       // plugin's `schema` option as `.optional()`, which zod 4.4.3 accepts when
@@ -318,7 +335,7 @@ function buildAuth(
       // build whose `schema` field lacked `.optional()`).
       deviceAuthorization({
         verificationUri: `${webOrigin}/device`,
-        validateClient: (clientId) => clientId === UPLOADS_CLI_CLIENT_ID,
+        validateClient: (clientId) => isDeviceFlowClientAllowed(db, clientId),
       }),
       // Issue #231 (auth side): POST /oauth2/workspace-choice, letting a
       // signed-in multi-workspace user record which workspace an OAuth grant
