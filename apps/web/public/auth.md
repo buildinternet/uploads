@@ -83,15 +83,22 @@ Discovery:
 
 ```bash
 curl -s https://auth.uploads.sh/.well-known/oauth-authorization-server
-curl -s https://auth.uploads.sh/.well-known/openid-configuration
 ```
+
+(There is no OIDC surface — `/.well-known/openid-configuration` intentionally
+returns 404.)
 
 Scopes are the same three as the workspace-token table above: `files:read`,
 `files:write`, `files:delete`. A human authorizing a client signs in and
-grants scopes at `https://uploads.sh/oauth/consent`. This is the auth surface
-for third-party OAuth clients against the hosted MCP; `uploads login`'s device
-flow (above) is unrelated and still the way to mint a long-lived
-`up_<workspace>_…` workspace token for CLI/agent use.
+grants scopes at `https://uploads.sh/oauth/consent`. Each grant is scoped to
+ONE workspace: accounts with several pick it on the consent screen (the
+choice sticks for that client until changed, which re-prompts consent), and
+the token's `workspace` claim carries the result. An account with no
+workspace yet is walked through creating one before it can approve; a token
+minted without one is refused by the MCP with a `workspace_required` error.
+This is the auth surface for third-party OAuth clients against the hosted
+MCP; `uploads login`'s device flow (above) is unrelated and still the way to
+mint a long-lived `up_<workspace>_…` workspace token for CLI/agent use.
 
 `api.uploads.sh` does not accept OAuth tokens in v1 — only the hosted MCP
 does.
