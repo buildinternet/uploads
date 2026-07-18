@@ -20,7 +20,7 @@ import {
   validateScopes,
   DEFAULT_TOKEN_SECONDS,
   MAX_TOKEN_SECONDS,
-  type AdminScope,
+  type OperatorScope,
   type FileScope,
 } from "../auth-db";
 import { allowWrite } from "../guards";
@@ -37,13 +37,13 @@ const MAX_BODY_BYTES = 4096;
 const MAX_LABEL_LEN = 200;
 // Scopes a mint defaults to when the grant omits them — read+write, but not
 // delete (least surprise; the CLI sends explicit scopes anyway). Never
-// includes admin scopes — those must be explicitly requested and are gated on
+// includes operator scopes — those must be explicitly requested and are gated on
 // the minting user's admin role (see the mint handler below).
 const DEFAULT_MINT_SCOPES: FileScope[] = ["files:read", "files:write"];
 
 interface Grant {
   workspace: string;
-  scopes: (FileScope | AdminScope)[];
+  scopes: (FileScope | OperatorScope)[];
 }
 
 /**
@@ -51,14 +51,14 @@ interface Grant {
  * Throws ValidationError (400) on any malformed input. `grants` is an array by
  * contract, but v1 permits exactly one entry.
  *
- * `allowAdmin` gates whether admin:* scopes are accepted at all — callers
+ * `allowOperator` gates whether operator:* scopes are accepted at all — callers
  * pass this only when the session user holds the admin role, so a non-admin
- * requesting an admin scope fails the same `invalid_scopes` validation as any
+ * requesting an operator scope fails the same `invalid_scopes` validation as any
  * other unknown scope (issue #257 spec), not a distinct 403.
  */
 function parseMintRequest(
   parsed: unknown,
-  opts: { allowAdmin: boolean },
+  opts: { allowOperator: boolean },
 ): {
   grant: Grant;
   label?: string;
@@ -91,7 +91,7 @@ function parseMintRequest(
     throw new ValidationError("grant.workspace is invalid", { code: "invalid_workspace" });
   }
   const scopes = validateScopes(grantObj.scopes, DEFAULT_MINT_SCOPES, {
-    allowAdmin: opts.allowAdmin,
+    allowOperator: opts.allowOperator,
   });
   if (scopes === null) {
     throw new ValidationError("grant.scopes contains an unknown scope", { code: "invalid_scopes" });
@@ -170,7 +170,7 @@ export const tokens = new Hono<SessionVars>()
     // requireSessionUser guarantees this is set.
     const user = c.get("sessionUser")!;
     const { grant, label, ttlSeconds } = parseMintRequest(parsed, {
-      allowAdmin: userHasAdminRole(user),
+      allowOperator: userHasAdminRole(user),
     });
 
     // Three independent lookups — resolve them concurrently, then gate. The

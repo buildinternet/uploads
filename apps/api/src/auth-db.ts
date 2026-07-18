@@ -8,11 +8,11 @@ export type FileScope = (typeof FILE_SCOPES)[number];
 // better-auth `admin` role (see routes/tokens.ts). Distinct from FILE_SCOPES
 // so existing file-scope-only callers (routes/admin.ts, routes/admin-ui.ts)
 // can't accidentally accept them.
-export const ADMIN_SCOPES = ["admin:read", "admin:write"] as const;
-export type AdminScope = (typeof ADMIN_SCOPES)[number];
+export const OPERATOR_SCOPES = ["operator:read", "operator:write"] as const;
+export type OperatorScope = (typeof OPERATOR_SCOPES)[number];
 
-export function isAdminScope(value: unknown): value is AdminScope {
-  return typeof value === "string" && ADMIN_SCOPES.includes(value as AdminScope);
+export function isOperatorScope(value: unknown): value is OperatorScope {
+  return typeof value === "string" && OPERATOR_SCOPES.includes(value as OperatorScope);
 }
 
 // Invite code lifetime. 2h gives a human time to onboard after receiving the
@@ -67,20 +67,20 @@ export function validateScopes(value: unknown, defaults: FileScope[]): FileScope
 export function validateScopes(
   value: unknown,
   defaults: FileScope[],
-  opts: { allowAdmin?: boolean },
-): (FileScope | AdminScope)[] | null;
+  opts: { allowOperator?: boolean },
+): (FileScope | OperatorScope)[] | null;
 export function validateScopes(
   value: unknown,
   defaults: FileScope[],
-  opts?: { allowAdmin?: boolean },
-): (FileScope | AdminScope)[] | null {
+  opts?: { allowOperator?: boolean },
+): (FileScope | OperatorScope)[] | null {
   if (value === undefined) return defaults;
   if (!Array.isArray(value) || value.length === 0) return null;
-  const isValid = opts?.allowAdmin
-    ? (v: unknown) => isFileScope(v) || isAdminScope(v)
+  const isValid = opts?.allowOperator
+    ? (v: unknown) => isFileScope(v) || isOperatorScope(v)
     : isFileScope;
   if (!value.every(isValid)) return null;
-  return [...new Set(value)] as (FileScope | AdminScope)[];
+  return [...new Set(value)] as (FileScope | OperatorScope)[];
 }
 
 function randomSecret(prefix: string, bytes = 24): string {
@@ -122,7 +122,7 @@ export async function createToken(
     label?: string;
     // Widened beyond FileScope so admin-scoped operator tokens (issue #257)
     // can be minted through the same path; storage is just a JSON TEXT column.
-    scopes: (FileScope | AdminScope)[];
+    scopes: (FileScope | OperatorScope)[];
     expiresAt?: Date;
     mintedByUserId?: string | null;
     now?: Date;

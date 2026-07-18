@@ -244,7 +244,9 @@ export interface EnrollmentExchangeResult {
   apiUrl?: string;
   workspace: string;
   token: string;
-  scopes?: Array<"files:read" | "files:write" | "files:delete" | "admin:read" | "admin:write">;
+  scopes?: Array<
+    "files:read" | "files:write" | "files:delete" | "operator:read" | "operator:write"
+  >;
   expiresAt?: string;
 }
 
@@ -291,7 +293,9 @@ export function createEnrollment(
     email?: string;
     enrollmentSeconds?: number;
     tokenExpiresInSeconds?: number;
-    scopes?: Array<"files:read" | "files:write" | "files:delete" | "admin:read" | "admin:write">;
+    scopes?: Array<
+      "files:read" | "files:write" | "files:delete" | "operator:read" | "operator:write"
+    >;
   },
 ): Promise<EnrollmentCreateResult> {
   return jsonRequest(`${apiUrl.replace(/\/$/, "")}/admin/enrollments`, {
@@ -486,7 +490,7 @@ export async function createWorkspaceRequest(
 export interface MintTokenResult {
   token: string;
   workspace: string;
-  scopes: Array<"files:read" | "files:write" | "files:delete" | "admin:read" | "admin:write">;
+  scopes: Array<"files:read" | "files:write" | "files:delete" | "operator:read" | "operator:write">;
   label: string | null;
   expiresAt: string | null;
 }
@@ -530,7 +534,9 @@ export function mintWorkspaceToken(
   accessToken: string,
   input: {
     workspace: string;
-    scopes?: Array<"files:read" | "files:write" | "files:delete" | "admin:read" | "admin:write">;
+    scopes?: Array<
+      "files:read" | "files:write" | "files:delete" | "operator:read" | "operator:write"
+    >;
     label?: string;
     ttlSeconds?: number;
   },

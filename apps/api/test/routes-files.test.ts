@@ -680,33 +680,33 @@ describe("GET ?metadata=1 / PATCH /v1/:workspace/files/:key", () => {
     expect(json.error.type).toBe("insufficient_scope");
   });
 
-  it("a token mixing an admin scope with a file scope grants no extra file permissions (issue #257)", async () => {
+  it("a token mixing an operator scope with a file scope grants no extra file permissions (issue #257)", async () => {
     // Regression for #257: a token minted with scopes ["files:read",
-    // "admin:write"] must never grant the file route any more than a
+    // "operator:write"] must never grant the file route any more than a
     // files:read-only token would. `parseScopes` (auth-db.ts) requires
     // *every* entry in the stored array to be a valid FileScope
-    // (`parsed.every(isFileScope)`), so the presence of the admin:write
+    // (`parsed.every(isFileScope)`), so the presence of the operator:write
     // scope makes the whole array fail validation and workspaceAuth
     // (workspace.ts) resolves `authScopes` to `[]` — fail-closed, not a
     // partial grant of files:read. Both PUT (files:write) and PATCH
     // (files:write) must stay 403, and — importantly — this token gets
-    // *no* files:read reach either, confirming admin:write cannot be used
+    // *no* files:read reach either, confirming operator:write cannot be used
     // to smuggle in any file permission, read or write.
-    const MIXED_TOKEN = "files-read-plus-admin-write-token";
+    const MIXED_TOKEN = "files-read-plus-operator-write-token";
     const { env } = await makeEnv(
       {},
-      { scopedToken: { rawToken: MIXED_TOKEN, scopes: ["files:read", "admin:write"] } },
+      { scopedToken: { rawToken: MIXED_TOKEN, scopes: ["files:read", "operator:write"] } },
     );
     await putShot(env);
 
-    // The mixed-scope token has no read access: the admin scope poisons the
+    // The mixed-scope token has no read access: the operator scope poisons the
     // whole scope set rather than being silently dropped in isolation.
     const get = await getMeta(env, "screenshots/shot.png", MIXED_TOKEN);
     expect(get.status).toBe(403);
     const getJson = (await get.json()) as { error: { type: string } };
     expect(getJson.error.type).toBe("insufficient_scope");
 
-    // Nor does it get file-write access via the admin:write scope.
+    // Nor does it get file-write access via the operator:write scope.
     const patch = await patchMeta(
       env,
       "screenshots/shot.png",

@@ -63,33 +63,33 @@ function deleteTokens(bearer: string) {
 }
 
 describe("adminAuth accepts D1-backed scoped operator tokens", () => {
-  it("admin:read token can GET /admin/tokens", async () => {
+  it("operator:read token can GET /admin/tokens", async () => {
     const db = new SqliteD1(MIGRATIONS);
     const { token } = await createToken(db as unknown as D1Database, {
       workspace: "acme",
-      scopes: ["admin:read"],
+      scopes: ["operator:read"],
     });
     const { app, env } = appWith({ db });
     const res = await app.request(getTokens(token), {}, env);
     expect(res.status).toBe(200);
   });
 
-  it("admin:read token gets 403 on DELETE /admin/tokens", async () => {
+  it("operator:read token gets 403 on DELETE /admin/tokens", async () => {
     const db = new SqliteD1(MIGRATIONS);
     const { token } = await createToken(db as unknown as D1Database, {
       workspace: "acme",
-      scopes: ["admin:read"],
+      scopes: ["operator:read"],
     });
     const { app, env } = appWith({ db });
     const res = await app.request(deleteTokens(token), {}, env);
     expect(res.status).toBe(403);
   });
 
-  it("admin:write token can GET and DELETE (superset of admin:read)", async () => {
+  it("operator:write token can GET and DELETE (superset of operator:read)", async () => {
     const db = new SqliteD1(MIGRATIONS);
     const { token } = await createToken(db as unknown as D1Database, {
       workspace: "acme",
-      scopes: ["admin:write"],
+      scopes: ["operator:write"],
     });
     const { app, env } = appWith({ db });
     const getRes = await app.request(getTokens(token), {}, env);
@@ -106,7 +106,7 @@ describe("adminAuth accepts D1-backed scoped operator tokens", () => {
     const db = new SqliteD1(MIGRATIONS);
     const { token, record } = await createToken(db as unknown as D1Database, {
       workspace: "acme",
-      scopes: ["admin:read"],
+      scopes: ["operator:read"],
     });
     await db
       .prepare(`UPDATE auth_tokens SET revoked_at = ? WHERE id = ?`)
@@ -121,7 +121,7 @@ describe("adminAuth accepts D1-backed scoped operator tokens", () => {
     const db = new SqliteD1(MIGRATIONS);
     const { token } = await createToken(db as unknown as D1Database, {
       workspace: "acme",
-      scopes: ["admin:read"],
+      scopes: ["operator:read"],
       expiresAt: new Date(Date.now() - 1000),
     });
     const { app, env } = appWith({ db });
@@ -129,7 +129,7 @@ describe("adminAuth accepts D1-backed scoped operator tokens", () => {
     expect(res.status).toBe(401);
   });
 
-  it("a files-only token (no admin scope) is rejected with 403", async () => {
+  it("a files-only token (no operator scope) is rejected with 403", async () => {
     const db = new SqliteD1(MIGRATIONS);
     const { token } = await createToken(db as unknown as D1Database, {
       workspace: "acme",
@@ -151,7 +151,7 @@ describe("adminAuth accepts D1-backed scoped operator tokens", () => {
     const db = new SqliteD1(MIGRATIONS);
     const { token } = await createToken(db as unknown as D1Database, {
       workspace: "acme",
-      scopes: ["admin:read"],
+      scopes: ["operator:read"],
     });
     const { app, env } = appWith({ db, adminToken: undefined });
     const res = await app.request(getTokens(token), {}, env);

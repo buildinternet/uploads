@@ -283,10 +283,10 @@ describe("POST /v1/tokens mint", () => {
   });
 });
 
-describe("POST /v1/tokens admin scopes", () => {
-  it("400s when a non-admin requests an admin scope", async () => {
+describe("POST /v1/tokens operator scopes", () => {
+  it("400s when a non-admin requests an operator scope", async () => {
     const res = await post(stubEnv({ user: { ...USER, role: "user" } }), {
-      grants: [{ workspace: "acme", scopes: ["admin:read"] }],
+      grants: [{ workspace: "acme", scopes: ["operator:read"] }],
     });
     expect(res.status).toBe(400);
     expect((await res.json()) as { error: { code: string } }).toMatchObject({
@@ -294,26 +294,26 @@ describe("POST /v1/tokens admin scopes", () => {
     });
   });
 
-  it("allows an admin user to mint admin:write alongside file scopes", async () => {
+  it("allows an admin user to mint operator:write alongside file scopes", async () => {
     const cap = captureDb();
     const res = await post(stubEnv({ user: { ...USER, role: "admin" }, db: cap.db }), {
-      grants: [{ workspace: "acme", scopes: ["files:read", "admin:write"] }],
+      grants: [{ workspace: "acme", scopes: ["files:read", "operator:write"] }],
     });
     expect(res.status).toBe(201);
     const body = (await res.json()) as { scopes: string[] };
-    expect(body.scopes).toEqual(["files:read", "admin:write"]);
+    expect(body.scopes).toEqual(["files:read", "operator:write"]);
   });
 
-  it("allows a multi-role admin user (comma-separated role) to mint admin scopes", async () => {
+  it("allows a multi-role admin user (comma-separated role) to mint operator scopes", async () => {
     const res = await post(stubEnv({ user: { ...USER, role: "admin,support" } }), {
-      grants: [{ workspace: "acme", scopes: ["admin:read"] }],
+      grants: [{ workspace: "acme", scopes: ["operator:read"] }],
     });
     expect(res.status).toBe(201);
     const body = (await res.json()) as { scopes: string[] };
-    expect(body.scopes).toEqual(["admin:read"]);
+    expect(body.scopes).toEqual(["operator:read"]);
   });
 
-  it("never includes admin scopes in the default mint", async () => {
+  it("never includes operator scopes in the default mint", async () => {
     const res = await post(stubEnv({ user: { ...USER, role: "admin" } }), {
       grants: [{ workspace: "acme" }],
     });

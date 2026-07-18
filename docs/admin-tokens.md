@@ -76,19 +76,19 @@ curl -XDELETE https://api.uploads.sh/admin/tokens \
 ## Operator scopes
 
 Better-auth admins can also mint their own workspace tokens with opt-in
-`admin:read` / `admin:write` scopes via the session-authed `POST /v1/tokens`
-(no `ADMIN_TOKEN` involved). `admin:write` is a superset of `admin:read`.
+`operator:read` / `operator:write` scopes via the session-authed `POST /v1/tokens`
+(no `ADMIN_TOKEN` involved). `operator:write` is a superset of `operator:read`.
 Tokens carrying either scope are accepted by `/admin/*` alongside
 `ADMIN_TOKEN`, and are revoked or listed the same way as any other token —
 via the `GET`/`DELETE /admin/tokens` endpoints above. Although an operator
 token is minted against (and stored under) a specific workspace, the
-`admin:read` / `admin:write` scopes themselves grant global operator
+`operator:read` / `operator:write` scopes themselves grant global operator
 authority across all of `/admin/*` — the same reach as `ADMIN_TOKEN` — not
-just admin access scoped to that one workspace; the workspace only anchors
+just operator access scoped to that one workspace; the workspace only anchors
 where the token is stored and which workspace's token list it appears
 under for revocation.
 
-Note that a token minted with an admin scope gets **no** file-route access,
+Note that a token minted with an operator scope gets **no** file-route access,
 even if file scopes were also requested alongside it — scope parsing on the
 file routes fails the whole scope array when it contains any non-file
 scope. Mint a separate files-only token for file operations and a
