@@ -523,6 +523,29 @@ export async function getOAuthPublicClient(
   }
 }
 
+/**
+ * POST /api/auth/oauth2/workspace-choice (issue #231). Multi-workspace users
+ * pick which membership gets baked into the access token; call this before
+ * `submitOAuthConsent` on accept when the consent page shows a workspace
+ * picker. `workspace` is the org slug. Returns false on any non-2xx or thrown
+ * fetch — matching this file's other never-throw wrappers — so the caller can
+ * keep the user on the consent panel and show an error rather than submit
+ * consent for the wrong (or no) workspace.
+ */
+export async function setOAuthWorkspaceChoice(origin: string, workspace: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/oauth2/workspace-choice`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspace }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export type OAuthConsentResult = { ok: true; redirectUri: string } | { ok: false; error: string };
 
 /**

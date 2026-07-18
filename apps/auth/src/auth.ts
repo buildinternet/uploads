@@ -24,6 +24,11 @@ import { localDemoEnabled, localDemoPlugin } from "./local-demo";
 import * as schema from "./schema";
 import { authTrustedOrigins, isTrustedOrigin } from "./trusted-origins";
 import {
+  applyWorkspaceChoice,
+  resolveWorkspaceChoiceReferenceId,
+  workspaceChoicePlugin,
+} from "./workspace-choice";
+import {
   resolveDashApiKey,
   resolveGitHubCredentials,
   resolveSigningSecret,
@@ -257,11 +262,33 @@ function buildAuth(
         // auditable and can't silently drift. Enforced only when Better
         // Auth's core rate limiter is on (see rateLimit below).
         rateLimit: { register: { window: 60, max: 5 } },
+        // Issue #231 (auth side): lets a multi-workspace user's consent (and
+        // the resulting tokens) be scoped to a specific workspace instead of
+        // always the oldest membership. The plugin recomputes this at
+        // authorize-time and filters its `oauth_consent` lookup by the
+        // returned string — a changed choice naturally re-triggers consent.
+        // `undefined` for 0/1-membership users preserves today's
+        // null-referenceId behavior (see src/workspace-choice.ts).
+        postLogin: {
+          // Never used: `shouldRedirect` below always returns false, so
+          // `/oauth2/authorize` never redirects here. The workspace picker
+          // itself lives on /oauth/consent (issue #231's web-side half);
+          // this is just the required sibling field the plugin's types
+          // demand alongside `consentReferenceId`.
+          page: `${webOrigin}/oauth/consent`,
+          consentReferenceId: ({ user }) => resolveWorkspaceChoiceReferenceId(db, user?.id),
+          shouldRedirect: () => false,
+        },
         // member ⋈ organization, oldest membership wins for `workspace`; all
-        // slugs ride along in `workspaces` for a future workspace picker
-        // (design doc: "deferred"). Zero memberships still issues a token
-        // (workspace: null) — the MCP worker is responsible for the 403.
-        customAccessTokenClaims: async ({ user }) => resolveWorkspaceClaims(db, user?.id),
+        // slugs ride along in `workspaces`. Issue #231 (auth side): when
+        // `referenceId` is one of ours (`ws:<slug>`, see
+        // postLogin.consentReferenceId above) and `<slug>` is still one of
+        // the user's workspaces, it overrides the oldest-membership default
+        // — the user's per-grant choice wins. Zero memberships still issues
+        // a token (workspace: null) — the MCP worker is responsible for the
+        // 403.
+        customAccessTokenClaims: async ({ user, referenceId }) =>
+          applyWorkspaceChoice(await resolveWorkspaceClaims(db, user?.id), referenceId),
       }),
       // D5/Phase 4: bearer() lets the CLI present the device-flow session token
       // as `Authorization: Bearer <token>` so apps/api's session verification
@@ -293,6 +320,10 @@ function buildAuth(
         verificationUri: `${webOrigin}/device`,
         validateClient: (clientId) => clientId === UPLOADS_CLI_CLIENT_ID,
       }),
+      // Issue #231 (auth side): POST /oauth2/workspace-choice, letting a
+      // signed-in multi-workspace user record which workspace an OAuth grant
+      // should operate on (read back by postLogin.consentReferenceId above).
+      workspaceChoicePlugin(db),
       // Hosted dashboard (`@better-auth/infra`). Omit when the API key is unset.
       ...(dashApiKey ? [dash({ apiKey: dashApiKey })] : []),
       // This endpoint is omitted entirely unless the lifecycle runner supplies

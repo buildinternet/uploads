@@ -8,6 +8,7 @@ import {
   listSessions,
   revokeSession,
   sendMagicLink,
+  setOAuthWorkspaceChoice,
   startLocalDemoSession,
   submitOAuthConsent,
 } from "./auth-client";
@@ -343,6 +344,40 @@ describe("submitOAuthConsent", () => {
     await expect(
       submitOAuthConsent("https://auth.uploads.sh", { accept: false, oauthQuery: "sig=x" }),
     ).resolves.toEqual({ ok: false, error: "expired request" });
+  });
+});
+
+describe("setOAuthWorkspaceChoice", () => {
+  it("posts the chosen workspace slug and returns true only on 2xx", async () => {
+    const fetcher = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(setOAuthWorkspaceChoice("https://auth.uploads.sh", "acme")).resolves.toBe(true);
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://auth.uploads.sh/api/auth/oauth2/workspace-choice",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspace: "acme" }),
+      }),
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 403 })),
+    );
+    await expect(setOAuthWorkspaceChoice("https://auth.uploads.sh", "acme")).resolves.toBe(false);
+  });
+
+  it("returns false on a thrown fetch", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network down");
+      }),
+    );
+    await expect(setOAuthWorkspaceChoice("https://auth.uploads.sh", "acme")).resolves.toBe(false);
   });
 });
 

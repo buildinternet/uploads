@@ -2,6 +2,35 @@
  * Shared presentation helpers for account workspace pages.
  */
 
+/** Minimal shape the consent-page workspace picker needs to order orgs. */
+export interface OrderableOrg {
+  slug: string;
+  createdAt?: string | Date;
+}
+
+/**
+ * Orders orgs oldest-first by `createdAt` for the OAuth consent workspace
+ * picker (issue #231) — the AS bakes the *oldest* membership into a token
+ * today, so the picker's default (first item) must match that existing
+ * behavior for users who don't change the selection. Entries without a
+ * parseable `createdAt` keep their given relative order (stable sort) and
+ * sort after every entry that does have one, since we can't tell how old
+ * they are.
+ */
+export function orderOrgsOldestFirst<T extends OrderableOrg>(orgs: T[]): T[] {
+  const withIndex = orgs.map((org, index) => ({ org, index }));
+  withIndex.sort((a, b) => {
+    const aTime = a.org.createdAt ? new Date(a.org.createdAt).getTime() : NaN;
+    const bTime = b.org.createdAt ? new Date(b.org.createdAt).getTime() : NaN;
+    const aValid = Number.isFinite(aTime);
+    const bValid = Number.isFinite(bTime);
+    if (aValid && bValid && aTime !== bTime) return aTime - bTime;
+    if (aValid !== bValid) return aValid ? -1 : 1;
+    return a.index - b.index;
+  });
+  return withIndex.map((entry) => entry.org);
+}
+
 export function escapeHtml(value: string): string {
   return value.replace(
     /[&<>"']/g,

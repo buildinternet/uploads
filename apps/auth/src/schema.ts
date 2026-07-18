@@ -375,6 +375,26 @@ export const oauthConsent = sqliteTable(
 );
 
 /**
+ * Per-grant workspace choice (issue #231, auth side): the user's last
+ * explicit workspace pick for the OAuth 2.1 authorization server, one row per
+ * user. Custom table (not part of `@better-auth/oauth-provider`) — read by
+ * `resolveWorkspaceChoiceReferenceId` (src/workspace-choice.ts) to build the
+ * `postLogin.consentReferenceId` the plugin ties to `oauth_consent` rows, and
+ * written by `POST /api/auth/oauth2/workspace-choice`. Single-workspace users
+ * never get a row (the hook returns `undefined` for them, see
+ * src/workspace-choice.ts) so this table only ever holds multi-workspace
+ * users' picks.
+ *
+ * Paired migration: `migrations/20260718000000_oauth_workspace_choice.sql`.
+ */
+export const oauthWorkspaceChoice = sqliteTable("oauth_workspace_choice", {
+  userId: text("user_id").primaryKey(),
+  workspace: text("workspace").notNull(),
+  createdAt: timestampCol("created_at"),
+  updatedAt: timestampCol("updated_at"),
+});
+
+/**
  * Drizzle relations for Better Auth `experimental.joins` (adapter needs these
  * on the same schema object as the tables). No SQL/migration impact.
  *
@@ -451,3 +471,4 @@ export type AuthMember = typeof member.$inferSelect;
 export type AuthInvitation = typeof invitation.$inferSelect;
 export type AuthDeviceCode = typeof deviceCode.$inferSelect;
 export type AuthOauthClient = typeof oauthClient.$inferSelect;
+export type AuthOauthWorkspaceChoice = typeof oauthWorkspaceChoice.$inferSelect;
