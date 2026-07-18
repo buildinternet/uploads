@@ -1,5 +1,6 @@
 import { renderEnrollmentInvitationEmail } from "@uploads/email";
 import {
+  AppError,
   ConflictError,
   ForbiddenError,
   NotFoundError,
@@ -20,18 +21,17 @@ import {
   revokeToken,
   validateScopes,
 } from "../auth-db";
-import { deleteFileMetadataForWorkspace } from "../file-metadata";
-import { deleteGalleriesForWorkspace } from "../galleries";
 import { deriveWebOrigin, inviteLinkUrl as inviteMagicLink } from "../invite-links";
-import { deleteOrg } from "../org-workspaces";
 import { reencryptRegistryCredentials } from "../reencrypt-registry";
 import { isCommunal } from "./me";
 import { storage } from "../storage";
-import type { WorkspaceRecord } from "../workspace";
-
-// files-sdk bulk-delete batch size — mirrors retention.ts's DELETE_BATCH
-// (stays under R2/S3's 1000-key DeleteObjects cap while bounding memory).
-const R2_DELETE_BATCH = 500;
+import { teardownWorkspace } from "../workspace-teardown";
+import {
+  isPurgedTombstone,
+  loadWorkspaceRecordRaw,
+  WORKSPACE_DELETE_GRACE_DAYS,
+  type WorkspaceRecord,
+} from "../workspace";
 
 const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const HASH_PREFIX_LEN = 8;
@@ -444,20 +444,24 @@ export const admin = new Hono<{ Bindings: Env }>()
   })
 
   /**
-   * Admin-gated workspace teardown (v1 — see issue #241). Session-authed
-   * self-serve delete is deliberately out of scope here; this is the
-   * ops/CI break-glass path, same as `/tokens` and `/enrollments` above.
+   * Admin-gated workspace teardown (v1 — see issue #241; soft-by-default —
+   * see #247). Session-authed self-serve delete is deliberately out of scope
+   * here; this is the ops/CI break-glass path, same as `/tokens` and
+   * `/enrollments` above.
    *
-   * Order (fail-safe: the KV record — the thing that actually grants
-   * storage access — is deleted last, so a failure partway through leaves
-   * the workspace inert rather than half-deleted-but-still-reachable):
-   *   1. 404 unknown workspace; 403 the communal/protected workspace.
-   *   2. Non-empty workspaces 409 with the object count unless `?force=1`;
-   *      with force, paginated list+delete of every R2 object under the
-   *      workspace's prefix.
-   *   3. Hard-delete file_metadata + galleries (+ items/references) rows.
-   *   4. Best-effort delete of the auth-side org + memberships.
-   *   5. Delete the `ws:<name>` KV record.
+   * Default (no `?hard=1`): **soft delete**. Stamps `deletedAt`/`purgeAt`
+   * (14-day grace window) on the record and puts it back — access denies
+   * immediately (`loadWorkspaceRecord` treats a `deletedAt` record as not
+   * found), data untouched. Deleting an already-soft-deleted workspace 409s.
+   * The daily retention sweep finalizes (full hard teardown + permanent
+   * purged tombstone) once `purgeAt` passes.
+   *
+   * `?hard=1`: immediate permanent teardown via `teardownWorkspace` — R2
+   * objects, file_metadata + galleries rows, best-effort auth org, then the
+   * `ws:<name>` KV key is deleted outright (the only path that frees the
+   * slug). Non-empty workspaces still require `?force=1` on top.
+   *
+   * The communal/protected-workspace guard applies to both modes.
    */
   .delete("/workspaces/:name", async (c) => {
     const name = c.req.param("name");
@@ -469,65 +473,100 @@ export const admin = new Hono<{ Bindings: Env }>()
       });
     }
 
-    const record = await workspace(c, name);
-    if (!record) {
+    const raw = await loadWorkspaceRecordRaw(c.env, name);
+    if (!raw || isPurgedTombstone(raw)) {
       throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
     }
+    const record = raw;
 
+    const hard = c.req.query("hard") === "1" || c.req.query("hard") === "true";
     const force = c.req.query("force") === "1" || c.req.query("force") === "true";
 
-    const store = await storage(c.env, record);
-    let objectCount = 0;
-    let freedBytes = 0;
-    let batch: string[] = [];
-    for await (const item of store.listAll()) {
-      objectCount += 1;
-      freedBytes += item.size ?? 0;
-      if (force) {
-        batch.push(item.key);
-        if (batch.length >= R2_DELETE_BATCH) {
-          await store.delete(batch);
-          batch = [];
-        }
+    if (!hard) {
+      if (record.deletedAt) {
+        throw new ConflictError("workspace is already soft-deleted", {
+          code: "already_deleted",
+          details: { deletedAt: record.deletedAt, purgeAt: record.purgeAt },
+        });
+      }
+
+      const now = new Date();
+      const deletedAt = now.toISOString();
+      const purgeAt = new Date(
+        now.getTime() + WORKSPACE_DELETE_GRACE_DAYS * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      const updated: WorkspaceRecord = { ...record, deletedAt, purgeAt };
+      await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(updated));
+
+      console.log(
+        JSON.stringify({ event: "workspace_deleted", workspace: name, mode: "soft", purgeAt }),
+      );
+
+      return c.json({ ok: true, workspace: name, mode: "soft", deletedAt, purgeAt });
+    }
+
+    // Hard path: count objects up front so the not-empty guard still applies
+    // without force, mirroring the previous behavior.
+    if (!force) {
+      const store = await storage(c.env, record);
+      let objectCount = 0;
+      for await (const _item of store.listAll()) objectCount += 1;
+      if (objectCount > 0) {
+        throw new ConflictError(
+          `workspace has ${objectCount} object(s); retry with ?force=1 to delete them too`,
+          { code: "workspace_not_empty", details: { objectCount } },
+        );
       }
     }
-    if (!force && objectCount > 0) {
-      throw new ConflictError(
-        `workspace has ${objectCount} object(s); retry with ?force=1 to delete them too`,
-        { code: "workspace_not_empty", details: { objectCount } },
-      );
-    }
-    if (batch.length > 0) await store.delete(batch);
 
-    const { galleries } = await deleteGalleriesForWorkspace(c.env.DB, name);
-    await deleteFileMetadataForWorkspace(c.env.DB, name);
-
-    // Best-effort, like the self-serve rollback path in routes/workspaces.ts
-    // — an org left behind after this point is orphaned (no KV record means
-    // no storage access) and safe to clean up later.
-    await deleteOrg(c.env, name).catch((err) =>
-      console.error("workspace delete: org cleanup failed for", name, "may be orphaned", err),
-    );
-
-    await c.env.REGISTRY.delete(`ws:${name}`);
-
-    console.log(
-      JSON.stringify({
-        event: "workspace_deleted",
-        workspace: name,
-        forced: force,
-        objectsDeleted: force ? objectCount : 0,
-        freedBytes: force ? freedBytes : 0,
-        galleriesDeleted: galleries,
-      }),
-    );
+    const result = await teardownWorkspace(c.env, name, record, {
+      reason: "admin_hard_delete",
+      force: true,
+    });
 
     return c.json({
+      ok: true,
       workspace: name,
+      mode: "hard",
       deleted: true,
       forced: force,
-      objectsDeleted: force ? objectCount : 0,
-      freedBytes: force ? freedBytes : 0,
-      galleriesDeleted: galleries,
+      objectsDeleted: result.objectsDeleted,
+      freedBytes: result.freedBytes,
+      galleriesDeleted: result.galleriesDeleted,
     });
+  })
+
+  /**
+   * Undelete a soft-deleted workspace within its grace window. 404 if the
+   * workspace never existed or is already a purged tombstone; 409
+   * `not_deleted` if it isn't currently soft-deleted; 410 `grace_expired`
+   * once `purgeAt` has passed (even if the sweep hasn't finalized it yet —
+   * restorability must not depend on cron timing).
+   */
+  .post("/workspaces/:name/restore", async (c) => {
+    const name = c.req.param("name");
+    requireWorkspaceName(name);
+
+    const raw = await loadWorkspaceRecordRaw(c.env, name);
+    if (!raw || isPurgedTombstone(raw)) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
+    if (!raw.deletedAt) {
+      throw new ConflictError("workspace is not deleted", { code: "not_deleted" });
+    }
+    if (raw.purgeAt && Date.now() >= Date.parse(raw.purgeAt)) {
+      throw new AppError({
+        type: "conflict",
+        code: "grace_expired",
+        message: "grace period has expired",
+        status: 410,
+      });
+    }
+
+    const { deletedAt: _deletedAt, purgeAt: _purgeAt, ...rest } = raw;
+    await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(rest));
+
+    console.log(JSON.stringify({ event: "workspace_restored", workspace: name }));
+
+    return c.json({ ok: true, workspace: name });
   });

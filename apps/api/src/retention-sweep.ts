@@ -1,9 +1,13 @@
 /**
  * Daily retention sweep: every REGISTRY workspace with retentionDays set runs
- * purgeExpiredObjects. Invoked from the Worker scheduled handler.
+ * purgeExpiredObjects. Also finalizes soft-deleted workspaces (#247) whose
+ * grace window (`purgeAt`) has passed — full hard teardown, then a permanent
+ * purged tombstone so the slug stays reserved. Invoked from the Worker
+ * scheduled handler.
  */
 import { purgeExpiredObjects } from "./retention";
-import type { WorkspaceRecord } from "./workspace";
+import { teardownWorkspace } from "./workspace-teardown";
+import { isPurgedTombstone, type PurgedTombstone, type WorkspaceRecord } from "./workspace";
 
 export interface SweepResult {
   workspacesScanned: number;
@@ -15,6 +19,13 @@ export interface SweepResult {
     skipped?: boolean;
     error?: string;
   }>;
+  workspacesFinalized: Array<{
+    workspace: string;
+    objectsDeleted: number;
+    freedBytes: number;
+    galleriesDeleted: number;
+    error?: string;
+  }>;
 }
 
 export async function runRetentionSweep(env: Env): Promise<SweepResult> {
@@ -22,6 +33,7 @@ export async function runRetentionSweep(env: Env): Promise<SweepResult> {
   let workspacesScanned = 0;
   let workspacesWithRetention = 0;
   const purged: SweepResult["purged"] = [];
+  const workspacesFinalized: SweepResult["workspacesFinalized"] = [];
 
   do {
     const page = await env.REGISTRY.list({ prefix: "ws:", cursor, limit: 100 });
@@ -30,9 +42,9 @@ export async function runRetentionSweep(env: Env): Promise<SweepResult> {
       const name = entry.name.startsWith("ws:") ? entry.name.slice(3) : entry.name;
       if (!name) continue;
 
-      let record: WorkspaceRecord | null = null;
+      let record: WorkspaceRecord | PurgedTombstone | null = null;
       try {
-        record = await env.REGISTRY.get<WorkspaceRecord>(entry.name, "json");
+        record = await env.REGISTRY.get<WorkspaceRecord | PurgedTombstone>(entry.name, "json");
       } catch (err) {
         purged.push({
           workspace: name,
@@ -43,6 +55,47 @@ export async function runRetentionSweep(env: Env): Promise<SweepResult> {
         continue;
       }
       if (!record) continue;
+      // Already-finalized tombstone — nothing to do, skip harmlessly.
+      if (isPurgedTombstone(record)) continue;
+
+      if (record.deletedAt) {
+        // Soft-deleted: skip normal retention purge; finalize once the grace
+        // window has elapsed.
+        if (!record.purgeAt || Date.now() < Date.parse(record.purgeAt)) continue;
+
+        try {
+          const result = await teardownWorkspace(env, name, record, {
+            reason: "grace_period_expired",
+            force: true,
+            replaceWithTombstone: true,
+          });
+          workspacesFinalized.push({
+            workspace: name,
+            objectsDeleted: result.objectsDeleted,
+            freedBytes: result.freedBytes,
+            galleriesDeleted: result.galleriesDeleted,
+          });
+          console.log(
+            JSON.stringify({
+              event: "workspace_purged",
+              workspace: name,
+              objectsDeleted: result.objectsDeleted,
+              freedBytes: result.freedBytes,
+              galleriesDeleted: result.galleriesDeleted,
+            }),
+          );
+        } catch (err) {
+          workspacesFinalized.push({
+            workspace: name,
+            objectsDeleted: 0,
+            freedBytes: 0,
+            galleriesDeleted: 0,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        continue;
+      }
+
       if (typeof record.retentionDays !== "number" || record.retentionDays <= 0) continue;
 
       workspacesWithRetention += 1;
@@ -75,7 +128,8 @@ export async function runRetentionSweep(env: Env): Promise<SweepResult> {
       workspacesScanned,
       workspacesWithRetention,
       purged,
+      workspacesFinalized,
     }),
   );
-  return { workspacesScanned, workspacesWithRetention, purged };
+  return { workspacesScanned, workspacesWithRetention, purged, workspacesFinalized };
 }

@@ -76,6 +76,51 @@ uploads purge-expired      # needs retentionDays
 
 The API worker also runs a **daily cron** (`0 6 * * *` UTC) that purges every workspace with `retentionDays` set. Logs: `retention_sweep` JSON.
 
+The same sweep also finalizes soft-deleted workspaces (see below): once a
+workspace's grace window elapses, the sweep runs the full hard teardown and
+replaces its `ws:<name>` KV record with a permanent purged tombstone. That
+work is logged separately per workspace as `workspace_purged` and rolled up
+into the sweep's `workspacesFinalized` field.
+
+## Workspace deletion, restore, and finalization
+
+`DELETE /admin/workspaces/:name` is **soft by default** (#247): it stamps
+`deletedAt`/`purgeAt` (14-day grace window, `WORKSPACE_DELETE_GRACE_DAYS`) on
+the KV record and puts it back. Access denies immediately — every
+auth/serving path treats a `deletedAt` record as not found — but R2 objects,
+file metadata, and galleries are untouched. Deleting an already-soft-deleted
+workspace 409s `already_deleted` with the existing `purgeAt`.
+
+```bash
+curl -X DELETE https://api.uploads.sh/admin/workspaces/acme \
+  -H "authorization: Bearer $ADMIN_TOKEN"
+# → { "ok": true, "workspace": "acme", "mode": "soft", "deletedAt": "…", "purgeAt": "…" }
+```
+
+**Restore** within the grace window clears `deletedAt`/`purgeAt`:
+
+```bash
+curl -X POST https://api.uploads.sh/admin/workspaces/acme/restore \
+  -H "authorization: Bearer $ADMIN_TOKEN"
+```
+
+404s if the workspace never existed or was already finalized (purged
+tombstone), 409 `not_deleted` if it isn't currently soft-deleted, and 410
+`grace_expired` once `purgeAt` has passed — restorability never depends on
+whether the sweep has actually run yet.
+
+**Break-glass hard delete** (`?hard=1`) skips the grace period entirely:
+immediate permanent teardown (R2 objects, `file_metadata` + galleries rows,
+best-effort auth-org delete, then the KV key removed outright). Non-empty
+workspaces still need `?force=1` on top, same as before. This is the only
+path that frees a slug for reuse — every other path (soft delete → grace
+period → sweep finalization) leaves a permanent `{ status: "purged" }`
+tombstone under `ws:<name>` so the name can never be re-registered. The
+communal/protected-workspace guard applies to both modes.
+
+See [docs/deletion.md](deletion.md) for the full cross-surface deletion
+policy and rationale.
+
 ## Backfill gh metadata
 
 One-time script for objects uploaded under `gh/...` before per-file metadata
