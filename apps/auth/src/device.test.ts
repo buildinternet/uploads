@@ -86,32 +86,63 @@ describe("device/code validateClient allowlist", () => {
   });
 });
 
-describe("device flow end-to-end (claim → approve → token)", () => {
-  /** Seed a user + an active session, returning the raw session token to present as a bearer. */
-  async function seedSignedInUser(env: AuthEnv): Promise<string> {
-    const orm = drizzle(env.DB, { schema });
-    const userId = crypto.randomUUID();
-    await orm.insert(schema.user).values({
-      id: userId,
-      name: "Ada Lovelace",
-      email: `ada-${userId}@example.com`,
-      emailVerified: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      role: "user",
-    });
-    const token = `sess-${crypto.randomUUID()}`;
-    await orm.insert(schema.session).values({
-      id: crypto.randomUUID(),
-      userId,
-      token,
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    return token;
-  }
+/** Seed a user + an active session, returning the raw session token to present as a bearer. */
+async function seedSignedInUser(env: AuthEnv): Promise<string> {
+  const orm = drizzle(env.DB, { schema });
+  const userId = crypto.randomUUID();
+  await orm.insert(schema.user).values({
+    id: userId,
+    name: "Ada Lovelace",
+    email: `ada-${userId}@example.com`,
+    emailVerified: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    role: "user",
+  });
+  const token = `sess-${crypto.randomUUID()}`;
+  await orm.insert(schema.session).values({
+    id: crypto.randomUUID(),
+    userId,
+    token,
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  return token;
+}
 
+/**
+ * Claim + approve a device code for CLI_CLIENT_ID while the client is still
+ * valid, returning the device_code for a subsequent /device/token exchange.
+ */
+async function claimAndApproveDeviceCode(env: AuthEnv): Promise<string> {
+  const sessionToken = await seedSignedInUser(env);
+  const codeRes = await requestDeviceCode(env, { client_id: CLI_CLIENT_ID });
+  expect(codeRes.status).toBe(200);
+  const { device_code, user_code } = (await codeRes.json()) as {
+    device_code: string;
+    user_code: string;
+  };
+  const verifyRes = await app.request(
+    `/api/auth/device?user_code=${encodeURIComponent(user_code)}`,
+    { headers: { Authorization: `Bearer ${sessionToken}` } },
+    env,
+  );
+  expect(verifyRes.status).toBe(200);
+  const approveRes = await app.request(
+    "/api/auth/device/approve",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: `Bearer ${sessionToken}` },
+      body: JSON.stringify({ userCode: user_code }),
+    },
+    env,
+  );
+  expect(approveRes.status).toBe(200);
+  return device_code;
+}
+
+describe("device flow end-to-end (claim → approve → token)", () => {
   it("claims a code, approves it, and exchanges it for a session access token", async () => {
     // One env (one fake D1) reused across every request in the flow.
     const env = dbEnv();
@@ -230,6 +261,68 @@ describe("validateClient DB lookup (issue #251)", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("invalid_client");
+  });
+
+  it("rejects device/token for a client disabled after the device code was approved", async () => {
+    const env = dbEnv();
+    // Obtain an approved device code FIRST, while the client is still valid.
+    const device_code = await claimAndApproveDeviceCode(env);
+
+    // Now disable the client.
+    const db = drizzle(env.DB, { schema });
+    await db
+      .update(schema.oauthClient)
+      .set({ disabled: true })
+      .where(eq(schema.oauthClient.clientId, CLI_CLIENT_ID));
+
+    const tokenRes = await app.request(
+      "/api/auth/device/token",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+          device_code,
+          client_id: CLI_CLIENT_ID,
+        }),
+      },
+      env,
+    );
+    // better-auth's device-authorization token endpoint returns "invalid_grant"
+    // (not "invalid_client") when validateClient fails — see
+    // node_modules/better-auth/dist/plugins/device-authorization/routes.mjs:181-186.
+    expect(tokenRes.status).toBe(400);
+    const body = (await tokenRes.json()) as { error?: string };
+    expect(body.error).toBe("invalid_grant");
+  });
+
+  it("rejects device/token for a client whose grant types no longer include the device-code grant", async () => {
+    const env = dbEnv();
+    const device_code = await claimAndApproveDeviceCode(env);
+
+    // Remove the device-code grant from the (still enabled) client.
+    const db = drizzle(env.DB, { schema });
+    await db
+      .update(schema.oauthClient)
+      .set({ grantTypes: ["authorization_code", "refresh_token"] })
+      .where(eq(schema.oauthClient.clientId, CLI_CLIENT_ID));
+
+    const tokenRes = await app.request(
+      "/api/auth/device/token",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+          device_code,
+          client_id: CLI_CLIENT_ID,
+        }),
+      },
+      env,
+    );
+    expect(tokenRes.status).toBe(400);
+    const body = (await tokenRes.json()) as { error?: string };
+    expect(body.error).toBe("invalid_grant");
   });
 });
 
