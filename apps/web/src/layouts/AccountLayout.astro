@@ -5,6 +5,9 @@
  *
  * Workspaces is a section label (not a link). Each membership nests under it,
  * with per-workspace sub-pages (e.g. Invite) when that workspace is active.
+ *
+ * ClientRouter holds the current view while the next account route loads
+ * (no blank-page flicker). Scripts re-boot on `astro:page-load`.
  */
 import { env } from "cloudflare:workers";
 import {
@@ -16,6 +19,7 @@ import {
 import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
 import SiteHeader from "../components/SiteHeader.astro";
+import ViewTransitions from "../components/ViewTransitions.astro";
 import "../styles/signed-in-shell.css";
 import "../styles/account-content.css";
 
@@ -57,9 +61,10 @@ const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
 applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrigin));
 ---
 
-<html lang="en">
+<html lang="en" transition:animate="none">
 <head>
   <BaseHead />
+  <ViewTransitions />
   <title>{docTitle}</title>
 </head>
 <body>
@@ -141,8 +146,9 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
 {/* Sync optimistic paint: show the shell before deferred modules run so
     /account → /account/workspaces does not flash "Checking your session…".
     Key must match SESSION_CACHE_KEY in account-shell.ts. Not a security
-    boundary — revalidated by resolveSessionGate immediately after. */}
-<script is:inline>
+    boundary — revalidated by resolveSessionGate immediately after.
+    data-astro-rerun: ClientRouter must re-apply this after every body swap. */}
+<script is:inline data-astro-rerun>
   (function () {
     try {
       var raw = sessionStorage.getItem("uploads:sessionUser");
@@ -160,7 +166,7 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
   })();
 </script>
 
-<script define:vars={{ authOrigin, apiOrigin, workspace, workspacePage }}>
+<script is:inline data-astro-rerun define:vars={{ authOrigin, apiOrigin, workspace, workspacePage }}>
   window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
   window.__UPLOADS_API_ORIGIN__ = apiOrigin;
   window.__UPLOADS_ACTIVE_WORKSPACE__ = workspace;
@@ -169,39 +175,48 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
 <script>
   import {
     initSignOut,
+    onAstroPageLoad,
     requireElement,
     resolveSessionGate,
   } from "../lib/account-shell";
   import { initWorkspacesNav, type WorkspaceNavPage } from "../lib/workspaces-nav";
 
-  const w = window as unknown as {
-    __UPLOADS_AUTH_ORIGIN__: string;
-    __UPLOADS_API_ORIGIN__: string;
-    __UPLOADS_ACTIVE_WORKSPACE__: string;
-    __UPLOADS_WORKSPACE_PAGE__: WorkspaceNavPage;
-  };
-  const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
-  const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+  onAstroPageLoad(() => {
+    if (!document.getElementById("app")) return;
 
-  initSignOut(authOrigin);
-  initWorkspacesNav(apiOrigin, requireElement<HTMLElement>("#workspaces-nav-list", "account"), {
-    active: w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
-    page: w.__UPLOADS_WORKSPACE_PAGE__ || "overview",
-  });
+    const w = window as unknown as {
+      __UPLOADS_AUTH_ORIGIN__: string;
+      __UPLOADS_API_ORIGIN__: string;
+      __UPLOADS_ACTIVE_WORKSPACE__: string;
+      __UPLOADS_WORKSPACE_PAGE__: WorkspaceNavPage;
+    };
+    const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
+    const apiOrigin = w.__UPLOADS_API_ORIGIN__;
 
-  void resolveSessionGate({
-    authOrigin,
-    checking: requireElement<HTMLElement>("#checking", "account"),
-    denied: requireElement<HTMLElement>("#signed-out", "account"),
-    unavailable: requireElement<HTMLElement>("#auth-unavailable", "account"),
-    app: requireElement<HTMLElement>("#app", "account"),
-  }).then((result) => {
-    requireElement<HTMLElement>("#admin-link", "account").hidden =
-      result?.user.role !== "admin";
-  });
+    initSignOut(authOrigin);
+    initWorkspacesNav(apiOrigin, requireElement<HTMLElement>("#workspaces-nav-list", "account"), {
+      active: w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+      page: w.__UPLOADS_WORKSPACE_PAGE__ || "overview",
+    });
 
-  requireElement<HTMLButtonElement>("#session-retry", "account").addEventListener("click", () => {
-    location.reload();
+    void resolveSessionGate({
+      authOrigin,
+      checking: requireElement<HTMLElement>("#checking", "account"),
+      denied: requireElement<HTMLElement>("#signed-out", "account"),
+      unavailable: requireElement<HTMLElement>("#auth-unavailable", "account"),
+      app: requireElement<HTMLElement>("#app", "account"),
+    }).then((result) => {
+      requireElement<HTMLElement>("#admin-link", "account").hidden =
+        result?.user.role !== "admin";
+    });
+
+    const retry = document.querySelector<HTMLButtonElement>("#session-retry");
+    if (retry && retry.dataset.bound !== "1") {
+      retry.dataset.bound = "1";
+      retry.addEventListener("click", () => {
+        location.reload();
+      });
+    }
   });
 </script>
 </body>

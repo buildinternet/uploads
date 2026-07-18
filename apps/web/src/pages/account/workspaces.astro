@@ -33,69 +33,73 @@ if (isBrowseWorkspace(legacyWs)) {
   </section>
 
   <script>
-    import { onSession, requireElement } from "../../lib/account-shell";
+    import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
     import { getMyWorkspaces } from "../../lib/api-client";
     import { writeCachedWorkspaces } from "../../lib/workspaces-nav";
     import { escapeHtml } from "../../lib/workspace-ui";
 
-    const apiOrigin = (window as unknown as { __UPLOADS_API_ORIGIN__: string })
-      .__UPLOADS_API_ORIGIN__;
-    const page = "workspaces index";
-    const status = requireElement<HTMLElement>("#orgs-status", page);
-    const list = requireElement<HTMLUListElement>("#orgs-list", page);
-    const retry = requireElement<HTMLButtonElement>("#orgs-retry", page);
+    onAstroPageLoad(() => {
+      if (!document.getElementById("orgs-status")) return;
 
-    async function loadIndex(): Promise<void> {
-      status.hidden = false;
-      list.hidden = true;
-      retry.hidden = true;
-      status.textContent = "Loading…";
+      const apiOrigin = (window as unknown as { __UPLOADS_API_ORIGIN__: string })
+        .__UPLOADS_API_ORIGIN__;
+      const page = "workspaces index";
+      const status = requireElement<HTMLElement>("#orgs-status", page);
+      const list = requireElement<HTMLUListElement>("#orgs-list", page);
+      const retry = requireElement<HTMLButtonElement>("#orgs-retry", page);
 
-      const result = await getMyWorkspaces(apiOrigin);
-      if (result.kind === "unavailable") {
-        status.textContent =
-          "Workspaces are temporarily unavailable. Check the local stack or try again.";
-        retry.hidden = false;
-        return;
-      }
+      async function loadIndex(): Promise<void> {
+        status.hidden = false;
+        list.hidden = true;
+        retry.hidden = true;
+        status.textContent = "Loading…";
 
-      const { workspaces } = result;
-      writeCachedWorkspaces(workspaces);
+        const result = await getMyWorkspaces(apiOrigin);
+        if (result.kind === "unavailable") {
+          status.textContent =
+            "Workspaces are temporarily unavailable. Check the local stack or try again.";
+          retry.hidden = false;
+          return;
+        }
 
-      if (!workspaces.length) {
-        status.innerHTML =
-          'No workspaces yet — <a href="/account/workspaces/new">create one</a>, or accept an invite.';
-        return;
-      }
+        const { workspaces } = result;
+        writeCachedWorkspaces(workspaces);
 
-      if (workspaces.length === 1) {
-        const only = workspaces[0]!;
-        status.textContent = `Opening ${only.organization.name || only.workspace}…`;
-        location.replace(`/account/workspaces/${encodeURIComponent(only.workspace)}`);
-        return;
-      }
+        if (!workspaces.length) {
+          status.innerHTML =
+            'No workspaces yet — <a href="/account/workspaces/new">create one</a>, or accept an invite.';
+          return;
+        }
 
-      status.hidden = true;
-      list.hidden = false;
-      list.innerHTML = workspaces
-        .map((ws) => {
-          const name = ws.organization.name || ws.workspace;
-          const href = `/account/workspaces/${encodeURIComponent(ws.workspace)}`;
-          return `<li>
+        if (workspaces.length === 1) {
+          const only = workspaces[0]!;
+          status.textContent = `Opening ${only.organization.name || only.workspace}…`;
+          location.replace(`/account/workspaces/${encodeURIComponent(only.workspace)}`);
+          return;
+        }
+
+        status.hidden = true;
+        list.hidden = false;
+        list.innerHTML = workspaces
+          .map((ws) => {
+            const name = ws.organization.name || ws.workspace;
+            const href = `/account/workspaces/${encodeURIComponent(ws.workspace)}`;
+            return `<li>
             <div class="row">
               <a href="${escapeHtml(href)}">${escapeHtml(name)}</a>
               <span class="slug">${escapeHtml(ws.role)}</span>
             </div>
           </li>`;
-        })
-        .join("");
-    }
+          })
+          .join("");
+      }
 
-    retry.addEventListener("click", () => {
-      void loadIndex();
-    });
-    onSession(() => {
-      void loadIndex();
+      retry.addEventListener("click", () => {
+        void loadIndex();
+      });
+      onSession(() => {
+        void loadIndex();
+      });
     });
   </script>
 </AccountLayout>

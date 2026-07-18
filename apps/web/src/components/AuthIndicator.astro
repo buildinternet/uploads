@@ -29,7 +29,7 @@ const MENU_ITEMS = [
   </div>
 </div>
 
-<script define:vars={{ authOrigin, menuItems: MENU_ITEMS }}>
+<script is:inline data-astro-rerun define:vars={{ authOrigin, menuItems: MENU_ITEMS }}>
   window.__UPLOADS_AUTH_ORIGIN__ = window.__UPLOADS_AUTH_ORIGIN__ || authOrigin;
   window.__UPLOADS_AUTH_MENU_ITEMS__ = menuItems;
 </script>
@@ -37,15 +37,19 @@ const MENU_ITEMS = [
   import { getSession, signOut, type SessionUser } from "../lib/auth-client";
   import {
     clearCachedSessionUser,
+    onAstroPageLoad,
     readCachedSessionUser,
     writeCachedSessionUser,
   } from "../lib/account-shell";
 
-  const root = document.querySelector<HTMLElement>("[data-auth-indicator]");
-  const slot = root?.querySelector<HTMLElement>("[data-slot]");
-  if (!root || !slot) {
-    // Not on a page that mounted the indicator.
-  } else {
+  function bootAuthIndicator(): void {
+    const root = document.querySelector<HTMLElement>("[data-auth-indicator]");
+    const slot = root?.querySelector<HTMLElement>("[data-slot]");
+    // Skip when absent, or when this DOM node was already wired (avoids
+    // double-boot when ClientRouter fires page-load after the first eager run).
+    if (!root || !slot || root.dataset.booted === "1") return;
+    root.dataset.booted = "1";
+
     const origin =
       (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string }).__UPLOADS_AUTH_ORIGIN__ ||
       "https://auth.uploads.sh";
@@ -155,7 +159,7 @@ const MENU_ITEMS = [
         "click",
         (event) => {
           event.stopPropagation();
-          setOpen(panel.hidden);
+          setOpen(Boolean(panel.hidden));
         },
         { signal },
       );
@@ -195,6 +199,8 @@ const MENU_ITEMS = [
     if (cached) paintUser(cached);
 
     void getSession(origin).then((result) => {
+      // Ignore if this indicator was swapped out mid-flight.
+      if (root.dataset.booted !== "1" || !document.contains(root)) return;
       if (result.kind === "unavailable") {
         paintUnavailable();
         return;
@@ -208,6 +214,12 @@ const MENU_ITEMS = [
       paintUser(result.session.user);
     });
   }
+
+  // Eager boot for pages without ClientRouter (landing, legal, login chrome).
+  // With ClientRouter, the data-booted guard skips the duplicate page-load call
+  // on first paint; body swaps get a fresh node and re-boot on page-load.
+  bootAuthIndicator();
+  onAstroPageLoad(bootAuthIndicator);
 </script>
 
 <style>

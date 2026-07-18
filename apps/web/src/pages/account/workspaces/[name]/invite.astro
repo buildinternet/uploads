@@ -64,7 +64,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
   </div>
 
   <script>
-    import { onSession, requireElement } from "../../../../lib/account-shell";
+    import { onAstroPageLoad, onSession, requireElement } from "../../../../lib/account-shell";
     import { getMyWorkspaces, inviteToWorkspace } from "../../../../lib/api-client";
     import { writeCachedWorkspaces } from "../../../../lib/workspaces-nav";
     import {
@@ -73,6 +73,9 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       isWorkspaceAdminRole,
       operatorInviteCommand,
     } from "../../../../lib/workspace-ui";
+
+    onAstroPageLoad(() => {
+      if (!document.getElementById("ws-invite-form")) return;
 
     const page = "workspace invite";
     const w = window as unknown as {
@@ -200,6 +203,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
     onSession((user) => {
       sessionRole = user.role;
       void loadInvitePage();
+    });
     });
   </script>
 </AccountLayout>

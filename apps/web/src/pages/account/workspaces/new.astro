@@ -66,7 +66,7 @@ export const prerender = false;
   </section>
 
   <script>
-    import { onSession, requireElement } from "../../../lib/account-shell";
+    import { onAstroPageLoad, onSession, requireElement } from "../../../lib/account-shell";
     import { linkGitHub, listAccounts } from "../../../lib/auth-client";
     import { createWorkspace } from "../../../lib/api-client";
     import { clearCachedWorkspaces } from "../../../lib/workspaces-nav";
@@ -76,6 +76,9 @@ export const prerender = false;
       safeSameOriginPath,
       suggestedWorkspaceName,
     } from "../../../lib/workspace-ui";
+
+    onAstroPageLoad(() => {
+      if (!document.querySelector("[data-create-form]")) return;
 
     const w = window as unknown as {
       __UPLOADS_API_ORIGIN__: string;
@@ -171,6 +174,7 @@ export const prerender = false;
         const suggestion = suggestedWorkspaceName(user.email);
         if (suggestion) input.value = suggestion;
       }
+    });
     });
   </script>
 </AccountLayout>
