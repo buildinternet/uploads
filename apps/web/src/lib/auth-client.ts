@@ -337,21 +337,22 @@ export interface OrganizationSummary {
 
 /**
  * GET /api/auth/organization/list — the signed-in user's organizations
- * (Better Auth organization plugin). Returns [] on any failure — the
- * /account page treats "no orgs" and "couldn't load" the same way visually,
- * with copy that covers both.
+ * (Better Auth organization plugin). Returns null when the list couldn't be
+ * loaded (outage, network) so callers can tell "no orgs" from "don't know" —
+ * the consent page routes genuinely org-less users into workspace creation
+ * and must not misroute users on a transient failure.
  */
-export async function listOrganizations(origin: string): Promise<OrganizationSummary[]> {
+export async function listOrganizations(origin: string): Promise<OrganizationSummary[] | null> {
   try {
     const res = await fetch(`${authOrigin(origin)}/api/auth/organization/list`, {
       credentials: "include",
       cache: "no-store",
     });
-    if (!res.ok) return [];
+    if (!res.ok) return null;
     const body = (await res.json().catch(() => null)) as OrganizationSummary[] | null;
-    return Array.isArray(body) ? body : [];
+    return Array.isArray(body) ? body : null;
   } catch {
-    return [];
+    return null;
   }
 }
 

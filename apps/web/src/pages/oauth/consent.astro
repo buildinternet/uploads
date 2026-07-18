@@ -36,6 +36,8 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     .scopes :global(.desc){color:var(--fg)}
     .scopes :global(.id){display:block;color:var(--muted);font-size:11px;letter-spacing:.02em}
     .actions{display:flex;gap:10px}
+    a.linkbtn{display:block;text-align:center;text-decoration:none;font:12px var(--mono);letter-spacing:.04em;color:var(--accent);background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 13px}
+    a.linkbtn:hover,a.linkbtn:focus-visible{border-color:var(--accent);outline:none}
     button.primary,button.secondary{flex:1;font:12px var(--mono);letter-spacing:.04em;color:var(--accent);background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 13px;cursor:pointer}
     button.secondary{color:var(--muted)}
     button.primary:hover,button.primary:focus-visible{border-color:var(--accent);outline:none}
@@ -71,6 +73,22 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     </p>
   </div>
 
+  <div id="no-workspace" hidden>
+    <p>
+      <strong id="nw-client-name"></strong> stores files in a workspace, and your account doesn't
+      have one yet.
+    </p>
+    <p>
+      Create one (takes a minute — needs a linked GitHub account), and you'll be brought back here
+      to finish authorizing.
+    </p>
+    <div class="actions">
+      <a class="primary linkbtn" id="create-workspace-link" href="/account/workspaces/new">
+        Create a workspace
+      </a>
+    </div>
+  </div>
+
   <div id="confirm" hidden>
     <p>
       <strong id="client-name"></strong> wants to access your uploads.sh account.
@@ -97,6 +115,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   import {
     getOAuthPublicClient,
     getSession,
+    listOrganizations,
     submitOAuthConsent,
   } from "../../lib/auth-client";
 
@@ -113,6 +132,9 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   const noRequest = requireElement<HTMLElement>("#no-request");
   const signedOut = requireElement<HTMLElement>("#signed-out");
   const signinLink = requireElement<HTMLAnchorElement>("#signin-link");
+  const noWorkspace = requireElement<HTMLElement>("#no-workspace");
+  const nwClientName = requireElement<HTMLElement>("#nw-client-name");
+  const createWorkspaceLink = requireElement<HTMLAnchorElement>("#create-workspace-link");
   const confirmBox = requireElement<HTMLElement>("#confirm");
   const clientName = requireElement<HTMLElement>("#client-name");
   const clientHost = requireElement<HTMLElement>("#client-host");
@@ -137,7 +159,8 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   const oauthQuery = location.search.replace(/^\?/, "");
 
   function hideAll() {
-    for (const el of [checking, authUnavailable, noRequest, signedOut, confirmBox, redirecting]) {
+    const panels = [checking, authUnavailable, noRequest, signedOut, noWorkspace, confirmBox, redirecting];
+    for (const el of panels) {
       el.hidden = true;
     }
   }
@@ -201,8 +224,26 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       return;
     }
 
+    // Access-token claims are baked at issuance: a token minted for a
+    // workspace-less user stays `workspace: null` for its full lifetime, so
+    // the only useful place to fix "no workspace yet" is HERE, before the
+    // user can approve. Send them through the creation page with a `next`
+    // return to this exact consent URL (signed query included — the AS
+    // re-validates it on the way back).
+    const orgs = await listOrganizations(authOrigin);
     const client = await getOAuthPublicClient(authOrigin, clientId);
     hideAll();
+
+    // null = list unavailable, NOT "no orgs" — fail open to the normal
+    // consent card (server-side enforcement still yields the workspace 403
+    // at worst) rather than misrouting a workspace-having user.
+    if (orgs !== null && orgs.length === 0) {
+      nwClientName.textContent = client?.client_name || clientId;
+      const next = encodeURIComponent(`/oauth/consent${location.search}`);
+      createWorkspaceLink.href = `/account/workspaces/new?next=${next}`;
+      noWorkspace.hidden = false;
+      return;
+    }
 
     clientName.textContent = client?.client_name || clientId;
     const host = safeHttpUrl(client?.client_uri);

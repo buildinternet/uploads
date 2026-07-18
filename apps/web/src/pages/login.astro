@@ -100,9 +100,17 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   const emailInput = requireElement<HTMLInputElement>("#email");
 
   // Default: CLI setup card. Same-origin ?callbackURL= allowed (session recovery).
-  const defaultCallback = `${location.origin}/account#cli-setup`;
+  // Mid-OAuth exception (#228): a signed authorize query (`sig=`) means the AS
+  // sent the user here to sign in — route the post-auth hop (magic-link email
+  // click, GitHub redirect) to the consent page carrying the same signed
+  // query, instead of stranding the pending authorize request at /account.
+  // The consent endpoint re-validates the signature server-side.
+  const params = new URLSearchParams(location.search);
+  const defaultCallback = params.has("sig")
+    ? `${location.origin}/oauth/consent${location.search}`
+    : `${location.origin}/account#cli-setup`;
   let callbackURL = defaultCallback;
-  const rawCallback = new URLSearchParams(location.search).get("callbackURL");
+  const rawCallback = params.get("callbackURL");
   if (rawCallback) {
     try {
       const url = new URL(rawCallback, location.origin);
