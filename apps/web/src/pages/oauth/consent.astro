@@ -125,6 +125,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     getOAuthWorkspaceChoice,
     getSession,
     listOrganizations,
+    repairOAuthQuery,
     setOAuthWorkspaceChoice,
     submitOAuthConsent,
     type OrganizationSummary,
@@ -174,7 +175,9 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   const params = new URLSearchParams(location.search);
   const clientId = params.get("client_id")?.trim() ?? "";
   const requestedScopes = (params.get("scope") ?? "").split(/\s+/).filter(Boolean);
-  const oauthQuery = location.search.replace(/^\?/, "");
+  // repairOAuthQuery, not a bare strip: a magic-link round trip can land here
+  // with the sig param's `%2B` collapsed to literal `+` (see auth-client.ts).
+  const oauthQuery = repairOAuthQuery(location.search);
 
   // Populated by proceed() once orgs load; used by decide() to know whether
   // the picker is showing and, if so, which slugs are valid choices.

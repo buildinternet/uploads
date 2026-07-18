@@ -72,7 +72,13 @@ export const app = new Hono<WorkspaceVars>()
   .use("/admin/*", consoleCors)
   .use("/admin-ui/*", adminUiCors)
   .use("/me/*", adminUiCors)
-  .use("/v1/*", consoleCors)
+  // `/v1/workspaces` is the one `/v1/*` route authenticated by session COOKIE
+  // (self-serve creation from the signed-in console), so its CORS must be
+  // credentialed like /me/* — the uncredentialed consoleCors preflight makes
+  // the browser drop the request entirely ("Failed to fetch"), which silently
+  // broke self-serve workspace creation from uploads.sh. Everything else
+  // under /v1/* stays uncredentialed: bearer tokens are the boundary there.
+  .use("/v1/*", (c, next) => (c.req.path === "/v1/workspaces" ? adminUiCors : consoleCors)(c, next))
   .route("/admin", admin)
   .route("/admin-ui", adminUi)
   .route("/me", me)

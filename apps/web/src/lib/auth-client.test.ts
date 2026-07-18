@@ -9,6 +9,7 @@ import {
   revokeSession,
   sendMagicLink,
   getOAuthWorkspaceChoice,
+  repairOAuthQuery,
   setOAuthWorkspaceChoice,
   startLocalDemoSession,
   submitOAuthConsent,
@@ -345,6 +346,21 @@ describe("submitOAuthConsent", () => {
     await expect(
       submitOAuthConsent("https://auth.uploads.sh", { accept: false, oauthQuery: "sig=x" }),
     ).resolves.toEqual({ ok: false, error: "expired request" });
+  });
+});
+
+describe("repairOAuthQuery", () => {
+  it("re-encodes literal + inside the sig param only", () => {
+    expect(repairOAuthQuery("?client_id=c1&scope=files%3Aread+files%3Awrite&sig=aB+cD/eF=")).toBe(
+      "client_id=c1&scope=files%3Aread+files%3Awrite&sig=aB%2BcD/eF=",
+    );
+  });
+
+  it("is a no-op for a cleanly encoded signed query", () => {
+    const clean = "client_id=c1&state=x-_y&sig=aB%2BcD%2FeF%3D";
+    expect(repairOAuthQuery(`?${clean}`)).toBe(clean);
+    expect(repairOAuthQuery("?client_id=c1")).toBe("client_id=c1");
+    expect(repairOAuthQuery("")).toBe("");
   });
 });
 
