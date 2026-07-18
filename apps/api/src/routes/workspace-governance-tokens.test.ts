@@ -175,6 +175,17 @@ describe("GET /v1/workspaces/:name/tokens", () => {
     expect(res.status).toBe(401);
   });
 
+  it("malformed up_ bearer (no workspace segment) is rejected even with a valid org-admin session (no fallback)", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    // The bearer starts with `up_` but doesn't even parse to a workspace
+    // name (workspaceNameFromToken returns undefined) — this must still be
+    // treated as an authoritative-but-invalid credential, not silently fall
+    // through to the valid session on the same request.
+    const { app, env } = appWith({ db, session: true, role: "admin" });
+    const res = await app.request(listReq("acme", "up_"), {}, env);
+    expect(res.status).toBe(401);
+  });
+
   it("workspace:invite-only token gets 403 (wrong scope for this route)", async () => {
     const db = new SqliteD1(MIGRATIONS);
     const { token } = await createToken(db as unknown as D1Database, {

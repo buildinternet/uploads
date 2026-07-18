@@ -41,7 +41,6 @@ import {
   stampRestore,
   stampSoftDelete,
   workspaceGovernanceAuth,
-  workspaceNameFromToken,
   type GovernanceVars,
 } from "../workspace";
 
@@ -75,7 +74,12 @@ function workspaceManageAuth(): MiddlewareHandler<ManageAuthVars> {
   return async (c, next) => {
     const authHeader = c.req.header("Authorization");
     const rawToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
-    if (rawToken && workspaceNameFromToken(rawToken) !== undefined) {
+    if (rawToken?.startsWith("up_")) {
+      // Any `up_`-shaped bearer is authoritative, whether or not it parses —
+      // a malformed token (e.g. no workspace segment) must 401, never fall
+      // back to a session cookie that may also be on the request. See the
+      // fail-closed note above.
+      //
       // Sub-middleware Contexts differ only in which Variables key they
       // touch; Hono's `Set` is invariant on Variables so a structural cast
       // is needed at each hand-off (both directions, below).
@@ -414,8 +418,11 @@ workspaces.get("/:name/tokens", workspaceManageAuth(), async (c) => {
   const name = c.req.param("name");
   requireWorkspaceName(name);
 
+  const now = new Date().toISOString();
   const tokens = (await listTokens(c.env.DB, name))
-    .filter((token) => token.revoked_at === null)
+    .filter(
+      (token) => token.revoked_at === null && (token.expires_at === null || token.expires_at > now),
+    )
     .map((token) => ({
       label: token.label,
       createdAt: token.created_at,
@@ -438,11 +445,15 @@ workspaces.delete("/:name/tokens", workspaceManageAuth(), async (c) => {
   const name = c.req.param("name");
   requireWorkspaceName(name);
 
+  if (!(await allowWrite(c.env, name))) {
+    throw new RateLimitedError("rate limit exceeded");
+  }
+
   const body = await c.req
-    .json<{ hashPrefix?: string; label?: string }>()
-    .catch(() => ({}) as { hashPrefix?: string; label?: string });
-  const hashPrefix = body.hashPrefix?.trim();
-  const label = body.label?.trim();
+    .json<{ hashPrefix?: unknown; label?: unknown }>()
+    .catch(() => ({}) as { hashPrefix?: unknown; label?: unknown });
+  const hashPrefix = typeof body.hashPrefix === "string" ? body.hashPrefix.trim() : undefined;
+  const label = typeof body.label === "string" ? body.label.trim() : undefined;
   if (!hashPrefix && !label) {
     throw new ValidationError("hashPrefix or label required", {
       code: "hash_prefix_or_label_required",
