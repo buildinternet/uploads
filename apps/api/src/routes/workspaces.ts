@@ -13,8 +13,15 @@ import {
   RateLimitedError,
   ValidationError,
 } from "@uploads/errors";
-import { Hono } from "hono";
-import { isCommunal } from "./me";
+import { Hono, type MiddlewareHandler } from "hono";
+import { adminWorkspaceOr403, isCommunal } from "./me";
+import {
+  isFileScope,
+  isOperatorScope,
+  isWorkspaceScope,
+  listTokens,
+  revokeToken,
+} from "../auth-db";
 import { allowWorkspaceCreate, allowWrite } from "../guards";
 import {
   deleteOrg,
@@ -34,7 +41,66 @@ import {
   stampRestore,
   stampSoftDelete,
   workspaceGovernanceAuth,
+  workspaceNameFromToken,
+  type GovernanceVars,
 } from "../workspace";
+
+const HASH_PREFIX_LEN = 8;
+
+/** Combined context vars for routes reachable by either auth path (issue #262 Task 3). */
+type ManageAuthVars = {
+  Variables: SessionVars["Variables"] & GovernanceVars["Variables"];
+  Bindings: Env;
+};
+
+/**
+ * Dual auth for self-serve token governance (#262 Task 3): EITHER a session
+ * user holding org role admin/owner in `:name` (mirrors `adminWorkspaceOr403`
+ * in `./me.ts`) OR a D1 `workspace:manage`-scoped token bound to `:name`
+ * (`workspaceGovernanceAuth`, see `../workspace.ts`). The bearer value itself
+ * picks the path — `up_<workspace>_…` shaped tokens go through the
+ * governance guard; anything else (including Better Auth bearer sessions,
+ * which also ride the Authorization header — see workspaces.test.ts) falls
+ * back to session-cookie/bearer auth.
+ */
+function workspaceManageAuth(): MiddlewareHandler<ManageAuthVars> {
+  return async (c, next) => {
+    const authHeader = c.req.header("Authorization");
+    const rawToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
+    if (rawToken && workspaceNameFromToken(rawToken) !== undefined) {
+      // Sub-middleware Contexts differ only in which Variables key they
+      // touch; Hono's `Set` is invariant on Variables so a structural cast
+      // is needed at each hand-off (both directions, below).
+      await workspaceGovernanceAuth("workspace:manage")(
+        c as unknown as Parameters<ReturnType<typeof workspaceGovernanceAuth>>[0],
+        next,
+      );
+      return;
+    }
+
+    const sessionC = c as unknown as Parameters<typeof sessionAuth>[0];
+    await sessionAuth(sessionC, async () => {});
+    await requireSessionUser(sessionC, async () => {});
+    const name = c.req.param("name")!;
+    const user = c.get("sessionUser")!;
+    await adminWorkspaceOr403(c.env, user.id, name);
+    c.set("governanceMintingUserId", user.id);
+    await next();
+  };
+}
+
+/** Redacted scope list for display — never surfaces unrecognized/garbage entries. */
+function parseAnyScopes(value: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (v): v is string => isFileScope(v) || isOperatorScope(v) || isWorkspaceScope(v),
+    );
+  } catch {
+    return [];
+  }
+}
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -327,4 +393,67 @@ workspaces.post("/:name/invites", workspaceGovernanceAuth("workspace:invite"), a
   const id = payload?.invitation?.id;
   const acceptUrl = payload?.acceptUrl ?? (id ? `${webOrigin}/accept-invitation/${id}` : undefined);
   return c.json({ ...payload, acceptUrl }, response.status === 200 ? 200 : 201);
+});
+
+/**
+ * Self-serve token list (issue #262 Task 3) — dual-authed via
+ * `workspaceManageAuth`. Mirrors the redacted shape of `GET /admin/tokens`
+ * in `routes/admin.ts`: labels, scopes, created/expiry, hash prefix — NEVER
+ * token values. Active D1 tokens only (revoked tokens don't need self-serve
+ * visibility; the admin surface covers full history).
+ */
+workspaces.get("/:name/tokens", workspaceManageAuth(), async (c) => {
+  const name = c.req.param("name");
+  requireWorkspaceName(name);
+
+  const tokens = (await listTokens(c.env.DB, name))
+    .filter((token) => token.revoked_at === null)
+    .map((token) => ({
+      label: token.label,
+      createdAt: token.created_at,
+      hashPrefix: token.token_hash.slice(0, HASH_PREFIX_LEN),
+      scopes: parseAnyScopes(token.scopes),
+      expiresAt: token.expires_at,
+    }));
+
+  return c.json({ workspace: name, tokens });
+});
+
+/**
+ * Self-serve token revoke (issue #262 Task 3) — dual-authed via
+ * `workspaceManageAuth`. Mirrors the `DELETE /admin/tokens` contract:
+ * revoke by `hashPrefix` or `label`, 404 for no match, 409 for an ambiguous
+ * selector. `revokeToken` already scopes its lookup to `name` and to active
+ * (non-revoked) tokens.
+ */
+workspaces.delete("/:name/tokens", workspaceManageAuth(), async (c) => {
+  const name = c.req.param("name");
+  requireWorkspaceName(name);
+
+  const body = await c.req
+    .json<{ hashPrefix?: string; label?: string }>()
+    .catch(() => ({}) as { hashPrefix?: string; label?: string });
+  const hashPrefix = body.hashPrefix?.trim();
+  const label = body.label?.trim();
+  if (!hashPrefix && !label) {
+    throw new ValidationError("hashPrefix or label required", {
+      code: "hash_prefix_or_label_required",
+    });
+  }
+
+  const result = await revokeToken(c.env.DB, name, { hashPrefix, label });
+  if (result.ambiguous) {
+    throw new ConflictError("selector matches multiple tokens");
+  }
+  if (!result.match) {
+    throw new NotFoundError("no matching token");
+  }
+
+  return c.json({
+    workspace: name,
+    revoked: {
+      label: result.match.label,
+      hashPrefix: result.match.token_hash.slice(0, HASH_PREFIX_LEN),
+    },
+  });
 });

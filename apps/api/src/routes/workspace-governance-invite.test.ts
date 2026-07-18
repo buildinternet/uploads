@@ -5,7 +5,7 @@
  * `me.test.ts`/`workspaces.test.ts` for the AUTH service binding.
  */
 import { Hono } from "hono";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { SqliteD1, database } from "../../test/helpers/sqlite-d1";
 import { createToken } from "../auth-db";
 import { respondError } from "../error-response";
@@ -193,6 +193,21 @@ describe("POST /v1/workspaces/:name/invites", () => {
       env,
     );
     expect(res.status).toBe(401);
+  });
+
+  it("token with no minting_user_id (enrollment-code-derived) is rejected with 403 no_minting_user", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    const { token } = await createToken(db as unknown as D1Database, {
+      workspace: "acme",
+      scopes: ["workspace:invite"],
+      // mintedByUserId omitted — mirrors enrollment-code-derived/pre-migration tokens.
+    });
+    const { app, env } = appWith({ db });
+    const res = await app.request(inviteRequest("acme", token), {}, env);
+    expect(res.status).toBe(403);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "no_minting_user" },
+    });
   });
 
   it("a governance token has zero file access — parseScopes stays fail-closed", async () => {
