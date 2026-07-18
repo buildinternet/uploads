@@ -69,6 +69,7 @@ export const prerender = false;
     import { onSession, requireElement } from "../../../lib/account-shell";
     import { linkGitHub, listAccounts } from "../../../lib/auth-client";
     import { createWorkspace } from "../../../lib/api-client";
+    import { clearCachedWorkspaces } from "../../../lib/workspaces-nav";
     import {
       bindCopyButtons,
       createErrorCopy,
@@ -135,6 +136,9 @@ export const prerender = false;
         const result = await createWorkspace(apiOrigin, name);
         if (submit) submit.disabled = false;
         if (result.kind === "created") {
+          // Drop the sidebar membership cache so the next paint includes this
+          // workspace (revalidated on the destination page's /me/workspaces).
+          clearCachedWorkspaces();
           // Interrupted-flow return (OAuth consent): skip the CLI-setup card
           // and go straight back — the user's goal is the pending authorize
           // request, not terminal setup.

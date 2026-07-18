@@ -1,4 +1,54 @@
 /* Content styles for /account/* cards (profile kv, workspace list, developer list). */
+
+/* Developers — one card; links as flat hairline rows, not nested mini-panels. */
+section.card.dev-page {
+  padding: 22px 22px 10px;
+}
+section.card.dev-page h2 {
+  margin: 0 0 8px;
+}
+section.card.dev-page .dev-lead {
+  margin: 0 0 18px;
+  max-width: 36rem;
+  text-wrap: pretty;
+}
+ul.dev-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+ul.dev-links li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 14px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  background: none;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-radius: 0;
+  font-size: 13px;
+}
+ul.dev-links a {
+  color: var(--fg);
+  text-decoration: none;
+  font-weight: 500;
+}
+ul.dev-links a:hover,
+ul.dev-links a:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+ul.dev-links .slug {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .kv {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -368,19 +418,28 @@ ul.detail-list .detail-current {
   letter-spacing: 0.04em;
 }
 
-/* Dedicated workspace page (/account/workspaces/:name) ────────────────── */
+/* Dedicated workspace page (/account/workspaces/:name) ──────────────────
+   One card surface; header / files / galleries are blocks with hairlines
+   and vertical rhythm — not a stack of nested panels. */
 
+.ws-page-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 22px 22px 24px;
+}
 .ws-page-header {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px 16px;
+  gap: 12px 16px;
+  padding-bottom: 4px;
 }
 .ws-page-header .ws-title-block {
   min-width: 0;
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 .ws-page-header h2 {
   margin: 0;
@@ -396,9 +455,9 @@ ul.detail-list .detail-current {
   color: var(--muted);
   font-size: 12px;
   display: grid;
-  gap: 6px;
+  gap: 10px;
   min-height: 1.2em;
-  margin-top: 4px;
+  margin-top: 10px;
 }
 .ws-page-header .usage .usage-text,
 .ws-page-header .usage .usage-meta {
@@ -408,31 +467,62 @@ ul.detail-list .detail-current {
   font-size: 11px;
   opacity: 0.9;
 }
+/* Stacked regions inside the single card. */
+.ws-page-card > .ws-block {
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 14px;
+}
+.ws-page-card > .ws-block[hidden] {
+  display: none;
+}
+.ws-page-card .ws-section-head,
 section.card .ws-section-head {
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
-  margin: 0 0 10px;
+  margin: 0;
 }
+.ws-page-card .ws-files,
+section.card .ws-files {
+  display: grid;
+  gap: 14px;
+}
+.ws-page-card .ws-items,
 section.card .ws-items {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 5px;
+  gap: 8px;
 }
+.ws-page-card .ws-items li,
 section.card .ws-items li {
   font-size: 13px;
 }
+.ws-page-card .ws-empty,
+.ws-page-card .ws-note,
 section.card .ws-empty,
 section.card .ws-note {
   color: var(--muted);
   font-size: 13px;
   margin: 0;
 }
+.ws-page-card .ws-note,
 section.card .ws-note {
   color: var(--body);
+}
+/* Search bar breathing room above the file list. */
+.ws-page-card .ws-search-bar {
+  margin: 0;
+  gap: 10px;
+}
+.ws-page-card .ws-search-error,
+.ws-page-card .ws-search-chips {
+  margin: 0;
 }
 /* Workspace page copy + joined input group ────────────────────────────── */
 
@@ -541,10 +631,15 @@ section.card .ws-note {
 .ws-messages .ul-callout .cli-note {
   margin-top: 10px;
 }
-/* Operator / create-success command rows sit under copy, not in .cli-steps. */
+/* Operator / create-success command rows sit under copy, not in .cli-steps
+   (those use grid gap). */
+section.card > .command,
+section.card > p + .command,
+section.card > .muted + .command {
+  margin-top: 12px;
+}
 section.card .command + .command,
-section.card .ws-messages .command,
-section.card #ws-operator-card .command {
+section.card .ws-messages .command {
   margin-top: 10px;
 }
 /* Workspace file browser: metadata search entry + results ─────────────── */

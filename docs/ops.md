@@ -100,8 +100,8 @@ this at production while testing.
 People with org role **admin** or **owner** on a workspace invite teammates
 without `ADMIN_TOKEN` or a global site-admin role:
 
-- **Web:** `/account/workspaces` → “Invite a teammate” (session cookie →
-  `POST /me/workspaces/:name/invites`)
+- **Web:** `/account/workspaces/<name>/invite` → “Invite a teammate” (session
+  cookie → `POST /me/workspaces/:name/invites`)
 - **CLI:** `uploads invite create --email teammate@example.com --workspace <name>`
   (device login as the inviter, then the same `/me/…/invites` API)
 

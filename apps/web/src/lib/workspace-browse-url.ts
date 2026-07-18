@@ -28,11 +28,12 @@ export function isBrowseWorkspace(value: string): boolean {
 }
 
 /**
- * Extract a workspace slug from `/account/workspaces/:name` (not `/new`).
- * Returns "" when the path is the index, create page, or unrelated.
+ * Extract a workspace slug from `/account/workspaces/:name` or a nested page
+ * under it (`…/:name/invite`). Returns "" for the index, create page, or
+ * unrelated paths.
  */
 export function workspaceFromPathname(pathname: string): string {
-  const match = pathname.match(/^\/account\/workspaces\/([^/]+)\/?$/);
+  const match = pathname.match(/^\/account\/workspaces\/([^/]+)(?:\/|$)/);
   if (!match) return "";
   const slug = decodeURIComponent(match[1] ?? "");
   return isBrowseWorkspace(slug) ? slug : "";

@@ -284,6 +284,8 @@ const MENU_ITEMS = [
     border: 1px solid var(--line, #232327);
     border-radius: var(--radius-md, 8px);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    /* Clip hover/active item fills to the panel radius (esp. first/last rows). */
+    overflow: hidden;
   }
   .auth-indicator :global(.auth-menu__meta) {
     padding: 8px 10px 10px;
@@ -311,12 +313,13 @@ const MENU_ITEMS = [
   }
   .auth-indicator :global(.auth-menu__item) {
     display: block;
+    box-sizing: border-box;
     width: 100%;
     text-align: left;
     padding: 8px 10px;
     border: none;
     border-radius: 6px;
-    background: none;
+    background: transparent;
     color: var(--fg, #ececea);
     font: 13px var(--sans, system-ui, sans-serif);
     text-decoration: none;
@@ -326,6 +329,7 @@ const MENU_ITEMS = [
   .auth-indicator :global(.auth-menu__item:focus-visible) {
     background: color-mix(in srgb, var(--accent, #c27eff) 12%, transparent);
     color: var(--accent, #c27eff);
+    text-decoration: none;
     outline: none;
   }
   .auth-indicator :global(.auth-menu__signout) {

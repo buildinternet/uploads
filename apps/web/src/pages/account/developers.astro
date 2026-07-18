@@ -9,25 +9,26 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
 ---
 
 <AccountLayout section="developers">
-  <section class="card">
+  <section class="card dev-page">
     <h2>Developers</h2>
-    <p>
-      Most people just need <code>uploads login</code> from the
-      <a href="/account#cli-setup">account overview</a>. These are for API and CI use.
+    <p class="dev-lead">
+      Most people just need <code>uploads login</code> from the{" "}
+      <a href="/account#cli-setup">account overview</a>. These are for API and CI
+      use.
     </p>
-    <ul class="plain">
+    <ul class="dev-links">
       {showConsoleLinks ? (
         <li>
-          <span><a href="/console">Console</a></span>
+          <a href="/console">Console</a>
           <span class="slug">usage, files, invites — bring a token</span>
         </li>
       ) : null}
       <li>
-        <span><a href="/docs">API docs</a></span>
+        <a href="/docs">API docs</a>
         <span class="slug">endpoints &amp; auth</span>
       </li>
       <li>
-        <span><a href="https://github.com/buildinternet/uploads">GitHub</a></span>
+        <a href="https://github.com/buildinternet/uploads">GitHub</a>
         <span class="slug">source &amp; issues</span>
       </li>
     </ul>
