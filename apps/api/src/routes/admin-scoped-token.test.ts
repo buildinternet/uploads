@@ -36,7 +36,8 @@ function fakeKv(records: Record<string, unknown>) {
 }
 
 function appWith(opts: { adminToken?: string | undefined; db: SqliteD1 }) {
-  const { adminToken = ADMIN_TOKEN, db } = opts;
+  const adminToken = "adminToken" in opts ? opts.adminToken : ADMIN_TOKEN;
+  const { db } = opts;
   const app = new Hono<{ Bindings: Env }>()
     .route("/admin", admin)
     .onError((err, c) => respondError(c, err));

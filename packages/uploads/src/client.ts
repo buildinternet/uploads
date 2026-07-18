@@ -6,6 +6,14 @@ import { buildScreenshotKey } from "./keys.js";
 import { packageVersion } from "./package-version.js";
 import { resolveEmbedUrl } from "./public-urls.js";
 
+/** Scoped-operator-token permission scope. */
+export type TokenScope =
+  | "files:read"
+  | "files:write"
+  | "files:delete"
+  | "operator:read"
+  | "operator:write";
+
 /** Allowlisted object provenance (maps to X-Uploads-Meta-* on put). */
 export type ProvenanceInput = {
   client?: string;
@@ -244,9 +252,7 @@ export interface EnrollmentExchangeResult {
   apiUrl?: string;
   workspace: string;
   token: string;
-  scopes?: Array<
-    "files:read" | "files:write" | "files:delete" | "operator:read" | "operator:write"
-  >;
+  scopes?: Array<TokenScope>;
   expiresAt?: string;
 }
 
@@ -293,9 +299,7 @@ export function createEnrollment(
     email?: string;
     enrollmentSeconds?: number;
     tokenExpiresInSeconds?: number;
-    scopes?: Array<
-      "files:read" | "files:write" | "files:delete" | "operator:read" | "operator:write"
-    >;
+    scopes?: Array<TokenScope>;
   },
 ): Promise<EnrollmentCreateResult> {
   return jsonRequest(`${apiUrl.replace(/\/$/, "")}/admin/enrollments`, {
@@ -490,7 +494,7 @@ export async function createWorkspaceRequest(
 export interface MintTokenResult {
   token: string;
   workspace: string;
-  scopes: Array<"files:read" | "files:write" | "files:delete" | "operator:read" | "operator:write">;
+  scopes: Array<TokenScope>;
   label: string | null;
   expiresAt: string | null;
 }
@@ -534,9 +538,7 @@ export function mintWorkspaceToken(
   accessToken: string,
   input: {
     workspace: string;
-    scopes?: Array<
-      "files:read" | "files:write" | "files:delete" | "operator:read" | "operator:write"
-    >;
+    scopes?: Array<TokenScope>;
     label?: string;
     ttlSeconds?: number;
   },
