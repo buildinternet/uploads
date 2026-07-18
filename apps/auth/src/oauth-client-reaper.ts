@@ -26,7 +26,7 @@
  * Called from the existing `15 6 * * *` cron alongside the retention sweep
  * (see src/index.ts's `scheduled` handler).
  */
-import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, eq, isNull, lt, notExists, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { AuthEnv } from "./auth";
 import * as schema from "./schema";
@@ -34,8 +34,6 @@ import * as schema from "./schema";
 export const DEFAULT_RETENTION_DAYS = 30;
 /** Cap the client_id sample logged per run so the audit line stays lean. */
 const CLIENT_ID_LOG_SAMPLE = 50;
-/** D1 allows ≤100 bound params per statement; chunk id-lists well under that. */
-const DELETE_CHUNK = 90;
 
 export type OauthClientReaperEnv = AuthEnv & {
   OAUTH_CLIENT_REAPER_ENABLED?: string;
@@ -48,11 +46,14 @@ export type OauthClientReaperEnv = AuthEnv & {
 
 export type OauthClientCandidate = { id: string; clientId: string };
 
-/** Storage seam — production uses Drizzle/D1; tests inject an in-memory fake. */
+/** Storage seam — production uses Drizzle/D1; tests run the real store over fake D1. */
 export interface OauthClientReaperStore {
+  /** Age/anonymous/untrusted candidates, before the never-used check (observability). */
   listCandidates(cutoff: Date): Promise<OauthClientCandidate[]>;
-  collectInUseClientIds(): Promise<Set<string>>;
-  deleteByIds(ids: string[]): Promise<number>;
+  /** Candidates that additionally have no consent/token rows (observe mode). */
+  listReapable(cutoff: Date): Promise<OauthClientCandidate[]>;
+  /** Delete reapable clients, re-checking EVERY predicate at statement time. */
+  deleteReapable(cutoff: Date): Promise<OauthClientCandidate[]>;
 }
 
 export function parseRetentionDays(raw: string | undefined): number {
@@ -60,58 +61,48 @@ export function parseRetentionDays(raw: string | undefined): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_RETENTION_DAYS;
 }
 
-/** Pure filter: candidates that have never been used. */
-export function filterReapable(
-  candidates: OauthClientCandidate[],
-  inUse: ReadonlySet<string>,
-): OauthClientCandidate[] {
-  return candidates.filter((c) => !inUse.has(c.clientId));
-}
-
 export function drizzleOauthClientReaperStore(db: D1Database): OauthClientReaperStore {
   const d = drizzle(db, { schema });
+  // Anonymous DCR only (user_id null) + not trusted (skip_consent) + stale.
+  const candidateWhere = (cutoff: Date) =>
+    and(
+      lt(schema.oauthClient.createdAt, cutoff),
+      isNull(schema.oauthClient.userId),
+      or(isNull(schema.oauthClient.skipConsent), eq(schema.oauthClient.skipConsent, false)),
+    );
+  // Never used: correlated NOT EXISTS per usage table, evaluated inside the
+  // SAME statement as the read/delete it guards — a consent or token created
+  // between a separate "collect ids" read and the delete could otherwise be
+  // orphaned (or trip the token tables' FKs). Also keeps usage checks in SQL
+  // instead of loading every historical consent/token client_id into memory.
+  const neverUsed = () =>
+    and(
+      ...([schema.oauthConsent, schema.oauthAccessToken, schema.oauthRefreshToken] as const).map(
+        (table) =>
+          notExists(
+            d
+              .select({ one: sql`1` })
+              .from(table)
+              .where(eq(table.clientId, schema.oauthClient.clientId)),
+          ),
+      ),
+    );
+  const projection = { id: schema.oauthClient.id, clientId: schema.oauthClient.clientId };
   return {
     async listCandidates(cutoff) {
-      // Anonymous DCR only (user_id null) + not trusted (skip_consent).
+      return d.select(projection).from(schema.oauthClient).where(candidateWhere(cutoff));
+    },
+    async listReapable(cutoff) {
       return d
-        .select({ id: schema.oauthClient.id, clientId: schema.oauthClient.clientId })
+        .select(projection)
         .from(schema.oauthClient)
-        .where(
-          and(
-            lt(schema.oauthClient.createdAt, cutoff),
-            isNull(schema.oauthClient.userId),
-            or(isNull(schema.oauthClient.skipConsent), eq(schema.oauthClient.skipConsent, false)),
-          ),
-        );
+        .where(and(candidateWhere(cutoff), neverUsed()));
     },
-    async collectInUseClientIds() {
-      const inUse = new Set<string>();
-      for (const table of [
-        schema.oauthConsent,
-        schema.oauthAccessToken,
-        schema.oauthRefreshToken,
-      ] as const) {
-        // Sequential: three small distinct lookups; NOT IN (subquery) is
-        // messier with SQLite nulls and harder to test.
-        // oxlint-disable-next-line no-await-in-loop -- intentional sequential reads
-        const rows = await d.select({ clientId: table.clientId }).from(table);
-        for (const r of rows) inUse.add(r.clientId);
-      }
-      return inUse;
-    },
-    async deleteByIds(ids) {
-      if (ids.length === 0) return 0;
-      let deleted = 0;
-      for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
-        const chunk = ids.slice(i, i + DELETE_CHUNK);
-        // oxlint-disable-next-line no-await-in-loop -- chunked under D1 bind cap
-        const res = await d
-          .delete(schema.oauthClient)
-          .where(inArray(schema.oauthClient.id, chunk))
-          .returning({ id: schema.oauthClient.id });
-        deleted += res.length;
-      }
-      return deleted;
+    async deleteReapable(cutoff) {
+      return d
+        .delete(schema.oauthClient)
+        .where(and(candidateWhere(cutoff), neverUsed()))
+        .returning(projection);
     },
   };
 }
@@ -140,13 +131,12 @@ export async function sweepOauthClients(
 
   const store = env._store ?? drizzleOauthClientReaperStore(env.DB);
   const candidates = await store.listCandidates(cutoff);
-  const inUse = await store.collectInUseClientIds();
-  const reapable = filterReapable(candidates, inUse);
-
-  let deleted = 0;
-  if (deleteEnabled && reapable.length > 0) {
-    deleted = await store.deleteByIds(reapable.map((c) => c.id));
-  }
+  // Delete mode never trusts a prior read: deleteReapable re-evaluates every
+  // predicate (incl. never-used) in the delete statement itself.
+  const reapable = deleteEnabled
+    ? await store.deleteReapable(cutoff)
+    : await store.listReapable(cutoff);
+  const deleted = deleteEnabled ? reapable.length : 0;
 
   const mode = deleteEnabled ? "delete" : "observe";
   const clientIds = reapable.slice(0, CLIENT_ID_LOG_SAMPLE).map((c) => c.clientId);

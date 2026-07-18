@@ -88,10 +88,6 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     <div class="ul-callout status" data-state="ready" role="status">Redirecting…</div>
   </div>
 
-  <div id="denied" hidden>
-    <div class="ul-callout status" role="status">Request denied. You can close this page.</div>
-  </div>
-
   <Footer compact />
 </main>
 <script define:vars={{ authOrigin }}>
@@ -125,7 +121,6 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   const denyBtn = requireElement<HTMLButtonElement>("#deny-btn");
   const confirmError = requireElement<HTMLElement>("#confirm-error");
   const redirecting = requireElement<HTMLElement>("#redirecting");
-  const denied = requireElement<HTMLElement>("#denied");
 
   // Human copy for the scopes this AS issues (see docs/superpowers/specs/
   // 2026-07-17-oauth-authorization-server-design.md — files:read/write/delete).
@@ -142,7 +137,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   const oauthQuery = location.search.replace(/^\?/, "");
 
   function hideAll() {
-    for (const el of [checking, authUnavailable, noRequest, signedOut, confirmBox, redirecting, denied]) {
+    for (const el of [checking, authUnavailable, noRequest, signedOut, confirmBox, redirecting]) {
       el.hidden = true;
     }
   }
@@ -243,11 +238,8 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       confirmError.hidden = false;
       return;
     }
-    if (!accept) {
-      hideAll();
-      denied.hidden = false;
-      return;
-    }
+    // Deny redirects too: the AS's redirect_uri carries `error=access_denied`
+    // (+ state) back to the initiating client so its flow can finish cleanly.
     hideAll();
     redirecting.hidden = false;
     location.href = result.redirectUri;

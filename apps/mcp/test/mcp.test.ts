@@ -1198,6 +1198,26 @@ describe("OAuth JWT bearer (issue #224)", () => {
     expect(bucket.store.has("shots/shot.png")).toBe(true);
   });
 
+  it("accepts a lowercase `bearer` authentication scheme (RFC 9110: schemes are case-insensitive)", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken({
+      sub: "user-1",
+      workspace: "test-ws",
+      workspaces: ["test-ws"],
+      scope: "files:read",
+    });
+    const response = await app.request(
+      "https://agents.uploads.sh/mcp",
+      {
+        method: "POST",
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
+        headers: { Authorization: `bearer ${jwt}` },
+      },
+      env,
+    );
+    expect(response.status).toBe(200);
+  });
+
   it("accepts a valid JWT at the path-based /:workspace/mcp endpoint when the path workspace is in `workspaces`", async () => {
     const { env, bucket } = await makeEnv();
     const jwt = await signOAuthToken({

@@ -85,7 +85,9 @@ export async function resolveWorkspaceClaims(
     .from(schema.member)
     .innerJoin(schema.organization, eq(schema.member.organizationId, schema.organization.id))
     .where(eq(schema.member.userId, userId))
-    .orderBy(asc(schema.member.createdAt));
+    // Secondary sort on id: memberships created in the same millisecond must
+    // still yield the same primary workspace on every token issuance.
+    .orderBy(asc(schema.member.createdAt), asc(schema.member.id));
   const workspaces = rows.map((r) => r.slug);
   return { workspace: workspaces[0] ?? null, workspaces };
 }

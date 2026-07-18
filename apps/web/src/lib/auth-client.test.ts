@@ -236,11 +236,11 @@ describe("linkGitHub", () => {
   });
 });
 
-describe("sendMagicLink oauth resume", () => {
-  function stubLocation(search: string) {
-    vi.stubGlobal("location", { search });
-  }
+function stubLocation(search: string) {
+  vi.stubGlobal("location", { search });
+}
 
+describe("sendMagicLink oauth resume", () => {
   it("injects oauth_query when location.search carries a signed sig= param", async () => {
     stubLocation("?client_id=abc&sig=deadbeef");
     const fetcher = vi.fn(async () => new Response(null, { status: 200 }));

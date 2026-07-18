@@ -84,11 +84,9 @@ describe("root discovery aliases", () => {
   });
 
   it("serves the RFC 8414 path-inserted form", async () => {
-    const res = await app.request(
-      "/.well-known/oauth-authorization-server/some/issuer/path",
-      {},
-      dbEnv(),
-    );
+    // The path a client actually derives from our issuer
+    // (https://auth.uploads.sh/api/auth) per RFC 8414 §3.1.
+    const res = await app.request("/.well-known/oauth-authorization-server/api/auth", {}, dbEnv());
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
     const body = (await res.json()) as { issuer?: string };

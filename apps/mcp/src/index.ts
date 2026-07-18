@@ -42,7 +42,8 @@ function authOriginOf(env: Env): string {
 }
 
 function bearerFrom(header: string | undefined): string {
-  return header?.startsWith("Bearer ") ? header.slice(7) : "";
+  // RFC 9110 §11.1: auth scheme names are case-insensitive.
+  return header?.match(/^Bearer +(.+)$/i)?.[1] ?? "";
 }
 
 /** Actionable 403 for a token whose user has no workspace yet (`workspace: null`). */
