@@ -20,7 +20,6 @@ import {
   validateScopes,
   DEFAULT_TOKEN_SECONDS,
   MAX_TOKEN_SECONDS,
-  type OperatorScope,
   type FileScope,
 } from "../auth-db";
 import { allowWrite } from "../guards";
@@ -41,26 +40,24 @@ const MAX_LABEL_LEN = 200;
 // the minting user's admin role (see the mint handler below).
 const DEFAULT_MINT_SCOPES: FileScope[] = ["files:read", "files:write"];
 
-interface Grant {
+interface RawGrant {
   workspace: string;
-  scopes: (FileScope | OperatorScope)[];
+  rawScopes: unknown;
 }
 
 /**
- * Validate the request body into a single normalized grant + label/ttl.
- * Throws ValidationError (400) on any malformed input. `grants` is an array by
- * contract, but v1 permits exactly one entry.
+ * Parse the request body into a normalized (but not-yet-scope-validated)
+ * grant + label/ttl. Throws ValidationError (400) on any malformed input.
+ * `grants` is an array by contract, but v1 permits exactly one entry.
  *
- * `allowOperator` gates whether operator:* scopes are accepted at all — callers
- * pass this only when the session user holds the admin role, so a non-admin
- * requesting an operator scope fails the same `invalid_scopes` validation as any
- * other unknown scope (issue #257 spec), not a distinct 403.
+ * Scope validation is deferred to the caller (see the mint handler below):
+ * whether operator:* / workspace:* scopes are acceptable depends on the
+ * session user's admin role (operator) and, for workspace:* scopes, on the
+ * caller's org role in the *target workspace* — which this function doesn't
+ * resolve. That keeps this parser a pure structural check.
  */
-function parseMintRequest(
-  parsed: unknown,
-  opts: { allowOperator: boolean },
-): {
-  grant: Grant;
+function parseMintRequest(parsed: unknown): {
+  grant: RawGrant;
   label?: string;
   ttlSeconds: number;
 } {
@@ -90,13 +87,6 @@ function parseMintRequest(
   if (!WS_NAME_RE.test(workspace)) {
     throw new ValidationError("grant.workspace is invalid", { code: "invalid_workspace" });
   }
-  const scopes = validateScopes(grantObj.scopes, DEFAULT_MINT_SCOPES, {
-    allowOperator: opts.allowOperator,
-  });
-  if (scopes === null) {
-    throw new ValidationError("grant.scopes contains an unknown scope", { code: "invalid_scopes" });
-  }
-
   let label: string | undefined;
   if (body.label !== undefined) {
     if (typeof body.label !== "string") {
@@ -129,7 +119,7 @@ function parseMintRequest(
     ttlSeconds = body.ttlSeconds;
   }
 
-  return { grant: { workspace, scopes }, label, ttlSeconds };
+  return { grant: { workspace, rawScopes: grantObj.scopes }, label, ttlSeconds };
 }
 
 export const tokens = new Hono<SessionVars>()
@@ -169,9 +159,7 @@ export const tokens = new Hono<SessionVars>()
 
     // requireSessionUser guarantees this is set.
     const user = c.get("sessionUser")!;
-    const { grant, label, ttlSeconds } = parseMintRequest(parsed, {
-      allowOperator: userHasAdminRole(user),
-    });
+    const { grant, label, ttlSeconds } = parseMintRequest(parsed);
 
     // Three independent lookups — resolve them concurrently, then gate. The
     // workspace must exist as a KV tenant record (a token is meaningless
@@ -184,8 +172,25 @@ export const tokens = new Hono<SessionVars>()
       orgForWorkspace(c.env, grant.workspace),
       membershipsForUser(c.env, user.id),
     ]);
-    if (!record || !org || !memberships.some((m) => m.organizationId === org.id)) {
+    const membership = org ? memberships.find((m) => m.organizationId === org.id) : undefined;
+    if (!record || !org || !membership) {
       throw new ForbiddenError("no access to this workspace", { code: "workspace_forbidden" });
+    }
+
+    // workspace:* scopes require the caller's org role in THIS workspace to be
+    // admin/owner (string check matching adminWorkspaceOr403 in routes/me.ts).
+    // Platform-admin role does NOT bypass this — operators already have
+    // /admin-ui, so a platform admin without an org role here still fails
+    // invalid_scopes, same as any other unauthorized scope request (#262).
+    const allowWorkspace = membership.role === "admin" || membership.role === "owner";
+    const scopes = validateScopes(grant.rawScopes, DEFAULT_MINT_SCOPES, {
+      allowOperator: userHasAdminRole(user),
+      allowWorkspace,
+    });
+    if (scopes === null) {
+      throw new ValidationError("grant.scopes contains an unknown scope", {
+        code: "invalid_scopes",
+      });
     }
 
     // Throttle minting per workspace — checked only after the membership gate,
@@ -199,7 +204,7 @@ export const tokens = new Hono<SessionVars>()
     const { token, record: tokenRecord } = await createToken(c.env.DB, {
       workspace: grant.workspace,
       label,
-      scopes: grant.scopes,
+      scopes,
       expiresAt,
       mintedByUserId: user.id,
     });
@@ -208,7 +213,7 @@ export const tokens = new Hono<SessionVars>()
       {
         token,
         workspace: grant.workspace,
-        scopes: grant.scopes,
+        scopes,
         label: tokenRecord.label,
         expiresAt: tokenRecord.expires_at,
       },
