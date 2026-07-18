@@ -71,6 +71,33 @@ export interface WorkspaceRecord {
   createdByUserId?: string;
   /** ISO timestamp of self-serve creation. */
   createdAt?: string;
+  /** Set by `DELETE /admin/workspaces/:name` (default/soft mode). Present → the workspace is soft-deleted. */
+  deletedAt?: string;
+  /** `deletedAt` + the grace window (`WORKSPACE_DELETE_GRACE_DAYS`); the retention sweep finalizes at/after this. */
+  purgeAt?: string;
+}
+
+/** Days a soft-deleted workspace's data is retained before the retention sweep finalizes it. */
+export const WORKSPACE_DELETE_GRACE_DAYS = 14;
+
+/**
+ * Minimal permanent tombstone left under `ws:<name>` once a soft-deleted
+ * workspace is finalized (or hard-deleted with `replaceWithTombstone`) —
+ * intentionally not a full `WorkspaceRecord`. Its mere presence is what keeps
+ * a slug reserved for registration checks; see `apps/api/src/workspace-teardown.ts`.
+ */
+export interface PurgedTombstone {
+  status: "purged";
+  name: string;
+  purgedAt: string;
+  deletedAt?: string;
+}
+
+/** True for a purged tombstone written after finalization. */
+export function isPurgedTombstone(
+  record: WorkspaceRecord | PurgedTombstone | null,
+): record is PurgedTombstone {
+  return record !== null && (record as PurgedTombstone).status === "purged";
 }
 
 export type WorkspaceVars = {
@@ -133,7 +160,29 @@ export async function loadWorkspaceRecord(
   name: string | undefined,
 ): Promise<WorkspaceRecord | null> {
   if (!name || !WS_NAME_RE.test(name)) return null;
-  return env.REGISTRY.get<WorkspaceRecord>(`ws:${name}`, { type: "json", cacheTtl: 60 });
+  const record = await env.REGISTRY.get<WorkspaceRecord | PurgedTombstone>(`ws:${name}`, {
+    type: "json",
+    cacheTtl: 60,
+  });
+  // Soft-deleted and purged-tombstone records deny access exactly like an
+  // unknown workspace (uniform 404/401 across every auth/serving path) while
+  // still occupying the KV key, so the slug can't be re-registered.
+  if (!record || isPurgedTombstone(record) || record.deletedAt) return null;
+  return record;
+}
+
+/**
+ * Unfiltered read of `ws:<name>` — used by admin routes and the retention
+ * sweep, which need to see soft-deleted records and purged tombstones rather
+ * than have them collapsed to "not found". No `cacheTtl`: these callers act
+ * on the record (restore, finalize) and can't tolerate a stale hit.
+ */
+export async function loadWorkspaceRecordRaw(
+  env: Env,
+  name: string | undefined,
+): Promise<WorkspaceRecord | PurgedTombstone | null> {
+  if (!name || !WS_NAME_RE.test(name)) return null;
+  return env.REGISTRY.get<WorkspaceRecord | PurgedTombstone>(`ws:${name}`, { type: "json" });
 }
 
 function workspaceAuthWith(

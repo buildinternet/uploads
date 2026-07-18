@@ -42,6 +42,9 @@ function fakeKv(records: Record<string, unknown>) {
   const store = new Map(Object.entries(records));
   return {
     get: (async (key: string) => store.get(key) ?? null) as unknown as KVNamespace["get"],
+    put: (async (key: string, value: string) => {
+      store.set(key, JSON.parse(value));
+    }) as unknown as KVNamespace["put"],
     delete: (async (key: string) => {
       store.delete(key);
     }) as unknown as KVNamespace["delete"],
@@ -80,11 +83,19 @@ function appWith(opts: {
   return { app, env, registry, bucket };
 }
 
-function deleteRequest(name: string, opts?: { force?: boolean }) {
+function deleteRequest(name: string, opts?: { force?: boolean; hard?: boolean }) {
   const url = new URL(`https://api.uploads.sh/admin/workspaces/${name}`);
   if (opts?.force) url.searchParams.set("force", "1");
+  if (opts?.hard) url.searchParams.set("hard", "1");
   return new Request(url, {
     method: "DELETE",
+    headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+  });
+}
+
+function restoreRequest(name: string) {
+  return new Request(`https://api.uploads.sh/admin/workspaces/${name}/restore`, {
+    method: "POST",
     headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
   });
 }
@@ -114,11 +125,11 @@ describe("DELETE /admin/workspaces/:name", () => {
     expect(body.error.code).toBe("protected_workspace");
   });
 
-  it("409s a non-empty workspace without ?force=1, reporting the object count", async () => {
+  it("409s a non-empty workspace on ?hard=1 without ?force=1, reporting the object count", async () => {
     const bucket = new FakeR2Bucket();
     await bucket.put("acme/f/one.png", new Uint8Array([1, 2, 3]));
     const { app, env } = appWith({ kvRecords: { "ws:acme": RECORD }, bucket });
-    const res = await app.request(deleteRequest("acme"), {}, env);
+    const res = await app.request(deleteRequest("acme", { hard: true }), {}, env);
     expect(res.status).toBe(409);
     const body = (await res.json()) as {
       error: { code: string; details?: { objectCount?: number } };
@@ -129,7 +140,18 @@ describe("DELETE /admin/workspaces/:name", () => {
     expect(bucket.store.has("acme/f/one.png")).toBe(true);
   });
 
-  it("cascades a forced delete: R2 objects, D1 rows, auth org, then the KV record", async () => {
+  it("refuses to delete the communal/protected workspace on ?hard=1 too", async () => {
+    const { app, env } = appWith({
+      kvRecords: { "ws:default": RECORD },
+      defaultWorkspace: "default",
+    });
+    const res = await app.request(deleteRequest("default", { hard: true }), {}, env);
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("protected_workspace");
+  });
+
+  it("cascades a forced hard delete: R2 objects, D1 rows, auth org, then the KV record (slug freed)", async () => {
     const bucket = new FakeR2Bucket();
     await bucket.put("acme/f/one.png", new Uint8Array([1, 2, 3]));
     await bucket.put("acme/f/two.png", new Uint8Array([4, 5, 6, 7]));
@@ -153,17 +175,21 @@ describe("DELETE /admin/workspaces/:name", () => {
         },
       });
 
-      const res = await app.request(deleteRequest("acme", { force: true }), {}, env);
+      const res = await app.request(deleteRequest("acme", { force: true, hard: true }), {}, env);
       expect(res.status).toBe(200);
       const body = (await res.json()) as {
+        ok: boolean;
         workspace: string;
+        mode: string;
         deleted: boolean;
         forced: boolean;
         objectsDeleted: number;
         galleriesDeleted: number;
       };
       expect(body).toMatchObject({
+        ok: true,
         workspace: "acme",
+        mode: "hard",
         deleted: true,
         forced: true,
         objectsDeleted: 2,
@@ -181,10 +207,94 @@ describe("DELETE /admin/workspaces/:name", () => {
       ).toMatchObject({ count: 1 });
       // Auth-side org delete was invoked for the right slug.
       expect(deletedOrgSlug).toBe("acme");
-      // KV record removed last.
+      // KV record removed outright — the slug is freed.
       expect(registry.__store.has("ws:acme")).toBe(false);
     } finally {
       sqlite.close();
     }
+  });
+
+  describe("soft delete (default)", () => {
+    it("sets deletedAt/purgeAt, leaves data untouched, R2 intact", async () => {
+      const bucket = new FakeR2Bucket();
+      await bucket.put("acme/f/one.png", new Uint8Array([1, 2, 3]));
+      const { app, env, registry } = appWith({ kvRecords: { "ws:acme": RECORD }, bucket });
+
+      const res = await app.request(deleteRequest("acme"), {}, env);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        ok: boolean;
+        mode: string;
+        deletedAt: string;
+        purgeAt: string;
+      };
+      expect(body.ok).toBe(true);
+      expect(body.mode).toBe("soft");
+      expect(new Date(body.purgeAt).getTime() - new Date(body.deletedAt).getTime()).toBe(
+        14 * 24 * 60 * 60 * 1000,
+      );
+
+      const stored = registry.__store.get("ws:acme") as { deletedAt?: string; purgeAt?: string };
+      expect(stored.deletedAt).toBe(body.deletedAt);
+      expect(stored.purgeAt).toBe(body.purgeAt);
+      // Data untouched.
+      expect(bucket.store.has("acme/f/one.png")).toBe(true);
+    });
+
+    it("a second delete 409s already_deleted with the existing purgeAt", async () => {
+      const { app, env } = appWith({ kvRecords: { "ws:acme": RECORD } });
+      const first = await app.request(deleteRequest("acme"), {}, env);
+      const firstBody = (await first.json()) as { purgeAt: string };
+
+      const second = await app.request(deleteRequest("acme"), {}, env);
+      expect(second.status).toBe(409);
+      const body = (await second.json()) as {
+        error: { code: string; details?: { purgeAt?: string } };
+      };
+      expect(body.error.code).toBe("already_deleted");
+      expect(body.error.details?.purgeAt).toBe(firstBody.purgeAt);
+    });
+  });
+
+  describe("POST /admin/workspaces/:name/restore", () => {
+    it("404s for an unknown workspace", async () => {
+      const { app, env } = appWith({});
+      const res = await app.request(restoreRequest("acme"), {}, env);
+      expect(res.status).toBe(404);
+    });
+
+    it("409s not_deleted for a workspace that isn't soft-deleted", async () => {
+      const { app, env } = appWith({ kvRecords: { "ws:acme": RECORD } });
+      const res = await app.request(restoreRequest("acme"), {}, env);
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: { code: string } };
+      expect(body.error.code).toBe("not_deleted");
+    });
+
+    it("restores within the grace window, clearing deletedAt/purgeAt", async () => {
+      const { app, env, registry } = appWith({ kvRecords: { "ws:acme": RECORD } });
+      await app.request(deleteRequest("acme"), {}, env);
+
+      const res = await app.request(restoreRequest("acme"), {}, env);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ ok: true, workspace: "acme" });
+
+      const stored = registry.__store.get("ws:acme") as { deletedAt?: string; purgeAt?: string };
+      expect(stored.deletedAt).toBeUndefined();
+      expect(stored.purgeAt).toBeUndefined();
+    });
+
+    it("410s grace_expired once purgeAt has passed", async () => {
+      const expired = {
+        ...RECORD,
+        deletedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
+        purgeAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(),
+      };
+      const { app, env } = appWith({ kvRecords: { "ws:acme": expired } });
+      const res = await app.request(restoreRequest("acme"), {}, env);
+      expect(res.status).toBe(410);
+      const body = (await res.json()) as { error: { code: string } };
+      expect(body.error.code).toBe("grace_expired");
+    });
   });
 });
