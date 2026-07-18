@@ -165,24 +165,33 @@ export function createErrorCopy(code: string): string {
 }
 
 /**
- * Copy-to-clipboard for `button[data-copy]` under `root`.
+ * Copy-to-clipboard via event delegation under `root`.
+ *
+ * Safe after ClientRouter swaps when bound once on a long-lived root (e.g.
+ * `document` with a page-scoped selector) or re-bound on a fresh container
+ * each `astro:page-load`. Narrow `selector` when binding on `document` so
+ * other shells' copy buttons are not double-handled after soft nav.
  *
  * `Node`, not `ParentNode`: this only needs `addEventListener`/`contains`
  * (both on `Node`), and worker-configuration.d.ts's HTMLRewriter `Element`
  * ambiently redeclares `append()`, which makes DOM elements unassignable to
  * `ParentNode`. Same wrangler-types drift worked around in oauth/consent.astro.
  */
-export function bindCopyButtons(root: Node): void {
+export function bindCopyButtons(root: Node, selector = "button[data-copy]"): void {
   root.addEventListener("click", (event) => {
     void (async () => {
-      const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-copy]");
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>(selector);
       if (!button || !root.contains(button)) return;
+      const previous = button.textContent;
       try {
         await navigator.clipboard.writeText(button.dataset.copy ?? "");
-        const previous = button.textContent;
+        if (!root.contains(button)) return;
         button.textContent = "copied ✓";
+        button.classList.add("done");
         setTimeout(() => {
+          if (!root.contains(button)) return;
           button.textContent = previous;
+          button.classList.remove("done");
         }, 1500);
       } catch {
         // Clipboard blocked — leave the label.

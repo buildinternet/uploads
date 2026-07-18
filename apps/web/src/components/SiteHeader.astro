@@ -54,29 +54,45 @@ const REPO = "https://github.com/buildinternet/uploads";
 {
   star && (
     <script>
-      // Live star count — cached for an hour, silently absent on failure.
-      (async () => {
+      // Live star count (1h localStorage). Module scripts run once per session —
+      // re-fill after ClientRouter swaps; eager boot covers non-router pages.
+      import { onAstroPageLoad } from "../lib/account-shell";
+
+      const STARS_KEY = "gh-stars";
+      const STARS_TTL_MS = 3_600_000;
+
+      function formatStars(n: number): string {
+        return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+      }
+
+      async function fillStarCount(): Promise<void> {
         const el = document.getElementById("star-count");
         if (!el) return;
-        const show = (n: number) => {
-          el.textContent = n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+        const paint = (n: number) => {
+          if (document.contains(el)) el.textContent = formatStars(n);
         };
         try {
-          const cached = JSON.parse(localStorage.getItem("gh-stars") ?? "null");
-          if (cached && typeof cached.n === "number" && Date.now() - cached.t < 3_600_000) {
-            show(cached.n);
+          const cached = JSON.parse(localStorage.getItem(STARS_KEY) ?? "null") as {
+            t?: number;
+            n?: number;
+          } | null;
+          if (cached && typeof cached.n === "number" && Date.now() - (cached.t ?? 0) < STARS_TTL_MS) {
+            paint(cached.n);
             return;
           }
           const res = await fetch("https://api.github.com/repos/buildinternet/uploads");
           if (!res.ok) return;
           const n = ((await res.json()) as { stargazers_count?: unknown }).stargazers_count;
           if (typeof n !== "number") return;
-          localStorage.setItem("gh-stars", JSON.stringify({ t: Date.now(), n }));
-          show(n);
+          localStorage.setItem(STARS_KEY, JSON.stringify({ t: Date.now(), n }));
+          paint(n);
         } catch {
-          /* leave the count empty — the CTA still works */
+          /* count stays empty — the CTA still works */
         }
-      })();
+      }
+
+      void fillStarCount();
+      onAstroPageLoad(() => void fillStarCount());
     </script>
   )
 }
