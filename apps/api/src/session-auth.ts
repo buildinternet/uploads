@@ -91,10 +91,22 @@ export const requireSessionUser: MiddlewareHandler<SessionVars> = async (c, next
   await next();
 };
 
+/**
+ * Better Auth supports comma-separated multi-role strings (e.g.
+ * `"admin,support"`); mirrors `hasAdminRole` in apps/auth/src/auth.ts.
+ */
+export function userHasAdminRole(user: SessionUser | null | undefined): boolean {
+  if (!user?.role) return false;
+  return user.role
+    .split(",")
+    .map((r) => r.trim())
+    .includes("admin");
+}
+
 /** 403s unless the session user has the global `admin` role (D3's admin plugin). */
 export const requireAdminUser: MiddlewareHandler<SessionVars> = async (c, next) => {
   const user = c.get("sessionUser");
   if (!user) throw new UnauthorizedError();
-  if (user.role !== "admin") throw new ForbiddenError("admin role required");
+  if (!userHasAdminRole(user)) throw new ForbiddenError("admin role required");
   await next();
 };

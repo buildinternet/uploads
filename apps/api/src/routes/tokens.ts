@@ -20,30 +20,46 @@ import {
   validateScopes,
   DEFAULT_TOKEN_SECONDS,
   MAX_TOKEN_SECONDS,
+  type OperatorScope,
   type FileScope,
 } from "../auth-db";
 import { allowWrite } from "../guards";
 import { membershipsForUser, orgForWorkspace } from "../org-workspaces";
-import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
+import {
+  requireSessionUser,
+  sessionAuth,
+  userHasAdminRole,
+  type SessionVars,
+} from "../session-auth";
 import { loadWorkspaceRecord, WS_NAME_RE } from "../workspace";
 
 const MAX_BODY_BYTES = 4096;
 const MAX_LABEL_LEN = 200;
 // Scopes a mint defaults to when the grant omits them — read+write, but not
-// delete (least surprise; the CLI sends explicit scopes anyway).
+// delete (least surprise; the CLI sends explicit scopes anyway). Never
+// includes operator scopes — those must be explicitly requested and are gated on
+// the minting user's admin role (see the mint handler below).
 const DEFAULT_MINT_SCOPES: FileScope[] = ["files:read", "files:write"];
 
 interface Grant {
   workspace: string;
-  scopes: FileScope[];
+  scopes: (FileScope | OperatorScope)[];
 }
 
 /**
  * Validate the request body into a single normalized grant + label/ttl.
  * Throws ValidationError (400) on any malformed input. `grants` is an array by
  * contract, but v1 permits exactly one entry.
+ *
+ * `allowOperator` gates whether operator:* scopes are accepted at all — callers
+ * pass this only when the session user holds the admin role, so a non-admin
+ * requesting an operator scope fails the same `invalid_scopes` validation as any
+ * other unknown scope (issue #257 spec), not a distinct 403.
  */
-function parseMintRequest(parsed: unknown): {
+function parseMintRequest(
+  parsed: unknown,
+  opts: { allowOperator: boolean },
+): {
   grant: Grant;
   label?: string;
   ttlSeconds: number;
@@ -74,7 +90,9 @@ function parseMintRequest(parsed: unknown): {
   if (!WS_NAME_RE.test(workspace)) {
     throw new ValidationError("grant.workspace is invalid", { code: "invalid_workspace" });
   }
-  const scopes = validateScopes(grantObj.scopes, DEFAULT_MINT_SCOPES);
+  const scopes = validateScopes(grantObj.scopes, DEFAULT_MINT_SCOPES, {
+    allowOperator: opts.allowOperator,
+  });
   if (scopes === null) {
     throw new ValidationError("grant.scopes contains an unknown scope", { code: "invalid_scopes" });
   }
@@ -149,10 +167,11 @@ export const tokens = new Hono<SessionVars>()
       throw new ValidationError("request body must be valid JSON", { code: "invalid_request" });
     }
 
-    const { grant, label, ttlSeconds } = parseMintRequest(parsed);
-
     // requireSessionUser guarantees this is set.
     const user = c.get("sessionUser")!;
+    const { grant, label, ttlSeconds } = parseMintRequest(parsed, {
+      allowOperator: userHasAdminRole(user),
+    });
 
     // Three independent lookups — resolve them concurrently, then gate. The
     // workspace must exist as a KV tenant record (a token is meaningless

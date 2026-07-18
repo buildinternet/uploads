@@ -5,6 +5,7 @@ import {
   requireAdminUser,
   requireSessionUser,
   sessionAuth,
+  userHasAdminRole,
   type SessionVars,
 } from "./session-auth";
 
@@ -97,5 +98,37 @@ describe("sessionAuth", () => {
     const auth = stubAuth(() => new Response(JSON.stringify(null), { status: 200 }));
     const res = await appWith(auth).request("/private", {}, env(auth));
     expect(res.status).toBe(401);
+  });
+
+  it("allows requireAdminUser for a multi-role user (comma-separated role)", async () => {
+    const user = { id: "u3", email: "admin2@b.com", name: "Admin2", role: "admin,support" };
+    const auth = stubAuth(
+      () => new Response(JSON.stringify({ session: {}, user }), { status: 200 }),
+    );
+    const res = await appWith(auth).request("/admin-only", {}, env(auth));
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("userHasAdminRole", () => {
+  it("returns false for null/undefined user or role", () => {
+    expect(userHasAdminRole(null)).toBe(false);
+    expect(userHasAdminRole({ id: "1", email: "a@b.com", name: "A" })).toBe(false);
+  });
+
+  it("returns true for an exact 'admin' role", () => {
+    expect(userHasAdminRole({ id: "1", email: "a@b.com", name: "A", role: "admin" })).toBe(true);
+  });
+
+  it("returns true for a comma-separated role list containing 'admin'", () => {
+    expect(userHasAdminRole({ id: "1", email: "a@b.com", name: "A", role: "support,admin" })).toBe(
+      true,
+    );
+  });
+
+  it("returns false when 'admin' is not among the roles", () => {
+    expect(userHasAdminRole({ id: "1", email: "a@b.com", name: "A", role: "support,editor" })).toBe(
+      false,
+    );
   });
 });
