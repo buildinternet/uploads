@@ -8,6 +8,7 @@ import {
   listSessions,
   revokeSession,
   sendMagicLink,
+  getOAuthWorkspaceChoice,
   setOAuthWorkspaceChoice,
   startLocalDemoSession,
   submitOAuthConsent,
@@ -344,6 +345,41 @@ describe("submitOAuthConsent", () => {
     await expect(
       submitOAuthConsent("https://auth.uploads.sh", { accept: false, oauthQuery: "sig=x" }),
     ).resolves.toEqual({ ok: false, error: "expired request" });
+  });
+});
+
+describe("getOAuthWorkspaceChoice", () => {
+  it("returns the server-resolved slug on 2xx", async () => {
+    const fetcher = vi.fn(async () => Response.json({ workspace: "beta" }));
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(getOAuthWorkspaceChoice("https://auth.uploads.sh")).resolves.toBe("beta");
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://auth.uploads.sh/api/auth/oauth2/workspace-choice",
+      expect.objectContaining({ credentials: "include", cache: "no-store" }),
+    );
+  });
+
+  it("returns null on non-2xx, malformed body, or thrown fetch", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 401 })),
+    );
+    await expect(getOAuthWorkspaceChoice("https://auth.uploads.sh")).resolves.toBeNull();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ workspace: 42 })),
+    );
+    await expect(getOAuthWorkspaceChoice("https://auth.uploads.sh")).resolves.toBeNull();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network down");
+      }),
+    );
+    await expect(getOAuthWorkspaceChoice("https://auth.uploads.sh")).resolves.toBeNull();
   });
 });
 

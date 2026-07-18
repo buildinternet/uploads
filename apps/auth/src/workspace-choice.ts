@@ -70,15 +70,35 @@ export async function resolveWorkspaceChoiceReferenceId(
   if (!userId) return undefined;
   const slugs = await membershipSlugs(db, userId);
   if (slugs.length <= 1) return undefined;
+  return `${WORKSPACE_REFERENCE_PREFIX}${await effectiveWorkspaceSlug(db, userId, slugs)}`;
+}
 
+/**
+ * The slug the AS would bake into a token minted right now: the stored
+ * choice if it's still a live membership, else the oldest membership. Shared
+ * by the consentReferenceId hook above and the GET endpoint below — the
+ * consent page's picker defaults to THIS value (fetched via GET) rather than
+ * guessing client-side, so an untouched picker never overwrites the stored
+ * choice or shifts the token's workspace.
+ *
+ * The choice row is deliberately keyed by user alone, not per client/grant:
+ * `postLogin.consentReferenceId` receives only `{user, session, scopes}` —
+ * no client id, no request context — so a per-client row could never be read
+ * back at authorize-time. Per-grant scoping still holds where it matters:
+ * the returned `ws:<slug>` is persisted on the consent row and baked into
+ * that grant's token rows, so concurrent grants don't share state after
+ * consent. The accepted residual is a same-user race across two
+ * simultaneously open consent tabs (seconds-wide, self-inflicted,
+ * recoverable via re-consent).
+ */
+async function effectiveWorkspaceSlug(db: Db, userId: string, slugs: string[]): Promise<string> {
   const [stored] = await db
     .select({ workspace: schema.oauthWorkspaceChoice.workspace })
     .from(schema.oauthWorkspaceChoice)
     .where(eq(schema.oauthWorkspaceChoice.userId, userId))
     .limit(1);
 
-  const slug = stored?.workspace && slugs.includes(stored.workspace) ? stored.workspace : slugs[0];
-  return `${WORKSPACE_REFERENCE_PREFIX}${slug}`;
+  return stored?.workspace && slugs.includes(stored.workspace) ? stored.workspace : slugs[0];
 }
 
 /**
@@ -119,6 +139,27 @@ export function workspaceChoicePlugin(db: Db) {
   return {
     id: "uploads-oauth-workspace-choice",
     endpoints: {
+      /**
+       * `GET /oauth2/workspace-choice` — the server-resolved effective
+       * workspace (`{ workspace: string | null }`): stored choice if still a
+       * live membership, else oldest membership, null for zero memberships.
+       * The consent page's picker defaults its selection to this so an
+       * untouched Allow round-trips the AS's own resolution instead of a
+       * client-side guess.
+       */
+      oauthWorkspaceChoiceGet: createAuthEndpoint(
+        "/oauth2/workspace-choice",
+        {
+          method: "GET",
+          use: [sessionMiddleware],
+        },
+        async (ctx) => {
+          const userId = ctx.context.session.user.id;
+          const slugs = await membershipSlugs(db, userId);
+          if (slugs.length === 0) return ctx.json({ workspace: null });
+          return ctx.json({ workspace: await effectiveWorkspaceSlug(db, userId, slugs) });
+        },
+      ),
       oauthWorkspaceChoice: createAuthEndpoint(
         "/oauth2/workspace-choice",
         {

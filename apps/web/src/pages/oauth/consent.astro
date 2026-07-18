@@ -122,6 +122,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
 <script>
   import {
     getOAuthPublicClient,
+    getOAuthWorkspaceChoice,
     getSession,
     listOrganizations,
     setOAuthWorkspaceChoice,
@@ -211,7 +212,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   }
 
   // appendChild, not append(): see the HTMLRewriter note on renderScopes above.
-  function renderWorkspacePicker() {
+  function renderWorkspacePicker(serverDefault: string | null) {
     workspaceSelect.replaceChildren();
     for (const org of orderedOrgs) {
       const option = document.createElement("option");
@@ -219,9 +220,16 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       option.textContent = org.slug;
       workspaceSelect.appendChild(option);
     }
-    // First entry is oldest-first ordering's default — matches the AS's
-    // current implicit "oldest membership" behavior when left unchanged.
-    if (orderedOrgs[0]) workspaceSelect.value = orderedOrgs[0].slug;
+    // Default to the AS's server-resolved choice (stored choice, else oldest
+    // membership) — the page always POSTs the selection on Allow, so a
+    // client-side guess here would overwrite the stored choice and could
+    // shift the token's workspace. Org order is display order only.
+    const fallback = orderedOrgs[0]?.slug;
+    const preferred =
+      serverDefault && orderedOrgs.some((org) => org.slug === serverDefault)
+        ? serverDefault
+        : fallback;
+    if (preferred) workspaceSelect.value = preferred;
     workspacePicker.hidden = orderedOrgs.length <= 1;
   }
 
@@ -282,7 +290,10 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     }
 
     orderedOrgs = orgs !== null ? orderOrgsOldestFirst(orgs) : [];
-    renderWorkspacePicker();
+    // Only multi-workspace users see the picker, so only they pay for the
+    // extra round-trip fetching the AS's resolved default.
+    const serverDefault = orderedOrgs.length > 1 ? await getOAuthWorkspaceChoice(authOrigin) : null;
+    renderWorkspacePicker(serverDefault);
 
     clientName.textContent = client?.client_name || clientId;
     const host = safeHttpUrl(client?.client_uri);

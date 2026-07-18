@@ -10,12 +10,13 @@ export interface OrderableOrg {
 
 /**
  * Orders orgs oldest-first by `createdAt` for the OAuth consent workspace
- * picker (issue #231) — the AS bakes the *oldest* membership into a token
- * today, so the picker's default (first item) must match that existing
- * behavior for users who don't change the selection. Entries without a
- * parseable `createdAt` keep their given relative order (stable sort) and
- * sort after every entry that does have one, since we can't tell how old
- * they are.
+ * picker (issue #231). Display order only — the picker's *default selection*
+ * comes from the AS's GET /oauth2/workspace-choice resolution (org creation
+ * time is not membership age, and a client-side default would overwrite the
+ * stored choice on Allow); this sort just keeps the list stable and roughly
+ * chronological. Entries without a parseable `createdAt` keep their given
+ * relative order (stable sort) and sort after every entry that does have
+ * one.
  */
 export function orderOrgsOldestFirst<T extends OrderableOrg>(orgs: T[]): T[] {
   const withIndex = orgs.map((org, index) => ({ org, index }));
