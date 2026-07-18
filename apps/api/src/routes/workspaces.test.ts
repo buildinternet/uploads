@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
-import { SqliteD1, database } from "../../test/helpers/sqlite-d1";
+import { SqliteD1 } from "../../test/helpers/sqlite-d1";
 import { createToken } from "../auth-db";
 import { respondError } from "../error-response";
 import { workspaces } from "./workspaces";
