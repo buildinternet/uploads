@@ -87,3 +87,9 @@ authority across all of `/admin/*` — the same reach as `ADMIN_TOKEN` — not
 just admin access scoped to that one workspace; the workspace only anchors
 where the token is stored and which workspace's token list it appears
 under for revocation.
+
+Note that a token minted with an admin scope gets **no** file-route access,
+even if file scopes were also requested alongside it — scope parsing on the
+file routes fails the whole scope array when it contains any non-file
+scope. Mint a separate files-only token for file operations and a
+dedicated operator token for `/admin/*`.
