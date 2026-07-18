@@ -1,20 +1,40 @@
 /* Content styles for /account/* cards (profile kv, workspace list, developer list). */
 
-/* Developers — one card; links as flat hairline rows, not nested mini-panels. */
-section.card.dev-page {
-  padding: 22px 22px 10px;
+/* Settings pages: one card, hairline sections — no stacked cards / nested boxes. */
+section.card.settings-page {
+  padding: 20px 22px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
-section.card.dev-page h2 {
-  margin: 0 0 8px;
+.settings-section {
+  padding: 4px 0 20px;
 }
-section.card.dev-page .dev-lead {
-  margin: 0 0 18px;
+.settings-section + .settings-section {
+  margin-top: 4px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+section.card.settings-page h2 {
+  margin: 0 0 10px;
+}
+.settings-note {
+  margin: 0 0 12px;
   max-width: 36rem;
+  font-size: 13px;
   text-wrap: pretty;
+}
+.settings-section > .settings-note:last-child {
+  margin-bottom: 0;
+}
+
+/* Developers — flat hairline rows inside the settings surface. */
+section.card.dev-page {
+  padding-bottom: 4px;
 }
 ul.dev-links {
   list-style: none;
-  margin: 0;
+  margin: 4px 0 0;
   padding: 0;
   display: grid;
   gap: 0;
@@ -25,7 +45,7 @@ ul.dev-links li {
   align-items: baseline;
   justify-content: space-between;
   gap: 6px 14px;
-  padding: 14px 0;
+  padding: 12px 0;
   border-top: 1px solid var(--line);
   background: none;
   border-left: 0;
@@ -53,8 +73,11 @@ ul.dev-links .slug {
   display: grid;
   grid-template-columns: max-content 1fr;
   gap: 6px 18px;
-  margin-top: 12px;
+  margin: 0;
   font-size: 13px;
+}
+.settings-section .kv + .settings-note {
+  margin-top: 12px;
 }
 .kv dt {
   color: var(--muted);
@@ -259,6 +282,13 @@ section.card.is-pending {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
 }
+section.card .settings-note {
+  margin: 6px 0 0;
+  max-width: 36rem;
+  font-size: 13px;
+  text-wrap: pretty;
+  color: var(--body);
+}
 #cli-setup-status {
   margin-top: 14px;
 }
@@ -324,7 +354,7 @@ section.card .cli-note {
 }
 
 .detail-status {
-  margin-top: 12px;
+  margin-top: 4px;
   font-size: 13px;
 }
 .detail-error {
@@ -332,21 +362,22 @@ section.card .cli-note {
   font-size: 12px;
   color: var(--red);
 }
+/* Flat rows — no nested panel inside the settings card. */
 ul.detail-list {
   list-style: none;
-  margin: 12px 0 0;
+  margin: 4px 0 0;
   padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg);
-  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  overflow: visible;
 }
 ul.detail-list li {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 11px 12px;
+  padding: 11px 0;
   font-size: 13px;
 }
 ul.detail-list li + li {
@@ -536,8 +567,17 @@ section.card .ws-note {
   font-size: 13px;
 }
 .ws-form {
-  margin-top: 16px;
+  margin-top: 12px;
   max-width: 28rem;
+}
+.settings-section .ws-form {
+  margin-top: 4px;
+}
+.settings-section .ws-page-header {
+  padding-bottom: 0;
+}
+.settings-section .command {
+  margin-top: 8px;
 }
 /* Joined control: one outer border, hairline between input and action. */
 .input-group {

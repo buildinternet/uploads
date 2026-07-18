@@ -4,6 +4,7 @@ import {
   isBrowseWorkspace,
   normalizeBrowsePath,
   readBrowseLocation,
+  resolveActiveWorkspace,
   workspaceFromPathname,
 } from "./workspace-browse-url";
 
@@ -41,6 +42,22 @@ describe("workspaceFromPathname", () => {
     expect(workspaceFromPathname("/account/workspaces/new")).toBe("");
     expect(workspaceFromPathname("/account/workspaces/Not_Valid")).toBe("");
     expect(workspaceFromPathname("/account")).toBe("");
+  });
+});
+
+describe("resolveActiveWorkspace", () => {
+  it("prefers the pathname over a stale ClientRouter boot global", () => {
+    // Sibling nav left __UPLOADS_ACTIVE_WORKSPACE__ empty after define:vars const
+    // redeclaration — URL is still the source of truth.
+    expect(resolveActiveWorkspace("/account/workspaces/buildinternet", "")).toBe("buildinternet");
+    expect(resolveActiveWorkspace("/account/workspaces/buildinternet/invite", "other")).toBe(
+      "buildinternet",
+    );
+  });
+
+  it("falls back to the boot global only when the path has no workspace", () => {
+    expect(resolveActiveWorkspace("/account/profile", "buildinternet")).toBe("buildinternet");
+    expect(resolveActiveWorkspace("/account", "")).toBe("");
   });
 });
 

@@ -5,12 +5,12 @@ export const prerender = false;
 ---
 
 <AccountLayout section="workspaces" creating title="New workspace">
-  <section class="card" id="create">
-    <h2>Create a workspace</h2>
-    <p class="ws-lead">
-      Public folder on the shared bucket — unguessable URLs under
-      <code>storage.uploads.sh/&lt;name&gt;/…</code> for PR embeds.
-      Free: 1&nbsp;GB · 25&nbsp;MB per file.
+  <section class="card settings-page" id="create">
+    <div class="settings-section">
+    <h2>New workspace</h2>
+    <p class="settings-note muted">
+      Shared bucket · 1&nbsp;GB · 25&nbsp;MB/file ·
+      <code>storage.uploads.sh/&lt;name&gt;/…</code>
     </p>
 
     <form class="ws-form" data-create-form>
@@ -62,6 +62,7 @@ export const prerender = false;
         GitHub linking isn't available —
         <a href="/account/profile">try from your profile</a>.
       </p>
+    </div>
     </div>
   </section>
 

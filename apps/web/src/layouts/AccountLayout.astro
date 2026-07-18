@@ -166,12 +166,14 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
   })();
 </script>
 
-<script is:inline data-astro-rerun define:vars={{ authOrigin, apiOrigin, workspace, workspacePage }}>
-  window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
-  window.__UPLOADS_API_ORIGIN__ = apiOrigin;
-  window.__UPLOADS_ACTIVE_WORKSPACE__ = workspace;
-  window.__UPLOADS_WORKSPACE_PAGE__ = workspacePage;
-</script>
+{/* Assign to window only — no `define:vars` `const`s. ClientRouter re-runs
+    this after every body swap; top-level const would throw "already declared"
+    and leave stale __UPLOADS_ACTIVE_WORKSPACE__ (access denied after sibling nav). */}
+<script
+  is:inline
+  data-astro-rerun
+  set:html={`window.__UPLOADS_AUTH_ORIGIN__=${JSON.stringify(authOrigin)};window.__UPLOADS_API_ORIGIN__=${JSON.stringify(apiOrigin)};window.__UPLOADS_ACTIVE_WORKSPACE__=${JSON.stringify(workspace)};window.__UPLOADS_WORKSPACE_PAGE__=${JSON.stringify(workspacePage)};`}
+></script>
 <script>
   import {
     initSignOut,
@@ -179,6 +181,7 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
     requireElement,
     resolveSessionGate,
   } from "../lib/account-shell";
+  import { resolveActiveWorkspace } from "../lib/workspace-browse-url";
   import { initWorkspacesNav, type WorkspaceNavPage } from "../lib/workspaces-nav";
 
   onAstroPageLoad(() => {
@@ -193,10 +196,18 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
     const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
     const apiOrigin = w.__UPLOADS_API_ORIGIN__;
 
+    // Pathname wins when the boot global is empty/stale after ClientRouter nav.
+    const activeWorkspace = resolveActiveWorkspace(
+      location.pathname,
+      w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+    );
+    const workspacePage: WorkspaceNavPage =
+      /\/invite\/?$/.test(location.pathname) ? "invite" : w.__UPLOADS_WORKSPACE_PAGE__ || "overview";
+
     initSignOut(authOrigin);
     initWorkspacesNav(apiOrigin, requireElement<HTMLElement>("#workspaces-nav-list", "account"), {
-      active: w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
-      page: w.__UPLOADS_WORKSPACE_PAGE__ || "overview",
+      active: activeWorkspace,
+      page: workspacePage,
     });
 
     void resolveSessionGate({

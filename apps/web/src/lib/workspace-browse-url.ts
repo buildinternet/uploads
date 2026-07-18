@@ -39,6 +39,17 @@ export function workspaceFromPathname(pathname: string): string {
   return isBrowseWorkspace(slug) ? slug : "";
 }
 
+/**
+ * Active workspace for ClientRouter account pages.
+ *
+ * Prefer the URL (always correct after a body swap) over the layout boot
+ * global (`window.__UPLOADS_ACTIVE_WORKSPACE__`), which can lag when the
+ * inline boot script fails to re-apply — the sibling-nav access error in #239.
+ */
+export function resolveActiveWorkspace(pathname: string, bootGlobal = ""): string {
+  return workspaceFromPathname(pathname) || bootGlobal || "";
+}
+
 function hasControlChars(value: string): boolean {
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);

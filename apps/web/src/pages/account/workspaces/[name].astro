@@ -54,7 +54,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
   </div>
 
   <script>
-    import { onAstroPageLoad, onSession, requireElement } from "../../../lib/account-shell";
+    import {
+      getPageVisit,
+      isCurrentPageVisit,
+      onAstroPageLoad,
+      onSession,
+      requireElement,
+    } from "../../../lib/account-shell";
     import {
       getMyWorkspaces,
       getMyWorkspaceUsage,
@@ -65,11 +71,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
     import {
       readBrowseLocation,
       replaceBrowseLocation,
+      resolveActiveWorkspace,
     } from "../../../lib/workspace-browse-url";
     import { readSearchFilters } from "../../../lib/workspace-search-url";
     import { escapeHtml, renderUsageHtml } from "../../../lib/workspace-ui";
     import { createElement } from "react";
-    import { createRoot } from "react-dom/client";
+    import { createRoot, type Root } from "react-dom/client";
 
     // Lazy so a Fast Refresh / HMR glitch in the file browser does not
     // block the whole page script (header, galleries, usage).
@@ -82,127 +89,162 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       // Invite page also uses #ws-status/#ws-app — require the files mount.
       if (!document.getElementById("ws-files")) return;
 
-    const page = "workspace page";
-    const w = window as unknown as {
-      __UPLOADS_API_ORIGIN__: string;
-      __UPLOADS_ACTIVE_WORKSPACE__: string;
-    };
-    const apiOrigin = w.__UPLOADS_API_ORIGIN__;
-    const workspaceName = w.__UPLOADS_ACTIVE_WORKSPACE__;
-    const browseOnLoad = readBrowseLocation(window.location.search, window.location.pathname);
-    const searchFiltersOnLoad = readSearchFilters(window.location.search);
+      const page = "workspace page";
+      const visit = getPageVisit();
+      const w = window as unknown as {
+        __UPLOADS_API_ORIGIN__: string;
+        __UPLOADS_ACTIVE_WORKSPACE__: string;
+      };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+      // Prefer the URL — ClientRouter sibling nav can leave the layout global
+      // stale if the boot script failed to re-apply. Pathname is always current.
+      const workspaceName = resolveActiveWorkspace(
+        window.location.pathname,
+        w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+      );
+      const browseOnLoad = readBrowseLocation(window.location.search, window.location.pathname);
+      const searchFiltersOnLoad = readSearchFilters(window.location.search);
 
-    const statusEl = requireElement<HTMLElement>("#ws-status", page);
-    const retryBtn = requireElement<HTMLButtonElement>("#ws-retry", page);
-    const appEl = requireElement<HTMLElement>("#ws-app", page);
-    const nameEl = requireElement<HTMLElement>("#ws-name", page);
-    const slugEl = requireElement<HTMLElement>("#ws-slug", page);
-    const roleEl = requireElement<HTMLElement>("#ws-role", page);
-    const usageEl = requireElement<HTMLElement>("#ws-usage", page);
-    const communalCard = requireElement<HTMLElement>("#ws-communal", page);
-    const filesCard = requireElement<HTMLElement>("#ws-files-card", page);
-    const galleriesCard = requireElement<HTMLElement>("#ws-galleries-card", page);
-    const filesEl = requireElement<HTMLElement>("#ws-files", page);
-    const galleriesEl = requireElement<HTMLElement>("#ws-galleries", page);
+      const statusEl = requireElement<HTMLElement>("#ws-status", page);
+      const retryBtn = requireElement<HTMLButtonElement>("#ws-retry", page);
+      const appEl = requireElement<HTMLElement>("#ws-app", page);
+      const nameEl = requireElement<HTMLElement>("#ws-name", page);
+      const slugEl = requireElement<HTMLElement>("#ws-slug", page);
+      const roleEl = requireElement<HTMLElement>("#ws-role", page);
+      const usageEl = requireElement<HTMLElement>("#ws-usage", page);
+      const communalCard = requireElement<HTMLElement>("#ws-communal", page);
+      const filesCard = requireElement<HTMLElement>("#ws-files-card", page);
+      const galleriesCard = requireElement<HTMLElement>("#ws-galleries-card", page);
+      const filesEl = requireElement<HTMLElement>("#ws-files", page);
+      const galleriesEl = requireElement<HTMLElement>("#ws-galleries", page);
 
-    let filesRoot: ReturnType<typeof createRoot> | null = null;
+      let filesRoot: Root | null = null;
 
-    function showError(message: string, retry = true): void {
-      statusEl.hidden = false;
-      statusEl.textContent = message;
-      statusEl.dataset.state = "error";
-      appEl.hidden = true;
-      retryBtn.hidden = !retry;
-    }
+      const stillHere = (): boolean => isCurrentPageVisit(visit);
 
-    function renderGalleries(galleries: GallerySummary[]): void {
-      if (!galleries.length) {
-        galleriesEl.innerHTML = `<p class="ws-empty">No galleries yet.</p>`;
-        return;
-      }
-      galleriesEl.innerHTML = `<ul class="ws-items">${galleries
-        .map(
-          (g) =>
-            `<li><a href="${escapeHtml(g.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(g.title)}</a></li>`,
-        )
-        .join("")}</ul>`;
-    }
+      const tearDownFiles = (): void => {
+        if (!filesRoot) return;
+        try {
+          filesRoot.unmount();
+        } catch {
+          // Container may already be gone after a body swap.
+        }
+        filesRoot = null;
+      };
 
-    async function loadWorkspace(): Promise<void> {
-      statusEl.hidden = false;
-      statusEl.textContent = "Loading workspace…";
-      statusEl.removeAttribute("data-state");
-      retryBtn.hidden = true;
-      appEl.hidden = true;
+      // Unmount React before ClientRouter swaps the body away.
+      document.addEventListener(
+        "astro:before-swap",
+        () => {
+          tearDownFiles();
+        },
+        { once: true },
+      );
 
-      const result = await getMyWorkspaces(apiOrigin);
-      if (result.kind === "unavailable") {
-        showError("Workspaces are temporarily unavailable. Check the local stack or try again.");
-        return;
-      }
-
-      writeCachedWorkspaces(result.workspaces);
-
-      const ws = result.workspaces.find((item) => item.workspace === workspaceName);
-      if (!ws) {
-        showError("You don’t have access to this workspace.", false);
-        return;
+      function showError(message: string, retry = true): void {
+        if (!stillHere()) return;
+        statusEl.hidden = false;
+        statusEl.textContent = message;
+        statusEl.dataset.state = "error";
+        appEl.hidden = true;
+        retryBtn.hidden = !retry;
       }
 
-      statusEl.hidden = true;
-      appEl.hidden = false;
+      function renderGalleries(galleries: GallerySummary[]): void {
+        if (!stillHere()) return;
+        if (!galleries.length) {
+          galleriesEl.innerHTML = `<p class="ws-empty">No galleries yet.</p>`;
+          return;
+        }
+        galleriesEl.innerHTML = `<ul class="ws-items">${galleries
+          .map(
+            (g) =>
+              `<li><a href="${escapeHtml(g.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(g.title)}</a></li>`,
+          )
+          .join("")}</ul>`;
+      }
 
-      const displayName = ws.organization.name || ws.workspace;
-      nameEl.textContent = displayName;
-      slugEl.textContent = ws.workspace;
-      slugEl.hidden = ws.workspace === displayName;
-      roleEl.textContent = ws.role;
-      roleEl.hidden = false;
-      document.title = `${displayName} · uploads.sh`;
+      async function loadWorkspace(): Promise<void> {
+        if (!stillHere()) return;
+        statusEl.hidden = false;
+        statusEl.textContent = "Loading workspace…";
+        statusEl.removeAttribute("data-state");
+        retryBtn.hidden = true;
+        appEl.hidden = true;
 
-      void getMyWorkspaceUsage(apiOrigin, ws.workspace).then((usage) => {
-        usageEl.innerHTML = usage ? renderUsageHtml(usage) : "Usage unavailable.";
+        const result = await getMyWorkspaces(apiOrigin);
+        if (!stillHere()) return;
+        if (result.kind === "unavailable") {
+          showError("Workspaces are temporarily unavailable. Check the local stack or try again.");
+          return;
+        }
+
+        writeCachedWorkspaces(result.workspaces);
+
+        const ws = result.workspaces.find((item) => item.workspace === workspaceName);
+        if (!ws) {
+          showError("You don’t have access to this workspace.", false);
+          return;
+        }
+
+        statusEl.hidden = true;
+        appEl.hidden = false;
+
+        const displayName = ws.organization.name || ws.workspace;
+        nameEl.textContent = displayName;
+        slugEl.textContent = ws.workspace;
+        slugEl.hidden = ws.workspace === displayName;
+        roleEl.textContent = ws.role;
+        roleEl.hidden = false;
+        document.title = `${displayName} · uploads.sh`;
+
+        void getMyWorkspaceUsage(apiOrigin, ws.workspace).then((usage) => {
+          if (!stillHere()) return;
+          usageEl.innerHTML = usage ? renderUsageHtml(usage) : "Usage unavailable.";
+        });
+
+        communalCard.hidden = !ws.communal;
+        filesCard.hidden = ws.communal;
+        galleriesCard.hidden = ws.communal;
+
+        if (!ws.communal) {
+          void getMyWorkspaceGalleries(apiOrigin, ws.workspace).then(renderGalleries);
+          void loadWorkspaceFiles()
+            .then((WorkspaceFiles) => {
+              if (!stillHere() || !document.contains(filesEl)) return;
+              if (!filesRoot) filesRoot = createRoot(filesEl);
+              filesRoot.render(
+                createElement(WorkspaceFiles, {
+                  apiOrigin,
+                  workspace: ws.workspace,
+                  hasPublicUrl: ws.hasPublicUrl,
+                  initialPrefix:
+                    !browseOnLoad.workspace || browseOnLoad.workspace === ws.workspace
+                      ? browseOnLoad.path
+                      : "",
+                  initialFilters: searchFiltersOnLoad,
+                  onPrefixChange: (path: string) => {
+                    if (!stillHere()) return;
+                    replaceBrowseLocation({ workspace: ws.workspace, path });
+                  },
+                }),
+              );
+            })
+            .catch(() => {
+              if (!stillHere()) return;
+              filesEl.innerHTML =
+                `<p class="ws-empty" role="alert">File browser failed to load. Refresh the page.</p>`;
+            });
+        }
+      }
+
+      retryBtn.addEventListener("click", () => {
+        void loadWorkspace();
       });
 
-      communalCard.hidden = !ws.communal;
-      filesCard.hidden = ws.communal;
-      galleriesCard.hidden = ws.communal;
-
-      if (!ws.communal) {
-        void getMyWorkspaceGalleries(apiOrigin, ws.workspace).then(renderGalleries);
-        void loadWorkspaceFiles()
-          .then((WorkspaceFiles) => {
-            if (!filesRoot) filesRoot = createRoot(filesEl);
-            filesRoot.render(
-              createElement(WorkspaceFiles, {
-                apiOrigin,
-                workspace: ws.workspace,
-                hasPublicUrl: ws.hasPublicUrl,
-                initialPrefix:
-                  !browseOnLoad.workspace || browseOnLoad.workspace === ws.workspace
-                    ? browseOnLoad.path
-                    : "",
-                initialFilters: searchFiltersOnLoad,
-                onPrefixChange: (path: string) => {
-                  replaceBrowseLocation({ workspace: ws.workspace, path });
-                },
-              }),
-            );
-          })
-          .catch(() => {
-            filesEl.innerHTML =
-              `<p class="ws-empty" role="alert">File browser failed to load. Refresh the page.</p>`;
-          });
-      }
-    }
-
-    retryBtn.addEventListener("click", () => {
-      void loadWorkspace();
-    });
-
-    onSession(() => {
-      void loadWorkspace();
-    });
+      onSession(() => {
+        void loadWorkspace();
+      });
     });
   </script>
 </AccountLayout>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { orderOrgsOldestFirst, safeSameOriginPath } from "./workspace-ui";
+import { orderOrgsOldestFirst, renderUsageHtml, safeSameOriginPath } from "./workspace-ui";
 
 describe("safeSameOriginPath", () => {
   it("accepts an absolute in-app path with query and hash", () => {
@@ -19,6 +19,37 @@ describe("safeSameOriginPath", () => {
     // Defense in depth: a raw embedded scheme is rejected even inside the
     // query — legitimate producers percent-encode (the consent page does).
     expect(safeSameOriginPath("/ok?u=https://evil.example")).toBeNull();
+  });
+});
+
+describe("renderUsageHtml", () => {
+  it("falls back to plain text when no quota caps are set", () => {
+    const html = renderUsageHtml({
+      bytes: 8_388_608,
+      objects: 64,
+      uploadsInPeriod: 1,
+    });
+    expect(html).toContain("usage-text");
+    expect(html).toContain("8 MB");
+    expect(html).toContain("64 objects");
+    expect(html).toContain("1 uploads this month");
+    expect(html).not.toContain("ul-progress");
+  });
+
+  it("renders labeled progress meters when storage and upload caps exist", () => {
+    const html = renderUsageHtml({
+      bytes: 500,
+      objects: 3,
+      uploadsInPeriod: 2,
+      maxStorageBytes: 1000,
+      maxUploadsPerPeriod: 10,
+    });
+    expect(html).toContain('class="ul-progress"');
+    expect(html).toContain("Storage");
+    expect(html).toContain("Uploads this month");
+    expect(html).toContain('aria-valuenow="50"');
+    expect(html).toContain("3 objects");
+    expect(html).not.toContain("usage-text");
   });
 });
 

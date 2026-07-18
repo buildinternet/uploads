@@ -13,10 +13,9 @@ export const prerender = false;
   -->
   <section class="card is-pending" id="cli-setup" data-setup="checking">
     <h2>Set up the CLI</h2>
-    <p>
-      Most of uploads is used from the terminal. Install once, run
-      <code>uploads login</code>, then <code>uploads attach</code> /
-      <code>uploads put</code> against this account’s workspaces.
+    <p class="settings-note">
+      Install once, then <code>uploads login</code> and
+      <code>uploads put</code> / <code>uploads attach</code>.
     </p>
     <div id="cli-setup-status" class="ul-callout" data-state="muted" role="status">
       Checking for a CLI sign-in…
@@ -32,14 +31,11 @@ export const prerender = false;
       </div>
     </div>
     <p class="muted cli-note" id="cli-setup-note">
-      Prefer no global install? <code>npx @buildinternet/uploads login</code>.
-      Full walkthrough in the <a href="/docs#install">docs</a>.
+      Or <code>npx @buildinternet/uploads login</code> —
+      <a href="/docs#install">docs</a>.
     </p>
     <div id="cli-agents">
-      <p class="muted cli-note">
-        Using a coding agent? One more command adds the uploads skill and MCP
-        server to Claude Code, so agents attach screenshots on their own:
-      </p>
+      <p class="muted cli-note">Agents (skill + MCP for Claude Code):</p>
       <div class="cli-steps cli-steps--solo">
         <div class="command">
           <code>uploads install</code>
@@ -51,10 +47,8 @@ export const prerender = false;
 
   <section class="card">
     <h2>Welcome back<span id="hello-name"></span></h2>
-    <p>
-      uploads.sh hosts files you want to link to — PR screenshots, agent
-      artifacts, quick shares. Workspaces and account details are in the
-      sidebar.
+    <p class="settings-note">
+      Host PR screenshots and shares — workspaces are in the sidebar.
     </p>
   </section>
 

@@ -29,10 +29,13 @@ const MENU_ITEMS = [
   </div>
 </div>
 
-<script is:inline data-astro-rerun define:vars={{ authOrigin, menuItems: MENU_ITEMS }}>
-  window.__UPLOADS_AUTH_ORIGIN__ = window.__UPLOADS_AUTH_ORIGIN__ || authOrigin;
-  window.__UPLOADS_AUTH_MENU_ITEMS__ = menuItems;
-</script>
+{/* Window assigns only — define:vars injects top-level const, which breaks
+    data-astro-rerun under ClientRouter (redeclaration on sibling navigations). */}
+<script
+  is:inline
+  data-astro-rerun
+  set:html={`window.__UPLOADS_AUTH_ORIGIN__=window.__UPLOADS_AUTH_ORIGIN__||${JSON.stringify(authOrigin)};window.__UPLOADS_AUTH_MENU_ITEMS__=${JSON.stringify(MENU_ITEMS)};`}
+></script>
 <script>
   import { getSession, signOut, type SessionUser } from "../lib/auth-client";
   import {

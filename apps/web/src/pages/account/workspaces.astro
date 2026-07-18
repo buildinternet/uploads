@@ -21,15 +21,17 @@ if (isBrowseWorkspace(legacyWs)) {
 ---
 
 <AccountLayout section="workspaces">
-  <section class="card">
-    <h2>Workspaces</h2>
-    <p class="ws-lead">
-      Choose one from the sidebar, or
-      <a href="/account/workspaces/new">create a new workspace</a>.
-    </p>
-    <div id="orgs-status" class="ws-status muted">Loading…</div>
-    <button id="orgs-retry" type="button" hidden>Try again</button>
-    <ul class="plain" id="orgs-list" hidden></ul>
+  <section class="card settings-page">
+    <div class="settings-section">
+      <h2>Workspaces</h2>
+      <p class="settings-note muted">
+        Pick one in the sidebar, or
+        <a href="/account/workspaces/new">create one</a>.
+      </p>
+      <div id="orgs-status" class="ws-status muted">Loading…</div>
+      <button id="orgs-retry" type="button" hidden>Try again</button>
+      <ul class="plain" id="orgs-list" hidden></ul>
+    </div>
   </section>
 
   <script>
