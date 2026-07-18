@@ -148,9 +148,12 @@ describe("GET /internal/oauth-clients", () => {
     const res = await jsonReq("GET", "/internal/oauth-clients");
     expect(res.status).toBe(200);
     const body = (await res.json()) as { clients: Array<{ clientId: string; name: string }> };
-    expect(body.clients).toHaveLength(2);
-    expect(body.clients[0].clientId).toBe(secondBody.clientId);
-    expect(body.clients[1].clientId).toBe(firstBody.clientId);
+    // Issue #251 seeds an "uploads-cli" oauth_client row via migration, so a
+    // clean DB has that row plus these two, not just these two.
+    const created = body.clients.filter((c) => c.clientId !== "uploads-cli");
+    expect(created).toHaveLength(2);
+    expect(created[0].clientId).toBe(secondBody.clientId);
+    expect(created[1].clientId).toBe(firstBody.clientId);
   });
 });
 

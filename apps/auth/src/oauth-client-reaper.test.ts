@@ -48,8 +48,10 @@ describe("sweepOauthClients", () => {
     expect(result.reapable).toBe(1);
     expect(result.deleted).toBe(0);
 
+    // Issue #251 seeds a recent, non-stale "uploads-cli" oauth_client row via
+    // migration, so a clean DB has that row plus stale-1.
     const remaining = await drizzle(db, { schema }).select().from(schema.oauthClient);
-    expect(remaining).toHaveLength(1);
+    expect(remaining).toHaveLength(2);
   });
 
   it("deletes stale anonymous unused clients when OAUTH_CLIENT_REAPER_ENABLED=true", async () => {
@@ -61,8 +63,9 @@ describe("sweepOauthClients", () => {
     expect(result.mode).toBe("delete");
     expect(result.deleted).toBe(1);
 
+    // The seeded "uploads-cli" row (issue #251) is recent and survives the sweep.
     const remaining = await drizzle(db, { schema }).select().from(schema.oauthClient);
-    expect(remaining).toHaveLength(0);
+    expect(remaining).toHaveLength(1);
   });
 
   it("never sweeps a recent client, a session-owned client, or a trusted (skip_consent) client", async () => {
@@ -77,8 +80,9 @@ describe("sweepOauthClients", () => {
     expect(result.candidates).toBe(0);
     expect(result.deleted).toBe(0);
 
+    // Plus the seeded "uploads-cli" row (issue #251), which is also recent.
     const remaining = await drizzle(db, { schema }).select().from(schema.oauthClient);
-    expect(remaining).toHaveLength(3);
+    expect(remaining).toHaveLength(4);
   });
 
   it("never sweeps a client with a consent row, even if stale and anonymous", async () => {

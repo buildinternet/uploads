@@ -7,6 +7,7 @@
  * `consumeOne`/`incrementOne` (RETURNING + `WHERE id IN (SELECT …)`) SQL.
  */
 import { drizzle } from "drizzle-orm/d1";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { app } from "./index";
 import { UPLOADS_CLI_CLIENT_ID, type AuthEnv } from "./auth";
@@ -188,5 +189,24 @@ describe("device flow end-to-end (claim → approve → token)", () => {
     expect((await tokenRes.json()) as { error?: string }).toMatchObject({
       error: "authorization_pending",
     });
+  });
+});
+
+describe("seeded CLI oauth client (issue #251)", () => {
+  it("migrations seed an official, enabled uploads-cli client", async () => {
+    const env = dbEnv();
+    const db = drizzle(env.DB, { schema });
+    const [row] = await db
+      .select()
+      .from(schema.oauthClient)
+      .where(eq(schema.oauthClient.clientId, "uploads-cli"))
+      .limit(1);
+    expect(row).toBeDefined();
+    expect(row.disabled).toBe(false);
+    expect(row.public).toBe(true);
+    expect(row.requirePKCE).toBe(true);
+    expect(row.clientSecret).toBeNull();
+    expect(row.grantTypes).toEqual(["urn:ietf:params:oauth:grant-type:device_code"]);
+    expect(row.metadata).toEqual({ official: true });
   });
 });
