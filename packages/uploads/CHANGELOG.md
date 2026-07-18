@@ -1,5 +1,12 @@
 # @buildinternet/uploads
 
+## 0.13.1
+
+### Patch Changes
+
+- 0d1db80: Widen the token-mint scope types to accept `"operator:read"` and `"operator:write"` alongside the existing file scopes, so CLI/SDK callers can request operator scopes minted by an admin session (#257). No new commands or flags.
+- dd388a9: Widen the token-mint scope types to accept `"workspace:invite"` and `"workspace:manage"` alongside the existing file and operator scopes, so CLI/SDK callers can request org-admin-gated workspace-governance scopes minted via `POST /v1/tokens` (#262). No new commands or flags.
+
 ## 0.13.0
 
 ### Minor Changes
