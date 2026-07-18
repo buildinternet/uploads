@@ -1,73 +1,339 @@
 ---
-// Persistent signed-in indicator for the top nav area of pages that don't
-// already have their own session UI. Signed out -> "sign in" link to
-// /login. Signed in -> the user's email, linking to /account. Reserves a
-// fixed-height slot so the async session check causes no layout shift; the
-// slot shows a muted "…" placeholder until getSession resolves.
+/**
+ * Header auth control for SiteHeader.
+ *
+ * - Signed out → solid primary "Sign in" CTA
+ * - Signed in  → avatar placeholder (initials) + dropdown to account sections
+ *
+ * Reserves a fixed-size slot so the async session check does not reflow the
+ * header. Optimistic paint uses the same sessionStorage cache as the account
+ * shells when present.
+ */
 export interface Props {
   authOrigin: string;
 }
 
 const { authOrigin } = Astro.props;
+
+const MENU_ITEMS = [
+  { href: "/account", label: "Overview" },
+  { href: "/account/workspaces", label: "Workspaces" },
+  { href: "/account/profile", label: "Account" },
+  { href: "/account/developers", label: "Developers" },
+] as const;
 ---
 
-<span class="auth-indicator">
-  <span id="auth-indicator-slot" class="slot">…</span>
-</span>
-<script define:vars={{ authOrigin }}>
-  // Multiple instances/pages may set this; first one wins, all read the same value.
+<div class="auth-indicator" data-auth-indicator>
+  <div class="auth-indicator__slot" data-slot aria-live="polite">
+    <span class="auth-indicator__skeleton" aria-hidden="true"></span>
+  </div>
+</div>
+
+<script define:vars={{ authOrigin, menuItems: MENU_ITEMS }}>
   window.__UPLOADS_AUTH_ORIGIN__ = window.__UPLOADS_AUTH_ORIGIN__ || authOrigin;
+  window.__UPLOADS_AUTH_MENU_ITEMS__ = menuItems;
 </script>
 <script>
-  import { getSession } from "../lib/auth-client";
+  import { getSession, signOut, type SessionUser } from "../lib/auth-client";
+  import {
+    clearCachedSessionUser,
+    readCachedSessionUser,
+    writeCachedSessionUser,
+  } from "../lib/account-shell";
 
-  const escapeHtml = (value: string) =>
-    value.replace(/[&<>"']/g, (ch) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
-    );
+  const root = document.querySelector<HTMLElement>("[data-auth-indicator]");
+  const slot = root?.querySelector<HTMLElement>("[data-slot]");
+  if (!root || !slot) {
+    // Not on a page that mounted the indicator.
+  } else {
+    const origin =
+      (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string }).__UPLOADS_AUTH_ORIGIN__ ||
+      "https://auth.uploads.sh";
+    const menuItems =
+      (
+        window as unknown as {
+          __UPLOADS_AUTH_MENU_ITEMS__: ReadonlyArray<{ href: string; label: string }>;
+        }
+      ).__UPLOADS_AUTH_MENU_ITEMS__ ?? [];
 
-  const origin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string }).__UPLOADS_AUTH_ORIGIN__;
-  const slot = document.getElementById("auth-indicator-slot");
+    const escapeHtml = (value: string) =>
+      value.replace(/[&<>"']/g, (ch) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
+      );
 
-  getSession(origin).then((result) => {
-    if (!slot) return;
-    if (result.kind === "unavailable") {
-      slot.textContent = "auth unavailable";
-      return;
-    }
-    if (result.kind !== "signed_in") {
-      slot.innerHTML = '<a href="/login">sign in</a>';
-      return;
-    }
-    slot.innerHTML = `<a href="/account">${escapeHtml(result.session.user.email)}</a>`;
-  });
+    const initialsFor = (user: SessionUser): string => {
+      const source = (user.name || user.email || "?").trim();
+      if (!source) return "?";
+      if (source.includes("@")) {
+        const local = source.split("@")[0] ?? source;
+        const parts = local.split(/[._\-\s]+/).filter(Boolean);
+        if (parts.length >= 2) {
+          return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
+        }
+        return local.slice(0, 2).toUpperCase();
+      }
+      const words = source.split(/\s+/).filter(Boolean);
+      if (words.length >= 2) {
+        return `${words[0]![0] ?? ""}${words[1]![0] ?? ""}`.toUpperCase();
+      }
+      return source.slice(0, 2).toUpperCase();
+    };
+
+    const paintSignedOut = () => {
+      slot.innerHTML =
+        '<a class="ul-btn ul-btn--solid ul-btn--sm auth-indicator__signin" href="/login">Sign in</a>';
+    };
+
+    const paintUnavailable = () => {
+      slot.innerHTML = '<span class="auth-indicator__muted">auth unavailable</span>';
+    };
+
+    let menuListeners: AbortController | null = null;
+
+    const paintUser = (user: SessionUser) => {
+      const initials = escapeHtml(initialsFor(user));
+      const email = escapeHtml(user.email);
+      const label = escapeHtml(user.name || user.email || "Account");
+      const adminItem =
+        user.role === "admin"
+          ? `<a class="auth-menu__item" href="/admin" role="menuitem">Admin</a>`
+          : "";
+
+      const links = menuItems
+        .map(
+          (item) =>
+            `<a class="auth-menu__item" href="${escapeHtml(item.href)}" role="menuitem">${escapeHtml(item.label)}</a>`,
+        )
+        .join("");
+
+      // Drop prior document listeners before replacing the menu DOM.
+      menuListeners?.abort();
+      menuListeners = new AbortController();
+      const { signal } = menuListeners;
+
+      slot.innerHTML = `
+        <div class="auth-menu" data-auth-menu>
+          <button
+            type="button"
+            class="auth-menu__trigger"
+            data-auth-menu-trigger
+            aria-haspopup="menu"
+            aria-expanded="false"
+            aria-label="${label}"
+          >
+            <span class="auth-menu__avatar" aria-hidden="true">${initials}</span>
+          </button>
+          <div class="auth-menu__panel" data-auth-menu-panel hidden role="menu" aria-label="Account">
+            <div class="auth-menu__meta">
+              <span class="auth-menu__email">${email}</span>
+            </div>
+            <div class="auth-menu__list">
+              ${links}
+              ${adminItem}
+            </div>
+            <div class="auth-menu__foot">
+              <button type="button" class="auth-menu__item auth-menu__signout" data-auth-signout role="menuitem">
+                Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const menu = slot.querySelector<HTMLElement>("[data-auth-menu]");
+      const trigger = slot.querySelector<HTMLButtonElement>("[data-auth-menu-trigger]");
+      const panel = slot.querySelector<HTMLElement>("[data-auth-menu-panel]");
+      const signOutBtn = slot.querySelector<HTMLButtonElement>("[data-auth-signout]");
+      if (!menu || !trigger || !panel) return;
+
+      const setOpen = (open: boolean) => {
+        panel.hidden = !open;
+        trigger.setAttribute("aria-expanded", open ? "true" : "false");
+      };
+
+      trigger.addEventListener(
+        "click",
+        (event) => {
+          event.stopPropagation();
+          setOpen(panel.hidden);
+        },
+        { signal },
+      );
+
+      signOutBtn?.addEventListener(
+        "click",
+        () => {
+          clearCachedSessionUser();
+          void signOut(origin).then(() => {
+            location.href = "/login";
+          });
+        },
+        { signal },
+      );
+
+      document.addEventListener(
+        "pointerdown",
+        (event) => {
+          if (!menu.contains(event.target as Node)) setOpen(false);
+        },
+        { signal },
+      );
+      document.addEventListener(
+        "keydown",
+        (event) => {
+          if (event.key === "Escape") {
+            setOpen(false);
+            trigger.focus();
+          }
+        },
+        { signal },
+      );
+    };
+
+    // Optimistic: same cache key as account/admin shells.
+    const cached = readCachedSessionUser();
+    if (cached) paintUser(cached);
+
+    void getSession(origin).then((result) => {
+      if (result.kind === "unavailable") {
+        paintUnavailable();
+        return;
+      }
+      if (result.kind !== "signed_in") {
+        clearCachedSessionUser();
+        paintSignedOut();
+        return;
+      }
+      writeCachedSessionUser(result.session.user);
+      paintUser(result.session.user);
+    });
+  }
 </script>
 
 <style>
   .auth-indicator {
     display: inline-flex;
     align-items: center;
-    font-size: 12.5px;
-    font-family: "Geist Mono Variable", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-    color: var(--muted, #7d7d77);
-    /* Reserves horizontal space so "…" -> "sign in" / email causes no
-       reflow of anything to its right. */
-    min-width: 3.5em;
-    text-align: right;
+    position: relative;
+  }
+  .auth-indicator__slot {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+  }
+  .auth-indicator__skeleton {
+    display: block;
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    background: var(--panel, #121214);
+    border: 1px solid var(--line, #232327);
+  }
+  .auth-indicator__muted {
+    font: 12px var(--mono, ui-monospace, monospace);
+    color: var(--muted, #8a8a83);
+  }
+  .auth-indicator :global(.auth-indicator__signin) {
+    text-decoration: none;
     white-space: nowrap;
   }
-  .auth-indicator .slot {
+
+  .auth-indicator :global(.auth-menu) {
+    position: relative;
+  }
+  .auth-indicator :global(.auth-menu__trigger) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    border-radius: 999px;
+  }
+  .auth-indicator :global(.auth-menu__trigger:focus-visible) {
+    outline: 2px solid var(--accent, #c27eff);
+    outline-offset: 2px;
+  }
+  .auth-indicator :global(.auth-menu__avatar) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    background: var(--panel, #121214);
+    border: 1px solid var(--line, #232327);
+    color: var(--accent, #c27eff);
+    font: 600 11px/1 var(--mono, ui-monospace, monospace);
+    letter-spacing: 0.04em;
+    user-select: none;
+  }
+  .auth-indicator :global(.auth-menu__trigger:hover .auth-menu__avatar),
+  .auth-indicator :global(.auth-menu__trigger[aria-expanded="true"] .auth-menu__avatar) {
+    border-color: var(--accent, #c27eff);
+  }
+  .auth-indicator :global(.auth-menu__panel) {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 40;
+    min-width: 200px;
+    padding: 6px;
+    background: var(--panel, #121214);
+    border: 1px solid var(--line, #232327);
+    border-radius: var(--radius-md, 8px);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  }
+  .auth-indicator :global(.auth-menu__meta) {
+    padding: 8px 10px 10px;
+    border-bottom: 1px solid var(--line, #232327);
+    margin-bottom: 4px;
+  }
+  .auth-indicator :global(.auth-menu__email) {
+    display: block;
+    font: 12px var(--mono, ui-monospace, monospace);
+    color: var(--muted, #8a8a83);
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
     max-width: 220px;
   }
-  .auth-indicator :global(a) {
-    color: var(--muted, #7d7d77);
-    text-decoration: none;
+  .auth-indicator :global(.auth-menu__list),
+  .auth-indicator :global(.auth-menu__foot) {
+    display: grid;
+    gap: 1px;
   }
-  .auth-indicator :global(a:hover),
-  .auth-indicator :global(a:focus-visible) {
+  .auth-indicator :global(.auth-menu__foot) {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid var(--line, #232327);
+  }
+  .auth-indicator :global(.auth-menu__item) {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: var(--fg, #ececea);
+    font: 13px var(--sans, system-ui, sans-serif);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .auth-indicator :global(.auth-menu__item:hover),
+  .auth-indicator :global(.auth-menu__item:focus-visible) {
+    background: color-mix(in srgb, var(--accent, #c27eff) 12%, transparent);
     color: var(--accent, #c27eff);
     outline: none;
+  }
+  .auth-indicator :global(.auth-menu__signout) {
+    color: var(--muted, #8a8a83);
+  }
+  .auth-indicator :global(.auth-menu__signout:hover),
+  .auth-indicator :global(.auth-menu__signout:focus-visible) {
+    color: var(--red, #d98a9c);
+    background: color-mix(in srgb, var(--red, #d98a9c) 10%, transparent);
   }
 </style>

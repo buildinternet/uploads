@@ -64,14 +64,19 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         background: var(--bg);
         color: var(--fg);
         font: 14.5px/1.65 var(--mono);
-        display: grid;
-        justify-items: center;
-        padding: 40px 24px 64px;
+        display: flex;
+        flex-direction: column;
+        padding: 0;
       }
+      /* SiteHeader is full-bleed; main keeps the reading column. */
       main {
         width: min(var(--width-content, 720px), 100%);
+        margin: 0 auto;
+        padding: 32px 24px 64px;
         display: grid;
         gap: 18px;
+        box-sizing: border-box;
+        flex: 1;
       }
       .hidden { visibility: hidden; }
       @media (prefers-reduced-motion: reduce) {
@@ -443,9 +448,8 @@ Source (and where to look if something breaks): https://github.com/buildinternet
     </style>
   </head>
   <body>
+    <SiteHeader star authOrigin={authOrigin} />
     <main>
-      <SiteHeader star authOrigin={authOrigin} />
-
       <h1>The missing upload command for <span class="nb">coding agents.</span></h1>
       <p class="lede">
         GitHub has no real way for an agent to show their work. <code>uploads attach</code> puts

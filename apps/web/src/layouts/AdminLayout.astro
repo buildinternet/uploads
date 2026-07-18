@@ -12,8 +12,8 @@ import {
   signedInCsp,
 } from "../lib/signed-in-page";
 import BaseHead from "../components/BaseHead.astro";
-import Brand from "../components/Brand.astro";
 import Footer from "../components/Footer.astro";
+import SiteHeader from "../components/SiteHeader.astro";
 import "../styles/signed-in-shell.css";
 
 export type AdminSection = "workspaces" | "users";
@@ -47,16 +47,17 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
   <title>{docTitle}</title>
 </head>
 <body>
-<div class="shell">
   <h1 class="sr-only">{titles[section]}</h1>
-  <div id="checking" class="ul-callout status" role="status">Checking your session…</div>
+  <div id="checking" class="shell-status">
+    <div class="ul-callout status" role="status">Checking your session…</div>
+  </div>
 
-  <div id="denied" hidden>
+  <div id="denied" class="shell-status" hidden>
     <div class="ul-callout status" data-state="error" role="alert">You need admin access to view this page.</div>
     <a class="button" href="/login">Sign in</a>
   </div>
 
-  <div id="auth-unavailable" hidden>
+  <div id="auth-unavailable" class="shell-status" hidden>
     <div class="status" data-state="denied" role="alert">
       Authentication is temporarily unavailable. Check the local stack or try again.
     </div>
@@ -71,36 +72,34 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
     over the AUTH service binding on every request.
   -->
   <div id="dashboard" hidden>
-    <header class="top">
-      <div class="lockup"><Brand /><span class="pill">admin</span></div>
-      <span class="who" id="who"></span>
-    </header>
+    <SiteHeader badge="admin" authOrigin={authOrigin} />
 
-    <div class="layout">
-      <nav class="side" aria-label="Admin sections">
-        {nav.map((item) => (
-          <a
-            href={item.href}
-            aria-current={item.section === section ? "page" : undefined}
-          >
-            {item.label}
-          </a>
-        ))}
-        <div class="side-foot">
-          <a href="/account">← account</a>
-          {showConsoleLinks ? <a href="/console">console →</a> : null}
-          <button type="button" id="sign-out-btn">Sign out</button>
+    <div class="shell">
+      <div class="layout">
+        <nav class="side" aria-label="Admin sections">
+          {nav.map((item) => (
+            <a
+              href={item.href}
+              aria-current={item.section === section ? "page" : undefined}
+            >
+              {item.label}
+            </a>
+          ))}
+          <div class="side-foot">
+            <a href="/account">← account</a>
+            {showConsoleLinks ? <a href="/console">console →</a> : null}
+            <button type="button" id="sign-out-btn">Sign out</button>
+          </div>
+        </nav>
+
+        <div class="content">
+          <slot />
         </div>
-      </nav>
-
-      <div class="content">
-        <slot />
       </div>
-    </div>
 
-    <Footer />
+      <Footer />
+    </div>
   </div>
-</div>
 
 {/* Sync optimistic paint for admins only — same cache key as account-shell. */}
 <script is:inline>
@@ -112,10 +111,8 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
       if (!user || !user.email || user.role !== "admin") return;
       var checking = document.getElementById("checking");
       var app = document.getElementById("dashboard");
-      var who = document.getElementById("who");
       if (checking) checking.hidden = true;
       if (app) app.hidden = false;
-      if (who) who.textContent = user.email;
       window.__uploadsSessionUser = user;
     } catch (e) {}
   })();
@@ -145,7 +142,6 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
     denied: requireElement<HTMLElement>("#denied", "admin"),
     unavailable: requireElement<HTMLElement>("#auth-unavailable", "admin"),
     app: requireElement<HTMLElement>("#dashboard", "admin"),
-    who: requireElement<HTMLElement>("#who", "admin"),
     requireRole: "admin",
   });
 

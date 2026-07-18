@@ -82,19 +82,23 @@ const fullTitle = `${title} · uploads.sh`;
         color: var(--fg);
         font: 15.5px/1.7 var(--sans);
         padding: 0;
+        display: flex;
+        flex-direction: column;
       }
 
-      /* ---------- shell + three-column grid ---------- */
+      /* ---------- shell + three-column grid ----------
+         SiteHeader is full-bleed above; content column is constrained. */
       .docs-shell {
         width: min(1120px, 100%);
         margin: 0 auto;
-        padding: 40px 24px 64px;
+        padding: 32px 24px 64px;
+        flex: 1;
       }
       .docs-grid {
         display: flex;
         align-items: flex-start;
         gap: 44px;
-        margin-top: 28px;
+        margin-top: 8px;
       }
       main.docs-main { flex: 1 1 auto; min-width: 0; max-width: 720px; }
       main.docs-main > h1 {
@@ -462,9 +466,9 @@ const fullTitle = `${title} · uploads.sh`;
     </style>
   </head>
   <body>
-    <div class="docs-shell">
-      <SiteHeader star authOrigin={authOrigin} />
+    <SiteHeader star authOrigin={authOrigin} />
 
+    <div class="docs-shell">
       <div class="docs-grid">
         <nav class="docs-side" aria-label="Docs navigation">
           {

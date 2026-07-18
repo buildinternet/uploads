@@ -112,7 +112,30 @@ describe("resolveSessionGate", () => {
     );
     expect(values.get("uploads:sessionUser")).toContain(session.user.email);
     expect(options.app.hidden).toBe(false);
+    // Optional #who email paint (legacy); avatar menu no longer needs it.
     expect(options.who.textContent).toBe(session.user.email);
     expect(window.dispatchEvent).toHaveBeenCalledOnce();
+  });
+
+  it("shows the app without a who node when the header owns session UI", async () => {
+    installBrowser();
+    const options = {
+      authOrigin: "http://127.0.0.1:8788",
+      checking: element(),
+      denied: element(),
+      unavailable: element(),
+      app: element(),
+    };
+    auth.getSession.mockResolvedValue({
+      kind: "signed_in",
+      session: {
+        session: {},
+        user: { id: "user", email: "user@example.com", name: "User", role: "user" },
+      },
+    });
+
+    await expect(resolveSessionGate(options)).resolves.not.toBeNull();
+    expect(options.app.hidden).toBe(false);
+    expect(options.checking.hidden).toBe(true);
   });
 });

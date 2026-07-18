@@ -1,11 +1,12 @@
 ---
 /**
  * Shared shell for Astro status pages (404 missing route, 500 application error).
- * Same flat panel + titlebar treatment as the landing terminal.
+ * Full-bleed SiteHeader + centered card body (same panel + titlebar treatment
+ * as the landing terminal).
  */
 import BaseHead from "../components/BaseHead.astro";
-import Brand from "../components/Brand.astro";
 import Footer from "../components/Footer.astro";
+import SiteHeader from "../components/SiteHeader.astro";
 
 interface Props {
   status: number;
@@ -32,12 +33,18 @@ const { status, title, message, hint } = Astro.props;
         background: var(--bg);
         color: var(--fg);
         font: 14.5px/1.65 var(--mono);
+        display: flex;
+        flex-direction: column;
+      }
+      main {
+        flex: 1;
         display: grid;
         place-items: center;
         padding: 28px;
+        width: 100%;
+        box-sizing: border-box;
       }
-      main { width: min(var(--width-card, 480px), 100%); }
-      .brandbar { display: flex; justify-content: center; margin-bottom: 18px; }
+      .card-wrap { width: min(var(--width-card, 480px), 100%); }
       .card {
         background: var(--panel);
         border: 1px solid var(--line);
@@ -80,23 +87,11 @@ const { status, title, message, hint } = Astro.props;
       }
       .actions {
         margin-top: 22px;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
       }
-      a {
-        color: var(--fg);
-        text-decoration: underline;
-        text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
-        text-underline-offset: 3px;
-      }
-      a:hover,
-      a:focus-visible { color: var(--accent); outline: none; }
       .home {
         display: inline-block;
-        font: 12.5px var(--mono);
-        letter-spacing: 0.04em;
-        color: var(--fg);
+        font: 12px var(--mono);
+        color: var(--muted);
         background: var(--bg);
         border: 1px solid var(--line);
         border-radius: var(--radius-sm);
@@ -112,24 +107,26 @@ const { status, title, message, hint } = Astro.props;
     </style>
   </head>
   <body>
+    <SiteHeader />
     <main>
-      <div class="brandbar"><Brand /></div>
-      <section class="card" aria-labelledby="error-title">
-        <div class="titlebar" aria-hidden="true">
-          <span>uploads.sh — error</span>
-          <span>{status}</span>
-        </div>
-        <div class="body">
-          <p class="status" aria-hidden="true">{status}</p>
-          <h1 id="error-title">{title}</h1>
-          <p>{message}</p>
-          {hint ? <p class="hint">{hint}</p> : null}
-          <div class="actions">
-            <a class="home" href="/">← home</a>
+      <div class="card-wrap">
+        <section class="card" aria-labelledby="error-title">
+          <div class="titlebar" aria-hidden="true">
+            <span>uploads.sh — error</span>
+            <span>{status}</span>
           </div>
-        </div>
-      </section>
-      <Footer compact />
+          <div class="body">
+            <p class="status" aria-hidden="true">{status}</p>
+            <h1 id="error-title">{title}</h1>
+            <p>{message}</p>
+            {hint ? <p class="hint">{hint}</p> : null}
+            <div class="actions">
+              <a class="home" href="/">← home</a>
+            </div>
+          </div>
+        </section>
+        <Footer compact />
+      </div>
     </main>
   </body>
 </html>
