@@ -130,12 +130,60 @@ export async function provisionOrg(
   return body.organization;
 }
 
-/** Compensating delete for provisionOrg. Best-effort: callers catch failures. */
-export async function deleteOrg(env: Env, slug: string): Promise<void> {
-  await env.AUTH.fetch(`${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(slug)}`, {
+/**
+ * Compensating delete for provisionOrg (self-serve rollback, workspace
+ * teardown) and, with `force: true`, the #250 orphan-org sweep's own hard
+ * delete of a multi-member org left behind by a hard/finalized workspace
+ * teardown. Best-effort: callers catch failures.
+ */
+export async function deleteOrg(env: Env, slug: string, opts?: { force?: boolean }): Promise<void> {
+  const url = new URL(`${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(slug)}`);
+  if (opts?.force) url.searchParams.set("force", "1");
+  const response = await env.AUTH.fetch(url, {
     method: "DELETE",
     headers: internalHeaders(),
   });
+  // 404 = already gone, which is what every caller wants (idempotent). Any
+  // other failure must surface — the sweep records it as an error instead of
+  // reporting the org deleted, and best-effort callers .catch as before.
+  if (!response.ok && response.status !== 404) {
+    throw new ServiceUnavailableError("auth service failed to delete the organization", {
+      code: "auth_lookup_failed",
+      details: { status: response.status, slug },
+    });
+  }
+}
+
+/** Minimal org identity — just enough for the #250 orphan sweep to cross-reference slugs. */
+export interface OrgSlug {
+  id: string;
+  slug: string;
+  /** ISO timestamp; lets the sweep skip orgs still inside the provisioning window. */
+  createdAt?: string | null;
+}
+
+/**
+ * Every auth-side org slug (id+slug only) — used by the #250 orphan sweep to
+ * cross-reference against `ws:<slug>` KV keys. A non-ok response is an
+ * auth-worker outage/bug, surfaced as a 5xx like the rest of this module.
+ */
+export async function listOrgs(env: Env): Promise<OrgSlug[]> {
+  const response = await env.AUTH.fetch(`${INTERNAL_ORIGIN}/internal/orgs`, {
+    headers: internalHeaders(),
+  });
+  if (!response.ok) {
+    throw new ServiceUnavailableError("auth service returned an unexpected status", {
+      code: "auth_lookup_failed",
+      details: { status: response.status },
+    });
+  }
+  const body = (await response.json().catch(() => null)) as { organizations?: OrgSlug[] } | null;
+  if (!body || !Array.isArray(body.organizations)) {
+    throw new ServiceUnavailableError("auth service returned a malformed body", {
+      code: "auth_lookup_failed",
+    });
+  }
+  return body.organizations;
 }
 
 /** Whether the user has a linked GitHub account (self-serve gate). */

@@ -877,6 +877,66 @@ describe("DB-backed behavior", () => {
         error: { code: "organization_not_found" },
       });
     });
+
+    it("force=1 bypasses org_not_empty and deletes a multi-member org (#250)", async () => {
+      const org = await seedOrg();
+      const user1 = await seedUser();
+      const user2 = await seedUser();
+      await orm.insert(schema.member).values([
+        {
+          id: crypto.randomUUID(),
+          organizationId: org.id,
+          userId: user1.id,
+          role: "owner",
+          createdAt: new Date(),
+        },
+        {
+          id: crypto.randomUUID(),
+          organizationId: org.id,
+          userId: user2.id,
+          role: "member",
+          createdAt: new Date(),
+        },
+      ]);
+
+      const res = await app().request(
+        `/internal/orgs/${org.slug}?force=1`,
+        { method: "DELETE" },
+        dbEnv(),
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+
+      const orgRows = await orm
+        .select()
+        .from(schema.organization)
+        .where(eq(schema.organization.id, org.id));
+      expect(orgRows).toHaveLength(0);
+      const memberRows = await orm
+        .select()
+        .from(schema.member)
+        .where(eq(schema.member.organizationId, org.id));
+      expect(memberRows).toHaveLength(0);
+    });
+  });
+
+  describe("GET /internal/orgs (#250 orphan sweep listing)", () => {
+    it("returns every org's id and slug", async () => {
+      const org1 = await seedOrg();
+      const org2 = await seedOrg();
+
+      const res = await app().request("/internal/orgs", {}, dbEnv());
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { organizations: { id: string; slug: string }[] };
+      const slugs = body.organizations.map((o) => o.slug);
+      expect(slugs).toEqual(expect.arrayContaining([org1.slug, org2.slug]));
+    });
+
+    it("returns an empty list shape when there are no orgs", async () => {
+      const res = await app().request("/internal/orgs", {}, dbEnv());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ organizations: [] });
+    });
   });
 
   describe("GET /internal/users/:id/github-linked", () => {

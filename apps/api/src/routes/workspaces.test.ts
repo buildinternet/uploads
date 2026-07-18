@@ -252,3 +252,182 @@ describe("POST /v1/workspaces", () => {
     expect(deletedSlug).toBe("zachbot");
   });
 });
+
+function del(env: Env, name: string) {
+  return app().request(
+    `/v1/workspaces/${name}`,
+    { method: "DELETE", headers: { authorization: "Bearer sess" } },
+    env,
+  );
+}
+
+function restore(env: Env, name: string) {
+  return app().request(
+    `/v1/workspaces/${name}/restore`,
+    { method: "POST", headers: { authorization: "Bearer sess" } },
+    env,
+  );
+}
+
+const OWNED_RECORD = {
+  provider: "r2",
+  bucket: "uploads-default",
+  selfServe: true,
+  createdByUserId: "u1",
+};
+
+describe("DELETE /v1/workspaces/:name (self-serve, #249)", () => {
+  it("soft-deletes: stamps deletedAt/purgeAt, data untouched", async () => {
+    const env = stubEnv({ kvRecords: { zachbot: OWNED_RECORD } });
+    const res = await del(env, "zachbot");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ok: boolean;
+      mode: string;
+      deletedAt: string;
+      purgeAt: string;
+    };
+    expect(body).toMatchObject({ ok: true, workspace: "zachbot", mode: "soft" });
+    expect(body.deletedAt).toBeTruthy();
+    expect(body.purgeAt).toBeTruthy();
+
+    const puts = (env as unknown as { __puts: [string, string][] }).__puts;
+    expect(puts).toHaveLength(1);
+    const [key, value] = puts[0];
+    expect(key).toBe("ws:zachbot");
+    const parsed = JSON.parse(value);
+    expect(parsed).toMatchObject({
+      ...OWNED_RECORD,
+      deletedAt: body.deletedAt,
+      purgeAt: body.purgeAt,
+    });
+  });
+
+  it("403s for a non-owner (different createdByUserId)", async () => {
+    const env = stubEnv({
+      kvRecords: { zachbot: { ...OWNED_RECORD, createdByUserId: "someone-else" } },
+    });
+    const res = await del(env, "zachbot");
+    expect(res.status).toBe(403);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "not_owner" },
+    });
+  });
+
+  it("403s for a non-self-serve (BYO) record even if createdByUserId matched", async () => {
+    const env = stubEnv({
+      kvRecords: { zachbot: { provider: "r2", bucket: "b", createdByUserId: "u1" } },
+    });
+    const res = await del(env, "zachbot");
+    expect(res.status).toBe(403);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "not_owner" },
+    });
+  });
+
+  it("404s for an unknown workspace", async () => {
+    const env = stubEnv({});
+    const res = await del(env, "no-such-workspace");
+    expect(res.status).toBe(404);
+  });
+
+  it("404s for a purged tombstone", async () => {
+    const env = stubEnv({
+      kvRecords: {
+        zachbot: { status: "purged", name: "zachbot", purgedAt: new Date().toISOString() },
+      },
+    });
+    const res = await del(env, "zachbot");
+    expect(res.status).toBe(404);
+  });
+
+  it("409s already_deleted on a repeat delete", async () => {
+    const env = stubEnv({
+      kvRecords: {
+        zachbot: {
+          ...OWNED_RECORD,
+          deletedAt: new Date().toISOString(),
+          purgeAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
+        },
+      },
+    });
+    const res = await del(env, "zachbot");
+    expect(res.status).toBe(409);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "already_deleted" },
+    });
+  });
+
+  it("blocks deleting the communal workspace", async () => {
+    const env = stubEnv({ kvRecords: { default: OWNED_RECORD } });
+    const res = await del(env, "default");
+    expect(res.status).toBe(403);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "protected_workspace" },
+    });
+  });
+});
+
+describe("POST /v1/workspaces/:name/restore (self-serve, #249)", () => {
+  it("restores within the grace window, clearing both fields", async () => {
+    const env = stubEnv({
+      kvRecords: {
+        zachbot: {
+          ...OWNED_RECORD,
+          deletedAt: new Date().toISOString(),
+          purgeAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
+        },
+      },
+    });
+    const res = await restore(env, "zachbot");
+    expect(res.status).toBe(200);
+
+    const puts = (env as unknown as { __puts: [string, string][] }).__puts;
+    expect(puts).toHaveLength(1);
+    const parsed = JSON.parse(puts[0][1]);
+    expect(parsed.deletedAt).toBeUndefined();
+    expect(parsed.purgeAt).toBeUndefined();
+    expect(parsed).toMatchObject(OWNED_RECORD);
+  });
+
+  it("410s grace_expired once purgeAt has passed", async () => {
+    const env = stubEnv({
+      kvRecords: {
+        zachbot: {
+          ...OWNED_RECORD,
+          deletedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
+          purgeAt: new Date(Date.now() - 1000).toISOString(),
+        },
+      },
+    });
+    const res = await restore(env, "zachbot");
+    expect(res.status).toBe(410);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "grace_expired" },
+    });
+  });
+
+  it("409s not_deleted for a live workspace", async () => {
+    const env = stubEnv({ kvRecords: { zachbot: OWNED_RECORD } });
+    const res = await restore(env, "zachbot");
+    expect(res.status).toBe(409);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "not_deleted" },
+    });
+  });
+
+  it("403s for a non-owner", async () => {
+    const env = stubEnv({
+      kvRecords: {
+        zachbot: {
+          ...OWNED_RECORD,
+          createdByUserId: "someone-else",
+          deletedAt: new Date().toISOString(),
+          purgeAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
+        },
+      },
+    });
+    const res = await restore(env, "zachbot");
+    expect(res.status).toBe(403);
+  });
+});

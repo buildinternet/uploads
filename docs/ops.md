@@ -82,6 +82,17 @@ replaces its `ws:<name>` KV record with a permanent purged tombstone. That
 work is logged separately per workspace as `workspace_purged` and rolled up
 into the sweep's `workspacesFinalized` field.
 
+After the workspace pass, the sweep also runs an **orphaned auth-org pass**
+(#250): it lists every org over the auth worker (`GET /internal/orgs`) and
+force-deletes any whose slug has no `ws:<slug>` KV key at all, or only a
+purged tombstone — the multi-member orgs left behind by hard/finalized
+workspace teardown (see "Auth org deletion" in `docs/deletion.md`). A
+soft-deleted workspace still inside its grace window is never treated as an
+orphan. The communal workspace slug is skipped defensively, and an AUTH
+outage or a single org's delete failure is isolated (logged, sweep
+continues) rather than failing the run. Results roll up into the sweep's
+`orgsSwept` field.
+
 ## Workspace deletion, restore, and finalization
 
 `DELETE /admin/workspaces/:name` is **soft by default** (#247): it stamps
@@ -122,6 +133,19 @@ communal/protected-workspace guard applies to both modes.
 
 See [docs/deletion.md](deletion.md) for the full cross-surface deletion
 policy and rationale.
+
+## Self-serve workspace deletion (#249)
+
+`DELETE /v1/workspaces/:name` and `POST /v1/workspaces/:name/restore` give a
+signed-in owner the same soft-delete/restore surface as the admin path
+above, session-authed (browser cookie) instead of `ADMIN_TOKEN`. Ownership
+gate: the record must have `selfServe === true` and `createdByUserId`
+matching the caller's session user id — a workspace that exists but isn't
+owned self-serve (or isn't this user's) 403s `not_owner`; the communal
+workspace is excluded outright. Semantics are otherwise identical to the
+admin soft-delete/restore path (409 `already_deleted` / `not_deleted`, 410
+`grace_expired`, never hard, never frees the slug) via a shared stamp helper
+so the two paths can't drift. No web console UI yet — API only.
 
 ## Backfill gh metadata
 

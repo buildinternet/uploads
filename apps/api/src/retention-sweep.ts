@@ -5,6 +5,7 @@
  * purged tombstone so the slug stays reserved. Invoked from the Worker
  * scheduled handler.
  */
+import { deleteOrg, listOrgs } from "./org-workspaces";
 import { purgeExpiredObjects } from "./retention";
 import { teardownWorkspace } from "./workspace-teardown";
 import { isPurgedTombstone, type PurgedTombstone, type WorkspaceRecord } from "./workspace";
@@ -26,7 +27,20 @@ export interface SweepResult {
     galleriesDeleted: number;
     error?: string;
   }>;
+  orgsSwept: Array<{
+    slug: string;
+    deleted: boolean;
+    error?: string;
+  }>;
 }
+
+/**
+ * Orgs younger than this are never treated as orphans: self-serve
+ * registration creates the org before the `ws:` KV write, so a sweep landing
+ * in that gap would otherwise delete a brand-new org mid-signup. A day dwarfs
+ * both the provisioning window and KV propagation.
+ */
+const ORPHAN_ORG_MIN_AGE_MS = 24 * 60 * 60 * 1000;
 
 export async function runRetentionSweep(env: Env): Promise<SweepResult> {
   let cursor: string | undefined;
@@ -136,6 +150,53 @@ export async function runRetentionSweep(env: Env): Promise<SweepResult> {
     cursor = page.list_complete ? undefined : page.cursor;
   } while (cursor);
 
+  // #250 orphan-org sweep: after the ws-record pass, list every auth-side org
+  // and delete (force) any whose slug has no `ws:<slug>` KV key at all, or
+  // only a purged tombstone. A soft-deleted-but-still-in-grace record is NOT
+  // an orphan — restore must bring the org back intact, so it's left alone.
+  const orgsSwept: SweepResult["orgsSwept"] = [];
+  const communalWorkspace = env.DEFAULT_WORKSPACE || "default";
+  try {
+    const orgs = await listOrgs(env);
+    for (const org of orgs) {
+      if (org.slug === communalWorkspace) continue;
+      // Registration provisions the org BEFORE writing the ws: KV record
+      // (routes/workspaces.ts), so a just-created org can look orphaned for a
+      // moment. Skip anything inside the provisioning window — or with no
+      // parseable createdAt at all — rather than risk deleting it mid-signup.
+      const createdAtMs = org.createdAt ? Date.parse(org.createdAt) : Number.NaN;
+      if (!Number.isFinite(createdAtMs) || Date.now() - createdAtMs < ORPHAN_ORG_MIN_AGE_MS) {
+        continue;
+      }
+      try {
+        const record = await env.REGISTRY.get<WorkspaceRecord | PurgedTombstone>(
+          `ws:${org.slug}`,
+          "json",
+        );
+        const isOrphan = !record || isPurgedTombstone(record);
+        if (!isOrphan) continue;
+
+        await deleteOrg(env, org.slug, { force: true });
+        orgsSwept.push({ slug: org.slug, deleted: true });
+      } catch (err) {
+        orgsSwept.push({
+          slug: org.slug,
+          deleted: false,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  } catch (err) {
+    // Best-effort: an AUTH fetch failure (listOrgs itself) must not fail the
+    // whole sweep — log and continue with an empty orgsSwept.
+    console.log(
+      JSON.stringify({
+        message: "orphan_org_sweep_failed",
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
+
   console.log(
     JSON.stringify({
       message: "retention_sweep",
@@ -143,7 +204,8 @@ export async function runRetentionSweep(env: Env): Promise<SweepResult> {
       workspacesWithRetention,
       purged,
       workspacesFinalized,
+      orgsSwept,
     }),
   );
-  return { workspacesScanned, workspacesWithRetention, purged, workspacesFinalized };
+  return { workspacesScanned, workspacesWithRetention, purged, workspacesFinalized, orgsSwept };
 }

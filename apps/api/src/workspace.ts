@@ -232,6 +232,51 @@ export const workspaceAuth = workspaceAuthWith((c) => c.req.param("workspace"));
 /** Resolves the workspace from the bearer token itself (`up_<name>_…`). */
 export const tokenWorkspaceAuth = workspaceAuthWith((_c, token) => workspaceNameFromToken(token));
 
+/** Stamped-field result of `stampSoftDelete`/`stampRestore` — the caller writes it back to KV. */
+export interface SoftDeleteStamp {
+  deletedAt: string;
+  purgeAt: string;
+}
+
+/**
+ * Stamps `deletedAt`/`purgeAt` (grace window) onto a workspace record. Shared
+ * by the admin soft-delete path (`routes/admin.ts`) and the self-serve delete
+ * path (`routes/workspaces.ts`) so the two can't drift on the stamp shape or
+ * grace-window math.
+ */
+export function stampSoftDelete(
+  record: WorkspaceRecord,
+  now: Date = new Date(),
+): WorkspaceRecord & SoftDeleteStamp {
+  const deletedAt = now.toISOString();
+  const purgeAt = new Date(
+    now.getTime() + WORKSPACE_DELETE_GRACE_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  return { ...record, deletedAt, purgeAt };
+}
+
+/**
+ * True once `purgeAt` has passed (grace window expired) — restoring must
+ * refuse past this point even if the retention sweep hasn't finalized yet.
+ * An unparseable `purgeAt` is treated as still-restorable (repairing a
+ * malformed record is exactly what restore is for).
+ */
+export function isPastGrace(purgeAt: string | undefined, now: Date = new Date()): boolean {
+  if (!purgeAt) return false;
+  const purgeAtMs = Date.parse(purgeAt);
+  if (!Number.isFinite(purgeAtMs)) return false;
+  return now.getTime() >= purgeAtMs;
+}
+
+/**
+ * Clears `deletedAt`/`purgeAt` off a record — shared by the admin and
+ * self-serve restore paths.
+ */
+export function stampRestore(record: WorkspaceRecord): WorkspaceRecord {
+  const { deletedAt: _deletedAt, purgeAt: _purgeAt, ...rest } = record;
+  return rest;
+}
+
 export function requireScope(scope: FileScope): MiddlewareHandler<WorkspaceVars> {
   return async (c, next) => {
     if (!c.get("authScopes").includes(scope)) {
