@@ -1,7 +1,14 @@
-import { InsufficientScopeError, UnauthorizedError } from "@uploads/errors";
+import { ForbiddenError, InsufficientScopeError, UnauthorizedError } from "@uploads/errors";
 import type { MiddlewareHandler } from "hono";
 import type { StorageProvider } from "@uploads/storage";
-import { FILE_SCOPES, findActiveToken, parseScopes, type FileScope } from "./auth-db";
+import {
+  FILE_SCOPES,
+  findActiveToken,
+  isWorkspaceScope,
+  parseScopes,
+  type FileScope,
+  type WorkspaceScope,
+} from "./auth-db";
 
 export type { FileScope } from "./auth-db";
 
@@ -282,6 +289,53 @@ export function requireScope(scope: FileScope): MiddlewareHandler<WorkspaceVars>
     if (!c.get("authScopes").includes(scope)) {
       throw new InsufficientScopeError(scope, "forbidden");
     }
+    await next();
+  };
+}
+
+/** Vars set by `workspaceGovernanceAuth` on a matched `workspace:*`-scoped token. */
+export type GovernanceVars = {
+  Variables: {
+    /** `minting_user_id` of the D1 token record — invites/actions act as this user (issue #262). */
+    governanceMintingUserId: string | null;
+  };
+  Bindings: Env;
+};
+
+/**
+ * Guards a `/…/:name/…` route with a D1-backed `workspace:*`-scoped bearer
+ * token (issue #262). Distinct from `tokenWorkspaceAuth`/`requireScope`
+ * (file-plane, `parseScopes` fail-closed on non-file scopes) — a governance
+ * token carries zero file access and this guard never touches `authScopes`.
+ *
+ * Rejects: missing/malformed bearer (401), no active D1 token for the
+ * token's own workspace — revoked/expired/unknown (401), token workspace !==
+ * the `:name` route param (403), and active tokens missing the required
+ * `workspace:*` scope — including file-only or operator-only tokens, which
+ * carry zero workspace scopes (403).
+ */
+export function workspaceGovernanceAuth(scope: WorkspaceScope): MiddlewareHandler<GovernanceVars> {
+  return async (c, next) => {
+    const token = bearerToken(c.req.header("Authorization"));
+    const tokenWorkspace = token ? workspaceNameFromToken(token) : undefined;
+    if (!tokenWorkspace) throw new UnauthorizedError();
+
+    const record = await findActiveToken(c.env.DB, tokenWorkspace, token);
+    if (!record) throw new UnauthorizedError();
+
+    const name = c.req.param("name");
+    if (tokenWorkspace !== name) throw new ForbiddenError();
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(record.scopes);
+    } catch {
+      parsed = [];
+    }
+    const scopes = new Set(Array.isArray(parsed) ? parsed.filter(isWorkspaceScope) : []);
+    if (!scopes.has(scope)) throw new ForbiddenError();
+
+    c.set("governanceMintingUserId", record.minting_user_id);
     await next();
   };
 }
