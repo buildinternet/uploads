@@ -15,7 +15,7 @@ with `source: "./"`, so the whole repo is a one-plugin marketplace.
 | github-screenshots skill | `/uploads:github-screenshots` | Capture + host + embed a visual in a PR/issue with a stable per-target key        |
 | uploads-cli skill        | `/uploads:uploads-cli`        | Full `uploads` CLI reference — `put`, `attach`, `screenshot`, galleries, metadata |
 | attach command           | `/uploads:attach`             | Explicit entry point for hosting a file or attaching to a PR/issue                |
-| uploads MCP server       | (tools)                       | Local stdio `uploads mcp` — `put`, `list`, `attach`, galleries                    |
+| uploads MCP server       | (tools)                       | Hosted `https://agents.uploads.sh/mcp` — `put`, `list`, `attach`, galleries       |
 
 Plugin skills and commands are namespaced by the plugin name (`uploads`), so
 they appear as `/uploads:…`.
@@ -29,30 +29,20 @@ they appear as `/uploads:…`.
 
 ## MCP auth
 
-The bundled MCP server runs the local CLI over stdio (`uploads mcp`). It reads
-your workspace token from the config file `uploads login` writes
-(`~/.config/buildinternet/config`), so once you've signed in there's nothing
-else to set up:
+The bundled MCP server points at the hosted endpoint,
+`https://agents.uploads.sh/mcp`. On first use, Claude Code opens a browser to
+the uploads.sh OAuth consent screen — sign in, approve access, and Claude Code
+stores the resulting access token for you. No CLI install, no config file, no
+environment variable to wire up.
 
-```
-npm install -g @buildinternet/uploads   # if the CLI isn't already installed
-uploads login                            # device flow → stores the token
-```
+Tokens carry `files:read` + `files:write` by default and are scoped to your
+primary workspace (a fresh account with no workspace is prompted to create one
+at <https://uploads.sh> before the tools will work). See
+<https://uploads.sh/auth.md> for the full credential model.
 
-The CLI must be on your `PATH` for the bundled server to launch. Tokens carry
-`files:read` + `files:write` by default and are scoped to a single workspace.
-See <https://uploads.sh/auth.md> for the full credential model.
-
-### Why not the hosted endpoint?
-
-The hosted MCP at `https://agents.uploads.sh/mcp` authenticates with a bearer
-token, but a static plugin manifest can't inject a per-user token. `uploads
-login` stores the token in a config file, **not** an environment variable, so a
-`${UPLOADS_TOKEN}` header would be empty for a normally signed-in user. Until
-`agents.uploads.sh` exposes an OAuth authorization server that Claude Code can
-complete interactively, the local stdio server is the one that works without
-manual token wiring. To use the hosted endpoint anyway, register it yourself
-with the token baked in (this is what `uploads install` does):
+If you'd rather use a long-lived per-workspace token instead of the OAuth
+flow (e.g. for CI or a non-interactive agent), register the endpoint yourself
+with the token baked in:
 
 ```
 claude mcp add --transport http uploads https://agents.uploads.sh/mcp \

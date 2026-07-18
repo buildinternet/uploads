@@ -6,6 +6,12 @@
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
     "WEB_ORIGIN": "https://uploads.sh",
+    // OAuth 2.1 authorization server this worker verifies access-token JWTs
+    // against (issue #224) — issuer is `${AUTH_ORIGIN}/api/auth`, JWKS at
+    // `${AUTH_ORIGIN}/api/auth/jwks`. See src/oauth.ts. Override locally via
+    // .dev.vars (AUTH_ORIGIN=http://127.0.0.1:8788, matching apps/auth's
+    // pinned dev port).
+    "AUTH_ORIGIN": "https://auth.uploads.sh",
   },
   "routes": [
     // Primary domain; mcp.uploads.sh is kept as a working alternate.

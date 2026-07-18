@@ -1,0 +1,257 @@
+---
+import { env } from "cloudflare:workers";
+import { applyAuthSecurityHeaders, authPageCsp } from "../../lib/signed-in-page";
+import BaseHead from "../../components/BaseHead.astro";
+import Brand from "../../components/Brand.astro";
+import Footer from "../../components/Footer.astro";
+
+export const prerender = false;
+
+const authOrigin =
+  env.UPLOADS_AUTH_ORIGIN ??
+  import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ??
+  "https://auth.uploads.sh";
+
+// Header (not meta): frame-ancestors is ignored on meta CSP.
+applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
+---
+
+<html lang="en">
+<head>
+  <BaseHead />
+  <title>Authorize application · uploads.sh</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:28px;background:var(--bg);color:var(--fg);font:14.5px/1.65 var(--mono)}
+    main{width:min(var(--width-card, 480px),100%);background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);padding:clamp(24px,6vw,40px)}
+    .brandbar{display:flex;justify-content:center;margin-bottom:24px}
+    h1{margin:0 0 8px;font-size:clamp(21px,5vw,26px);font-weight:600;letter-spacing:-.015em;line-height:1.25}
+    p{color:var(--body);margin:0 0 20px}
+    .status{margin:16px 0}
+    .client-host{color:var(--muted);font-size:12.5px;margin:-14px 0 20px;word-break:break-all}
+    .client-host a{color:inherit}
+    .scopes{list-style:none;margin:0 0 22px;padding:0;display:grid;gap:10px}
+    .scopes li{display:flex;align-items:baseline;gap:10px;padding:10px 12px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-md)}
+    .scopes .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none;margin-top:6px}
+    .scopes .desc{color:var(--fg)}
+    .scopes .id{display:block;color:var(--muted);font-size:11px;letter-spacing:.02em}
+    .actions{display:flex;gap:10px}
+    button.primary,button.secondary{flex:1;font:12px var(--mono);letter-spacing:.04em;color:var(--accent);background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 13px;cursor:pointer}
+    button.secondary{color:var(--muted)}
+    button.primary:hover,button.primary:focus-visible{border-color:var(--accent);outline:none}
+    button.secondary:hover,button.secondary:focus-visible{border-color:var(--red);color:var(--red);outline:none}
+    button:disabled{opacity:.6;cursor:default}
+    a.linklike{color:var(--accent)}
+    [hidden]{display:none!important}
+  </style>
+</head>
+<body>
+<main>
+  <div class="brandbar"><Brand /></div>
+  <h1>Authorize application</h1>
+
+  <div id="checking" class="ul-callout status" role="status">Checking…</div>
+
+  <div id="auth-unavailable" hidden>
+    <div class="status" data-state="error" role="alert">
+      Authentication is temporarily unavailable. Check the local stack or try again.
+    </div>
+    <button type="button" id="session-retry">Try again</button>
+  </div>
+
+  <div id="no-request" hidden>
+    <div class="ul-callout status" role="status">
+      No pending authorization request. Start again from the application you were using.
+    </div>
+  </div>
+
+  <div id="signed-out" hidden>
+    <p>
+      Sign in to review this request. <a class="linklike" id="signin-link" href="/login">Sign in</a>
+    </p>
+  </div>
+
+  <div id="confirm" hidden>
+    <p>
+      <strong id="client-name"></strong> wants to access your uploads.sh account.
+    </p>
+    <div class="client-host" id="client-host" hidden></div>
+    <ul class="scopes" id="scope-list"></ul>
+    <div class="actions">
+      <button type="button" class="primary" id="allow-btn">Allow</button>
+      <button type="button" class="secondary" id="deny-btn">Deny</button>
+    </div>
+    <div class="ul-callout status" id="confirm-error" data-state="error" role="alert" hidden></div>
+  </div>
+
+  <div id="redirecting" hidden>
+    <div class="ul-callout status" data-state="ready" role="status">Redirecting…</div>
+  </div>
+
+  <Footer compact />
+</main>
+<script define:vars={{ authOrigin }}>
+  window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
+</script>
+<script>
+  import {
+    getOAuthPublicClient,
+    getSession,
+    submitOAuthConsent,
+  } from "../../lib/auth-client";
+
+  const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string }).__UPLOADS_AUTH_ORIGIN__;
+
+  function requireElement<T extends Element>(selector: string): T {
+    const element = document.querySelector<T>(selector);
+    if (!element) throw new Error(`consent page is missing ${selector}`);
+    return element as T;
+  }
+
+  const checking = requireElement<HTMLElement>("#checking");
+  const authUnavailable = requireElement<HTMLElement>("#auth-unavailable");
+  const noRequest = requireElement<HTMLElement>("#no-request");
+  const signedOut = requireElement<HTMLElement>("#signed-out");
+  const signinLink = requireElement<HTMLAnchorElement>("#signin-link");
+  const confirmBox = requireElement<HTMLElement>("#confirm");
+  const clientName = requireElement<HTMLElement>("#client-name");
+  const clientHost = requireElement<HTMLElement>("#client-host");
+  const scopeList = requireElement<HTMLUListElement>("#scope-list");
+  const allowBtn = requireElement<HTMLButtonElement>("#allow-btn");
+  const denyBtn = requireElement<HTMLButtonElement>("#deny-btn");
+  const confirmError = requireElement<HTMLElement>("#confirm-error");
+  const redirecting = requireElement<HTMLElement>("#redirecting");
+
+  // Human copy for the scopes this AS issues (see docs/superpowers/specs/
+  // 2026-07-17-oauth-authorization-server-design.md — files:read/write/delete).
+  // Unrecognized scopes fall back to the raw identifier.
+  const SCOPE_DESCRIPTIONS: Record<string, string> = {
+    "files:read": "Read your files",
+    "files:write": "Upload and modify files",
+    "files:delete": "Delete files",
+  };
+
+  const params = new URLSearchParams(location.search);
+  const clientId = params.get("client_id")?.trim() ?? "";
+  const requestedScopes = (params.get("scope") ?? "").split(/\s+/).filter(Boolean);
+  const oauthQuery = location.search.replace(/^\?/, "");
+
+  function hideAll() {
+    for (const el of [checking, authUnavailable, noRequest, signedOut, confirmBox, redirecting]) {
+      el.hidden = true;
+    }
+  }
+
+  // appendChild, not append(): worker-configuration.d.ts's HTMLRewriter
+  // `Element` ambiently redeclares `append()` with an incompatible
+  // (non-Node) signature, which typecheck resolves against DOM elements too.
+  function renderScopes() {
+    scopeList.replaceChildren();
+    for (const scope of requestedScopes) {
+      const li = document.createElement("li");
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      const text = document.createElement("span");
+      const desc = document.createElement("span");
+      desc.className = "desc";
+      desc.textContent = SCOPE_DESCRIPTIONS[scope] ?? scope;
+      const id = document.createElement("span");
+      id.className = "id";
+      id.textContent = scope;
+      text.appendChild(desc);
+      text.appendChild(id);
+      li.appendChild(dot);
+      li.appendChild(text);
+      scopeList.appendChild(li);
+    }
+  }
+
+  // A registered client (DCR) fully controls client_uri/logo_uri — only
+  // render it as a link if it's actually http(s), never javascript:/data:/etc.
+  function safeHttpUrl(value: string | undefined): URL | null {
+    if (!value) return null;
+    try {
+      const url = new URL(value);
+      return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function proceed() {
+    hideAll();
+    checking.hidden = false;
+
+    if (!clientId) {
+      hideAll();
+      noRequest.hidden = false;
+      return;
+    }
+
+    const session = await getSession(authOrigin);
+    if (session.kind === "unavailable") {
+      hideAll();
+      authUnavailable.hidden = false;
+      return;
+    }
+    if (session.kind !== "signed_in") {
+      hideAll();
+      signinLink.href = `/login?callbackURL=${encodeURIComponent(location.href)}`;
+      signedOut.hidden = false;
+      return;
+    }
+
+    const client = await getOAuthPublicClient(authOrigin, clientId);
+    hideAll();
+
+    clientName.textContent = client?.client_name || clientId;
+    const host = safeHttpUrl(client?.client_uri);
+    if (host) {
+      clientHost.replaceChildren();
+      const a = document.createElement("a");
+      a.href = host.href;
+      a.target = "_blank";
+      a.rel = "noreferrer";
+      a.textContent = host.host;
+      clientHost.appendChild(a);
+      clientHost.hidden = false;
+    } else {
+      clientHost.hidden = true;
+    }
+    renderScopes();
+    confirmBox.hidden = false;
+  }
+
+  async function decide(accept: boolean) {
+    confirmError.hidden = true;
+    allowBtn.disabled = true;
+    denyBtn.disabled = true;
+    const result = await submitOAuthConsent(authOrigin, {
+      accept,
+      scope: accept ? requestedScopes.join(" ") : undefined,
+      oauthQuery,
+    });
+    if (!result.ok) {
+      allowBtn.disabled = false;
+      denyBtn.disabled = false;
+      confirmError.textContent = result.error;
+      confirmError.hidden = false;
+      return;
+    }
+    // Deny redirects too: the AS's redirect_uri carries `error=access_denied`
+    // (+ state) back to the initiating client so its flow can finish cleanly.
+    hideAll();
+    redirecting.hidden = false;
+    location.href = result.redirectUri;
+  }
+
+  requireElement<HTMLButtonElement>("#session-retry").addEventListener("click", () => {
+    void proceed();
+  });
+  allowBtn.addEventListener("click", () => void decide(true));
+  denyBtn.addEventListener("click", () => void decide(false));
+
+  void proceed();
+</script>
+</body>
+</html>

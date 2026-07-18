@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getAccountInfo,
+  getOAuthPublicClient,
   getSession,
   linkGitHub,
   listAccounts,
   listSessions,
   revokeSession,
+  sendMagicLink,
   startLocalDemoSession,
+  submitOAuthConsent,
 } from "./auth-client";
 import { BROWSER_REQUEST_TIMEOUT_MS, fetchWithTimeout } from "./request";
 
@@ -230,6 +233,100 @@ describe("linkGitHub", () => {
     await expect(
       linkGitHub("https://auth.uploads.sh", "https://uploads.sh/account/profile"),
     ).resolves.toBe(false);
+  });
+});
+
+function stubLocation(search: string) {
+  vi.stubGlobal("location", { search });
+}
+
+describe("sendMagicLink oauth resume", () => {
+  it("injects oauth_query when location.search carries a signed sig= param", async () => {
+    stubLocation("?client_id=abc&sig=deadbeef");
+    const fetcher = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+
+    await sendMagicLink("https://auth.uploads.sh", "a@example.com", "https://uploads.sh/account");
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://auth.uploads.sh/api/auth/sign-in/magic-link",
+      expect.objectContaining({
+        body: JSON.stringify({
+          email: "a@example.com",
+          callbackURL: "https://uploads.sh/account",
+          oauth_query: "client_id=abc&sig=deadbeef",
+        }),
+      }),
+    );
+  });
+
+  it("omits oauth_query when there is no signed query", async () => {
+    stubLocation("");
+    const fetcher = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetcher);
+
+    await sendMagicLink("https://auth.uploads.sh", "a@example.com", "https://uploads.sh/account");
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://auth.uploads.sh/api/auth/sign-in/magic-link",
+      expect.objectContaining({
+        body: JSON.stringify({
+          email: "a@example.com",
+          callbackURL: "https://uploads.sh/account",
+        }),
+      }),
+    );
+  });
+});
+
+describe("getOAuthPublicClient", () => {
+  it("returns the client on success and null on failure or malformed body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ client_id: "c1", client_name: "Agent App" })),
+    );
+    await expect(getOAuthPublicClient("https://auth.uploads.sh", "c1")).resolves.toEqual({
+      client_id: "c1",
+      client_name: "Agent App",
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    await expect(getOAuthPublicClient("https://auth.uploads.sh", "c1")).resolves.toBeNull();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({})),
+    );
+    await expect(getOAuthPublicClient("https://auth.uploads.sh", "c1")).resolves.toBeNull();
+  });
+});
+
+describe("submitOAuthConsent", () => {
+  it("returns the redirect on success", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ redirect_uri: "https://client.example/callback?code=1" })),
+    );
+    await expect(
+      submitOAuthConsent("https://auth.uploads.sh", {
+        accept: true,
+        scope: "files:read",
+        oauthQuery: "client_id=c1&sig=x",
+      }),
+    ).resolves.toEqual({ ok: true, redirectUri: "https://client.example/callback?code=1" });
+  });
+
+  it("surfaces the AS error description on rejection", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ error_description: "expired request" }, { status: 400 })),
+    );
+    await expect(
+      submitOAuthConsent("https://auth.uploads.sh", { accept: false, oauthQuery: "sig=x" }),
+    ).resolves.toEqual({ ok: false, error: "expired request" });
   });
 });
 

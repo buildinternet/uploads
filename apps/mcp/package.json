@@ -19,7 +19,8 @@
     "@uploads/api": "workspace:^",
     "@uploads/errors": "workspace:^",
     "@uploads/storage": "workspace:^",
-    "hono": "^4.12.28"
+    "hono": "^4.12.28",
+    "jose": "^6.2.3"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",

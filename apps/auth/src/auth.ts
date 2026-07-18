@@ -6,11 +6,19 @@
  * serves a stale instance.
  */
 import { dash } from "@better-auth/infra";
+import { oauthProvider } from "@better-auth/oauth-provider";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { betterAuth } from "better-auth";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
-import { admin, bearer, deviceAuthorization, magicLink, organization } from "better-auth/plugins";
+import {
+  admin,
+  bearer,
+  deviceAuthorization,
+  jwt,
+  magicLink,
+  organization,
+} from "better-auth/plugins";
 import { sendAuthEmail } from "./email";
 import { localDemoEnabled, localDemoPlugin } from "./local-demo";
 import * as schema from "./schema";
@@ -36,6 +44,52 @@ export const UPLOADS_CLI_CLIENT_ID = "uploads-cli";
 /** CLI device-flow User-Agent — keep in sync with apps/web `CLI_USER_AGENT_RE`. */
 export function isCliSessionUserAgent(ua?: string | null): boolean {
   return Boolean(ua && /@buildinternet\/uploads(?:\/[\w.-]+)?/i.test(ua));
+}
+
+/**
+ * OAuth 2.1 authorization server scopes (issue #224, Lane A). Duplicated
+ * literally rather than imported from `@uploads/api` — this worker has no
+ * dependency on that package. Keep in lockstep with `FILE_SCOPES` in
+ * `apps/api/src/auth-db.ts`.
+ */
+const OAUTH_SCOPES = ["files:read", "files:write", "files:delete"] as const;
+
+/** Default scopes granted to a dynamically registered client that requests none. */
+const OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES = ["files:read", "files:write"] as const;
+
+/**
+ * Resource servers that accept this AS's JWT access tokens (design doc:
+ * "Accepted audiences"). Mirrored into apps/mcp's JWT verification config —
+ * keep both in lockstep.
+ */
+const OAUTH_VALID_AUDIENCES = ["https://agents.uploads.sh/mcp", "https://mcp.uploads.sh/mcp"];
+
+/**
+ * Workspace claims embedded in every OAuth access-token JWT
+ * (`customAccessTokenClaims` below): the oldest org membership's slug as the
+ * primary `workspace`, plus every slug the user belongs to. Queries the same
+ * D1 the rest of this worker uses (member ⋈ organization). Defensive:
+ * missing user or zero memberships still returns a shape MCP can consume
+ * (`workspace: null`) rather than throwing — a token must always issue.
+ *
+ * Exported for direct unit testing (see auth.test.ts) since driving the full
+ * authorize→consent→token flow through the plugin is comparatively heavy.
+ */
+export async function resolveWorkspaceClaims(
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  userId: string | undefined,
+): Promise<{ workspace: string | null; workspaces: string[] }> {
+  if (!userId) return { workspace: null, workspaces: [] };
+  const rows = await db
+    .select({ slug: schema.organization.slug })
+    .from(schema.member)
+    .innerJoin(schema.organization, eq(schema.member.organizationId, schema.organization.id))
+    .where(eq(schema.member.userId, userId))
+    // Secondary sort on id: memberships created in the same millisecond must
+    // still yield the same primary workspace on every token issuance.
+    .orderBy(asc(schema.member.createdAt), asc(schema.member.id));
+  const workspaces = rows.map((r) => r.slug);
+  return { workspace: workspaces[0] ?? null, workspaces };
 }
 
 export type AuthEnv = GitHubCredentialsEnv &
@@ -101,6 +155,11 @@ function buildAuth(
     baseURL: betterAuthUrl,
     basePath: "/api/auth",
     secret: signingSecret,
+    // `schema` (the whole module) is passed through as before — the adapter
+    // discovers tables by matching each export's camelCase name to the
+    // plugin's model name, so adding `jwks`/`oauthClient`/`oauthAccessToken`/
+    // `oauthRefreshToken`/`oauthConsent` exports to schema.ts (issue #224,
+    // Lane A) is sufficient; no explicit map needed here.
     database: drizzleAdapter(db, {
       provider: "sqlite",
       schema,
@@ -170,6 +229,39 @@ function buildAuth(
             });
           },
         },
+      }),
+      // Issue #224, Lane A: signs the OAuth provider's access tokens as JWTs
+      // and serves JWKS at /api/auth/jwks. MUST precede oauthProvider() below
+      // — the plugin looks up the jwt() config at registration time.
+      jwt(),
+      // Issue #224, Lane A: OAuth 2.1 authorization server for
+      // agents.uploads.sh/mcp (see docs/superpowers/specs/2026-07-17-oauth-authorization-server-design.md).
+      // loginPage/consentPage MUST be absolute URLs on the WEB origin — same
+      // rule as deviceAuthorization's verificationUri above; the /login and
+      // /oauth/consent pages are served by apps/web, not this worker.
+      // DCR is on and unauthenticated (agent/MCP clients self-register before
+      // any user has logged in); the stale-client reaper (oauth-client-reaper.ts)
+      // sweeps abandoned anonymous registrations from the cron below.
+      oauthProvider({
+        loginPage: `${webOrigin}/login`,
+        consentPage: `${webOrigin}/oauth/consent`,
+        scopes: [...OAUTH_SCOPES],
+        clientRegistrationDefaultScopes: [...OAUTH_CLIENT_REGISTRATION_DEFAULT_SCOPES],
+        validAudiences: OAUTH_VALID_AUDIENCES,
+        // Root /.well-known aliases are served by src/index.ts.
+        silenceWarnings: { oauthAuthServerConfig: true, openidConfig: true },
+        allowDynamicClientRegistration: true,
+        allowUnauthenticatedClientRegistration: true,
+        // Explicit abuse ceiling on the public /oauth2/register endpoint —
+        // pinned here rather than the plugin's library default so it's
+        // auditable and can't silently drift. Enforced only when Better
+        // Auth's core rate limiter is on (see rateLimit below).
+        rateLimit: { register: { window: 60, max: 5 } },
+        // member ⋈ organization, oldest membership wins for `workspace`; all
+        // slugs ride along in `workspaces` for a future workspace picker
+        // (design doc: "deferred"). Zero memberships still issues a token
+        // (workspace: null) — the MCP worker is responsible for the 403.
+        customAccessTokenClaims: async ({ user }) => resolveWorkspaceClaims(db, user?.id),
       }),
       // D5/Phase 4: bearer() lets the CLI present the device-flow session token
       // as `Authorization: Bearer <token>` so apps/api's session verification

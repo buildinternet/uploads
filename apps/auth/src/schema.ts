@@ -251,6 +251,130 @@ export const deviceCode = sqliteTable(
 );
 
 /**
+ * `jwt()` plugin keyset (issue #224, Lane A): the signing keypair for OAuth
+ * access-token JWTs, encrypted at rest under the Better Auth secret. Model
+ * name is fixed at "jwks" by the plugin. `expiresAt` is optional (key
+ * rotation, unused for now).
+ *
+ * Paired migration: `migrations/20260717000000_oauth_provider.sql`.
+ */
+export const jwks = sqliteTable("jwks", {
+  id: text("id").primaryKey(),
+  publicKey: text("public_key").notNull(),
+  privateKey: text("private_key").notNull(),
+  createdAt: timestampCol("created_at"),
+  expiresAt: integer("expires_at", { mode: "timestamp" }),
+});
+
+/**
+ * `@better-auth/oauth-provider` tables (issue #224, Lane A: OAuth 2.1
+ * authorization server). Adapter keys must match the plugin's model names;
+ * SQL is snake_case. `string[]` columns are JSON text (drizzle `mode: "json"`)
+ * — mirrors `~/Code/sunny/apps/auth/src/schema.ts:239-336`, itself reconciled
+ * against `npx @better-auth/cli generate` output for this plugin.
+ *
+ * Paired migration: `migrations/20260717000000_oauth_provider.sql`.
+ */
+export const oauthClient = sqliteTable(
+  "oauth_client",
+  {
+    id: text("id").primaryKey(),
+    clientId: text("client_id").notNull().unique(),
+    clientSecret: text("client_secret"),
+    name: text("name"),
+    icon: text("icon"),
+    uri: text("uri"),
+    redirectUris: text("redirect_uris", { mode: "json" }).$type<string[]>().notNull(),
+    postLogoutRedirectUris: text("post_logout_redirect_uris", { mode: "json" }).$type<string[]>(),
+    scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull(),
+    grantTypes: text("grant_types", { mode: "json" }).$type<string[]>(),
+    responseTypes: text("response_types", { mode: "json" }).$type<string[]>(),
+    contacts: text("contacts", { mode: "json" }).$type<string[]>(),
+    tokenEndpointAuthMethod: text("token_endpoint_auth_method"),
+    type: text("type"),
+    public: integer("public", { mode: "boolean" }),
+    requirePKCE: integer("require_pkce", { mode: "boolean" }),
+    disabled: integer("disabled", { mode: "boolean" }),
+    skipConsent: integer("skip_consent", { mode: "boolean" }),
+    enableEndSession: integer("enable_end_session", { mode: "boolean" }),
+    subjectType: text("subject_type"),
+    tos: text("tos"),
+    policy: text("policy"),
+    softwareId: text("software_id"),
+    softwareVersion: text("software_version"),
+    softwareStatement: text("software_statement"),
+    userId: text("user_id"),
+    referenceId: text("reference_id"),
+    metadata: text("metadata", { mode: "json" }),
+    createdAt: timestampCol("created_at"),
+    updatedAt: timestampCol("updated_at"),
+  },
+  (t) => [index("idx_oauth_client_client_id").on(t.clientId)],
+);
+
+export const oauthAccessToken = sqliteTable(
+  "oauth_access_token",
+  {
+    id: text("id").primaryKey(),
+    token: text("token").notNull().unique(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => oauthClient.clientId),
+    sessionId: text("session_id").references(() => session.id, { onDelete: "set null" }),
+    refreshId: text("refresh_id"),
+    userId: text("user_id"),
+    referenceId: text("reference_id"),
+    scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull(),
+    createdAt: timestampCol("created_at"),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    index("idx_oauth_access_token_token").on(t.token),
+    index("idx_oauth_access_client_id").on(t.clientId),
+    index("idx_oauth_access_session_id").on(t.sessionId),
+  ],
+);
+
+export const oauthRefreshToken = sqliteTable(
+  "oauth_refresh_token",
+  {
+    id: text("id").primaryKey(),
+    token: text("token").notNull().unique(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => oauthClient.clientId),
+    sessionId: text("session_id").references(() => session.id, { onDelete: "set null" }),
+    userId: text("user_id").notNull(),
+    referenceId: text("reference_id"),
+    scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull(),
+    // Revocation timestamp, not a boolean: a Date when revoked, null while active.
+    revoked: integer("revoked", { mode: "timestamp" }),
+    authTime: integer("auth_time", { mode: "timestamp" }),
+    createdAt: timestampCol("created_at"),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    index("idx_oauth_refresh_token_token").on(t.token),
+    index("idx_oauth_refresh_client_id").on(t.clientId),
+    index("idx_oauth_refresh_session_id").on(t.sessionId),
+  ],
+);
+
+export const oauthConsent = sqliteTable(
+  "oauth_consent",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    clientId: text("client_id").notNull(),
+    referenceId: text("reference_id"),
+    scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull(),
+    createdAt: timestampCol("created_at"),
+    updatedAt: timestampCol("updated_at"),
+  },
+  (t) => [index("idx_oauth_consent_user_client").on(t.userId, t.clientId)],
+);
+
+/**
  * Drizzle relations for Better Auth `experimental.joins` (adapter needs these
  * on the same schema object as the tables). No SQL/migration impact.
  *
@@ -326,3 +450,4 @@ export type AuthOrganization = typeof organization.$inferSelect;
 export type AuthMember = typeof member.$inferSelect;
 export type AuthInvitation = typeof invitation.$inferSelect;
 export type AuthDeviceCode = typeof deviceCode.$inferSelect;
+export type AuthOauthClient = typeof oauthClient.$inferSelect;

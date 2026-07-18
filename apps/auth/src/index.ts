@@ -6,6 +6,7 @@ import { isInternalRequest } from "./internal";
 import { LOCAL_STACK_WEB_ORIGIN, localDemoEnabled } from "./local-demo";
 import { isTrustedOrigin } from "./trusted-origins";
 import { runAuthRetentionSweep } from "./retention-sweep";
+import { sweepOauthClients } from "./oauth-client-reaper";
 
 // Credentialed CORS for the web origin (+ dev origins), scoped to /api/auth/*
 // only — this worker has no other public surface (D1: "CORS becomes trivial").
@@ -17,8 +18,48 @@ const authCors = cors({
   maxAge: 86400,
 });
 
+/**
+ * Rewrite the request path to `pathname` and run it through the Better Auth
+ * handler, stamping `Access-Control-Allow-Origin: *` on the response — issue
+ * #224, Lane A's root `/.well-known/*` discovery aliases below. Clients that
+ * discover from the issuer origin (not `/api/auth`) hit these; this rewrites
+ * to the plugin's actual paths under the basePath. Public metadata only, so
+ * CORS is wide open (unlike the credentialed `authCors` on `/api/auth/*`).
+ * Mirrors `~/Code/sunny/apps/auth/src/index.ts`'s `runBetterAuth`.
+ */
+async function discoveryAlias(
+  c: { env: AuthEnv; req: { raw: Request } },
+  pathname: string,
+): Promise<Response> {
+  const auth = await createAuth(c.env);
+  if (!auth) {
+    return Response.json(
+      { error: { code: "auth_unavailable", message: "Auth is not configured yet." } },
+      { status: 503 },
+    );
+  }
+  const url = new URL(c.req.raw.url);
+  url.pathname = pathname;
+  const res = await auth.handler(new Request(url.toString(), c.req.raw));
+  const headers = new Headers(res.headers);
+  headers.set("Access-Control-Allow-Origin", "*");
+  return new Response(res.body, { status: res.status, headers });
+}
+
 export const app = new Hono<{ Bindings: AuthEnv }>()
   .get("/health", (c) => c.json({ ok: true }))
+  // RFC 8414 path-inserted form: /.well-known/oauth-authorization-server{issuer-path}.
+  // Issuer is `${BETTER_AUTH_URL}/api/auth`, so both the bare and `/*` forms
+  // rewrite to the same plugin path.
+  .get("/.well-known/oauth-authorization-server", (c) =>
+    discoveryAlias(c, "/api/auth/.well-known/oauth-authorization-server"),
+  )
+  .get("/.well-known/oauth-authorization-server/*", (c) =>
+    discoveryAlias(c, "/api/auth/.well-known/oauth-authorization-server"),
+  )
+  .get("/.well-known/openid-configuration", (c) =>
+    discoveryAlias(c, "/api/auth/.well-known/openid-configuration"),
+  )
   // Service-binding-only API (D1/D9): 404 rather than 403 for non-internal
   // callers so the route's existence isn't leaked to public probing.
   .use("/internal/*", async (c, next) => {
@@ -73,6 +114,19 @@ export default {
         console.error(
           JSON.stringify({
             message: "auth_retention_sweep_failed",
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+      }),
+    );
+    // Issue #224, Lane A: nightly sweep of stale, never-used dynamically
+    // registered OAuth clients. Observe-only until OAUTH_CLIENT_REAPER_ENABLED
+    // is set (see src/oauth-client-reaper.ts).
+    ctx.waitUntil(
+      sweepOauthClients(env).catch((err) => {
+        console.error(
+          JSON.stringify({
+            message: "oauth_client_reaper_failed",
             error: err instanceof Error ? err.message : String(err),
           }),
         );
