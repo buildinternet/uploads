@@ -215,3 +215,88 @@ describe("last-admin guard (endpoint-level)", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("last-admin guard: set-role", () => {
+  it("blocks set-role from demoting the last admin (including self-demotion)", async () => {
+    const env = dbEnv();
+    const soleAdmin = await seedUser(env, { role: "admin" });
+    const sessionToken = await seedSession(env, soleAdmin.id);
+
+    const res = await adminRequest(
+      "/admin/set-role",
+      sessionToken,
+      { userId: soleAdmin.id, role: "user" },
+      env,
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { message?: string };
+    expect(body.message).toMatch(/cannot remove the last admin's admin role/i);
+
+    const db = drizzle(env.DB, { schema });
+    const [stillAdmin] = await db
+      .select({ role: schema.user.role })
+      .from(schema.user)
+      .where(eq(schema.user.id, soleAdmin.id));
+    expect(hasAdminRole(stillAdmin?.role)).toBe(true);
+  });
+
+  it("allows set-role on a non-last admin", async () => {
+    const env = dbEnv();
+    const requester = await seedUser(env, { role: "admin" });
+    const otherAdmin = await seedUser(env, { role: "admin" });
+    const sessionToken = await seedSession(env, requester.id);
+
+    const res = await adminRequest(
+      "/admin/set-role",
+      sessionToken,
+      { userId: otherAdmin.id, role: "user" },
+      env,
+    );
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("last-admin guard: update-user", () => {
+  it("blocks update-user from banning the last admin", async () => {
+    // The reachable end-to-end path mirrors admin-last-guard's remove-user
+    // test: adminMiddleware requires the requester to already hold the admin
+    // role, so a sole active admin banning "the last admin" is necessarily
+    // self-targeting. Our hooks.before guard runs before the route handler,
+    // so it trips (with our message) ahead of the library's own
+    // self-ban-only check.
+    const env = dbEnv();
+    const soleAdmin = await seedUser(env, { role: "admin" });
+    const sessionToken = await seedSession(env, soleAdmin.id);
+
+    const res = await adminRequest(
+      "/admin/update-user",
+      sessionToken,
+      { userId: soleAdmin.id, data: { banned: true } },
+      env,
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { message?: string };
+    expect(body.message).toMatch(/cannot ban the last admin/i);
+  });
+
+  it("allows update-user to change unrelated fields on the last admin", async () => {
+    const env = dbEnv();
+    const soleAdmin = await seedUser(env, { role: "admin" });
+    const sessionToken = await seedSession(env, soleAdmin.id);
+
+    const res = await adminRequest(
+      "/admin/update-user",
+      sessionToken,
+      { userId: soleAdmin.id, data: { name: "Renamed Admin" } },
+      env,
+    );
+    expect(res.status).toBe(200);
+
+    const db = drizzle(env.DB, { schema });
+    const [updated] = await db
+      .select({ name: schema.user.name })
+      .from(schema.user)
+      .where(eq(schema.user.id, soleAdmin.id));
+    expect(updated?.name).toBe("Renamed Admin");
+  });
+});

@@ -145,6 +145,20 @@ export function hasAdminRole(role: string | null | undefined): boolean {
     .includes(ADMIN_ROLE);
 }
 
+/**
+ * Same admin-role check as `hasAdminRole`, but for the raw `role` value the
+ * admin() plugin's `/admin/set-role` and `/admin/update-user` request bodies
+ * accept — a single string OR an array of strings (see better-auth 1.6.23's
+ * `setRoleBodySchema`/`adminUpdateUserBodySchema` in
+ * `plugins/admin/routes.mjs`, which itself normalizes via `Array.isArray(...)
+ * ? roles.join(",") : roles`).
+ */
+function hasAdminRoleInput(role: unknown): boolean {
+  if (typeof role === "string") return hasAdminRole(role);
+  if (Array.isArray(role)) return hasAdminRole(role.join(","));
+  return false;
+}
+
 /** Count of non-banned users currently holding the admin role. */
 export async function countActiveAdmins(
   db: ReturnType<typeof drizzle<typeof schema>>,
@@ -158,35 +172,102 @@ export async function countActiveAdmins(
   return rows.filter((r) => hasAdminRole(r.role) && !r.banned).length;
 }
 
+/** Role (+ banned) of a single user, for the last-admin guard below. */
+async function getUserRoleState(
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  userId: string,
+): Promise<{ role: string | null; banned: boolean | null } | undefined> {
+  const [row] = await db
+    .select({ role: schema.user.role, banned: schema.user.banned })
+    .from(schema.user)
+    .where(eq(schema.user.id, userId))
+    .limit(1);
+  return row;
+}
+
 /**
- * `hooks.before` handler for the `admin()` plugin's remove-user/ban-user
- * endpoints (fail-closed guard, see `countActiveAdmins` above). Runs on every
- * request — it's the only per-request hook Better Auth exposes at this
- * level — so it no-ops for any path other than the two it guards. Self-removal
- * and self-ban are already rejected by the plugin itself; this only adds the
- * last-admin check.
+ * `hooks.before` handler for the `admin()` plugin's remove-user/ban-user/
+ * set-role/update-user endpoints (fail-closed guard, see `countActiveAdmins`
+ * above). Runs on every request — it's the only per-request hook Better Auth
+ * exposes at this level — so it no-ops for any path other than the ones it
+ * guards.
+ *
+ * - `/admin/remove-user`, `/admin/ban-user`: self-removal and self-ban are
+ *   already rejected by the plugin itself; this only adds the last-admin
+ *   check.
+ * - `/admin/set-role` (body `{ userId, role }`) and `/admin/update-user`
+ *   (body `{ userId, data }`, where `data` may carry `role` and/or `banned`)
+ *   have NO built-in last-admin protection at all — `update-user`'s only
+ *   built-in guard blocks self-ban, and neither route stops a caller
+ *   (including the target themselves) from stripping the last admin's role
+ *   or banning them via `data.banned`. Verified against better-auth 1.6.23's
+ *   `plugins/admin/routes.mjs` (`setRole`, `adminUpdateUser`).
  */
 function lastAdminGuardHook(db: ReturnType<typeof drizzle<typeof schema>>) {
   return createAuthMiddleware(async (ctx) => {
-    if (ctx.path !== "/admin/remove-user" && ctx.path !== "/admin/ban-user") return;
-    const userId = (ctx.body as { userId?: unknown } | undefined)?.userId;
-    if (typeof userId !== "string" || !userId) return;
+    if (ctx.path === "/admin/remove-user" || ctx.path === "/admin/ban-user") {
+      const userId = (ctx.body as { userId?: unknown } | undefined)?.userId;
+      if (typeof userId !== "string" || !userId) return;
 
-    const [target] = await db
-      .select({ role: schema.user.role })
-      .from(schema.user)
-      .where(eq(schema.user.id, userId))
-      .limit(1);
-    if (!target || !hasAdminRole(target.role)) return;
+      const target = await getUserRoleState(db, userId);
+      if (!target || !hasAdminRole(target.role)) return;
 
-    const activeAdmins = await countActiveAdmins(db);
-    if (activeAdmins <= 1) {
-      throw new APIError("BAD_REQUEST", {
-        message:
-          ctx.path === "/admin/remove-user"
-            ? "cannot remove the last admin"
-            : "cannot ban the last admin",
-      });
+      const activeAdmins = await countActiveAdmins(db);
+      if (activeAdmins <= 1) {
+        throw new APIError("BAD_REQUEST", {
+          message:
+            ctx.path === "/admin/remove-user"
+              ? "cannot remove the last admin"
+              : "cannot ban the last admin",
+        });
+      }
+      return;
+    }
+
+    if (ctx.path === "/admin/set-role") {
+      const body = ctx.body as { userId?: unknown; role?: unknown } | undefined;
+      const userId = body?.userId;
+      if (typeof userId !== "string" || !userId) return;
+
+      const target = await getUserRoleState(db, userId);
+      // A banned target doesn't count toward `countActiveAdmins`, so it
+      // can't be "the last admin" being demoted — and if the incoming role
+      // still includes admin, nothing about admin-ness is changing.
+      if (!target || target.banned || !hasAdminRole(target.role)) return;
+      if (hasAdminRoleInput(body?.role)) return;
+
+      const activeAdmins = await countActiveAdmins(db);
+      if (activeAdmins <= 1) {
+        throw new APIError("BAD_REQUEST", {
+          message: "cannot remove the last admin's admin role",
+        });
+      }
+      return;
+    }
+
+    if (ctx.path === "/admin/update-user") {
+      const body = ctx.body as { userId?: unknown; data?: unknown } | undefined;
+      const userId = body?.userId;
+      if (typeof userId !== "string" || !userId) return;
+      const data = (body?.data ?? {}) as { role?: unknown; banned?: unknown };
+
+      const target = await getUserRoleState(db, userId);
+      if (!target || target.banned || !hasAdminRole(target.role)) return;
+
+      const willBan = data.banned === true;
+      const rolesInBody = Object.prototype.hasOwnProperty.call(data, "role");
+      const willStripAdmin = rolesInBody && !hasAdminRoleInput(data.role);
+      if (!willBan && !willStripAdmin) return;
+
+      const activeAdmins = await countActiveAdmins(db);
+      if (activeAdmins <= 1) {
+        throw new APIError("BAD_REQUEST", {
+          message: willBan
+            ? "cannot ban the last admin"
+            : "cannot remove the last admin's admin role",
+        });
+      }
+      return;
     }
   });
 }
