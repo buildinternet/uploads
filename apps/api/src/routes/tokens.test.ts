@@ -322,3 +322,102 @@ describe("POST /v1/tokens operator scopes", () => {
     expect(body.scopes).toEqual(["files:read", "files:write"]);
   });
 });
+
+describe("POST /v1/tokens workspace-governance scopes (#262)", () => {
+  it("400s when an org member (not admin/owner) requests workspace:invite", async () => {
+    const res = await post(
+      stubEnv({
+        memberships: [{ organizationId: ORG.id, organizationSlug: ORG.slug, role: "member" }],
+      }),
+      { grants: [{ workspace: "acme", scopes: ["workspace:invite"] }] },
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "invalid_scopes" },
+    });
+  });
+
+  it("201s when the caller is an org admin in the target workspace", async () => {
+    const res = await post(
+      stubEnv({
+        memberships: [{ organizationId: ORG.id, organizationSlug: ORG.slug, role: "admin" }],
+      }),
+      { grants: [{ workspace: "acme", scopes: ["workspace:invite"] }] },
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { scopes: string[] };
+    expect(body.scopes).toEqual(["workspace:invite"]);
+  });
+
+  it("201s when the caller is an org owner in the target workspace", async () => {
+    const res = await post(
+      stubEnv({
+        memberships: [{ organizationId: ORG.id, organizationSlug: ORG.slug, role: "owner" }],
+      }),
+      { grants: [{ workspace: "acme", scopes: ["workspace:manage"] }] },
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { scopes: string[] };
+    expect(body.scopes).toEqual(["workspace:manage"]);
+  });
+
+  it("400s for a platform admin without an org admin/owner role in the workspace — no bypass", async () => {
+    const res = await post(
+      stubEnv({
+        user: { ...USER, role: "admin" },
+        memberships: [{ organizationId: ORG.id, organizationSlug: ORG.slug, role: "member" }],
+      }),
+      { grants: [{ workspace: "acme", scopes: ["workspace:invite"] }] },
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "invalid_scopes" },
+    });
+  });
+
+  it("never includes workspace scopes in the default mint, even for an org owner", async () => {
+    const res = await post(
+      stubEnv({
+        memberships: [{ organizationId: ORG.id, organizationSlug: ORG.slug, role: "owner" }],
+      }),
+      { grants: [{ workspace: "acme" }] },
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { scopes: string[] };
+    expect(body.scopes).toEqual(["files:read", "files:write"]);
+  });
+
+  it("requires both gates for a mixed operator:* + workspace:* request", async () => {
+    // Org owner (workspace gate passes) but non-admin platform role (operator gate fails).
+    const failsOperatorGate = await post(
+      stubEnv({
+        user: { ...USER, role: "user" },
+        memberships: [{ organizationId: ORG.id, organizationSlug: ORG.slug, role: "owner" }],
+      }),
+      { grants: [{ workspace: "acme", scopes: ["operator:read", "workspace:invite"] }] },
+    );
+    expect(failsOperatorGate.status).toBe(400);
+
+    // Platform admin (operator gate passes) but plain member (workspace gate fails).
+    const failsWorkspaceGate = await post(
+      stubEnv({
+        user: { ...USER, role: "admin" },
+        memberships: [{ organizationId: ORG.id, organizationSlug: ORG.slug, role: "member" }],
+      }),
+      { grants: [{ workspace: "acme", scopes: ["operator:read", "workspace:invite"] }] },
+    );
+    expect(failsWorkspaceGate.status).toBe(400);
+
+    // Both gates pass.
+    const bothPass = await post(
+      stubEnv({
+        user: { ...USER, role: "admin" },
+        memberships: [{ organizationId: ORG.id, organizationSlug: ORG.slug, role: "owner" }],
+      }),
+      { grants: [{ workspace: "acme", scopes: ["operator:read", "workspace:invite"] }] },
+    );
+    expect(bothPass.status).toBe(201);
+    const body = (await bothPass.json()) as { scopes: string[] };
+    expect(body.scopes).toEqual(["operator:read", "workspace:invite"]);
+  });
+});

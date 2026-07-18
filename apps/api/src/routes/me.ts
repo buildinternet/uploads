@@ -95,8 +95,16 @@ function requireUserId(c: Context<SessionVars>): string {
   return userId;
 }
 
-/** Membership admin|owner for this workspace — 404 if not a member, 403 if member but not privileged. */
-async function adminWorkspaceOr403(env: Env, userId: string, name: string): Promise<MyWorkspace> {
+/**
+ * Membership admin|owner for this workspace — 404 if not a member, 403 if
+ * member but not privileged. Exported for reuse by the self-serve token
+ * governance dual-auth guard (`workspaces.ts`, issue #262 Task 3).
+ */
+export async function adminWorkspaceOr403(
+  env: Env,
+  userId: string,
+  name: string,
+): Promise<MyWorkspace> {
   const ws = await memberWorkspaceOr404(env, userId, name);
   if (ws.role !== "admin" && ws.role !== "owner") {
     throw new ForbiddenError("workspace admin or owner role required", {

@@ -12,7 +12,9 @@ export type TokenScope =
   | "files:write"
   | "files:delete"
   | "operator:read"
-  | "operator:write";
+  | "operator:write"
+  | "workspace:invite"
+  | "workspace:manage";
 
 /** Allowlisted object provenance (maps to X-Uploads-Meta-* on put). */
 export type ProvenanceInput = {

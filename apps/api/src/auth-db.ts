@@ -15,6 +15,19 @@ export function isOperatorScope(value: unknown): value is OperatorScope {
   return typeof value === "string" && OPERATOR_SCOPES.includes(value as OperatorScope);
 }
 
+// Workspace-governance scopes for session-minted tokens (issue #262). Like
+// OPERATOR_SCOPES, never granted by default — only when explicitly requested
+// by a session user holding org role `admin`/`owner` in the target workspace
+// (see routes/tokens.ts mint handler). A `workspace:*` token authorizes
+// governance actions (e.g. inviting members) only on the workspace embedded
+// in the token; it carries zero file access (parseScopes rejects it outright).
+export const WORKSPACE_SCOPES = ["workspace:invite", "workspace:manage"] as const;
+export type WorkspaceScope = (typeof WORKSPACE_SCOPES)[number];
+
+export function isWorkspaceScope(value: unknown): value is WorkspaceScope {
+  return typeof value === "string" && WORKSPACE_SCOPES.includes(value as WorkspaceScope);
+}
+
 // Invite code lifetime. 2h gives a human time to onboard after receiving the
 // link out-of-band, while keeping the single-use secret short-lived. Override
 // per-invite with --expires-in up to MAX_ENROLLMENT_SECONDS (see routes/admin).
@@ -67,20 +80,21 @@ export function validateScopes(value: unknown, defaults: FileScope[]): FileScope
 export function validateScopes(
   value: unknown,
   defaults: FileScope[],
-  opts: { allowOperator?: boolean },
-): (FileScope | OperatorScope)[] | null;
+  opts: { allowOperator?: boolean; allowWorkspace?: boolean },
+): (FileScope | OperatorScope | WorkspaceScope)[] | null;
 export function validateScopes(
   value: unknown,
   defaults: FileScope[],
-  opts?: { allowOperator?: boolean },
-): (FileScope | OperatorScope)[] | null {
+  opts?: { allowOperator?: boolean; allowWorkspace?: boolean },
+): (FileScope | OperatorScope | WorkspaceScope)[] | null {
   if (value === undefined) return defaults;
   if (!Array.isArray(value) || value.length === 0) return null;
-  const isValid = opts?.allowOperator
-    ? (v: unknown) => isFileScope(v) || isOperatorScope(v)
-    : isFileScope;
+  const isValid = (v: unknown) =>
+    isFileScope(v) ||
+    (opts?.allowOperator === true && isOperatorScope(v)) ||
+    (opts?.allowWorkspace === true && isWorkspaceScope(v));
   if (!value.every(isValid)) return null;
-  return [...new Set(value)] as (FileScope | OperatorScope)[];
+  return [...new Set(value)] as (FileScope | OperatorScope | WorkspaceScope)[];
 }
 
 function randomSecret(prefix: string, bytes = 24): string {
@@ -120,9 +134,10 @@ export async function createToken(
   input: {
     workspace: string;
     label?: string;
-    // Widened beyond FileScope so admin-scoped operator tokens (issue #257)
-    // can be minted through the same path; storage is just a JSON TEXT column.
-    scopes: (FileScope | OperatorScope)[];
+    // Widened beyond FileScope so admin-scoped operator tokens (issue #257) and
+    // workspace-governance tokens (issue #262) can be minted through the same
+    // path; storage is just a JSON TEXT column.
+    scopes: (FileScope | OperatorScope | WorkspaceScope)[];
     expiresAt?: Date;
     mintedByUserId?: string | null;
     now?: Date;

@@ -13,10 +13,23 @@ import {
   RateLimitedError,
   ValidationError,
 } from "@uploads/errors";
-import { Hono } from "hono";
-import { isCommunal } from "./me";
+import { Hono, type MiddlewareHandler } from "hono";
+import { adminWorkspaceOr403, isCommunal } from "./me";
+import {
+  isFileScope,
+  isOperatorScope,
+  isWorkspaceScope,
+  listTokens,
+  revokeToken,
+} from "../auth-db";
 import { allowWorkspaceCreate, allowWrite } from "../guards";
-import { deleteOrg, isGithubLinked, membershipsForUser, provisionOrg } from "../org-workspaces";
+import {
+  deleteOrg,
+  isGithubLinked,
+  membershipsForUser,
+  orgForWorkspace,
+  provisionOrg,
+} from "../org-workspaces";
 import { selfServeWorkspaceRecord } from "../self-serve-defaults";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
 import { validateSlug } from "../slug-policy";
@@ -27,7 +40,81 @@ import {
   loadWorkspaceRecordRaw,
   stampRestore,
   stampSoftDelete,
+  workspaceGovernanceAuth,
+  type GovernanceVars,
 } from "../workspace";
+
+const HASH_PREFIX_LEN = 8;
+
+/** Combined context vars for routes reachable by either auth path (issue #262 Task 3). */
+type ManageAuthVars = {
+  Variables: SessionVars["Variables"] & GovernanceVars["Variables"];
+  Bindings: Env;
+};
+
+/**
+ * Dual auth for self-serve token governance (#262 Task 3): EITHER a session
+ * user holding org role admin/owner in `:name` (mirrors `adminWorkspaceOr403`
+ * in `./me.ts`) OR a D1 `workspace:manage`-scoped token bound to `:name`
+ * (`workspaceGovernanceAuth`, see `../workspace.ts`). The bearer value itself
+ * picks the path — `up_<workspace>_…` shaped tokens go through the
+ * governance guard; anything else (including Better Auth bearer sessions,
+ * which also ride the Authorization header — see workspaces.test.ts) falls
+ * back to session-cookie/bearer auth.
+ *
+ * Deliberately fail-closed: when an `up_`-shaped bearer is presented it is
+ * authoritative — an invalid one (revoked/expired/foreign/wrong-scope) is
+ * rejected outright, with NO fallback to a session cookie that may also be
+ * on the request. An explicitly presented credential is judged on its own
+ * merits; silently escalating a bad token to the caller's session would mask
+ * revocation and make "is this token still valid?" unanswerable from the
+ * response.
+ */
+function workspaceManageAuth(): MiddlewareHandler<ManageAuthVars> {
+  return async (c, next) => {
+    const authHeader = c.req.header("Authorization");
+    const rawToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
+    if (rawToken?.startsWith("up_")) {
+      // Any `up_`-shaped bearer is authoritative, whether or not it parses —
+      // a malformed token (e.g. no workspace segment) must 401, never fall
+      // back to a session cookie that may also be on the request. See the
+      // fail-closed note above.
+      //
+      // Sub-middleware Contexts differ only in which Variables key they
+      // touch; Hono's `Set` is invariant on Variables so a structural cast
+      // is needed at each hand-off (both directions, below).
+      await workspaceGovernanceAuth("workspace:manage")(
+        c as unknown as Parameters<ReturnType<typeof workspaceGovernanceAuth>>[0],
+        next,
+      );
+      return;
+    }
+
+    const sessionC = c as unknown as Parameters<typeof sessionAuth>[0];
+    await sessionAuth(sessionC, async () => {});
+    await requireSessionUser(sessionC, async () => {});
+    const name = c.req.param("name")!;
+    const user = c.get("sessionUser")!;
+    await adminWorkspaceOr403(c.env, user.id, name);
+    c.set("governanceMintingUserId", user.id);
+    await next();
+  };
+}
+
+/** Redacted scope list for display — never surfaces unrecognized/garbage entries. */
+function parseAnyScopes(value: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (v): v is string => isFileScope(v) || isOperatorScope(v) || isWorkspaceScope(v),
+    );
+  } catch {
+    return [];
+  }
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 
@@ -235,4 +322,157 @@ workspaces.post("/:name/restore", sessionAuth, requireSessionUser, async (c) => 
   );
 
   return c.json({ ok: true, workspace: name });
+});
+
+/**
+ * Token-authed invite (issue #262) — mirrors `POST /me/workspaces/:name/invites`
+ * but is bearer-token-authed with a D1 `workspace:invite`-scoped token
+ * (`workspaceGovernanceAuth`, see `../workspace.ts`) instead of a session
+ * cookie. Per the plan's invite-attribution rule, the invite acts as the
+ * token's `minting_user_id` — the auth worker's internal invite route
+ * independently re-checks that user's org admin/owner role server-side
+ * (`apps/auth/src/internal-routes.ts`), so a minter who lost their org role
+ * can no longer invite with an old token even though the token itself is
+ * still active.
+ */
+workspaces.post("/:name/invites", workspaceGovernanceAuth("workspace:invite"), async (c) => {
+  const name = c.req.param("name");
+  requireWorkspaceName(name);
+
+  const mintingUserId = c.get("governanceMintingUserId");
+  if (!mintingUserId) {
+    // Enrollment-code-derived or pre-migration tokens have no minting user
+    // to attribute the invite to (and thus nothing for the auth worker's
+    // org-role re-check to run against) — treat as unauthorized.
+    throw new ForbiddenError("token has no attributable minting user", {
+      code: "no_minting_user",
+    });
+  }
+
+  if (!(await allowWrite(c.env, name))) {
+    throw new RateLimitedError("rate limit exceeded");
+  }
+
+  const org = await orgForWorkspace(c.env, name);
+  if (!org) {
+    throw new NotFoundError("no organization for this workspace — ask a site operator", {
+      code: "org_not_found",
+    });
+  }
+
+  const body = await c.req
+    .json<{ email?: unknown; role?: unknown }>()
+    .catch(() => ({}) as { email?: unknown; role?: unknown });
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  const role = typeof body.role === "string" ? body.role.trim() : "member";
+  if (!email || !EMAIL_RE.test(email)) {
+    throw new ValidationError("invalid email address", { code: "invalid_email" });
+  }
+  if (role !== "member" && role !== "admin") {
+    throw new ValidationError("role must be member or admin", { code: "invalid_role" });
+  }
+
+  const limiter = c.env.INVITE_LIMITER;
+  if (limiter) {
+    const { success } = await limiter.limit({ key: `invite:email:${email}` });
+    if (!success) throw new RateLimitedError("invite rate limit exceeded");
+  }
+
+  const response = await c.env.AUTH.fetch("https://auth.internal/internal/invite", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-uploads-internal": "1" },
+    body: JSON.stringify({
+      organizationSlug: org.slug,
+      email,
+      role,
+      inviterUserId: mintingUserId,
+    }),
+  });
+  const payload = (await response.json().catch(() => null)) as {
+    invitation?: { id?: string };
+    acceptUrl?: string;
+  } | null;
+  if (!response.ok) {
+    if (response.status === 403) {
+      throw new ForbiddenError("not authorized to invite to this workspace", {
+        code: "inviter_not_authorized",
+        details: payload,
+      });
+    }
+    throw new ValidationError("failed to create invitation", { details: payload });
+  }
+  const webOrigin = (c.env.WEB_ORIGIN || "https://uploads.sh").replace(/\/$/, "");
+  const id = payload?.invitation?.id;
+  const acceptUrl = payload?.acceptUrl ?? (id ? `${webOrigin}/accept-invitation/${id}` : undefined);
+  return c.json({ ...payload, acceptUrl }, response.status === 200 ? 200 : 201);
+});
+
+/**
+ * Self-serve token list (issue #262 Task 3) — dual-authed via
+ * `workspaceManageAuth`. Mirrors the redacted shape of `GET /admin/tokens`
+ * in `routes/admin.ts`: labels, scopes, created/expiry, hash prefix — NEVER
+ * token values. Active D1 tokens only (revoked tokens don't need self-serve
+ * visibility; the admin surface covers full history).
+ */
+workspaces.get("/:name/tokens", workspaceManageAuth(), async (c) => {
+  const name = c.req.param("name");
+  requireWorkspaceName(name);
+
+  const now = new Date().toISOString();
+  const tokens = (await listTokens(c.env.DB, name))
+    .filter(
+      (token) => token.revoked_at === null && (token.expires_at === null || token.expires_at > now),
+    )
+    .map((token) => ({
+      label: token.label,
+      createdAt: token.created_at,
+      hashPrefix: token.token_hash.slice(0, HASH_PREFIX_LEN),
+      scopes: parseAnyScopes(token.scopes),
+      expiresAt: token.expires_at,
+    }));
+
+  return c.json({ workspace: name, tokens });
+});
+
+/**
+ * Self-serve token revoke (issue #262 Task 3) — dual-authed via
+ * `workspaceManageAuth`. Mirrors the `DELETE /admin/tokens` contract:
+ * revoke by `hashPrefix` or `label`, 404 for no match, 409 for an ambiguous
+ * selector. `revokeToken` already scopes its lookup to `name` and to active
+ * (non-revoked) tokens.
+ */
+workspaces.delete("/:name/tokens", workspaceManageAuth(), async (c) => {
+  const name = c.req.param("name");
+  requireWorkspaceName(name);
+
+  if (!(await allowWrite(c.env, name))) {
+    throw new RateLimitedError("rate limit exceeded");
+  }
+
+  const body = await c.req
+    .json<{ hashPrefix?: unknown; label?: unknown }>()
+    .catch(() => ({}) as { hashPrefix?: unknown; label?: unknown });
+  const hashPrefix = typeof body.hashPrefix === "string" ? body.hashPrefix.trim() : undefined;
+  const label = typeof body.label === "string" ? body.label.trim() : undefined;
+  if (!hashPrefix && !label) {
+    throw new ValidationError("hashPrefix or label required", {
+      code: "hash_prefix_or_label_required",
+    });
+  }
+
+  const result = await revokeToken(c.env.DB, name, { hashPrefix, label });
+  if (result.ambiguous) {
+    throw new ConflictError("selector matches multiple tokens");
+  }
+  if (!result.match) {
+    throw new NotFoundError("no matching token");
+  }
+
+  return c.json({
+    workspace: name,
+    revoked: {
+      label: result.match.label,
+      hashPrefix: result.match.token_hash.slice(0, HASH_PREFIX_LEN),
+    },
+  });
 });
