@@ -523,6 +523,51 @@ export async function getOAuthPublicClient(
   }
 }
 
+/**
+ * POST /api/auth/oauth2/workspace-choice (issue #231). Multi-workspace users
+ * pick which membership gets baked into the access token; call this before
+ * `submitOAuthConsent` on accept when the consent page shows a workspace
+ * picker. `workspace` is the org slug. Returns false on any non-2xx or thrown
+ * fetch — matching this file's other never-throw wrappers — so the caller can
+ * keep the user on the consent panel and show an error rather than submit
+ * consent for the wrong (or no) workspace.
+ */
+/**
+ * GET /api/auth/oauth2/workspace-choice — the AS's server-resolved effective
+ * workspace (stored choice if still a live membership, else oldest
+ * membership). The consent picker defaults to this so an untouched Allow
+ * round-trips the AS's own resolution instead of a client-side guess (org
+ * `createdAt` order is only a display order, not membership age). Null on
+ * any failure — callers fall back to the first listed org.
+ */
+export async function getOAuthWorkspaceChoice(origin: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/oauth2/workspace-choice`, {
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as { workspace?: unknown } | null;
+    return typeof body?.workspace === "string" ? body.workspace : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setOAuthWorkspaceChoice(origin: string, workspace: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/oauth2/workspace-choice`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspace }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export type OAuthConsentResult = { ok: true; redirectUri: string } | { ok: false; error: string };
 
 /**

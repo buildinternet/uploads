@@ -30,6 +30,10 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     .status{margin:16px 0}
     .client-host{color:var(--muted);font-size:12.5px;margin:-14px 0 20px;word-break:break-all}
     .client-host :global(a){color:inherit}
+    .workspace-picker{margin:0 0 20px}
+    .workspace-picker label{display:block;color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px}
+    .workspace-picker select{width:100%;font:14px var(--mono);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:9px 11px;appearance:none}
+    .workspace-picker select:focus-visible{border-color:var(--accent);outline:none}
     .scopes{list-style:none;margin:0 0 22px;padding:0;display:grid;gap:10px}
     .scopes :global(li){display:flex;align-items:baseline;gap:10px;padding:10px 12px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-md)}
     .scopes :global(.dot){width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none;margin-top:6px}
@@ -94,6 +98,10 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       <strong id="client-name"></strong> wants to access your uploads.sh account.
     </p>
     <div class="client-host" id="client-host" hidden></div>
+    <div class="workspace-picker" id="workspace-picker" hidden>
+      <label for="workspace-select">Workspace</label>
+      <select id="workspace-select"></select>
+    </div>
     <ul class="scopes" id="scope-list"></ul>
     <div class="actions">
       <button type="button" class="primary" id="allow-btn">Allow</button>
@@ -114,10 +122,14 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
 <script>
   import {
     getOAuthPublicClient,
+    getOAuthWorkspaceChoice,
     getSession,
     listOrganizations,
+    setOAuthWorkspaceChoice,
     submitOAuthConsent,
+    type OrganizationSummary,
   } from "../../lib/auth-client";
+  import { orderOrgsOldestFirst } from "../../lib/workspace-ui";
 
   const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string }).__UPLOADS_AUTH_ORIGIN__;
 
@@ -138,6 +150,12 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   const confirmBox = requireElement<HTMLElement>("#confirm");
   const clientName = requireElement<HTMLElement>("#client-name");
   const clientHost = requireElement<HTMLElement>("#client-host");
+  const workspacePicker = requireElement<HTMLElement>("#workspace-picker");
+  // Not requireElement<HTMLSelectElement>: worker-configuration.d.ts's
+  // HTMLRewriter ambient `Element` redeclares `remove()` too (same drift as
+  // the append() note above), which makes HTMLSelectElement fail the
+  // `T extends Element` constraint. Fetch as HTMLElement and cast instead.
+  const workspaceSelect = requireElement<HTMLElement>("#workspace-select") as unknown as HTMLSelectElement;
   const scopeList = requireElement<HTMLUListElement>("#scope-list");
   const allowBtn = requireElement<HTMLButtonElement>("#allow-btn");
   const denyBtn = requireElement<HTMLButtonElement>("#deny-btn");
@@ -157,6 +175,10 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   const clientId = params.get("client_id")?.trim() ?? "";
   const requestedScopes = (params.get("scope") ?? "").split(/\s+/).filter(Boolean);
   const oauthQuery = location.search.replace(/^\?/, "");
+
+  // Populated by proceed() once orgs load; used by decide() to know whether
+  // the picker is showing and, if so, which slugs are valid choices.
+  let orderedOrgs: OrganizationSummary[] = [];
 
   function hideAll() {
     const panels = [checking, authUnavailable, noRequest, signedOut, noWorkspace, confirmBox, redirecting];
@@ -187,6 +209,28 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       li.appendChild(text);
       scopeList.appendChild(li);
     }
+  }
+
+  // appendChild, not append(): see the HTMLRewriter note on renderScopes above.
+  function renderWorkspacePicker(serverDefault: string | null) {
+    workspaceSelect.replaceChildren();
+    for (const org of orderedOrgs) {
+      const option = document.createElement("option");
+      option.value = org.slug;
+      option.textContent = org.slug;
+      workspaceSelect.appendChild(option);
+    }
+    // Default to the AS's server-resolved choice (stored choice, else oldest
+    // membership) — the page always POSTs the selection on Allow, so a
+    // client-side guess here would overwrite the stored choice and could
+    // shift the token's workspace. Org order is display order only.
+    const fallback = orderedOrgs[0]?.slug;
+    const preferred =
+      serverDefault && orderedOrgs.some((org) => org.slug === serverDefault)
+        ? serverDefault
+        : fallback;
+    if (preferred) workspaceSelect.value = preferred;
+    workspacePicker.hidden = orderedOrgs.length <= 1;
   }
 
   // A registered client (DCR) fully controls client_uri/logo_uri — only
@@ -245,6 +289,12 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       return;
     }
 
+    orderedOrgs = orgs !== null ? orderOrgsOldestFirst(orgs) : [];
+    // Only multi-workspace users see the picker, so only they pay for the
+    // extra round-trip fetching the AS's resolved default.
+    const serverDefault = orderedOrgs.length > 1 ? await getOAuthWorkspaceChoice(authOrigin) : null;
+    renderWorkspacePicker(serverDefault);
+
     clientName.textContent = client?.client_name || clientId;
     const host = safeHttpUrl(client?.client_uri);
     if (host) {
@@ -267,6 +317,18 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     confirmError.hidden = true;
     allowBtn.disabled = true;
     denyBtn.disabled = true;
+
+    if (accept && !workspacePicker.hidden) {
+      const chose = await setOAuthWorkspaceChoice(authOrigin, workspaceSelect.value);
+      if (!chose) {
+        allowBtn.disabled = false;
+        denyBtn.disabled = false;
+        confirmError.textContent = "Couldn't save your workspace choice — try again.";
+        confirmError.hidden = false;
+        return;
+      }
+    }
+
     const result = await submitOAuthConsent(authOrigin, {
       accept,
       scope: accept ? requestedScopes.join(" ") : undefined,
