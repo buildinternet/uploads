@@ -211,6 +211,9 @@ function lastAdminGuardHook(db: ReturnType<typeof drizzle<typeof schema>>) {
 
       const target = await getUserRoleState(db, userId);
       if (!target || !hasAdminRole(target.role)) return;
+      // A banned admin is not an active admin: removing or re-banning them
+      // cannot reduce the active-admin count, so the guard stays out of it.
+      if (target.banned) return;
 
       const activeAdmins = await countActiveAdmins(db);
       if (activeAdmins <= 1) {

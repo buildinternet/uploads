@@ -878,7 +878,7 @@ describe("DB-backed behavior", () => {
       });
     });
 
-it("force=1 bypasses org_not_empty and deletes a multi-member org (#250)", async () => {
+    it("force=1 bypasses org_not_empty and deletes a multi-member org (#250)", async () => {
       const org = await seedOrg();
       const user1 = await seedUser();
       const user2 = await seedUser();

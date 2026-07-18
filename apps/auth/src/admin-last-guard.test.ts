@@ -7,17 +7,17 @@
  * admin. `hasAdminRole`/`countActiveAdmins` (src/auth.ts) back the
  * `hooks.before` guard wired into `buildAuth`.
  *
- * These are unit tests against the exported helpers plus one endpoint-level
- * negative case. Driving the "requester removes a *different* admin who is
- * the sole ACTIVE admin" case end-to-end isn't reachable through the plugin's
- * own session/permission stack: the admin() plugin's `adminMiddleware`
- * requires the requester to already hold the admin role, so if the target is
- * genuinely the only active admin, the requester (having admin role too)
- * would have to be that same user — a case the plugin's own self-guard
- * already rejects first. The one endpoint-level case exercised here (a lone
- * active admin trying to remove a *banned* ex-admin) is the one reachable
- * path that still trips the count<=1 check, since a banned admin doesn't
- * count toward `countActiveAdmins`.
+ * These are unit tests against the exported helpers plus endpoint-level
+ * cases. Driving the "requester removes a *different* admin who is the sole
+ * ACTIVE admin" case end-to-end isn't reachable through the plugin's own
+ * session/permission stack: the admin() plugin's `adminMiddleware` requires
+ * the requester to already hold the admin role, so if the target is genuinely
+ * the only active admin, the requester (having admin role too) would have to
+ * be that same user — a case the plugin's own self-guard already rejects
+ * first. The remove/ban count<=1 branch therefore stays as defense in depth
+ * (banned targets return early — a banned ex-admin is not an active admin
+ * and may be removed freely); the branch is meaningfully reachable via the
+ * set-role/update-user demotion paths tested below.
  */
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
@@ -143,7 +143,7 @@ describe("countActiveAdmins", () => {
 });
 
 describe("last-admin guard (endpoint-level)", () => {
-  it("blocks removing a banned admin when no other active admin remains", async () => {
+  it("allows removing a banned ex-admin — they are not an active admin", async () => {
     const env = dbEnv();
     const activeAdmin = await seedUser(env, { role: "admin" });
     const bannedAdmin = await seedUser(env, { role: "admin", banned: true });
@@ -155,16 +155,21 @@ describe("last-admin guard (endpoint-level)", () => {
       { userId: bannedAdmin.id },
       env,
     );
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { message?: string };
-    expect(body.message).toMatch(/cannot remove the last admin/i);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { success?: boolean };
+    expect(body.success).toBe(true);
 
     const db = drizzle(env.DB, { schema });
-    const [stillThere] = await db
+    const [removed] = await db
       .select({ id: schema.user.id })
       .from(schema.user)
       .where(eq(schema.user.id, bannedAdmin.id));
-    expect(stillThere).toBeDefined();
+    expect(removed).toBeUndefined();
+    const [survivor] = await db
+      .select({ id: schema.user.id })
+      .from(schema.user)
+      .where(eq(schema.user.id, activeAdmin.id));
+    expect(survivor).toBeDefined();
   });
 
   it("allows removing a non-admin user even with only one admin in the system", async () => {
@@ -213,6 +218,39 @@ describe("last-admin guard (endpoint-level)", () => {
       env,
     );
     expect(res.status).toBe(400);
+  });
+
+  it("blocks the sole admin from banning themselves", async () => {
+    const env = dbEnv();
+    const soleAdmin = await seedUser(env, { role: "admin" });
+    const sessionToken = await seedSession(env, soleAdmin.id);
+
+    const res = await adminRequest("/admin/ban-user", sessionToken, { userId: soleAdmin.id }, env);
+    expect(res.status).toBe(400);
+
+    const db = drizzle(env.DB, { schema });
+    const [row] = await db
+      .select({ banned: schema.user.banned })
+      .from(schema.user)
+      .where(eq(schema.user.id, soleAdmin.id));
+    expect(row?.banned).not.toBe(true);
+  });
+
+  it("allows one of two active admins to ban the other", async () => {
+    const env = dbEnv();
+    const requester = await seedUser(env, { role: "admin" });
+    const otherAdmin = await seedUser(env, { role: "admin" });
+    const sessionToken = await seedSession(env, requester.id);
+
+    const res = await adminRequest("/admin/ban-user", sessionToken, { userId: otherAdmin.id }, env);
+    expect(res.status).toBe(200);
+
+    const db = drizzle(env.DB, { schema });
+    const [row] = await db
+      .select({ banned: schema.user.banned })
+      .from(schema.user)
+      .where(eq(schema.user.id, otherAdmin.id));
+    expect(row?.banned).toBe(true);
   });
 });
 
