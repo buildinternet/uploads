@@ -9,6 +9,7 @@ import { dash } from "@better-auth/infra";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { betterAuth } from "better-auth";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import {
@@ -111,6 +112,83 @@ export async function resolveWorkspaceClaims(
     .orderBy(asc(schema.member.createdAt), asc(schema.member.id));
   const workspaces = rows.map((r) => r.slug);
   return { workspace: workspaces[0] ?? null, workspaces };
+}
+
+/**
+ * Global `user.role` value granted by the `admin()` plugin's `adminRoles`
+ * option below. Kept as a literal (not read back from plugin options) since
+ * the plugin config is fixed at a single role and this helper needs it before
+ * `buildAuth` runs.
+ */
+const ADMIN_ROLE = "admin";
+
+/**
+ * Audit guard (accidental-deletion class, see ad736b9's official-client
+ * guard): the stock `admin()` plugin's `/admin/remove-user` and
+ * `/admin/ban-user` REST endpoints already refuse self-targeting (better-auth
+ * 1.6.23's own `YOU_CANNOT_REMOVE_YOURSELF`/`YOU_CANNOT_BAN_YOURSELF` checks),
+ * but have no protection against removing/banning the LAST remaining admin —
+ * doing so locks every operator out of the admin UI with no recovery path
+ * short of a direct DB edit. `user.role` can hold a comma-separated role list
+ * (mirrors the plugin's own `role.split(",")` parsing in its `setRole`
+ * route), so this checks for the admin token anywhere in that list.
+ *
+ * Exported for direct unit testing — driving the plugin's endpoints
+ * end-to-end through the fake-D1 harness is comparatively heavy (see
+ * auth.test.ts).
+ */
+export function hasAdminRole(role: string | null | undefined): boolean {
+  if (!role) return false;
+  return role
+    .split(",")
+    .map((r) => r.trim())
+    .includes(ADMIN_ROLE);
+}
+
+/** Count of non-banned users currently holding the admin role. */
+export async function countActiveAdmins(
+  db: ReturnType<typeof drizzle<typeof schema>>,
+): Promise<number> {
+  const rows = await db
+    .select({ role: schema.user.role, banned: schema.user.banned })
+    .from(schema.user);
+  // Fetch-and-filter in JS rather than a `LIKE`/split in SQL: the role column
+  // is a free-form comma-separated string (see hasAdminRole above), and the
+  // admin user population is small enough that this isn't a real query cost.
+  return rows.filter((r) => hasAdminRole(r.role) && !r.banned).length;
+}
+
+/**
+ * `hooks.before` handler for the `admin()` plugin's remove-user/ban-user
+ * endpoints (fail-closed guard, see `countActiveAdmins` above). Runs on every
+ * request — it's the only per-request hook Better Auth exposes at this
+ * level — so it no-ops for any path other than the two it guards. Self-removal
+ * and self-ban are already rejected by the plugin itself; this only adds the
+ * last-admin check.
+ */
+function lastAdminGuardHook(db: ReturnType<typeof drizzle<typeof schema>>) {
+  return createAuthMiddleware(async (ctx) => {
+    if (ctx.path !== "/admin/remove-user" && ctx.path !== "/admin/ban-user") return;
+    const userId = (ctx.body as { userId?: unknown } | undefined)?.userId;
+    if (typeof userId !== "string" || !userId) return;
+
+    const [target] = await db
+      .select({ role: schema.user.role })
+      .from(schema.user)
+      .where(eq(schema.user.id, userId))
+      .limit(1);
+    if (!target || !hasAdminRole(target.role)) return;
+
+    const activeAdmins = await countActiveAdmins(db);
+    if (activeAdmins <= 1) {
+      throw new APIError("BAD_REQUEST", {
+        message:
+          ctx.path === "/admin/remove-user"
+            ? "cannot remove the last admin"
+            : "cannot ban the last admin",
+      });
+    }
+  });
 }
 
 export type AuthEnv = GitHubCredentialsEnv &
@@ -373,6 +451,11 @@ function buildAuth(
           },
         },
       },
+    },
+    // Fail-closed last-admin guard for the admin() plugin's remove-user/
+    // ban-user endpoints — see lastAdminGuardHook above.
+    hooks: {
+      before: lastAdminGuardHook(db),
     },
     // Fail-closed in production, decoupled from secret resolution (D3/D7):
     // rate limiting is on whenever ENVIRONMENT === "production", regardless
