@@ -427,14 +427,16 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         outline: none;
       }
       .cta-note { color: var(--muted); font-size: 12.5px; }
-      a {
+      /* Scope to main so header auth menu hover/active paint is not overridden
+         (global `a` styles were bleeding into the avatar dropdown). */
+      main a {
         color: var(--fg);
         text-decoration: underline;
         text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
         text-underline-offset: 3px;
       }
-      a:hover,
-      a:focus-visible { color: var(--accent); outline: none; }
+      main a:hover,
+      main a:focus-visible { color: var(--accent); outline: none; }
       @media (max-width: 560px) {
         .cmdrow { grid-template-columns: 1fr auto; }
         .cmdrow .tag { grid-column: 1 / -1; }

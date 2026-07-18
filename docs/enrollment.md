@@ -67,7 +67,7 @@ Workspace access also comes from an **organization invitation**, not a code
 you redeem. Someone who already **admins that workspace** (org role
 admin/owner) invites your email:
 
-- **Account UI** — `/account/workspaces` → “Invite a teammate”
+- **Account UI** — `/account/workspaces/<name>/invite` → “Invite a teammate”
 - **CLI** — `uploads invite create --email you@example.com --workspace <name>`
   (device login as the inviter; no `ADMIN_TOKEN`)
 - **Site operators** can also invite from `/admin` (global admin session)

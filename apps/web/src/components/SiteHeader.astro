@@ -87,6 +87,8 @@ const REPO = "https://github.com/buildinternet/uploads";
     width: 100%;
     border-bottom: 1px solid var(--line, #232327);
     background: var(--bg, #0c0c0e);
+    /* Avatar menu is position:absolute — never clip its panel. */
+    overflow: visible;
   }
   .site-header__inner {
     display: flex;
@@ -97,6 +99,7 @@ const REPO = "https://github.com/buildinternet/uploads";
     width: 100%;
     padding: 14px 24px;
     box-sizing: border-box;
+    overflow: visible;
   }
   .site-header__start {
     display: inline-flex;
@@ -110,6 +113,7 @@ const REPO = "https://github.com/buildinternet/uploads";
     flex-wrap: wrap;
     gap: 12px;
     margin-left: auto;
+    overflow: visible;
   }
   .site-header__badge {
     display: inline-block;

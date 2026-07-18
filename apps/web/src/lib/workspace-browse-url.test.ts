@@ -29,6 +29,13 @@ describe("workspaceFromPathname", () => {
     expect(workspaceFromPathname("/account/workspaces/buildinternet/")).toBe("buildinternet");
   });
 
+  it("reads the workspace slug from nested workspace pages", () => {
+    expect(workspaceFromPathname("/account/workspaces/buildinternet/invite")).toBe("buildinternet");
+    expect(workspaceFromPathname("/account/workspaces/buildinternet/invite/")).toBe(
+      "buildinternet",
+    );
+  });
+
   it("ignores index, create, and invalid slugs", () => {
     expect(workspaceFromPathname("/account/workspaces")).toBe("");
     expect(workspaceFromPathname("/account/workspaces/new")).toBe("");

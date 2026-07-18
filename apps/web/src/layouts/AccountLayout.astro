@@ -3,8 +3,8 @@
  * Shared shell for /account and /account/* — sidebar nav with real paths
  * (file-based routing), session gate chrome, and sign-out.
  *
- * Workspaces nest under the Workspaces parent: each membership is a
- * client-filled sidebar link, plus a static "New workspace" action.
+ * Workspaces is a section label (not a link). Each membership nests under it,
+ * with per-workspace sub-pages (e.g. Invite) when that workspace is active.
  */
 import { env } from "cloudflare:workers";
 import {
@@ -20,18 +20,27 @@ import "../styles/signed-in-shell.css";
 import "../styles/account-content.css";
 
 export type AccountSection = "overview" | "workspaces" | "profile" | "developers";
+export type WorkspacePage = "overview" | "invite";
 
 interface Props {
   section: AccountSection;
-  /** Active workspace slug on /account/workspaces/:name */
+  /** Active workspace slug on /account/workspaces/:name[/*] */
   workspace?: string;
+  /** Nested page under an active workspace (default overview). */
+  workspacePage?: WorkspacePage;
   /** True on /account/workspaces/new */
   creating?: boolean;
   /** Optional document title override (e.g. workspace name). */
   title?: string;
 }
 
-const { section, workspace = "", creating = false, title } = Astro.props;
+const {
+  section,
+  workspace = "",
+  workspacePage = "overview",
+  creating = false,
+  title,
+} = Astro.props;
 
 const titles: Record<AccountSection, string> = {
   overview: "Account",
@@ -46,9 +55,6 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
 const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
 // Header (not meta): frame-ancestors is ignored on meta CSP.
 applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrigin));
-
-const workspacesActive = section === "workspaces";
-const workspacesParentCurrent = workspacesActive && !workspace && !creating;
 ---
 
 <html lang="en">
@@ -88,16 +94,10 @@ const workspacesParentCurrent = workspacesActive && !workspace && !creating;
           </a>
 
           <div class="side-group">
-            <a
-              href="/account/workspaces"
-              class="side-parent"
-              aria-current={workspacesParentCurrent ? "page" : undefined}
-            >
-              Workspaces
-            </a>
-            <div class="side-nested">
+            <div class="side-label" id="workspaces-nav-label">Workspaces</div>
+            <div class="side-nested" role="group" aria-labelledby="workspaces-nav-label">
               <div id="workspaces-nav-list" class="side-nested-list" aria-label="Your workspaces">
-                {/* Filled client-side after session + /me/workspaces. */}
+                {/* Filled client-side after session + /me/workspaces (cached for paint). */}
               </div>
               <a
                 href="/account/workspaces/new"
@@ -160,10 +160,11 @@ const workspacesParentCurrent = workspacesActive && !workspace && !creating;
   })();
 </script>
 
-<script define:vars={{ authOrigin, apiOrigin, workspace }}>
+<script define:vars={{ authOrigin, apiOrigin, workspace, workspacePage }}>
   window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
   window.__UPLOADS_API_ORIGIN__ = apiOrigin;
   window.__UPLOADS_ACTIVE_WORKSPACE__ = workspace;
+  window.__UPLOADS_WORKSPACE_PAGE__ = workspacePage;
 </script>
 <script>
   import {
@@ -171,22 +172,22 @@ const workspacesParentCurrent = workspacesActive && !workspace && !creating;
     requireElement,
     resolveSessionGate,
   } from "../lib/account-shell";
-  import { initWorkspacesNav } from "../lib/workspaces-nav";
+  import { initWorkspacesNav, type WorkspaceNavPage } from "../lib/workspaces-nav";
 
   const w = window as unknown as {
     __UPLOADS_AUTH_ORIGIN__: string;
     __UPLOADS_API_ORIGIN__: string;
     __UPLOADS_ACTIVE_WORKSPACE__: string;
+    __UPLOADS_WORKSPACE_PAGE__: WorkspaceNavPage;
   };
   const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
   const apiOrigin = w.__UPLOADS_API_ORIGIN__;
 
   initSignOut(authOrigin);
-  initWorkspacesNav(
-    apiOrigin,
-    requireElement<HTMLElement>("#workspaces-nav-list", "account"),
-    w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
-  );
+  initWorkspacesNav(apiOrigin, requireElement<HTMLElement>("#workspaces-nav-list", "account"), {
+    active: w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+    page: w.__UPLOADS_WORKSPACE_PAGE__ || "overview",
+  });
 
   void resolveSessionGate({
     authOrigin,

@@ -49,6 +49,8 @@ export function writeCachedSessionUser(user: SessionUser): void {
 export function clearCachedSessionUser(): void {
   try {
     sessionStorage.removeItem(SESSION_CACHE_KEY);
+    // Membership list is also a session-scoped UX cache — drop it with the user.
+    sessionStorage.removeItem("uploads:myWorkspaces");
   } catch {
     // ignore
   }
