@@ -93,3 +93,31 @@ even if file scopes were also requested alongside it — scope parsing on the
 file routes fails the whole scope array when it contains any non-file
 scope. Mint a separate files-only token for file operations and a
 dedicated operator token for `/admin/*`.
+
+## Workspace-governance scopes
+
+Org admins/owners can also mint tokens with opt-in `workspace:invite` /
+`workspace:manage` scopes via the same session-authed `POST /v1/tokens` —
+requesting either scope requires the minting session user to hold org role
+`admin` or `owner` in the target workspace (platform-admin/operator status
+does not bypass this check); otherwise the mint request is rejected with
+`400 invalid_scopes`. Unlike operator scopes, workspace-governance scopes are
+strictly **workspace-bounded**: a token only authorizes actions on the
+workspace embedded in it (`up_<workspace>_…`), never any other workspace.
+
+Like operator tokens, a workspace-governance token gets **zero** file-route
+access, even if file scopes are requested alongside it — scope parsing on the
+file routes fails the whole array when it contains any non-file scope. Mint a
+separate files-only token for file operations.
+
+- `workspace:invite` authorizes `POST /v1/workspaces/:name/invites` — sends an
+  organization invite for workspace `:name`, mirroring the session-authed
+  invite endpoint. The invite is attributed to the token's minting user, and
+  the auth worker re-checks that user's org role at invite time, so a token
+  minted by a since-demoted admin can no longer invite.
+- `workspace:manage` authorizes `GET`/`DELETE /v1/workspaces/:name/tokens` —
+  list (redacted: labels, scopes, created/expiry, hash prefix, never the
+  token value) and revoke tokens belonging to workspace `:name`, mirroring the
+  `GET`/`DELETE /admin/tokens` contract above. These routes also accept a
+  plain session with org role `admin`/`owner` in `:name` as an alternative to
+  a `workspace:manage` token.
