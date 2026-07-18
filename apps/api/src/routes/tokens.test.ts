@@ -282,3 +282,43 @@ describe("POST /v1/tokens mint", () => {
     expect(res.status).toBe(201);
   });
 });
+
+describe("POST /v1/tokens admin scopes", () => {
+  it("400s when a non-admin requests an admin scope", async () => {
+    const res = await post(stubEnv({ user: { ...USER, role: "user" } }), {
+      grants: [{ workspace: "acme", scopes: ["admin:read"] }],
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "invalid_scopes" },
+    });
+  });
+
+  it("allows an admin user to mint admin:write alongside file scopes", async () => {
+    const cap = captureDb();
+    const res = await post(stubEnv({ user: { ...USER, role: "admin" }, db: cap.db }), {
+      grants: [{ workspace: "acme", scopes: ["files:read", "admin:write"] }],
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { scopes: string[] };
+    expect(body.scopes).toEqual(["files:read", "admin:write"]);
+  });
+
+  it("allows a multi-role admin user (comma-separated role) to mint admin scopes", async () => {
+    const res = await post(stubEnv({ user: { ...USER, role: "admin,support" } }), {
+      grants: [{ workspace: "acme", scopes: ["admin:read"] }],
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { scopes: string[] };
+    expect(body.scopes).toEqual(["admin:read"]);
+  });
+
+  it("never includes admin scopes in the default mint", async () => {
+    const res = await post(stubEnv({ user: { ...USER, role: "admin" } }), {
+      grants: [{ workspace: "acme" }],
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { scopes: string[] };
+    expect(body.scopes).toEqual(["files:read", "files:write"]);
+  });
+});

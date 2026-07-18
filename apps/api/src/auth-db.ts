@@ -3,6 +3,18 @@ import { sha256Hex } from "./workspace";
 export const FILE_SCOPES = ["files:read", "files:write", "files:delete"] as const;
 export type FileScope = (typeof FILE_SCOPES)[number];
 
+// Operator/admin scopes for session-minted tokens (issue #257). Never granted
+// by default — only when explicitly requested by a session user holding the
+// better-auth `admin` role (see routes/tokens.ts). Distinct from FILE_SCOPES
+// so existing file-scope-only callers (routes/admin.ts, routes/admin-ui.ts)
+// can't accidentally accept them.
+export const ADMIN_SCOPES = ["admin:read", "admin:write"] as const;
+export type AdminScope = (typeof ADMIN_SCOPES)[number];
+
+export function isAdminScope(value: unknown): value is AdminScope {
+  return typeof value === "string" && ADMIN_SCOPES.includes(value as AdminScope);
+}
+
 // Invite code lifetime. 2h gives a human time to onboard after receiving the
 // link out-of-band, while keeping the single-use secret short-lived. Override
 // per-invite with --expires-in up to MAX_ENROLLMENT_SECONDS (see routes/admin).
@@ -51,10 +63,24 @@ export function isFileScope(value: unknown): value is FileScope {
   return typeof value === "string" && FILE_SCOPES.includes(value as FileScope);
 }
 
-export function validateScopes(value: unknown, defaults: FileScope[]): FileScope[] | null {
+export function validateScopes(value: unknown, defaults: FileScope[]): FileScope[] | null;
+export function validateScopes(
+  value: unknown,
+  defaults: FileScope[],
+  opts: { allowAdmin?: boolean },
+): (FileScope | AdminScope)[] | null;
+export function validateScopes(
+  value: unknown,
+  defaults: FileScope[],
+  opts?: { allowAdmin?: boolean },
+): (FileScope | AdminScope)[] | null {
   if (value === undefined) return defaults;
-  if (!Array.isArray(value) || value.length === 0 || !value.every(isFileScope)) return null;
-  return [...new Set(value)];
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const isValid = opts?.allowAdmin
+    ? (v: unknown) => isFileScope(v) || isAdminScope(v)
+    : isFileScope;
+  if (!value.every(isValid)) return null;
+  return [...new Set(value)] as (FileScope | AdminScope)[];
 }
 
 function randomSecret(prefix: string, bytes = 24): string {
@@ -94,7 +120,9 @@ export async function createToken(
   input: {
     workspace: string;
     label?: string;
-    scopes: FileScope[];
+    // Widened beyond FileScope so admin-scoped operator tokens (issue #257)
+    // can be minted through the same path; storage is just a JSON TEXT column.
+    scopes: (FileScope | AdminScope)[];
     expiresAt?: Date;
     mintedByUserId?: string | null;
     now?: Date;
