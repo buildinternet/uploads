@@ -134,8 +134,15 @@ export function createErrorCopy(code: string): string {
   }
 }
 
-/** Copy-to-clipboard for `button[data-copy]` under `root`. */
-export function bindCopyButtons(root: ParentNode): void {
+/**
+ * Copy-to-clipboard for `button[data-copy]` under `root`.
+ *
+ * `Node`, not `ParentNode`: this only needs `addEventListener`/`contains`
+ * (both on `Node`), and worker-configuration.d.ts's HTMLRewriter `Element`
+ * ambiently redeclares `append()`, which makes DOM elements unassignable to
+ * `ParentNode`. Same wrangler-types drift worked around in oauth/consent.astro.
+ */
+export function bindCopyButtons(root: Node): void {
   root.addEventListener("click", (event) => {
     void (async () => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-copy]");
