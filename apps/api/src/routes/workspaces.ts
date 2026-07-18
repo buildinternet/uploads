@@ -62,6 +62,14 @@ type ManageAuthVars = {
  * governance guard; anything else (including Better Auth bearer sessions,
  * which also ride the Authorization header — see workspaces.test.ts) falls
  * back to session-cookie/bearer auth.
+ *
+ * Deliberately fail-closed: when an `up_`-shaped bearer is presented it is
+ * authoritative — an invalid one (revoked/expired/foreign/wrong-scope) is
+ * rejected outright, with NO fallback to a session cookie that may also be
+ * on the request. An explicitly presented credential is judged on its own
+ * merits; silently escalating a bad token to the caller's session would mask
+ * revocation and make "is this token still valid?" unanswerable from the
+ * response.
  */
 function workspaceManageAuth(): MiddlewareHandler<ManageAuthVars> {
   return async (c, next) => {

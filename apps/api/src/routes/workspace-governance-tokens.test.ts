@@ -164,6 +164,17 @@ describe("GET /v1/workspaces/:name/tokens", () => {
     expect(res.status).toBe(403);
   });
 
+  it("shaped-but-invalid up_ bearer is rejected even with a valid org-admin session (no fallback)", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    // Valid admin session available via cookies/get-session — but the
+    // request explicitly presents a `up_`-shaped bearer that matches no
+    // active token. Fail-closed: the bearer is authoritative, no silent
+    // session fallback.
+    const { app, env } = appWith({ db, session: true, role: "admin" });
+    const res = await app.request(listReq("acme", "up_acme_notarealtoken"), {}, env);
+    expect(res.status).toBe(401);
+  });
+
   it("workspace:invite-only token gets 403 (wrong scope for this route)", async () => {
     const db = new SqliteD1(MIGRATIONS);
     const { token } = await createToken(db as unknown as D1Database, {
