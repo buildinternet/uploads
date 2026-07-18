@@ -42,10 +42,20 @@ code {
   display: none !important;
 }
 
-/* Sticky footer (signed-in shells only): body/shell are flex columns;
-   #app / #dashboard grow; .layout takes free space so content stays top-
-   aligned and the footer sits at the viewport bottom when the page is short.
-   When content is taller than the viewport, the footer scrolls after it. */
+/* Sticky footer (signed-in shells only): body is a flex column; #app /
+   #dashboard grow as full-width columns. SiteHeader is full-bleed at the
+   top; .shell is the constrained content column below it. .layout takes
+   free space so content stays top-aligned and the footer sits at the
+   viewport bottom when the page is short. When content is taller than the
+   viewport, the footer scrolls after it. */
+#app,
+#dashboard {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
 .shell {
   flex: 1;
   display: flex;
@@ -56,31 +66,18 @@ code {
   padding: 28px 20px 28px;
   box-sizing: border-box;
 }
-#app,
-#dashboard {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+/* Pre-auth status blocks (checking / signed-out / denied) stay in a
+   narrow centered column so they don't stretch edge-to-edge. */
+.shell-status {
+  width: 100%;
+  max-width: var(--width-shell, 960px);
+  margin: 0 auto;
+  padding: 28px 20px;
+  box-sizing: border-box;
 }
-#app > .layout,
-#dashboard > .layout {
+#app > .shell > .layout,
+#dashboard > .shell > .layout {
   flex: 1 0 auto;
-}
-header.top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 22px;
-}
-header.top .lockup {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-}
-header.top .who {
-  color: var(--muted);
-  font-size: 12px;
 }
 /* Status blocks render as .ul-callout (DS); .status is the JS hook only. */
 .sr-only {

@@ -1,9 +1,10 @@
 ---
 // Shared shell for the static legal pages (/terms, /privacy). Same flat dark
 // palette and Geist type as the landing page, tuned for long-form prose.
+// Full-bleed SiteHeader (releases/either pattern); article column is constrained.
 import BaseHead from "../components/BaseHead.astro";
-import Brand from "../components/Brand.astro";
 import Footer from "../components/Footer.astro";
+import SiteHeader from "../components/SiteHeader.astro";
 
 interface Props {
 	title: string;
@@ -11,6 +12,9 @@ interface Props {
 	path: string;
 }
 const { title, description, path } = Astro.props;
+
+// Static page — auth origin is baked at build time (see src/lib/auth-client.ts).
+const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.uploads.sh";
 ---
 
 <html lang="en">
@@ -27,16 +31,22 @@ const { title, description, path } = Astro.props;
         background: var(--bg);
         color: var(--fg);
         font: 15.5px/1.7 var(--sans);
-        padding: 40px 24px 64px;
+        display: flex;
+        flex-direction: column;
       }
-      main { width: min(var(--width-content, 720px), 100%); margin: 0 auto; }
-      .brandbar { margin-bottom: 30px; }
+      main {
+        width: min(var(--width-content, 720px), 100%);
+        margin: 0 auto;
+        padding: 32px 24px 64px;
+        flex: 1;
+        box-sizing: border-box;
+      }
       h1 {
         font-size: clamp(26px, 5vw, 34px);
         font-weight: 600;
         letter-spacing: -0.015em;
         line-height: 1.25;
-        margin: 20px 0 4px;
+        margin: 8px 0 4px;
       }
       .effective { color: var(--muted); font-size: 13px; margin: 0 0 36px; }
       article h2 {
@@ -71,8 +81,8 @@ const { title, description, path } = Astro.props;
     </style>
   </head>
   <body>
+    <SiteHeader authOrigin={authOrigin} />
     <main>
-      <div class="brandbar"><Brand /></div>
       <article>
         <slot />
       </article>

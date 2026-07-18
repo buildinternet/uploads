@@ -14,8 +14,8 @@ import {
   signedInCsp,
 } from "../lib/signed-in-page";
 import BaseHead from "../components/BaseHead.astro";
-import Brand from "../components/Brand.astro";
 import Footer from "../components/Footer.astro";
+import SiteHeader from "../components/SiteHeader.astro";
 import "../styles/signed-in-shell.css";
 import "../styles/account-content.css";
 
@@ -57,16 +57,17 @@ const workspacesParentCurrent = workspacesActive && !workspace && !creating;
   <title>{docTitle}</title>
 </head>
 <body>
-<div class="shell">
   <h1 class="sr-only">{pageHeading}</h1>
-  <div id="checking" class="ul-callout status" role="status">Checking your session…</div>
+  <div id="checking" class="shell-status">
+    <div class="ul-callout status" role="status">Checking your session…</div>
+  </div>
 
-  <div id="signed-out" hidden>
+  <div id="signed-out" class="shell-status" hidden>
     <div class="ul-callout status" data-state="error" role="alert">You're not signed in.</div>
     <a class="button" href="/login">Sign in</a>
   </div>
 
-  <div id="auth-unavailable" hidden>
+  <div id="auth-unavailable" class="shell-status" hidden>
     <div class="status" data-state="denied" role="alert">
       Authentication is temporarily unavailable. Check the local stack or try again.
     </div>
@@ -74,70 +75,68 @@ const workspacesParentCurrent = workspacesActive && !workspace && !creating;
   </div>
 
   <div id="app" hidden>
-    <header class="top">
-      <Brand />
-      <span class="who" id="who"></span>
-    </header>
+    <SiteHeader authOrigin={authOrigin} />
 
-    <div class="layout">
-      <nav class="side" aria-label="Account sections">
-        <a
-          href="/account"
-          aria-current={section === "overview" ? "page" : undefined}
-        >
-          Overview
-        </a>
-
-        <div class="side-group">
+    <div class="shell">
+      <div class="layout">
+        <nav class="side" aria-label="Account sections">
           <a
-            href="/account/workspaces"
-            class="side-parent"
-            aria-current={workspacesParentCurrent ? "page" : undefined}
+            href="/account"
+            aria-current={section === "overview" ? "page" : undefined}
           >
-            Workspaces
+            Overview
           </a>
-          <div class="side-nested">
-            <div id="workspaces-nav-list" class="side-nested-list" aria-label="Your workspaces">
-              {/* Filled client-side after session + /me/workspaces. */}
-            </div>
+
+          <div class="side-group">
             <a
-              href="/account/workspaces/new"
-              class="side-nested-item side-new"
-              aria-current={creating ? "page" : undefined}
+              href="/account/workspaces"
+              class="side-parent"
+              aria-current={workspacesParentCurrent ? "page" : undefined}
             >
-              + New workspace
+              Workspaces
             </a>
+            <div class="side-nested">
+              <div id="workspaces-nav-list" class="side-nested-list" aria-label="Your workspaces">
+                {/* Filled client-side after session + /me/workspaces. */}
+              </div>
+              <a
+                href="/account/workspaces/new"
+                class="side-nested-item side-new"
+                aria-current={creating ? "page" : undefined}
+              >
+                + New workspace
+              </a>
+            </div>
           </div>
+
+          <a
+            href="/account/profile"
+            aria-current={section === "profile" ? "page" : undefined}
+          >
+            Account
+          </a>
+          <a
+            href="/account/developers"
+            aria-current={section === "developers" ? "page" : undefined}
+          >
+            Developers
+          </a>
+
+          <div class="side-foot">
+            {showConsoleLinks ? <a href="/console">console →</a> : null}
+            <a href="/admin" id="admin-link" hidden>admin →</a>
+            <button type="button" id="sign-out-btn">Sign out</button>
+          </div>
+        </nav>
+
+        <div class="content">
+          <slot />
         </div>
-
-        <a
-          href="/account/profile"
-          aria-current={section === "profile" ? "page" : undefined}
-        >
-          Account
-        </a>
-        <a
-          href="/account/developers"
-          aria-current={section === "developers" ? "page" : undefined}
-        >
-          Developers
-        </a>
-
-        <div class="side-foot">
-          {showConsoleLinks ? <a href="/console">console →</a> : null}
-          <a href="/admin" id="admin-link" hidden>admin →</a>
-          <button type="button" id="sign-out-btn">Sign out</button>
-        </div>
-      </nav>
-
-      <div class="content">
-        <slot />
       </div>
-    </div>
 
-    <Footer />
+      <Footer />
+    </div>
   </div>
-</div>
 
 {/* Sync optimistic paint: show the shell before deferred modules run so
     /account → /account/workspaces does not flash "Checking your session…".
@@ -152,11 +151,9 @@ const workspacesParentCurrent = workspacesActive && !workspace && !creating;
       if (!user || !user.email) return;
       var checking = document.getElementById("checking");
       var app = document.getElementById("app");
-      var who = document.getElementById("who");
       var adminLink = document.getElementById("admin-link");
       if (checking) checking.hidden = true;
       if (app) app.hidden = false;
-      if (who) who.textContent = user.email;
       if (adminLink && user.role === "admin") adminLink.hidden = false;
       window.__uploadsSessionUser = user;
     } catch (e) {}
@@ -197,7 +194,6 @@ const workspacesParentCurrent = workspacesActive && !workspace && !creating;
     denied: requireElement<HTMLElement>("#signed-out", "account"),
     unavailable: requireElement<HTMLElement>("#auth-unavailable", "account"),
     app: requireElement<HTMLElement>("#app", "account"),
-    who: requireElement<HTMLElement>("#who", "account"),
   }).then((result) => {
     requireElement<HTMLElement>("#admin-link", "account").hidden =
       result?.user.role !== "admin";

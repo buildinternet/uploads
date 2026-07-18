@@ -1,12 +1,14 @@
 ---
 /**
- * Canonical top-of-page header for content pages (landing, docs, guides):
- * <Brand /> on the left, optional GitHub star CTA + <AuthIndicator /> on the
- * right. Single source of truth so the star SVG and the header row aren't
- * duplicated per page — mirrors how <Footer /> standardizes the bottom.
+ * Canonical site header — full-viewport bar used across layouts (landing,
+ * docs, legal, signed-in account/admin, errors). Matches the releases/either
+ * pattern: the chrome spans the viewport edge-to-edge with a bottom border;
+ * page content below keeps its own max-width column.
  *
- * Centered-card pages (login, errors) keep their own `.brandbar` treatment;
- * signed-in shells (account/admin/console) keep their session headers.
+ * Left: <Brand /> + optional badge. Right: optional GitHub star +
+ * <AuthIndicator /> (solid Sign in CTA, or avatar menu when signed in).
+ *
+ * Centered auth cards (login, device, invite, consent) omit this header.
  */
 import AuthIndicator from "./AuthIndicator.astro";
 import Brand from "./Brand.astro";
@@ -14,29 +16,40 @@ import Brand from "./Brand.astro";
 interface Props {
   /** Show the "Star on GitHub" CTA with the live star count. */
   star?: boolean;
-  /** Render the sign-in/session indicator (requires the auth origin). */
+  /** Render the sign-in CTA / avatar menu (requires the auth origin). */
   authOrigin?: string;
+  /** Small pill next to the brand (e.g. "admin", "console"). */
+  badge?: string;
 }
 
-const { star = false, authOrigin } = Astro.props;
+const { star = false, authOrigin, badge } = Astro.props;
 const REPO = "https://github.com/buildinternet/uploads";
 ---
 
-<div class:list={["site-header", { "no-star": !star }]}>
-  <Brand />
-  {
-    star && (
-      <a class="star-cta" href={REPO} aria-label="Star buildinternet/uploads on GitHub">
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z" />
-        </svg>
-        Star on GitHub
-        <span class="count" id="star-count" />
-      </a>
-    )
-  }
-  {authOrigin && <AuthIndicator authOrigin={authOrigin} />}
-</div>
+<header class="site-header">
+  <div class="site-header__inner">
+    <div class="site-header__start">
+      <Brand />
+      {badge ? <span class="site-header__badge">{badge}</span> : null}
+    </div>
+
+    <div class="site-header__end">
+      {
+        star && (
+          <a class="star-cta" href={REPO} aria-label="Star buildinternet/uploads on GitHub">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z" />
+            </svg>
+            Star on GitHub
+            <span class="count" id="star-count" />
+          </a>
+        )
+      }
+      {authOrigin ? <AuthIndicator authOrigin={authOrigin} /> : null}
+      <slot name="end" />
+    </div>
+  </div>
+</header>
 
 {
   star && (
@@ -69,29 +82,61 @@ const REPO = "https://github.com/buildinternet/uploads";
 }
 
 <style>
+  /* Full-bleed bar: sits outside page max-width columns (releases/either). */
   .site-header {
+    width: 100%;
+    border-bottom: 1px solid var(--line, #232327);
+    background: var(--bg, #0c0c0e);
+  }
+  .site-header__inner {
     display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    width: 100%;
+    padding: 14px 24px;
+    box-sizing: border-box;
+  }
+  .site-header__start {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+  }
+  .site-header__end {
+    display: inline-flex;
     align-items: center;
     flex-wrap: wrap;
     gap: 12px;
-    margin-bottom: 6px;
+    margin-left: auto;
+  }
+  .site-header__badge {
+    display: inline-block;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent, #c27eff);
+    border: 1px solid var(--line, #232327);
+    border-radius: 99px;
+    padding: 2px 9px;
+    background: var(--bg, #0c0c0e);
   }
   .star-cta {
-    margin-left: auto;
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    color: var(--fg);
+    color: var(--fg, #e8e8e3);
     text-decoration: none;
-    font: 12.5px var(--mono);
-    border: 1px solid var(--line);
-    border-radius: var(--radius-sm);
+    font: 12.5px var(--mono, ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace);
+    border: 1px solid var(--line, #232327);
+    border-radius: var(--radius-sm, 6px);
     padding: 6px 11px;
-    background: var(--panel);
+    background: var(--panel, #121214);
   }
   .star-cta:hover,
   .star-cta:focus-visible {
-    border-color: var(--accent);
+    border-color: var(--accent, #c27eff);
     outline: none;
   }
   .star-cta svg {
@@ -100,19 +145,18 @@ const REPO = "https://github.com/buildinternet/uploads";
     fill: currentColor;
   }
   .star-cta .count {
-    color: var(--muted);
-    border-left: 1px solid var(--line);
+    color: var(--muted, #7d7d77);
+    border-left: 1px solid var(--line, #232327);
     padding-left: 7px;
     font-variant-numeric: tabular-nums;
   }
   .star-cta .count:empty {
     display: none;
   }
-  /* When the star CTA is absent, the auth indicator holds the right edge. */
-  .site-header.no-star > :global(.auth-indicator) {
-    margin-left: auto;
-  }
   @media (max-width: 420px) {
+    .site-header__inner {
+      padding: 12px 16px;
+    }
     .star-cta .count {
       display: none;
     }
