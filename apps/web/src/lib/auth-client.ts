@@ -529,7 +529,8 @@ export type OAuthConsentResult = { ok: true; redirectUri: string } | { ok: false
  * leading "?" stripped (the signed consent query the AS handed the browser) —
  * required so the AS can resolve which pending authorize request this is.
  * `scope` is the space-delimited set of scopes the user is granting; omit on
- * deny. Response carries `redirect_uri` on success, `error_description` /
+ * deny. Response carries the redirect target (`url` on better-auth 1.6.23,
+ * `redirect_uri` in older builds) on success, `error_description` /
  * `message` on rejection (expired/invalid signed query, unknown client, …).
  */
 export async function submitOAuthConsent(
@@ -549,6 +550,7 @@ export async function submitOAuthConsent(
     });
     const body = (await res.json().catch(() => null)) as {
       redirect_uri?: string;
+      url?: string;
       error_description?: string;
       message?: string;
     } | null;
@@ -558,10 +560,13 @@ export async function submitOAuthConsent(
         error: body?.error_description ?? body?.message ?? "Something went wrong. Try again.",
       };
     }
-    if (!body?.redirect_uri) {
+    // better-auth 1.6.23 responds `{ redirect: true, url }` (prod-verified);
+    // `redirect_uri` is the shape older plugin builds documented. Accept both.
+    const redirectUri = body?.url ?? body?.redirect_uri;
+    if (!redirectUri) {
       return { ok: false, error: "The authorization server didn't return a redirect." };
     }
-    return { ok: true, redirectUri: body.redirect_uri };
+    return { ok: true, redirectUri };
   } catch {
     return { ok: false, error: "Couldn't reach the authorization server. Try again." };
   }

@@ -29,12 +29,12 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     p{color:var(--body);margin:0 0 20px}
     .status{margin:16px 0}
     .client-host{color:var(--muted);font-size:12.5px;margin:-14px 0 20px;word-break:break-all}
-    .client-host a{color:inherit}
+    .client-host :global(a){color:inherit}
     .scopes{list-style:none;margin:0 0 22px;padding:0;display:grid;gap:10px}
-    .scopes li{display:flex;align-items:baseline;gap:10px;padding:10px 12px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-md)}
-    .scopes .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none;margin-top:6px}
-    .scopes .desc{color:var(--fg)}
-    .scopes .id{display:block;color:var(--muted);font-size:11px;letter-spacing:.02em}
+    .scopes :global(li){display:flex;align-items:baseline;gap:10px;padding:10px 12px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-md)}
+    .scopes :global(.dot){width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none;margin-top:6px}
+    .scopes :global(.desc){color:var(--fg)}
+    .scopes :global(.id){display:block;color:var(--muted);font-size:11px;letter-spacing:.02em}
     .actions{display:flex;gap:10px}
     button.primary,button.secondary{flex:1;font:12px var(--mono);letter-spacing:.04em;color:var(--accent);background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 13px;cursor:pointer}
     button.secondary{color:var(--muted)}
