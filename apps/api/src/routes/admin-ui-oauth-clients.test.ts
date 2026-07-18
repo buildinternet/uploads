@@ -180,6 +180,28 @@ describe("DELETE /admin-ui/oauth-clients/:clientId", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
   });
+
+  it("relays a 409 from the internal endpoint when deleting an official client", async () => {
+    const env = stubEnv(ADMIN_USER, (path, req) => {
+      if (path === "/internal/oauth-clients/c-1") {
+        expect(req.method).toBe("DELETE");
+        return Response.json(
+          {
+            error: "official_client",
+            message: "official clients cannot be deleted; remove the official flag first",
+          },
+          { status: 409 },
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+    const res = await app().request("/admin-ui/oauth-clients/c-1", { method: "DELETE" }, env);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: "official_client",
+      message: "official clients cannot be deleted; remove the official flag first",
+    });
+  });
 });
 
 describe("AUTH binding outage", () => {

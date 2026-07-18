@@ -409,6 +409,85 @@ describe("DELETE /internal/oauth-clients/:clientId", () => {
       .where(eqClientIdAccess(clientId));
     expect(remainingAccess).toHaveLength(0);
   });
+
+  it("409s on an official client and leaves its rows intact", async () => {
+    const created = await jsonReq("POST", "/internal/oauth-clients", {
+      ...validCreateBody,
+      official: true,
+    });
+    const { clientId } = (await created.json()) as { clientId: string };
+
+    const now = new Date();
+    await drizzle(db, { schema })
+      .insert(schema.oauthConsent)
+      .values({
+        id: "consent-official",
+        userId: "user-1",
+        clientId,
+        scopes: ["files:read"],
+        createdAt: now,
+        updatedAt: now,
+      });
+    await drizzle(db, { schema })
+      .insert(schema.oauthRefreshToken)
+      .values({
+        id: "rt-official",
+        token: "tok-official",
+        clientId,
+        userId: "user-1",
+        scopes: ["files:read"],
+        createdAt: now,
+        expiresAt: new Date(Date.now() + 1000 * 60),
+      });
+
+    const res = await jsonReq("DELETE", `/internal/oauth-clients/${clientId}`);
+    expect(res.status).toBe(409);
+    expect((await res.json()) as { error: string; message: string }).toMatchObject({
+      error: "official_client",
+    });
+
+    const remainingClients = await drizzle(db, { schema })
+      .select()
+      .from(schema.oauthClient)
+      .where(eqClientId(clientId));
+    expect(remainingClients).toHaveLength(1);
+    const remainingConsent = await drizzle(db, { schema })
+      .select()
+      .from(schema.oauthConsent)
+      .where(eqClientIdConsent(clientId));
+    expect(remainingConsent).toHaveLength(1);
+    const remainingRefresh = await drizzle(db, { schema })
+      .select()
+      .from(schema.oauthRefreshToken)
+      .where(eqClientIdRefresh(clientId));
+    expect(remainingRefresh).toHaveLength(1);
+  });
+
+  it("succeeds after PATCHing official:false on a previously official client", async () => {
+    const created = await jsonReq("POST", "/internal/oauth-clients", {
+      ...validCreateBody,
+      official: true,
+    });
+    const { clientId } = (await created.json()) as { clientId: string };
+
+    const blocked = await jsonReq("DELETE", `/internal/oauth-clients/${clientId}`);
+    expect(blocked.status).toBe(409);
+
+    const patched = await jsonReq("PATCH", `/internal/oauth-clients/${clientId}`, {
+      official: false,
+    });
+    expect(patched.status).toBe(200);
+
+    const res = await jsonReq("DELETE", `/internal/oauth-clients/${clientId}`);
+    expect(res.status).toBe(200);
+    expect((await res.json()) as { ok: boolean }).toMatchObject({ ok: true });
+
+    const remainingClients = await drizzle(db, { schema })
+      .select()
+      .from(schema.oauthClient)
+      .where(eqClientId(clientId));
+    expect(remainingClients).toHaveLength(0);
+  });
 });
 
 function eqClientId(clientId: string) {

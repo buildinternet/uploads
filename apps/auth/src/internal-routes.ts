@@ -21,6 +21,21 @@ function invalidRequest(message: string) {
   return { error: "invalid_request", message } as const;
 }
 
+/** Same shape as invalidRequest, but with a distinct error code for a specific condition. */
+function officialClientError(message: string) {
+  return { error: "official_client", message } as const;
+}
+
+/**
+ * Slug of the communal, world-readable default workspace (mirrors apps/api's
+ * `DEFAULT_WORKSPACE` env var / `isCommunal()` in apps/api/src/routes/me.ts).
+ * This worker has no equivalent env binding, so the value is pinned here as a
+ * literal instead — it MUST stay in lockstep with apps/api's default
+ * ("default") or the two workers will disagree about which workspace is
+ * protected.
+ */
+const COMMUNAL_ORG_SLUG = "default";
+
 const REDIRECT_SCHEME_ALLOWLIST = new Set(["https:", "http:"]);
 
 function isLoopbackHost(host: string): boolean {
@@ -595,6 +610,12 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     if (!org) {
       return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
     }
+    if (org.slug === COMMUNAL_ORG_SLUG) {
+      return c.json(
+        errorJson("protected_org", "the communal default workspace cannot be deleted"),
+        403,
+      );
+    }
     const force = c.req.query("force") === "1" || c.req.query("force") === "true";
     const members = await db
       .select({ id: schema.member.id })
@@ -876,6 +897,14 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       .limit(1);
     if (!existing) {
       return c.json({ error: "not_found" }, 404);
+    }
+    if (isOfficial(existing)) {
+      return c.json(
+        officialClientError(
+          "official clients cannot be deleted; remove the official flag first (PATCH official:false)",
+        ),
+        409,
+      );
     }
 
     // Atomic via D1 batch — a partial failure must not leave tokens/consents

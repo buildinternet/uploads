@@ -918,6 +918,52 @@ describe("DB-backed behavior", () => {
         .where(eq(schema.member.organizationId, org.id));
       expect(memberRows).toHaveLength(0);
     });
+
+    // Accidental-deletion guard (audit, same class as ad736b9's official-client
+    // guard): the communal default workspace must survive even when it has
+    // only its single seeded member, unlike any other single-member org — and
+    // #250's force=1 escape hatch must not bypass it either.
+    it("403s deleting the communal default workspace, even with force=1", async () => {
+      const org = await seedOrg({ slug: "default" });
+      const user = await seedUser();
+      await orm.insert(schema.member).values({
+        id: crypto.randomUUID(),
+        organizationId: org.id,
+        userId: user.id,
+        role: "owner",
+        createdAt: new Date(),
+      });
+
+      for (const path of [`/internal/orgs/${org.slug}`, `/internal/orgs/${org.slug}?force=1`]) {
+        const res = await app().request(path, { method: "DELETE" }, dbEnv());
+        expect(res.status).toBe(403);
+        expect((await res.json()) as { error: { code: string } }).toMatchObject({
+          error: { code: "protected_org" },
+        });
+      }
+
+      const orgRows = await orm
+        .select()
+        .from(schema.organization)
+        .where(eq(schema.organization.id, org.id));
+      expect(orgRows).toHaveLength(1);
+    });
+
+    it("still deletes a non-communal single-member org named similarly to 'default'", async () => {
+      const org = await seedOrg({ slug: "default-staging" });
+      const user = await seedUser();
+      await orm.insert(schema.member).values({
+        id: crypto.randomUUID(),
+        organizationId: org.id,
+        userId: user.id,
+        role: "owner",
+        createdAt: new Date(),
+      });
+
+      const res = await app().request(`/internal/orgs/${org.slug}`, { method: "DELETE" }, dbEnv());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+    });
   });
 
   describe("GET /internal/orgs (#250 orphan sweep listing)", () => {

@@ -131,6 +131,11 @@
 .oauth-danger {
   color: var(--red) !important;
 }
+.oauth-danger:disabled {
+  color: var(--muted) !important;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
 
 #oauth-create-status,
 #oauth-action-status {

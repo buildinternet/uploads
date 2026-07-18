@@ -60,6 +60,9 @@ if (!clientId) return Astro.redirect("/admin/oauth");
         <button type="button" id="oauth-disable-toggle"></button>
         <button type="button" id="oauth-delete" class="oauth-danger">Delete</button>
       </div>
+      <p id="oauth-delete-hint" class="muted" style="font-size:12px;margin-top:4px" hidden>
+        Remove the official flag to enable deletion.
+      </p>
       <div id="oauth-action-status" role="status" hidden></div>
 
       <form id="oauth-edit-form" class="oauth-form" hidden>
@@ -178,6 +181,7 @@ if (!clientId) return Astro.redirect("/admin/oauth");
         "admin oauth detail",
       );
       const deleteBtn = requireElement<HTMLButtonElement>("#oauth-delete", "admin oauth detail");
+      const deleteHintEl = requireElement<HTMLElement>("#oauth-delete-hint", "admin oauth detail");
       const actionStatus = requireElement<HTMLElement>("#oauth-action-status", "admin oauth detail");
       const editForm = requireElement<HTMLFormElement>("#oauth-edit-form", "admin oauth detail");
       const editCancelBtn = requireElement<HTMLButtonElement>(
@@ -212,6 +216,8 @@ if (!clientId) return Astro.redirect("/admin/oauth");
           : "Never";
         createdEl.textContent = new Date(client.createdAt).toLocaleString();
         disableToggleBtn.textContent = client.disabled ? "Enable" : "Disable";
+        deleteBtn.disabled = client.official;
+        deleteHintEl.hidden = !client.official;
 
         const nameInput = requireElement<HTMLInputElement>("#oauth-edit-name", "admin oauth detail");
         const redirectsInput = requireElement<HTMLTextAreaElement>(
@@ -362,7 +368,7 @@ if (!clientId) return Astro.redirect("/admin/oauth");
 
       deleteBtn.addEventListener("click", () => {
         void (async () => {
-          if (!current) return;
+          if (!current || current.official) return;
           if (!confirm(`Delete "${current.name}"? This revokes all its tokens and cannot be undone.`))
             return;
           deleteBtn.disabled = true;
