@@ -309,7 +309,14 @@ export function createEnrollment(
 // `application/json` bodies, NOT the RFC's form-encoding — the JSON shapes
 // below are what the worker expects.
 
-/** Static OAuth client id allowlisted by the auth worker's `validateClient`. */
+/**
+ * OAuth client id for the device flow. Registered server-side as a managed
+ * official `oauth_client` row (seeded by apps/auth migration
+ * 20260719000000_seed_cli_oauth_client.sql — issue #251): public PKCE client,
+ * no secret, device-code grant only. The auth worker's device endpoints
+ * validate this id against that table, so operators can disable it from
+ * /admin/oauth. The literal must match the seeded row's client_id.
+ */
 export const DEVICE_CLIENT_ID = "uploads-cli";
 
 /**

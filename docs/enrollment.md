@@ -31,6 +31,13 @@ Pass `--workspace <name>` if your account can access more than one workspace:
 uploads login --workspace acme
 ```
 
+The CLI authenticates as the managed official OAuth client `uploads-cli`,
+visible and toggleable by operators in the admin panel at `/admin/oauth`.
+Operators should disable it there rather than hard-deleting it: the seed
+migration only runs once (`INSERT OR IGNORE`, journaled as applied), so a
+deleted `uploads-cli` client is not automatically re-seeded and would break
+CLI login fleet-wide until manually re-inserted.
+
 On success, the CLI saves `UPLOADS_API_URL`, `UPLOADS_WORKSPACE`, and
 `UPLOADS_TOKEN` in the shared buildinternet config and runs `doctor`. It never
 prints the raw workspace token. Use `--force` only when intentionally
@@ -141,3 +148,8 @@ Better Auth's session/organization/device-code tables that back
 the default onboarding path today. Direct token minting (`/admin/tokens`) is
 reserved for CI and break-glass administration. Rotate legacy routine-agent
 tokens to login-issued tokens gradually, then revoke the old hashes.
+
+Migration `20260719000000_seed_cli_oauth_client.sql` seeds the managed
+`uploads-cli` OAuth client row and must be applied (`pnpm migrate:d1` in
+`apps/auth`) before deploying an auth worker that includes the DB-backed
+`validateClient` — the device flow fails closed without the row.
