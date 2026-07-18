@@ -72,3 +72,12 @@ curl -XDELETE https://api.uploads.sh/admin/tokens \
   -d '{"workspace":"default","hashPrefix":"a1b2c3d4"}'
 # or: -d '{"workspace":"default","label":"ci"}'
 ```
+
+## Operator scopes
+
+Better-auth admins can also mint their own workspace tokens with opt-in
+`admin:read` / `admin:write` scopes via the session-authed `POST /v1/tokens`
+(no `ADMIN_TOKEN` involved). `admin:write` is a superset of `admin:read`.
+Tokens carrying either scope are accepted by `/admin/*` alongside
+`ADMIN_TOKEN`, and are revoked or listed the same way as any other token —
+via the `GET`/`DELETE /admin/tokens` endpoints above.
