@@ -12,7 +12,7 @@ Access is by invitation. Hosted files are public (including media attached to pr
 - [Docs: agents](https://uploads.sh/docs/agents): install the agent skill and MCP server, or the all-in-one Claude Code plugin
 - [Docs: reference](https://uploads.sh/docs/reference): manage uploads (list/delete/usage) and what to know before relying on it
 - [Agent guide](https://uploads.sh/github-screenshots): how to get coding agents to upload screenshots & video to GitHub PRs and issues
-- [Auth for agents](https://uploads.sh/auth.md): invitation enrollment and bearer tokens
+- [Auth for agents](https://uploads.sh/auth.md): invitation enrollment, bearer tokens, and the hosted-MCP OAuth authorization server
 - [Source & docs](https://github.com/buildinternet/uploads): repository, roadmap, and operator docs
 - [Enrollment](https://github.com/buildinternet/uploads/blob/main/docs/enrollment.md): how `uploads login` works
 - [API](https://github.com/buildinternet/uploads/blob/main/docs/api.md): REST surface for workspace-scoped files

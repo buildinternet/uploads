@@ -73,14 +73,28 @@ inferred from the `up_<workspace>_…` token form).
 | API health             | https://api.uploads.sh/health                                  |
 | MCP health             | https://agents.uploads.sh/health                               |
 
-## What we deliberately do not publish
+## OAuth for the hosted MCP
 
-There is **no** public OAuth authorization server for third-party clients
-today. `uploads login`'s device flow talks to our own dedicated auth worker
-with a fixed CLI client id — it is not a general-purpose OAuth client
-registration surface. `/.well-known/openid-configuration` and
-`/.well-known/oauth-authorization-server` are intentionally absent. Do not
-invent OAuth client registration against this origin.
+`https://agents.uploads.sh/mcp` also accepts OAuth 2.1 bearer tokens issued by
+our authorization server at `https://auth.uploads.sh` (issuer
+`https://auth.uploads.sh/api/auth`). It supports PKCE and dynamic client
+registration (RFC 7591) — an MCP client can register itself, no manual setup.
+Discovery:
+
+```bash
+curl -s https://auth.uploads.sh/.well-known/oauth-authorization-server
+curl -s https://auth.uploads.sh/.well-known/openid-configuration
+```
+
+Scopes are the same three as the workspace-token table above: `files:read`,
+`files:write`, `files:delete`. A human authorizing a client signs in and
+grants scopes at `https://uploads.sh/oauth/consent`. This is the auth surface
+for third-party OAuth clients against the hosted MCP; `uploads login`'s device
+flow (above) is unrelated and still the way to mint a long-lived
+`up_<workspace>_…` workspace token for CLI/agent use.
+
+`api.uploads.sh` does not accept OAuth tokens in v1 — only the hosted MCP
+does.
 
 ## Operator note
 

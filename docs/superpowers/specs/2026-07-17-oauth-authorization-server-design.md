@@ -37,8 +37,7 @@ Follow the pattern proven in the sibling repos (`~/Code/releases`,
   rate-limited (5/min, D1-backed), with a stale-client reaper added to the
   existing `15 6 * * *` cron (copy `sunny/apps/auth/src/oauth-client-reaper.ts`).
 - **Discovery**: root aliases on the auth worker —
-  `/.well-known/oauth-authorization-server` (+ `/*` path-inserted form, RFC
-  8414) and `/.well-known/openid-configuration` — rewritten to the Better Auth
+  `/.well-known/oauth-authorization-server` (+ `/*` path-inserted form, RFC 8414) and `/.well-known/openid-configuration` — rewritten to the Better Auth
   handler, `Access-Control-Allow-Origin: *`.
 - **RFC 9728**: `protectedResourceMetadata` in `apps/api/src/well-known.ts`
   gains an `authorizationServers` option. Only `apps/mcp` advertises it (it's

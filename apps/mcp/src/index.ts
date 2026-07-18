@@ -9,13 +9,118 @@
  * `createMcpServer`, shared verbatim.
  */
 import { createMcpServer } from "@buildinternet/uploads/mcp";
-import { AppError, isAppError, MethodNotAllowedError, NotFoundError } from "@uploads/errors";
-import { tokenWorkspaceAuth, workspaceAuth, type WorkspaceVars } from "@uploads/api/workspace";
+import {
+  AppError,
+  ForbiddenError,
+  isAppError,
+  MethodNotAllowedError,
+  NotFoundError,
+  UnauthorizedError,
+} from "@uploads/errors";
+import {
+  loadWorkspaceRecord,
+  tokenWorkspaceAuth,
+  workspaceAuth,
+  type WorkspaceVars,
+} from "@uploads/api/workspace";
 import { protectedResourceMetadata, requestOrigin } from "@uploads/api/well-known";
-import { Hono, type Context } from "hono";
+import { Hono, type Context, type Next } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import pkg from "../package.json";
 import { createRemoteTools } from "./tools";
+import { invalidTokenChallenge, isJwtShaped, missingTokenChallenge, verifyOAuthJwt } from "./oauth";
+
+/**
+ * Both prod hostnames this worker answers on (see wrangler.jsonc routes) are
+ * accepted as `aud` — mirrored into the AS's own audience allow-list (parallel
+ * lane). A JWT minted against either resource works on either route.
+ */
+const OAUTH_AUDIENCES = ["https://agents.uploads.sh/mcp", "https://mcp.uploads.sh/mcp"];
+
+function authOriginOf(env: Env): string {
+  return (env.AUTH_ORIGIN || "https://auth.uploads.sh").replace(/\/+$/, "");
+}
+
+function bearerFrom(header: string | undefined): string {
+  return header?.startsWith("Bearer ") ? header.slice(7) : "";
+}
+
+/** Actionable 403 for a token whose user has no workspace yet (`workspace: null`). */
+function noWorkspaceError(): ForbiddenError {
+  return new ForbiddenError(
+    "This account has no workspace yet. Create one at https://uploads.sh, then reconnect.",
+    { code: "workspace_required" },
+  );
+}
+
+/**
+ * Verifies a JWT-shaped bearer against the AS JWKS and, on success, sets the
+ * same context vars `tokenWorkspaceAuth`/`workspaceAuth` set (workspace
+ * record, name, scopes) so downstream tool handlers don't need to know which
+ * auth lane ran. `pathWorkspace` is set only for the `/:workspace/mcp` route,
+ * where the token must additionally list that workspace in its `workspaces`
+ * claim — otherwise this is the token-inferred `/mcp` route, which uses the
+ * token's primary `workspace` claim.
+ */
+async function oauthAuth(
+  c: Context<WorkspaceVars>,
+  token: string,
+  pathWorkspace: string | undefined,
+): Promise<Response | null> {
+  const verified = await verifyOAuthJwt(token, {
+    issuer: `${authOriginOf(c.env)}/api/auth`,
+    audience: OAUTH_AUDIENCES,
+  });
+  if (!verified) return invalidTokenChallenge(c.req.url);
+
+  const workspaceName = pathWorkspace ?? verified.workspace ?? undefined;
+  if (pathWorkspace) {
+    // Path-based route: the presented JWT must grant access to THIS workspace.
+    // A uniform 401 (not the invalid_token challenge, which is only for a bad
+    // credential) — mirrors the existing up_ token behavior for a workspace
+    // mismatch (see mcp.test.ts "rejects the same token against a different
+    // workspace path").
+    if (!verified.workspaces.includes(pathWorkspace)) throw new UnauthorizedError();
+  } else if (verified.workspace === null) {
+    throw noWorkspaceError();
+  }
+
+  const record = workspaceName ? await loadWorkspaceRecord(c.env, workspaceName) : null;
+  // Token claims a workspace slug that no longer exists (deleted after
+  // issuance, or a claims/registry desync) — treat like any other credential
+  // that doesn't resolve, rather than inventing a third error shape.
+  if (!record || !workspaceName) throw new UnauthorizedError();
+
+  c.set("workspace", record);
+  c.set("workspaceName", workspaceName);
+  c.set("authScopes", verified.scopes);
+  return null;
+}
+
+/** POST /mcp: JWT-shaped bearer → OAuth verification; everything else → the existing up_ token path. */
+async function mcpBearerAuth(c: Context<WorkspaceVars>, next: Next): Promise<Response | void> {
+  const token = bearerFrom(c.req.header("Authorization"));
+  // No credential at all → 401 with the RFC 9728 discovery challenge; MCP
+  // clients start the OAuth flow from this response's `resource_metadata`.
+  if (!token) return missingTokenChallenge(c.req.url);
+  if (isJwtShaped(token)) {
+    const response = await oauthAuth(c, token, undefined);
+    if (response) return response;
+    return next();
+  }
+  return tokenWorkspaceAuth(c, next);
+}
+
+/** /:workspace/mcp: JWT-shaped bearer → OAuth verification scoped to the path workspace; everything else → the existing up_ token path. */
+async function workspacePathAuth(c: Context<WorkspaceVars>, next: Next): Promise<Response | void> {
+  const token = bearerFrom(c.req.header("Authorization"));
+  if (isJwtShaped(token)) {
+    const response = await oauthAuth(c, token, c.req.param("workspace"));
+    if (response) return response;
+    return next();
+  }
+  return workspaceAuth(c, next);
+}
 
 async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
   const body = await c.req.text();
@@ -76,9 +181,9 @@ function mcpServerCard() {
     },
     authentication: {
       required: true,
-      schemes: ["bearer"],
+      schemes: ["bearer", "oauth2"],
       description:
-        "Per-workspace bearer token (Authorization: Bearer up_<workspace>_…). Obtain via invitation + `uploads login`. See https://uploads.sh/auth.md",
+        "Bearer token — either a per-workspace token (Authorization: Bearer up_<workspace>_…, via invitation + `uploads login`) or an OAuth 2.1 access token from the uploads-auth authorization server (browser consent flow; see /.well-known/oauth-protected-resource). See https://uploads.sh/auth.md",
     },
   };
 }
@@ -93,6 +198,11 @@ function respondProtectedResource(c: Context<WorkspaceVars>): Response {
       resource: `${requestOrigin(c.req.url)}/mcp`,
       resourceName: "uploads.sh MCP server",
       webOrigin: c.env.WEB_ORIGIN || "https://uploads.sh",
+      // Only this worker advertises an AS — it's the only resource server
+      // that verifies uploads-auth OAuth JWTs (v1 is MCP-only). The issuer,
+      // not a well-known URL: clients apply RFC 8414 path-insertion for
+      // discovery.
+      authorizationServers: [`${authOriginOf(c.env)}/api/auth`],
     }),
     200,
     { "Cache-Control": "public, max-age=300", "Access-Control-Allow-Origin": "*" },
@@ -109,11 +219,12 @@ const app = new Hono<WorkspaceVars>()
   .get("/.well-known/oauth-protected-resource", respondProtectedResource)
   .get("/.well-known/oauth-protected-resource/mcp", respondProtectedResource)
   // Primary endpoint: the workspace is inferred from the bearer token
-  // (up_<workspace>_…), so clients only need the URL and the token.
-  .post("/mcp", tokenWorkspaceAuth, handleMcp)
+  // (up_<workspace>_…) or, for a JWT-shaped bearer, the OAuth token's
+  // `workspace` claim — so clients only need the URL and the token.
+  .post("/mcp", mcpBearerAuth, handleMcp)
   .on(["GET", "DELETE"], "/mcp", methodNotAllowed)
   // Workspace-prefixed alternate, kept for existing clients.
-  .use("/:workspace/*", workspaceAuth)
+  .use("/:workspace/*", workspacePathAuth)
   .post("/:workspace/mcp", handleMcp)
   .on(["GET", "DELETE"], "/:workspace/mcp", methodNotAllowed)
   .onError((err, c) => respondError(c, err))

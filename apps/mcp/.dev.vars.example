@@ -1,0 +1,9 @@
+# Copy to apps/mcp/.dev.vars for local `wrangler dev` (gitignored).
+
+# The Cloudflare adapter inherits the top-level (production) wrangler var
+# from wrangler.jsonc, so without this override the OAuth JWT path (src/
+# oauth.ts) verifies against https://auth.uploads.sh instead of a local
+# auth worker. 127.0.0.1, not localhost — matches apps/auth's pinned dev
+# port and apps/web's UPLOADS_AUTH_ORIGIN convention (cookies/redirect_uri
+# treat the two as different sites).
+AUTH_ORIGIN=http://127.0.0.1:8788

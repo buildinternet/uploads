@@ -7,14 +7,16 @@
  * programmatically. It is served at `/.well-known/oauth-protected-resource`
  * on each resource origin (api.uploads.sh, agents.uploads.sh).
  *
- * `authorization_servers` is deliberately omitted. There is no public OAuth
- * authorization server for third-party clients — tokens are minted out-of-band
- * via `uploads login` (a first-party device flow) and the token-mint endpoint,
- * all described in `resource_documentation` (auth.md). Advertising an
- * `authorization_servers` entry would point RFC 9728 clients at an
- * authorization-server metadata document that we intentionally do not publish,
- * so we leave it out rather than dangle a broken reference. See auth.md's
- * "What we deliberately do not publish".
+ * `authorization_servers` is opt-in per caller via `authorizationServers`
+ * (issue #224). Only apps/mcp passes it — it's the only resource server that
+ * verifies the uploads-auth OAuth JWTs (v1 is MCP-only; see
+ * docs/superpowers/specs/2026-07-17-oauth-authorization-server-design.md).
+ * apps/api's own usage keeps omitting it: tokens for the REST API are still
+ * minted out-of-band via `uploads login` / the token-mint endpoint (described
+ * in `resource_documentation`), and advertising an authorization server here
+ * would point RFC 9728 clients at an AS that doesn't accept api.uploads.sh
+ * audiences — a dangling, misleading reference. See auth.md's "What we
+ * deliberately do not publish".
  */
 import { FILE_SCOPES } from "./auth-db";
 
@@ -28,12 +30,16 @@ export interface ProtectedResourceMetadata {
   bearer_methods_supported: string[];
   /** Human/agent-readable acquisition + usage docs (auth.md). */
   resource_documentation: string;
+  /** Issuer URL(s) of the authorization server(s) that issue tokens for this resource. Omitted when the caller doesn't pass `authorizationServers`. */
+  authorization_servers?: string[];
 }
 
 export function protectedResourceMetadata(opts: {
   resource: string;
   resourceName: string;
   webOrigin: string;
+  /** Issuer(s) whose access tokens this resource server accepts. Leave unset to omit `authorization_servers` (the honest default — see module doc). */
+  authorizationServers?: string[];
 }): ProtectedResourceMetadata {
   return {
     resource: opts.resource,
@@ -41,6 +47,7 @@ export function protectedResourceMetadata(opts: {
     scopes_supported: [...FILE_SCOPES],
     bearer_methods_supported: ["header"],
     resource_documentation: `${opts.webOrigin.replace(/\/$/, "")}/auth.md`,
+    ...(opts.authorizationServers ? { authorization_servers: opts.authorizationServers } : {}),
   };
 }
 

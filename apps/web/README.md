@@ -24,7 +24,7 @@ public/_headers                      Per-path response headers (Link, robots, ty
 public/robots.txt                    Crawl policy + Content Signals + AI bot rules
 public/sitemap.xml                   Public URL list (landing only)
 public/llms.txt                      Agent-oriented product summary
-public/auth.md                       Agent enrollment / bearer auth (not OAuth)
+public/auth.md                       Agent enrollment / bearer auth + hosted-MCP OAuth
 public/.well-known/api-catalog       RFC 9727 linkset
 public/.well-known/openapi.json      Summary OpenAPI for the REST API
 public/.well-known/mcp/              MCP server card (points at agents.uploads.sh)
@@ -61,15 +61,15 @@ rules there.
 
 ## Agent discovery (easy wins)
 
-| Check           | Location                                 |
-| --------------- | ---------------------------------------- |
-| robots.txt      | `/robots.txt`                            |
-| sitemap         | `/sitemap.xml` (referenced from robots)  |
-| Link headers    | homepage `/` via `_headers`              |
-| API catalog     | `/.well-known/api-catalog`               |
-| MCP server card | `/.well-known/mcp/server-card.json`      |
-| Agent skills    | `/.well-known/agent-skills/index.json`   |
-| Auth for agents | `/auth.md` (bearer / invite — not OAuth) |
+| Check           | Location                                                             |
+| --------------- | -------------------------------------------------------------------- |
+| robots.txt      | `/robots.txt`                                                        |
+| sitemap         | `/sitemap.xml` (referenced from robots)                              |
+| Link headers    | homepage `/` via `_headers`                                          |
+| API catalog     | `/.well-known/api-catalog`                                           |
+| MCP server card | `/.well-known/mcp/server-card.json`                                  |
+| Agent skills    | `/.well-known/agent-skills/index.json`                               |
+| Auth for agents | `/auth.md` (bearer / invite; also documents the hosted-MCP OAuth AS) |
 
 ### Agent skills — always track GitHub `main`
 
@@ -118,11 +118,11 @@ converted responses matches `robots.txt` (`search=yes`, `ai-input=yes`,
 
 ### Intentionally not implemented (yet)
 
-| Item                            | Why                                                                |
-| ------------------------------- | ------------------------------------------------------------------ |
-| OAuth/OIDC well-known + PRM     | Auth is invitation bearer tokens, not OAuth                        |
-| DNS-AID SVCB records            | DNS / DNSSEC operator work, not this deployable                    |
-| WebMCP `navigator.modelContext` | Experimental browser API; no product tools on the landing page yet |
+| Item                                  | Why                                                                                                                    |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| OAuth/OIDC well-known on `uploads.sh` | Discovery lives on the auth worker (`https://auth.uploads.sh/.well-known/oauth-authorization-server`), not this origin |
+| DNS-AID SVCB records                  | DNS / DNSSEC operator work, not this deployable                                                                        |
+| WebMCP `navigator.modelContext`       | Experimental browser API; no product tools on the landing page yet                                                     |
 
 ## Error pages
 

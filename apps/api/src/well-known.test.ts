@@ -28,7 +28,9 @@ describe("GET /.well-known/oauth-protected-resource", () => {
     expect(body.scopes_supported).toEqual(["files:read", "files:write", "files:delete"]);
     expect(body.bearer_methods_supported).toEqual(["header"]);
     expect(body.resource_documentation).toBe("https://uploads.sh/auth.md");
-    // No public authorization server for third-party clients (see well-known.ts).
+    // apps/api's own call site deliberately doesn't pass `authorizationServers`
+    // (see well-known.ts) — only apps/mcp does (issue #224). Not that the
+    // field is unsupported; index.ts just never opts in.
     expect(body.authorization_servers).toBeUndefined();
   });
 });

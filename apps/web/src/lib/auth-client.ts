@@ -169,11 +169,12 @@ async function redirectToGitHubOAuth(
   }
 }
 
-/** Start GitHub sign-in (unauthenticated). */
+/** Start GitHub sign-in (unauthenticated). Carries the OAuth resume query, see oauthResumeBody. */
 export async function signInWithGitHub(origin: string, callbackURL: string): Promise<boolean> {
   return redirectToGitHubOAuth(origin, "/api/auth/sign-in/social", {
     provider: "github",
     callbackURL,
+    ...oauthResumeBody(),
   });
 }
 
@@ -190,6 +191,22 @@ export async function linkGitHub(origin: string, callbackURL: string): Promise<b
   });
 }
 
+/**
+ * OAuth AS resume support (issue #224, Lane B). When the AS sends an
+ * unauthenticated user to `/login?<signed authorize query>`, the server only
+ * resumes the authorize flow if the sign-in POST body carries `oauth_query` =
+ * `location.search` with the leading "?" stripped. Mirrors the official
+ * oauth-provider client plugin's fetch hook, which injects this whenever
+ * `location.search` contains `sig=` — that param only appears on a signed
+ * query, so its presence is the trigger.
+ */
+function oauthResumeBody(): { oauth_query: string } | Record<string, never> {
+  if (typeof location === "undefined") return {};
+  const search = location.search;
+  if (!search || !new URLSearchParams(search).has("sig")) return {};
+  return { oauth_query: search.slice(1) };
+}
+
 /** POST /api/auth/sign-in/magic-link. Returns true when the auth worker accepted the request. */
 export async function sendMagicLink(
   origin: string,
@@ -200,7 +217,7 @@ export async function sendMagicLink(
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, callbackURL }),
+    body: JSON.stringify({ email, callbackURL, ...oauthResumeBody() }),
   });
   return res.ok;
 }
@@ -467,5 +484,85 @@ export async function revokeSession(origin: string, token: string): Promise<bool
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+/**
+ * OAuth AS client metadata (issue #224, Lane B): fields the `/oauth/consent`
+ * page reads off `@better-auth/oauth-provider`'s public-client response.
+ * `client_uri`/`logo_uri` are attacker-controlled (any registered DCR
+ * client) — callers must scheme-check before rendering them as links/images.
+ */
+export interface OAuthPublicClient {
+  client_id: string;
+  client_name?: string;
+  client_uri?: string;
+  logo_uri?: string;
+}
+
+/**
+ * GET /api/auth/oauth2/public-client?client_id=. Session-gated (credentialed
+ * fetch). Returns null on any failure, malformed body, or missing session —
+ * the consent page falls back to displaying the raw client_id.
+ */
+export async function getOAuthPublicClient(
+  origin: string,
+  clientId: string,
+): Promise<OAuthPublicClient | null> {
+  try {
+    const res = await fetch(
+      `${authOrigin(origin)}/api/auth/oauth2/public-client?client_id=${encodeURIComponent(clientId)}`,
+      { credentials: "include", cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as OAuthPublicClient | null;
+    return body && typeof body.client_id === "string" ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+export type OAuthConsentResult = { ok: true; redirectUri: string } | { ok: false; error: string };
+
+/**
+ * POST /api/auth/oauth2/consent. `oauthQuery` is `location.search` with the
+ * leading "?" stripped (the signed consent query the AS handed the browser) —
+ * required so the AS can resolve which pending authorize request this is.
+ * `scope` is the space-delimited set of scopes the user is granting; omit on
+ * deny. Response carries `redirect_uri` on success, `error_description` /
+ * `message` on rejection (expired/invalid signed query, unknown client, …).
+ */
+export async function submitOAuthConsent(
+  origin: string,
+  opts: { accept: boolean; scope?: string; oauthQuery: string },
+): Promise<OAuthConsentResult> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/oauth2/consent`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        accept: opts.accept,
+        ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
+        oauth_query: opts.oauthQuery,
+      }),
+    });
+    const body = (await res.json().catch(() => null)) as {
+      redirect_uri?: string;
+      error_description?: string;
+      message?: string;
+    } | null;
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: body?.error_description ?? body?.message ?? "Something went wrong. Try again.",
+      };
+    }
+    if (!body?.redirect_uri) {
+      return { ok: false, error: "The authorization server didn't return a redirect." };
+    }
+    return { ok: true, redirectUri: body.redirect_uri };
+  } catch {
+    return { ok: false, error: "Couldn't reach the authorization server. Try again." };
   }
 }

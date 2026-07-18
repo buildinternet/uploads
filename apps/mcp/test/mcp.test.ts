@@ -1,12 +1,18 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import app from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "@uploads/api/workspace";
 import { FakeR2Bucket } from "@uploads/storage/test/fake-r2";
+import { resetOAuthJwksCacheForTests } from "../src/oauth";
 import { GalleryFakeD1 } from "./gallery-fake-d1";
 
 const TOKEN = "up_test-ws_legacy-token-value";
 const ALPHA_TOKEN = "up_alpha_gallery-test";
 const BETA_TOKEN = "up_beta_gallery-test";
+
+const OAUTH_ISSUER = "https://auth.uploads.sh/api/auth";
+const OAUTH_AUDIENCE = "https://agents.uploads.sh/mcp";
+const OAUTH_KID = "test-key";
 
 const workspace: WorkspaceRecord = {
   provider: "r2",
@@ -29,6 +35,59 @@ beforeAll(() => {
     });
   }
 });
+
+/**
+ * OAuth JWT test fixtures (issue #224): one RS256 key pair for the whole
+ * suite, its public half served as the fake AS JWKS. `resetOAuthJwksCacheForTests`
+ * runs between tests so the module-level 5-min cache in src/oauth.ts never
+ * leaks a stale (or wrong-suite) key set across tests, and `fetch` is stubbed
+ * per-test to return it instead of hitting the network — the test seam the
+ * design calls for is `jwksFetcher`, but nothing in src/index.ts threads one
+ * through, so stubbing global fetch (the thing src/oauth.ts's default
+ * fetcher calls) exercises the real code path end-to-end.
+ */
+let oauthKeyPair: CryptoKeyPair;
+let oauthJwks: { keys: JWK[] };
+
+beforeAll(async () => {
+  oauthKeyPair = await generateKeyPair("RS256");
+  const publicJwk = await exportJWK(oauthKeyPair.publicKey);
+  oauthJwks = { keys: [{ ...publicJwk, kid: OAUTH_KID, alg: "RS256", use: "sig" }] };
+});
+
+beforeEach(() => {
+  resetOAuthJwksCacheForTests();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === `${OAUTH_ISSUER}/jwks`) {
+        return new Response(JSON.stringify(oauthJwks), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch in test: ${url}`);
+    }),
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+async function signOAuthToken(
+  claims: Record<string, unknown>,
+  opts: { issuer?: string; audience?: string; expiresIn?: string } = {},
+): Promise<string> {
+  return new SignJWT(claims)
+    .setProtectedHeader({ alg: "RS256", kid: OAUTH_KID })
+    .setIssuedAt()
+    .setIssuer(opts.issuer ?? OAUTH_ISSUER)
+    .setAudience(opts.audience ?? OAUTH_AUDIENCE)
+    .setExpirationTime(opts.expiresIn ?? "5m")
+    .sign(oauthKeyPair.privateKey);
+}
 
 /**
  * Fake bindings following apps/api/test/routes-auth.test.ts: KV returns the
@@ -399,8 +458,10 @@ describe("mcp worker", () => {
       expect(body.scopes_supported).toEqual(["files:read", "files:write", "files:delete"]);
       expect(body.bearer_methods_supported).toEqual(["header"]);
       expect(body.resource_documentation).toBe("https://uploads.sh/auth.md");
-      // No public authorization server for third-party clients — must not dangle a reference.
-      expect(body.authorization_servers).toBeUndefined();
+      // Only apps/mcp advertises an AS (issue #224) — it's the only resource
+      // server that verifies uploads-auth OAuth JWTs. Defaults to the prod
+      // issuer when AUTH_ORIGIN isn't set on the test env.
+      expect(body.authorization_servers).toEqual(["https://auth.uploads.sh/api/auth"]);
     }
   });
 
@@ -1113,5 +1174,201 @@ describe("token-inferred /mcp endpoint", () => {
       );
       expect(response.status).toBe(405);
     }
+  });
+});
+
+describe("OAuth JWT bearer (issue #224)", () => {
+  it("accepts a valid JWT at the token-inferred /mcp endpoint, scoped to its granted scopes", async () => {
+    const { env, bucket } = await makeEnv();
+    const jwt = await signOAuthToken({
+      sub: "user-1",
+      workspace: "test-ws",
+      workspaces: ["test-ws"],
+      scope: "files:read files:write",
+    });
+    const result = await callTool(
+      env,
+      "put",
+      { contentBase64: PNG_B64, filename: "shot.png", key: "shots/shot.png" },
+      jwt,
+      "/mcp",
+    );
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent).toMatchObject({ workspace: "test-ws", key: "shots/shot.png" });
+    expect(bucket.store.has("shots/shot.png")).toBe(true);
+  });
+
+  it("accepts a valid JWT at the path-based /:workspace/mcp endpoint when the path workspace is in `workspaces`", async () => {
+    const { env, bucket } = await makeEnv();
+    const jwt = await signOAuthToken({
+      sub: "user-1",
+      workspace: "test-ws",
+      workspaces: ["test-ws", "other-ws"],
+      scope: "files:read files:write",
+    });
+    const result = await callTool(
+      env,
+      "put",
+      { contentBase64: PNG_B64, filename: "shot.png", key: "shots/shot.png" },
+      jwt,
+      "/test-ws/mcp",
+    );
+    expect(result.isError).toBe(false);
+    expect(bucket.store.has("shots/shot.png")).toBe(true);
+  });
+
+  it("rejects a JWT at /:workspace/mcp when the path workspace isn't in `workspaces`", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken({
+      sub: "user-1",
+      workspace: "other-ws",
+      workspaces: ["other-ws"],
+      scope: "files:read files:write",
+    });
+    const response = await rpc(
+      env,
+      { jsonrpc: "2.0", id: 1, method: "initialize" },
+      jwt,
+      "/test-ws/mcp",
+    );
+    expect(response.status).toBe(401);
+  });
+
+  it("enforces the JWT's granted scopes inside tool handlers", async () => {
+    const { env, bucket } = await makeEnv();
+    const jwt = await signOAuthToken({
+      sub: "user-1",
+      workspace: "test-ws",
+      workspaces: ["test-ws"],
+      scope: "files:read",
+    });
+    const result = await callTool(
+      env,
+      "put",
+      { contentBase64: PNG_B64, filename: "shot.png" },
+      jwt,
+      "/mcp",
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([
+      { type: "text", text: "forbidden: requires files:write scope" },
+    ]);
+    expect(bucket.store.size).toBe(0);
+  });
+
+  it("also accepts a `scopes` array claim (defensive against the AS emitting either shape)", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken({
+      sub: "user-1",
+      workspace: "test-ws",
+      workspaces: ["test-ws"],
+      scopes: ["files:read"],
+    });
+    const result = await callTool(env, "list", {}, jwt, "/mcp");
+    expect(result.isError).toBe(false);
+  });
+
+  it("responds 403 with an actionable message when the token's user has no workspace", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken({
+      sub: "user-1",
+      workspace: null,
+      workspaces: [],
+      scope: "files:read files:write",
+    });
+    const response = await rpc(env, { jsonrpc: "2.0", id: 1, method: "initialize" }, jwt, "/mcp");
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe("workspace_required");
+    expect(body.error.message).toContain("uploads.sh");
+  });
+
+  it("401s with a discovery challenge (no error attribute) when no credential is presented", async () => {
+    const { env } = await makeEnv();
+    const response = await app.request(
+      "https://agents.uploads.sh/mcp",
+      { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }) },
+      env,
+    );
+    expect(response.status).toBe(401);
+    // RFC 6750 §3.1: a request with NO credential must not get `invalid_token`.
+    expect(response.headers.get("WWW-Authenticate")).toBe(
+      'Bearer resource_metadata="https://agents.uploads.sh/.well-known/oauth-protected-resource"',
+    );
+  });
+
+  it("401s with an RFC 9728 discovery challenge for a bad-issuer JWT", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken(
+      { sub: "user-1", workspace: "test-ws", workspaces: ["test-ws"], scope: "files:read" },
+      { issuer: "https://evil.example.com/api/auth" },
+    );
+    const response = await rpc(
+      env,
+      { jsonrpc: "2.0", id: 1, method: "initialize" },
+      jwt,
+      "https://agents.uploads.sh/mcp",
+    );
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toBe(
+      'Bearer error="invalid_token", resource_metadata="https://agents.uploads.sh/.well-known/oauth-protected-resource"',
+    );
+  });
+
+  it("401s with a discovery challenge for a bad-audience JWT", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken(
+      { sub: "user-1", workspace: "test-ws", workspaces: ["test-ws"], scope: "files:read" },
+      { audience: "https://not-uploads.example.com/mcp" },
+    );
+    const response = await rpc(env, { jsonrpc: "2.0", id: 1, method: "initialize" }, jwt, "/mcp");
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toContain('error="invalid_token"');
+  });
+
+  it("401s with a discovery challenge for an expired JWT", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken(
+      { sub: "user-1", workspace: "test-ws", workspaces: ["test-ws"], scope: "files:read" },
+      { expiresIn: "-1s" },
+    );
+    const response = await rpc(env, { jsonrpc: "2.0", id: 1, method: "initialize" }, jwt, "/mcp");
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toContain('error="invalid_token"');
+  });
+
+  it("401s for a JWT naming a workspace the registry no longer has", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken({
+      sub: "user-1",
+      workspace: "deleted-ws",
+      workspaces: ["deleted-ws"],
+      scope: "files:read",
+    });
+    const response = await rpc(env, { jsonrpc: "2.0", id: 1, method: "initialize" }, jwt, "/mcp");
+    expect(response.status).toBe(401);
+  });
+
+  it("accepts the mcp.uploads.sh alternate audience too", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken(
+      { sub: "user-1", workspace: "test-ws", workspaces: ["test-ws"], scope: "files:read" },
+      { audience: "https://mcp.uploads.sh/mcp" },
+    );
+    const result = await callTool(env, "list", {}, jwt, "/mcp");
+    expect(result.isError).toBe(false);
+  });
+
+  it("still authenticates the legacy up_ token path unaffected by the JWT lane", async () => {
+    const { env, bucket } = await makeEnv();
+    const result = await callTool(
+      env,
+      "put",
+      { contentBase64: PNG_B64, filename: "shot.png", key: "shots/legacy.png" },
+      TOKEN,
+      "/mcp",
+    );
+    expect(result.isError).toBe(false);
+    expect(bucket.store.has("shots/legacy.png")).toBe(true);
   });
 });
