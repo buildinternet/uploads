@@ -21,6 +21,11 @@ function invalidRequest(message: string) {
   return { error: "invalid_request", message } as const;
 }
 
+/** Same shape as invalidRequest, but with a distinct error code for a specific condition. */
+function officialClientError(message: string) {
+  return { error: "official_client", message } as const;
+}
+
 const REDIRECT_SCHEME_ALLOWLIST = new Set(["https:", "http:"]);
 
 function isLoopbackHost(host: string): boolean {
@@ -876,6 +881,14 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       .limit(1);
     if (!existing) {
       return c.json({ error: "not_found" }, 404);
+    }
+    if (isOfficial(existing)) {
+      return c.json(
+        officialClientError(
+          "official clients cannot be deleted; remove the official flag first (PATCH official:false)",
+        ),
+        409,
+      );
     }
 
     // Atomic via D1 batch — a partial failure must not leave tokens/consents
