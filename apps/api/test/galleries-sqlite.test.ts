@@ -7,6 +7,7 @@ import {
   addExternalReference,
   addGalleryItem,
   createGallery,
+  deleteGalleriesForWorkspace,
   getGallery,
   listExternalReferences,
   listGalleryItems,
@@ -238,6 +239,50 @@ describe("gallery persistence against SQLite", () => {
       );
       await expect(getGallery(database(sqlite), "alpha", created.id)).resolves.toMatchObject({
         version: 2,
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("deleteGalleriesForWorkspace hard-deletes a workspace's galleries, items, and references, leaving others intact", async () => {
+    const sqlite = newSqliteD1();
+    try {
+      const alpha = await gallery(sqlite, "alpha");
+      await addGalleryItem(database(sqlite), "alpha", alpha.id, {
+        expectedVersion: 1,
+        objectKey: "screenshots/one.png",
+      });
+      await addExternalReference(database(sqlite), "alpha", alpha.id, {
+        expectedVersion: 2,
+        provider: "github",
+        resourceType: "item",
+        normalizedKey: "github:item:buildinternet/uploads#123",
+        locator: { owner: "buildinternet", repository: "uploads", number: 123 },
+        canonicalUrl: "https://github.com/buildinternet/uploads/issues/123",
+      });
+      const beta = await gallery(sqlite, "beta");
+      await addGalleryItem(database(sqlite), "beta", beta.id, {
+        expectedVersion: 1,
+        objectKey: "screenshots/two.png",
+      });
+
+      const result = await deleteGalleriesForWorkspace(database(sqlite), "alpha");
+      expect(result).toEqual({ galleries: 1 });
+
+      expect(
+        sqlite.db
+          .prepare("SELECT COUNT(*) AS count FROM galleries WHERE workspace = 'alpha'")
+          .get(),
+      ).toMatchObject({ count: 0 });
+      expect(sqlite.db.prepare("SELECT COUNT(*) AS count FROM gallery_items").get()).toMatchObject({
+        count: 1,
+      });
+      expect(
+        sqlite.db.prepare("SELECT COUNT(*) AS count FROM gallery_external_references").get(),
+      ).toMatchObject({ count: 0 });
+      await expect(getGallery(database(sqlite), "beta", beta.id)).resolves.toMatchObject({
+        id: beta.id,
       });
     } finally {
       sqlite.close();

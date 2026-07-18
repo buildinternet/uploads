@@ -1,5 +1,11 @@
 import { renderEnrollmentInvitationEmail } from "@uploads/email";
-import { ConflictError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  RateLimitedError,
+  ValidationError,
+} from "@uploads/errors";
 import { Hono } from "hono";
 import { adminAuth } from "../admin";
 import {
@@ -14,9 +20,18 @@ import {
   revokeToken,
   validateScopes,
 } from "../auth-db";
+import { deleteFileMetadataForWorkspace } from "../file-metadata";
+import { deleteGalleriesForWorkspace } from "../galleries";
 import { deriveWebOrigin, inviteLinkUrl as inviteMagicLink } from "../invite-links";
+import { deleteOrg } from "../org-workspaces";
 import { reencryptRegistryCredentials } from "../reencrypt-registry";
+import { isCommunal } from "./me";
+import { storage } from "../storage";
 import type { WorkspaceRecord } from "../workspace";
+
+// files-sdk bulk-delete batch size — mirrors retention.ts's DELETE_BATCH
+// (stays under R2/S3's 1000-key DeleteObjects cap while bounding memory).
+const R2_DELETE_BATCH = 500;
 
 const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const HASH_PREFIX_LEN = 8;
@@ -426,4 +441,93 @@ export const admin = new Hono<{ Bindings: Env }>()
       const message = err instanceof Error ? err.message : String(err);
       throw new ValidationError(message, { cause: err });
     }
+  })
+
+  /**
+   * Admin-gated workspace teardown (v1 — see issue #241). Session-authed
+   * self-serve delete is deliberately out of scope here; this is the
+   * ops/CI break-glass path, same as `/tokens` and `/enrollments` above.
+   *
+   * Order (fail-safe: the KV record — the thing that actually grants
+   * storage access — is deleted last, so a failure partway through leaves
+   * the workspace inert rather than half-deleted-but-still-reachable):
+   *   1. 404 unknown workspace; 403 the communal/protected workspace.
+   *   2. Non-empty workspaces 409 with the object count unless `?force=1`;
+   *      with force, paginated list+delete of every R2 object under the
+   *      workspace's prefix.
+   *   3. Hard-delete file_metadata + galleries (+ items/references) rows.
+   *   4. Best-effort delete of the auth-side org + memberships.
+   *   5. Delete the `ws:<name>` KV record.
+   */
+  .delete("/workspaces/:name", async (c) => {
+    const name = c.req.param("name");
+    requireWorkspaceName(name);
+
+    if (isCommunal(c.env, name)) {
+      throw new ForbiddenError("cannot delete the communal workspace", {
+        code: "protected_workspace",
+      });
+    }
+
+    const record = await workspace(c, name);
+    if (!record) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
+
+    const force = c.req.query("force") === "1" || c.req.query("force") === "true";
+
+    const store = await storage(c.env, record);
+    let objectCount = 0;
+    let freedBytes = 0;
+    let batch: string[] = [];
+    for await (const item of store.listAll()) {
+      objectCount += 1;
+      freedBytes += item.size ?? 0;
+      if (force) {
+        batch.push(item.key);
+        if (batch.length >= R2_DELETE_BATCH) {
+          await store.delete(batch);
+          batch = [];
+        }
+      }
+    }
+    if (!force && objectCount > 0) {
+      throw new ConflictError(
+        `workspace has ${objectCount} object(s); retry with ?force=1 to delete them too`,
+        { code: "workspace_not_empty", details: { objectCount } },
+      );
+    }
+    if (batch.length > 0) await store.delete(batch);
+
+    const { galleries } = await deleteGalleriesForWorkspace(c.env.DB, name);
+    await deleteFileMetadataForWorkspace(c.env.DB, name);
+
+    // Best-effort, like the self-serve rollback path in routes/workspaces.ts
+    // — an org left behind after this point is orphaned (no KV record means
+    // no storage access) and safe to clean up later.
+    await deleteOrg(c.env, name).catch((err) =>
+      console.error("workspace delete: org cleanup failed for", name, "may be orphaned", err),
+    );
+
+    await c.env.REGISTRY.delete(`ws:${name}`);
+
+    console.log(
+      JSON.stringify({
+        event: "workspace_deleted",
+        workspace: name,
+        forced: force,
+        objectsDeleted: force ? objectCount : 0,
+        freedBytes: force ? freedBytes : 0,
+        galleriesDeleted: galleries,
+      }),
+    );
+
+    return c.json({
+      workspace: name,
+      deleted: true,
+      forced: force,
+      objectsDeleted: force ? objectCount : 0,
+      freedBytes: force ? freedBytes : 0,
+      galleriesDeleted: galleries,
+    });
   });

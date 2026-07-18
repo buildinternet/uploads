@@ -41,7 +41,7 @@ interface MyWorkspace {
  * mark it). Configurable via the `DEFAULT_WORKSPACE` var; defaults to
  * "default". Member surfaces skip the personal galleries/files browser for it.
  */
-function isCommunal(env: Env, name: string): boolean {
+export function isCommunal(env: Env, name: string): boolean {
   return name === (env.DEFAULT_WORKSPACE || "default");
 }
 

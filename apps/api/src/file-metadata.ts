@@ -217,6 +217,14 @@ export async function deleteFileMetadata(
     .run();
 }
 
+/** Deletes every metadata row for a workspace being torn down. */
+export async function deleteFileMetadataForWorkspace(
+  db: D1Database,
+  workspace: string,
+): Promise<void> {
+  await db.prepare(`DELETE FROM file_metadata WHERE workspace = ?`).bind(workspace).run();
+}
+
 /**
  * Fully replaces an object's metadata: validates `metadata` once (there's no
  * prior state to merge against, so unlike `setFileMetadata` there's nothing
