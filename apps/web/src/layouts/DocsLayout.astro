@@ -550,56 +550,50 @@ const fullTitle = `${title} · uploads.sh`;
     </div>
 
     <script>
-      // Scroll-spy for the right-hand TOC rail: highlight the section in view.
-      const tocLinks = new Map(
-        [...document.querySelectorAll(".docs-toc a")].map((a) => [a.getAttribute("href")?.slice(1), a]),
-      );
-      if (tocLinks.size > 0) {
-        const spy = new IntersectionObserver(
-          (entries) => {
-            for (const entry of entries) {
-              if (!entry.isIntersecting) continue;
-              for (const link of tocLinks.values()) link.removeAttribute("aria-current");
-              tocLinks.get(entry.target.id)?.setAttribute("aria-current", "true");
-            }
-          },
-          { rootMargin: "0px 0px -70% 0px" },
+      // Module scripts run once per session; re-wire after every ClientRouter swap.
+      import { onAstroPageLoad } from "../lib/account-shell";
+      import { bindCopyButtons } from "../lib/workspace-ui";
+
+      let tocSpy: IntersectionObserver | null = null;
+      let copyBound = false;
+
+      function bootDocsChrome(): void {
+        tocSpy?.disconnect();
+        tocSpy = null;
+
+        // TOC rail: highlight the section currently in view.
+        const tocLinks = new Map(
+          [...document.querySelectorAll(".docs-toc a")].map((a) => [
+            a.getAttribute("href")?.slice(1),
+            a,
+          ]),
         );
-        for (const id of tocLinks.keys()) {
-          const section = id && document.getElementById(id);
-          if (section) spy.observe(section);
+        if (tocLinks.size > 0) {
+          tocSpy = new IntersectionObserver(
+            (entries) => {
+              for (const entry of entries) {
+                if (!entry.isIntersecting) continue;
+                for (const link of tocLinks.values()) link.removeAttribute("aria-current");
+                tocLinks.get(entry.target.id)?.setAttribute("aria-current", "true");
+              }
+            },
+            { rootMargin: "0px 0px -70% 0px" },
+          );
+          for (const id of tocLinks.keys()) {
+            const section = id && document.getElementById(id);
+            if (section) tocSpy.observe(section);
+          }
+        }
+
+        // Once on document, scoped to docs cmd rows so account soft-navs do not
+        // double-fire (other shells bind their own copy handlers).
+        if (!copyBound) {
+          copyBound = true;
+          bindCopyButtons(document, ".doc .cmd button[data-copy]");
         }
       }
 
-      for (const btn of document.querySelectorAll(".cmd button")) {
-        btn.addEventListener("click", async () => {
-          const text = btn.getAttribute("data-copy") ?? "";
-          let ok = false;
-          try {
-            await navigator.clipboard.writeText(text);
-            ok = true;
-          } catch {
-            const ta = document.createElement("textarea");
-            ta.value = text;
-            ta.style.position = "fixed";
-            ta.style.opacity = "0";
-            document.body.appendChild(ta);
-            ta.select();
-            try {
-              ok = document.execCommand("copy");
-            } catch {
-              ok = false;
-            }
-            ta.remove();
-          }
-          btn.textContent = ok ? "copied ✓" : "copy failed";
-          btn.classList.toggle("done", ok);
-          setTimeout(() => {
-            btn.textContent = "copy";
-            btn.classList.remove("done");
-          }, 1500);
-        });
-      }
+      onAstroPageLoad(bootDocsChrome);
     </script>
   </body>
 </html>

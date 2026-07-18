@@ -1,8 +1,8 @@
 ---
 /**
  * Shared shell for Astro status pages (404 missing route, 500 application error).
- * Full-bleed SiteHeader + centered card body (same panel + titlebar treatment
- * as the landing terminal).
+ * Same full-bleed SiteHeader + site Footer as legal/content pages; the error
+ * itself is a centered card (landing terminal treatment).
  */
 import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
@@ -17,11 +17,14 @@ interface Props {
 }
 
 const { status, title, message, hint } = Astro.props;
+
+// Static page — auth origin baked at build time (see LegalLayout / landing).
+const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.uploads.sh";
 ---
 
 <html lang="en">
   <head>
-    <BaseHead />
+    <BaseHead preloadSans />
     <meta name="robots" content="noindex, nofollow, noarchive" />
     <meta name="description" content={`${status} ${title} — uploads.sh`} />
     <title>{status} · {title} · uploads.sh</title>
@@ -40,9 +43,8 @@ const { status, title, message, hint } = Astro.props;
         flex: 1;
         display: grid;
         place-items: center;
-        padding: 28px;
+        padding: 28px 24px;
         width: 100%;
-        box-sizing: border-box;
       }
       .card-wrap { width: min(var(--width-card, 480px), 100%); }
       .card {
@@ -104,10 +106,16 @@ const { status, title, message, hint } = Astro.props;
         border-color: var(--accent);
         outline: none;
       }
+      /* Full site footer under the card, same column width as legal pages. */
+      .error-foot {
+        width: min(var(--width-content, 720px), 100%);
+        margin: 0 auto;
+        padding: 0 24px 28px;
+      }
     </style>
   </head>
   <body>
-    <SiteHeader />
+    <SiteHeader authOrigin={authOrigin} />
     <main>
       <div class="card-wrap">
         <section class="card" aria-labelledby="error-title">
@@ -125,8 +133,10 @@ const { status, title, message, hint } = Astro.props;
             </div>
           </div>
         </section>
-        <Footer compact />
       </div>
     </main>
+    <div class="error-foot">
+      <Footer />
+    </div>
   </body>
 </html>
