@@ -205,7 +205,7 @@
   margin: 4px 0 0;
   color: var(--body);
   font-size: 13px;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .oauth-detail-grid code {
   font: 12px var(--mono);

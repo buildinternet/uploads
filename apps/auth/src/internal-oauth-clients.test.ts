@@ -121,6 +121,15 @@ describe("POST /internal/oauth-clients", () => {
     });
     expect(bad.status).toBe(400);
   });
+
+  it("400s on a redirect URI containing a fragment (RFC 6749 §3.1.2)", async () => {
+    const res = await jsonReq("POST", "/internal/oauth-clients", {
+      ...validCreateBody,
+      redirectUris: ["https://example.com/callback#fragment"],
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: string }).toMatchObject({ error: "invalid_request" });
+  });
 });
 
 describe("GET /internal/oauth-clients", () => {
@@ -312,6 +321,19 @@ describe("PATCH /internal/oauth-clients/:clientId", () => {
       .where(eqClientId(clientId));
     expect(rowAfterUnset.metadata).toMatchObject({ someOtherKey: "keep-me" });
     expect((rowAfterUnset.metadata as Record<string, unknown>).official).toBeUndefined();
+  });
+
+  it("clears uri when patched with null", async () => {
+    const created = await jsonReq("POST", "/internal/oauth-clients", {
+      ...validCreateBody,
+      uri: "https://example.com",
+    });
+    const { clientId } = (await created.json()) as { clientId: string };
+
+    const res = await jsonReq("PATCH", `/internal/oauth-clients/${clientId}`, { uri: null });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { uri: string | null };
+    expect(body.uri).toBeNull();
   });
 });
 

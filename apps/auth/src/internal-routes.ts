@@ -40,6 +40,13 @@ function isAllowedUrl(value: string): boolean {
   return true;
 }
 
+/** Redirect URIs additionally forbid a fragment component (RFC 6749 §3.1.2). */
+function isAllowedRedirectUrl(value: string): boolean {
+  if (!isAllowedUrl(value)) return false;
+  const url = new URL(value);
+  return url.hash === "";
+}
+
 type OauthClientRow = typeof schema.oauthClient.$inferSelect;
 
 /** Reads the `official` flag out of the client's metadata JSON blob. */
@@ -118,7 +125,7 @@ function validateRedirectUris(value: unknown): string[] | null {
   if (!Array.isArray(value) || value.length === 0 || value.length > 20) return null;
   const uris: string[] = [];
   for (const entry of value) {
-    if (typeof entry !== "string" || !isAllowedUrl(entry)) return null;
+    if (typeof entry !== "string" || !isAllowedRedirectUrl(entry)) return null;
     uris.push(entry);
   }
   return uris;
@@ -636,9 +643,43 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     const rows = await db.select().from(schema.oauthClient).orderBy(schema.oauthClient.createdAt);
     // orderBy asc by default; contract wants createdAt desc.
     rows.reverse();
-    const clients = await Promise.all(
-      rows.map(async (row) => serializeClient(row, await statsForClient(db, row.clientId))),
-    );
+
+    // Two grouped aggregate queries instead of one statsForClient() call per
+    // row — avoids an N+1 (2N) query fan-out on the list endpoint.
+    const consentRows = await db
+      .select({
+        clientId: schema.oauthConsent.clientId,
+        consentCount: countDistinct(schema.oauthConsent.userId),
+        lastConsentAt: max(schema.oauthConsent.createdAt),
+      })
+      .from(schema.oauthConsent)
+      .groupBy(schema.oauthConsent.clientId);
+    const consentByClient = new Map(consentRows.map((row) => [row.clientId, row]));
+
+    const tokenRows = await db
+      .select({
+        clientId: schema.oauthRefreshToken.clientId,
+        activeTokenCount: count(),
+      })
+      .from(schema.oauthRefreshToken)
+      .where(
+        and(
+          isNull(schema.oauthRefreshToken.revoked),
+          gt(schema.oauthRefreshToken.expiresAt, new Date()),
+        ),
+      )
+      .groupBy(schema.oauthRefreshToken.clientId);
+    const tokensByClient = new Map(tokenRows.map((row) => [row.clientId, row.activeTokenCount]));
+
+    const clients = rows.map((row) => {
+      const consent = consentByClient.get(row.clientId);
+      const stats: OauthClientStats = {
+        consentCount: consent?.consentCount ?? 0,
+        activeTokenCount: tokensByClient.get(row.clientId) ?? 0,
+        lastConsentAt: toEpochMs(consent?.lastConsentAt ?? null),
+      };
+      return serializeClient(row, stats);
+    });
     return c.json({ clients });
   })
   .get("/oauth-clients/:clientId", async (c) => {
@@ -822,12 +863,14 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       return c.json({ error: "not_found" }, 404);
     }
 
-    await db.delete(schema.oauthAccessToken).where(eq(schema.oauthAccessToken.clientId, clientId));
-    await db
-      .delete(schema.oauthRefreshToken)
-      .where(eq(schema.oauthRefreshToken.clientId, clientId));
-    await db.delete(schema.oauthConsent).where(eq(schema.oauthConsent.clientId, clientId));
-    await db.delete(schema.oauthClient).where(eq(schema.oauthClient.clientId, clientId));
+    // Atomic via D1 batch — a partial failure must not leave tokens/consents
+    // orphaned against a deleted client (or vice versa).
+    await db.batch([
+      db.delete(schema.oauthAccessToken).where(eq(schema.oauthAccessToken.clientId, clientId)),
+      db.delete(schema.oauthRefreshToken).where(eq(schema.oauthRefreshToken.clientId, clientId)),
+      db.delete(schema.oauthConsent).where(eq(schema.oauthConsent.clientId, clientId)),
+      db.delete(schema.oauthClient).where(eq(schema.oauthClient.clientId, clientId)),
+    ]);
 
     return c.json({ ok: true });
   });

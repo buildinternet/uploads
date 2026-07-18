@@ -116,8 +116,6 @@ export const prerender = false;
         const parts: string[] = [];
         if (client.official) parts.push(`<span class="pill oauth-badge-official">Official</span>`);
         if (client.disabled) parts.push(`<span class="pill oauth-badge-disabled">Disabled</span>`);
-        if (client.userId === null && !client.official)
-          parts.push(`<span class="pill oauth-badge-dcr">DCR</span>`);
         return parts.join(" ");
       }
 
