@@ -19,7 +19,8 @@ From the repo root: `pnpm dev:web` / `pnpm run deploy:web`.
 ```
 src/layouts/                         Shared shells (error pages)
 src/pages/                           Astro pages; g/[id].astro is the on-demand public gallery
-src/lib/                             Public gallery API schema/fetch boundary
+src/pages/oembed.ts                  oEmbed 1.0 JSON endpoint for shareable /f and /g pages
+src/lib/                             Public gallery/file fetch + oEmbed resolution
 public/_headers                      Per-path response headers (Link, robots, types)
 public/robots.txt                    Crawl policy + Content Signals + AI bot rules
 public/sitemap.xml                   Public URL list (landing only)
@@ -70,6 +71,7 @@ rules there.
 | MCP server card | `/.well-known/mcp/server-card.json`                                  |
 | Agent skills    | `/.well-known/agent-skills/index.json`                               |
 | Auth for agents | `/auth.md` (bearer / invite; also documents the hosted-MCP OAuth AS) |
+| oEmbed          | `/oembed?url=…` for public `/f/…` and `/g/…` pages (JSON only)       |
 
 ### Agent skills — always track GitHub `main`
 

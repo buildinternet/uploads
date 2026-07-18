@@ -46,6 +46,7 @@ Claude Code plugin (bundles the skills, the hosted MCP server, and the /uploads:
 - API: https://api.uploads.sh
 - Agents / MCP: https://agents.uploads.sh/mcp
 - Public storage: https://storage.uploads.sh
+- oEmbed (share pages `/f/…`, `/g/…`): https://uploads.sh/oembed?url=<page-url>&format=json
 
 ## Machine-readable discovery
 

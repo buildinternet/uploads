@@ -42,6 +42,13 @@ const REPO = "https://github.com/buildinternet/uploads";
         media attached to private repositories. Don't upload secrets or sensitive UI.
       </li>
       <li>
+        <strong>Share pages support embeds.</strong> Every public file and gallery has a
+        page at <code>/f/…</code> or <code>/g/…</code> with
+        <a href="https://oembed.com/">oEmbed</a> discovery, so tools that unfurl links can
+        show the media. The endpoint is
+        <code>GET /oembed?url=&lt;page-url&gt;&amp;format=json</code>.
+      </li>
+      <li>
         <strong>Access is by invitation.</strong> There's no self-serve signup right now. If
         you'd like in, reach out via <a href={REPO}>the GitHub repo</a>.
       </li>

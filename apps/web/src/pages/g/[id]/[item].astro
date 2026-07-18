@@ -14,6 +14,7 @@ import {
   mediaKind as kind,
   type PublicGalleryItem,
 } from "../../../lib/public-gallery";
+import { oembedDiscoveryHref } from "../../../lib/oembed";
 import { env } from "cloudflare:workers";
 
 export const prerender = false;
@@ -56,6 +57,8 @@ const embedFormats: EmbedFormatOption[] =
     : [];
 const downloadUrl =
   item && item.status === "available" ? galleryItemDownloadUrl(origin, id, item.id) : null;
+const oembedHref =
+  gallery && item ? oembedDiscoveryHref(canonical, Astro.url.origin) : null;
 ---
 
 <!doctype html>
@@ -71,6 +74,14 @@ const downloadUrl =
     <meta property="og:description" content={item?.caption ?? gallery?.description ?? "Public media hosted by uploads.sh."} />
     <meta property="og:url" content={canonical} />
     {item && kind(item) === "image" && <meta property="og:image" content={item.url!} />}
+    {oembedHref && item && (
+      <link
+        rel="alternate"
+        type="application/json+oembed"
+        href={oembedHref}
+        title={`${item.filename} oEmbed Profile`}
+      />
+    )}
     <style>
       * { box-sizing:border-box; }
       body { margin:0; min-height:100vh; color:var(--fg); background:var(--bg); font-family:var(--sans); }
