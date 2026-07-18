@@ -1,0 +1,16 @@
+---
+/**
+ * Client-side routing for multi-page shells (account, admin, docs).
+ *
+ * We use Astro’s ClientRouter to hold the current view while the next route
+ * HTML is fetched, then swap — which removes the blank-page flicker of full
+ * reloads. Animations are intentionally off (`fallback="swap"` here; layouts
+ * also set `transition:animate="none"` on `<html>`).
+ *
+ * Layout and page scripts that attach listeners or fill dynamic UI must re-run
+ * on `astro:page-load` (bundled modules only execute once per session).
+ */
+import { ClientRouter } from "astro:transitions";
+---
+
+<ClientRouter fallback="swap" />

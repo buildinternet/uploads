@@ -54,7 +54,7 @@ export const prerender = false;
   </section>
 
   <script>
-    import { onSession, requireElement } from "../../lib/account-shell";
+    import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
     import {
       getAccountInfo,
       getSession,
@@ -68,6 +68,9 @@ export const prerender = false;
     import { getMyWorkspaces } from "../../lib/api-client";
     import { githubMarkSvg } from "../../lib/brand-icons";
     import { deviceLabel, formatSessionTime, isCliUserAgent } from "../../lib/session-device";
+
+    onAstroPageLoad(() => {
+      if (!document.getElementById("acct-email")) return;
 
     const w = window as unknown as {
       __UPLOADS_AUTH_ORIGIN__: string;
@@ -396,6 +399,7 @@ export const prerender = false;
       void loadAccounts();
       void loadWorkspaceAccess();
       void loadSessions();
+    });
     });
   </script>
 </AccountLayout>

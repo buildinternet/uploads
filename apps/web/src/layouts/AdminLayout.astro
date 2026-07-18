@@ -3,6 +3,9 @@
  * Shared shell for /admin and /admin/* — sidebar nav with real paths.
  * Client-side gating is a UX affordance only; /admin-ui/* enforces admin
  * server-side.
+ *
+ * ClientRouter holds the current view while the next admin route loads
+ * (no blank-page flicker). Scripts re-boot on `astro:page-load`.
  */
 import { env } from "cloudflare:workers";
 import {
@@ -14,6 +17,7 @@ import {
 import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
 import SiteHeader from "../components/SiteHeader.astro";
+import ViewTransitions from "../components/ViewTransitions.astro";
 import "../styles/signed-in-shell.css";
 
 export type AdminSection = "workspaces" | "users";
@@ -41,9 +45,10 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
 ];
 ---
 
-<html lang="en">
+<html lang="en" transition:animate="none">
 <head>
   <BaseHead />
+  <ViewTransitions />
   <title>{docTitle}</title>
 </head>
 <body>
@@ -101,8 +106,9 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
     </div>
   </div>
 
-{/* Sync optimistic paint for admins only — same cache key as account-shell. */}
-<script is:inline>
+{/* Sync optimistic paint for admins only — same cache key as account-shell.
+    data-astro-rerun: ClientRouter must re-apply this after every body swap. */}
+<script is:inline data-astro-rerun>
   (function () {
     try {
       var raw = sessionStorage.getItem("uploads:sessionUser");
@@ -118,35 +124,44 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
   })();
 </script>
 
-<script define:vars={{ authOrigin, apiOrigin }}>
+<script is:inline data-astro-rerun define:vars={{ authOrigin, apiOrigin }}>
   window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
   window.__UPLOADS_API_ORIGIN__ = apiOrigin;
 </script>
 <script>
   import {
     initSignOut,
+    onAstroPageLoad,
     requireElement,
     resolveSessionGate,
   } from "../lib/account-shell";
 
-  const w = window as unknown as {
-    __UPLOADS_AUTH_ORIGIN__: string;
-  };
-  const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
+  onAstroPageLoad(() => {
+    if (!document.getElementById("dashboard")) return;
 
-  initSignOut(authOrigin);
+    const w = window as unknown as {
+      __UPLOADS_AUTH_ORIGIN__: string;
+    };
+    const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
 
-  void resolveSessionGate({
-    authOrigin,
-    checking: requireElement<HTMLElement>("#checking", "admin"),
-    denied: requireElement<HTMLElement>("#denied", "admin"),
-    unavailable: requireElement<HTMLElement>("#auth-unavailable", "admin"),
-    app: requireElement<HTMLElement>("#dashboard", "admin"),
-    requireRole: "admin",
-  });
+    initSignOut(authOrigin);
 
-  requireElement<HTMLButtonElement>("#session-retry", "admin").addEventListener("click", () => {
-    location.reload();
+    void resolveSessionGate({
+      authOrigin,
+      checking: requireElement<HTMLElement>("#checking", "admin"),
+      denied: requireElement<HTMLElement>("#denied", "admin"),
+      unavailable: requireElement<HTMLElement>("#auth-unavailable", "admin"),
+      app: requireElement<HTMLElement>("#dashboard", "admin"),
+      requireRole: "admin",
+    });
+
+    const retry = document.querySelector<HTMLButtonElement>("#session-retry");
+    if (retry && retry.dataset.bound !== "1") {
+      retry.dataset.bound = "1";
+      retry.addEventListener("click", () => {
+        location.reload();
+      });
+    }
   });
 </script>
 </body>

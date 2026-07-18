@@ -54,7 +54,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
   </div>
 
   <script>
-    import { onSession, requireElement } from "../../../lib/account-shell";
+    import { onAstroPageLoad, onSession, requireElement } from "../../../lib/account-shell";
     import {
       getMyWorkspaces,
       getMyWorkspaceUsage,
@@ -77,6 +77,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const { WorkspaceFiles } = await import("../../../components/WorkspaceFiles");
       return WorkspaceFiles;
     }
+
+    onAstroPageLoad(() => {
+      // Invite page also uses #ws-status/#ws-app — require the files mount.
+      if (!document.getElementById("ws-files")) return;
 
     const page = "workspace page";
     const w = window as unknown as {
@@ -198,6 +202,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
     onSession(() => {
       void loadWorkspace();
+    });
     });
   </script>
 </AccountLayout>

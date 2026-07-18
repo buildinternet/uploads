@@ -12,6 +12,7 @@
 import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
 import SiteHeader from "../components/SiteHeader.astro";
+import ViewTransitions from "../components/ViewTransitions.astro";
 
 interface TocEntry {
   id: string;
@@ -54,9 +55,10 @@ const currentLabel =
 const fullTitle = `${title} · uploads.sh`;
 ---
 
-<html lang="en">
+<html lang="en" transition:animate="none">
   <head>
     <BaseHead preloadSans />
+    <ViewTransitions />
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={`https://uploads.sh${path}`} />

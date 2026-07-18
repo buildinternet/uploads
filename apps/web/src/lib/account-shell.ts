@@ -95,13 +95,26 @@ function showUnavailable(
 /** Wire `#sign-out-btn` to end the session and return to /login. */
 export function initSignOut(authOrigin: string): void {
   const button = document.querySelector<HTMLButtonElement>("#sign-out-btn");
-  if (!button) return;
+  if (!button || button.dataset.bound === "1") return;
+  button.dataset.bound = "1";
   button.addEventListener("click", () => {
     clearCachedSessionUser();
     void signOut(authOrigin).then(() => {
       location.href = "/login";
     });
   });
+}
+
+/**
+ * Run after every Astro ClientRouter navigation (and the initial load when
+ * `<ClientRouter />` is present). Bundled module scripts only execute once per
+ * session — page/layout boot that queries the DOM must register here so it
+ * re-attaches after body swap.
+ *
+ * Prefer this over top-level side effects in account/admin page scripts.
+ */
+export function onAstroPageLoad(callback: () => void): void {
+  document.addEventListener("astro:page-load", callback);
 }
 
 export type SessionGateOptions = {
