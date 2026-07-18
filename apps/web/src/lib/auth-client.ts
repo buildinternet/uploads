@@ -568,6 +568,29 @@ export async function setOAuthWorkspaceChoice(origin: string, workspace: string)
   }
 }
 
+/**
+ * location.search → the `oauth_query` string the AS's consent endpoint
+ * expects, repairing a specific corruption: better-auth 1.6.23's magic-link
+ * verify decodes its callbackURL one time too many, so a signed OAuth query
+ * that round-tripped through a sign-in email lands with the sig param's
+ * base64 `%2B` collapsed to a literal `+` — which query parsing then folds
+ * into a space, and the AS rejects the whole request with
+ * `invalid_signature`. A literal `+` can never legitimately appear in `sig`
+ * (base64 has no spaces to encode), so re-encoding it is a no-op for clean
+ * queries and repairs corrupted ones regardless of which hop dropped the
+ * encoding. The double-decode is lossless for sig's other specials (`%2F`→
+ * `/`, `%3D`→`=` survive parsing) and for the remaining signed params, whose
+ * values (URLs, base64url state/code_challenge) contain no encoded `+`.
+ */
+export function repairOAuthQuery(search: string): string {
+  return search
+    .replace(/^\?/, "")
+    .replace(
+      /(^|&)(sig=)([^&]*)/,
+      (_m, sep: string, key: string, value: string) => `${sep}${key}${value.replace(/\+/g, "%2B")}`,
+    );
+}
+
 export type OAuthConsentResult = { ok: true; redirectUri: string } | { ok: false; error: string };
 
 /**
