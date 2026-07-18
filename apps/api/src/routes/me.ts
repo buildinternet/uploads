@@ -114,6 +114,20 @@ export async function adminWorkspaceOr403(
   return ws;
 }
 
+/**
+ * True iff the user holds org role `owner` (not `admin`) for workspace
+ * `name`, resolved via the same org<->workspace mapping as
+ * `adminWorkspaceOr403`/`memberWorkspaceOr404` (issue #265 — extends the
+ * #249 self-serve deletion gate from creator-only to creator OR org owner).
+ * Non-throwing: a non-member or unknown workspace is simply `false`, not a
+ * 404 — callers combine this with other ownership checks and want a uniform
+ * "not authorized" outcome rather than a membership-probing 404.
+ */
+export async function isWorkspaceOwner(env: Env, userId: string, name: string): Promise<boolean> {
+  const workspaces = await myWorkspaces(env, userId);
+  return workspaces.some((w) => w.workspace === name && w.role === "owner");
+}
+
 export const me = new Hono<SessionVars>()
   .use("/*", sessionAuth, requireSessionUser)
 

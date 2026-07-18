@@ -14,7 +14,7 @@ import {
   ValidationError,
 } from "@uploads/errors";
 import { Hono, type MiddlewareHandler } from "hono";
-import { adminWorkspaceOr403, isCommunal } from "./me";
+import { adminWorkspaceOr403, isCommunal, isWorkspaceOwner } from "./me";
 import {
   isFileScope,
   isOperatorScope,
@@ -216,14 +216,30 @@ export const workspaces = new Hono<SessionVars>().post(
 );
 
 /**
- * Loads the raw record for `:name` and checks that the session user owns it
- * via self-serve (`selfServe === true` and `createdByUserId` matches). Shared
- * by the delete and restore handlers below.
+ * Loads the raw record for `:name` and checks that the session user is
+ * authorized for self-serve delete/restore: either the record creator
+ * (`createdByUserId`, unchanged since #249) OR the org `owner` (not
+ * `admin`) for that workspace (issue #265). Shared by the delete and
+ * restore handlers below.
+ *
+ * Session-only by construction — this is only ever reached via `sessionAuth`
+ * + `requireSessionUser` on the routes below, never via the `workspace:manage`
+ * bearer-token path (`workspaceManageAuth`) used by the token-governance
+ * routes further down this file. That's deliberate (#265): soft-deleting a
+ * workspace stays an interactive, attributable session action, so a
+ * `workspace:manage` token can never reach this function.
+ *
+ * The org-owner check does NOT let platform-admin role bypass anything —
+ * `isWorkspaceOwner` only resolves the caller's *org* role for this specific
+ * workspace via the same membership lookup as `adminWorkspaceOr403`
+ * (`./me.ts`), never a platform-wide admin flag. Operators already have
+ * `/admin/workspaces/:name` for break-glass deletion.
  *
  * 404 for unknown/purged-tombstone names (uniform with every other
  * not-found path); 403 for a workspace that exists but isn't a self-serve
- * workspace this user owns — including the communal workspace, which is
- * excluded outright regardless of its record shape.
+ * workspace this user is authorized for — including the communal workspace,
+ * which is excluded outright regardless of its record shape, and non-self-serve
+ * (BYO) workspaces, which stay undeletable via this surface regardless of role.
  */
 async function loadOwnedSelfServeRecord(c: { env: Env }, name: string, userId: string) {
   if (isCommunal(c.env, name)) {
@@ -235,10 +251,16 @@ async function loadOwnedSelfServeRecord(c: { env: Env }, name: string, userId: s
   if (!raw || isPurgedTombstone(raw)) {
     throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
   }
-  if (raw.selfServe !== true || raw.createdByUserId !== userId) {
+  if (raw.selfServe !== true) {
     throw new ForbiddenError("you do not own this workspace", { code: "not_owner" });
   }
-  return raw;
+  if (raw.createdByUserId === userId) {
+    return raw;
+  }
+  if (await isWorkspaceOwner(c.env, userId, name)) {
+    return raw;
+  }
+  throw new ForbiddenError("you do not own this workspace", { code: "not_owner" });
 }
 
 /**
