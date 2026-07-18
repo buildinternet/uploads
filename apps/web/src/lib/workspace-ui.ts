@@ -105,6 +105,20 @@ export function suggestedWorkspaceName(email: string | undefined): string {
   return WORKSPACE_NAME_RE.test(sanitized) ? sanitized : "";
 }
 
+/**
+ * Sanitize a `?next=` return path to a same-origin absolute path (with
+ * optional query/hash). Rejects anything that could navigate off-origin:
+ * absolute URLs, protocol-relative `//host`, and the backslash variant
+ * `/\host` browsers normalize to `//host`. Returns null when unusable so
+ * callers fall back to their default destination.
+ */
+export function safeSameOriginPath(raw: string | null | undefined): string | null {
+  if (!raw || raw[0] !== "/") return null;
+  if (raw[1] === "/" || raw[1] === "\\") return null;
+  if (raw.includes("://")) return null;
+  return raw;
+}
+
 export function createErrorCopy(code: string): string {
   switch (code) {
     case "invalid_workspace_name":

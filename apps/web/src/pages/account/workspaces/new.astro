@@ -72,6 +72,7 @@ export const prerender = false;
     import {
       bindCopyButtons,
       createErrorCopy,
+      safeSameOriginPath,
       suggestedWorkspaceName,
     } from "../../../lib/workspace-ui";
 
@@ -94,6 +95,11 @@ export const prerender = false;
     const input = form.elements.namedItem("name") as HTMLInputElement;
     const submit = form.querySelector<HTMLButtonElement>("button[type='submit']");
 
+    // `?next=` (same-origin path) returns the user to an interrupted flow —
+    // the OAuth consent page sends `/oauth/consent?<signed query>` so a
+    // workspace-less user can create one mid-authorization and resume.
+    const nextPath = safeSameOriginPath(new URLSearchParams(location.search).get("next"));
+
     void listAccounts(authOrigin).then((accounts) => {
       if (accounts && !accounts.some((a) => a.providerId === "github")) githubEl.hidden = false;
     });
@@ -105,7 +111,12 @@ export const prerender = false;
         githubError.hidden = true;
         connectBtn.disabled = true;
         connectBtn.textContent = "Redirecting…";
-        if (!(await linkGitHub(authOrigin, `${location.origin}/account/workspaces/new`))) {
+        // Thread `next` through the GitHub redirect hop so the return trip
+        // still knows where the user was headed.
+        const returnTo = nextPath
+          ? `${location.origin}/account/workspaces/new?next=${encodeURIComponent(nextPath)}`
+          : `${location.origin}/account/workspaces/new`;
+        if (!(await linkGitHub(authOrigin, returnTo))) {
           connectBtn.disabled = false;
           connectBtn.textContent = "Connect GitHub";
           githubError.hidden = false;
@@ -124,6 +135,13 @@ export const prerender = false;
         const result = await createWorkspace(apiOrigin, name);
         if (submit) submit.disabled = false;
         if (result.kind === "created") {
+          // Interrupted-flow return (OAuth consent): skip the CLI-setup card
+          // and go straight back — the user's goal is the pending authorize
+          // request, not terminal setup.
+          if (nextPath) {
+            location.href = nextPath;
+            return;
+          }
           input.value = "";
           createdName.textContent = name;
           openLink.href = `/account/workspaces/${encodeURIComponent(name)}`;
