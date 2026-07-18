@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AuthEnv } from "./auth";
@@ -104,5 +105,29 @@ describe("sweepOauthClients", () => {
     expect(result.candidates).toBe(1);
     expect(result.reapable).toBe(0);
     expect(result.deleted).toBe(0);
+  });
+
+  it("never sweeps a stale seeded uploads-cli client (issue #251 skip_consent exemption)", async () => {
+    // The migration seeds "uploads-cli" as skip_consent=1 specifically so a
+    // stale-but-never-consented row (device-flow logins never create
+    // oauth_consent/oauth_access_token rows) isn't reaped. Backdate the
+    // seeded row's created_at past the cutoff and confirm it's excluded.
+    const old = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+    await drizzle(db, { schema })
+      .update(schema.oauthClient)
+      .set({ createdAt: old, updatedAt: old })
+      .where(eq(schema.oauthClient.clientId, "uploads-cli"));
+
+    const result = await sweepOauthClients({ ...env, OAUTH_CLIENT_REAPER_ENABLED: "true" });
+
+    expect(result.candidates).toBe(0);
+    expect(result.reapable).toBe(0);
+    expect(result.deleted).toBe(0);
+
+    const remaining = await drizzle(db, { schema })
+      .select()
+      .from(schema.oauthClient)
+      .where(eq(schema.oauthClient.clientId, "uploads-cli"));
+    expect(remaining).toHaveLength(1);
   });
 });

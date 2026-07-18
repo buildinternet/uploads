@@ -33,6 +33,10 @@ uploads login --workspace acme
 
 The CLI authenticates as the managed official OAuth client `uploads-cli`,
 visible and toggleable by operators in the admin panel at `/admin/oauth`.
+Operators should disable it there rather than hard-deleting it: the seed
+migration only runs once (`INSERT OR IGNORE`, journaled as applied), so a
+deleted `uploads-cli` client is not automatically re-seeded and would break
+CLI login fleet-wide until manually re-inserted.
 
 On success, the CLI saves `UPLOADS_API_URL`, `UPLOADS_WORKSPACE`, and
 `UPLOADS_TOKEN` in the shared buildinternet config and runs `doctor`. It never

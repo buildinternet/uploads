@@ -249,5 +249,9 @@ describe("seeded CLI oauth client (issue #251)", () => {
     expect(row.clientSecret).toBeNull();
     expect(row.grantTypes).toEqual(["urn:ietf:params:oauth:grant-type:device_code"]);
     expect(row.metadata).toEqual({ official: true });
+    // skipConsent is seeded true so the oauth-client-reaper's first-party
+    // exemption applies to this row and it is never swept as stale (see
+    // apps/auth/src/oauth-client-reaper.ts and the seed migration comment).
+    expect(row.skipConsent).toBe(true);
   });
 });
