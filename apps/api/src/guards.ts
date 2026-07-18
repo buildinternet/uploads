@@ -183,25 +183,28 @@ export function inspectUpload(bytes: Uint8Array, policy: UploadPolicy): UploadIn
  * themselves are fixed per-binding in wrangler.jsonc (fixed sliding windows,
  * per-colo rather than globally exact — enough to blunt abuse, not billing).
  */
-function makeRateLimitGuard<BindingKey extends keyof Env>(
+function makeRateLimitGuard<BindingKey extends string>(
   bindingKey: BindingKey,
   message: string,
 ): {
   middleware: MiddlewareHandler<WorkspaceVars>;
-  allow: (env: { [K in BindingKey]?: Env[BindingKey] }, workspaceName: string) => Promise<boolean>;
+  allow: (env: Partial<Record<BindingKey, RateLimit>>, workspaceName: string) => Promise<boolean>;
 } {
   const allow = async (
-    env: { [K in BindingKey]?: Env[BindingKey] },
+    env: Partial<Record<BindingKey, RateLimit>>,
     workspaceName: string,
   ): Promise<boolean> => {
-    const limiter = env[bindingKey] as unknown as RateLimit | undefined;
+    const limiter = env[bindingKey];
     if (!limiter) return true;
     const { success } = await limiter.limit({ key: workspaceName });
     return success;
   };
 
   const middleware: MiddlewareHandler<WorkspaceVars> = async (c, next) => {
-    if (!(await allow(c.env, c.get("workspaceName")))) {
+    // `c.env` is the worker's full Env; narrowed here since this guard only
+    // ever reads the single `bindingKey` binding off of it.
+    const env = c.env as unknown as Partial<Record<BindingKey, RateLimit>>;
+    if (!(await allow(env, c.get("workspaceName")))) {
       throw new RateLimitedError(message);
     }
     await next();
@@ -236,7 +239,7 @@ export const allowRender = renderRateLimitGuard.allow;
  * local/dev setups, tests).
  */
 export async function allowWorkspaceCreate(
-  env: { WS_CREATE_LIMITER?: Env["WS_CREATE_LIMITER"] },
+  env: { WS_CREATE_LIMITER?: RateLimit },
   userId: string,
 ): Promise<boolean> {
   const limiter = env.WS_CREATE_LIMITER;
