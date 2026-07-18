@@ -1,12 +1,20 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
+import { SqliteD1, database } from "../../test/helpers/sqlite-d1";
+import { createToken } from "../auth-db";
 import { respondError } from "../error-response";
 import { workspaces } from "./workspaces";
 
 const USER = { id: "u1", email: "z@x.com", name: "Zach" };
 
+const MIGRATIONS = [
+  "migrations/20260710120000_auth.sql",
+  "migrations/20260712230000_token_minting_user.sql",
+];
+
 interface EnvOpts {
   session?: boolean;
+  sessionUser?: typeof USER & { role?: string };
   githubLinked?: boolean;
   memberships?: { organizationId: string; organizationSlug: string; role: string }[];
   kvRecords?: Record<string, object>;
@@ -28,6 +36,7 @@ function stubAuth(handler: (req: Request) => Response | Promise<Response>): Pick
 function stubEnv(opts: EnvOpts = {}): Env {
   const {
     session = true,
+    sessionUser = USER,
     githubLinked = true,
     memberships = [],
     kvRecords = {},
@@ -43,7 +52,7 @@ function stubEnv(opts: EnvOpts = {}): Env {
   const auth = stubAuth((req) => {
     const url = new URL(req.url);
     if (url.pathname === "/api/auth/get-session") {
-      return new Response(JSON.stringify(session ? { session: {}, user: USER } : null), {
+      return new Response(JSON.stringify(session ? { session: {}, user: sessionUser } : null), {
         status: 200,
       });
     }
@@ -52,6 +61,18 @@ function stubEnv(opts: EnvOpts = {}): Env {
     }
     if (url.pathname === "/internal/memberships") {
       return new Response(JSON.stringify(memberships), { status: 200 });
+    }
+    if (
+      req.method === "GET" &&
+      url.pathname.startsWith("/internal/orgs/") &&
+      url.pathname !== "/internal/orgs/provision"
+    ) {
+      const slug = decodeURIComponent(url.pathname.slice("/internal/orgs/".length));
+      const membership = memberships.find((m) => m.organizationSlug === slug);
+      if (!membership) return new Response(null, { status: 404 });
+      return Response.json({
+        organization: { id: membership.organizationId, slug, name: slug },
+      });
     }
     if (url.pathname === "/internal/orgs/provision") {
       const result = provision();
@@ -429,5 +450,119 @@ describe("POST /v1/workspaces/:name/restore (self-serve, #249)", () => {
     });
     const res = await restore(env, "zachbot");
     expect(res.status).toBe(403);
+  });
+});
+
+describe("self-serve delete/restore extended to org owner (#265)", () => {
+  const NOT_CREATOR_RECORD = { ...OWNED_RECORD, createdByUserId: "someone-else" };
+  const ORG_OWNER_MEMBERSHIPS = [
+    { organizationId: "org-1", organizationSlug: "zachbot", role: "owner" },
+  ];
+  const ORG_ADMIN_MEMBERSHIPS = [
+    { organizationId: "org-1", organizationSlug: "zachbot", role: "admin" },
+  ];
+  const ORG_MEMBER_MEMBERSHIPS = [
+    { organizationId: "org-1", organizationSlug: "zachbot", role: "member" },
+  ];
+
+  it("org owner (non-creator) can delete", async () => {
+    const env = stubEnv({
+      kvRecords: { zachbot: NOT_CREATOR_RECORD },
+      memberships: ORG_OWNER_MEMBERSHIPS,
+    });
+    const res = await del(env, "zachbot");
+    expect(res.status).toBe(200);
+  });
+
+  it("org owner (non-creator) can restore", async () => {
+    const env = stubEnv({
+      kvRecords: {
+        zachbot: {
+          ...NOT_CREATOR_RECORD,
+          deletedAt: new Date().toISOString(),
+          purgeAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
+        },
+      },
+      memberships: ORG_OWNER_MEMBERSHIPS,
+    });
+    const res = await restore(env, "zachbot");
+    expect(res.status).toBe(200);
+  });
+
+  it("403s org admin (non-owner, non-creator)", async () => {
+    const env = stubEnv({
+      kvRecords: { zachbot: NOT_CREATOR_RECORD },
+      memberships: ORG_ADMIN_MEMBERSHIPS,
+    });
+    const res = await del(env, "zachbot");
+    expect(res.status).toBe(403);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "not_owner" },
+    });
+  });
+
+  it("403s a plain member", async () => {
+    const env = stubEnv({
+      kvRecords: { zachbot: NOT_CREATOR_RECORD },
+      memberships: ORG_MEMBER_MEMBERSHIPS,
+    });
+    const res = await del(env, "zachbot");
+    expect(res.status).toBe(403);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "not_owner" },
+    });
+  });
+
+  it("403s a platform admin (session user role=admin) without an org role", async () => {
+    const env = stubEnv({
+      kvRecords: { zachbot: NOT_CREATOR_RECORD },
+      memberships: [],
+      sessionUser: { ...USER, role: "admin" },
+    });
+    const res = await del(env, "zachbot");
+    expect(res.status).toBe(403);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "not_owner" },
+    });
+  });
+
+  it("the record creator still works even with no org membership recorded", async () => {
+    const env = stubEnv({ kvRecords: { zachbot: OWNED_RECORD }, memberships: [] });
+    const res = await del(env, "zachbot");
+    expect(res.status).toBe(200);
+  });
+
+  it("blocks a non-self-serve (BYO) workspace even for the org owner", async () => {
+    const env = stubEnv({
+      kvRecords: { zachbot: { provider: "r2", bucket: "b", createdByUserId: "someone-else" } },
+      memberships: ORG_OWNER_MEMBERSHIPS,
+    });
+    const res = await del(env, "zachbot");
+    expect(res.status).toBe(403);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "not_owner" },
+    });
+  });
+
+  it("a workspace:manage-scoped bearer token still cannot delete (session-only surface)", async () => {
+    const db = new SqliteD1(MIGRATIONS);
+    const { token } = await createToken(db as unknown as D1Database, {
+      workspace: "zachbot",
+      scopes: ["workspace:manage"],
+    });
+    const env = stubEnv({
+      session: false,
+      kvRecords: { zachbot: NOT_CREATOR_RECORD },
+      memberships: ORG_OWNER_MEMBERSHIPS,
+    });
+    const res = await app().request(
+      "/v1/workspaces/zachbot",
+      { method: "DELETE", headers: { authorization: `Bearer ${token}` } },
+      env,
+    );
+    // DELETE/restore are wired to plain sessionAuth (never workspaceManageAuth),
+    // so an up_-shaped bearer is just an unrecognized session credential — 401,
+    // never a successful delete.
+    expect(res.status).toBe(401);
   });
 });
