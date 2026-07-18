@@ -315,6 +315,37 @@ export async function updateGallery(
   };
 }
 
+/**
+ * Hard-deletes every gallery (and its items/external references) for a
+ * workspace being torn down. Unlike `softDeleteGallery`, this is a permanent,
+ * unversioned wipe — only for workspace deletion, never a member-facing
+ * route. Explicit child deletes first rather than relying on the schema's
+ * `ON DELETE CASCADE` so this stays correct even if D1's FK enforcement
+ * config ever changes.
+ */
+export async function deleteGalleriesForWorkspace(
+  db: D1Database,
+  workspace: string,
+): Promise<{ galleries: number }> {
+  await db
+    .prepare(
+      `DELETE FROM gallery_items WHERE gallery_id IN (SELECT id FROM galleries WHERE workspace = ?)`,
+    )
+    .bind(workspace)
+    .run();
+  await db
+    .prepare(
+      `DELETE FROM gallery_external_references WHERE gallery_id IN (SELECT id FROM galleries WHERE workspace = ?)`,
+    )
+    .bind(workspace)
+    .run();
+  const result = await db
+    .prepare(`DELETE FROM galleries WHERE workspace = ?`)
+    .bind(workspace)
+    .run();
+  return { galleries: result.meta.changes ?? 0 };
+}
+
 export async function softDeleteGallery(
   db: D1Database,
   workspace: string,

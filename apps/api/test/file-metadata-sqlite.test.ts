@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   META_MAX_KEYS,
   deleteFileMetadata,
+  deleteFileMetadataForWorkspace,
   findObjectsByMetadata,
   getFileMetadata,
   replaceFileMetadata,
@@ -309,6 +310,27 @@ describe("file metadata persistence against SQLite", () => {
         // Rolled back: the DELETE + INSERT from the failed batch never committed.
         await expect(getFileMetadata(database(sqlite), "alpha", "f/one.png")).resolves.toEqual({
           app: "screenshots",
+        });
+      } finally {
+        sqlite.close();
+      }
+    });
+  });
+
+  describe("deleteFileMetadataForWorkspace", () => {
+    it("wipes every row for a workspace, leaving other workspaces untouched", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        await setFileMetadata(database(sqlite), "alpha", "f/one.png", { app: "screenshots" });
+        await setFileMetadata(database(sqlite), "alpha", "f/two.png", { app: "screenshots" });
+        await setFileMetadata(database(sqlite), "beta", "f/one.png", { app: "other" });
+
+        await deleteFileMetadataForWorkspace(database(sqlite), "alpha");
+
+        await expect(getFileMetadata(database(sqlite), "alpha", "f/one.png")).resolves.toEqual({});
+        await expect(getFileMetadata(database(sqlite), "alpha", "f/two.png")).resolves.toEqual({});
+        await expect(getFileMetadata(database(sqlite), "beta", "f/one.png")).resolves.toEqual({
+          app: "other",
         });
       } finally {
         sqlite.close();
