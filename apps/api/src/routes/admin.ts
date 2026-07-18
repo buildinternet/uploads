@@ -27,9 +27,11 @@ import { isCommunal } from "./me";
 import { storage } from "../storage";
 import { teardownWorkspace } from "../workspace-teardown";
 import {
+  isPastGrace,
   isPurgedTombstone,
   loadWorkspaceRecordRaw,
-  WORKSPACE_DELETE_GRACE_DAYS,
+  stampRestore,
+  stampSoftDelete,
   type WorkspaceRecord,
 } from "../workspace";
 
@@ -491,19 +493,25 @@ export const admin = new Hono<{ Bindings: Env }>()
         });
       }
 
-      const now = new Date();
-      const deletedAt = now.toISOString();
-      const purgeAt = new Date(
-        now.getTime() + WORKSPACE_DELETE_GRACE_DAYS * 24 * 60 * 60 * 1000,
-      ).toISOString();
-      const updated: WorkspaceRecord = { ...record, deletedAt, purgeAt };
+      const updated = stampSoftDelete(record);
       await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(updated));
 
       console.log(
-        JSON.stringify({ event: "workspace_deleted", workspace: name, mode: "soft", purgeAt }),
+        JSON.stringify({
+          event: "workspace_deleted",
+          workspace: name,
+          mode: "soft",
+          purgeAt: updated.purgeAt,
+        }),
       );
 
-      return c.json({ ok: true, workspace: name, mode: "soft", deletedAt, purgeAt });
+      return c.json({
+        ok: true,
+        workspace: name,
+        mode: "soft",
+        deletedAt: updated.deletedAt,
+        purgeAt: updated.purgeAt,
+      });
     }
 
     // Hard path: count objects up front so the not-empty guard still applies
@@ -567,7 +575,7 @@ export const admin = new Hono<{ Bindings: Env }>()
     if (!raw.deletedAt) {
       throw new ConflictError("workspace is not deleted", { code: "not_deleted" });
     }
-    if (raw.purgeAt && Date.now() >= Date.parse(raw.purgeAt)) {
+    if (isPastGrace(raw.purgeAt)) {
       throw new AppError({
         type: "conflict",
         code: "grace_expired",
@@ -576,7 +584,7 @@ export const admin = new Hono<{ Bindings: Env }>()
       });
     }
 
-    const { deletedAt: _deletedAt, purgeAt: _purgeAt, ...rest } = raw;
+    const rest = stampRestore(raw);
     await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(rest));
 
     console.log(JSON.stringify({ event: "workspace_restored", workspace: name }));

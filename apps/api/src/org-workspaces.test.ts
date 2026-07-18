@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { orgForWorkspace, workspacesForOrg } from "./org-workspaces";
+import { deleteOrg, listOrgs, orgForWorkspace, workspacesForOrg } from "./org-workspaces";
 
 /** Stub matching the Fetcher interface's `.fetch()` shape used by env.AUTH. */
 function stubAuth(handler: (req: Request) => Response | Promise<Response>): Pick<Fetcher, "fetch"> {
@@ -62,5 +62,52 @@ describe("workspacesForOrg", () => {
     const auth = stubAuth(() => new Response(null, { status: 404 }));
     const result = await workspacesForOrg(envWith(auth), "unknown");
     expect(result).toEqual([]);
+  });
+});
+
+describe("listOrgs (#250 orphan sweep)", () => {
+  it("returns the organizations array from GET /internal/orgs", async () => {
+    const auth = stubAuth((req) => {
+      expect(req.url).toBe("https://auth.internal/internal/orgs");
+      return Response.json({
+        organizations: [
+          { id: "o1", slug: "acme" },
+          { id: "o2", slug: "widgets" },
+        ],
+      });
+    });
+    const result = await listOrgs(envWith(auth));
+    expect(result).toEqual([
+      { id: "o1", slug: "acme" },
+      { id: "o2", slug: "widgets" },
+    ]);
+  });
+
+  it("throws on a non-ok response instead of masquerading as an empty list", async () => {
+    const auth = stubAuth(() => new Response(null, { status: 500 }));
+    await expect(listOrgs(envWith(auth))).rejects.toThrow();
+  });
+
+  it("throws on a malformed body", async () => {
+    const auth = stubAuth(() => Response.json({ nope: true }));
+    await expect(listOrgs(envWith(auth))).rejects.toThrow();
+  });
+});
+
+describe("deleteOrg force flag (#250)", () => {
+  it("without force: no query string", async () => {
+    const auth = stubAuth((req) => {
+      expect(req.url).toBe("https://auth.internal/internal/orgs/acme");
+      return new Response(null, { status: 200 });
+    });
+    await deleteOrg(envWith(auth), "acme");
+  });
+
+  it("with force: true, appends ?force=1", async () => {
+    const auth = stubAuth((req) => {
+      expect(req.url).toBe("https://auth.internal/internal/orgs/acme?force=1");
+      return new Response(null, { status: 200 });
+    });
+    await deleteOrg(envWith(auth), "acme", { force: true });
   });
 });

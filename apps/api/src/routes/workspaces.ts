@@ -5,14 +5,37 @@
  * ws:<name> record with the self-serve limit template. Org first, KV second,
  * with a compensating org delete when the KV write fails.
  */
-import { ConflictError, ForbiddenError, RateLimitedError, ValidationError } from "@uploads/errors";
+import {
+  AppError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  RateLimitedError,
+  ValidationError,
+} from "@uploads/errors";
 import { Hono } from "hono";
+import { isCommunal } from "./me";
 import { allowWorkspaceCreate } from "../guards";
 import { deleteOrg, isGithubLinked, membershipsForUser, provisionOrg } from "../org-workspaces";
 import { selfServeWorkspaceRecord } from "../self-serve-defaults";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
 import { validateSlug } from "../slug-policy";
-import { loadWorkspaceRecord } from "../workspace";
+import {
+  isPastGrace,
+  isPurgedTombstone,
+  loadWorkspaceRecord,
+  loadWorkspaceRecordRaw,
+  stampRestore,
+  stampSoftDelete,
+} from "../workspace";
+
+const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
+
+function requireWorkspaceName(name: string): void {
+  if (!WS_NAME_RE.test(name)) {
+    throw new ValidationError("invalid workspace", { code: "invalid_workspace" });
+  }
+}
 
 const MAX_BODY_BYTES = 1024;
 export const MAX_SELF_SERVE_WORKSPACES = 3;
@@ -104,3 +127,106 @@ export const workspaces = new Hono<SessionVars>().post(
     );
   },
 );
+
+/**
+ * Loads the raw record for `:name` and checks that the session user owns it
+ * via self-serve (`selfServe === true` and `createdByUserId` matches). Shared
+ * by the delete and restore handlers below.
+ *
+ * 404 for unknown/purged-tombstone names (uniform with every other
+ * not-found path); 403 for a workspace that exists but isn't a self-serve
+ * workspace this user owns — including the communal workspace, which is
+ * excluded outright regardless of its record shape.
+ */
+async function loadOwnedSelfServeRecord(c: { env: Env }, name: string, userId: string) {
+  if (isCommunal(c.env, name)) {
+    throw new ForbiddenError("cannot delete the communal workspace", {
+      code: "protected_workspace",
+    });
+  }
+  const raw = await loadWorkspaceRecordRaw(c.env, name);
+  if (!raw || isPurgedTombstone(raw)) {
+    throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+  }
+  if (raw.selfServe !== true || raw.createdByUserId !== userId) {
+    throw new ForbiddenError("you do not own this workspace", { code: "not_owner" });
+  }
+  return raw;
+}
+
+/**
+ * Self-serve workspace deletion (#249), following on from #244's admin
+ * break-glass path. Soft-delete ONLY: stamps `deletedAt`/`purgeAt` via the
+ * shared `stampSoftDelete` helper (see `../workspace.ts`) and puts the
+ * record back — never a hard/force mode, never slug-freeing. See
+ * docs/deletion.md: member-facing deletes are soft, always.
+ */
+workspaces.delete("/:name", sessionAuth, requireSessionUser, async (c) => {
+  const name = c.req.param("name");
+  requireWorkspaceName(name);
+  const user = c.get("sessionUser")!;
+
+  const record = await loadOwnedSelfServeRecord(c, name, user.id);
+  if (record.deletedAt) {
+    throw new ConflictError("workspace is already deleted", {
+      code: "already_deleted",
+      details: { deletedAt: record.deletedAt, purgeAt: record.purgeAt },
+    });
+  }
+
+  const updated = stampSoftDelete(record);
+  await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(updated));
+
+  console.log(
+    JSON.stringify({
+      event: "workspace_deleted",
+      workspace: name,
+      mode: "soft",
+      actor: "self_serve",
+      purgeAt: updated.purgeAt,
+    }),
+  );
+
+  return c.json({
+    ok: true,
+    workspace: name,
+    mode: "soft",
+    deletedAt: updated.deletedAt,
+    purgeAt: updated.purgeAt,
+  });
+});
+
+/**
+ * Self-serve restore, mirroring the admin restore semantics exactly (see
+ * `routes/admin.ts`'s `/workspaces/:name/restore`): 409 `not_deleted` if the
+ * workspace isn't currently soft-deleted, 410 `grace_expired` once `purgeAt`
+ * has passed (restorability must not depend on cron timing), and an
+ * unparseable/missing `purgeAt` is treated as still-restorable.
+ */
+workspaces.post("/:name/restore", sessionAuth, requireSessionUser, async (c) => {
+  const name = c.req.param("name");
+  requireWorkspaceName(name);
+  const user = c.get("sessionUser")!;
+
+  const record = await loadOwnedSelfServeRecord(c, name, user.id);
+  if (!record.deletedAt) {
+    throw new ConflictError("workspace is not deleted", { code: "not_deleted" });
+  }
+  if (isPastGrace(record.purgeAt)) {
+    throw new AppError({
+      type: "conflict",
+      code: "grace_expired",
+      message: "grace period has expired",
+      status: 410,
+    });
+  }
+
+  const rest = stampRestore(record);
+  await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(rest));
+
+  console.log(
+    JSON.stringify({ event: "workspace_restored", workspace: name, actor: "self_serve" }),
+  );
+
+  return c.json({ ok: true, workspace: name });
+});

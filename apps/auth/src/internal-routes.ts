@@ -237,6 +237,16 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     }
     return c.json({ organization: { id, slug, name: name || slug } }, 201);
   })
+  // #250 orphan-org sweep: every org slug, for apps/api's retention sweep to
+  // cross-reference against `ws:<slug>` KV keys. id+slug is all the sweep
+  // needs — it never touches org name/timestamps.
+  .get("/orgs", async (c) => {
+    const db = drizzle(c.env.DB, { schema });
+    const rows = await db
+      .select({ id: schema.organization.id, slug: schema.organization.slug })
+      .from(schema.organization);
+    return c.json({ organizations: rows });
+  })
   // Phase 3 (plan scope B): org lookup + member/invite counts for
   // GET /admin-ui/workspaces on apps/api.
   .get("/orgs/:slug", async (c) => {
@@ -581,11 +591,12 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     if (!org) {
       return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
     }
+    const force = c.req.query("force") === "1" || c.req.query("force") === "true";
     const members = await db
       .select({ id: schema.member.id })
       .from(schema.member)
       .where(eq(schema.member.organizationId, org.id));
-    if (members.length > 1) {
+    if (members.length > 1 && !force) {
       return c.json(errorJson("org_not_empty", "organization has more than one member"), 409);
     }
     await db.delete(schema.member).where(eq(schema.member.organizationId, org.id));
