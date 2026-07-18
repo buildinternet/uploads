@@ -5,7 +5,12 @@
  * the ops/CI `/admin` surface stays untouched. Backs the /admin page's
  * Workspaces slot on apps/web.
  */
-import { NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
+import {
+  NotFoundError,
+  RateLimitedError,
+  ServiceUnavailableError,
+  ValidationError,
+} from "@uploads/errors";
 import { Hono } from "hono";
 import {
   DEFAULT_ENROLLMENT_SECONDS,
@@ -50,6 +55,45 @@ async function orgSummaryForWorkspace(env: Env, name: string): Promise<OrgSummar
   );
   if (!response.ok) return null;
   return (await response.json().catch(() => null)) as OrgSummary | null;
+}
+
+/**
+ * Proxies a request to `path` over the AUTH service binding (Lane 1's
+ * `/internal/oauth-clients*` routes) and passes the status code + JSON body
+ * straight through — the auth worker owns validation of these payloads, this
+ * layer only adds the session/admin gate. A binding-level failure (thrown
+ * fetch, unparseable response) surfaces as a 503 rather than masquerading as
+ * whatever status the caller happened to be checking for.
+ */
+async function proxyOauthClients(
+  env: Env,
+  path: string,
+  init?: { method?: string; body?: unknown },
+): Promise<Response> {
+  let response: Response;
+  try {
+    response = await env.AUTH.fetch(`https://auth.internal${path}`, {
+      method: init?.method ?? "GET",
+      headers: {
+        "x-uploads-internal": "1",
+        ...(init?.body !== undefined ? { "content-type": "application/json" } : {}),
+      },
+      body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+    });
+  } catch (err) {
+    throw new ServiceUnavailableError("auth service is unavailable", {
+      code: "auth_service_unavailable",
+      cause: err,
+    });
+  }
+  const payload = await response.json().catch(() => null);
+  if (payload === null && response.status >= 500) {
+    throw new ServiceUnavailableError("auth service returned a malformed response", {
+      code: "auth_service_unavailable",
+      details: { status: response.status },
+    });
+  }
+  return Response.json(payload, { status: response.status });
 }
 
 export const adminUi = new Hono<SessionVars>()
@@ -212,4 +256,35 @@ export const adminUi = new Hono<SessionVars>()
       },
       201,
     );
+  })
+
+  // OAuth client registrations — proxied 1:1 to Lane 1's internal routes
+  // (see .context/2026-07-18-oauth-admin-panel-contract.md). Never re-validate
+  // beyond parsing JSON; the auth worker owns validation.
+  .get("/oauth-clients", async (c) => proxyOauthClients(c.env, "/internal/oauth-clients"))
+
+  .get("/oauth-clients/:clientId", async (c) => {
+    const clientId = c.req.param("clientId");
+    return proxyOauthClients(c.env, `/internal/oauth-clients/${encodeURIComponent(clientId)}`);
+  })
+
+  .post("/oauth-clients", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    return proxyOauthClients(c.env, "/internal/oauth-clients", { method: "POST", body });
+  })
+
+  .patch("/oauth-clients/:clientId", async (c) => {
+    const clientId = c.req.param("clientId");
+    const body = await c.req.json().catch(() => ({}));
+    return proxyOauthClients(c.env, `/internal/oauth-clients/${encodeURIComponent(clientId)}`, {
+      method: "PATCH",
+      body,
+    });
+  })
+
+  .delete("/oauth-clients/:clientId", async (c) => {
+    const clientId = c.req.param("clientId");
+    return proxyOauthClients(c.env, `/internal/oauth-clients/${encodeURIComponent(clientId)}`, {
+      method: "DELETE",
+    });
   });

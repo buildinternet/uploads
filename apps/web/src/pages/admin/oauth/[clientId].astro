@@ -1,0 +1,395 @@
+---
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import "../../../styles/admin-workspaces.css";
+import "../../../styles/admin-oauth.css";
+
+export const prerender = false;
+
+const clientId = Astro.params.clientId ?? "";
+if (!clientId) return Astro.redirect("/admin/oauth");
+---
+
+<AdminLayout section="oauth">
+  <section class="card">
+    <a href="/admin/oauth" class="oauth-back">&larr; OAuth apps</a>
+    <div id="oauth-detail-status" class="muted" style="margin-top:12px;font-size:13px">Loading…</div>
+
+    <div id="oauth-detail" hidden>
+      <div class="oauth-detail-header">
+        <h2 id="oauth-detail-name"></h2>
+        <div id="oauth-detail-badges" class="oauth-detail-badges"></div>
+      </div>
+
+      <dl class="oauth-detail-grid">
+        <div>
+          <dt>Client ID</dt>
+          <dd><code id="oauth-detail-client-id"></code></dd>
+        </div>
+        <div>
+          <dt>Homepage</dt>
+          <dd id="oauth-detail-uri"></dd>
+        </div>
+        <div>
+          <dt>Redirect URIs</dt>
+          <dd id="oauth-detail-redirects"></dd>
+        </div>
+        <div>
+          <dt>Scopes</dt>
+          <dd id="oauth-detail-scopes"></dd>
+        </div>
+        <div>
+          <dt>Consents</dt>
+          <dd id="oauth-detail-consent-count"></dd>
+        </div>
+        <div>
+          <dt>Active tokens</dt>
+          <dd id="oauth-detail-active-tokens"></dd>
+        </div>
+        <div>
+          <dt>Last consent</dt>
+          <dd id="oauth-detail-last-consent"></dd>
+        </div>
+        <div>
+          <dt>Created</dt>
+          <dd id="oauth-detail-created"></dd>
+        </div>
+      </dl>
+
+      <div class="oauth-detail-actions">
+        <button type="button" id="oauth-edit-toggle">Edit</button>
+        <button type="button" id="oauth-disable-toggle"></button>
+        <button type="button" id="oauth-delete" class="oauth-danger">Delete</button>
+      </div>
+      <div id="oauth-action-status" role="status" hidden></div>
+
+      <form id="oauth-edit-form" class="oauth-form" hidden>
+        <label>
+          Name
+          <input type="text" id="oauth-edit-name" required maxlength="200" />
+        </label>
+        <label>
+          Redirect URIs (one per line)
+          <textarea id="oauth-edit-redirects" required rows="3"></textarea>
+        </label>
+        <fieldset class="oauth-scopes">
+          <legend>Scopes</legend>
+          <label class="oauth-scope-check">
+            <input type="checkbox" name="oauth-edit-scope" value="files:read" />
+            files:read
+          </label>
+          <label class="oauth-scope-check">
+            <input type="checkbox" name="oauth-edit-scope" value="files:write" />
+            files:write
+          </label>
+          <label class="oauth-scope-check">
+            <input type="checkbox" name="oauth-edit-scope" value="files:delete" />
+            files:delete
+          </label>
+        </fieldset>
+        <label>
+          Homepage URL (optional)
+          <input type="url" id="oauth-edit-uri" />
+        </label>
+        <label class="oauth-scope-check">
+          <input type="checkbox" id="oauth-edit-official" />
+          Official app
+        </label>
+        <div class="oauth-form-actions">
+          <button type="submit">Save changes</button>
+          <button type="button" id="oauth-edit-cancel">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <script>
+    import { onAstroPageLoad, onSession, requireElement } from "../../../lib/account-shell";
+
+    onAstroPageLoad(() => {
+      const detailEl = document.getElementById("oauth-detail");
+      if (!detailEl) return;
+
+      const w = window as unknown as { __UPLOADS_API_ORIGIN__: string };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__.replace(/\/$/, "");
+      const clientId = decodeURIComponent(location.pathname.split("/").pop() ?? "");
+
+      interface OAuthClient {
+        clientId: string;
+        name: string;
+        type: string;
+        public: boolean;
+        disabled: boolean;
+        official: boolean;
+        redirectUris: string[];
+        scopes: string[];
+        uri: string | null;
+        icon: string | null;
+        userId: string | null;
+        skipConsent: boolean;
+        createdAt: number;
+        updatedAt: number;
+        consentCount: number;
+        activeTokenCount: number;
+        lastConsentAt: number | null;
+      }
+
+      function escapeHtml(value: string): string {
+        return value.replace(/[&<>"']/g, (ch) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
+        );
+      }
+
+      function errorMessage(payload: unknown, fallback: string): string {
+        if (payload && typeof payload === "object") {
+          const p = payload as { error?: { message?: string } | string; message?: string };
+          if (typeof p.error === "object" && p.error?.message) return p.error.message;
+          if (p.message) return p.message;
+        }
+        return fallback;
+      }
+
+      const statusEl = requireElement<HTMLElement>("#oauth-detail-status", "admin oauth detail");
+      const detail = requireElement<HTMLElement>("#oauth-detail", "admin oauth detail");
+      const nameEl = requireElement<HTMLElement>("#oauth-detail-name", "admin oauth detail");
+      const badgesEl = requireElement<HTMLElement>("#oauth-detail-badges", "admin oauth detail");
+      const clientIdEl = requireElement<HTMLElement>("#oauth-detail-client-id", "admin oauth detail");
+      const uriEl = requireElement<HTMLElement>("#oauth-detail-uri", "admin oauth detail");
+      const redirectsEl = requireElement<HTMLElement>("#oauth-detail-redirects", "admin oauth detail");
+      const scopesEl = requireElement<HTMLElement>("#oauth-detail-scopes", "admin oauth detail");
+      const consentCountEl = requireElement<HTMLElement>(
+        "#oauth-detail-consent-count",
+        "admin oauth detail",
+      );
+      const activeTokensEl = requireElement<HTMLElement>(
+        "#oauth-detail-active-tokens",
+        "admin oauth detail",
+      );
+      const lastConsentEl = requireElement<HTMLElement>(
+        "#oauth-detail-last-consent",
+        "admin oauth detail",
+      );
+      const createdEl = requireElement<HTMLElement>("#oauth-detail-created", "admin oauth detail");
+      const editToggleBtn = requireElement<HTMLButtonElement>(
+        "#oauth-edit-toggle",
+        "admin oauth detail",
+      );
+      const disableToggleBtn = requireElement<HTMLButtonElement>(
+        "#oauth-disable-toggle",
+        "admin oauth detail",
+      );
+      const deleteBtn = requireElement<HTMLButtonElement>("#oauth-delete", "admin oauth detail");
+      const actionStatus = requireElement<HTMLElement>("#oauth-action-status", "admin oauth detail");
+      const editForm = requireElement<HTMLFormElement>("#oauth-edit-form", "admin oauth detail");
+      const editCancelBtn = requireElement<HTMLButtonElement>(
+        "#oauth-edit-cancel",
+        "admin oauth detail",
+      );
+
+      let current: OAuthClient | null = null;
+
+      function badges(client: OAuthClient): string {
+        const parts: string[] = [];
+        if (client.official) parts.push(`<span class="pill oauth-badge-official">Official</span>`);
+        if (client.disabled) parts.push(`<span class="pill oauth-badge-disabled">Disabled</span>`);
+        return parts.join(" ");
+      }
+
+      function render(client: OAuthClient): void {
+        current = client;
+        document.title = `${client.name} · OAuth apps · Admin · uploads.sh`;
+        nameEl.textContent = client.name;
+        badgesEl.innerHTML = badges(client);
+        clientIdEl.textContent = client.clientId;
+        uriEl.textContent = client.uri || "—";
+        redirectsEl.innerHTML = client.redirectUris.length
+          ? `<ul class="oauth-uri-list">${client.redirectUris.map((u) => `<li>${escapeHtml(u)}</li>`).join("")}</ul>`
+          : "—";
+        scopesEl.textContent = client.scopes.join(", ") || "—";
+        consentCountEl.textContent = String(client.consentCount);
+        activeTokensEl.textContent = String(client.activeTokenCount);
+        lastConsentEl.textContent = client.lastConsentAt
+          ? new Date(client.lastConsentAt).toLocaleString()
+          : "Never";
+        createdEl.textContent = new Date(client.createdAt).toLocaleString();
+        disableToggleBtn.textContent = client.disabled ? "Enable" : "Disable";
+
+        const nameInput = requireElement<HTMLInputElement>("#oauth-edit-name", "admin oauth detail");
+        const redirectsInput = requireElement<HTMLTextAreaElement>(
+          "#oauth-edit-redirects",
+          "admin oauth detail",
+        );
+        const uriInput = requireElement<HTMLInputElement>("#oauth-edit-uri", "admin oauth detail");
+        const officialInput = requireElement<HTMLInputElement>(
+          "#oauth-edit-official",
+          "admin oauth detail",
+        );
+        nameInput.value = client.name;
+        redirectsInput.value = client.redirectUris.join("\n");
+        uriInput.value = client.uri ?? "";
+        officialInput.checked = client.official;
+        for (const input of Array.from(
+          editForm.querySelectorAll<HTMLInputElement>('input[name="oauth-edit-scope"]'),
+        )) {
+          input.checked = client.scopes.includes(input.value);
+        }
+      }
+
+      async function loadClient(): Promise<void> {
+        statusEl.hidden = false;
+        statusEl.textContent = "Loading…";
+        detail.hidden = true;
+        try {
+          const res = await fetch(
+            `${apiOrigin}/admin-ui/oauth-clients/${encodeURIComponent(clientId)}`,
+            { credentials: "include", cache: "no-store" },
+          );
+          if (res.status === 404) {
+            statusEl.textContent = "OAuth app not found.";
+            return;
+          }
+          if (!res.ok) throw new Error(`request failed: ${res.status}`);
+          const client = (await res.json()) as OAuthClient;
+          statusEl.hidden = true;
+          detail.hidden = false;
+          render(client);
+        } catch {
+          statusEl.hidden = false;
+          statusEl.textContent = "Failed to load this OAuth app.";
+        }
+      }
+
+      editToggleBtn.addEventListener("click", () => {
+        editForm.hidden = !editForm.hidden;
+      });
+      editCancelBtn.addEventListener("click", () => {
+        editForm.hidden = true;
+        if (current) render(current);
+      });
+
+      editForm.addEventListener("submit", (event) => {
+        void (async () => {
+          event.preventDefault();
+          if (!current) return;
+          const nameInput = requireElement<HTMLInputElement>("#oauth-edit-name", "admin oauth detail");
+          const redirectsInput = requireElement<HTMLTextAreaElement>(
+            "#oauth-edit-redirects",
+            "admin oauth detail",
+          );
+          const uriInput = requireElement<HTMLInputElement>("#oauth-edit-uri", "admin oauth detail");
+          const officialInput = requireElement<HTMLInputElement>(
+            "#oauth-edit-official",
+            "admin oauth detail",
+          );
+          const scopeInputs = Array.from(
+            editForm.querySelectorAll<HTMLInputElement>('input[name="oauth-edit-scope"]:checked'),
+          );
+
+          const submitBtn = editForm.querySelector<HTMLButtonElement>("button[type=submit]");
+          if (submitBtn) submitBtn.disabled = true;
+          actionStatus.hidden = true;
+
+          try {
+            const res = await fetch(
+              `${apiOrigin}/admin-ui/oauth-clients/${encodeURIComponent(current.clientId)}`,
+              {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  name: nameInput.value.trim(),
+                  redirectUris: redirectsInput.value
+                    .split("\n")
+                    .map((line) => line.trim())
+                    .filter(Boolean),
+                  scopes: scopeInputs.map((input) => input.value),
+                  uri: uriInput.value.trim() || null,
+                  official: officialInput.checked,
+                }),
+              },
+            );
+            if (!res.ok) {
+              const payload = await res.json().catch(() => null);
+              throw new Error(errorMessage(payload, `save failed: ${res.status}`));
+            }
+            const client = (await res.json()) as OAuthClient;
+            render(client);
+            editForm.hidden = true;
+            actionStatus.dataset.state = "ready";
+            actionStatus.textContent = "Saved.";
+            actionStatus.hidden = false;
+          } catch (err) {
+            actionStatus.dataset.state = "error";
+            actionStatus.textContent =
+              err instanceof Error && err.message ? err.message : "Couldn't save changes.";
+            actionStatus.hidden = false;
+          } finally {
+            if (submitBtn) submitBtn.disabled = false;
+          }
+        })();
+      });
+
+      disableToggleBtn.addEventListener("click", () => {
+        void (async () => {
+          if (!current) return;
+          disableToggleBtn.disabled = true;
+          actionStatus.hidden = true;
+          try {
+            const res = await fetch(
+              `${apiOrigin}/admin-ui/oauth-clients/${encodeURIComponent(current.clientId)}`,
+              {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ disabled: !current.disabled }),
+              },
+            );
+            if (!res.ok) {
+              const payload = await res.json().catch(() => null);
+              throw new Error(errorMessage(payload, `update failed: ${res.status}`));
+            }
+            const client = (await res.json()) as OAuthClient;
+            render(client);
+          } catch (err) {
+            actionStatus.dataset.state = "error";
+            actionStatus.textContent =
+              err instanceof Error && err.message ? err.message : "Couldn't update this app.";
+            actionStatus.hidden = false;
+          } finally {
+            disableToggleBtn.disabled = false;
+          }
+        })();
+      });
+
+      deleteBtn.addEventListener("click", () => {
+        void (async () => {
+          if (!current) return;
+          if (!confirm(`Delete "${current.name}"? This revokes all its tokens and cannot be undone.`))
+            return;
+          deleteBtn.disabled = true;
+          actionStatus.hidden = true;
+          try {
+            const res = await fetch(
+              `${apiOrigin}/admin-ui/oauth-clients/${encodeURIComponent(current.clientId)}`,
+              { method: "DELETE", credentials: "include" },
+            );
+            if (!res.ok) {
+              const payload = await res.json().catch(() => null);
+              throw new Error(errorMessage(payload, `delete failed: ${res.status}`));
+            }
+            location.href = "/admin/oauth";
+          } catch (err) {
+            actionStatus.dataset.state = "error";
+            actionStatus.textContent =
+              err instanceof Error && err.message ? err.message : "Couldn't delete this app.";
+            actionStatus.hidden = false;
+            deleteBtn.disabled = false;
+          }
+        })();
+      });
+
+      onSession(() => {
+        void loadClient();
+      });
+    });
+  </script>
+</AdminLayout>

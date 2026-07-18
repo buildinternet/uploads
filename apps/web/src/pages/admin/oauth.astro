@@ -1,0 +1,264 @@
+---
+import AdminLayout from "../../layouts/AdminLayout.astro";
+import "../../styles/admin-workspaces.css";
+import "../../styles/admin-oauth.css";
+
+export const prerender = false;
+---
+
+<AdminLayout section="oauth">
+  <section class="card">
+    <h2>OAuth apps</h2>
+    <p>
+      Registered OAuth client applications. All clients are public PKCE
+      clients — there is no client secret to manage.
+    </p>
+    <div id="oauth-status" class="muted" style="margin-top:12px;font-size:13px">Loading…</div>
+    <div id="oauth-list"></div>
+  </section>
+
+  <section class="card">
+    <h2>New OAuth app</h2>
+    <form id="oauth-create-form" class="oauth-form">
+      <label>
+        Name
+        <input type="text" id="oauth-create-name" required maxlength="200" placeholder="My app" />
+      </label>
+      <label>
+        Redirect URIs (one per line)
+        <textarea
+          id="oauth-create-redirects"
+          required
+          rows="3"
+          placeholder="https://example.com/callback"
+        ></textarea>
+      </label>
+      <fieldset class="oauth-scopes">
+        <legend>Scopes</legend>
+        <label class="oauth-scope-check">
+          <input type="checkbox" name="oauth-create-scope" value="files:read" checked />
+          files:read
+        </label>
+        <label class="oauth-scope-check">
+          <input type="checkbox" name="oauth-create-scope" value="files:write" checked />
+          files:write
+        </label>
+        <label class="oauth-scope-check">
+          <input type="checkbox" name="oauth-create-scope" value="files:delete" />
+          files:delete
+        </label>
+      </fieldset>
+      <label>
+        Homepage URL (optional)
+        <input type="url" id="oauth-create-uri" placeholder="https://example.com" />
+      </label>
+      <label class="oauth-scope-check">
+        <input type="checkbox" id="oauth-create-official" />
+        Official app
+      </label>
+      <button type="submit">Create app</button>
+    </form>
+    <div id="oauth-create-status" role="status" hidden></div>
+    <div id="oauth-create-result" hidden>
+      <p class="muted">New client ID (copy it now):</p>
+      <div class="oauth-copy-row">
+        <input type="text" id="oauth-create-client-id" readonly aria-label="New client ID" />
+        <button type="button" id="oauth-create-copy">Copy</button>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
+
+    onAstroPageLoad(() => {
+      if (!document.getElementById("oauth-list")) return;
+
+      const w = window as unknown as { __UPLOADS_API_ORIGIN__: string };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__.replace(/\/$/, "");
+
+      const oauthStatus = requireElement<HTMLElement>("#oauth-status", "admin oauth");
+      const oauthList = requireElement<HTMLElement>("#oauth-list", "admin oauth");
+
+      interface OAuthClient {
+        clientId: string;
+        name: string;
+        type: string;
+        public: boolean;
+        disabled: boolean;
+        official: boolean;
+        redirectUris: string[];
+        scopes: string[];
+        uri: string | null;
+        icon: string | null;
+        userId: string | null;
+        skipConsent: boolean;
+        createdAt: number;
+        updatedAt: number;
+        consentCount: number;
+        activeTokenCount: number;
+        lastConsentAt: number | null;
+      }
+
+      function escapeHtml(value: string): string {
+        return value.replace(/[&<>"']/g, (ch) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
+        );
+      }
+
+      async function apiGet<T>(path: string): Promise<T> {
+        const res = await fetch(`${apiOrigin}${path}`, { credentials: "include", cache: "no-store" });
+        if (!res.ok) throw new Error(`request failed: ${res.status}`);
+        return (await res.json()) as T;
+      }
+
+      function badges(client: OAuthClient): string {
+        const parts: string[] = [];
+        if (client.official) parts.push(`<span class="pill oauth-badge-official">Official</span>`);
+        if (client.disabled) parts.push(`<span class="pill oauth-badge-disabled">Disabled</span>`);
+        return parts.join(" ");
+      }
+
+      function renderClient(client: OAuthClient): HTMLElement {
+        const row = document.createElement("a");
+        row.className = "oauth-row";
+        row.href = `/admin/oauth/${encodeURIComponent(client.clientId)}`;
+        row.innerHTML = `
+          <div class="oauth-row-main">
+            <span class="name">${escapeHtml(client.name)}</span>
+            ${badges(client)}
+          </div>
+          <div class="oauth-row-meta">
+            <code class="oauth-client-id">${escapeHtml(client.clientId)}</code>
+            <span class="muted">${client.scopes.map(escapeHtml).join(", ")}</span>
+            <span class="muted">created ${new Date(client.createdAt).toLocaleDateString()}</span>
+            <span class="muted">${client.consentCount} consent${client.consentCount === 1 ? "" : "s"}</span>
+          </div>
+        `;
+        return row;
+      }
+
+      async function loadClients() {
+        try {
+          const { clients } = await apiGet<{ clients: OAuthClient[] }>("/admin-ui/oauth-clients");
+          oauthStatus.hidden = true;
+          oauthList.innerHTML = "";
+          if (!clients.length) {
+            oauthStatus.hidden = false;
+            oauthStatus.textContent = "No OAuth apps yet.";
+            return;
+          }
+          for (const client of clients) oauthList.appendChild(renderClient(client));
+        } catch {
+          oauthStatus.hidden = false;
+          oauthStatus.textContent = "Failed to load OAuth apps.";
+        }
+      }
+
+      const createForm = requireElement<HTMLFormElement>("#oauth-create-form", "admin oauth");
+      const createStatus = requireElement<HTMLElement>("#oauth-create-status", "admin oauth");
+      const createResult = requireElement<HTMLElement>("#oauth-create-result", "admin oauth");
+      const createClientIdInput = requireElement<HTMLInputElement>(
+        "#oauth-create-client-id",
+        "admin oauth",
+      );
+      const createCopyBtn = requireElement<HTMLButtonElement>("#oauth-create-copy", "admin oauth");
+
+      createForm.addEventListener("submit", (event) => {
+        void (async () => {
+          event.preventDefault();
+          const nameInput = requireElement<HTMLInputElement>("#oauth-create-name", "admin oauth");
+          const redirectsInput = requireElement<HTMLTextAreaElement>(
+            "#oauth-create-redirects",
+            "admin oauth",
+          );
+          const uriInput = requireElement<HTMLInputElement>("#oauth-create-uri", "admin oauth");
+          const officialInput = requireElement<HTMLInputElement>(
+            "#oauth-create-official",
+            "admin oauth",
+          );
+          const scopeInputs = Array.from(
+            createForm.querySelectorAll<HTMLInputElement>('input[name="oauth-create-scope"]:checked'),
+          );
+
+          const name = nameInput.value.trim();
+          const redirectUris = redirectsInput.value
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean);
+          const scopes = scopeInputs.map((input) => input.value);
+          const uri = uriInput.value.trim();
+
+          const submitBtn = createForm.querySelector<HTMLButtonElement>("button[type=submit]");
+          if (submitBtn) submitBtn.disabled = true;
+          createStatus.hidden = true;
+          createResult.hidden = true;
+
+          try {
+            const res = await fetch(`${apiOrigin}/admin-ui/oauth-clients`, {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name,
+                redirectUris,
+                scopes,
+                uri: uri || undefined,
+                official: officialInput.checked,
+              }),
+            });
+            if (!res.ok) {
+              const payload = (await res.json().catch(() => null)) as
+                | { error?: { message?: string } | string; message?: string }
+                | null;
+              const message =
+                (typeof payload?.error === "object" ? payload?.error?.message : undefined) ||
+                payload?.message ||
+                `create failed: ${res.status}`;
+              throw new Error(message);
+            }
+            const client = (await res.json()) as OAuthClient;
+
+            createClientIdInput.value = client.clientId;
+            createResult.hidden = false;
+            createForm.reset();
+            // Re-check the default scopes after reset.
+            const readCheck = createForm.querySelector<HTMLInputElement>(
+              'input[name="oauth-create-scope"][value="files:read"]',
+            );
+            const writeCheck = createForm.querySelector<HTMLInputElement>(
+              'input[name="oauth-create-scope"][value="files:write"]',
+            );
+            if (readCheck) readCheck.checked = true;
+            if (writeCheck) writeCheck.checked = true;
+
+            void loadClients();
+          } catch (err) {
+            createStatus.dataset.state = "error";
+            createStatus.textContent =
+              err instanceof Error && err.message ? err.message : "Couldn't create the OAuth app.";
+            createStatus.hidden = false;
+          } finally {
+            if (submitBtn) submitBtn.disabled = false;
+          }
+        })();
+      });
+
+      createCopyBtn.addEventListener("click", () => {
+        void (async () => {
+          if (!createClientIdInput.value) return;
+          try {
+            await navigator.clipboard.writeText(createClientIdInput.value);
+          } catch {
+            createClientIdInput.focus();
+            createClientIdInput.select();
+          }
+        })();
+      });
+
+      onSession(() => {
+        void loadClients();
+      });
+    });
+  </script>
+</AdminLayout>
