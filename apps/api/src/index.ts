@@ -38,8 +38,10 @@ const consoleCors = cors({
 // src/session-auth.ts — requireAdminUser for /admin-ui, requireSessionUser
 // only for /me), so unlike consoleCors above they must be credentialed —
 // same treatment as apps/auth's authCors for the web origin's cross-origin
-// browser calls (uploads.sh -> api.uploads.sh). The ADMIN_TOKEN-gated
-// `/admin/*` surface is bearer-token-only and deliberately untouched.
+// browser calls (uploads.sh -> api.uploads.sh). The `/admin/*` surface is
+// bearer-token-only and deliberately untouched by CORS credentials — it
+// accepts either the static ADMIN_TOKEN break-glass secret or a D1-backed
+// operator token minted via POST /v1/tokens with an admin:* scope (#257).
 const adminUiCors = cors({
   origin: (origin, c) => {
     if (origin === (c.env.WEB_ORIGIN || "https://uploads.sh")) return origin;
