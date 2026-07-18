@@ -80,4 +80,10 @@ Better-auth admins can also mint their own workspace tokens with opt-in
 (no `ADMIN_TOKEN` involved). `admin:write` is a superset of `admin:read`.
 Tokens carrying either scope are accepted by `/admin/*` alongside
 `ADMIN_TOKEN`, and are revoked or listed the same way as any other token —
-via the `GET`/`DELETE /admin/tokens` endpoints above.
+via the `GET`/`DELETE /admin/tokens` endpoints above. Although an operator
+token is minted against (and stored under) a specific workspace, the
+`admin:read` / `admin:write` scopes themselves grant global operator
+authority across all of `/admin/*` — the same reach as `ADMIN_TOKEN` — not
+just admin access scoped to that one workspace; the workspace only anchors
+where the token is stored and which workspace's token list it appears
+under for revocation.

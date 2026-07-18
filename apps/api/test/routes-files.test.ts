@@ -680,6 +680,69 @@ describe("GET ?metadata=1 / PATCH /v1/:workspace/files/:key", () => {
     expect(json.error.type).toBe("insufficient_scope");
   });
 
+  it("a token mixing an admin scope with a file scope grants no extra file permissions (issue #257)", async () => {
+    // Regression for #257: a token minted with scopes ["files:read",
+    // "admin:write"] must never grant the file route any more than a
+    // files:read-only token would. `parseScopes` (auth-db.ts) requires
+    // *every* entry in the stored array to be a valid FileScope
+    // (`parsed.every(isFileScope)`), so the presence of the admin:write
+    // scope makes the whole array fail validation and workspaceAuth
+    // (workspace.ts) resolves `authScopes` to `[]` — fail-closed, not a
+    // partial grant of files:read. Both PUT (files:write) and PATCH
+    // (files:write) must stay 403, and — importantly — this token gets
+    // *no* files:read reach either, confirming admin:write cannot be used
+    // to smuggle in any file permission, read or write.
+    const MIXED_TOKEN = "files-read-plus-admin-write-token";
+    const { env } = await makeEnv(
+      {},
+      { scopedToken: { rawToken: MIXED_TOKEN, scopes: ["files:read", "admin:write"] } },
+    );
+    await putShot(env);
+
+    // The mixed-scope token has no read access: the admin scope poisons the
+    // whole scope set rather than being silently dropped in isolation.
+    const get = await getMeta(env, "screenshots/shot.png", MIXED_TOKEN);
+    expect(get.status).toBe(403);
+    const getJson = (await get.json()) as { error: { type: string } };
+    expect(getJson.error.type).toBe("insufficient_scope");
+
+    // Nor does it get file-write access via the admin:write scope.
+    const patch = await patchMeta(
+      env,
+      "screenshots/shot.png",
+      { set: { app: "web" } },
+      MIXED_TOKEN,
+    );
+    expect(patch.status).toBe(403);
+    const patchJson = (await patch.json()) as { error: { type: string } };
+    expect(patchJson.error.type).toBe("insufficient_scope");
+
+    // Same for a raw PUT (also requires files:write).
+    const put = await app.request(
+      "/v1/default/files/screenshots/shot.png",
+      {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${MIXED_TOKEN}`, "Content-Type": "image/png" },
+        body: PNG,
+      },
+      env,
+    );
+    expect(put.status).toBe(403);
+    const putJson = (await put.json()) as { error: { type: string } };
+    expect(putJson.error.type).toBe("insufficient_scope");
+  });
+
+  it("a plain files:read-only token still gets file-route read access (baseline for the mixed-scope case above)", async () => {
+    const READ_ONLY_TOKEN = "files-read-only-token";
+    const { env } = await makeEnv(
+      {},
+      { scopedToken: { rawToken: READ_ONLY_TOKEN, scopes: ["files:read"] } },
+    );
+    await putShot(env);
+    const get = await getMeta(env, "screenshots/shot.png", READ_ONLY_TOKEN);
+    expect(get.status).toBe(200);
+  });
+
   it("GET ?metadata=1 / PATCH round-trip on a key with several raw slashes", async () => {
     const { env } = await makeEnv();
     const deepKey = "a/b/c/d/deep.png";
