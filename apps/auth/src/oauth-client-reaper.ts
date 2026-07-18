@@ -15,6 +15,12 @@
  *     one is added later,
  *   - NOT trusted (`skip_consent` ≠ true) — a future first-party
  *     skip-consent client should never be swept,
+ *   - NOT an operator-panel "official" client (`metadata.official` ≠ true,
+ *     see internal-routes.ts's `isOfficial`/PATCH `official` toggle) — a
+ *     panel-created official client is deliberately `userId: null` +
+ *     `skipConsent: false` (see internal-routes.ts's client-create route),
+ *     which would otherwise satisfy every other predicate above and be
+ *     silently hard-deleted the first time it goes unused past retention,
  *   - zero `oauth_consent` rows AND zero token rows — no user ever
  *     authorized it.
  *
@@ -63,12 +69,25 @@ export function parseRetentionDays(raw: string | undefined): number {
 
 export function drizzleOauthClientReaperStore(db: D1Database): OauthClientReaperStore {
   const d = drizzle(db, { schema });
-  // Anonymous DCR only (user_id null) + not trusted (skip_consent) + stale.
+  // `metadata` is a JSON TEXT column (drizzle's "json" mode only affects
+  // (de)serialization on the JS side); `json_extract` works against it in
+  // both D1 and the node:sqlite test harness (both ship SQLite's JSON1
+  // extension). `coalesce(..., 0) != 1` treats NULL metadata, metadata with
+  // no `official` key, and `official: false` all as "not official" — only an
+  // explicit `official: true` is exempt.
+  const notOfficial = () =>
+    sql`coalesce(json_extract(${schema.oauthClient.metadata}, '$.official'), 0) != 1`;
+  // Anonymous DCR only (user_id null) + not trusted (skip_consent) + not an
+  // operator-panel official client + stale. This same predicate MUST be used
+  // in both the candidate/reapable listings (observability) and the atomic
+  // delete statement (deleteReapable below) — the official exemption is only
+  // safe if it holds in the delete's own WHERE, not just a prior read.
   const candidateWhere = (cutoff: Date) =>
     and(
       lt(schema.oauthClient.createdAt, cutoff),
       isNull(schema.oauthClient.userId),
       or(isNull(schema.oauthClient.skipConsent), eq(schema.oauthClient.skipConsent, false)),
+      notOfficial(),
     );
   // Never used: correlated NOT EXISTS per usage table, evaluated inside the
   // SAME statement as the read/delete it guards — a consent or token created

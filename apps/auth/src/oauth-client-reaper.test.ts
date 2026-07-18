@@ -21,6 +21,7 @@ function seedClient(
     createdAt: Date;
     userId: string | null;
     skipConsent: boolean | null;
+    metadata: Record<string, unknown> | null;
   }> = {},
 ) {
   return drizzle(db, { schema })
@@ -32,6 +33,7 @@ function seedClient(
       scopes: ["files:read"],
       userId: overrides.userId ?? null,
       skipConsent: overrides.skipConsent ?? null,
+      metadata: overrides.metadata ?? null,
       createdAt: overrides.createdAt ?? new Date(),
       updatedAt: overrides.createdAt ?? new Date(),
     });
@@ -129,5 +131,42 @@ describe("sweepOauthClients", () => {
       .from(schema.oauthClient)
       .where(eq(schema.oauthClient.clientId, "uploads-cli"));
     expect(remaining).toHaveLength(1);
+  });
+
+  it("never sweeps a stale, never-used, official operator-panel client (metadata.official)", async () => {
+    // internal-routes.ts's client-create route seeds panel-created official
+    // clients with userId: null + skipConsent: false — identical to an
+    // anonymous DCR registration except for the metadata.official flag. That
+    // flag must be checked in both the listing AND the delete predicate, or
+    // an official client that goes unused past retention gets silently
+    // hard-deleted.
+    const old = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+    await seedClient("official-1", { createdAt: old, metadata: { official: true } });
+
+    const result = await sweepOauthClients({ ...env, OAUTH_CLIENT_REAPER_ENABLED: "true" });
+
+    expect(result.candidates).toBe(0);
+    expect(result.reapable).toBe(0);
+    expect(result.deleted).toBe(0);
+
+    const remaining = await drizzle(db, { schema })
+      .select()
+      .from(schema.oauthClient)
+      .where(eq(schema.oauthClient.clientId, "client-official-1"));
+    expect(remaining).toHaveLength(1);
+  });
+
+  it("still reaps a comparable non-official client with the same shape", async () => {
+    const old = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+    await seedClient("non-official-1", { createdAt: old, metadata: null });
+
+    const result = await sweepOauthClients({ ...env, OAUTH_CLIENT_REAPER_ENABLED: "true" });
+
+    expect(result.deleted).toBe(1);
+    const remaining = await drizzle(db, { schema })
+      .select()
+      .from(schema.oauthClient)
+      .where(eq(schema.oauthClient.clientId, "client-non-official-1"));
+    expect(remaining).toHaveLength(0);
   });
 });
