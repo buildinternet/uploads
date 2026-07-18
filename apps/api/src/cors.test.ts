@@ -34,6 +34,25 @@ describe("CORS preflights from the web origin", () => {
     expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
   });
 
+  it("credentials the #249 lifecycle subroutes, DELETE included", async () => {
+    const del = await app.request(
+      "https://api.uploads.sh/v1/workspaces/acme",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://uploads.sh",
+          "Access-Control-Request-Method": "DELETE",
+        },
+      },
+      env,
+    );
+    expect(del.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+    expect(del.headers.get("Access-Control-Allow-Methods")).toContain("DELETE");
+
+    const restore = await preflight("/v1/workspaces/acme/restore");
+    expect(restore.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+  });
+
   it("keeps bearer-token /v1 routes uncredentialed", async () => {
     const res = await preflight("/v1/tokens");
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://uploads.sh");
