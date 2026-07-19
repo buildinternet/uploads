@@ -424,6 +424,93 @@ describe("GET /me/workspaces/:name/files", () => {
       url: "https://storage.uploads.sh/acme/f/x/shot.png",
     });
   });
+
+  it("lists a folder with prefix and hydrates gh.* metadata + public urls", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put(
+      "acme/screenshots/releases/1789/a.png",
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+      { httpMetadata: { contentType: "image/png" } },
+    );
+    const db = metadataDb([
+      {
+        workspace: "acme",
+        key: "screenshots/releases/1789/a.png",
+        meta: {
+          "gh.repo": "o/uploads",
+          "gh.kind": "pull",
+          "gh.number": "1789",
+          "gh.ref": "o/uploads#1789",
+        },
+      },
+    ]);
+    const env = memberEnv({ workspace: "acme", role: "admin", db, bucket, record: R2_RECORD });
+
+    const res = await app().request(
+      "/me/workspaces/acme/files?prefix=screenshots/releases/1789/",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      files: {
+        key: string;
+        url: string;
+        embedUrl: string;
+        contentType: string;
+        metadata?: Record<string, string>;
+      }[];
+    };
+    const file = body.files.find((f) => f.key.endsWith("a.png"));
+    expect(file?.contentType).toBe("image/png");
+    expect(file?.url).toContain("storage.uploads.sh");
+    expect(file?.embedUrl).toContain("embed.uploads.sh");
+    expect(file?.metadata).toEqual({
+      "gh.repo": "o/uploads",
+      "gh.kind": "pull",
+      "gh.number": "1789",
+      "gh.ref": "o/uploads#1789",
+    });
+  });
+
+  it("omits metadata for a key with no D1 rows", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/f/x/shot.png", new Uint8Array([1]));
+    const env = memberEnv({
+      workspace: "acme",
+      db: metadataDb([]),
+      bucket,
+      record: R2_RECORD,
+    });
+    const res = await app().request("/me/workspaces/acme/files", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { files: { key: string; metadata?: unknown }[] };
+    expect(body.files[0].key).toBe("f/x/shot.png");
+    expect(body.files[0].metadata).toBeUndefined();
+  });
+
+  it("returns common prefixes as folders when delimiter is given", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/screenshots/releases/1789/a.png", new Uint8Array([1]));
+    await bucket.put("acme/screenshots/releases/1790/b.png", new Uint8Array([1]));
+    const env = memberEnv({
+      workspace: "acme",
+      db: new UsageFakeD1(),
+      bucket,
+      record: R2_RECORD,
+    });
+    const res = await app().request(
+      "/me/workspaces/acme/files?prefix=screenshots/releases/&delimiter=/",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { files: unknown[]; prefixes?: string[] };
+    expect(body.files).toEqual([]);
+    expect(body.prefixes).toEqual(
+      expect.arrayContaining(["screenshots/releases/1789/", "screenshots/releases/1790/"]),
+    );
+  });
 });
 
 describe("GET /me/workspaces/:name/file-url", () => {
