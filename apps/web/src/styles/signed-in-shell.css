@@ -1,5 +1,25 @@
 /* Shared shell/sidebar styles for /account/* and /admin/* signed-in pages.
    Tokens + @font-face come from @uploads/ui/styles.css via <BaseHead />. */
+
+/* ── Responsive breakpoint scale ──────────────────────────────────────────
+   The single source of truth for the signed-in-page breakpoints. Media
+   queries can't read CSS custom properties, so these live as documentation,
+   not `--bp-*` variables — do NOT add ad-hoc widths elsewhere; extend this
+   list and reference it by name instead.
+
+     --bp-rail       1080px   Below this the fixed 272px right rail has no
+                              room beside the content grid, so it restacks
+                              under the main column (account-shell.css).
+     --bp-stack       680px   At/below this the nav + layout collapse to a
+                              single full-width column (this file +
+                              account-shell.css). The mid-width rail tier is
+                              bounded at min-width: 681px — the +1 pixel above
+                              --bp-stack — so the ≤680 stack rules stay the
+                              lone authority at that edge. Keep 680/681
+                              adjacent if either moves.
+     --bp-file-grid   560px   At/below this the workspace file table drops its
+                              size + type columns (account-content.css).
+   ─────────────────────────────────────────────────────────────────────── */
 * {
   box-sizing: border-box;
 }
@@ -269,6 +289,7 @@ span.muted {
   background: var(--bg);
 }
 
+/* --bp-stack: collapse the shell to a single full-width column. */
 @media (max-width: 680px) {
   .layout {
     grid-template-columns: 1fr;

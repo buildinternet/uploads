@@ -1220,10 +1220,11 @@ button.wft-name--btn {
   text-transform: uppercase;
 }
 
-/* Narrow screens: the five fixed columns (64/64/92/32 + gaps) leave the name
+/* --bp-file-grid: the five fixed columns (64/64/92/32 + gaps) leave the name
    track nothing to render in, so filenames ellipsize to zero width. Drop the
    size and type columns (their values still live in the file's own page) and
-   keep name / visibility / actions. */
+   keep name / visibility / actions. See the breakpoint scale in
+   signed-in-shell.css. */
 @media (max-width: 560px) {
   .wft-row,
   .wft-head {

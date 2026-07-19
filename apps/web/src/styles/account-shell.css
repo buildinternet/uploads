@@ -125,11 +125,12 @@
   top: 28px;
 }
 
-/* Mid-width: not enough room for the fixed 272px rail column next to the
-   content (the file grid needs ~320px minimum, so anything under ~1080px
-   viewport lets content paint into the rail). Keep the side nav, drop to
-   2-col, and move the rail under the main column instead. Bounded below at
-   681px so the ≤680 full-stack rules stay the single source of truth there. */
+/* Mid-width rail tier (--bp-stack+1 … --bp-rail): not enough room for the
+   fixed 272px rail column next to the content (the file grid needs ~320px
+   minimum), so keep the side nav, drop to 2-col, and move the rail under the
+   main column. Bounded below at 681px (--bp-stack + 1) so the ≤680 full-stack
+   rules stay the single authority at that edge. See the breakpoint scale in
+   signed-in-shell.css. */
 @media (min-width: 681px) and (max-width: 1080px) {
   .account-shell .layout[data-rail="true"] {
     grid-template-columns: 180px minmax(0, 1fr);
@@ -145,6 +146,7 @@
   }
 }
 
+/* --bp-stack: collapse to a single column (mirrors signed-in-shell.css). */
 @media (max-width: 680px) {
   .account-shell .layout,
   .account-shell .layout[data-rail="true"] {
