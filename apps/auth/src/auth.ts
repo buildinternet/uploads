@@ -325,6 +325,13 @@ export function deriveCookieDomain(betterAuthUrl: string | undefined): string | 
     return parts.length >= 3 ? "." + parts.slice(-2).join(".") : undefined;
   }
   const parts = host.split(".");
+  // Real-TLD portless zone (see trusted-origins.ts): anchor on
+  // `.uploads.local.buildinternet.dev` so worktree-prefixed hosts
+  // (fix-ui.auth.uploads.local.buildinternet.dev) share the same parent as
+  // the web app, mirroring the `.localhost` rule above.
+  if (host.endsWith(".uploads.local.buildinternet.dev")) {
+    return "." + parts.slice(-4).join(".");
+  }
   if (parts.length < 2) return undefined;
   if (parts.length === 2) return "." + host;
   return "." + parts.slice(1).join(".");

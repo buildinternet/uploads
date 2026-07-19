@@ -51,29 +51,36 @@ Notes:
   enables for the exact loopback pair or a matched `*.localhost` pair — never
   for real-TLD origins.
 
-### Real-TLD mode for OAuth (`*.local.uploads.sh`)
+### Real-TLD mode for OAuth (`*.uploads.local.buildinternet.dev`)
 
-Some OAuth providers (Google, Apple) reject `*.localhost` redirect URIs, so —
-like the sibling repos' `*.local.buildinternet.dev` zones — the stack can run
-under a real TLD instead:
+Some OAuth providers (Google, Apple) reject `*.localhost` redirect URIs, so
+the stack can run under a real TLD instead — on the shared
+`local.buildinternet.dev` infra zone, same as the sibling repos:
 
 ```bash
-PORTLESS_TLD=sh PORTLESS_NAME=local.uploads pnpm dev:stack
-# -> https://local.uploads.sh / https://auth.local.uploads.sh / https://api.local.uploads.sh
+PORTLESS_TLD=dev PORTLESS_NAME=uploads.local.buildinternet pnpm dev:stack
+# -> https://uploads.local.buildinternet.dev
+#    https://auth.uploads.local.buildinternet.dev
+#    https://api.uploads.local.buildinternet.dev
 ```
 
-No hosts-file setup needed: `local.uploads.sh` and `*.local.uploads.sh` are
-public DNS-only A records → `127.0.0.1` in the uploads.sh Cloudflare zone
-(never proxy them), so the names resolve to loopback on any machine —
-including worktree-prefixed ones. `pnpm exec portless hosts sync` is only a
-fallback for offline work.
+The zone is deliberately NOT under uploads.sh: prod sets its session cookie
+with `Domain=.uploads.sh`, so a `local.uploads.sh` zone would leak prod
+cookies into local dev stacks (and let local software set cookies scoped to
+prod). The infra domain has no production cookies to overlap.
+
+DNS: `local.buildinternet.dev` + `*.local.buildinternet.dev` are public
+DNS-only A records → `127.0.0.1` (never proxy them), so the names resolve to
+loopback on any machine, worktree prefixes included.
+`pnpm exec portless hosts sync` is only a fallback for offline work.
 
 These origins are trusted by the auth worker outside production (https only).
 Register the provider's redirect URI as
-`https://auth.local.uploads.sh/api/auth/callback/<provider>`. Note the
-`dev-session` bypass is intentionally unavailable in this mode — sign in
-through the real provider flow you're testing. GitHub accepts loopback
-callbacks, so day-to-day GitHub testing can stay on `PORTLESS=0` instead.
+`https://auth.uploads.local.buildinternet.dev/api/auth/callback/<provider>`.
+Note the `dev-session` bypass is intentionally unavailable in this mode —
+sign in through the real provider flow you're testing. GitHub accepts
+loopback callbacks, so day-to-day GitHub testing can stay on `PORTLESS=0`
+instead.
 
 `bootstrap` is idempotent (safe to re-run; never overwrites your env files or
 re-mints an existing local workspace) and `doctor` is read-only. `dev:stack`
