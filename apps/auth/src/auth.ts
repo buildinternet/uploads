@@ -312,8 +312,17 @@ export function deriveCookieDomain(betterAuthUrl: string | undefined): string | 
   } catch {
     return undefined;
   }
-  if (host === "localhost" || /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.endsWith(".localhost")) {
+  if (host === "localhost" || /^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
     return undefined;
+  }
+  if (host.endsWith(".localhost")) {
+    // Portless dev (see the `portless` skill): auth.uploads.localhost shares a
+    // session cookie with uploads.localhost via the `.<name>.localhost` parent.
+    // Always anchor on the last two labels so worktree-prefixed hosts
+    // (fix-ui.auth.uploads.localhost) land on the same parent as the web app.
+    // A bare `<name>.localhost` has no shareable parent — host-only cookie.
+    const parts = host.split(".");
+    return parts.length >= 3 ? "." + parts.slice(-2).join(".") : undefined;
   }
   const parts = host.split(".");
   if (parts.length < 2) return undefined;

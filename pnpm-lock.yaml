@@ -32,6 +32,9 @@ importers:
       oxlint-tsgolint:
         specifier: ^0.24.0
         version: 0.24.0
+      portless:
+        specifier: ^0.15.4
+        version: 0.15.4
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -3875,6 +3878,12 @@ packages:
   playwright-core@1.61.1:
     resolution: {integrity: sha512-h7Qlt6m4REp25qvIdvbDtVmD4LqVXfpRxhORv9L0jzETM05p4fuPJ3dKyuSXQxDSbXnmS79HAgi9589lGSpLkg==}
     engines: {node: '>=18'}
+    hasBin: true
+
+  portless@0.15.4:
+    resolution: {integrity: sha512-tOxEsdlDGuPHO6DPkuK3c3mMV5ctXEgVFm53Sa8nfZ2RsRGTq4By424C6z5+JWfNbd3ktR5SOd1FJBOlB1Woqg==}
+    engines: {node: '>=24'}
+    os: [darwin, linux, win32]
     hasBin: true
 
   postcss-load-config@6.0.1:
@@ -7999,6 +8008,8 @@ snapshots:
 
   playwright-core@1.61.1:
     optional: true
+
+  portless@0.15.4: {}
 
   postcss-load-config@6.0.1(postcss@8.5.16)(yaml@2.9.0):
     dependencies:

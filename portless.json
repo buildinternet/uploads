@@ -1,0 +1,9 @@
+{
+  "name": "uploads",
+  "apps": {
+    "apps/web": { "name": "uploads" },
+    "apps/api": { "name": "api.uploads" },
+    "apps/auth": { "name": "auth.uploads" },
+    "apps/mcp": { "name": "mcp.uploads" }
+  }
+}

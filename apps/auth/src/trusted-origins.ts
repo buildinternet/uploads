@@ -8,9 +8,11 @@
  */
 
 const LOCALHOST_ORIGIN_RE = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
-// Portless dev (see the `portless` skill): named `*.localhost` origins with no
-// port, e.g. https://uploads.localhost.
-const PORTLESS_ORIGIN_RE = /^https?:\/\/[a-z0-9-]+\.localhost$/;
+// Portless dev (see the `portless` skill): named `*.localhost` origins, e.g.
+// https://uploads.localhost, https://auth.uploads.localhost, a worktree-
+// prefixed https://fix-ui.uploads.localhost, or the sudo-less proxy fallback
+// http://uploads.localhost:1355. `.localhost` resolves to loopback by spec.
+const PORTLESS_ORIGIN_RE = /^https?:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.localhost(:\d+)?$/;
 
 export type TrustedOriginsEnv = {
   WEB_ORIGIN?: string;

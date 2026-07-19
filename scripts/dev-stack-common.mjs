@@ -1,7 +1,65 @@
 /** Shared local-stack endpoints, cookie jar, fixture uploads, and smoke flow. */
-export const AUTH_ORIGIN = "http://127.0.0.1:8788";
-export const API_ORIGIN = "http://127.0.0.1:8787";
-export const WEB_ORIGIN = "http://127.0.0.1:4321";
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+// Portless (see the `portless` skill) gives the stack named HTTPS origins with
+// a shared `.uploads.localhost` cookie parent, so the Better Auth session
+// spans web/auth/api locally the same way `.uploads.sh` does in prod.
+// `PORTLESS=0` falls back to the legacy loopback ports (also the path for the
+// dev GitHub OAuth app, whose callback is pinned to 127.0.0.1:8788).
+export const USE_PORTLESS = process.env.PORTLESS !== "0";
+export const PORTLESS_BASE = process.env.PORTLESS_NAME || "uploads";
+
+const PORTLESS_CA = join(process.env.PORTLESS_STATE_DIR || join(homedir(), ".portless"), "ca.pem");
+
+// Pre-start the proxy: `portless run` can auto-start it, but only with a TTY
+// (binding :443 may sudo-prompt), so agent/CI shells must pre-start or the
+// child exits. Idempotent when already running; reuses the persisted config
+// (port/TLS), and first HTTPS start also generates the local CA. If this
+// fails (e.g. sudo needed but unavailable), fall back to the unprivileged
+// port so the stack still comes up: URLs then include :1355.
+if (USE_PORTLESS) {
+  const started = spawnSync("pnpm", ["exec", "portless", "proxy", "start"], { stdio: "inherit" });
+  if (started.status !== 0) {
+    spawnSync("pnpm", ["exec", "portless", "proxy", "start", "--port", "1355"], {
+      stdio: "inherit",
+    });
+  }
+}
+
+// Node's fetch does not use the system trust store, so the portless local CA
+// must be handed to this process via NODE_EXTRA_CA_CERTS — which Node only
+// reads at startup. Re-exec once with it set before any request is made.
+if (USE_PORTLESS && existsSync(PORTLESS_CA) && process.env.NODE_EXTRA_CA_CERTS !== PORTLESS_CA) {
+  const rerun = spawnSync(process.execPath, process.argv.slice(1), {
+    stdio: "inherit",
+    env: { ...process.env, NODE_EXTRA_CA_CERTS: PORTLESS_CA },
+  });
+  process.exit(rerun.status ?? 1);
+}
+
+/** Resolve the (possibly worktree-prefixed) portless URL for a service name. */
+function portlessUrl(name) {
+  const result = spawnSync("pnpm", ["exec", "portless", "get", name], { encoding: "utf8" });
+  const url = result.stdout?.trim().split("\n").at(-1);
+  if (result.status !== 0 || !url?.startsWith("http")) {
+    throw new Error(
+      `portless get ${name} failed (${result.stderr?.trim() || `exit ${result.status}`}). ` +
+        "Run `pnpm exec portless doctor`, or set PORTLESS=0 to use plain loopback ports.",
+    );
+  }
+  return url;
+}
+
+export const AUTH_ORIGIN = USE_PORTLESS
+  ? portlessUrl(`auth.${PORTLESS_BASE}`)
+  : "http://127.0.0.1:8788";
+export const API_ORIGIN = USE_PORTLESS
+  ? portlessUrl(`api.${PORTLESS_BASE}`)
+  : "http://127.0.0.1:8787";
+export const WEB_ORIGIN = USE_PORTLESS ? portlessUrl(PORTLESS_BASE) : "http://127.0.0.1:4321";
 export const PREVIEW_URL = `${WEB_ORIGIN}/account/workspaces`;
 export const DEMO_WORKSPACE = "dev-demo";
 

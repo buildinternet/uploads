@@ -46,6 +46,9 @@ describe("isTrustedOrigin", () => {
   it("allows portless *.localhost origins outside production", () => {
     const env = { WEB_ORIGIN: "https://uploads.sh", ENVIRONMENT: "development" };
     expect(isTrustedOrigin("https://uploads.localhost", env)).toBe(true);
+    expect(isTrustedOrigin("https://auth.uploads.localhost", env)).toBe(true);
+    expect(isTrustedOrigin("https://fix-ui.auth.uploads.localhost", env)).toBe(true);
+    expect(isTrustedOrigin("http://uploads.localhost:1355", env)).toBe(true);
   });
 
   it("rejects unrelated hosts outside production", () => {

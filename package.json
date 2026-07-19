@@ -52,6 +52,7 @@
     "oxfmt": "^0.57.0",
     "oxlint": "^1.72.0",
     "oxlint-tsgolint": "^0.24.0",
+    "portless": "^0.15.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   },
