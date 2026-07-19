@@ -1,5 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { orderOrgsOldestFirst, renderUsageHtml, safeSameOriginPath } from "./workspace-ui";
+import {
+  orderOrgsOldestFirst,
+  renderMembersHtml,
+  renderUsageHtml,
+  safeSameOriginPath,
+} from "./workspace-ui";
+
+describe("renderMembersHtml", () => {
+  it("leads with the display name and shows email as the sub-line", () => {
+    const html = renderMembersHtml([{ email: "a@b.com", name: "Ada", role: "owner" }]);
+    expect(html).toContain(">Ada<");
+    expect(html).toContain(">a@b.com<");
+    expect(html).toContain(">owner<");
+  });
+
+  it("leads with the email when there is no display name, without a sub-line", () => {
+    const html = renderMembersHtml([{ email: "c@d.com", name: "", role: "member" }]);
+    expect(html).toContain('member-row__name">c@d.com<');
+    expect(html).not.toContain("member-row__email");
+  });
+
+  it("escapes interpolated fields and renders [] as empty", () => {
+    const html = renderMembersHtml([
+      { email: "<img src=x>", name: "<b>x</b>", role: '"><script>alert(1)</script>' },
+    ]);
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;img");
+    expect(renderMembersHtml([])).toBe("");
+  });
+});
 
 describe("safeSameOriginPath", () => {
   it("accepts an absolute in-app path with query and hash", () => {

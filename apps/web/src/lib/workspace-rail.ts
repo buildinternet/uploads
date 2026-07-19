@@ -55,19 +55,25 @@ export interface WorkspaceRailDetails {
   organization: { slug: string };
   role: string;
   hasPublicUrl: boolean;
+  publicBaseUrl?: string;
 }
 
 /**
- * Pure builder for the rail's "details" `<dt>/<dd>` pairs. There is no public-URL
- * string on `MyWorkspace` (only the `hasPublicUrl` boolean) — render "configured"
- * / "—" rather than fabricating a URL.
+ * Pure builder for the rail's "details" `<dt>/<dd>` pairs. The public-URL cell
+ * links to the workspace's `publicBaseUrl`, labeled by its host (the scheme is
+ * always https and only pads the narrow rail). `hasPublicUrl` without a URL
+ * string means an older API that predates `publicBaseUrl` in the listing —
+ * fall back to the old "configured" label rather than fabricating a URL.
  */
 export function renderDetailsHtml(ws: WorkspaceRailDetails): string {
-  const publicUrlLabel = ws.hasPublicUrl ? "configured" : "—";
+  const host = ws.publicBaseUrl?.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  const publicUrlHtml = ws.publicBaseUrl
+    ? `<a class="ws-rail__link" href="${escapeHtml(ws.publicBaseUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(host ?? "")}</a>`
+    : escapeHtml(ws.hasPublicUrl ? "configured" : "—");
   return (
     `<dt class="ws-rail__dt">slug</dt><dd class="ws-rail__dd">${escapeHtml(ws.organization.slug)}</dd>` +
     `<dt class="ws-rail__dt">your role</dt><dd class="ws-rail__dd ws-rail__dd--accent">${escapeHtml(ws.role)}</dd>` +
-    `<dt class="ws-rail__dt">public url</dt><dd class="ws-rail__dd">${escapeHtml(publicUrlLabel)}</dd>`
+    `<dt class="ws-rail__dt">public url</dt><dd class="ws-rail__dd">${publicUrlHtml}</dd>`
   );
 }
 
@@ -156,7 +162,7 @@ export function initWorkspaceRail(
       );
       if (!ws) return;
       if (roleBadge) {
-        roleBadge.textContent = `[${ws.role}]`;
+        roleBadge.textContent = ws.role;
         roleBadge.hidden = false;
       }
       if (detailsEl) detailsEl.innerHTML = renderDetailsHtml(ws);

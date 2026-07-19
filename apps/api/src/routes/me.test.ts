@@ -102,7 +102,11 @@ describe("GET /me/workspaces", () => {
       workspaces: { workspace: string; hasPublicUrl: boolean }[];
     };
     expect(body.workspaces).toEqual([
-      expect.objectContaining({ workspace: "acme", hasPublicUrl: true }),
+      expect.objectContaining({
+        workspace: "acme",
+        hasPublicUrl: true,
+        publicBaseUrl: "https://storage.uploads.sh",
+      }),
     ]);
   });
 
@@ -333,6 +337,63 @@ const R2_RECORD = {
   prefix: "acme/",
   publicBaseUrl: "https://storage.uploads.sh",
 };
+
+describe("GET /me/workspaces/:name/members", () => {
+  it("404s for a workspace the caller is not a member of", async () => {
+    const env = stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") return Response.json([]);
+      return new Response(null, { status: 404 });
+    });
+    const res = await app().request("/me/workspaces/acme/members", {}, env);
+    expect(res.status).toBe(404);
+  });
+
+  it("short-circuits the communal workspace with an empty list", async () => {
+    const env = memberEnv({ workspace: "default", db: new UsageFakeD1() });
+    const res = await app().request("/me/workspaces/default/members", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ communal: true, members: [] });
+  });
+
+  it("returns sanitized member rows for a member's workspace", async () => {
+    const env = stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") {
+        return Response.json([
+          { organizationId: "org1", organizationSlug: "acme", role: "member" },
+        ]);
+      }
+      if (path === "/internal/orgs/acme") {
+        return Response.json({ organization: { id: "org1", slug: "acme", name: "Acme Inc" } });
+      }
+      if (path === "/internal/orgs/acme/members") {
+        return Response.json({
+          members: [
+            {
+              id: "m1",
+              userId: "u1",
+              email: "a@b.com",
+              name: "Ada",
+              role: "owner",
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
+            { id: "m2", userId: "u2", email: "c@d.com", name: null, role: "member" },
+          ],
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    const res = await app().request("/me/workspaces/acme/members", {}, env);
+    expect(res.status).toBe(200);
+    // Internal `id`/`userId` never reach the member-facing payload.
+    expect(await res.json()).toEqual({
+      communal: false,
+      members: [
+        { email: "a@b.com", name: "Ada", role: "owner", createdAt: "2026-01-01T00:00:00.000Z" },
+        { email: "c@d.com", name: "", role: "member" },
+      ],
+    });
+  });
+});
 
 describe("GET /me/workspaces/:name/galleries", () => {
   it("404s for a workspace the caller is not a member of", async () => {

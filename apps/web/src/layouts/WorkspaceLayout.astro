@@ -89,7 +89,7 @@ const invitePath = `${base}/people`;
           <span class="ws-rail__rule"></span>
         </div>
         <div class="ws-rail__actions">
-          <a class="ws-rail__invite" href={invitePath}>[invite teammate]</a>
+          <a class="ws-rail__invite" href={invitePath}>invite teammate</a>
           <div class="ws-rail__copyrow">
             <code><span class="ws-rail__prompt">$ </span>uploads put ./file.png</code>
             <button
@@ -98,7 +98,7 @@ const invitePath = `${base}/people`;
               data-copy="uploads put ./file.png"
               aria-live="polite"
             >
-              [copy]
+              copy
             </button>
           </div>
         </div>
@@ -285,6 +285,16 @@ const invitePath = `${base}/people`;
   }
   :global(.account-shell) .ws-rail :global(.ws-rail__dd--accent) {
     color: var(--accent);
+  }
+  /* Public-url link — innerHTML-injected by renderDetailsHtml. */
+  :global(.account-shell) .ws-rail :global(.ws-rail__link) {
+    color: var(--fg);
+    text-decoration: none;
+  }
+  :global(.account-shell) .ws-rail :global(.ws-rail__link:hover),
+  :global(.account-shell) .ws-rail :global(.ws-rail__link:focus-visible) {
+    color: var(--accent);
+    outline: none;
   }
 
   /* Quick actions — server-rendered, static (no session data needed). */
