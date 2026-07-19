@@ -1,0 +1,150 @@
+/* Flat 3A account nav + optional right-rail column for /account/*.
+   Every selector here is scoped under `.account-shell` (the AccountLayout
+   `#app` root) so /admin/* — which shares nav.side / .layout / .side-foot
+   markup and signed-in-shell.css — renders exactly as before. Do NOT add
+   an unscoped nav.side, .layout, or .side-foot rule to this file; put
+   account-only overrides here instead of editing signed-in-shell.css. */
+
+/* Layout grid: 2-col by default, 3-col (+ rail) when AccountLayout is given
+   a `rail` slot (data-rail="true", set server-side via Astro.slots.has). */
+.account-shell .layout {
+  grid-template-columns: 180px 1fr;
+  gap: 24px;
+}
+.account-shell .layout[data-rail="true"] {
+  grid-template-columns: 180px minmax(0, 1fr) 272px;
+  gap: 40px;
+}
+
+/* Flat nav rows ---------------------------------------------------------- */
+.account-shell nav.side {
+  gap: 2px;
+  font-size: 13px;
+}
+
+/* `.side-link` is the flat-row nav item (Overview, each workspace, + new
+   workspace, Account, Developers). A prompt-style `> `/`  ` prefix (not the
+   old chip background) marks the active row — see ::before below. */
+.account-shell nav.side .side-link {
+  display: block;
+  padding: 5px 0;
+  border-radius: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  text-decoration: none;
+  white-space: pre;
+}
+.account-shell nav.side .side-link::before {
+  content: "  ";
+}
+.account-shell nav.side .side-link:hover,
+.account-shell nav.side .side-link:focus-visible {
+  color: var(--fg);
+  outline: none;
+}
+.account-shell nav.side .side-link[aria-current] {
+  color: var(--accent);
+  background: none;
+  border: 0;
+}
+.account-shell nav.side .side-link[aria-current]::before {
+  content: "> ";
+}
+
+/* Section labels — WORKSPACES / YOU. */
+.account-shell nav.side .side-label {
+  margin: 14px 0 4px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* Workspace membership rows fill this container client-side; let its
+   children participate directly in the nav's own grid gap rhythm. */
+.account-shell #workspaces-nav-list {
+  display: contents;
+}
+
+/* "+ new workspace" — same flat row, dimmer resting color. */
+.account-shell nav.side .side-link.side-new {
+  color: color-mix(in srgb, var(--muted) 85%, var(--accent));
+  font-size: 12px;
+}
+.account-shell nav.side .side-link.side-new:hover,
+.account-shell nav.side .side-link.side-new:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+.account-shell nav.side .side-link.side-new[aria-current] {
+  color: var(--accent);
+}
+
+/* Foot — console / admin / sign out. Plain rows, no prompt prefix. */
+.account-shell nav.side .side-foot {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  gap: 6px;
+}
+.account-shell nav.side .side-foot a {
+  display: block;
+  padding: 0;
+  border-radius: 0;
+  border: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.account-shell nav.side .side-foot a:hover,
+.account-shell nav.side .side-foot a:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+.account-shell nav.side button {
+  padding: 5px 0;
+  border: 0;
+  border-radius: 0;
+}
+.account-shell nav.side button:hover,
+.account-shell nav.side button:focus-visible {
+  color: var(--red);
+  outline: none;
+}
+
+/* Right rail --------------------------------------------------------------
+   Container mechanics only — the rail's own section content (connected
+   work, usage, details, quick actions) is supplied by the page via the
+   `rail` slot and styled where it's rendered. */
+.account-shell aside.rail {
+  display: grid;
+  gap: 22px;
+  font-size: 12.5px;
+  position: sticky;
+  top: 28px;
+}
+
+@media (max-width: 680px) {
+  .account-shell .layout,
+  .account-shell .layout[data-rail="true"] {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .account-shell nav.side .side-label {
+    grid-column: 1 / -1;
+  }
+  .account-shell nav.side .side-foot {
+    grid-column: 1 / -1;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    grid-template-columns: subgrid;
+  }
+  /* Rail stacks below main; sticky positioning only makes sense in the
+     desktop 3-col layout. */
+  .account-shell aside.rail {
+    position: static;
+    top: auto;
+  }
+}

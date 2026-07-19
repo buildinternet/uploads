@@ -1,0 +1,90 @@
+---
+/**
+ * Workspace settings tab — thin stub (design 3A §5.3). The rail already
+ * surfaces slug/role/public-url live; this repeats the same summary in the
+ * main column (visible without the rail, e.g. on narrow viewports) via a
+ * `<details>` disclosure. No new endpoints — reuses `getMyWorkspaces` +
+ * `renderDetailsHtml` from the rail module.
+ */
+import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
+
+export const prerender = false;
+
+const nameParam = Astro.params.name ?? "";
+const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
+if (!workspace) return Astro.redirect("/account/workspaces");
+---
+
+<WorkspaceLayout workspace={workspace} activeTab="settings">
+  <section class="card settings-page">
+    <div class="settings-section">
+      <details class="ws-settings-summary" open>
+        <summary>Workspace details</summary>
+        <dl class="kv" data-ws-settings-details></dl>
+      </details>
+      <p class="muted settings-note">More workspace settings coming soon.</p>
+    </div>
+  </section>
+
+  <style>
+    .ws-settings-summary summary {
+      cursor: pointer;
+      list-style: none;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .ws-settings-summary summary::-webkit-details-marker {
+      display: none;
+    }
+    .ws-settings-summary summary:hover,
+    .ws-settings-summary summary:focus-visible {
+      color: var(--fg);
+      outline: none;
+    }
+  </style>
+
+  <script>
+    import {
+      getPageVisit,
+      isCurrentPageVisit,
+      onAstroPageLoad,
+      onSession,
+    } from "../../../../lib/account-shell";
+    import { getMyWorkspaces } from "../../../../lib/api-client";
+    import { writeCachedWorkspaces } from "../../../../lib/workspaces-nav";
+    import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
+    import { renderDetailsHtml } from "../../../../lib/workspace-rail";
+
+    onAstroPageLoad(() => {
+      const detailsEl = document.querySelector<HTMLElement>("[data-ws-settings-details]");
+      if (!detailsEl) return;
+
+      const visit = getPageVisit();
+      const stillHere = (): boolean => isCurrentPageVisit(visit);
+      const w = window as unknown as {
+        __UPLOADS_API_ORIGIN__: string;
+        __UPLOADS_ACTIVE_WORKSPACE__: string;
+      };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+      // Prefer the URL over the layout global (ClientRouter sibling-nav safety).
+      const workspaceName = resolveActiveWorkspace(
+        window.location.pathname,
+        w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+      );
+
+      onSession(() => {
+        void getMyWorkspaces(apiOrigin).then((result) => {
+          if (!stillHere() || result.kind !== "success") return;
+          writeCachedWorkspaces(result.workspaces);
+          const ws = result.workspaces.find((item) => item.workspace === workspaceName);
+          if (!ws) return;
+          detailsEl.innerHTML = renderDetailsHtml(ws);
+        });
+      });
+    });
+  </script>
+</WorkspaceLayout>

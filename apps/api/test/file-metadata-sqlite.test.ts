@@ -8,6 +8,7 @@ import {
   deleteFileMetadataForWorkspace,
   findObjectsByMetadata,
   getFileMetadata,
+  getMetadataForKeys,
   replaceFileMetadata,
   setFileMetadata,
 } from "../src/file-metadata";
@@ -311,6 +312,61 @@ describe("file metadata persistence against SQLite", () => {
         await expect(getFileMetadata(database(sqlite), "alpha", "f/one.png")).resolves.toEqual({
           app: "screenshots",
         });
+      } finally {
+        sqlite.close();
+      }
+    });
+  });
+
+  describe("getMetadataForKeys", () => {
+    it("returns per-key metadata maps, omits keys with no rows, scopes by workspace", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        await replaceFileMetadata(database(sqlite), "ws1", "a.png", {
+          "gh.repo": "o/r",
+          "gh.number": "1",
+        });
+        await replaceFileMetadata(database(sqlite), "ws1", "b.png", {
+          "gh.repo": "o/r",
+          "gh.number": "2",
+        });
+        await replaceFileMetadata(database(sqlite), "ws2", "a.png", { "gh.repo": "other/x" });
+
+        const out = await getMetadataForKeys(database(sqlite), "ws1", [
+          "a.png",
+          "b.png",
+          "missing.png",
+        ]);
+        expect(out.get("a.png")).toEqual({ "gh.repo": "o/r", "gh.number": "1" });
+        expect(out.get("b.png")).toEqual({ "gh.repo": "o/r", "gh.number": "2" });
+        expect(out.has("missing.png")).toBe(false);
+        expect(out.has("a.png")).toBe(true); // ws2's a.png must not leak
+      } finally {
+        sqlite.close();
+      }
+    });
+
+    it("returns an empty map for empty keys without querying", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        expect((await getMetadataForKeys(database(sqlite), "ws1", [])).size).toBe(0);
+      } finally {
+        sqlite.close();
+      }
+    });
+
+    it("batches lookups over 100 keys into multiple statements and still returns all rows", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        const keys = Array.from({ length: 150 }, (_, i) => `file-${i}.png`);
+        for (const key of keys) {
+          await replaceFileMetadata(database(sqlite), "ws1", key, { app: "screenshots" });
+        }
+
+        const out = await getMetadataForKeys(database(sqlite), "ws1", keys);
+        expect(out.size).toBe(150);
+        expect(out.get("file-0.png")).toEqual({ app: "screenshots" });
+        expect(out.get("file-149.png")).toEqual({ app: "screenshots" });
       } finally {
         sqlite.close();
       }

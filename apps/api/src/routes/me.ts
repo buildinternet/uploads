@@ -13,7 +13,11 @@ import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
-import { findObjectsByMetadata, validateMetadataFilters } from "../file-metadata";
+import {
+  findObjectsByMetadata,
+  getMetadataForKeys,
+  validateMetadataFilters,
+} from "../file-metadata";
 import { badKey, listObjects, setObjectVisibility } from "../files-core";
 import { listGalleries } from "../galleries";
 import { gallerySummary } from "../gallery-service";
@@ -182,9 +186,15 @@ export const me = new Hono<SessionVars>()
     });
   })
 
-  // A page of a workspace's files (public URLs) — member-gated. Skipped for the
-  // communal workspace for the same reason as galleries; returns `communal:
-  // true` with an empty list rather than listing the shared bucket to a member.
+  // A page of a workspace's files (public URLs), folder-aware and hydrated
+  // with D1 `gh.*` metadata — member-gated. Skipped for the communal
+  // workspace for the same reason as galleries; returns `communal: true` with
+  // an empty list rather than listing the shared bucket to a member. Query
+  // params mirror the token-scoped `GET /v1/:workspace/files` (files.ts):
+  // `prefix`/`cursor` pass straight through, `limit` defaults to 100 (clamped
+  // inside `listObjects`), and `delimiter` (new here) enables S3-style
+  // "folder" navigation — `listObjects` surfaces the resulting common
+  // prefixes as `prefixes` for the settings-page file browser.
   .get("/workspaces/:name/files", async (c) => {
     const name = c.req.param("name");
     const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
@@ -194,8 +204,28 @@ export const me = new Hono<SessionVars>()
     if (!record) {
       throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
     }
-    const { items } = await listObjects(c.env, record, { limit: 25 });
-    return c.json({ communal: false, files: items });
+
+    const { prefix, delimiter, cursor } = c.req.query();
+    const limit = Number(c.req.query("limit") ?? 100) || 100;
+    const {
+      items,
+      cursor: nextCursor,
+      prefixes,
+    } = await listObjects(c.env, record, {
+      prefix,
+      delimiter,
+      limit,
+      cursor,
+    });
+
+    const metaByKey = await getMetadataForKeys(
+      c.env.DB,
+      name,
+      items.map((item) => item.key),
+    );
+    const files = items.map((item) => ({ ...item, metadata: metaByKey.get(item.key) }));
+
+    return c.json({ communal: false, files, prefixes, cursor: nextCursor });
   })
 
   // Metadata search — the session-authed twin of the token route's

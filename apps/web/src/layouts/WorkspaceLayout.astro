@@ -1,0 +1,365 @@
+---
+/**
+ * Workspace tab shell: composes `AccountLayout` (`section="workspaces"`) with
+ * the workspace header (name + `[role]` badge), the `files / galleries /
+ * people / settings` tab row, and the right-rail summary (connected work /
+ * usage / details / quick actions) — see design doc §5.2/§5.5 and
+ * `.context/2026-07-19-settings-overhaul-3a-reference.html`.
+ *
+ * Tab bodies are the default `<slot />`; each tab route wraps its content in
+ * this layout with its own `activeTab`. The rail's static scaffolding lives
+ * here; its live data (role badge, details, usage, connected work) is filled
+ * client-side by `initWorkspaceRail` (`../lib/workspace-rail.ts`), mounted
+ * below via `onAstroPageLoad`.
+ *
+ * Connected-work hook: the files tab (Task 8) pushes GitHub work items into
+ * the rail via the documented global `window.__uploadsSetConnectedWork(items)`
+ * — see `workspace-rail.ts` for the full contract. Non-files tabs never call
+ * it, so the section stays hidden.
+ */
+import AccountLayout from "./AccountLayout.astro";
+
+export type WorkspaceTab = "files" | "galleries" | "people" | "settings";
+
+interface Props {
+  workspace: string;
+  activeTab: WorkspaceTab;
+}
+
+const { workspace, activeTab } = Astro.props;
+
+const base = `/account/workspaces/${encodeURIComponent(workspace)}`;
+const TABS: { id: WorkspaceTab; label: string; href: string }[] = [
+  { id: "files", label: "files", href: base },
+  { id: "galleries", label: "galleries", href: `${base}/galleries` },
+  { id: "people", label: "people", href: `${base}/people` },
+  { id: "settings", label: "settings", href: `${base}/settings` },
+];
+
+const invitePath = `${base}/people`;
+---
+
+<AccountLayout section="workspaces" workspace={workspace} title={workspace}>
+  <div class="ws-head">
+    <h2 class="ws-head__name">{workspace}</h2>
+    <span class="ws-head__role" data-role-badge hidden></span>
+  </div>
+
+  <nav class="ws-tabs" data-tabrow aria-label="Workspace sections">
+    {
+      TABS.map((tab) => (
+        <a href={tab.href} aria-current={tab.id === activeTab ? "page" : undefined}>
+          {tab.label}
+        </a>
+      ))
+    }
+  </nav>
+
+  <slot />
+
+  <Fragment slot="rail">
+    <div class="ws-rail" data-workspace-rail>
+      <section class="ws-rail__section" data-rail-connected hidden>
+        <div class="ws-rail__head">
+          <span class="ws-rail__label">connected work</span>
+          <span class="ws-rail__rule"></span>
+        </div>
+        <div class="ws-rail__connected-list" data-rail-connected-list></div>
+      </section>
+
+      <section class="ws-rail__section">
+        <div class="ws-rail__head">
+          <span class="ws-rail__label">usage</span>
+          <span class="ws-rail__rule"></span>
+        </div>
+        <div class="ws-rail__usage" data-rail-usage>Loading usage…</div>
+      </section>
+
+      <section class="ws-rail__section">
+        <div class="ws-rail__head">
+          <span class="ws-rail__label">details</span>
+          <span class="ws-rail__rule"></span>
+        </div>
+        <dl class="ws-rail__kv" data-rail-details></dl>
+      </section>
+
+      <section class="ws-rail__section">
+        <div class="ws-rail__head">
+          <span class="ws-rail__label">quick actions</span>
+          <span class="ws-rail__rule"></span>
+        </div>
+        <div class="ws-rail__actions">
+          <a class="ws-rail__invite" href={invitePath}>[invite teammate]</a>
+          <div class="ws-rail__copyrow">
+            <code><span class="ws-rail__prompt">$ </span>uploads put ./file.png</code>
+            <button
+              type="button"
+              class="ws-rail__copy"
+              data-copy="uploads put ./file.png"
+              aria-live="polite"
+            >
+              [copy]
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </Fragment>
+</AccountLayout>
+
+<style>
+  /* Header: workspace name + role badge — server-rendered, JS only toggles
+     the badge's text/hidden state (no innerHTML replace), so plain scoped
+     selectors are fine here. */
+  .ws-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .ws-head__name {
+    margin: 0;
+    font: 600 16px var(--mono);
+  }
+  .ws-head__role {
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  /* Tab row — server-rendered links, `aria-current` marks the active tab. */
+  .ws-tabs {
+    display: flex;
+    gap: 22px;
+    margin-top: 14px;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .ws-tabs a {
+    display: block;
+    padding: 7px 2px 9px;
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    margin-bottom: -1px;
+  }
+  .ws-tabs a:hover,
+  .ws-tabs a:focus-visible {
+    color: var(--fg);
+    outline: none;
+  }
+  .ws-tabs a[aria-current="page"] {
+    color: var(--fg);
+    border-bottom-color: var(--accent);
+  }
+
+  /* Rail wrapper — `display: contents` so the section children participate
+     directly in AccountLayout's `aside.rail` grid (which already supplies
+     `display:grid; gap:22px`); see account-shell.css and the same technique
+     on `#workspaces-nav-list`. Do not add spacing rules here — that's the
+     shared container's job. */
+  .ws-rail {
+    display: contents;
+  }
+
+  /* Section scaffolding (heading row) is server-rendered — plain scoped
+     selectors. Section *bodies* are filled via innerHTML by workspace-rail.ts,
+     so anything reaching into them below wraps the injected class in
+     :global() — Astro's scope attribute only ever lands on elements this
+     component itself renders, so a dynamically-injected node needs :global()
+     to be matched at all. `.account-shell` is likewise wrapped in :global()
+     (it's AccountLayout's element, not this component's), kept only as a
+     belt-and-suspenders ancestor gate: `.ws-rail` between them IS this
+     component's own scoped element, and it only ever renders inside
+     AccountLayout's `.account-shell` tree, so these rules structurally can
+     never match on /admin/* even without the explicit ancestor check. */
+  .ws-rail__section {
+    font-size: 12.5px;
+  }
+  .ws-rail__head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 12px;
+  }
+  .ws-rail__label {
+    color: var(--muted);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .ws-rail__rule {
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+
+  /* Connected work — rows are innerHTML-injected by renderConnectedWorkHtml. */
+  .ws-rail__connected-list {
+    display: grid;
+    gap: 10px;
+  }
+  :global(.account-shell) .ws-rail :global(.ws-rail__connected-item) {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+  }
+  :global(.account-shell) .ws-rail :global(.ws-rail__connected-icon) {
+    width: 14px;
+    height: 14px;
+    color: var(--fg);
+    flex: none;
+    margin-top: 2px;
+  }
+  :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta) {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+  }
+  :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta a) {
+    color: var(--fg);
+    font-weight: 600;
+    font-size: 12.5px;
+    text-decoration: none;
+  }
+  :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta a:hover),
+  :global(.account-shell) .ws-rail :global(.ws-rail__connected-meta a:focus-visible) {
+    color: var(--accent);
+    outline: none;
+  }
+  :global(.account-shell) .ws-rail :global(.ws-rail__connected-sub) {
+    color: var(--muted);
+    font-size: 11.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Usage — renderUsageHtml() output uses @uploads/ui's globally-styled
+     `.ul-progress*` classes (no CSS needed here); style only its plain-text
+     fallback (`.usage-text`/`.usage-meta`, from workspace-ui.ts) since that
+     fallback has no styling of its own outside the legacy account-content.css
+     page this layout does not use. */
+  :global(.account-shell) .ws-rail :global(.usage-text) {
+    color: var(--muted);
+  }
+  :global(.account-shell) .ws-rail :global(.usage-meta) {
+    margin-top: 8px;
+    color: var(--muted);
+  }
+
+  /* Details — dt/dd pairs are innerHTML-injected by renderDetailsHtml. */
+  .ws-rail__kv {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 6px 18px;
+    margin: 0;
+  }
+  :global(.account-shell) .ws-rail :global(.ws-rail__dt) {
+    color: var(--muted);
+  }
+  :global(.account-shell) .ws-rail :global(.ws-rail__dd) {
+    margin: 0;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  :global(.account-shell) .ws-rail :global(.ws-rail__dd--accent) {
+    color: var(--accent);
+  }
+
+  /* Quick actions — server-rendered, static (no session data needed). */
+  .ws-rail__actions {
+    display: grid;
+    gap: 8px;
+  }
+  .ws-rail__invite {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 12px;
+  }
+  .ws-rail__invite:hover,
+  .ws-rail__invite:focus-visible {
+    color: var(--accent);
+    outline: none;
+  }
+  .ws-rail__copyrow {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: var(--panel);
+  }
+  .ws-rail__copyrow code {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    font: 11.5px var(--mono);
+  }
+  .ws-rail__prompt {
+    color: var(--accent);
+  }
+  .ws-rail__copy {
+    flex: none;
+    font: 11px var(--mono);
+    color: var(--accent);
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  .ws-rail__copy:hover,
+  .ws-rail__copy:focus-visible {
+    border-color: var(--accent);
+    outline: none;
+  }
+  .ws-rail__copy.done {
+    color: var(--green);
+    border-color: var(--green);
+  }
+</style>
+
+<script>
+  import { onAstroPageLoad } from "../lib/account-shell";
+  import { resolveActiveWorkspace } from "../lib/workspace-browse-url";
+  import { initWorkspaceRail } from "../lib/workspace-rail";
+
+  function bootWorkspaceRail(): void {
+    const root = document.querySelector<HTMLElement>("[data-workspace-rail]");
+    // Skip when absent (no rail on this page), or when this DOM node was
+    // already wired — avoids double-boot when ClientRouter fires page-load
+    // after the first eager run (same guard as AuthIndicator.astro).
+    if (!root || root.dataset.booted === "1") return;
+    root.dataset.booted = "1";
+
+    const w = window as unknown as {
+      __UPLOADS_API_ORIGIN__: string;
+      __UPLOADS_ACTIVE_WORKSPACE__: string;
+    };
+    const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+    // Pathname wins when the boot global is empty/stale after ClientRouter
+    // sibling navigation (same convention as AccountLayout's own script).
+    const workspace = resolveActiveWorkspace(
+      location.pathname,
+      w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+    );
+
+    // `initWorkspaceRail` queries `document` itself (it also needs
+    // `[data-role-badge]` in the header, outside this rail root) — `root`
+    // here is only this function's own re-entrancy guard.
+    initWorkspaceRail(apiOrigin, workspace);
+  }
+
+  // Eager boot for the initial load, then re-boot after every ClientRouter
+  // swap (fresh rail DOM each workspace-tab navigation).
+  bootWorkspaceRail();
+  onAstroPageLoad(bootWorkspaceRail);
+</script>

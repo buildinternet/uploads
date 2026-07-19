@@ -59,33 +59,21 @@ describe("workspaces cache", () => {
 });
 
 describe("renderWorkspacesNavHtml", () => {
-  it("marks the active workspace and nests Invite for admins", () => {
-    const html = renderWorkspacesNavHtml(sample, {
-      active: "buildinternet",
-      page: "overview",
-    });
+  it("renders one flat row per membership and marks the active one", () => {
+    const html = renderWorkspacesNavHtml(sample, { active: "buildinternet" });
     expect(html).toContain('href="/account/workspaces/buildinternet"');
-    expect(html).toContain('aria-current="page"');
-    expect(html).toContain('href="/account/workspaces/buildinternet/invite"');
-    expect(html).toContain(">Invite<");
-    // Non-active memberships do not get an Invite sub-link.
-    expect(html).not.toContain("/account/workspaces/side/invite");
-  });
-
-  it("marks Invite as the current page and the workspace as location-current", () => {
-    const html = renderWorkspacesNavHtml(sample, {
-      active: "buildinternet",
-      page: "invite",
-    });
-    expect(html).toMatch(/href="\/account\/workspaces\/buildinternet"[^>]*aria-current="true"/);
-    expect(html).toMatch(
-      /href="\/account\/workspaces\/buildinternet\/invite"[^>]*aria-current="page"/,
-    );
-  });
-
-  it("does not offer Invite for non-admin memberships", () => {
-    const html = renderWorkspacesNavHtml(sample, { active: "side", page: "overview" });
+    expect(html).toContain('class="side-link"');
+    expect(html).toMatch(/href="\/account\/workspaces\/buildinternet"[^>]*aria-current="page"/);
     expect(html).toContain('href="/account/workspaces/side"');
-    expect(html).not.toContain("/account/workspaces/side/invite");
+    // Non-active memberships get no aria-current.
+    expect(html).not.toMatch(/href="\/account\/workspaces\/side"[^>]*aria-current/);
+    // No nested/Invite sub-items in the flat nav.
+    expect(html).not.toContain("side-nested");
+    expect(html).not.toContain("/invite");
+  });
+
+  it("marks no row current when there is no active workspace", () => {
+    const html = renderWorkspacesNavHtml(sample);
+    expect(html).not.toContain("aria-current");
   });
 });

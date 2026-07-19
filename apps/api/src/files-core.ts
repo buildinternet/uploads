@@ -376,16 +376,28 @@ export interface ListedObject {
   uploaded?: string;
   /** Present (== "private") only when the object was uploaded as private. */
   visibility?: "private";
+  /**
+   * D1 `gh.*`-style queryable metadata for this key (file-metadata.ts). Never
+   * populated here — `listObjects` only projects storage-provider fields;
+   * callers that want metadata hydrate it separately (e.g. via
+   * `getMetadataForKeys`) and merge it onto each row.
+   */
+  metadata?: Record<string, string>;
 }
 
 export async function listObjects(
   env: Env,
   ws: WorkspaceRecord,
-  opts: { prefix?: string; limit?: number; cursor?: string } = {},
-): Promise<{ items: ListedObject[]; cursor: string | null }> {
+  opts: { prefix?: string; delimiter?: string; limit?: number; cursor?: string } = {},
+): Promise<{ items: ListedObject[]; cursor: string | null; prefixes?: string[] }> {
   const limit = Math.min(Math.max(opts.limit ?? 100, 1), 1000);
   const store = await storage(env, ws);
-  const result = await store.list({ prefix: opts.prefix, limit, cursor: opts.cursor });
+  const result = await store.list({
+    prefix: opts.prefix,
+    delimiter: opts.delimiter,
+    limit,
+    cursor: opts.cursor,
+  });
   const cfg = await storageConfig(env, ws);
   // files-sdk returns rich StoredFile items (size, type, lastModified); project
   // each to the shared HEAD/list subset (`storedMetaJson`) rather than spreading
@@ -403,6 +415,7 @@ export async function listObjects(
       };
     }),
     cursor: result.cursor ?? null,
+    ...(result.prefixes ? { prefixes: result.prefixes } : {}),
   };
 }
 

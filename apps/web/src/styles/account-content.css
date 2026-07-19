@@ -779,3 +779,380 @@ section.card .ws-messages .command {
   align-items: center;
   flex: 0 0 auto;
 }
+
+/* Workspace files tab (3A) — WorkspaceFileTable ─────────────────────────
+   Filter bar + chips/breadcrumbs + optional PR banner + file row grid.
+   Column widths mirror the 3A reference verbatim:
+   name(minmax(0,1fr)) · size(90px) · type(110px) · visibility(100px) · ⋯(44px). */
+
+.wft {
+  display: grid;
+  gap: 0;
+}
+.wft-status {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+/* Workspace-info "unavailable" state — error text + a retry affordance. */
+.wft-status-block {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.wft-communal {
+  display: grid;
+  gap: 8px;
+}
+.wft-filterbar {
+  max-width: 460px;
+}
+.wft-filterbar .input-group__field input {
+  font-size: 12.5px;
+}
+.wft-error {
+  margin: 8px 0 0;
+  color: var(--red);
+  font: 12px var(--mono);
+}
+
+.wft-sectionhead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0 0;
+}
+.wft-sectionhead__rule {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.wft-sectionhead__rule--lead {
+  width: 16px;
+  flex: none;
+}
+.wft-sectionhead__label {
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.wft-sectionhead__count {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.wft-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.wft-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--panel);
+  padding: 4px 5px 4px 9px;
+  font-size: 12px;
+}
+.wft-chip__icon {
+  width: 12px;
+  height: 12px;
+  color: var(--muted);
+  flex: none;
+}
+.wft-chip__key,
+.wft-chip__eq {
+  color: var(--muted);
+}
+.wft-chip__value {
+  color: var(--fg);
+}
+.wft-chip__remove {
+  font: 12px var(--mono);
+  color: var(--muted);
+  background: none;
+  border: 0;
+  padding: 0 4px;
+  cursor: pointer;
+  line-height: 1;
+}
+.wft-chip__remove:hover,
+.wft-chip__remove:focus-visible {
+  color: var(--red);
+  outline: none;
+}
+.wft-clearall {
+  color: var(--muted);
+  font-size: 12px;
+}
+.wft-clearall button {
+  color: var(--muted);
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.wft-clearall button:hover,
+.wft-clearall button:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+
+.wft-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 10px;
+  font-size: 12.5px;
+}
+.wft-crumbs button {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 2px 4px;
+  background: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.wft-crumbs button:hover,
+.wft-crumbs button:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+.wft-crumbs__sep {
+  color: var(--line);
+}
+.wft-crumbs__current {
+  color: var(--fg);
+  padding: 2px 4px;
+}
+
+.wft-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--panel);
+}
+.wft-banner__icon {
+  width: 15px;
+  height: 15px;
+  color: var(--fg);
+  flex: none;
+}
+.wft-banner__kind {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  flex: none;
+}
+.wft-banner__ref {
+  font-size: 12.5px;
+  color: var(--fg);
+  font-weight: 600;
+  text-decoration: none;
+}
+.wft-banner__ref:hover,
+.wft-banner__ref:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+.wft-banner__spacer {
+  flex: 1;
+}
+.wft-banner__open {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.wft-banner__open:hover,
+.wft-banner__open:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+
+.wft-grid {
+  margin-top: 8px;
+}
+.wft-row,
+.wft-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px 110px 100px 44px;
+  gap: 12px;
+  align-items: center;
+}
+.wft-head {
+  padding: 7px 2px;
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.wft-head span:nth-child(2) {
+  text-align: right;
+}
+.wft-row {
+  padding: 8px 2px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+}
+button.wft-row {
+  width: 100%;
+  background: none;
+  border-top: 1px solid var(--line);
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wft-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+button.wft-name--btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+.wft-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 2px;
+  border: 1px solid var(--line);
+  flex: none;
+  background-size: cover;
+  background-position: center;
+}
+.wft-thumb--tile {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: var(--panel);
+}
+.wft-thumb--tile svg {
+  width: 11px;
+  height: 11px;
+}
+.wft-filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wft-size {
+  text-align: right;
+  color: var(--muted);
+}
+.wft-type {
+  color: var(--muted);
+}
+.wft-vis {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wft-vis--private {
+  color: var(--muted);
+}
+.wft-vis--public {
+  color: var(--fg);
+}
+.wft-vis__icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+.wft-vis__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--green);
+  flex: none;
+}
+.wft-menu {
+  position: relative;
+  justify-self: end;
+}
+.wft-menu__trigger {
+  font: 600 13px var(--mono);
+  color: var(--muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  padding: 1px 7px 3px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.wft-menu__trigger:hover,
+.wft-menu__trigger:focus-visible {
+  color: var(--fg);
+  border-color: var(--line);
+  outline: none;
+}
+.wft-menu__popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 170px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  box-shadow: 0 12px 32px color-mix(in srgb, var(--line) 85%, transparent);
+  padding: 4px;
+  display: grid;
+  gap: 1px;
+}
+.wft-menu__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: 12px var(--mono);
+  color: var(--fg);
+  background: none;
+  border: 0;
+  border-radius: 2px;
+  padding: 7px 9px;
+  cursor: pointer;
+}
+.wft-menu__item:hover,
+.wft-menu__item:focus-visible {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  outline: none;
+}
+.wft-menu__item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.wft-end {
+  border-top: 1px solid var(--line);
+  padding: 9px 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.wft-loadmore {
+  margin-top: 10px;
+}
