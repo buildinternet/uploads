@@ -358,3 +358,99 @@ export async function searchWorkspaceFiles(
   }
   return { kind: "ok", items: b.items, truncated: b.truncated };
 }
+
+export interface WorkspaceFolderFile {
+  key: string;
+  url: string;
+  embedUrl: string;
+  size?: number;
+  contentType?: string;
+  uploaded?: string;
+  visibility?: "public" | "private";
+  metadata?: Record<string, string>;
+}
+
+export interface WorkspaceFolderListing {
+  files: WorkspaceFolderFile[];
+  prefixes: string[];
+  cursor?: string;
+  communal: boolean;
+}
+
+const EMPTY_FOLDER_LISTING: WorkspaceFolderListing = {
+  files: [],
+  prefixes: [],
+  cursor: undefined,
+  communal: false,
+};
+
+/** A folder listing row only needs a `key` — every other field is coerced defensively below. */
+function isWorkspaceFolderFileCandidate(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object") return false;
+  return typeof (value as Record<string, unknown>).key === "string";
+}
+
+function toWorkspaceFolderFile(raw: Record<string, unknown>): WorkspaceFolderFile {
+  return {
+    key: raw.key as string,
+    // The API's ListedObject types these `string | null` (unconfigured public
+    // base URL); coerce a missing/null value to "" so this stays a plain string.
+    url: typeof raw.url === "string" ? raw.url : "",
+    embedUrl: typeof raw.embedUrl === "string" ? raw.embedUrl : "",
+    size: typeof raw.size === "number" ? raw.size : undefined,
+    contentType: typeof raw.contentType === "string" ? raw.contentType : undefined,
+    uploaded: typeof raw.uploaded === "string" ? raw.uploaded : undefined,
+    visibility:
+      raw.visibility === "public" || raw.visibility === "private" ? raw.visibility : undefined,
+    metadata:
+      raw.metadata && typeof raw.metadata === "object"
+        ? (raw.metadata as Record<string, string>)
+        : undefined,
+  };
+}
+
+/**
+ * GET /me/workspaces/:name/files?prefix=&cursor=&limit= — folder-aware,
+ * gh.*-metadata-hydrated workspace file listing (commit 0f9ac65). Backs the
+ * settings-page files tab's folder browser, so like {@link fetchWorkspaceList}
+ * this is a "less central" detail helper: any transport failure, non-2xx, or
+ * malformed body degrades to an empty listing rather than surfacing an outage.
+ *
+ * The API returns `cursor` as `string | null`; normalized here to
+ * `string | undefined`. Likewise `prefixes` defaults to `[]` when the API
+ * omits it (non-delimited listings).
+ */
+export async function listWorkspaceFolder(
+  apiOrigin: string,
+  workspace: string,
+  opts: { prefix?: string; cursor?: string; limit?: number } = {},
+): Promise<WorkspaceFolderListing> {
+  const params = new URLSearchParams();
+  if (opts.prefix !== undefined) params.set("prefix", opts.prefix);
+  if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  const query = params.toString();
+  const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(workspace)}/files${query ? `?${query}` : ""}`;
+
+  const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
+  if (result.kind === "unavailable" || !result.response.ok) return EMPTY_FOLDER_LISTING;
+
+  const body = (await result.response.json().catch(() => null)) as {
+    communal?: unknown;
+    files?: unknown;
+    prefixes?: unknown;
+    cursor?: unknown;
+  } | null;
+  if (!body) return EMPTY_FOLDER_LISTING;
+
+  return {
+    communal: body.communal === true,
+    files: Array.isArray(body.files)
+      ? body.files.filter(isWorkspaceFolderFileCandidate).map(toWorkspaceFolderFile)
+      : [],
+    prefixes: Array.isArray(body.prefixes)
+      ? body.prefixes.filter((p) => typeof p === "string")
+      : [],
+    cursor: typeof body.cursor === "string" ? body.cursor : undefined,
+  };
+}

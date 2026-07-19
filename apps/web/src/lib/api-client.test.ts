@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getMyWorkspaces, searchWorkspaceFiles, setFileVisibility } from "./api-client";
+import {
+  getMyWorkspaces,
+  listWorkspaceFolder,
+  searchWorkspaceFiles,
+  setFileVisibility,
+} from "./api-client";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -189,5 +194,132 @@ describe("searchWorkspaceFiles", () => {
     await expect(
       searchWorkspaceFiles("http://127.0.0.1:8787", "acme", [{ key: "app", value: "web" }]),
     ).resolves.toEqual({ kind: "unavailable", reason: "malformed" });
+  });
+});
+
+describe("listWorkspaceFolder", () => {
+  it("builds the querystring from opts, omitting absent params", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe(
+        "http://127.0.0.1:8787/me/workspaces/acme/files?prefix=f%2F&cursor=abc&limit=50",
+      );
+      expect(init?.credentials).toBe("include");
+      return Response.json({ communal: false, files: [], prefixes: [], cursor: null });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listWorkspaceFolder("http://127.0.0.1:8787", "acme", {
+      prefix: "f/",
+      cursor: "abc",
+      limit: 50,
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("omits the querystring entirely when no opts are given", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/files");
+      return Response.json({ communal: false, files: [], prefixes: [], cursor: null });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listWorkspaceFolder("http://127.0.0.1:8787", "acme");
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("maps the JSON response through to WorkspaceFolderListing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          communal: false,
+          files: [
+            {
+              key: "f/x.png",
+              url: "https://s/acme/f/x.png",
+              embedUrl: "https://s/acme/f/x.png?embed",
+              size: 1024,
+              contentType: "image/png",
+              uploaded: "2026-07-19T00:00:00.000Z",
+              visibility: "private",
+              metadata: { "gh.repo": "acme/repo" },
+            },
+          ],
+          prefixes: ["f/"],
+          cursor: "next-cursor",
+        }),
+      ),
+    );
+
+    await expect(listWorkspaceFolder("http://127.0.0.1:8787", "acme")).resolves.toEqual({
+      communal: false,
+      files: [
+        {
+          key: "f/x.png",
+          url: "https://s/acme/f/x.png",
+          embedUrl: "https://s/acme/f/x.png?embed",
+          size: 1024,
+          contentType: "image/png",
+          uploaded: "2026-07-19T00:00:00.000Z",
+          visibility: "private",
+          metadata: { "gh.repo": "acme/repo" },
+        },
+      ],
+      prefixes: ["f/"],
+      cursor: "next-cursor",
+    });
+  });
+
+  it("normalizes a null cursor to undefined", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ communal: false, files: [], prefixes: [], cursor: null })),
+    );
+
+    const result = await listWorkspaceFolder("http://127.0.0.1:8787", "acme");
+    expect(result.cursor).toBeUndefined();
+    expect("cursor" in result ? result.cursor : undefined).toBeUndefined();
+  });
+
+  it("defaults prefixes to [] when the API omits it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ communal: true, files: [], cursor: null })),
+    );
+
+    await expect(listWorkspaceFolder("http://127.0.0.1:8787", "acme")).resolves.toEqual({
+      communal: true,
+      files: [],
+      prefixes: [],
+      cursor: undefined,
+    });
+  });
+
+  it("degrades to an empty listing on a server error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 500 })),
+    );
+
+    await expect(listWorkspaceFolder("http://127.0.0.1:8787", "acme")).resolves.toEqual({
+      communal: false,
+      files: [],
+      prefixes: [],
+      cursor: undefined,
+    });
+  });
+
+  it("degrades to an empty listing on network failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new TypeError("network down"))),
+    );
+
+    await expect(listWorkspaceFolder("http://127.0.0.1:8787", "acme")).resolves.toEqual({
+      communal: false,
+      files: [],
+      prefixes: [],
+      cursor: undefined,
+    });
   });
 });
