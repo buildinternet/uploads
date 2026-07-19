@@ -201,7 +201,7 @@ describe("listWorkspaceFolder", () => {
   it("builds the querystring from opts, omitting absent params", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe(
-        "http://127.0.0.1:8787/me/workspaces/acme/files?prefix=f%2F&cursor=abc&limit=50",
+        "http://127.0.0.1:8787/me/workspaces/acme/files?delimiter=%2F&prefix=f%2F&cursor=abc&limit=50",
       );
       expect(init?.credentials).toBe("include");
       return Response.json({ communal: false, files: [], prefixes: [], cursor: null });
@@ -220,6 +220,7 @@ describe("listWorkspaceFolder", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       expect(url).toContain("prefix=foo%2F");
+      expect(url).toContain("delimiter=%2F");
       expect(url).not.toContain("cursor=");
       expect(url).not.toContain("limit=");
       return Response.json({ communal: false, files: [], prefixes: [], cursor: null });
@@ -230,9 +231,9 @@ describe("listWorkspaceFolder", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it("omits the querystring entirely when no opts are given", async () => {
+  it("still sends the folder delimiter when no opts are given", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/files");
+      expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/files?delimiter=%2F");
       return Response.json({ communal: false, files: [], prefixes: [], cursor: null });
     });
     vi.stubGlobal("fetch", fetchMock);

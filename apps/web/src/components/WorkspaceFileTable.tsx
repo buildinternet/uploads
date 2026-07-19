@@ -488,7 +488,7 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
           />
         </span>
         <button type="submit" className="input-group__action">
-          [add]
+          add
         </button>
       </form>
       {filterError && (
@@ -580,7 +580,7 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
             target="_blank"
             rel="noopener noreferrer"
           >
-            [open on github ↗]
+            open on github ↗
           </a>
         </div>
       )}
@@ -588,8 +588,8 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
       <div className="wft-grid">
         <div className="wft-head">
           <span>name</span>
-          <span>size</span>
-          <span>type</span>
+          <span className="wft-head__size">size</span>
+          <span className="wft-head__type">type</span>
           <span>visibility</span>
           <span />
         </div>

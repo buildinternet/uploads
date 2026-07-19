@@ -1021,7 +1021,7 @@ section.card .ws-messages .command {
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-.wft-head span:nth-child(2) {
+.wft-head__size {
   text-align: right;
 }
 .wft-row {
@@ -1175,4 +1175,65 @@ button.wft-name--btn {
 }
 .wft-loadmore {
   margin-top: 10px;
+}
+
+/* People tab — member rows (innerHTML-injected by renderMembersHtml). */
+.member-list {
+  display: grid;
+}
+.member-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 9px 2px;
+  border-top: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.member-row:first-child {
+  border-top: 0;
+}
+.member-row__who {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.member-row__name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.member-row__email {
+  color: var(--muted);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.member-row__role {
+  flex: none;
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Narrow screens: the five fixed columns (64/64/92/32 + gaps) leave the name
+   track nothing to render in, so filenames ellipsize to zero width. Drop the
+   size and type columns (their values still live in the file's own page) and
+   keep name / visibility / actions. */
+@media (max-width: 560px) {
+  .wft-row,
+  .wft-head {
+    grid-template-columns: minmax(0, 1fr) 92px 32px;
+    gap: 10px;
+  }
+  .wft-head__size,
+  .wft-head__type,
+  .wft-size,
+  .wft-type {
+    display: none;
+  }
 }

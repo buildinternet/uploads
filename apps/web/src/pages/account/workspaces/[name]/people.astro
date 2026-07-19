@@ -22,11 +22,18 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       <div class="settings-section">
         <div class="ws-page-header">
           <div class="ws-title-block">
-            <h2>Invite</h2>
+            <h2>People</h2>
             <p class="muted" id="ws-slug"></p>
           </div>
           <a class="text-btn" id="ws-back" href={`/account/workspaces/${workspace}`}>← Workspace</a>
         </div>
+        <div id="ws-members" class="member-list">
+          <p class="muted" id="ws-members-status" role="status">Loading people…</p>
+        </div>
+      </div>
+
+      <div class="settings-section" id="ws-invite-section">
+        <h2>Invite</h2>
         <p class="settings-note muted">Accept link, then <code>uploads login</code>.</p>
         <form class="ws-form" id="ws-invite-form">
           <div class="input-group">
@@ -68,7 +75,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       onSession,
       requireElement,
     } from "../../../../lib/account-shell";
-    import { getMyWorkspaces, inviteToWorkspace } from "../../../../lib/api-client";
+    import {
+      getMyWorkspaces,
+      getWorkspaceMembers,
+      inviteToWorkspace,
+    } from "../../../../lib/api-client";
     import { writeCachedWorkspaces } from "../../../../lib/workspaces-nav";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
     import {
@@ -76,6 +87,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       escapeHtml,
       isWorkspaceAdminRole,
       operatorInviteCommand,
+      renderMembersHtml,
     } from "../../../../lib/workspace-ui";
 
     onAstroPageLoad(() => {
@@ -105,6 +117,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const operatorCmd = requireElement<HTMLElement>("#ws-operator-cmd", page);
       const operatorCopy = requireElement<HTMLButtonElement>("#ws-operator-copy", page);
       const inviteForm = requireElement<HTMLFormElement>("#ws-invite-form", page);
+      const inviteSection = requireElement<HTMLElement>("#ws-invite-section", page);
+      const membersEl = requireElement<HTMLElement>("#ws-members", page);
 
       let sessionRole: string | null | undefined;
 
@@ -140,24 +154,20 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           return;
         }
 
-        if (!isWorkspaceAdminRole(ws.role) && sessionRole !== "admin") {
-          showError("You need workspace admin access to invite teammates.", false);
-          return;
-        }
-
-        // Non-admins who somehow deep-linked should not use the form (site
+        // Every member sees the people list; inviting stays admin-only (site
         // operators may still open the page for the ADMIN_TOKEN command).
-        if (!isWorkspaceAdminRole(ws.role)) {
-          inviteForm.hidden = true;
-        }
+        inviteSection.hidden = !isWorkspaceAdminRole(ws.role) && sessionRole !== "admin";
+        inviteForm.hidden = !isWorkspaceAdminRole(ws.role);
 
         statusEl.hidden = true;
         appEl.hidden = false;
 
+        void loadMembers();
+
         const displayName = ws.organization.name || ws.workspace;
         slugEl.textContent =
           displayName === ws.workspace ? ws.workspace : `${displayName} · ${ws.workspace}`;
-        document.title = `Invite · ${displayName} · uploads.sh`;
+        document.title = `People · ${displayName} · uploads.sh`;
 
         const isOperator = sessionRole === "admin";
         operatorCard.hidden = !isOperator;
@@ -166,6 +176,24 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           operatorCmd.textContent = cmd;
           operatorCopy.dataset.copy = cmd;
         }
+      }
+
+      async function loadMembers(): Promise<void> {
+        const result = await getWorkspaceMembers(apiOrigin, workspaceName);
+        if (!stillHere()) return;
+        if (result.kind === "unavailable") {
+          membersEl.innerHTML =
+            '<p class="muted" role="alert">People are temporarily unavailable. Reload to try again.</p>';
+          return;
+        }
+        if (result.communal) {
+          membersEl.innerHTML =
+            '<p class="muted">Shared, public space — no member list to show.</p>';
+          return;
+        }
+        membersEl.innerHTML = result.members.length
+          ? renderMembersHtml(result.members)
+          : '<p class="muted">Just you so far.</p>';
       }
 
       bindCopyButtons(document);

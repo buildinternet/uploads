@@ -26,6 +26,8 @@ export interface MyWorkspace {
    * signed-URL-capable `/me/.../file-url` endpoint instead.
    */
   hasPublicUrl: boolean;
+  /** The public base URL itself (e.g. `https://storage.uploads.sh`), when configured. */
+  publicBaseUrl?: string;
 }
 
 // `communal` and `hasPublicUrl` are intentionally NOT required here: web and
@@ -73,6 +75,10 @@ export async function getMyWorkspaces(apiOrigin: string): Promise<WorkspacesResu
         role: ws.role,
         communal: (ws as { communal?: unknown }).communal === true,
         hasPublicUrl: (ws as { hasPublicUrl?: unknown }).hasPublicUrl === true,
+        publicBaseUrl:
+          typeof (ws as { publicBaseUrl?: unknown }).publicBaseUrl === "string"
+            ? (ws as { publicBaseUrl: string }).publicBaseUrl
+            : undefined,
       }),
     ),
   };
@@ -232,6 +238,52 @@ export type InviteResult =
       emailConfigured?: boolean;
     }
   | { kind: "unavailable"; reason: RequestFailure | "server" | "forbidden" | "invalid" };
+
+export interface WorkspaceMember {
+  email: string;
+  name: string;
+  role: string;
+  createdAt?: string;
+}
+
+export type WorkspaceMembersResult =
+  | { kind: "ok"; communal: boolean; members: WorkspaceMember[] }
+  | { kind: "unavailable" };
+
+function isMemberCandidate(
+  value: unknown,
+): value is { email: string; role: string } & Record<string, unknown> {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.email === "string" && typeof row.role === "string";
+}
+
+/** GET /me/workspaces/:name/members — teammates in the workspace, member-gated. */
+export async function getWorkspaceMembers(
+  apiOrigin: string,
+  name: string,
+): Promise<WorkspaceMembersResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/members`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable" || !result.response.ok) return { kind: "unavailable" };
+  const body = (await result.response.json().catch(() => null)) as {
+    communal?: unknown;
+    members?: unknown;
+  } | null;
+  if (!body || !Array.isArray(body.members)) return { kind: "unavailable" };
+  return {
+    kind: "ok",
+    communal: body.communal === true,
+    members: body.members.filter(isMemberCandidate).map((row) => ({
+      email: row.email,
+      name: typeof row.name === "string" ? row.name : "",
+      role: row.role,
+      createdAt: typeof row.createdAt === "string" ? row.createdAt : undefined,
+    })),
+  };
+}
 
 /**
  * POST /me/workspaces/:name/invites — workspace admin|owner invites an email.
@@ -425,6 +477,9 @@ export async function listWorkspaceFolder(
   opts: { prefix?: string; cursor?: string; limit?: number } = {},
 ): Promise<WorkspaceFolderListing> {
   const params = new URLSearchParams();
+  // Always list one folder level at a time — without the delimiter the API
+  // returns a flat recursive listing and no `prefixes` (folders).
+  params.set("delimiter", "/");
   if (opts.prefix !== undefined) params.set("prefix", opts.prefix);
   if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
   if (opts.limit !== undefined) params.set("limit", String(opts.limit));

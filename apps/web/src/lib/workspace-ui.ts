@@ -115,6 +115,28 @@ export function renderUsageHtml(usage: UsageSnapshot): string {
   return `<div class="ul-progress">${meters.map((m) => progressRowHtml(m.label, m.detail, m.pct)).join("")}</div><div class="usage-meta">${escapeHtml(objects)}</div>`;
 }
 
+/** Minimal member shape `renderMembersHtml` needs — api-client's `WorkspaceMember` satisfies it. */
+export interface MemberRow {
+  email: string;
+  name: string;
+  role: string;
+}
+
+/**
+ * Pure row builder for the people tab's member list. Shows the display name
+ * when the account has one (email then becomes the sub-line), otherwise the
+ * email leads. `[]` → `""` (caller renders its own empty state).
+ */
+export function renderMembersHtml(members: MemberRow[]): string {
+  return members
+    .map((m) => {
+      const lead = m.name || m.email;
+      const sub = m.name ? `<span class="member-row__email">${escapeHtml(m.email)}</span>` : "";
+      return `<div class="member-row"><span class="member-row__who"><span class="member-row__name">${escapeHtml(lead)}</span>${sub}</span><span class="member-row__role">${escapeHtml(m.role)}</span></div>`;
+    })
+    .join("");
+}
+
 export function isWorkspaceAdminRole(role: string): boolean {
   return role === "admin" || role === "owner";
 }

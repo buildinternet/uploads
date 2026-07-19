@@ -20,7 +20,7 @@ import {
 } from "../auth-db";
 import { allowWrite } from "../guards";
 import { deriveWebOrigin, inviteLinkUrl } from "../invite-links";
-import { orgForWorkspace } from "../org-workspaces";
+import { membersForOrg, orgForWorkspace } from "../org-workspaces";
 import {
   requireAdminUser,
   requireSessionUser,
@@ -133,16 +133,7 @@ export const adminUi = new Hono<SessionVars>()
     if (!org)
       throw new NotFoundError("no organization for this workspace", { code: "org_not_found" });
 
-    const response = await c.env.AUTH.fetch(
-      `https://auth.internal/internal/orgs/${encodeURIComponent(org.slug)}/members`,
-      { headers: { "x-uploads-internal": "1" } },
-    );
-    if (!response.ok) {
-      throw new ValidationError("failed to list members", {
-        details: await response.json().catch(() => null),
-      });
-    }
-    return c.json(await response.json());
+    return c.json({ members: await membersForOrg(c.env, org.slug) });
   })
 
   // Pending invites for the org backing this workspace.

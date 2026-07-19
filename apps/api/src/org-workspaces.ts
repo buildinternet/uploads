@@ -64,6 +64,37 @@ export async function membershipsForUser(env: Env, userId: string): Promise<Memb
   return body as Membership[];
 }
 
+/** A raw member row from the auth worker's `/internal/orgs/:slug/members`. */
+export interface OrgMember {
+  id: string;
+  userId: string;
+  email: string;
+  name: string | null;
+  role: string;
+  createdAt?: string;
+}
+
+/**
+ * Members of an org via `GET /internal/orgs/:slug/members` over the AUTH
+ * binding. Non-ok is an auth-worker outage/bug, surfaced as a 5xx like the
+ * lookups above. Shared by the admin panel (raw rows) and the member-facing
+ * people tab (which sanitizes before responding).
+ */
+export async function membersForOrg(env: Env, slug: string): Promise<OrgMember[]> {
+  const response = await env.AUTH.fetch(
+    `${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(slug)}/members`,
+    { headers: internalHeaders() },
+  );
+  if (!response.ok) {
+    throw new ServiceUnavailableError("auth service returned an unexpected status", {
+      code: "auth_lookup_failed",
+      details: { status: response.status },
+    });
+  }
+  const body = (await response.json().catch(() => null)) as { members?: OrgMember[] } | null;
+  return body?.members ?? [];
+}
+
 /**
  * The organization for a given workspace name, or null if none exists yet
  * (e.g. the workspace predates the Phase 3 backfill, or was never

@@ -81,17 +81,40 @@ describe("renderConnectedWorkHtml", () => {
 });
 
 describe("renderDetailsHtml", () => {
-  it("renders slug, role, and a configured public url", () => {
+  it("renders the public url as a host-labeled link when the URL is known", () => {
+    const html = renderDetailsHtml({
+      organization: { slug: "buildinternet" },
+      role: "admin",
+      hasPublicUrl: true,
+      publicBaseUrl: "https://storage.uploads.sh/",
+    });
+    expect(html).toContain(">buildinternet<");
+    expect(html).toContain(">admin<");
+    expect(html).toContain('class="ws-rail__dd ws-rail__dd--accent"');
+    expect(html).toContain('href="https://storage.uploads.sh/"');
+    expect(html).toContain(">storage.uploads.sh</a>");
+    expect(html).not.toContain(">configured<");
+  });
+
+  it("falls back to 'configured' when an older API sends only the boolean", () => {
     const html = renderDetailsHtml({
       organization: { slug: "buildinternet" },
       role: "admin",
       hasPublicUrl: true,
     });
-    expect(html).toContain(">buildinternet<");
-    expect(html).toContain(">admin<");
-    expect(html).toContain('class="ws-rail__dd ws-rail__dd--accent"');
     expect(html).toContain(">configured<");
-    expect(html).not.toContain("storage.uploads.sh");
+    expect(html).not.toContain("<a");
+  });
+
+  it("escapes an interpolated public url", () => {
+    const html = renderDetailsHtml({
+      organization: { slug: "acme" },
+      role: "member",
+      hasPublicUrl: true,
+      publicBaseUrl: 'https://x.example/"><script>alert(1)</script>',
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
   });
 
   it("renders an em-dash for public url when hasPublicUrl is false", () => {

@@ -22,7 +22,12 @@ import { badKey, listObjects, setObjectVisibility } from "../files-core";
 import { listGalleries } from "../galleries";
 import { gallerySummary } from "../gallery-service";
 import { allowWrite } from "../guards";
-import { membershipsForUser, orgForWorkspace, workspacesForOrg } from "../org-workspaces";
+import {
+  membersForOrg,
+  membershipsForUser,
+  orgForWorkspace,
+  workspacesForOrg,
+} from "../org-workspaces";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
 import { objectPublicUrls, publicUrl, storage, storageConfig } from "../storage";
 import { getWorkspaceUsage } from "../usage";
@@ -148,10 +153,11 @@ export const me = new Hono<SessionVars>()
     const workspaces = await myWorkspaces(c.env, userId);
     const withPublicUrl = await Promise.all(
       workspaces.map(async (ws) => {
-        const hasPublicUrl = ws.communal
-          ? false
-          : Boolean((await loadWorkspaceRecord(c.env, ws.workspace))?.publicBaseUrl);
-        return Object.assign({}, ws, { hasPublicUrl });
+        const publicBaseUrl = ws.communal
+          ? undefined
+          : (await loadWorkspaceRecord(c.env, ws.workspace))?.publicBaseUrl;
+        // `hasPublicUrl` kept alongside the URL itself for existing consumers.
+        return Object.assign({}, ws, { hasPublicUrl: Boolean(publicBaseUrl), publicBaseUrl });
       }),
     );
     return c.json({ workspaces: withPublicUrl });
@@ -169,6 +175,29 @@ export const me = new Hono<SessionVars>()
 
     const usage = await getWorkspaceUsage(c.env.DB, name);
     return c.json(usageWithLimits(usage, record));
+  })
+
+  // People in one workspace — member-gated (any member may see who they share
+  // the workspace with; only the fields a teammate needs, not the raw member
+  // rows the admin panel gets). Communal is a shared public space with no real
+  // team behind it — same branch-free `communal: true` shape as galleries.
+  .get("/workspaces/:name/members", async (c) => {
+    const name = c.req.param("name");
+    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
+    if (ws.communal) return c.json({ communal: true, members: [] });
+
+    // `ws.organization` was already resolved by the membership lookup — no
+    // second org fetch. Internal `id`/`userId` never reach teammates.
+    const members = await membersForOrg(c.env, ws.organization.slug);
+    return c.json({
+      communal: false,
+      members: members.map((m) => ({
+        email: m.email ?? "",
+        name: m.name ?? "",
+        role: m.role ?? "member",
+        createdAt: m.createdAt,
+      })),
+    });
   })
 
   // Galleries in one workspace — member-gated. The communal workspace is a
