@@ -43,10 +43,14 @@ Notes:
   is unavailable, portless falls back to plain HTTP on `:1355` — the stack
   handles both. `pnpm exec portless doctor` diagnoses routing/CA issues, and
   `pnpm exec portless service install` keeps the proxy across reboots.
-- `PORTLESS=0 pnpm dev:stack` restores the legacy pinned loopback ports
-  (`127.0.0.1:4321/8787/8788`). This is also the path to use when testing the
-  dev GitHub OAuth app, whose callback is pinned to
-  `http://127.0.0.1:8788/api/auth/callback/github`.
+- `pnpm dev:stack:raw` (or `PORTLESS=0 pnpm dev:stack`) restores the legacy
+  pinned loopback ports (`127.0.0.1:4321/8787/8788`). This is also the path
+  to use when testing the dev GitHub OAuth app, whose callback is pinned to
+  `http://127.0.0.1:8788/api/auth/callback/github`. The `stack-raw` launch
+  config (.claude/launch.json) boots the same thing with a port-based
+  preview; in portless mode the web port is dynamic, so open the printed
+  `previewUrl` directly instead.
+- `pnpm dev:stack:oauth` is the named alias for the real-TLD mode below.
 - The zero-input `/api/auth/dev-session` bypass stays fail-closed: it only
   enables for the exact loopback pair or a matched `*.localhost` pair — never
   for real-TLD origins.
