@@ -3,7 +3,9 @@ import { UsageError } from "../src/cli-args.js";
 import { ATTACHMENTS_MARKER, type GhTarget } from "../src/github.js";
 import {
   classifyGhNumber,
+  ghMetadataFromTargetWithTitle,
   resolveCurrentPullRequest,
+  resolveGhTitle,
   resolveRepo,
   upsertAttachmentsComment,
   type CommandRunner,
@@ -141,6 +143,102 @@ describe("upsertAttachmentsComment", () => {
     expect(patch.args).toContain("repos/o/r/issues/comments/42");
     expect(patch.args).toContain("PATCH");
     expect(patch.input).toContain("new body");
+  });
+});
+
+describe("resolveGhTitle", () => {
+  const pr: GhTarget = { repo: "o/r", kind: "pull", num: 208 };
+  const issue: GhTarget = { repo: "o/r", kind: "issues", num: 45 };
+
+  it("resolves a PR title via gh pr view", () => {
+    const run: CommandRunner = (cmd, args) => {
+      expect(cmd).toBe("gh");
+      expect(args).toEqual([
+        "pr",
+        "view",
+        "208",
+        "--repo",
+        "o/r",
+        "--json",
+        "title",
+        "--jq",
+        ".title",
+      ]);
+      return "Fix the thing\n";
+    };
+    expect(resolveGhTitle(pr, run)).toBe("Fix the thing");
+  });
+
+  it("resolves an issue title via gh issue view", () => {
+    const run: CommandRunner = (cmd, args) => {
+      expect(args).toEqual([
+        "issue",
+        "view",
+        "45",
+        "--repo",
+        "o/r",
+        "--json",
+        "title",
+        "--jq",
+        ".title",
+      ]);
+      return "Something is broken\n";
+    };
+    expect(resolveGhTitle(issue, run)).toBe("Something is broken");
+  });
+
+  it("returns undefined when gh throws (missing/unauthenticated/404/network)", () => {
+    const run: CommandRunner = () => {
+      throw new Error("gh: not found");
+    };
+    expect(resolveGhTitle(pr, run)).toBeUndefined();
+  });
+
+  it("returns undefined when gh yields an empty title", () => {
+    const run: CommandRunner = () => "  \n";
+    expect(resolveGhTitle(pr, run)).toBeUndefined();
+  });
+});
+
+describe("ghMetadataFromTargetWithTitle", () => {
+  const pr: GhTarget = { repo: "o/r", kind: "pull", num: 208 };
+
+  it("stamps gh.title alongside the base 4 pairs when a title resolves", () => {
+    const run: CommandRunner = () => "Fix the thing\n";
+    expect(ghMetadataFromTargetWithTitle(pr, run)).toEqual({
+      "gh.repo": "o/r",
+      "gh.kind": "pull",
+      "gh.number": "208",
+      "gh.ref": "o/r#208",
+      "gh.title": "Fix the thing",
+    });
+  });
+
+  it("omits gh.title (never throws) when the runner fails", () => {
+    const run: CommandRunner = () => {
+      throw new Error("gh: not authenticated");
+    };
+    expect(ghMetadataFromTargetWithTitle(pr, run)).toEqual({
+      "gh.repo": "o/r",
+      "gh.kind": "pull",
+      "gh.number": "208",
+      "gh.ref": "o/r#208",
+    });
+  });
+
+  it("truncates a title longer than 512 chars", () => {
+    const long = "x".repeat(600);
+    const run: CommandRunner = () => `${long}\n`;
+    const metadata = ghMetadataFromTargetWithTitle(pr, run);
+    expect(metadata["gh.title"]).toHaveLength(512);
+    expect(metadata["gh.title"]).toBe("x".repeat(512));
+  });
+
+  it("omits gh.title when the resolved title fails the printable-ASCII value rule", () => {
+    const run: CommandRunner = () => "Ship 🚀 emoji release\n";
+    const metadata = ghMetadataFromTargetWithTitle(pr, run);
+    expect(metadata["gh.title"]).toBeUndefined();
+    expect(metadata["gh.ref"]).toBe("o/r#208"); // base 4 pairs still present
   });
 });
 

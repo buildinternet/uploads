@@ -3,10 +3,12 @@
  * `packages/uploads/src/github.ts`): a "connected work" list for the
  * right-rail summary and an exact-PR-match check for the files-tab banner.
  *
- * Files carry exactly four keys when tagged: `gh.repo` (lowercased
+ * Files carry four required keys when tagged: `gh.repo` (lowercased
  * `owner/name`), `gh.kind` (`pull` | `issue`), `gh.number` (decimal string),
- * `gh.ref` (lowercased `owner/repo#number`). There is no `gh.title` — labels
- * are derived from `ref` alone. `githubUrl` mirrors `deriveGithubContext` in
+ * `gh.ref` (lowercased `owner/repo#number`). A fifth, optional `gh.title`
+ * (issue #267) holds the real PR/issue title the CLI resolved at attach
+ * time; older files never had it stamped, so the label falls back to `ref`
+ * when it's absent. `githubUrl` mirrors `deriveGithubContext` in
  * `apps/api/src/routes/public-files.ts`.
  */
 
@@ -18,7 +20,7 @@ export interface GhWorkItem {
   number: string;
   ref: string;
   url: string;
-  /** Same as `ref` (e.g. "o/uploads#1789"). */
+  /** `gh.title` when the CLI resolved one at attach time, else `ref` (e.g. "o/uploads#1789"). */
   label: string;
   kindLabel: "pull request" | "issue";
 }
@@ -43,13 +45,14 @@ export function ghWorkItemFromMetadata(
   const ref = meta["gh.ref"];
   if (!repo || !kind || !number || !ref) return null;
   if (kind !== "pull" && kind !== "issue") return null;
+  const title = meta["gh.title"];
   return {
     repo,
     kind,
     number,
     ref,
     url: githubUrl(repo, kind, number),
-    label: ref,
+    label: title ? title : ref,
     kindLabel: kind === "pull" ? "pull request" : "issue",
   };
 }

@@ -531,11 +531,29 @@ describe("runPut gh.* metadata (explicit target)", () => {
   });
 });
 
-/** Fake gh: answers `gh pr view` (branch→PR) and `gh api` (classify). */
-function ghRunner(opts: { pr?: number; classify?: "pull" | "issue" }): CommandRunner {
+/**
+ * Fake gh: answers `gh pr view` (branch→PR), `gh api` (classify), and the
+ * gh.title lookup (`pr|issue view <num> --json title`) when `opts.title` is
+ * set — otherwise it throws, same as gh being unable to resolve a title (the
+ * default, so existing callers never see an unexpected gh.title).
+ */
+function ghRunner(opts: {
+  pr?: number;
+  classify?: "pull" | "issue";
+  title?: string;
+}): CommandRunner {
   return (cmd, args) => {
     if (cmd === "git" && args[0] === "rev-parse") return "feature/thing\n"; // current branch
     if (cmd === "gh" && args[0] === "repo") return "o/r\n"; // resolveRepo fallback
+    if (
+      cmd === "gh" &&
+      (args[0] === "pr" || args[0] === "issue") &&
+      args[1] === "view" &&
+      args.includes("title")
+    ) {
+      if (opts.title !== undefined) return `${opts.title}\n`;
+      throw new Error("gh: title not resolvable");
+    }
     if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
       if (opts.pr) return `${opts.pr}\n`;
       throw new Error("no pull request found");
@@ -613,6 +631,53 @@ describe("runPut auto gh.* metadata (default path)", () => {
       ghRunner({ pr: 481 }),
     );
     expect(puts[0].metadata!["gh.number"]).toBe("5");
+  });
+});
+
+describe("runPut gh.title metadata (issue #267)", () => {
+  it("stamps gh.title on the explicit --pr path when the title resolves", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "128", "--repo", "o/r"],
+      false,
+      ghRunner({ title: "Fix the login bug" }),
+    );
+    expect(puts[0].metadata).toMatchObject({
+      "gh.ref": "o/r#128",
+      "gh.title": "Fix the login bug",
+    });
+  });
+
+  it("omits gh.title on the explicit --pr path when it can't be resolved (never fails the upload)", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "128", "--repo", "o/r"],
+      false,
+      noRun,
+    );
+    expect(code).toBe(0);
+    expect(puts[0].metadata!["gh.title"]).toBeUndefined();
+    expect(puts[0].metadata!["gh.ref"]).toBe("o/r#128");
+  });
+
+  it("stamps gh.title on the auto-resolved path when the title resolves", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "o/r"],
+      false,
+      ghRunner({ pr: 481, title: "Add dark mode" }),
+    );
+    expect(puts[0].metadata).toMatchObject({ "gh.ref": "o/r#481", "gh.title": "Add dark mode" });
+  });
+
+  it("omits gh.title on the auto-resolved path when it can't be resolved", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [tmpFile(), "--repo", "o/r"], false, ghRunner({ pr: 481 }));
+    expect(puts[0].metadata!["gh.title"]).toBeUndefined();
+    expect(puts[0].metadata!["gh.ref"]).toBe("o/r#481");
   });
 });
 

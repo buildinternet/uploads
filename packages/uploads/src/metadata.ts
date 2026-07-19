@@ -50,6 +50,17 @@ export function validateMetaEntry(key: string, value: string): void {
 }
 
 /**
+ * Non-throwing version of `validateMetaEntry`'s value check (length +
+ * printable-ASCII), for callers that want to silently drop a value that
+ * doesn't fit rather than reject the whole request — e.g. a best-effort
+ * `gh.title` derived from a real-world PR/issue title, which may contain
+ * unicode (emoji, curly quotes) that the metadata value rule disallows.
+ */
+export function isMetaValueSafe(value: string): boolean {
+  return value.length >= 1 && value.length <= META_VALUE_MAX && VALUE_SAFE_RE.test(value);
+}
+
+/**
  * Split `k=v` on the FIRST "=" (so values may themselves contain "="), then
  * validate the pair. Throws `UsageError` on malformed input.
  */

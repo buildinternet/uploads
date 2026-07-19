@@ -23,11 +23,12 @@ import {
   type UploadsClientConfig,
 } from "../config.js";
 import { resolvePutPrefix } from "../destinations.js";
-import { ghKeyPrefix, ghMetadataFromTarget, type GhTarget } from "../github.js";
+import { ghKeyPrefix, type GhTarget } from "../github.js";
 import { validateMetaMap } from "../metadata.js";
 import { type OptimizeImageOptions } from "../optimize.js";
 import {
   execRunner,
+  ghMetadataFromTargetWithTitle,
   resolveCurrentPullRequest,
   resolveRepo,
   type CommandRunner,
@@ -933,10 +934,10 @@ export function createUploadsMcpTools(opts: {
         // explicit target pairs always win over a same-named metadata extra
         // (mirrors runAttach in ../commands.js). Validate the merged map (not
         // just the extras) so the 24-key/8KB caps are enforced client-side —
-        // extras alone might pass while extras + the 4 gh.* pairs exceed the
+        // extras alone might pass while extras + the gh.* pairs exceed the
         // cap, which would otherwise only be caught server-side after upload.
         const metaExtras = optStringRecord(args, "metadata") ?? {};
-        const metadata = { ...metaExtras, ...ghMetadataFromTarget(target) };
+        const metadata = { ...metaExtras, ...ghMetadataFromTargetWithTitle(target, run) };
         if (Object.keys(metadata).length > 0) validateMetaMap(metadata);
 
         const { uploads, failures } = await uploadAttachments({
