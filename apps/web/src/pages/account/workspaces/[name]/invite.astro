@@ -13,12 +13,7 @@ const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
 ---
 
-<AccountLayout
-  section="workspaces"
-  workspace={workspace}
-  workspacePage="invite"
-  title={`Invite · ${workspace}`}
->
+<AccountLayout section="workspaces" workspace={workspace} title={`Invite · ${workspace}`}>
   <div id="ws-status" class="ul-callout status" role="status">Loading…</div>
   <button id="ws-retry" type="button" hidden>Try again</button>
 

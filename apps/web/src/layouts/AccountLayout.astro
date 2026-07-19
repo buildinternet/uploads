@@ -1,10 +1,12 @@
 ---
 /**
- * Shared shell for /account and /account/* — sidebar nav with real paths
- * (file-based routing), session gate chrome, and sign-out.
+ * Shared shell for /account and /account/* — flat sidebar nav with real
+ * paths (file-based routing), session gate chrome, sign-out, and an
+ * optional right-rail column (`<AccountLayout><Fragment slot="rail">…`).
  *
- * Workspaces is a section label (not a link). Each membership nests under it,
- * with per-workspace sub-pages (e.g. Invite) when that workspace is active.
+ * Workspaces is a section label (not a link); each membership is its own
+ * flat row underneath. Workspace tab state (files/galleries/people/settings)
+ * is owned by WorkspaceLayout, not this shell.
  *
  * ClientRouter holds the current view while the next account route loads
  * (no blank-page flicker). Scripts re-boot on `astro:page-load`.
@@ -22,29 +24,22 @@ import SiteHeader from "../components/SiteHeader.astro";
 import ViewTransitions from "../components/ViewTransitions.astro";
 import "../styles/signed-in-shell.css";
 import "../styles/account-content.css";
+import "../styles/account-shell.css";
 
 export type AccountSection = "overview" | "workspaces" | "profile" | "developers";
-export type WorkspacePage = "overview" | "invite";
 
 interface Props {
   section: AccountSection;
   /** Active workspace slug on /account/workspaces/:name[/*] */
   workspace?: string;
-  /** Nested page under an active workspace (default overview). */
-  workspacePage?: WorkspacePage;
   /** True on /account/workspaces/new */
   creating?: boolean;
   /** Optional document title override (e.g. workspace name). */
   title?: string;
 }
 
-const {
-  section,
-  workspace = "",
-  workspacePage = "overview",
-  creating = false,
-  title,
-} = Astro.props;
+const { section, workspace = "", creating = false, title } = Astro.props;
+const hasRail = Astro.slots.has("rail");
 
 const titles: Record<AccountSection, string> = {
   overview: "Account",
@@ -85,58 +80,64 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
     <button class="button" type="button" id="session-retry">Try again</button>
   </div>
 
-  <div id="app" hidden>
+  <div id="app" class="account-shell" hidden>
     <SiteHeader authOrigin={authOrigin} />
 
     <div class="shell">
-      <div class="layout">
+      <div class="layout" data-rail={hasRail ? "true" : "false"}>
         <nav class="side" aria-label="Account sections">
           <a
             href="/account"
+            class="side-link"
             aria-current={section === "overview" ? "page" : undefined}
           >
-            Overview
+            overview
           </a>
 
-          <div class="side-group">
-            <div class="side-label" id="workspaces-nav-label">Workspaces</div>
-            <div class="side-nested" role="group" aria-labelledby="workspaces-nav-label">
-              <div id="workspaces-nav-list" class="side-nested-list" aria-label="Your workspaces">
-                {/* Filled client-side after session + /me/workspaces (cached for paint). */}
-              </div>
-              <a
-                href="/account/workspaces/new"
-                class="side-nested-item side-new"
-                aria-current={creating ? "page" : undefined}
-              >
-                + New workspace
-              </a>
-            </div>
+          <div class="side-label" id="workspaces-nav-label">workspaces</div>
+          <div id="workspaces-nav-list" role="group" aria-labelledby="workspaces-nav-label">
+            {/* Filled client-side after session + /me/workspaces (cached for paint). */}
           </div>
+          <a
+            href="/account/workspaces/new"
+            class="side-link side-new"
+            aria-current={creating ? "page" : undefined}
+          >
+            + new workspace
+          </a>
 
+          <div class="side-label">you</div>
           <a
             href="/account/profile"
+            class="side-link"
             aria-current={section === "profile" ? "page" : undefined}
           >
-            Account
+            account
           </a>
           <a
             href="/account/developers"
+            class="side-link"
             aria-current={section === "developers" ? "page" : undefined}
           >
-            Developers
+            developers
           </a>
 
           <div class="side-foot">
             {showConsoleLinks ? <a href="/console">console →</a> : null}
             <a href="/admin" id="admin-link" hidden>admin →</a>
-            <button type="button" id="sign-out-btn">Sign out</button>
+            <button type="button" id="sign-out-btn">sign out</button>
           </div>
         </nav>
 
         <div class="content">
           <slot />
         </div>
+
+        {hasRail ? (
+          <aside class="rail" aria-label="Workspace summary">
+            <slot name="rail" />
+          </aside>
+        ) : null}
       </div>
 
       <Footer />
@@ -172,7 +173,7 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
 <script
   is:inline
   data-astro-rerun
-  set:html={`window.__UPLOADS_AUTH_ORIGIN__=${JSON.stringify(authOrigin)};window.__UPLOADS_API_ORIGIN__=${JSON.stringify(apiOrigin)};window.__UPLOADS_ACTIVE_WORKSPACE__=${JSON.stringify(workspace)};window.__UPLOADS_WORKSPACE_PAGE__=${JSON.stringify(workspacePage)};`}
+  set:html={`window.__UPLOADS_AUTH_ORIGIN__=${JSON.stringify(authOrigin)};window.__UPLOADS_API_ORIGIN__=${JSON.stringify(apiOrigin)};window.__UPLOADS_ACTIVE_WORKSPACE__=${JSON.stringify(workspace)};`}
 ></script>
 <script>
   import {
@@ -182,7 +183,7 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
     resolveSessionGate,
   } from "../lib/account-shell";
   import { resolveActiveWorkspace } from "../lib/workspace-browse-url";
-  import { initWorkspacesNav, type WorkspaceNavPage } from "../lib/workspaces-nav";
+  import { initWorkspacesNav } from "../lib/workspaces-nav";
 
   onAstroPageLoad(() => {
     if (!document.getElementById("app")) return;
@@ -191,7 +192,6 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
       __UPLOADS_AUTH_ORIGIN__: string;
       __UPLOADS_API_ORIGIN__: string;
       __UPLOADS_ACTIVE_WORKSPACE__: string;
-      __UPLOADS_WORKSPACE_PAGE__: WorkspaceNavPage;
     };
     const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
     const apiOrigin = w.__UPLOADS_API_ORIGIN__;
@@ -201,13 +201,10 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
       location.pathname,
       w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
     );
-    const workspacePage: WorkspaceNavPage =
-      /\/invite\/?$/.test(location.pathname) ? "invite" : w.__UPLOADS_WORKSPACE_PAGE__ || "overview";
 
     initSignOut(authOrigin);
     initWorkspacesNav(apiOrigin, requireElement<HTMLElement>("#workspaces-nav-list", "account"), {
       active: activeWorkspace,
-      page: workspacePage,
     });
 
     void resolveSessionGate({
