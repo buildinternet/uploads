@@ -60,8 +60,13 @@ under a real TLD instead:
 ```bash
 PORTLESS_TLD=sh PORTLESS_NAME=local.uploads pnpm dev:stack
 # -> https://local.uploads.sh / https://auth.local.uploads.sh / https://api.local.uploads.sh
-pnpm exec portless hosts sync   # resolve the names to loopback via /etc/hosts
 ```
+
+No hosts-file setup needed: `local.uploads.sh` and `*.local.uploads.sh` are
+public DNS-only A records → `127.0.0.1` in the uploads.sh Cloudflare zone
+(never proxy them), so the names resolve to loopback on any machine —
+including worktree-prefixed ones. `pnpm exec portless hosts sync` is only a
+fallback for offline work.
 
 These origins are trusted by the auth worker outside production (https only).
 Register the provider's redirect URI as
