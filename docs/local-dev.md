@@ -74,6 +74,13 @@ DNS-only A records → `127.0.0.1` (never proxy them), so the names resolve to
 loopback on any machine, worktree prefixes included.
 `pnpm exec portless hosts sync` is only a fallback for offline work.
 
+The proxy only serves TLDs it was started with, so if yours runs with the
+default `.localhost` only, this mode auto-starts a second proxy on `:1355`
+and the URLs carry that port. For clean port-free URLs, run one proxy with
+both TLDs: `sudo portless proxy stop && sudo portless proxy start --https
+--tld localhost --tld dev` (or bake it in with
+`portless service install --tld localhost --tld dev`).
+
 These origins are trusted by the auth worker outside production (https only).
 Register the provider's redirect URI as
 `https://auth.uploads.local.buildinternet.dev/api/auth/callback/<provider>`.
