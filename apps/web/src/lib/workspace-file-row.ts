@@ -1,10 +1,14 @@
 /**
  * Pure derivations for one `WorkspaceFileTable` row (3A files tab, Task 8):
  * thumbnail choice, the metadata-filter chip glyph, a short type label, and
- * folder-prefix bookkeeping (child name / breadcrumb segments). Kept free of
- * React/DOM so they're directly unit-testable — see the co-located
+ * folder-prefix bookkeeping (child name / breadcrumb segments). Also hosts
+ * the workspace-info status mapping (`resolveWorkspaceInfo`) so the files
+ * tab distinguishes an API outage from "you lost access to this workspace"
+ * rather than rendering both as an empty listing. Kept free of React/DOM so
+ * they're directly unit-testable — see the co-located
  * `workspace-file-row.test.ts`.
  */
+import type { WorkspacesResult } from "./api-client";
 import { fileKind } from "./public-file";
 
 /** Minimal shape a thumbnail decision needs — satisfied by both folder-listing and search rows. */
@@ -93,4 +97,31 @@ export function breadcrumbSegments(prefix: string): BreadcrumbSegment[] {
 /** True when a row's known visibility is explicitly "private". Missing/unknown visibility (e.g. search results) defaults to public. */
 export function isPrivateFile(file: { visibility?: "public" | "private" }): boolean {
   return file.visibility === "private";
+}
+
+/** Workspace-level facts the files tab needs once `getMyWorkspaces` resolves. */
+export type WorkspaceInfoStatus =
+  | { status: "unavailable" }
+  | { status: "no-access" }
+  | { status: "ready"; communal: boolean; hasPublicUrl: boolean };
+
+/**
+ * Maps a `getMyWorkspaces` result to the files tab's workspace-info status —
+ * the same distinction the pre-rewrite `[name].astro` made explicitly
+ * (`result.kind === "unavailable"` vs. `!ws`), which a naive `?? false`
+ * collapse loses:
+ *  - `result.kind !== "success"` (transport failure, non-2xx, or a malformed
+ *    body) → "unavailable" — an outage; retryable.
+ *  - success, but `workspace` isn't in the list (access revoked, stale slug)
+ *    → "no-access" — not an outage; not retryable.
+ *  - success and present → "ready", passing through `communal`/`hasPublicUrl`.
+ */
+export function resolveWorkspaceInfo(
+  result: WorkspacesResult,
+  workspace: string,
+): WorkspaceInfoStatus {
+  if (result.kind !== "success") return { status: "unavailable" };
+  const ws = result.workspaces.find((w) => w.workspace === workspace);
+  if (!ws) return { status: "no-access" };
+  return { status: "ready", communal: ws.communal, hasPublicUrl: ws.hasPublicUrl };
 }

@@ -35,6 +35,8 @@ import {
   fileTypeLabel,
   isPrivateFile,
   pickThumbnail,
+  resolveWorkspaceInfo,
+  type WorkspaceInfoStatus,
 } from "../lib/workspace-file-row";
 import {
   normalizeBrowsePath,
@@ -180,7 +182,12 @@ function openFile(apiOrigin: string, workspace: string, hasPublicUrl: boolean, k
 // ── Component ──────────────────────────────────────────────────────────
 
 export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableProps) {
-  const [info, setInfo] = useState<{ communal: boolean; hasPublicUrl: boolean } | null>(null);
+  const [info, setInfo] = useState<WorkspaceInfoStatus | { status: "loading" }>({
+    status: "loading",
+  });
+  // Bumped by the "Try again" affordance on the unavailable state to re-run
+  // the workspace-info effect below without a full page reload.
+  const [infoRetryNonce, setInfoRetryNonce] = useState(0);
 
   const [prefix, setPrefix] = useState(
     () => readBrowseLocation(window.location.search, window.location.pathname).path,
@@ -202,24 +209,23 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
   // gated behind the layout's session resolution like the rail (workspace-rail.ts).
   useEffect(() => {
     let cancelled = false;
+    setInfo({ status: "loading" });
     onSession(() => {
       void getMyWorkspaces(apiOrigin).then((result) => {
         if (cancelled) return;
-        const ws =
-          result.kind === "success"
-            ? result.workspaces.find((w) => w.workspace === workspace)
-            : undefined;
-        setInfo({ communal: ws?.communal ?? false, hasPublicUrl: ws?.hasPublicUrl ?? false });
+        setInfo(resolveWorkspaceInfo(result, workspace));
       });
     });
     return () => {
       cancelled = true;
     };
-  }, [apiOrigin, workspace]);
+  }, [apiOrigin, workspace, infoRetryNonce]);
 
-  // Folder/search listing — only once we know this isn't the communal workspace.
+  // Folder/search listing — only once we know this isn't the communal
+  // workspace, and only once workspace-info actually resolved (an outage or
+  // lost-access status renders in place of the table instead — see below).
   useEffect(() => {
-    if (!info || info.communal) return;
+    if (info.status !== "ready" || info.communal) return;
     let cancelled = false;
     setState({ status: "loading" });
     async function run() {
@@ -395,8 +401,29 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
     );
   };
 
-  if (!info) {
+  if (info.status === "loading") {
     return <p className="wft-status">Loading workspace…</p>;
+  }
+
+  if (info.status === "unavailable") {
+    return (
+      <div className="wft-status-block">
+        <p className="wft-error" role="alert">
+          Workspaces are temporarily unavailable. Check the local stack or try again.
+        </p>
+        <button type="button" className="text-btn" onClick={() => setInfoRetryNonce((n) => n + 1)}>
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  if (info.status === "no-access") {
+    return (
+      <p className="wft-error" role="alert">
+        You don’t have access to this workspace.
+      </p>
+    );
   }
 
   if (info.communal) {

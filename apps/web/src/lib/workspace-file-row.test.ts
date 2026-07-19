@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { WorkspacesResult } from "./api-client";
 import {
   breadcrumbSegments,
   childName,
@@ -6,6 +7,7 @@ import {
   fileTypeLabel,
   isPrivateFile,
   pickThumbnail,
+  resolveWorkspaceInfo,
 } from "./workspace-file-row";
 
 describe("pickThumbnail", () => {
@@ -142,5 +144,68 @@ describe("isPrivateFile", () => {
   it("defaults to public (false) for public or missing visibility", () => {
     expect(isPrivateFile({ visibility: "public" })).toBe(false);
     expect(isPrivateFile({})).toBe(false);
+  });
+});
+
+describe("resolveWorkspaceInfo", () => {
+  it("maps a non-success getMyWorkspaces result to 'unavailable' (API outage, not an empty listing)", () => {
+    const result: WorkspacesResult = { kind: "unavailable", reason: "server" };
+    expect(resolveWorkspaceInfo(result, "acme")).toEqual({ status: "unavailable" });
+  });
+
+  it("maps a success result missing the requested workspace to 'no-access' (lost access / stale slug)", () => {
+    const result: WorkspacesResult = {
+      kind: "success",
+      workspaces: [
+        {
+          workspace: "other",
+          organization: { id: "1", slug: "other", name: "Other" },
+          role: "member",
+          communal: false,
+          hasPublicUrl: false,
+        },
+      ],
+    };
+    expect(resolveWorkspaceInfo(result, "acme")).toEqual({ status: "no-access" });
+  });
+
+  it("maps a success result containing the workspace to 'ready', passing through communal/hasPublicUrl", () => {
+    const result: WorkspacesResult = {
+      kind: "success",
+      workspaces: [
+        {
+          workspace: "acme",
+          organization: { id: "1", slug: "acme", name: "Acme" },
+          role: "admin",
+          communal: false,
+          hasPublicUrl: true,
+        },
+      ],
+    };
+    expect(resolveWorkspaceInfo(result, "acme")).toEqual({
+      status: "ready",
+      communal: false,
+      hasPublicUrl: true,
+    });
+  });
+
+  it("passes through communal:true for the communal workspace", () => {
+    const result: WorkspacesResult = {
+      kind: "success",
+      workspaces: [
+        {
+          workspace: "default",
+          organization: { id: "1", slug: "default", name: "Default" },
+          role: "member",
+          communal: true,
+          hasPublicUrl: false,
+        },
+      ],
+    };
+    expect(resolveWorkspaceInfo(result, "default")).toEqual({
+      status: "ready",
+      communal: true,
+      hasPublicUrl: false,
+    });
   });
 });

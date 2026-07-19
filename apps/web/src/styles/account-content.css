@@ -794,6 +794,12 @@ section.card .ws-messages .command {
   font-size: 13px;
   margin: 0;
 }
+/* Workspace-info "unavailable" state — error text + a retry affordance. */
+.wft-status-block {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
 .wft-communal {
   display: grid;
   gap: 8px;
