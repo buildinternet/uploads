@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { WorkspacesResult } from "./api-client";
+import type { MyWorkspace, WorkspacesResult } from "./api-client";
 import {
   breadcrumbSegments,
   childName,
@@ -147,6 +147,18 @@ describe("isPrivateFile", () => {
   });
 });
 
+/** Test fixture for a `MyWorkspace` entry — only the fields the `it()`s below vary need overriding. */
+function mkWorkspace(workspace: string, overrides: Partial<MyWorkspace> = {}): MyWorkspace {
+  return {
+    workspace,
+    organization: { id: "1", slug: workspace, name: workspace },
+    role: "member",
+    communal: false,
+    hasPublicUrl: false,
+    ...overrides,
+  };
+}
+
 describe("resolveWorkspaceInfo", () => {
   it("maps a non-success getMyWorkspaces result to 'unavailable' (API outage, not an empty listing)", () => {
     const result: WorkspacesResult = { kind: "unavailable", reason: "server" };
@@ -154,33 +166,14 @@ describe("resolveWorkspaceInfo", () => {
   });
 
   it("maps a success result missing the requested workspace to 'no-access' (lost access / stale slug)", () => {
-    const result: WorkspacesResult = {
-      kind: "success",
-      workspaces: [
-        {
-          workspace: "other",
-          organization: { id: "1", slug: "other", name: "Other" },
-          role: "member",
-          communal: false,
-          hasPublicUrl: false,
-        },
-      ],
-    };
+    const result: WorkspacesResult = { kind: "success", workspaces: [mkWorkspace("other")] };
     expect(resolveWorkspaceInfo(result, "acme")).toEqual({ status: "no-access" });
   });
 
   it("maps a success result containing the workspace to 'ready', passing through communal/hasPublicUrl", () => {
     const result: WorkspacesResult = {
       kind: "success",
-      workspaces: [
-        {
-          workspace: "acme",
-          organization: { id: "1", slug: "acme", name: "Acme" },
-          role: "admin",
-          communal: false,
-          hasPublicUrl: true,
-        },
-      ],
+      workspaces: [mkWorkspace("acme", { role: "admin", hasPublicUrl: true })],
     };
     expect(resolveWorkspaceInfo(result, "acme")).toEqual({
       status: "ready",
@@ -192,15 +185,7 @@ describe("resolveWorkspaceInfo", () => {
   it("passes through communal:true for the communal workspace", () => {
     const result: WorkspacesResult = {
       kind: "success",
-      workspaces: [
-        {
-          workspace: "default",
-          organization: { id: "1", slug: "default", name: "Default" },
-          role: "member",
-          communal: true,
-          hasPublicUrl: false,
-        },
-      ],
+      workspaces: [mkWorkspace("default", { communal: true })],
     };
     expect(resolveWorkspaceInfo(result, "default")).toEqual({
       status: "ready",

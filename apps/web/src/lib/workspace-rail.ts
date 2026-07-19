@@ -128,7 +128,12 @@ export function initWorkspaceRail(
 
   onSession(() => {
     void getMyWorkspaces(apiOrigin).then((result) => {
-      if (result.kind !== "success") return;
+      if (result.kind !== "success") {
+        // Mirror the usage fetch below (and the files tab's explicit outage
+        // state) rather than leaving the details list silently blank.
+        if (detailsEl) detailsEl.textContent = "Details unavailable.";
+        return;
+      }
       const ws: MyWorkspace | undefined = result.workspaces.find(
         (item) => item.workspace === workspace,
       );

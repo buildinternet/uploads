@@ -53,7 +53,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       isCurrentPageVisit,
       onAstroPageLoad,
       onSession,
-      requireElement,
     } from "../../../../lib/account-shell";
     import { getMyWorkspaces } from "../../../../lib/api-client";
     import { writeCachedWorkspaces } from "../../../../lib/workspaces-nav";
@@ -64,7 +63,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const detailsEl = document.querySelector<HTMLElement>("[data-ws-settings-details]");
       if (!detailsEl) return;
 
-      const page = "workspace settings";
       const visit = getPageVisit();
       const stillHere = (): boolean => isCurrentPageVisit(visit);
       const w = window as unknown as {
@@ -77,8 +75,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         window.location.pathname,
         w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
       );
-
-      requireElement<HTMLElement>("[data-ws-settings-details]", page);
 
       onSession(() => {
         void getMyWorkspaces(apiOrigin).then((result) => {

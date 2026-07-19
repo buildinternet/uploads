@@ -161,6 +161,11 @@ async function resolveSignedFileUrl(
   return result.response.ok && typeof body.url === "string" ? body.url : null;
 }
 
+/** "1 file" / "2 files" — `plural` defaults to `${singular}s`, override for irregulars (e.g. "match" → "matches"). */
+function pluralCount(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 function openFile(apiOrigin: string, workspace: string, hasPublicUrl: boolean, key: string): void {
   if (hasPublicUrl) {
     const tab = window.open(filePath(workspace, key), "_blank");
@@ -445,8 +450,8 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
     state.status === "loading"
       ? ""
       : filtered
-        ? `${count} match${count === 1 ? "" : "es"}`
-        : `${count} file${count === 1 ? "" : "s"}`;
+        ? pluralCount(count, "match", "matches")
+        : pluralCount(count, "file");
   const endLabel = (() => {
     if (state.status === "loading") return "Loading…";
     if (state.status === "error")
@@ -456,13 +461,13 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
     if (filtered) {
       if (count === 0) return "No files match these filters.";
       return state.truncated
-        ? `${count} match${count === 1 ? "" : "es"} — showing the first 100. Add a filter to narrow.`
-        : `${count} match${count === 1 ? "" : "es"}`;
+        ? `${pluralCount(count, "match", "matches")} — showing the first 100. Add a filter to narrow.`
+        : pluralCount(count, "match", "matches");
     }
     if (count === 0 && folderCount === 0) return "No files yet.";
     const parts: string[] = [];
-    if (folderCount) parts.push(`${folderCount} folder${folderCount === 1 ? "" : "s"}`);
-    parts.push(`${count} file${count === 1 ? "" : "s"}`);
+    if (folderCount) parts.push(pluralCount(folderCount, "folder"));
+    parts.push(pluralCount(count, "file"));
     return parts.join(" · ");
   })();
 
