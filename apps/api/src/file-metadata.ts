@@ -324,3 +324,45 @@ export async function findObjectsByMetadata(
   }
   return keys.map((key) => ({ key, metadata: byKey.get(key)! }));
 }
+
+/** Max object keys bound into a single `object_key IN (...)` statement (SQLite's ~999 host-parameter limit, kept well under it). */
+const METADATA_LOOKUP_CHUNK = 100;
+
+/**
+ * Batched, unfiltered lookup of D1 metadata for a set of object keys — e.g.
+ * to hydrate `gh.*` metadata onto a workspace file listing. Unlike
+ * `findObjectsByMetadata`, this doesn't filter by value: it returns whatever
+ * metadata each key already has. Keys with no rows are simply absent from
+ * the returned map (not present with an empty object). Chunks the `keys`
+ * list to stay under D1/SQLite's bound-parameter limit per statement.
+ */
+export async function getMetadataForKeys(
+  db: D1Database,
+  workspace: string,
+  keys: string[],
+): Promise<Map<string, Record<string, string>>> {
+  const out = new Map<string, Record<string, string>>();
+  if (keys.length === 0) return out;
+
+  for (let i = 0; i < keys.length; i += METADATA_LOOKUP_CHUNK) {
+    const chunk = keys.slice(i, i + METADATA_LOOKUP_CHUNK);
+    const placeholders = chunk.map(() => "?").join(", ");
+    const result = await db
+      .prepare(
+        `SELECT object_key, meta_key, meta_value FROM file_metadata
+         WHERE workspace = ? AND object_key IN (${placeholders})`,
+      )
+      .bind(workspace, ...chunk)
+      .all<{ object_key: string; meta_key: string; meta_value: string }>();
+    for (const row of result.results) {
+      let map = out.get(row.object_key);
+      if (!map) {
+        map = {};
+        out.set(row.object_key, map);
+      }
+      map[row.meta_key] = row.meta_value;
+    }
+  }
+
+  return out;
+}
