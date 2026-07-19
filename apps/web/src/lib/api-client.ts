@@ -361,8 +361,8 @@ export async function searchWorkspaceFiles(
 
 export interface WorkspaceFolderFile {
   key: string;
-  url: string;
-  embedUrl: string;
+  url: string | null;
+  embedUrl: string | null;
   size?: number;
   contentType?: string;
   uploaded?: string;
@@ -394,9 +394,10 @@ function toWorkspaceFolderFile(raw: Record<string, unknown>): WorkspaceFolderFil
   return {
     key: raw.key as string,
     // The API's ListedObject types these `string | null` (unconfigured public
-    // base URL); coerce a missing/null value to "" so this stays a plain string.
-    url: typeof raw.url === "string" ? raw.url : "",
-    embedUrl: typeof raw.embedUrl === "string" ? raw.embedUrl : "",
+    // base URL); pass through as-is so the files table can branch on null for
+    // public-vs-private thumbnails rather than treating "" as a real URL.
+    url: typeof raw.url === "string" ? raw.url : null,
+    embedUrl: typeof raw.embedUrl === "string" ? raw.embedUrl : null,
     size: typeof raw.size === "number" ? raw.size : undefined,
     contentType: typeof raw.contentType === "string" ? raw.contentType : undefined,
     uploaded: typeof raw.uploaded === "string" ? raw.uploaded : undefined,

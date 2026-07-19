@@ -216,6 +216,20 @@ describe("listWorkspaceFolder", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
+  it("builds the querystring from a partial opts, omitting absent params", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      expect(url).toContain("prefix=foo%2F");
+      expect(url).not.toContain("cursor=");
+      expect(url).not.toContain("limit=");
+      return Response.json({ communal: false, files: [], prefixes: [], cursor: null });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await listWorkspaceFolder("http://127.0.0.1:8787", "acme", { prefix: "foo/" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("omits the querystring entirely when no opts are given", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/files");
@@ -278,7 +292,25 @@ describe("listWorkspaceFolder", () => {
 
     const result = await listWorkspaceFolder("http://127.0.0.1:8787", "acme");
     expect(result.cursor).toBeUndefined();
-    expect("cursor" in result ? result.cursor : undefined).toBeUndefined();
+  });
+
+  it("passes a null url/embedUrl through as null rather than coercing to an empty string", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          communal: false,
+          files: [{ key: "f/x.png", url: null, embedUrl: null }],
+          prefixes: [],
+          cursor: null,
+        }),
+      ),
+    );
+
+    const result = await listWorkspaceFolder("http://127.0.0.1:8787", "acme");
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0]?.url).toBeNull();
+    expect(result.files[0]?.embedUrl).toBeNull();
   });
 
   it("defaults prefixes to [] when the API omits it", async () => {
