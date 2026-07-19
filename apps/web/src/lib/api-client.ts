@@ -377,12 +377,10 @@ export interface WorkspaceFolderListing {
   communal: boolean;
 }
 
-const EMPTY_FOLDER_LISTING: WorkspaceFolderListing = {
-  files: [],
-  prefixes: [],
-  cursor: undefined,
-  communal: false,
-};
+/** A fresh empty listing per call — never a shared object, so a caller mutating `files`/`prefixes` can't corrupt later degraded returns. */
+function emptyFolderListing(): WorkspaceFolderListing {
+  return { files: [], prefixes: [], cursor: undefined, communal: false };
+}
 
 /** A folder listing row only needs a `key` — every other field is coerced defensively below. */
 function isWorkspaceFolderFileCandidate(value: unknown): value is Record<string, unknown> {
@@ -434,7 +432,7 @@ export async function listWorkspaceFolder(
   const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(workspace)}/files${query ? `?${query}` : ""}`;
 
   const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
-  if (result.kind === "unavailable" || !result.response.ok) return EMPTY_FOLDER_LISTING;
+  if (result.kind === "unavailable" || !result.response.ok) return emptyFolderListing();
 
   const body = (await result.response.json().catch(() => null)) as {
     communal?: unknown;
@@ -442,7 +440,7 @@ export async function listWorkspaceFolder(
     prefixes?: unknown;
     cursor?: unknown;
   } | null;
-  if (!body) return EMPTY_FOLDER_LISTING;
+  if (!body) return emptyFolderListing();
 
   return {
     communal: body.communal === true,

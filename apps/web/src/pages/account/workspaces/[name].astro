@@ -65,7 +65,9 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       filesTableRoot.render(createElement(WorkspaceFileTable, { apiOrigin, workspace }));
     }
 
-    void boot();
+    // astro:page-load fires on the initial load too (same as every sibling
+    // tab), so this single registration mounts on first load and on nav —
+    // no separate eager call, which would double-mount + double-fetch.
     onAstroPageLoad(() => void boot());
   </script>
 </WorkspaceLayout>
