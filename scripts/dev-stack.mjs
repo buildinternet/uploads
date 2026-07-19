@@ -10,7 +10,9 @@ import { dirname, resolve } from "node:path";
 import {
   API_ORIGIN,
   AUTH_ORIGIN,
+  PORTLESS_BASE,
   PREVIEW_URL,
+  USE_PORTLESS,
   WEB_ORIGIN,
   runSmoke,
   seedFixtures,
@@ -118,43 +120,65 @@ async function main() {
   );
   if (stopping) return;
 
-  start("auth", [
-    "--filter",
-    "@uploads/auth",
-    "exec",
-    "wrangler",
-    "dev",
-    "--local",
-    "--ip",
-    "127.0.0.1",
-    "--port",
-    "8788",
-    "--var",
-    "LOCAL_STACK:true",
-    "--var",
-    "ENVIRONMENT:development",
-    "--var",
-    `BETTER_AUTH_URL:${AUTH_ORIGIN}`,
-    "--var",
-    `WEB_ORIGIN:${WEB_ORIGIN}`,
-  ]);
+  // Portless mode: `portless run` assigns a free port via $PORT, registers the
+  // named HTTPS route (auto-starting the proxy), and prefixes worktree branch
+  // names — wrangler/astro just bind the assigned loopback port. PORTLESS=0
+  // keeps the legacy pinned ports (also the dev GitHub OAuth callback path).
+  const portlessWrap = (name, script) =>
+    USE_PORTLESS ? ["exec", "portless", "run", "--name", name, "sh", "-c", script] : null;
+
+  const authVars =
+    `--var LOCAL_STACK:true --var ENVIRONMENT:development ` +
+    `--var BETTER_AUTH_URL:${AUTH_ORIGIN} --var WEB_ORIGIN:${WEB_ORIGIN}`;
+  start(
+    "auth",
+    portlessWrap(
+      `auth.${PORTLESS_BASE}`,
+      `pnpm --filter @uploads/auth exec wrangler dev --local --ip 127.0.0.1 --port "$PORT" ${authVars}`,
+    ) ?? [
+      "--filter",
+      "@uploads/auth",
+      "exec",
+      "wrangler",
+      "dev",
+      "--local",
+      "--ip",
+      "127.0.0.1",
+      "--port",
+      "8788",
+      "--var",
+      "LOCAL_STACK:true",
+      "--var",
+      "ENVIRONMENT:development",
+      "--var",
+      `BETTER_AUTH_URL:${AUTH_ORIGIN}`,
+      "--var",
+      `WEB_ORIGIN:${WEB_ORIGIN}`,
+    ],
+  );
   await waitFor(`${AUTH_ORIGIN}/health`, "auth");
   if (stopping) return;
 
-  start("api", [
-    "--filter",
-    "@uploads/api",
-    "exec",
-    "wrangler",
-    "dev",
-    "--local",
-    "--ip",
-    "127.0.0.1",
-    "--port",
-    "8787",
-    "--var",
-    `WEB_ORIGIN:${WEB_ORIGIN}`,
-  ]);
+  start(
+    "api",
+    portlessWrap(
+      `api.${PORTLESS_BASE}`,
+      `pnpm --filter @uploads/api exec wrangler dev --local --ip 127.0.0.1 --port "$PORT" --var WEB_ORIGIN:${WEB_ORIGIN}`,
+    ) ?? [
+      "--filter",
+      "@uploads/api",
+      "exec",
+      "wrangler",
+      "dev",
+      "--local",
+      "--ip",
+      "127.0.0.1",
+      "--port",
+      "8787",
+      "--var",
+      `WEB_ORIGIN:${WEB_ORIGIN}`,
+    ],
+  );
   await waitFor(`${API_ORIGIN}/health`, "api");
   if (stopping) return;
 
@@ -168,7 +192,20 @@ async function main() {
 
   start(
     "web",
-    ["--filter", "@uploads/web", "exec", "astro", "dev", "--host", "127.0.0.1", "--port", "4321"],
+    portlessWrap(
+      PORTLESS_BASE,
+      `pnpm --filter @uploads/web exec astro dev --host 127.0.0.1 --port "$PORT"`,
+    ) ?? [
+      "--filter",
+      "@uploads/web",
+      "exec",
+      "astro",
+      "dev",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "4321",
+    ],
     {
       ...process.env,
       UPLOADS_AUTH_ORIGIN: AUTH_ORIGIN,
@@ -197,7 +234,11 @@ async function main() {
 
   await seedFixtures(token);
   if (stopping) return;
-  const smoke = await runSmoke();
+  // Real-TLD mode (e.g. *.local.uploads.sh for OAuth testing — see
+  // docs/local-dev.md) intentionally disables the dev-session bypass the
+  // smoke relies on; report ready without it.
+  const demoAvailable = /(\.localhost|^127\.0\.0\.1)$/.test(new URL(AUTH_ORIGIN).hostname);
+  const smoke = demoAvailable ? await runSmoke() : "skipped (real-TLD mode has no dev-session)";
   if (stopping) return;
   console.log(JSON.stringify({ ready: true, previewUrl: PREVIEW_URL, smoke }));
 

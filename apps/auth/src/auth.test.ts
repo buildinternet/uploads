@@ -28,8 +28,23 @@ describe("deriveCookieDomain", () => {
     expect(deriveCookieDomain("http://localhost:8788")).toBeUndefined();
   });
 
-  it("returns undefined for a *.localhost host", () => {
+  it("returns undefined for a bare *.localhost host (no shareable parent)", () => {
     expect(deriveCookieDomain("http://auth.localhost:8788")).toBeUndefined();
+  });
+
+  it("anchors the real-TLD portless zone parent across worktree prefixes", () => {
+    expect(deriveCookieDomain("https://auth.uploads.local.buildinternet.dev")).toBe(
+      ".uploads.local.buildinternet.dev",
+    );
+    expect(deriveCookieDomain("https://fix-ui.auth.uploads.local.buildinternet.dev")).toBe(
+      ".uploads.local.buildinternet.dev",
+    );
+  });
+
+  it("shares the last-two-label parent for portless *.localhost hosts", () => {
+    expect(deriveCookieDomain("https://auth.uploads.localhost")).toBe(".uploads.localhost");
+    expect(deriveCookieDomain("http://auth.uploads.localhost:1355")).toBe(".uploads.localhost");
+    expect(deriveCookieDomain("https://fix-ui.auth.uploads.localhost")).toBe(".uploads.localhost");
   });
 
   it("returns undefined for an IP host", () => {

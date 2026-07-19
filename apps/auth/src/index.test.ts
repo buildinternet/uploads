@@ -121,6 +121,43 @@ describe("local demo session", () => {
     expect(wrongOrigin.status).toBe(404);
   });
 
+  it("is absent for non-loopback or mismatched portless-style origins", async () => {
+    for (const env of [
+      // Real TLD, not `.localhost` — never enables the bypass.
+      localEnv({
+        BETTER_AUTH_URL: "https://auth.local.uploads.sh",
+        WEB_ORIGIN: "https://local.uploads.sh",
+      }),
+      // Bare `.localhost` auth host has no shareable parent.
+      localEnv({ BETTER_AUTH_URL: "https://auth.localhost", WEB_ORIGIN: "https://web.localhost" }),
+      // Web host outside the auth host's `.uploads.localhost` parent.
+      localEnv({
+        BETTER_AUTH_URL: "https://auth.uploads.localhost",
+        WEB_ORIGIN: "https://other.localhost",
+      }),
+    ]) {
+      const res = await app.request(
+        "/api/auth/dev-session",
+        { method: "POST", headers: { Origin: env.WEB_ORIGIN ?? "" } },
+        env,
+      );
+      expect(res.status).toBe(404);
+    }
+  });
+
+  it("is available for a matched portless *.localhost pair", async () => {
+    const env = localEnv({
+      BETTER_AUTH_URL: "https://auth.uploads.localhost",
+      WEB_ORIGIN: "https://uploads.localhost",
+    });
+    const res = await app.request(
+      "/api/auth/dev-session",
+      { method: "POST", headers: { Origin: "https://uploads.localhost" } },
+      env,
+    );
+    expect(res.status).toBe(200);
+  });
+
   it("seeds an ordinary member and issues a standard Better Auth session", async () => {
     const env = localEnv();
     const res = await app.request(

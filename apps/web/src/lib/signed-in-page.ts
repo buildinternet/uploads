@@ -19,12 +19,22 @@ export function resolveSignedInOrigins(env: OriginEnv): {
   authOrigin: string;
   apiOrigin: string;
 } {
+  // In dev, the stack supervisor (scripts/dev-stack.mjs) injects the live
+  // portless origins as PUBLIC_* process env — but the Cloudflare adapter's
+  // runtime env lets a stale apps/web/.dev.vars shadow them. Prefer the
+  // supervisor's values in dev so the CSP and clients point at the workers
+  // that are actually running; production is untouched (PUBLIC_* is unset
+  // there, so the runtime-env chain below still decides).
+  const devAuth = import.meta.env.DEV ? import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN : undefined;
+  const devApi = import.meta.env.DEV ? import.meta.env.PUBLIC_UPLOADS_API_ORIGIN : undefined;
   return {
     authOrigin:
+      devAuth ??
       env.UPLOADS_AUTH_ORIGIN ??
       import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ??
       "https://auth.uploads.sh",
     apiOrigin:
+      devApi ??
       env.UPLOADS_API_ORIGIN ??
       import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ??
       "https://api.uploads.sh",

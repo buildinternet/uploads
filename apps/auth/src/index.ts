@@ -3,7 +3,7 @@ import { cors } from "hono/cors";
 import { createAuth, type AuthEnv } from "./auth";
 import { internal } from "./internal-routes";
 import { isInternalRequest } from "./internal";
-import { LOCAL_STACK_WEB_ORIGIN, localDemoEnabled } from "./local-demo";
+import { localDemoEnabled } from "./local-demo";
 import { isTrustedOrigin } from "./trusted-origins";
 import { runAuthRetentionSweep } from "./retention-sweep";
 import { sweepOauthClients } from "./oauth-client-reaper";
@@ -74,7 +74,7 @@ export const app = new Hono<{ Bindings: AuthEnv }>()
   // Better Auth handling so its normal CSRF/origin machinery cannot leak a
   // different status for an endpoint that should not exist.
   .use("/api/auth/dev-session", async (c, next) => {
-    if (!localDemoEnabled(c.env) || c.req.header("origin") !== LOCAL_STACK_WEB_ORIGIN) {
+    if (!localDemoEnabled(c.env) || c.req.header("origin") !== c.env.WEB_ORIGIN) {
       return c.json({ error: { code: "not_found", message: "Not found" } }, 404);
     }
     await next();

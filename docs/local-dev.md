@@ -10,11 +10,88 @@ pnpm doctor           # diagnose the setup — reports what's missing and how to
 
 pnpm dev              # API on :8787 (local R2 + KV + D1)
 pnpm dev:web          # Astro site
-pnpm dev:stack        # authenticated Auth + API + Web stack, ready at 127.0.0.1:4321
+pnpm dev:stack        # authenticated Auth + API + Web stack (portless, see below)
 pnpm dev:stack:check --json  # machine-readable readiness + session/API smoke proof
 pnpm check            # lint + format (CI gate)
 pnpm typecheck        # wrangler types + tsc across workspaces
 ```
+
+## Named local URLs (portless)
+
+`pnpm dev:stack` runs through [portless](https://npmjs.com/portless), so the
+stack gets stable named `.localhost` origins instead of bare ports:
+
+| Service | URL                              |
+| ------- | -------------------------------- |
+| web     | `https://uploads.localhost`      |
+| auth    | `https://auth.uploads.localhost` |
+| api     | `https://api.uploads.localhost`  |
+
+The shared `.uploads.localhost` parent is what makes local auth work like
+prod: the Better Auth session cookie set by the auth worker is sent to web
+and api the same way `.uploads.sh` cookies are, so signed-in pages
+(`/account/*`, `/admin/*`) just work in a local browser — including agent
+browser panels. In a linked git worktree, portless prefixes the branch name
+(`fix-ui.uploads.localhost` / `fix-ui.auth.uploads.localhost`); the cookie
+parent still anchors on the last two labels, so nothing else changes.
+`dev:stack` prints the resolved `previewUrl` when ready, and
+`pnpm dev:stack:check --json` reports it too.
+
+Notes:
+
+- First run may prompt for sudo so the proxy can bind :443 (HTTPS). If sudo
+  is unavailable, portless falls back to plain HTTP on `:1355` — the stack
+  handles both. `pnpm exec portless doctor` diagnoses routing/CA issues, and
+  `pnpm exec portless service install` keeps the proxy across reboots.
+- `pnpm dev:stack:raw` (or `PORTLESS=0 pnpm dev:stack`) restores the legacy
+  pinned loopback ports (`127.0.0.1:4321/8787/8788`). This is also the path
+  to use when testing the dev GitHub OAuth app, whose callback is pinned to
+  `http://127.0.0.1:8788/api/auth/callback/github`. The `stack-raw` launch
+  config (.claude/launch.json) boots the same thing with a port-based
+  preview; in portless mode the web port is dynamic, so open the printed
+  `previewUrl` directly instead.
+- `pnpm dev:stack:oauth` is the named alias for the real-TLD mode below.
+- The zero-input `/api/auth/dev-session` bypass stays fail-closed: it only
+  enables for the exact loopback pair or a matched `*.localhost` pair — never
+  for real-TLD origins.
+
+### Real-TLD mode for OAuth (`*.uploads.local.buildinternet.dev`)
+
+Some OAuth providers (Google, Apple) reject `*.localhost` redirect URIs, so
+the stack can run under a real TLD instead — on the shared
+`local.buildinternet.dev` infra zone, same as the sibling repos:
+
+```bash
+PORTLESS_TLD=dev PORTLESS_NAME=uploads.local.buildinternet pnpm dev:stack
+# -> https://uploads.local.buildinternet.dev
+#    https://auth.uploads.local.buildinternet.dev
+#    https://api.uploads.local.buildinternet.dev
+```
+
+The zone is deliberately NOT under uploads.sh: prod sets its session cookie
+with `Domain=.uploads.sh`, so a `local.uploads.sh` zone would leak prod
+cookies into local dev stacks (and let local software set cookies scoped to
+prod). The infra domain has no production cookies to overlap.
+
+DNS: `local.buildinternet.dev` + `*.local.buildinternet.dev` are public
+DNS-only A records → `127.0.0.1` (never proxy them), so the names resolve to
+loopback on any machine, worktree prefixes included.
+`pnpm exec portless hosts sync` is only a fallback for offline work.
+
+The proxy only serves TLDs it was started with, so if yours runs with the
+default `.localhost` only, this mode auto-starts a second proxy on `:1355`
+and the URLs carry that port. For clean port-free URLs, run one proxy with
+both TLDs: `sudo portless proxy stop && sudo portless proxy start --https
+--tld localhost --tld dev` (or bake it in with
+`portless service install --tld localhost --tld dev`).
+
+These origins are trusted by the auth worker outside production (https only).
+Register the provider's redirect URI as
+`https://auth.uploads.local.buildinternet.dev/api/auth/callback/<provider>`.
+Note the `dev-session` bypass is intentionally unavailable in this mode —
+sign in through the real provider flow you're testing. GitHub accepts
+loopback callbacks, so day-to-day GitHub testing can stay on `PORTLESS=0`
+instead.
 
 `bootstrap` is idempotent (safe to re-run; never overwrites your env files or
 re-mints an existing local workspace) and `doctor` is read-only. `dev:stack`

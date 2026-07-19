@@ -46,6 +46,23 @@ describe("isTrustedOrigin", () => {
   it("allows portless *.localhost origins outside production", () => {
     const env = { WEB_ORIGIN: "https://uploads.sh", ENVIRONMENT: "development" };
     expect(isTrustedOrigin("https://uploads.localhost", env)).toBe(true);
+    expect(isTrustedOrigin("https://auth.uploads.localhost", env)).toBe(true);
+    expect(isTrustedOrigin("https://fix-ui.auth.uploads.localhost", env)).toBe(true);
+    expect(isTrustedOrigin("http://uploads.localhost:1355", env)).toBe(true);
+  });
+
+  it("allows the real-TLD portless OAuth zone outside production only", () => {
+    const env = { WEB_ORIGIN: "https://uploads.sh", ENVIRONMENT: "development" };
+    const zone = "uploads.local.buildinternet.dev";
+    expect(isTrustedOrigin(`https://${zone}`, env)).toBe(true);
+    expect(isTrustedOrigin(`https://auth.${zone}`, env)).toBe(true);
+    expect(isTrustedOrigin(`https://fix-ui.auth.${zone}`, env)).toBe(true);
+    expect(isTrustedOrigin(`http://auth.${zone}`, env)).toBe(false);
+    expect(isTrustedOrigin("https://evil-uploads.local.buildinternet.dev", env)).toBe(false);
+    // Never under uploads.sh — the local zone must not share prod's
+    // registrable domain (cookie scope).
+    expect(isTrustedOrigin("https://auth.local.uploads.sh", env)).toBe(false);
+    expect(isTrustedOrigin(`https://auth.${zone}`, prodEnv)).toBe(false);
   });
 
   it("rejects unrelated hosts outside production", () => {

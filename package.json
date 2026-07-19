@@ -11,6 +11,8 @@
     "dev:mcp": "pnpm --filter @uploads/mcp dev",
     "dev:auth": "pnpm --filter @uploads/auth dev",
     "dev:stack": "node scripts/dev-stack.mjs",
+    "dev:stack:raw": "PORTLESS=0 node scripts/dev-stack.mjs",
+    "dev:stack:oauth": "PORTLESS_TLD=dev PORTLESS_NAME=uploads.local.buildinternet node scripts/dev-stack.mjs",
     "dev:stack:check": "node scripts/dev-stack-check.mjs",
     "dev:stack:smoke": "node scripts/dev-stack-smoke.mjs",
     "build": "pnpm --filter @uploads/web build",
@@ -52,6 +54,7 @@
     "oxfmt": "^0.57.0",
     "oxlint": "^1.72.0",
     "oxlint-tsgolint": "^0.24.0",
+    "portless": "^0.15.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   },

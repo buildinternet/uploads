@@ -8,6 +8,12 @@
 # here points the signed-in pages (and their CSP connect-src, which is derived
 # from the same origins — see resolveSignedInOrigins in
 # src/lib/signed-in-page.ts) at the local auth/API workers instead. Matches
-# the ports used by `pnpm dev:stack` (see scripts/dev-stack-common.mjs).
+# the ports used by standalone `pnpm dev:web` against loopback workers.
+#
+# NOTE: `pnpm dev:stack` runs through portless (see docs/local-dev.md) and
+# injects the named origins (https://auth.uploads.localhost etc.) via process
+# env at startup — it does not need this file. If you run the portless stack
+# and signed-in pages still resolve loopback/prod origins, a stale .dev.vars
+# here is the usual culprit.
 UPLOADS_AUTH_ORIGIN=http://127.0.0.1:8788
 UPLOADS_API_ORIGIN=http://127.0.0.1:8787

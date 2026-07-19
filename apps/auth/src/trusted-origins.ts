@@ -8,9 +8,20 @@
  */
 
 const LOCALHOST_ORIGIN_RE = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
-// Portless dev (see the `portless` skill): named `*.localhost` origins with no
-// port, e.g. https://uploads.localhost.
-const PORTLESS_ORIGIN_RE = /^https?:\/\/[a-z0-9-]+\.localhost$/;
+// Portless dev (see the `portless` skill): named `*.localhost` origins, e.g.
+// https://uploads.localhost, https://auth.uploads.localhost, a worktree-
+// prefixed https://fix-ui.uploads.localhost, or the sudo-less proxy fallback
+// http://uploads.localhost:1355. `.localhost` resolves to loopback by spec.
+const PORTLESS_ORIGIN_RE = /^https?:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.localhost(:\d+)?$/;
+// Real-TLD portless mode for OAuth providers that reject `*.localhost`
+// redirect URIs (see the `oauth` skill): PORTLESS_TLD=dev
+// PORTLESS_NAME=uploads.local.buildinternet serves
+// https://uploads.local.buildinternet.dev + subdomains, resolved to loopback
+// via public DNS. Deliberately on the shared infra domain (matching the
+// sibling repos) rather than under uploads.sh, so prod's `Domain=.uploads.sh`
+// session cookies never overlap the local zone. Non-production only.
+const LOCAL_BUILDINTERNET_ORIGIN_RE =
+  /^https:\/\/([a-z0-9-]+\.)*uploads\.local\.buildinternet\.dev$/;
 
 export type TrustedOriginsEnv = {
   WEB_ORIGIN?: string;
@@ -42,5 +53,9 @@ export function authTrustedOrigins(env: TrustedOriginsEnv): string[] {
 export function isTrustedOrigin(origin: string, env: TrustedOriginsEnv): boolean {
   if (authTrustedOrigins(env).includes(origin)) return true;
   if (env.ENVIRONMENT === "production") return false;
-  return LOCALHOST_ORIGIN_RE.test(origin) || PORTLESS_ORIGIN_RE.test(origin);
+  return (
+    LOCALHOST_ORIGIN_RE.test(origin) ||
+    PORTLESS_ORIGIN_RE.test(origin) ||
+    LOCAL_BUILDINTERNET_ORIGIN_RE.test(origin)
+  );
 }

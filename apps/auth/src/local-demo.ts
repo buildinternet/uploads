@@ -15,6 +15,33 @@ import * as schema from "./schema";
 export const LOCAL_STACK_AUTH_ORIGIN = "http://127.0.0.1:8788";
 export const LOCAL_STACK_WEB_ORIGIN = "http://127.0.0.1:4321";
 
+/**
+ * Portless dev origins (see the `portless` skill): the stack runs at
+ * https://auth.<name>.localhost / https://<name>.localhost (optionally
+ * worktree-prefixed, optionally on the sudo-less proxy port, e.g.
+ * http://uploads.localhost:1355). Accept the pair only when the auth host has
+ * a shareable `.<name>.localhost` parent and the web host lives under that
+ * same parent — the exact property the shared session cookie depends on.
+ * `.localhost` names resolve to loopback by spec, so this stays as local-only
+ * as the IP-literal pair above.
+ */
+function portlessLocalStackOrigins(authUrl: string | undefined, webOrigin: string | undefined) {
+  if (!authUrl || !webOrigin) return false;
+  let auth: URL;
+  let web: URL;
+  try {
+    auth = new URL(authUrl);
+    web = new URL(webOrigin);
+  } catch {
+    return false;
+  }
+  if (!/^https?:$/.test(auth.protocol) || !/^https?:$/.test(web.protocol)) return false;
+  const parts = auth.hostname.split(".");
+  if (parts.length < 3 || parts.at(-1) !== "localhost") return false;
+  const base = parts.slice(-2).join(".");
+  return web.hostname === base || web.hostname.endsWith("." + base);
+}
+
 const DEMO_USER = {
   id: "local-dev-demo-user",
   email: "dev-demo@uploads.local",
@@ -24,16 +51,19 @@ const DEMO_ORGANIZATION = { id: "local-dev-demo-org", slug: "dev-demo", name: "D
 
 /**
  * The route is deliberately unavailable unless the lifecycle runner explicitly
- * opts in. Exact origins avoid accidentally enabling an identity bypass on a
- * public preview, a localhost alias, or a partially configured environment.
+ * opts in. Loopback-only origin shapes (exact IP-literal pair, or a matched
+ * portless `*.localhost` pair) avoid accidentally enabling an identity bypass
+ * on a public preview, a real-TLD alias, or a partially configured environment.
  */
 export function localDemoEnabled(env: AuthEnv): boolean {
-  return (
-    env.LOCAL_STACK === "true" &&
-    env.ENVIRONMENT === "development" &&
+  if (env.LOCAL_STACK !== "true" || env.ENVIRONMENT !== "development") return false;
+  if (
     env.BETTER_AUTH_URL === LOCAL_STACK_AUTH_ORIGIN &&
     env.WEB_ORIGIN === LOCAL_STACK_WEB_ORIGIN
-  );
+  ) {
+    return true;
+  }
+  return portlessLocalStackOrigins(env.BETTER_AUTH_URL, env.WEB_ORIGIN);
 }
 
 async function ensureDemoIdentity(env: AuthEnv) {
@@ -104,8 +134,9 @@ export function localDemoPlugin(env: AuthEnv) {
         { method: "POST", requireHeaders: true },
         async (ctx) => {
           // Keep a wrong/missing browser origin indistinguishable from an
-          // absent route. The plugin is itself omitted outside localDemoEnabled.
-          if (ctx.headers?.get("origin") !== LOCAL_STACK_WEB_ORIGIN) {
+          // absent route. The plugin is itself omitted outside localDemoEnabled,
+          // which has already vetted WEB_ORIGIN as a loopback-only shape.
+          if (ctx.headers?.get("origin") !== env.WEB_ORIGIN) {
             return new Response("Not Found", { status: 404 });
           }
           const user = await ensureDemoIdentity(env);
