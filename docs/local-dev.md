@@ -51,6 +51,25 @@ Notes:
   enables for the exact loopback pair or a matched `*.localhost` pair — never
   for real-TLD origins.
 
+### Real-TLD mode for OAuth (`*.local.uploads.sh`)
+
+Some OAuth providers (Google, Apple) reject `*.localhost` redirect URIs, so —
+like the sibling repos' `*.local.buildinternet.dev` zones — the stack can run
+under a real TLD instead:
+
+```bash
+PORTLESS_TLD=sh PORTLESS_NAME=local.uploads pnpm dev:stack
+# -> https://local.uploads.sh / https://auth.local.uploads.sh / https://api.local.uploads.sh
+pnpm exec portless hosts sync   # resolve the names to loopback via /etc/hosts
+```
+
+These origins are trusted by the auth worker outside production (https only).
+Register the provider's redirect URI as
+`https://auth.local.uploads.sh/api/auth/callback/<provider>`. Note the
+`dev-session` bypass is intentionally unavailable in this mode — sign in
+through the real provider flow you're testing. GitHub accepts loopback
+callbacks, so day-to-day GitHub testing can stay on `PORTLESS=0` instead.
+
 `bootstrap` is idempotent (safe to re-run; never overwrites your env files or
 re-mints an existing local workspace) and `doctor` is read-only. `dev:stack`
 uses the real Workers, Better Auth cookie, service binding, membership checks,

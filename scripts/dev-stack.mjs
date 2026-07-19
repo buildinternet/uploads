@@ -234,7 +234,11 @@ async function main() {
 
   await seedFixtures(token);
   if (stopping) return;
-  const smoke = await runSmoke();
+  // Real-TLD mode (e.g. *.local.uploads.sh for OAuth testing — see
+  // docs/local-dev.md) intentionally disables the dev-session bypass the
+  // smoke relies on; report ready without it.
+  const demoAvailable = /(\.localhost|^127\.0\.0\.1)$/.test(new URL(AUTH_ORIGIN).hostname);
+  const smoke = demoAvailable ? await runSmoke() : "skipped (real-TLD mode has no dev-session)";
   if (stopping) return;
   console.log(JSON.stringify({ ready: true, previewUrl: PREVIEW_URL, smoke }));
 

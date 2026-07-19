@@ -13,6 +13,12 @@ const LOCALHOST_ORIGIN_RE = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 // prefixed https://fix-ui.uploads.localhost, or the sudo-less proxy fallback
 // http://uploads.localhost:1355. `.localhost` resolves to loopback by spec.
 const PORTLESS_ORIGIN_RE = /^https?:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.localhost(:\d+)?$/;
+// Real-TLD portless mode for OAuth providers that reject `*.localhost`
+// redirect URIs (see the `oauth` skill and the sibling repos' matching
+// `*.local.buildinternet.dev` zones): PORTLESS_TLD=sh PORTLESS_NAME=local.uploads
+// serves https://local.uploads.sh + subdomains, resolved to loopback via
+// `portless hosts sync`. Non-production only, same as the other dev regexes.
+const LOCAL_UPLOADS_SH_ORIGIN_RE = /^https:\/\/([a-z0-9-]+\.)*local\.uploads\.sh$/;
 
 export type TrustedOriginsEnv = {
   WEB_ORIGIN?: string;
@@ -44,5 +50,9 @@ export function authTrustedOrigins(env: TrustedOriginsEnv): string[] {
 export function isTrustedOrigin(origin: string, env: TrustedOriginsEnv): boolean {
   if (authTrustedOrigins(env).includes(origin)) return true;
   if (env.ENVIRONMENT === "production") return false;
-  return LOCALHOST_ORIGIN_RE.test(origin) || PORTLESS_ORIGIN_RE.test(origin);
+  return (
+    LOCALHOST_ORIGIN_RE.test(origin) ||
+    PORTLESS_ORIGIN_RE.test(origin) ||
+    LOCAL_UPLOADS_SH_ORIGIN_RE.test(origin)
+  );
 }

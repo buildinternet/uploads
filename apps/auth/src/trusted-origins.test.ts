@@ -51,6 +51,16 @@ describe("isTrustedOrigin", () => {
     expect(isTrustedOrigin("http://uploads.localhost:1355", env)).toBe(true);
   });
 
+  it("allows the real-TLD portless OAuth zone outside production only", () => {
+    const env = { WEB_ORIGIN: "https://uploads.sh", ENVIRONMENT: "development" };
+    expect(isTrustedOrigin("https://local.uploads.sh", env)).toBe(true);
+    expect(isTrustedOrigin("https://auth.local.uploads.sh", env)).toBe(true);
+    expect(isTrustedOrigin("https://fix-ui.auth.local.uploads.sh", env)).toBe(true);
+    expect(isTrustedOrigin("http://auth.local.uploads.sh", env)).toBe(false);
+    expect(isTrustedOrigin("https://evil-local.uploads.sh", env)).toBe(false);
+    expect(isTrustedOrigin("https://auth.local.uploads.sh", prodEnv)).toBe(false);
+  });
+
   it("rejects unrelated hosts outside production", () => {
     const env = { WEB_ORIGIN: "https://uploads.sh", ENVIRONMENT: "development" };
     expect(isTrustedOrigin("https://evil.example", env)).toBe(false);
