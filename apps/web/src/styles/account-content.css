@@ -994,6 +994,16 @@ section.card .ws-messages .command {
   --width-shell: 1200px;
 }
 
+/* Clamp the content grid track so long, non-wrapping settings content (e.g.
+   the people tab's `uploads admin invite create …` command) shrinks and
+   scrolls within the column instead of growing to its max-content width and
+   overflowing under the rail. `.content` (signed-in-shell.css) is a grid with
+   an implicit auto track; scoped to rail pages so /account and /admin are
+   untouched, and it composes with the mobile restack in account-shell.css. */
+.account-shell--rail .content {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .wft-grid {
   margin-top: 8px;
 }
