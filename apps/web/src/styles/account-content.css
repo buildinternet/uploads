@@ -984,14 +984,24 @@ section.card .ws-messages .command {
   outline: none;
 }
 
+/* Workspace tab pages (files/galleries/people/settings) render a 3-column
+   nav · content · rail layout that needs more room than the default 960px
+   account reading width. AccountLayout adds `account-shell--rail` to #app only
+   when a rail slot is present (the workspace tabs), so /account list pages and
+   /admin (#dashboard) keep the default width. This widens `.shell` via the
+   `--width-shell` custom property it already reads (signed-in-shell.css). */
+.account-shell--rail {
+  --width-shell: 1200px;
+}
+
 .wft-grid {
   margin-top: 8px;
 }
 .wft-row,
 .wft-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 90px 110px 100px 44px;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 64px 64px 92px 32px;
+  gap: 14px;
   align-items: center;
 }
 .wft-head {

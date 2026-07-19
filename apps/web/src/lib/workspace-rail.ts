@@ -78,6 +78,9 @@ export function renderDetailsHtml(ws: WorkspaceRailDetails): string {
  * WorkspaceLayout page load gets a fresh rail DOM, so re-assigning the global
  * here always points it at the current page's elements.
  */
+/** Connected-work rows shown before a "show N more" toggle reveals the rest. */
+const CONNECTED_WORK_CAP = 6;
+
 function bindConnectedWorkSetter(root: Document | Element): ConnectedWorkSetter {
   const section = root.querySelector<HTMLElement>("[data-rail-connected]");
   const list = root.querySelector<HTMLElement>("[data-rail-connected-list]");
@@ -88,8 +91,22 @@ function bindConnectedWorkSetter(root: Document | Element): ConnectedWorkSetter 
       list.innerHTML = "";
       return;
     }
-    list.innerHTML = renderConnectedWorkHtml(items);
     section.hidden = false;
+    // A busy workspace can link dozens of PRs/issues; cap the default view and
+    // reveal the rest behind one click rather than a wall of rows.
+    const paint = (limit: number): void => {
+      const shown = items.slice(0, limit);
+      const hidden = items.length - shown.length;
+      list.innerHTML =
+        renderConnectedWorkHtml(shown) +
+        (hidden > 0
+          ? `<button type="button" class="ws-rail__more" data-rail-more>show ${hidden} more</button>`
+          : "");
+      list
+        .querySelector<HTMLButtonElement>("[data-rail-more]")
+        ?.addEventListener("click", () => paint(items.length), { once: true });
+    };
+    paint(CONNECTED_WORK_CAP);
   };
   window.__uploadsSetConnectedWork = setter;
   return setter;

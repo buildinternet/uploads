@@ -80,7 +80,7 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
     <button class="button" type="button" id="session-retry">Try again</button>
   </div>
 
-  <div id="app" class="account-shell" hidden>
+  <div id="app" class:list={["account-shell", { "account-shell--rail": hasRail }]} hidden>
     <SiteHeader authOrigin={authOrigin} />
 
     <div class="shell">

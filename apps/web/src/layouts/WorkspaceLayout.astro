@@ -201,6 +201,22 @@ const invitePath = `${base}/people`;
     display: grid;
     gap: 10px;
   }
+  /* "show N more" toggle — innerHTML-injected by bindConnectedWorkSetter. */
+  :global(.account-shell) .ws-rail :global(.ws-rail__more) {
+    justify-self: start;
+    padding: 2px 0;
+    background: none;
+    border: 0;
+    color: var(--muted);
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  :global(.account-shell) .ws-rail :global(.ws-rail__more:hover),
+  :global(.account-shell) .ws-rail :global(.ws-rail__more:focus-visible) {
+    color: var(--accent);
+    outline: none;
+  }
   :global(.account-shell) .ws-rail :global(.ws-rail__connected-item) {
     display: flex;
     align-items: flex-start;
