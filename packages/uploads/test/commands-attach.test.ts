@@ -75,10 +75,20 @@ function ctxWith(client: UploadsClient): CliContext {
   };
 }
 
-function ghRunner() {
+/**
+ * `opts.title` set → the gh.title lookup (`pr|issue view <num> --json title`)
+ * resolves it; unset → it throws, same as gh being unable to resolve a title
+ * (the default for every existing test in this file, so none of them see an
+ * unexpected gh.title show up in their metadata assertions).
+ */
+function ghRunner(opts: { title?: string } = {}) {
   const calls: string[][] = [];
   const run: CommandRunner = (cmd, args) => {
     calls.push([cmd, ...args]);
+    if ((args[0] === "pr" || args[0] === "issue") && args[1] === "view" && args.includes("title")) {
+      if (opts.title !== undefined) return `${opts.title}\n`;
+      throw new Error("gh: title not resolvable");
+    }
     if (args[0] === "repo") return "buildinternet/uploads\n";
     if (args[0] === "pr" && args[1] === "view") return "123\n";
     if (args[1]?.includes("per_page=100")) return "[]";
@@ -218,7 +228,11 @@ describe("runAttach", () => {
       run,
     );
     expect(puts).toEqual(["gh/o/r/issues/45/artifact.zip"]);
-    expect(calls).toEqual([]);
+    // No comment-sync calls (--no-comment); the only gh call is the
+    // best-effort gh.title lookup, which this fixture fails by default.
+    expect(calls).toEqual([
+      ["gh", "issue", "view", "45", "--repo", "o/r", "--json", "title", "--jq", ".title"],
+    ]);
   });
 
   it("requires an inferable current PR when no target is supplied", async () => {
@@ -318,5 +332,33 @@ describe("runAttach gh.* metadata", () => {
     await expect(
       runAttach(ctxWith(client), [...files("shot.png"), ...metaFlags], false, run),
     ).rejects.toThrow(UsageError);
+  });
+});
+
+describe("runAttach gh.title metadata (issue #267)", () => {
+  it("stamps gh.title when the resolved PR title is available", async () => {
+    const { client, metadataByKey } = fakeClient();
+    const { run } = ghRunner({ title: "Fix the login bug" });
+    await runAttach(ctxWith(client), files("shot.png"), false, run);
+    expect(metadataByKey["gh/buildinternet/uploads/pull/123/shot.png"]).toEqual({
+      "gh.repo": "buildinternet/uploads",
+      "gh.kind": "pull",
+      "gh.number": "123",
+      "gh.ref": "buildinternet/uploads#123",
+      "gh.title": "Fix the login bug",
+    });
+  });
+
+  it("omits gh.title (and does not fail the upload) when the title can't be resolved", async () => {
+    const { client, puts, metadataByKey } = fakeClient();
+    const { run } = ghRunner(); // no opts.title → gh title lookup throws
+    expect(await runAttach(ctxWith(client), files("shot.png"), false, run)).toBe(0);
+    expect(puts).toEqual(["gh/buildinternet/uploads/pull/123/shot.png"]);
+    expect(metadataByKey["gh/buildinternet/uploads/pull/123/shot.png"]).toEqual({
+      "gh.repo": "buildinternet/uploads",
+      "gh.kind": "pull",
+      "gh.number": "123",
+      "gh.ref": "buildinternet/uploads#123",
+    });
   });
 });

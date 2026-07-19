@@ -20,8 +20,7 @@ import {
 import { resolvePutDefaults } from "../config.js";
 import { loadDefaultsRaw, resolveScreenshotDefaults } from "../config-file.js";
 import { resolvePutPrefix } from "../destinations.js";
-import { ghMetadataFromTarget } from "../github.js";
-import { execRunner, type CommandRunner } from "../github-gh.js";
+import { execRunner, ghMetadataFromTargetWithTitle, type CommandRunner } from "../github-gh.js";
 import { parseMetaFlags, validateMetaMap } from "../metadata.js";
 import { writeJson, writeStdout } from "../io.js";
 import {
@@ -243,7 +242,7 @@ export async function runScreenshot(
   const metaExtras = parseMetaFlags(flagValues(parsed.flags, "--meta"));
   let metadata: Record<string, string> | undefined = metaExtras;
   if (ghTarget) {
-    metadata = { ...metaExtras, ...ghMetadataFromTarget(ghTarget) };
+    metadata = { ...metaExtras, ...ghMetadataFromTargetWithTitle(ghTarget, run) };
     validateMetaMap(metadata);
   } else if (Object.keys(metaExtras).length > 0) {
     validateMetaMap(metaExtras);

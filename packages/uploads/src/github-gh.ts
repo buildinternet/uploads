@@ -2,10 +2,12 @@ import { execFileSync } from "node:child_process";
 import { UsageError } from "./cli-args.js";
 import {
   ATTACHMENTS_MARKER,
+  ghMetadataFromTarget,
   isValidRepo,
   parseRepoFromRemoteUrl,
   type GhTarget,
 } from "./github.js";
+import { META_VALUE_MAX, isMetaValueSafe } from "./metadata.js";
 
 /** Runs a command and returns stdout; throws on non-zero exit. Injectable for tests. */
 export type CommandRunner = (cmd: string, args: string[], input?: string) => string;
@@ -100,6 +102,57 @@ export function classifyGhNumber(
     // gh missing / not found / network — caller skips
   }
   return undefined;
+}
+
+/**
+ * Best-effort PR/issue title lookup via local `gh`. Returns undefined on any
+ * failure (gh missing, unauthenticated, network, 404) — mirrors
+ * `resolveCurrentPullRequest`/`classifyGhNumber`'s degrade-don't-throw
+ * pattern. A title is a nice-to-have annotation, never a blocker: callers
+ * must never let this failure abort an upload.
+ */
+export function resolveGhTitle(
+  target: GhTarget,
+  run: CommandRunner = execRunner,
+): string | undefined {
+  try {
+    const out = run("gh", [
+      target.kind === "pull" ? "pr" : "issue",
+      "view",
+      String(target.num),
+      "--repo",
+      target.repo,
+      "--json",
+      "title",
+      "--jq",
+      ".title",
+    ]).trim();
+    return out.length > 0 ? out : undefined;
+  } catch {
+    // gh missing / unauthenticated / not found / network — caller skips
+    return undefined;
+  }
+}
+
+/**
+ * `ghMetadataFromTarget`'s 4 pairs, plus a best-effort `gh.title` (issue #267)
+ * when `resolveGhTitle` yields one that also satisfies the metadata-value
+ * rule every other pair follows (1-512 printable ASCII — `metadata.ts`'s
+ * `META_VALUE_MAX`/`isMetaValueSafe`). Truncated to `META_VALUE_MAX` first;
+ * a title left empty or unsafe by truncation (e.g. non-ASCII — real titles
+ * often contain emoji or curly quotes) is silently omitted rather than
+ * sanitized, matching `resolveGhTitle`'s own "degrade, don't fail the
+ * upload" contract.
+ */
+export function ghMetadataFromTargetWithTitle(
+  target: GhTarget,
+  run: CommandRunner = execRunner,
+): Record<string, string> {
+  const base = ghMetadataFromTarget(target);
+  const title = resolveGhTitle(target, run);
+  if (title === undefined) return base;
+  const truncated = title.length > META_VALUE_MAX ? title.slice(0, META_VALUE_MAX) : title;
+  return isMetaValueSafe(truncated) ? { ...base, "gh.title": truncated } : base;
 }
 
 interface GhComment {

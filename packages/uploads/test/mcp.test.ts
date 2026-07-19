@@ -174,10 +174,20 @@ function galleryFactory() {
   return { factory, configs, calls };
 }
 
-function ghRunner() {
+/**
+ * `opts.title` set → the gh.title lookup (`pr|issue view <num> --json title`)
+ * resolves it; unset → it throws, same as gh being unable to resolve a title
+ * (the default for every existing test in this file, so none of them see an
+ * unexpected gh.title show up in their metadata assertions).
+ */
+function ghRunner(opts: { title?: string } = {}) {
   const calls: string[][] = [];
   const run: CommandRunner = (cmd, args) => {
     calls.push([cmd, ...args]);
+    if ((args[0] === "pr" || args[0] === "issue") && args[1] === "view" && args.includes("title")) {
+      if (opts.title !== undefined) return `${opts.title}\n`;
+      throw new Error("gh: title not resolvable");
+    }
     if (args[0] === "repo") return "buildinternet/uploads\n";
     if (args[0] === "pr" && args[1] === "view") return "123\n";
     if (args[1]?.includes("per_page=100")) return "[]";
@@ -732,6 +742,40 @@ describe("tools/call attach", () => {
     expect(res.result.isError).toBe(true);
     expect(res.result.content[0].text).toContain("too many");
     expect(puts.length).toBe(0);
+  });
+
+  it("stamps gh.title (issue #267) when the resolved PR title is available", async () => {
+    const { run } = ghRunner({ title: "Fix the login bug" });
+    const { server, puts } = serverWith({ runner: run });
+    const dir = mkdtempSync(join(tmpdir(), "uploads-mcp-test-"));
+    const file = join(dir, "before.png");
+    writeFileSync(file, "png");
+
+    await rpc(server, "tools/call", { name: "attach", arguments: { files: [file] } });
+    expect(puts[0].metadata).toEqual({
+      "gh.repo": "buildinternet/uploads",
+      "gh.kind": "pull",
+      "gh.number": "123",
+      "gh.ref": "buildinternet/uploads#123",
+      "gh.title": "Fix the login bug",
+    });
+  });
+
+  it("omits gh.title (and does not fail the upload) when the title can't be resolved", async () => {
+    const { run } = ghRunner(); // no opts.title → gh title lookup throws
+    const { server, puts } = serverWith({ runner: run });
+    const dir = mkdtempSync(join(tmpdir(), "uploads-mcp-test-"));
+    const file = join(dir, "before.png");
+    writeFileSync(file, "png");
+
+    const res = await rpc(server, "tools/call", { name: "attach", arguments: { files: [file] } });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0].metadata).toEqual({
+      "gh.repo": "buildinternet/uploads",
+      "gh.kind": "pull",
+      "gh.number": "123",
+      "gh.ref": "buildinternet/uploads#123",
+    });
   });
 });
 

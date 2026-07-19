@@ -28,6 +28,15 @@ describe("gh-context", () => {
     expect(ghWorkItemFromMetadata(undefined)).toBeNull();
     expect(ghWorkItemFromMetadata({ "gh.repo": "o/uploads" })).toBeNull();
   });
+  it("uses gh.title as the label when present (issue #267)", () => {
+    const item = ghWorkItemFromMetadata({ ...pr, "gh.title": "Fix the login bug" });
+    expect(item!.label).toBe("Fix the login bug");
+    expect(item!.ref).toBe("o/uploads#1789"); // ref stays the raw coordinate, unaffected
+  });
+  it("falls back to ref when gh.title is absent or empty (older files)", () => {
+    expect(ghWorkItemFromMetadata(pr)!.label).toBe("o/uploads#1789");
+    expect(ghWorkItemFromMetadata({ ...pr, "gh.title": "" })!.label).toBe("o/uploads#1789");
+  });
   it("dedupes connected work by ref", () => {
     const items = connectedWork([
       { metadata: pr },

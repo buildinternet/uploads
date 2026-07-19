@@ -276,3 +276,44 @@ describe("runScreenshot upload tail", () => {
     expect(payload.url).toContain("https://x.test/");
   });
 });
+
+describe("runScreenshot gh.title metadata (issue #267)", () => {
+  it("stamps gh.title alongside the base gh.* pairs when the title resolves", async () => {
+    const { client, puts } = fakeClient();
+    const run: CommandRunner = (cmd, args) => {
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "view" && args.includes("title")) {
+        return "Add dark mode toggle\n";
+      }
+      throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+    };
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--pr", "9", "--repo", "o/r"],
+      false,
+      run,
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.metadata).toMatchObject({
+      "gh.ref": "o/r#9",
+      "gh.title": "Add dark mode toggle",
+    });
+  });
+
+  it("omits gh.title (never fails the capture) when the title can't be resolved", async () => {
+    const { client, puts } = fakeClient();
+    const run: CommandRunner = () => {
+      throw new Error("gh: not authenticated");
+    };
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--pr", "9", "--repo", "o/r"],
+      false,
+      run,
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.metadata!["gh.title"]).toBeUndefined();
+    expect(puts[0]?.metadata!["gh.ref"]).toBe("o/r#9");
+  });
+});

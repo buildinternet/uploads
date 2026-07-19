@@ -42,6 +42,7 @@ import {
   resolveCurrentPullRequest,
   classifyGhNumber,
   execRunner,
+  ghMetadataFromTargetWithTitle,
   upsertAttachmentsComment,
   type CommandRunner,
 } from "./github-gh.js";
@@ -785,9 +786,9 @@ export async function runAttach(
   // target pairs always win over a same-named --meta extra (documented above).
   // Validate the merged map (not just the extras) so the 24-key/8KB caps are
   // enforced client-side even when extras alone are under the cap but extras
-  // + the 4 gh.* pairs push the merged map over it.
+  // + the gh.* pairs push the merged map over it.
   const metaExtras = parseMetaFlags(flagValues(parsed.flags, "--meta"));
-  const metadata = { ...metaExtras, ...ghMetadataFromTarget(target) };
+  const metadata = { ...metaExtras, ...ghMetadataFromTargetWithTitle(target, run) };
   if (Object.keys(metadata).length > 0) validateMetaMap(metadata);
 
   const logHuman = !ctx.quiet && !ctx.json;
@@ -973,7 +974,7 @@ export async function runPut(
   let metadata = userMeta;
   let attachedRef: string | undefined;
   if (ghTarget) {
-    const merged = { ...userMeta, ...ghMetadataFromTarget(ghTarget) };
+    const merged = { ...userMeta, ...ghMetadataFromTargetWithTitle(ghTarget, run) };
     validateMetaMap(merged); // enforce 24-key/8KB caps on the merged map (matches attach)
     metadata = merged;
     attachedRef = merged["gh.ref"];
@@ -989,7 +990,7 @@ export async function runPut(
         run,
       );
       if (autoTarget) {
-        const autoMeta = ghMetadataFromTarget(autoTarget);
+        const autoMeta = ghMetadataFromTargetWithTitle(autoTarget, run);
         const merged = { ...autoMeta, ...userMeta };
         // Auto resolution must never fail the upload: if merging the gh.* pairs
         // would exceed the metadata caps, drop them and upload with --meta only.

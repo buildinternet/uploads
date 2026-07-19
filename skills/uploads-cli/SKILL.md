@@ -331,6 +331,8 @@ a numeric `--ref`), so the file's `/f/` page shows an "Attached to" link. This i
 on by default and best-effort; disable it with `--no-auto`, `--no-git`, or `UPLOADS_NO_AUTO_META=1`.
 On this auto path an explicit `--meta gh.*` overrides the auto-derived value — the
 opposite of the `--pr`/`--issue` precedence below, where the target's own `gh.*` always wins.
+Both paths also stamp `gh.title` with the resolved PR/issue title when local `gh`
+can resolve one — best-effort, never blocks the upload if it can't.
 
 **Re-upload semantics:** re-uploading to an existing key **with** `--meta` replaces
 that file's entire metadata set (delete-then-set, not a merge); re-uploading
@@ -401,7 +403,9 @@ Keep `url` (storage host) when you need a durable share link outside GitHub.
 gh.ref=myorg/myapp#123` or `uploads list --meta gh.repo=myorg/myapp` finds
 everything attached to that PR/issue without needing the `gh/...` prefix. Add
 `--meta k=v` extras for your own pairs on top — a `--meta gh.*` override loses
-to the target's own `gh.*` values.
+to the target's own `gh.*` values. It also stamps `gh.title` with the real
+PR/issue title when resolvable via local `gh` (best-effort; omitted rather
+than failing the upload if `gh` can't resolve one).
 
 ### Option B — managed attachments comment (`--comment` / `comment`)
 
