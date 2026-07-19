@@ -34,6 +34,7 @@ import {
   chipKind,
   fileTypeLabel,
   isPrivateFile,
+  leafName,
   pickThumbnail,
   resolveWorkspaceInfo,
   type WorkspaceInfoStatus,
@@ -357,9 +358,7 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
         patchVisibility(file.key, result.visibility);
         setOpenMenuKey(null);
       } else {
-        setActionError(
-          `Couldn't make "${childName(file.key, prefix)}" ${next}. Try again shortly.`,
-        );
+        setActionError(`Couldn't make "${leafName(file.key)}" ${next}. Try again shortly.`);
       }
     } finally {
       setTogglingKeys((prev) => {
@@ -373,7 +372,7 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
   const copyLink = async (file: FileTableRow, button: HTMLButtonElement) => {
     const url = file.url ?? (await resolveSignedFileUrl(apiOrigin, workspace, file.key));
     if (!url) {
-      setActionError(`Couldn't get a link for "${childName(file.key, prefix)}".`);
+      setActionError(`Couldn't get a link for "${leafName(file.key)}".`);
       return;
     }
     try {
@@ -619,7 +618,10 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
 
         {state.status === "ok" &&
           state.files.map((file) => {
-            const name = filtered ? childName(file.key, "") : childName(file.key, prefix);
+            // Show the file's own name (leaf), not the full key — at the flat
+            // root the key is the whole `screenshots/…/x.png` path, whose
+            // distinctive tail would otherwise be ellipsized away.
+            const name = leafName(file.key);
             const thumb = pickThumbnail(file);
             const type = fileTypeLabel(file);
             const priv = isPrivateFile(file);

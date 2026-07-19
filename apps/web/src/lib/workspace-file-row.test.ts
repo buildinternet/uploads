@@ -6,6 +6,7 @@ import {
   chipKind,
   fileTypeLabel,
   isPrivateFile,
+  leafName,
   pickThumbnail,
   resolveWorkspaceInfo,
 } from "./workspace-file-row";
@@ -115,6 +116,21 @@ describe("childName", () => {
   });
   it("handles the root prefix (empty string)", () => {
     expect(childName("x.png", "")).toBe("x.png");
+  });
+});
+
+describe("leafName", () => {
+  it("returns the last path segment of a nested key", () => {
+    expect(leafName("screenshots/either/280/demographics.png")).toBe("demographics.png");
+  });
+  it("returns the key itself when it has no folder", () => {
+    expect(leafName("solo.png")).toBe("solo.png");
+  });
+  it("ignores a trailing slash (folder-style key)", () => {
+    expect(leafName("screenshots/either/")).toBe("either");
+  });
+  it("falls back to the full key when empty", () => {
+    expect(leafName("")).toBe("");
   });
 });
 

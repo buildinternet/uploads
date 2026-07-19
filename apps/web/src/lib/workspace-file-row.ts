@@ -76,6 +76,13 @@ export function childName(key: string, prefix: string): string {
   return trimmed || key;
 }
 
+/** Last path segment of a key — the file's own name — ignoring a trailing slash. `"a/b/c.png"` → `"c.png"`, `"solo.png"` → `"solo.png"`. Falls back to the full key when empty. */
+export function leafName(key: string): string {
+  const trimmed = key.replace(/\/$/, "");
+  const slash = trimmed.lastIndexOf("/");
+  return (slash === -1 ? trimmed : trimmed.slice(slash + 1)) || key;
+}
+
 export interface BreadcrumbSegment {
   label: string;
   /** Cumulative prefix through this segment, trailing `/` included — pass to folder navigation. */
