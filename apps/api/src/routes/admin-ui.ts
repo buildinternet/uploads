@@ -204,6 +204,38 @@ async function loadEditableWorkspace(env: Env, name: string): Promise<WorkspaceR
   return record;
 }
 
+/**
+ * Validates a PATCH body for the github-comment settings route (issue #304).
+ * Only `githubCommentLinkToFilePage` is accepted; when present it must be a
+ * boolean. Omitted means "leave unchanged" — distinct from a validation
+ * error, mirroring `validateLimitsPatch`'s omit-vs-invalid distinction.
+ */
+function validateGithubCommentSettingsPatch(body: unknown): {
+  githubCommentLinkToFilePage?: boolean;
+} {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new ValidationError("request body must be an object", { code: "invalid_settings" });
+  }
+  const raw = (body as Record<string, unknown>).githubCommentLinkToFilePage;
+  if (raw === undefined) return {};
+  if (typeof raw !== "boolean") {
+    throw new ValidationError("githubCommentLinkToFilePage must be a boolean", {
+      code: "invalid_settings",
+    });
+  }
+  return { githubCommentLinkToFilePage: raw };
+}
+
+/** Response body shared by GET and PATCH: the github-comment settings. */
+function githubCommentSettingsResponse(name: string, record: WorkspaceRecord) {
+  return {
+    workspace: name,
+    settings: {
+      githubCommentLinkToFilePage: record.githubCommentLinkToFilePage ?? null,
+    },
+  };
+}
+
 /** Response body shared by GET and PATCH: current budget limits + usage. */
 async function limitsResponse(env: Env, name: string, record: WorkspaceRecord) {
   const limits = {
@@ -409,6 +441,36 @@ export const adminUi = new Hono<SessionVars>()
     }
     await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(record));
     return c.json(await limitsResponse(c.env, name, record));
+  })
+
+  // Read the per-workspace managed-comment file-page linking toggle (#304).
+  .get("/workspaces/:name/settings", async (c) => {
+    const name = c.req.param("name");
+    const record = await loadEditableWorkspace(c.env, name);
+    return c.json(githubCommentSettingsResponse(name, record));
+  })
+
+  // Patch the managed-comment file-page linking toggle. Omitted leaves it
+  // unchanged; the whole record is read-modify-written so other fields
+  // (limits, tokens, etc.) survive untouched.
+  .patch("/workspaces/:name/settings", async (c) => {
+    const name = c.req.param("name");
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+    const record = await loadEditableWorkspace(c.env, name);
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      throw new ValidationError("request body must be valid JSON", { code: "invalid_settings" });
+    }
+    const patch = validateGithubCommentSettingsPatch(body);
+    if ("githubCommentLinkToFilePage" in patch) {
+      record.githubCommentLinkToFilePage = patch.githubCommentLinkToFilePage;
+    }
+    await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(record));
+    return c.json(githubCommentSettingsResponse(name, record));
   })
 
   // Ban / unban (abuse). Proxies Better Auth admin ban/unban; ban also

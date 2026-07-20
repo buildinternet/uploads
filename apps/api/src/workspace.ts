@@ -84,6 +84,14 @@ export interface WorkspaceRecord {
   createdByUserId?: string;
   /** ISO timestamp of self-serve creation. */
   createdAt?: string;
+  /**
+   * Governs the managed GitHub-comment attachment click-through target only
+   * (issue #304). When `false`, managed-comment attachments link to raw
+   * object bytes instead of the `/f/` file page. Default (undefined/true) =
+   * link to the file page (issue #301's behavior). Does not affect gallery
+   * links or any non-comment surface.
+   */
+  githubCommentLinkToFilePage?: boolean;
   /** Set by `DELETE /admin/workspaces/:name` (default/soft mode). Present → the workspace is soft-deleted. */
   deletedAt?: string;
   /** `deletedAt` + the grace window (`WORKSPACE_DELETE_GRACE_DAYS`); the retention sweep finalizes at/after this. */
