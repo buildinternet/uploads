@@ -19,6 +19,7 @@
  * stays hidden by construction.
  */
 import {
+  GITHUB_TITLES_MAX_REFS,
   getGithubTitles,
   getMyWorkspaces,
   getMyWorkspaceUsage,
@@ -92,9 +93,6 @@ export function renderDetailsHtml(ws: WorkspaceRailDetails): string {
 /** Connected-work rows shown before a "show N more" toggle reveals the rest. */
 const CONNECTED_WORK_CAP = 6;
 
-/** Refs sent per rail paint — matches the endpoint's 20-ref cap. */
-const TITLE_FETCH_CAP = 20;
-
 /**
  * Decide whether a titles response warrants a repaint: the relabeled items
  * when at least one label changed, else null (failed fetch, empty map, or
@@ -160,7 +158,7 @@ function bindConnectedWorkSetter(
     const current = ++generation;
     paintItems(items);
     if (!items.length || !resolveTitles) return;
-    const refs = [...new Set(items.map((item) => item.ref))].slice(0, TITLE_FETCH_CAP);
+    const refs = [...new Set(items.map((item) => item.ref))].slice(0, GITHUB_TITLES_MAX_REFS);
     void resolveTitles(refs).then((titles) => {
       if (current !== generation) return; // a newer paint superseded this fetch
       const relabeled = planTitleRepaint(items, titles);

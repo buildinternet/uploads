@@ -1,14 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolveTitles } from "./github-titles";
 import { FakeKv } from "../test/fake-kv";
-
-const CFG_ENV = {
-  GITHUB_APP_ID: "12345",
-  // resolveTitles never mints a JWT when a token is already cached, so the
-  // key material can be a dummy in every test that pre-seeds ghtok:*.
-  GITHUB_APP_PRIVATE_KEY: "unused",
-  GITHUB_APP_HOME_INSTALLATION_ID: "777",
-};
+import { GITHUB_APP_CFG_ENV as CFG_ENV } from "../test/github-app-env";
 
 function envWith(kv: FakeKv): Env {
   return { ...CFG_ENV, GITHUB_CACHE: kv } as unknown as Env;

@@ -72,6 +72,7 @@ async function resolveOne(
   env: Env,
   cfg: GithubAppConfig | null,
   ref: string,
+  getHomeToken: () => Promise<string | null>,
   fetchImpl: typeof fetch,
 ): Promise<TitleInfo | null> {
   const cacheKey = `ghref:${ref}`;
@@ -85,7 +86,7 @@ async function resolveOne(
 
   let negativeTtl = NEGATIVE_TTL;
   let outcome: FetchOutcome = { kind: "error" };
-  const homeToken = await installationToken(env, cfg, Number(cfg.homeInstallationId), fetchImpl);
+  const homeToken = await getHomeToken();
   if (homeToken) outcome = await fetchIssue(repo, num, homeToken, fetchImpl);
 
   if (outcome.kind === "no-access") {
@@ -120,10 +121,19 @@ export async function resolveTitles(
   fetchImpl: typeof fetch = fetch,
 ): Promise<Record<string, TitleInfo | null>> {
   const cfg = githubAppConfig(env);
+  // One home-token resolution shared (and lazily started) across the whole
+  // batch: without this, N cache-missing refs would each read the same
+  // `ghtok:` key and — on a cold cache — race N concurrent JWT signs and
+  // token mints against GitHub. Lazy so an all-cache-hit batch stays free.
+  let homeTokenPromise: Promise<string | null> | undefined;
+  const getHomeToken = (): Promise<string | null> =>
+    (homeTokenPromise ??= cfg
+      ? installationToken(env, cfg, Number(cfg.homeInstallationId), fetchImpl)
+      : Promise.resolve(null));
   const out: Record<string, TitleInfo | null> = {};
   await Promise.all(
     refs.map(async (ref) => {
-      out[ref] = await resolveOne(env, cfg, ref, fetchImpl).catch(() => null);
+      out[ref] = await resolveOne(env, cfg, ref, getHomeToken, fetchImpl).catch(() => null);
     }),
   );
   return out;

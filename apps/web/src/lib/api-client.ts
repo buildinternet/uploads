@@ -530,6 +530,9 @@ export interface GithubTitleInfo {
 }
 export type GithubTitleMap = Record<string, GithubTitleInfo | null>;
 
+/** Server-enforced per-request ref cap on `/me/workspaces/:name/github-titles`. */
+export const GITHUB_TITLES_MAX_REFS = 20;
+
 /**
  * Batch PR/issue titles for the connected-work rail (issue #267). `{}` for an
  * empty ref list (no request); null on outage/non-2xx/malformed body — the
@@ -541,7 +544,7 @@ export async function getGithubTitles(
   refs: string[],
 ): Promise<GithubTitleMap | null> {
   if (refs.length === 0) return {};
-  const qs = encodeURIComponent(refs.slice(0, 20).join(","));
+  const qs = encodeURIComponent(refs.slice(0, GITHUB_TITLES_MAX_REFS).join(","));
   const result = await fetchWithTimeout(
     `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/github-titles?refs=${qs}`,
     { credentials: "include", cache: "no-store" },

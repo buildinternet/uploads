@@ -5,6 +5,8 @@
  * "no token" as "no title", never as an error.
  */
 
+import { b64urlDecode, b64urlEncode } from "./secrets";
+
 export interface GithubAppConfig {
   appId: string;
   privateKey: string;
@@ -20,18 +22,11 @@ export function githubAppConfig(env: Env): GithubAppConfig | null {
   return { appId, privateKey, homeInstallationId };
 }
 
-const b64url = (bytes: Uint8Array): string =>
-  btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-
+// b64urlDecode accepts plain base64 too (the -/_ swaps no-op, PEM bodies are
+// already padded), so one shared codec covers both the JWT parts and the key.
 function pemToPkcs8(pem: string): ArrayBuffer {
   const body = pem.replace(/-----(BEGIN|END) PRIVATE KEY-----/g, "").replace(/\s+/g, "");
-  const raw = atob(body);
-  const bytes = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-  return bytes.buffer;
+  return b64urlDecode(body).buffer as ArrayBuffer;
 }
 
 /** 10-minute RS256 App JWT, backdated 60s for clock drift. */
@@ -45,8 +40,8 @@ export async function appJwt(cfg: GithubAppConfig, nowMs = Date.now()): Promise<
   );
   const enc = new TextEncoder();
   const now = Math.floor(nowMs / 1000);
-  const header = b64url(enc.encode(JSON.stringify({ alg: "RS256", typ: "JWT" })));
-  const payload = b64url(
+  const header = b64urlEncode(enc.encode(JSON.stringify({ alg: "RS256", typ: "JWT" })));
+  const payload = b64urlEncode(
     enc.encode(JSON.stringify({ iat: now - 60, exp: now + 540, iss: cfg.appId })),
   );
   const signature = await crypto.subtle.sign(
@@ -54,7 +49,7 @@ export async function appJwt(cfg: GithubAppConfig, nowMs = Date.now()): Promise<
     key,
     enc.encode(`${header}.${payload}`),
   );
-  return `${header}.${payload}.${b64url(new Uint8Array(signature))}`;
+  return `${header}.${payload}.${b64urlEncode(new Uint8Array(signature))}`;
 }
 
 /** Standard headers for every GitHub API call this worker makes. */

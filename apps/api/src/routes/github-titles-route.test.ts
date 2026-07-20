@@ -4,16 +4,9 @@ import { respondError } from "../error-response";
 import { me } from "./me";
 import { FakeKv } from "../../test/fake-kv";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
+import { GITHUB_APP_CFG_ENV as CFG_ENV } from "../../test/github-app-env";
 
 const USER = { id: "u-plain", email: "plain@b.com", name: "Plain", role: "user" };
-
-const CFG_ENV = {
-  GITHUB_APP_ID: "12345",
-  // Route tests never call GitHub — cache-only fixtures — so the key
-  // material can be a dummy.
-  GITHUB_APP_PRIVATE_KEY: "unused",
-  GITHUB_APP_HOME_INSTALLATION_ID: "777",
-};
 
 function stubAuth(handler: (req: Request) => Response | Promise<Response>): Pick<Fetcher, "fetch"> {
   return {
