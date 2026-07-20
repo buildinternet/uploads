@@ -439,6 +439,54 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     await db.delete(schema.member).where(eq(schema.member.id, target.id));
     return c.json({ ok: true });
   })
+  // Task 3 (#275): owner-only member role change, used by the workspace
+  // people tab's member management. Reuses actorRole() above.
+  .patch("/orgs/:slug/members/:memberId", async (c) => {
+    const slug = c.req.param("slug");
+    const memberId = c.req.param("memberId");
+    const body = await c.req
+      .json<{ actorUserId?: unknown; role?: unknown }>()
+      .catch(() => ({}) as { actorUserId?: unknown; role?: unknown });
+    const requestActorUserId = typeof body.actorUserId === "string" ? body.actorUserId : "";
+    const nextRole = typeof body.role === "string" ? body.role.trim() : "";
+    if (nextRole !== "admin" && nextRole !== "member") {
+      return c.json(errorJson("invalid_role", "role must be admin or member"), 400);
+    }
+    const db = drizzle(c.env.DB, { schema });
+    const [org] = await db
+      .select()
+      .from(schema.organization)
+      .where(eq(schema.organization.slug, slug))
+      .limit(1);
+    if (!org) {
+      return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
+    }
+    const [target] = await db
+      .select({ id: schema.member.id, userId: schema.member.userId, role: schema.member.role })
+      .from(schema.member)
+      .where(and(eq(schema.member.id, memberId), eq(schema.member.organizationId, org.id)))
+      .limit(1);
+    if (!target) {
+      return c.json(errorJson("member_not_found", "no member with that id in this org"), 404);
+    }
+    if (target.userId === requestActorUserId) {
+      return c.json(errorJson("cannot_modify_self", "you cannot change your own role"), 400);
+    }
+    if (target.role === "owner") {
+      return c.json(errorJson("cannot_modify_owner", "the workspace owner's role is fixed"), 403);
+    }
+    const role = await actorRole(db, org.id, requestActorUserId);
+    if (role !== "owner") {
+      return c.json(
+        errorJson("actor_not_authorized", "only an owner can change member roles"),
+        403,
+      );
+    }
+    if (target.role !== nextRole) {
+      await db.update(schema.member).set({ role: nextRole }).where(eq(schema.member.id, target.id));
+    }
+    return c.json({ member: { id: target.id, userId: target.userId, role: nextRole } });
+  })
   // Phase 3 (plan scope B): server-side invite creation for
   // POST /admin-ui/workspaces/:name/invites on apps/api.
   //

@@ -1169,4 +1169,98 @@ describe("DB-backed behavior", () => {
       });
     });
   });
+
+  describe("PATCH /internal/orgs/:slug/members/:memberId", () => {
+    async function seed() {
+      const org = await seedOrg();
+      const owner = await seedUser({ id: "u_owner", email: "owner@x.com" });
+      const admin = await seedUser({ id: "u_admin", email: "admin@x.com" });
+      const admin2 = await seedUser({ id: "u_admin2", email: "admin2@x.com" });
+      const member = await seedUser({ id: "u_member", email: "member@x.com" });
+      const rows = [
+        { id: "m_owner", userId: owner.id, role: "owner" },
+        { id: "m_admin", userId: admin.id, role: "admin" },
+        { id: "m_admin2", userId: admin2.id, role: "admin" },
+        { id: "m_member", userId: member.id, role: "member" },
+      ];
+      for (const r of rows) {
+        await orm.insert(schema.member).values({
+          id: r.id,
+          organizationId: org.id,
+          userId: r.userId,
+          role: r.role,
+          createdAt: new Date(),
+        });
+      }
+      return { org, owner, admin, admin2, member };
+    }
+    const patch = (slug: string, memberId: string, actorUserId: string, role: string) =>
+      app().request(
+        `/internal/orgs/${slug}/members/${memberId}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ actorUserId, role }),
+        },
+        dbEnv(),
+      );
+
+    it("lets an owner promote a member to admin", async () => {
+      const { org, owner } = await seed();
+      const res = await patch(org.slug, "m_member", owner.id, "admin");
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { member: { role: string } }).toMatchObject({
+        member: { id: "m_member", role: "admin" },
+      });
+      const [row] = await orm.select().from(schema.member).where(eq(schema.member.id, "m_member"));
+      expect(row.role).toBe("admin");
+    });
+    it("forbids an admin changing roles", async () => {
+      const { org, admin } = await seed();
+      const res = await patch(org.slug, "m_member", admin.id, "admin");
+      expect(res.status).toBe(403);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "actor_not_authorized" },
+      });
+    });
+    it("rejects an invalid target role", async () => {
+      const { org, owner } = await seed();
+      const res = await patch(org.slug, "m_member", owner.id, "owner");
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "invalid_role" },
+      });
+    });
+    // Brief correction (identical flaw to Task 2's "never removes an owner"
+    // test): the brief's verbatim version has the OWNER act on their own
+    // member row, which hits the self-check (400 cannot_modify_self) before
+    // ever reaching the owner-protection branch — so it doesn't actually
+    // exercise cannot_modify_owner. Using an admin actor targeting the owner
+    // row instead reaches the owner-protection check. Self-protection is
+    // separately covered by "blocks changing your own role" below.
+    it("never modifies an owner", async () => {
+      const { org, admin } = await seed();
+      const res = await patch(org.slug, "m_owner", admin.id, "member");
+      expect(res.status).toBe(403);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "cannot_modify_owner" },
+      });
+    });
+    it("blocks changing your own role", async () => {
+      const { org, admin } = await seed();
+      const res = await patch(org.slug, "m_admin", admin.id, "member");
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "cannot_modify_self" },
+      });
+    });
+    it("is idempotent when the role is unchanged", async () => {
+      const { org, owner } = await seed();
+      const res = await patch(org.slug, "m_admin", owner.id, "admin");
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { member: { role: string } }).toMatchObject({
+        member: { role: "admin" },
+      });
+    });
+  });
 });
