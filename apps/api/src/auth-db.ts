@@ -329,3 +329,25 @@ export async function revokeToken(
     .run();
   return { match, ambiguous: false };
 }
+
+/**
+ * Soft-revoke every active workspace API token minted by this Better Auth
+ * user. Paired with the admin plugin's ban-user (which only wipes sessions)
+ * so an abuse ban also cuts off CLI/API keys the user already issued.
+ * Tokens with a null `minting_user_id` (pre-tracking rows) are left alone.
+ */
+export async function revokeTokensForMintingUser(
+  db: D1Database,
+  userId: string,
+  now = new Date(),
+): Promise<number> {
+  if (!userId) return 0;
+  const result = await db
+    .prepare(
+      `UPDATE auth_tokens SET revoked_at = ?
+       WHERE minting_user_id = ? AND revoked_at IS NULL`,
+    )
+    .bind(now.toISOString(), userId)
+    .run();
+  return result.meta?.changes ?? 0;
+}

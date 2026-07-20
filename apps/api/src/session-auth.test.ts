@@ -33,6 +33,20 @@ function env(auth: Pick<Fetcher, "fetch">) {
 }
 
 describe("sessionAuth", () => {
+  it("treats a banned session user as signed out", async () => {
+    const user = {
+      id: "u1",
+      email: "banned@example.com",
+      name: "Banned",
+      banned: true,
+    };
+    const auth = stubAuth(
+      () => new Response(JSON.stringify({ session: {}, user }), { status: 200 }),
+    );
+    const res = await appWith(auth).request("/whoami", {}, env(auth));
+    expect(await res.json()).toEqual({ sessionUser: null });
+  });
+
   it("sets sessionUser to null when there is no cookie/session", async () => {
     const auth = stubAuth(() => new Response(JSON.stringify(null), { status: 200 }));
     const res = await appWith(auth).request("/whoami", {}, env(auth));

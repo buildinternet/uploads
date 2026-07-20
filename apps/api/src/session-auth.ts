@@ -14,6 +14,8 @@ export interface SessionUser {
   email: string;
   name: string;
   role?: string | null;
+  /** Set by Better Auth's admin plugin when the account is banned. */
+  banned?: boolean | null;
   [key: string]: unknown;
 }
 
@@ -76,6 +78,10 @@ async function resolveSessionUser(env: Env, req: Request): Promise<SessionUser |
         code: "auth_session_unavailable",
       });
     }
+    // Defense in depth: ban-user deletes sessions, but if a banned flag still
+    // rides on a leftover cookie, treat the caller as signed out so /me and
+    // /admin-ui cannot keep serving them.
+    if (body.user.banned === true) return null;
     return body.user;
   } catch (err) {
     if (err instanceof ServiceUnavailableError) throw err;

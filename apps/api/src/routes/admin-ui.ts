@@ -6,9 +6,11 @@
  * Workspaces slot on apps/web.
  */
 import {
+  ForbiddenError,
   NotFoundError,
   RateLimitedError,
   ServiceUnavailableError,
+  UnauthorizedError,
   ValidationError,
 } from "@uploads/errors";
 import { Hono } from "hono";
@@ -16,6 +18,7 @@ import {
   DEFAULT_ENROLLMENT_SECONDS,
   DEFAULT_TOKEN_SECONDS,
   createEnrollment,
+  revokeTokensForMintingUser,
   validateScopes,
 } from "../auth-db";
 import { allowWrite } from "../guards";
@@ -32,6 +35,94 @@ import { isPurgedTombstone, loadWorkspaceRecordRaw, type WorkspaceRecord } from 
 import { LIMIT_FIELDS, validateLimitsPatch } from "../workspace-limits";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const BAN_REASON_MAX = 500;
+const DEFAULT_BAN_REASON = "Banned by operator";
+
+/** Prefer Better Auth's top-level `message`, then nested `error.message`. */
+function authErrorMessage(payload: unknown, fallback: string): string {
+  if (!payload || typeof payload !== "object") return fallback;
+  const p = payload as { message?: unknown; error?: unknown };
+  if (typeof p.message === "string" && p.message) return p.message;
+  if (typeof p.error === "string" && p.error) return p.error;
+  if (p.error && typeof p.error === "object") {
+    const nested = (p.error as { message?: unknown }).message;
+    if (typeof nested === "string" && nested) return nested;
+  }
+  return fallback;
+}
+
+/**
+ * Forward the caller's session cookie/bearer to a Better Auth admin plugin
+ * path (ban-user / unban-user). Those endpoints own admin/last-admin/self-ban
+ * checks; this layer maps status → AppError.
+ */
+async function proxyAdminAuth(
+  env: Env,
+  req: Request,
+  path: string,
+  body: unknown,
+): Promise<{ status: number; payload: unknown }> {
+  const headers = new Headers({ "content-type": "application/json" });
+  const cookie = req.headers.get("cookie");
+  const authorization = req.headers.get("authorization");
+  if (cookie) headers.set("cookie", cookie);
+  if (authorization) headers.set("authorization", authorization);
+
+  let response: Response;
+  try {
+    response = await env.AUTH.fetch(`https://auth.internal${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    throw new ServiceUnavailableError("auth service is unavailable", {
+      code: "auth_service_unavailable",
+      cause: err,
+    });
+  }
+  return { status: response.status, payload: await response.json().catch(() => null) };
+}
+
+function throwAuthAdminError(status: number, payload: unknown, action: "ban" | "unban"): never {
+  const message = authErrorMessage(payload, `failed to ${action} user`);
+  if (status === 401) throw new UnauthorizedError();
+  if (status === 403)
+    throw new ForbiddenError(message, { code: "ban_forbidden", details: payload });
+  if (status === 404) throw new NotFoundError("user not found", { code: "user_not_found" });
+  if (status === 400)
+    throw new ValidationError(message, { code: "ban_rejected", details: payload });
+  throw new ServiceUnavailableError(message, {
+    code: "auth_service_unavailable",
+    details: { status, payload },
+  });
+}
+
+function requireUserIdParam(raw: string): string {
+  const userId = raw.trim();
+  if (!userId) throw new ValidationError("userId is required", { code: "invalid_user_id" });
+  return userId;
+}
+
+function userFromAuthPayload(payload: unknown): unknown {
+  if (payload && typeof payload === "object" && "user" in payload) {
+    return (payload as { user: unknown }).user;
+  }
+  return payload;
+}
+
+function parseBanReason(body: unknown): string {
+  if (!body || typeof body !== "object") return DEFAULT_BAN_REASON;
+  const raw = (body as { banReason?: unknown }).banReason;
+  if (typeof raw !== "string") return DEFAULT_BAN_REASON;
+  const trimmed = raw.trim();
+  if (trimmed.length > BAN_REASON_MAX) {
+    throw new ValidationError(`ban reason must be ≤ ${BAN_REASON_MAX} characters`, {
+      code: "ban_reason_too_long",
+    });
+  }
+  return trimmed || DEFAULT_BAN_REASON;
+}
 
 // Invite links share the same D1 enrollment records as the ADMIN_TOKEN-gated
 // POST /admin/enrollments path (apps/api/src/routes/admin.ts) — same code
@@ -318,6 +409,42 @@ export const adminUi = new Hono<SessionVars>()
     }
     await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(record));
     return c.json(await limitsResponse(c.env, name, record));
+  })
+
+  // Ban / unban (abuse). Proxies Better Auth admin ban/unban; ban also
+  // soft-revokes workspace API tokens the user minted.
+  .post("/users/:userId/ban", async (c) => {
+    const userId = requireUserIdParam(c.req.param("userId"));
+    if (c.get("sessionUser")?.id === userId) {
+      throw new ValidationError("you cannot ban yourself", { code: "cannot_ban_self" });
+    }
+    const banReason = parseBanReason(await c.req.json().catch(() => ({})));
+    const { status, payload } = await proxyAdminAuth(c.env, c.req.raw, "/api/auth/admin/ban-user", {
+      userId,
+      banReason,
+    });
+    if (status < 200 || status >= 300) throwAuthAdminError(status, payload, "ban");
+
+    // Best-effort: ban already wiped sessions; a D1 blip must not undo it.
+    let tokensRevoked = 0;
+    try {
+      tokensRevoked = await revokeTokensForMintingUser(c.env.DB, userId);
+    } catch {
+      tokensRevoked = 0;
+    }
+    return c.json({ user: userFromAuthPayload(payload), tokensRevoked });
+  })
+
+  .post("/users/:userId/unban", async (c) => {
+    const userId = requireUserIdParam(c.req.param("userId"));
+    const { status, payload } = await proxyAdminAuth(
+      c.env,
+      c.req.raw,
+      "/api/auth/admin/unban-user",
+      { userId },
+    );
+    if (status < 200 || status >= 300) throwAuthAdminError(status, payload, "unban");
+    return c.json({ user: userFromAuthPayload(payload) });
   })
 
   // OAuth client registrations — proxied 1:1 to Lane 1's internal routes

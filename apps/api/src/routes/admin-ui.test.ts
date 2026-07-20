@@ -611,3 +611,120 @@ describe("workspace limits editing", () => {
     expect(JSON.parse(store.get("ws:acme")!).maxStorageBytes).toBe(250_000_000);
   });
 });
+
+describe("POST /admin-ui/users/:userId/ban", () => {
+  function banEnv(user: typeof ADMIN_USER | typeof NON_ADMIN_USER | null) {
+    const banCalls: { path: string; body: unknown }[] = [];
+    let revokedBinds: unknown[] | null = null;
+    const auth = stubAuth((req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/api/auth/get-session") {
+        return new Response(JSON.stringify(user ? { session: {}, user } : null), { status: 200 });
+      }
+      if (url.pathname === "/api/auth/admin/ban-user") {
+        return req.json().then((body) => {
+          banCalls.push({ path: url.pathname, body });
+          const b = body as { userId: string; banReason?: string };
+          return Response.json({
+            user: {
+              id: b.userId,
+              email: "target@b.com",
+              name: "Target",
+              banned: true,
+              banReason: b.banReason ?? "Banned by operator",
+            },
+          });
+        });
+      }
+      if (url.pathname === "/api/auth/admin/unban-user") {
+        return req.json().then((body) => {
+          banCalls.push({ path: url.pathname, body });
+          const b = body as { userId: string };
+          return Response.json({
+            user: { id: b.userId, email: "target@b.com", name: "Target", banned: false },
+          });
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    const db = {
+      prepare: (sql: string) => ({
+        bind: (...values: unknown[]) => ({
+          run: async () => {
+            if (sql.includes("minting_user_id")) {
+              revokedBinds = values;
+              return { meta: { changes: 2 } };
+            }
+            return { meta: { changes: 0 } };
+          },
+        }),
+      }),
+    };
+    const env = { AUTH: auth, DB: db } as unknown as Env;
+    return { env, banCalls, getRevokedBinds: () => revokedBinds };
+  }
+
+  it("proxies ban-user and soft-revokes minted workspace tokens", async () => {
+    const { env, banCalls, getRevokedBinds } = banEnv(ADMIN_USER);
+    const res = await app().request(
+      "/admin-ui/users/u-target/ban",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: "session=abc" },
+        body: JSON.stringify({ banReason: "spam" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      user: { id: string; banned: boolean; banReason: string };
+      tokensRevoked: number;
+    };
+    expect(body.user).toMatchObject({ id: "u-target", banned: true, banReason: "spam" });
+    expect(body.tokensRevoked).toBe(2);
+    expect(banCalls).toEqual([
+      { path: "/api/auth/admin/ban-user", body: { userId: "u-target", banReason: "spam" } },
+    ]);
+    expect(getRevokedBinds()?.[1]).toBe("u-target");
+  });
+
+  it("rejects self-ban without calling the auth worker", async () => {
+    const { env, banCalls } = banEnv(ADMIN_USER);
+    const res = await app().request(
+      "/admin-ui/users/u-admin/ban",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(banCalls).toEqual([]);
+  });
+
+  it("403s for a non-admin session", async () => {
+    const { env } = banEnv(NON_ADMIN_USER);
+    const res = await app().request(
+      "/admin-ui/users/u-target/ban",
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+      env,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("unbans via the admin plugin", async () => {
+    const { env, banCalls } = banEnv(ADMIN_USER);
+    const res = await app().request(
+      "/admin-ui/users/u-target/unban",
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(banCalls).toEqual([
+      { path: "/api/auth/admin/unban-user", body: { userId: "u-target" } },
+    ]);
+    const body = (await res.json()) as { user: { banned: boolean } };
+    expect(body.user.banned).toBe(false);
+  });
+});

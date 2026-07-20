@@ -1,5 +1,10 @@
 ---
+/**
+ * Operator user directory — list/search + ban/unban.
+ * List: Better Auth admin list-users. Ban/unban: /admin-ui/users/:id/{ban,unban}.
+ */
 import AdminLayout from "../../layouts/AdminLayout.astro";
+import "../../styles/admin-users.css";
 
 export const prerender = false;
 ---
@@ -7,6 +12,244 @@ export const prerender = false;
 <AdminLayout section="users">
   <section class="card">
     <h2>Users</h2>
-    <p class="muted">Coming in a later phase.</p>
+    <p>
+      Deactivate an account for abuse — ends their sessions and revokes workspace
+      API tokens they minted. Reactivate restores sign-in only (tokens stay revoked).
+    </p>
+    <form id="users-search" class="users-search" role="search">
+      <label class="sr-only" for="users-search-input">Search by email</label>
+      <input
+        type="search"
+        id="users-search-input"
+        name="q"
+        placeholder="Search email…"
+        autocomplete="off"
+        maxlength="200"
+      />
+      <button type="submit">Search</button>
+    </form>
+    <div id="users-status" class="muted" style="margin-top:12px;font-size:13px">Loading…</div>
+    <div id="users-action-status" role="status" hidden></div>
+    <div id="users-list"></div>
   </section>
+
+  <script>
+    import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
+    import {
+      banUser,
+      listAdminUsers,
+      unbanUser,
+      type AdminUser,
+    } from "../../lib/auth-client";
+
+    onAstroPageLoad(() => {
+      if (!document.getElementById("users-list")) return;
+
+      const w = window as unknown as {
+        __UPLOADS_AUTH_ORIGIN__: string;
+        __UPLOADS_API_ORIGIN__: string;
+      };
+      const authOrigin = w.__UPLOADS_AUTH_ORIGIN__.replace(/\/$/, "");
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__.replace(/\/$/, "");
+
+      const usersStatus = requireElement<HTMLElement>("#users-status", "admin users");
+      const usersList = requireElement<HTMLElement>("#users-list", "admin users");
+      const actionStatus = requireElement<HTMLElement>("#users-action-status", "admin users");
+      const searchForm = requireElement<HTMLFormElement>("#users-search", "admin users");
+      const searchInput = requireElement<HTMLInputElement>("#users-search-input", "admin users");
+
+      let sessionUserId: string | null = null;
+      /** Latest list keyed by id — used by delegated ban/unban handlers. */
+      let usersById = new Map<string, AdminUser>();
+
+      const esc = (value: string) =>
+        value.replace(/[&<>"']/g, (ch) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
+        );
+
+      function formatDate(value: string | Date): string {
+        const d = value instanceof Date ? value : new Date(value);
+        return Number.isNaN(d.getTime())
+          ? "—"
+          : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+      }
+
+      function isAdmin(role: string | null | undefined): boolean {
+        return Boolean(role?.split(",").map((r) => r.trim()).includes("admin"));
+      }
+
+      function setStatus(state: "ready" | "error" | "", text: string): void {
+        if (!text) {
+          actionStatus.hidden = true;
+          actionStatus.textContent = "";
+          delete actionStatus.dataset.state;
+          return;
+        }
+        actionStatus.dataset.state = state;
+        actionStatus.textContent = text;
+        actionStatus.hidden = false;
+      }
+
+      function actionsHtml(user: AdminUser): string {
+        if (sessionUserId && user.id === sessionUserId) {
+          return `<p class="muted users-self-note">That's you — ban is unavailable.</p>`;
+        }
+        if (user.banned) {
+          return `<div class="users-actions">
+            <button type="button" class="users-unban-btn" data-user-id="${esc(user.id)}">
+              Reactivate account
+            </button>
+          </div>`;
+        }
+        return `<form class="users-ban-form" data-user-id="${esc(user.id)}">
+          <label>
+            Reason (optional)
+            <input type="text" class="users-ban-reason" maxlength="500"
+              placeholder="Abuse, spam, …" autocomplete="off" />
+          </label>
+          <button type="submit" class="users-ban-btn">Deactivate account</button>
+        </form>`;
+      }
+
+      function renderUser(user: AdminUser): HTMLElement {
+        const row = document.createElement("details");
+        row.className = user.banned ? "user-row is-banned" : "user-row";
+        const displayName =
+          user.name?.trim() && user.name !== user.email ? esc(user.name) : "";
+        const pills = [
+          isAdmin(user.role) ? `<span class="pill users-badge-admin">Admin</span>` : "",
+          user.banned ? `<span class="pill users-badge-banned">Deactivated</span>` : "",
+          !user.emailVerified
+            ? `<span class="pill users-badge-unverified">Unverified</span>`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        const cli =
+          user.cliOnboardedAt != null && String(user.cliOnboardedAt)
+            ? formatDate(user.cliOnboardedAt)
+            : "never";
+
+        row.innerHTML = `
+          <summary>
+            <div class="user-row-main">
+              <span class="email">${esc(user.email)}</span>${pills}
+            </div>
+            <div class="user-row-meta">
+              ${displayName ? `<span class="name">${displayName}</span>` : ""}
+              <span class="muted">joined ${esc(formatDate(user.createdAt))}</span>
+            </div>
+          </summary>
+          <div class="user-row-detail">
+            <div><span class="muted">id</span> <code>${esc(user.id)}</code></div>
+            <div><span class="muted">role</span> ${esc(user.role?.trim() || "user")}</div>
+            <div><span class="muted">CLI onboarded</span> ${esc(cli)}</div>
+            ${
+              user.banned && user.banReason
+                ? `<div><span class="muted">reason</span> ${esc(user.banReason)}</div>`
+                : ""
+            }
+            ${actionsHtml(user)}
+          </div>`;
+        return row;
+      }
+
+      async function loadUsers(q?: string) {
+        usersStatus.hidden = false;
+        usersStatus.textContent = "Loading…";
+        usersList.innerHTML = "";
+        usersById = new Map();
+
+        const result = await listAdminUsers(authOrigin, {
+          limit: 200,
+          searchValue: q?.trim() || undefined,
+          searchField: "email",
+        });
+        if (!result) {
+          usersStatus.textContent = "Failed to load users.";
+          return;
+        }
+        if (!result.users.length) {
+          usersStatus.textContent = q?.trim() ? "No users match that search." : "No users yet.";
+          return;
+        }
+        usersStatus.textContent =
+          result.total > result.users.length
+            ? `Showing ${result.users.length} of ${result.total}`
+            : `${result.total} user${result.total === 1 ? "" : "s"}`;
+        for (const user of result.users) {
+          usersById.set(user.id, user);
+          usersList.appendChild(renderUser(user));
+        }
+      }
+
+      // One delegated handler for all ban/unban controls.
+      usersList.addEventListener("submit", (event) => {
+        const form = (event.target as HTMLElement).closest<HTMLFormElement>(".users-ban-form");
+        if (!form || !usersList.contains(form)) return;
+        event.preventDefault();
+        const userId = form.dataset.userId;
+        const user = userId ? usersById.get(userId) : undefined;
+        if (!user) return;
+        if (
+          !window.confirm(
+            `Deactivate ${user.email}?\n\nThey will be signed out everywhere and any workspace API tokens they minted will be revoked.`,
+          )
+        ) {
+          return;
+        }
+        const reason = form.querySelector<HTMLInputElement>(".users-ban-reason")?.value;
+        const btn = form.querySelector<HTMLButtonElement>(".users-ban-btn");
+        void (async () => {
+          if (btn) btn.disabled = true;
+          setStatus("", "");
+          const result = await banUser(apiOrigin, user.id, { banReason: reason });
+          if (!result.ok) {
+            setStatus("error", result.message || "Couldn't deactivate that account.");
+            if (btn) btn.disabled = false;
+            return;
+          }
+          const tokenNote =
+            result.tokensRevoked > 0
+              ? ` Revoked ${result.tokensRevoked} workspace token${result.tokensRevoked === 1 ? "" : "s"}.`
+              : "";
+          setStatus("ready", `Deactivated ${user.email}.${tokenNote}`);
+          void loadUsers(searchInput.value);
+        })();
+      });
+
+      usersList.addEventListener("click", (event) => {
+        const btn = (event.target as HTMLElement).closest<HTMLButtonElement>(".users-unban-btn");
+        if (!btn || !usersList.contains(btn)) return;
+        const userId = btn.dataset.userId;
+        const user = userId ? usersById.get(userId) : undefined;
+        if (!user) return;
+        void (async () => {
+          btn.disabled = true;
+          setStatus("", "");
+          const result = await unbanUser(apiOrigin, user.id);
+          if (!result.ok) {
+            setStatus("error", result.message || "Couldn't reactivate that account.");
+            btn.disabled = false;
+            return;
+          }
+          setStatus(
+            "ready",
+            `Reactivated ${user.email}. They can sign in again; previously revoked tokens stay revoked.`,
+          );
+          void loadUsers(searchInput.value);
+        })();
+      });
+
+      searchForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void loadUsers(searchInput.value);
+      });
+
+      onSession((user) => {
+        sessionUserId = user.id;
+        void loadUsers(searchInput.value);
+      });
+    });
+  </script>
 </AdminLayout>
