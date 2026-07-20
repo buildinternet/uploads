@@ -396,6 +396,39 @@ describe("GET /public/files/:workspace/:key", () => {
     expect(json.github).toBeDefined();
     expect(json.github).not.toHaveProperty("title");
   });
+
+  it("keeps stamped title when live resolve exceeds the public budget", async () => {
+    // Slow GITHUB_CACHE.get simulates a cold ladder that would otherwise
+    // approach resolveTitles' ~8s GitHub abort and trip apps/web's 4s fetch.
+    // Public route races resolve with ~1.4s and must return the stamp.
+    const slowKv = {
+      async get() {
+        await new Promise((r) => setTimeout(r, 5000));
+        return null;
+      },
+      async put() {
+        /* no-op */
+      },
+    };
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    (env as { GITHUB_CACHE?: typeof slowKv }).GITHUB_CACHE = slowKv;
+
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "142",
+      "X-Uploads-Meta-gh.title": "Stamped under budget",
+    });
+
+    const started = Date.now();
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    const elapsedMs = Date.now() - started;
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { github?: { title?: string } };
+    expect(json.github?.title).toBe("Stamped under budget");
+    // Budget 1400ms + request overhead; must stay well under web's 4s abort.
+    expect(elapsedMs).toBeLessThan(3000);
+  });
 });
 
 // Task 3 (corrected): forced-download streaming lives behind a `?download=1`

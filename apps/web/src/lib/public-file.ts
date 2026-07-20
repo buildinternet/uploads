@@ -340,7 +340,9 @@ const SHOW_MODIFIED_MS = 60_000;
 /**
  * Whether the share page should surface a separate "modified" date alongside
  * uploaded. False when either timestamp is missing/invalid or they are within
- * 60 seconds of each other (R2 often stamps both to the same write).
+ * 60 seconds of each other on the same UTC day (R2 often stamps both to the
+ * same write). True when the UTC calendar day differs even if the delta is
+ * small (midnight boundary), or when delta exceeds 60s on the same day.
  */
 export function shouldShowModified(
   uploaded: string | null | undefined,
@@ -350,6 +352,7 @@ export function shouldShowModified(
   const a = Date.parse(uploaded);
   const b = Date.parse(modified);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  if (!sameUtcDay(uploaded, modified)) return true;
   if (Math.abs(b - a) <= SHOW_MODIFIED_MS) return false;
   return true;
 }

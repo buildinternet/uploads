@@ -154,13 +154,15 @@ describe("isPublicFile", () => {
 });
 
 describe("shouldShowModified", () => {
-  it("is false when modified missing or within 60s", () => {
+  it("is false when modified missing or within 60s on the same UTC day", () => {
     expect(shouldShowModified("2026-07-01T00:00:00.000Z", null)).toBe(false);
     expect(shouldShowModified("2026-07-01T00:00:00.000Z", "2026-07-01T00:00:30.000Z")).toBe(false);
   });
   it("is true when day differs or delta > 60s", () => {
     expect(shouldShowModified("2026-07-01T00:00:00.000Z", "2026-07-02T00:00:00.000Z")).toBe(true);
     expect(shouldShowModified("2026-07-01T00:00:00.000Z", "2026-07-01T00:02:00.000Z")).toBe(true);
+    // Midnight boundary: delta 20s but different UTC days → still show modified.
+    expect(shouldShowModified("2026-07-01T23:59:50.000Z", "2026-07-02T00:00:10.000Z")).toBe(true);
   });
 });
 
