@@ -1,0 +1,68 @@
+/**
+ * POST /v1/:workspace/github/comment (phase 2 PR B). Workspace-authed. Renders
+ * the calling workspace's own attachments + galleries for a PR/issue and, when
+ * the App is installed with write, upserts the managed comment as the bot.
+ * Never 5xxs on an integration failure — a bot-post problem returns
+ * { posted: false, reason } so the CLI falls back to its local-gh path.
+ */
+import { ValidationError } from "@uploads/errors";
+import { Hono, type Context } from "hono";
+import { gatherCommentBody, upsertBotComment } from "../github-comment";
+import { githubAppConfig, installationForRepo } from "../github-app";
+import type { GhTargetKind } from "../github-comment-render";
+import { requireScope, type WorkspaceVars } from "../workspace";
+
+const REPO_RE = /^[^/\s]+\/[^/\s]+$/;
+
+function parseTarget(body: Record<string, unknown>): {
+  repo: string;
+  num: number;
+  kind: GhTargetKind;
+} {
+  const repo = typeof body.repo === "string" ? body.repo : "";
+  const num = typeof body.num === "number" ? body.num : Number(body.num);
+  const kind = body.kind;
+  if (!REPO_RE.test(repo))
+    throw new ValidationError("repo must be owner/name.", { code: "invalid_repo" });
+  if (!Number.isSafeInteger(num) || num < 1)
+    throw new ValidationError("num must be a positive integer.");
+  if (kind !== "pull" && kind !== "issues")
+    throw new ValidationError('kind must be "pull" or "issues".');
+  return { repo, num, kind };
+}
+
+async function jsonBody(c: Context<WorkspaceVars>): Promise<Record<string, unknown>> {
+  const body = await c.req.json<unknown>().catch(() => null);
+  if (typeof body !== "object" || body === null || Array.isArray(body))
+    throw new ValidationError("Expected a JSON object.");
+  return body as Record<string, unknown>;
+}
+
+export const githubComment = new Hono<WorkspaceVars>().post(
+  "/comment",
+  requireScope("files:read"),
+  async (c) => {
+    const target = parseTarget(await jsonBody(c));
+    const cfg = githubAppConfig(c.env);
+    if (!cfg) return c.json({ posted: false, reason: "app_unconfigured" });
+    const installId = await installationForRepo(c.env, cfg, target.repo);
+    if (installId === null) return c.json({ posted: false, reason: "not_installed" });
+
+    const gathered = await gatherCommentBody(
+      c.env,
+      c.get("workspace"),
+      c.get("workspaceName"),
+      target,
+    );
+    if (gathered.skip) return c.json({ posted: true, action: "skipped", count: 0 });
+
+    const result = await upsertBotComment(c.env, cfg, installId, target, gathered.body);
+    if ("degrade" in result) return c.json({ posted: false, reason: result.degrade });
+    return c.json({
+      posted: true,
+      action: result.action,
+      count: gathered.count,
+      commentUrl: result.commentUrl,
+    });
+  },
+);

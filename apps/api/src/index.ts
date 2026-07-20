@@ -19,6 +19,7 @@ import { telemetry } from "./routes/telemetry";
 import { reports } from "./routes/reports";
 import { render } from "./routes/render";
 import { githubWebhook } from "./routes/github-webhook";
+import { githubComment } from "./routes/github-comment";
 import { protectedResourceMetadata, requestOrigin } from "./well-known";
 
 // Lets the browser console on the web origin (and local dev) call the token-
@@ -123,6 +124,9 @@ export const app = new Hono<WorkspaceVars>()
   .route("/v1/:workspace/galleries", galleries)
   .route("/v1/:workspace/files", files)
   .route("/v1/:workspace/usage", usage)
+  // Bot-owned managed comment (phase 2 PR B). Workspace-authed (unlike the
+  // HMAC-public /v1/github/webhook above) — behind the workspaceAuth guard.
+  .route("/v1/:workspace/github", githubComment)
   .onError((err, c) => respondError(c, err))
   .notFound((c) => respondError(c, new NotFoundError()));
 
