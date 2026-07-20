@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderConnectedWorkHtml, renderDetailsHtml } from "./workspace-rail";
+import { planTitleRepaint, renderConnectedWorkHtml, renderDetailsHtml } from "./workspace-rail";
 import type { GhWorkItem } from "./gh-context";
 
 function ghItem(overrides: Partial<GhWorkItem> = {}): GhWorkItem {
@@ -137,5 +137,30 @@ describe("renderDetailsHtml", () => {
     expect(html).not.toContain("<img");
     expect(html).not.toContain("<b>admin</b>");
     expect(html).toContain("&lt;img");
+  });
+});
+
+describe("planTitleRepaint", () => {
+  it("returns relabeled items when any fetched title changes a label", () => {
+    const items = [ghItem()];
+    const out = planTitleRepaint(items, {
+      "buildinternet/uploads#1789": { title: "Real title", state: "open", kind: "pull" },
+    });
+    expect(out?.[0].label).toBe("Real title");
+  });
+
+  it("returns null when nothing changed or the fetch failed", () => {
+    const items = [ghItem()];
+    expect(planTitleRepaint(items, null)).toBeNull();
+    expect(planTitleRepaint(items, {})).toBeNull();
+    expect(
+      planTitleRepaint(items, {
+        "buildinternet/uploads#1789": {
+          title: "buildinternet/uploads#1789",
+          state: "open",
+          kind: "pull",
+        },
+      }),
+    ).toBeNull();
   });
 });

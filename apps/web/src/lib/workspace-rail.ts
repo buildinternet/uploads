@@ -18,11 +18,17 @@
  * item; an empty array hides it. Non-files tabs never call it, so the section
  * stays hidden by construction.
  */
-import { getMyWorkspaces, getMyWorkspaceUsage, type MyWorkspace } from "./api-client";
+import {
+  getGithubTitles,
+  getMyWorkspaces,
+  getMyWorkspaceUsage,
+  type GithubTitleMap,
+  type MyWorkspace,
+} from "./api-client";
 import { onSession } from "./account-shell";
 import { bindCopyButtons, escapeHtml, renderUsageHtml } from "./workspace-ui";
 import { githubKindSvg } from "./brand-icons";
-import type { GhKind, GhWorkItem } from "./gh-context";
+import { applyGhTitles, type GhKind, type GhWorkItem } from "./gh-context";
 
 export type ConnectedWorkSetter = (items: GhWorkItem[]) => void;
 
@@ -86,10 +92,32 @@ export function renderDetailsHtml(ws: WorkspaceRailDetails): string {
 /** Connected-work rows shown before a "show N more" toggle reveals the rest. */
 const CONNECTED_WORK_CAP = 6;
 
-function bindConnectedWorkSetter(root: Document | Element): ConnectedWorkSetter {
+/** Refs sent per rail paint — matches the endpoint's 20-ref cap. */
+const TITLE_FETCH_CAP = 20;
+
+/**
+ * Decide whether a titles response warrants a repaint: the relabeled items
+ * when at least one label changed, else null (failed fetch, empty map, or
+ * titles identical to what's already painted).
+ */
+export function planTitleRepaint(
+  items: GhWorkItem[],
+  titles: GithubTitleMap | null,
+): GhWorkItem[] | null {
+  if (!titles) return null;
+  const updated = applyGhTitles(items, titles);
+  return updated.some((item, i) => item.label !== items[i].label) ? updated : null;
+}
+
+function bindConnectedWorkSetter(
+  root: Document | Element,
+  resolveTitles?: (refs: string[]) => Promise<GithubTitleMap | null>,
+): ConnectedWorkSetter {
   const section = root.querySelector<HTMLElement>("[data-rail-connected]");
   const list = root.querySelector<HTMLElement>("[data-rail-connected-list]");
-  const setter: ConnectedWorkSetter = (items) => {
+  let generation = 0;
+
+  const paintItems = (items: GhWorkItem[]): void => {
     if (!section || !list) return;
     if (!items.length) {
       section.hidden = true;
@@ -112,6 +140,18 @@ function bindConnectedWorkSetter(root: Document | Element): ConnectedWorkSetter 
         ?.addEventListener("click", () => paint(items.length), { once: true });
     };
     paint(CONNECTED_WORK_CAP);
+  };
+
+  const setter: ConnectedWorkSetter = (items) => {
+    const current = ++generation;
+    paintItems(items);
+    if (!items.length || !resolveTitles) return;
+    const refs = [...new Set(items.map((item) => item.ref))].slice(0, TITLE_FETCH_CAP);
+    void resolveTitles(refs).then((titles) => {
+      if (current !== generation) return; // a newer paint superseded this fetch
+      const repaint = planTitleRepaint(items, titles);
+      if (repaint) paintItems(repaint);
+    });
   };
   window.__uploadsSetConnectedWork = setter;
   return setter;
@@ -138,7 +178,9 @@ export function initWorkspaceRail(
 ): void {
   const root = opts.root ?? document;
 
-  const setConnectedWork = bindConnectedWorkSetter(root);
+  const setConnectedWork = bindConnectedWorkSetter(root, (refs) =>
+    getGithubTitles(apiOrigin, workspace, refs),
+  );
   setConnectedWork([]);
 
   const railRoot = root.querySelector<HTMLElement>("[data-workspace-rail]");
