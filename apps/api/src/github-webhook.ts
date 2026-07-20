@@ -24,6 +24,10 @@ async function hmacSha256Hex(secret: string, body: string): Promise<string> {
   return hex;
 }
 
+// Constant-time compare is hand-rolled over the hex strings rather than via the
+// Workers-native `crypto.subtle.timingSafeEqual` (as admin.ts/workspace.ts do):
+// that API is a Workers-only extension absent from this repo's plain-Node vitest
+// runtime, so reusing it would make this security-sensitive path untestable.
 /** Constant-time compare of two hex strings (length check + XOR accumulate). */
 function timingSafeEqualHex(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
