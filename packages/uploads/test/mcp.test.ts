@@ -455,7 +455,11 @@ describe("tools/call put", () => {
     });
     expect(res.result.isError).toBe(false);
     expect(puts[0].key).toBe("gh/o/r/pull/123/after.png");
-    expect(res.result.structuredContent.comment).toEqual({ action: "created", count: 1 });
+    expect(res.result.structuredContent.comment).toEqual({
+      action: "created",
+      count: 1,
+      via: "gh",
+    });
     expect(calls.some((call) => call.includes("repos/o/r/issues/123/comments"))).toBe(true);
   });
 
@@ -602,7 +606,11 @@ describe("tools/call attach", () => {
     });
     expect(res.result.structuredContent.uploads[0].markdown).toContain("before.png");
     expect(res.result.structuredContent.failures).toEqual([]);
-    expect(res.result.structuredContent.comment).toEqual({ action: "created", count: 1 });
+    expect(res.result.structuredContent.comment).toEqual({
+      action: "created",
+      count: 1,
+      via: "gh",
+    });
     expect(calls.some((call) => call[1] === "pr" && call[2] === "view")).toBe(true);
   });
 
@@ -844,6 +852,7 @@ describe("tools/call list, delete, comment", () => {
       num: 45,
       action: "created",
       count: 1,
+      via: "gh",
     });
   });
 });

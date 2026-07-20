@@ -418,62 +418,96 @@ export function frameOptionsFromFlags(flags: CommandFlags["flags"]): {
 
 /**
  * List every attachment under the target's prefix and create/update the
- * managed comment. Throws on gh failure — callers decide whether that is
- * fatal (`comment` command) or a warning (`put --comment`).
+ * managed comment. Prefers the server-side bot endpoint (`uploads-sh[bot]`,
+ * rendered from this workspace's own data); any failure to post that way —
+ * not installed, declined, self-hosted 404, network error — falls through to
+ * the local-`gh` path so self-hosters keep working unchanged. Throws on gh
+ * failure — callers decide whether that is fatal (`comment` command) or a
+ * warning (`put --comment`).
  */
 export async function syncAttachmentsComment(
   client: UploadsClient,
   target: GhTarget,
   run: CommandRunner,
-): Promise<{ action: "created" | "updated" | "skipped"; count: number }> {
-  const items: AttachmentItem[] = (await client.listAll({ prefix: ghKeyPrefix(target) })).map(
-    ({ key, url, embedUrl }) => ({ key, url, embedUrl }),
-  );
-
-  const galleries: (GalleryCommentItem & { id: string })[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await client.findGalleriesByReference({
-      provider: "github",
-      // GitHub references intentionally do not distinguish PRs from issues.
-      coordinate: `${target.repo.toLowerCase()}#${target.num}`,
-      cursor,
+): Promise<{ action: "created" | "updated" | "skipped"; count: number; via: "bot" | "gh" }> {
+  try {
+    const bot = await client.upsertGithubComment({
+      repo: target.repo,
+      num: target.num,
+      kind: target.kind,
     });
-    galleries.push(...page.galleries.map(({ id, title, url }) => ({ title, url, id })));
-    cursor = page.nextCursor ?? undefined;
-  } while (cursor);
+    if (bot.posted) {
+      return {
+        action: bot.action,
+        count: bot.action === "skipped" ? 0 : (bot.count ?? 0),
+        via: "bot",
+      };
+    }
+  } catch {
+    // Endpoint absent/unreachable (self-hosted, network, older worker) — fall
+    // through to the gh path below.
+  }
+  return runGhPath();
 
-  const previewGalleries = await Promise.all(
-    galleries.map(async ({ id, ...gallery }) => {
-      try {
-        const detail = await client.getGallery(id);
-        return {
-          ...gallery,
-          previews: detail.items
-            .filter(
-              (item) =>
-                item.status === "available" && item.url && item.contentType?.startsWith("image/"),
-            )
-            .slice(0, 3)
-            .map((item) => ({
-              url: item.url!,
-              embedUrl: item.embedUrl,
-              alt: item.altText ?? item.objectKey,
-              itemUrl: item.pageUrl,
-            })),
-        };
-      } catch {
-        // A deleted or temporarily unavailable gallery still gets a safe title link.
-        return gallery;
-      }
-    }),
-  );
+  async function runGhPath(): Promise<{
+    action: "created" | "updated" | "skipped";
+    count: number;
+    via: "bot" | "gh";
+  }> {
+    const items: AttachmentItem[] = (await client.listAll({ prefix: ghKeyPrefix(target) })).map(
+      ({ key, url, embedUrl }) => ({ key, url, embedUrl }),
+    );
 
-  if (items.length === 0 && previewGalleries.length === 0) return { action: "skipped", count: 0 };
+    const galleries: (GalleryCommentItem & { id: string })[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await client.findGalleriesByReference({
+        provider: "github",
+        // GitHub references intentionally do not distinguish PRs from issues.
+        coordinate: `${target.repo.toLowerCase()}#${target.num}`,
+        cursor,
+      });
+      galleries.push(...page.galleries.map(({ id, title, url }) => ({ title, url, id })));
+      cursor = page.nextCursor ?? undefined;
+    } while (cursor);
 
-  const body = attachmentsCommentBody(items, previewGalleries);
-  const { created } = upsertAttachmentsComment(target, body, run);
-  return { action: created ? "created" : "updated", count: items.length + previewGalleries.length };
+    const previewGalleries = await Promise.all(
+      galleries.map(async ({ id, ...gallery }) => {
+        try {
+          const detail = await client.getGallery(id);
+          return {
+            ...gallery,
+            previews: detail.items
+              .filter(
+                (item) =>
+                  item.status === "available" && item.url && item.contentType?.startsWith("image/"),
+              )
+              .slice(0, 3)
+              .map((item) => ({
+                url: item.url!,
+                embedUrl: item.embedUrl,
+                alt: item.altText ?? item.objectKey,
+                itemUrl: item.pageUrl,
+              })),
+          };
+        } catch {
+          // A deleted or temporarily unavailable gallery still gets a safe title link.
+          return gallery;
+        }
+      }),
+    );
+
+    if (items.length === 0 && previewGalleries.length === 0)
+      return { action: "skipped", count: 0, via: "gh" };
+
+    const body = attachmentsCommentBody(items, previewGalleries);
+    const { created } = upsertAttachmentsComment(target, body, run);
+    return {
+      action: created ? "created" : "updated",
+      count: items.length + previewGalleries.length,
+      via: "gh",
+    };
+  }
 }
 
 // --- attach ---
@@ -812,7 +846,9 @@ export async function runAttach(
     throw firstError instanceof Error ? firstError : new Error(String(firstError));
   }
 
-  let comment: { action: "created" | "updated" | "skipped"; count: number } | undefined;
+  let comment:
+    | { action: "created" | "updated" | "skipped"; count: number; via: "bot" | "gh" }
+    | undefined;
   let commentError: string | undefined;
   // Skip comment refresh when every upload failed — nothing new from this batch.
   if (!parsed.flags.has("--no-comment") && uploads.length > 0) {
@@ -846,7 +882,10 @@ export async function runAttach(
     for (const failure of failures) {
       process.stderr.write(`warning: could not upload ${failure.file}: ${failure.error.message}\n`);
     }
-    if (!ctx.quiet && comment) process.stderr.write(`>> attachments comment ${comment.action}\n`);
+    if (!ctx.quiet && comment)
+      process.stderr.write(
+        `>> attachments comment ${comment.action}${comment.via === "bot" ? " (uploads-sh[bot])" : " (via gh)"}\n`,
+      );
     if (!ctx.quiet && uploads.length > 0) {
       const ref = ghMetadataFromTarget(target)["gh.ref"];
       process.stderr.write(`>> find these later: uploads find gh.ref=${ref}\n`);
@@ -1068,12 +1107,17 @@ export async function runPut(
     }
   }
 
-  let comment: { action: "created" | "updated" | "skipped"; count: number } | undefined;
+  let comment:
+    | { action: "created" | "updated" | "skipped"; count: number; via: "bot" | "gh" }
+    | undefined;
   let commentError: string | undefined;
   if (wantComment && ghTarget && uploads.length > 0) {
     try {
       comment = await syncAttachmentsComment(ctx.client, ghTarget, run);
-      if (logHuman) process.stderr.write(`>> attachments comment ${comment.action}\n`);
+      if (logHuman)
+        process.stderr.write(
+          `>> attachments comment ${comment.action}${comment.via === "bot" ? " (uploads-sh[bot])" : " (via gh)"}\n`,
+        );
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);
       process.stderr.write(
@@ -1643,10 +1687,11 @@ export async function runComment(
   if (ctx.json) {
     await writeJson({ ...target, ...result });
   } else if (!ctx.quiet) {
+    const via = result.via === "bot" ? " (uploads-sh[bot])" : " (via gh)";
     process.stderr.write(
       result.action === "skipped"
         ? `no attachments under ${ghKeyPrefix(target)} — nothing to do\n`
-        : `${result.action} attachments comment on ${target.repo}#${target.num} (${result.count} file${result.count === 1 ? "" : "s"})\n`,
+        : `${result.action} attachments comment on ${target.repo}#${target.num} (${result.count} file${result.count === 1 ? "" : "s"})${via}\n`,
     );
   }
   return 0;
