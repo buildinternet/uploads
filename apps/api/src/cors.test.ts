@@ -63,4 +63,39 @@ describe("CORS preflights from the web origin", () => {
     const res = await preflight("/me/workspaces");
     expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
   });
+
+  it("allows PATCH on admin-ui (workspace limits + oauth client edits)", async () => {
+    const res = await app.request(
+      "https://api.uploads.sh/admin-ui/workspaces/ryan/limits",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://uploads.sh",
+          "Access-Control-Request-Method": "PATCH",
+          "Access-Control-Request-Headers": "content-type",
+        },
+      },
+      env,
+    );
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://uploads.sh");
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+    expect(res.headers.get("Access-Control-Allow-Methods")).toContain("PATCH");
+  });
+
+  it("allows PATCH on /me (member role + file visibility)", async () => {
+    const res = await app.request(
+      "https://api.uploads.sh/me/workspaces/acme/members/user_1",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://uploads.sh",
+          "Access-Control-Request-Method": "PATCH",
+          "Access-Control-Request-Headers": "content-type",
+        },
+      },
+      env,
+    );
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+    expect(res.headers.get("Access-Control-Allow-Methods")).toContain("PATCH");
+  });
 });
