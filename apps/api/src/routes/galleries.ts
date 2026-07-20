@@ -35,13 +35,7 @@ import { writeRateLimit } from "../guards";
 import { parseExternalReference } from "../external-references";
 import { publicUrl, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
-
-async function jsonBody(c: Context<WorkspaceVars>): Promise<Record<string, unknown>> {
-  const body = await c.req.json<unknown>().catch(() => null);
-  if (typeof body !== "object" || body === null || Array.isArray(body))
-    throw new ValidationError("Expected a JSON object.");
-  return body as Record<string, unknown>;
-}
+import { jsonBody } from "./json-body";
 
 async function ownerGallery(c: Context<WorkspaceVars>, id: string) {
   const record = await getGallery(c.env.DB, c.get("workspaceName"), id);

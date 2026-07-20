@@ -38,7 +38,24 @@ export async function gatherCommentBody(
   workspaceName: string,
   target: GhTarget,
 ): Promise<{ skip: true } | { skip: false; body: string; count: number }> {
-  // Attachments: the workspace's own objects under the stable gh key prefix.
+  // Attachments (R2 list) and galleries (D1) are independent reads — overlap
+  // them so the request only waits the longer of the two, not their sum.
+  const [items, galleries] = await Promise.all([
+    gatherAttachments(env, ws, target),
+    gatherGalleries(env, ws, workspaceName, target),
+  ]);
+
+  const count = items.length + galleries.length;
+  if (count === 0) return { skip: true };
+  return { skip: false, body: attachmentsCommentBody(items, galleries), count };
+}
+
+/** The workspace's own objects under the stable gh key prefix. */
+async function gatherAttachments(
+  env: Env,
+  ws: WorkspaceRecord,
+  target: GhTarget,
+): Promise<AttachmentItem[]> {
   const items: AttachmentItem[] = [];
   let cursor: string | undefined;
   do {
@@ -46,19 +63,31 @@ export async function gatherCommentBody(
     for (const o of page.items) items.push({ key: o.key, url: o.url, embedUrl: o.embedUrl });
     cursor = page.cursor ?? undefined;
   } while (cursor);
+  return items;
+}
 
-  // Galleries linked to this PR/issue (kind-agnostic coordinate), scoped to
-  // this workspace only.
+/**
+ * Galleries linked to this PR/issue (kind-agnostic coordinate), scoped to this
+ * workspace only. Each page's galleries hydrate concurrently (mirrors the CLI's
+ * original `Promise.all` gather).
+ */
+async function gatherGalleries(
+  env: Env,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  target: GhTarget,
+): Promise<GalleryCommentItem[]> {
   const ref = parseExternalReference("github", `${target.repo.toLowerCase()}#${target.num}`);
+  if (!ref.ok) return [];
   const galleries: GalleryCommentItem[] = [];
-  if (ref.ok) {
-    let gCursor: GalleryCursor | undefined;
-    do {
-      const page = await findGalleriesByReference(env.DB, workspaceName, ref.value.normalizedKey, {
-        limit: 100,
-        cursor: gCursor,
-      });
-      for (const rec of page.galleries) {
+  let gCursor: GalleryCursor | undefined;
+  do {
+    const page = await findGalleriesByReference(env.DB, workspaceName, ref.value.normalizedKey, {
+      limit: 100,
+      cursor: gCursor,
+    });
+    const pageItems = await Promise.all(
+      page.galleries.map(async (rec) => {
         const dto = await hydrateOwnerGallery(
           env,
           ws,
@@ -74,15 +103,13 @@ export async function gatherCommentBody(
             alt: i.altText ?? i.objectKey,
             itemUrl: i.pageUrl,
           }));
-        galleries.push({ title: rec.title, url: galleryUrl(env, rec.id), previews });
-      }
-      gCursor = page.nextCursor ?? undefined;
-    } while (gCursor);
-  }
-
-  const count = items.length + galleries.length;
-  if (count === 0) return { skip: true };
-  return { skip: false, body: attachmentsCommentBody(items, galleries), count };
+        return { title: rec.title, url: galleryUrl(env, rec.id), previews };
+      }),
+    );
+    galleries.push(...pageItems);
+    gCursor = page.nextCursor ?? undefined;
+  } while (gCursor);
+  return galleries;
 }
 
 interface GhComment {
@@ -150,10 +177,10 @@ export async function upsertBotComment(
     return { ok: true, commentUrl: parsed.html_url ?? "" };
   };
 
-  if (existing) {
-    const r = await write(`${base}/issues/comments/${existing.id}`, "PATCH");
-    return r.ok ? { action: "updated", commentUrl: r.commentUrl } : { degrade: r.degrade };
-  }
-  const r = await write(`${base}/issues/${target.num}/comments`, "POST");
-  return r.ok ? { action: "created", commentUrl: r.commentUrl } : { degrade: r.degrade };
+  const url = existing
+    ? `${base}/issues/comments/${existing.id}`
+    : `${base}/issues/${target.num}/comments`;
+  const r = await write(url, existing ? "PATCH" : "POST");
+  if (!r.ok) return { degrade: r.degrade };
+  return { action: existing ? "updated" : "created", commentUrl: r.commentUrl };
 }

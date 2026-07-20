@@ -6,13 +6,16 @@
  * { posted: false, reason } so the CLI falls back to its local-gh path.
  */
 import { ValidationError } from "@uploads/errors";
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { gatherCommentBody, upsertBotComment } from "../github-comment";
 import { githubAppConfig, installationForRepo } from "../github-app";
 import type { GhTargetKind } from "../github-comment-render";
 import { requireScope, type WorkspaceVars } from "../workspace";
+import { jsonBody } from "./json-body";
 
-const REPO_RE = /^[^/\s]+\/[^/\s]+$/;
+// Same owner/name grammar as public-files.ts's deriveGithubContext, so a repo
+// string validates identically across the API.
+const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
 function parseTarget(body: Record<string, unknown>): {
   repo: string;
@@ -29,13 +32,6 @@ function parseTarget(body: Record<string, unknown>): {
   if (kind !== "pull" && kind !== "issues")
     throw new ValidationError('kind must be "pull" or "issues".');
   return { repo, num, kind };
-}
-
-async function jsonBody(c: Context<WorkspaceVars>): Promise<Record<string, unknown>> {
-  const body = await c.req.json<unknown>().catch(() => null);
-  if (typeof body !== "object" || body === null || Array.isArray(body))
-    throw new ValidationError("Expected a JSON object.");
-  return body as Record<string, unknown>;
 }
 
 export const githubComment = new Hono<WorkspaceVars>().post(

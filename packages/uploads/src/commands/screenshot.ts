@@ -14,6 +14,8 @@ import {
   ghTargetFromFlags,
   optimizeOptionsFromFlags,
   syncAttachmentsComment,
+  commentViaSuffix,
+  type AttachmentsCommentResult,
   uploadPreparedImage,
   type CliContext,
 } from "../commands.js";
@@ -328,16 +330,14 @@ export async function runScreenshot(
     }
   }
 
-  let comment:
-    | { action: "created" | "updated" | "skipped"; count: number; via: "bot" | "gh" }
-    | undefined;
+  let comment: AttachmentsCommentResult | undefined;
   let commentError: string | undefined;
   if (wantComment && ghTarget) {
     try {
       comment = await syncAttachmentsComment(ctx.client, ghTarget, run);
       if (logHuman)
         process.stderr.write(
-          `>> attachments comment ${comment.action}${comment.via === "bot" ? " (uploads-sh[bot])" : " (via gh)"}\n`,
+          `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n`,
         );
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);

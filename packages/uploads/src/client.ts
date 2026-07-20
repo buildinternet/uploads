@@ -211,9 +211,16 @@ export interface FindGalleriesByReferenceOptions {
   cursor?: string;
 }
 
+/** Reasons the bot did not post; the CLI treats any of them as "fall back to gh". */
+export type GithubCommentDeclineReason =
+  | "app_unconfigured"
+  | "not_installed"
+  | "forbidden"
+  | "unavailable";
+
 export type GithubCommentResult =
   | { posted: true; action: "created" | "updated" | "skipped"; count: number; commentUrl?: string }
-  | { posted: false; reason: string };
+  | { posted: false; reason: GithubCommentDeclineReason };
 
 export interface HealthResult {
   ok: boolean;
