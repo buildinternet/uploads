@@ -143,7 +143,9 @@ Options:
   --format human|url|markdown|json
   --pr <num>            Attach to a pull request: key gh/<owner>/<repo>/pull/<num>/<name> (stable URL, no hash)
   --issue <num>         Attach to an issue: key gh/<owner>/<repo>/issues/<num>/<name>
-  --comment             With --pr/--issue: update one managed comment with attachments and linked galleries via local gh auth
+  --comment             With --pr/--issue: update one managed comment with
+                        attachments and linked galleries. Posts as uploads-sh[bot]
+                        when the GitHub App is installed; otherwise via local gh.
   --gallery <id>         Add the uploaded object(s) to this public gallery
   --meta <k=v>          Queryable custom metadata (repeatable; value may contain "="): key ^[a-z][a-z0-9._-]{0,63}$, value 1-512 printable ASCII, max 24 pairs
                         Re-uploading to an existing key WITH --meta replaces that file's
@@ -418,14 +420,43 @@ export function frameOptionsFromFlags(flags: CommandFlags["flags"]): {
 
 /**
  * List every attachment under the target's prefix and create/update the
- * managed comment. Throws on gh failure — callers decide whether that is
- * fatal (`comment` command) or a warning (`put --comment`).
+ * managed comment. Prefers the server-side bot endpoint (`uploads-sh[bot]`,
+ * rendered from this workspace's own data); any failure to post that way —
+ * not installed, declined, self-hosted 404, network error — falls through to
+ * the local-`gh` path so self-hosters keep working unchanged. Throws on gh
+ * failure — callers decide whether that is fatal (`comment` command) or a
+ * warning (`put --comment`).
  */
+export interface AttachmentsCommentResult {
+  action: "created" | "updated" | "skipped";
+  count: number;
+  /** Who posted the comment: the GitHub App bot, or the local `gh` fallback. */
+  via: "bot" | "gh";
+}
+
+/** Human-mode suffix noting who posted the managed comment. */
+export function commentViaSuffix(via: AttachmentsCommentResult["via"]): string {
+  return via === "bot" ? " (uploads-sh[bot])" : " (via gh)";
+}
+
 export async function syncAttachmentsComment(
   client: UploadsClient,
   target: GhTarget,
   run: CommandRunner,
-): Promise<{ action: "created" | "updated" | "skipped"; count: number }> {
+): Promise<AttachmentsCommentResult> {
+  try {
+    const bot = await client.upsertGithubComment({
+      repo: target.repo,
+      num: target.num,
+      kind: target.kind,
+    });
+    if (bot.posted) return { action: bot.action, count: bot.count, via: "bot" };
+  } catch {
+    // Endpoint absent/unreachable (self-hosted, network, older worker) — fall
+    // through to the gh path below.
+  }
+
+  // gh fallback: gather from this workspace's own data and post via local `gh`.
   const items: AttachmentItem[] = (await client.listAll({ prefix: ghKeyPrefix(target) })).map(
     ({ key, url, embedUrl }) => ({ key, url, embedUrl }),
   );
@@ -469,11 +500,16 @@ export async function syncAttachmentsComment(
     }),
   );
 
-  if (items.length === 0 && previewGalleries.length === 0) return { action: "skipped", count: 0 };
+  if (items.length === 0 && previewGalleries.length === 0)
+    return { action: "skipped", count: 0, via: "gh" };
 
   const body = attachmentsCommentBody(items, previewGalleries);
   const { created } = upsertAttachmentsComment(target, body, run);
-  return { action: created ? "created" : "updated", count: items.length + previewGalleries.length };
+  return {
+    action: created ? "created" : "updated",
+    count: items.length + previewGalleries.length,
+    via: "gh",
+  };
 }
 
 // --- attach ---
@@ -812,7 +848,7 @@ export async function runAttach(
     throw firstError instanceof Error ? firstError : new Error(String(firstError));
   }
 
-  let comment: { action: "created" | "updated" | "skipped"; count: number } | undefined;
+  let comment: AttachmentsCommentResult | undefined;
   let commentError: string | undefined;
   // Skip comment refresh when every upload failed — nothing new from this batch.
   if (!parsed.flags.has("--no-comment") && uploads.length > 0) {
@@ -846,7 +882,10 @@ export async function runAttach(
     for (const failure of failures) {
       process.stderr.write(`warning: could not upload ${failure.file}: ${failure.error.message}\n`);
     }
-    if (!ctx.quiet && comment) process.stderr.write(`>> attachments comment ${comment.action}\n`);
+    if (!ctx.quiet && comment)
+      process.stderr.write(
+        `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n`,
+      );
     if (!ctx.quiet && uploads.length > 0) {
       const ref = ghMetadataFromTarget(target)["gh.ref"];
       process.stderr.write(`>> find these later: uploads find gh.ref=${ref}\n`);
@@ -1068,12 +1107,15 @@ export async function runPut(
     }
   }
 
-  let comment: { action: "created" | "updated" | "skipped"; count: number } | undefined;
+  let comment: AttachmentsCommentResult | undefined;
   let commentError: string | undefined;
   if (wantComment && ghTarget && uploads.length > 0) {
     try {
       comment = await syncAttachmentsComment(ctx.client, ghTarget, run);
-      if (logHuman) process.stderr.write(`>> attachments comment ${comment.action}\n`);
+      if (logHuman)
+        process.stderr.write(
+          `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n`,
+        );
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);
       process.stderr.write(
@@ -1616,7 +1658,8 @@ export async function runDelete(ctx: CliContext, args: string[], help = false): 
 const COMMENT_HELP = `uploads comment (--pr <num> | --issue <num>) [--repo <owner/name>] [--workspace <name>]
 
 Create or update the managed attachments comment on a GitHub PR or issue,
-listing everything uploaded for it. Uses your local gh auth. Finds its own
+listing everything uploaded for it. Posts as uploads-sh[bot] when the GitHub
+App is installed on the repo; otherwise via your local gh auth. Finds its own
 prior comment via a hidden marker and edits it in place; never touches other
 comments or the description.
 
@@ -1643,10 +1686,11 @@ export async function runComment(
   if (ctx.json) {
     await writeJson({ ...target, ...result });
   } else if (!ctx.quiet) {
+    const via = commentViaSuffix(result.via);
     process.stderr.write(
       result.action === "skipped"
         ? `no attachments under ${ghKeyPrefix(target)} — nothing to do\n`
-        : `${result.action} attachments comment on ${target.repo}#${target.num} (${result.count} file${result.count === 1 ? "" : "s"})\n`,
+        : `${result.action} attachments comment on ${target.repo}#${target.num} (${result.count} file${result.count === 1 ? "" : "s"})${via}\n`,
     );
   }
   return 0;

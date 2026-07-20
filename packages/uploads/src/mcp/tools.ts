@@ -11,6 +11,7 @@ import {
   buildDoctorReport,
   makeGhTarget,
   syncAttachmentsComment,
+  type AttachmentsCommentResult,
   uploadAttachments,
   uploadPreparedImage,
   uploadPuts,
@@ -188,7 +189,7 @@ export function createUploadsMcpTools(opts: {
   }
 
   const syncComment = async (client: UploadsClient, target: GhTarget) => {
-    let comment: { action: "created" | "updated" | "skipped"; count: number } | undefined;
+    let comment: AttachmentsCommentResult | undefined;
     let commentError: string | undefined;
     try {
       comment = await syncAttachmentsComment(client, target, run);

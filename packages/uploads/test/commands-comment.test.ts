@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import type { UploadsClient } from "../src/client.js";
-import { runComment, type CliContext } from "../src/commands.js";
+import { runComment, syncAttachmentsComment, type CliContext } from "../src/commands.js";
 import { ATTACHMENTS_MARKER } from "../src/github.js";
 import type { CommandRunner } from "../src/github-gh.js";
 
@@ -19,7 +19,30 @@ function listClient(
     findGalleriesByReference: async () =>
       galleryPages[page++] ?? { galleries: [], nextCursor: null },
     getGallery: async (id: string) => ({ id, items: [] }),
+    // The bot path always declines in these tests, so every existing test
+    // (written for the gh path) keeps exercising the gh fallback.
+    upsertGithubComment: async () => ({ posted: false, reason: "not_installed" }),
   } as unknown as UploadsClient;
+}
+
+/** Minimal client stub for syncAttachmentsComment's bot/gh branch tests. */
+function fakeClient(overrides: Partial<UploadsClient> = {}): UploadsClient {
+  return {
+    listAll: async () => [],
+    findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+    getGallery: async (id: string) => ({ id, items: [] }),
+    upsertGithubComment: async () => ({ posted: false, reason: "not_installed" }),
+    ...overrides,
+  } as unknown as UploadsClient;
+}
+
+/** gh runner that reports no existing comments and creates a new one. */
+function ghRunnerThatFindsNoMarkerThenCreates(): CommandRunner {
+  return (cmd, args) => {
+    if (cmd !== "gh") throw new Error(`unexpected command: ${cmd}`);
+    if (args[1]?.includes("per_page=100")) return "[]";
+    return JSON.stringify({ id: 9 });
+  };
 }
 
 function ctxWith(client: UploadsClient): CliContext {
@@ -124,5 +147,59 @@ describe("runComment", () => {
     const create = calls.find((call) => call.args.includes("repos/o/r/issues/5/comments"));
     expect(create?.input).toContain('src="https://storage.test/one.webp"');
     expect(create?.input).not.toContain("movie.mp4");
+  });
+});
+
+describe("syncAttachmentsComment", () => {
+  it("short-circuits to the bot path on posted:true (no gh calls)", async () => {
+    const client = fakeClient({
+      upsertGithubComment: async () => ({
+        posted: true,
+        action: "created",
+        count: 3,
+        commentUrl: "u",
+      }),
+    });
+    const run = vi.fn(); // gh runner must NOT be called
+    const res = await syncAttachmentsComment(
+      client,
+      { repo: "acme/web", num: 12, kind: "pull" },
+      run,
+    );
+    expect(res).toEqual({ action: "created", count: 3, via: "bot" });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the gh path on posted:false", async () => {
+    const client = fakeClient({
+      upsertGithubComment: async () => ({ posted: false, reason: "not_installed" }),
+      listAll: async () => [{ key: "gh/acme/web/pull/12/a.png", url: "u", embedUrl: null }],
+      findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+    });
+    const run = ghRunnerThatFindsNoMarkerThenCreates();
+    const res = await syncAttachmentsComment(
+      client,
+      { repo: "acme/web", num: 12, kind: "pull" },
+      run,
+    );
+    expect(res.via).toBe("gh");
+    expect(res.action).toBe("created");
+  });
+
+  it("falls back to the gh path when the endpoint throws (self-hosted 404)", async () => {
+    const client = fakeClient({
+      upsertGithubComment: async () => {
+        throw new Error("404");
+      },
+      listAll: async () => [{ key: "gh/acme/web/pull/12/a.png", url: "u", embedUrl: null }],
+      findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+    });
+    const run = ghRunnerThatFindsNoMarkerThenCreates();
+    const res = await syncAttachmentsComment(
+      client,
+      { repo: "acme/web", num: 12, kind: "pull" },
+      run,
+    );
+    expect(res.via).toBe("gh");
   });
 });

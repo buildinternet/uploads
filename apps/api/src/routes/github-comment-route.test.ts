@@ -1,0 +1,141 @@
+import { describe, expect, it } from "vitest";
+import { app } from "../index";
+import { sha256Hex, type WorkspaceRecord } from "../workspace";
+import { FakeKv } from "../../test/fake-kv";
+import { FakeR2Bucket } from "../../test/fake-r2";
+import { UsageFakeD1 } from "../../test/usage-fake-d1";
+import { GITHUB_APP_CFG_ENV } from "../../test/github-app-env";
+
+// `crypto.subtle.timingSafeEqual` is a Workers-runtime extension to Web
+// Crypto (used by workspaceAuth, see ../workspace.ts) that plain Node's
+// `crypto` doesn't implement, and this repo has no vitest workerd pool
+// configured. Polyfill a (non-constant-time, test-only) equivalent so this
+// file can exercise the real workspaceAuth middleware end to end.
+if (typeof crypto.subtle.timingSafeEqual !== "function") {
+  (
+    crypto.subtle as unknown as { timingSafeEqual: (a: Uint8Array, b: Uint8Array) => boolean }
+  ).timingSafeEqual = (a: Uint8Array, b: Uint8Array) =>
+    a.length === b.length && a.every((byte, i) => byte === b[i]);
+}
+
+const WS = "acme";
+const TOKEN = "up_acme_testtoken";
+
+async function seededEnv(opts: { installNone?: boolean } = {}): Promise<Env> {
+  const hash = await sha256Hex(TOKEN);
+  const record: WorkspaceRecord = {
+    provider: "r2",
+    bucket: "b",
+    tokens: [{ hash, createdAt: new Date().toISOString() }],
+  };
+  const registry = {
+    get: (async (key: string) =>
+      key === `ws:${WS}` ? record : null) as unknown as KVNamespace["get"],
+  };
+  const githubCache = new FakeKv();
+  if (opts.installNone) githubCache.store.set("ghinst:acme/web", { value: "none" });
+  return {
+    REGISTRY: registry,
+    DB: new UsageFakeD1(),
+    GITHUB_CACHE: githubCache,
+    ...GITHUB_APP_CFG_ENV,
+  } as unknown as Env;
+}
+
+function post(env: Env, body: unknown) {
+  return app.request(
+    `/v1/${WS}/github/comment`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    env,
+  );
+}
+
+describe("POST /v1/:workspace/github/comment", () => {
+  it("returns not_installed when the App has no installation for the repo", async () => {
+    const env = await seededEnv({ installNone: true });
+    const res = await post(env, { repo: "acme/web", num: 12, kind: "pull" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ posted: false, reason: "not_installed" });
+  });
+
+  it("400s on a malformed body", async () => {
+    const env = await seededEnv();
+    const res = await post(env, { repo: "not-a-repo", num: 0, kind: "nope" });
+    expect(res.status).toBe(400);
+  });
+
+  it("400s on a dot-only repo segment (path-traversal guard)", async () => {
+    const env = await seededEnv();
+    const res = await post(env, { repo: "../etc", num: 12, kind: "pull" });
+    expect(res.status).toBe(400);
+  });
+
+  it("posts as the bot and returns the upsert result end-to-end", async () => {
+    const hash = await sha256Hex(TOKEN);
+    const record: WorkspaceRecord = {
+      provider: "r2",
+      bucket: "b",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "acme/",
+      publicBaseUrl: "https://storage.uploads.sh",
+      tokens: [{ hash, createdAt: new Date().toISOString() }],
+    };
+    const registry = {
+      get: (async (key: string) =>
+        key === `ws:${WS}` ? record : null) as unknown as KVNamespace["get"],
+    };
+    const githubCache = new FakeKv();
+    githubCache.store.set("ghinst:acme/web", { value: "42" }); // installed
+    githubCache.store.set("ghtok:42", { value: "cached-token" }); // skip JWT mint
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", new Uint8Array([0x89, 0x50]), {
+      httpMetadata: { contentType: "image/png" },
+    });
+    // Minimal D1: null for the auth-token lookup, empty for the galleries read.
+    const db = {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => null,
+          all: async () => ({ results: [] }),
+          run: async () => ({}),
+        }),
+      }),
+    } as unknown as D1Database;
+    const env = {
+      REGISTRY: registry,
+      DB: db,
+      GITHUB_CACHE: githubCache,
+      UPLOADS_DEFAULT: bucket,
+      ...GITHUB_APP_CFG_ENV,
+    } as unknown as Env;
+
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
+      if (String(url).includes("/issues/12/comments")) {
+        return init.method === "POST"
+          ? new Response(
+              JSON.stringify({ id: 5, html_url: "https://github.com/acme/web/pull/12#c5" }),
+              { status: 201 },
+            )
+          : new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+    try {
+      const res = await post(env, { repo: "acme/web", num: 12, kind: "pull" });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        posted: true,
+        action: "created",
+        count: 1,
+        commentUrl: "https://github.com/acme/web/pull/12#c5",
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});
