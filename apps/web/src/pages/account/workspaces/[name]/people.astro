@@ -32,6 +32,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         </div>
       </div>
 
+      <div class="settings-section" id="ws-invites-section" hidden>
+        <h2>Pending invites</h2>
+        <div id="ws-invites" class="invite-list">
+          <p class="muted" id="ws-invites-status" role="status">Loading invites…</p>
+        </div>
+      </div>
+
       <div class="settings-section" id="ws-invite-section">
         <h2>Invite</h2>
         <p class="settings-note muted">Accept link, then <code>uploads login</code>.</p>
@@ -79,6 +86,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       getMyWorkspaces,
       getWorkspaceMembers,
       inviteToWorkspace,
+      getWorkspaceInvites,
+      revokeWorkspaceInvite,
+      removeWorkspaceMember,
+      updateWorkspaceMemberRole,
     } from "../../../../lib/api-client";
     import { writeCachedWorkspaces } from "../../../../lib/workspaces-nav";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
@@ -87,6 +98,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       escapeHtml,
       isWorkspaceAdminRole,
       operatorInviteCommand,
+      renderInvitesHtml,
       renderMembersHtml,
     } from "../../../../lib/workspace-ui";
 
@@ -119,8 +131,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const inviteForm = requireElement<HTMLFormElement>("#ws-invite-form", page);
       const inviteSection = requireElement<HTMLElement>("#ws-invite-section", page);
       const membersEl = requireElement<HTMLElement>("#ws-members", page);
+      const invitesSection = requireElement<HTMLElement>("#ws-invites-section", page);
+      const invitesEl = requireElement<HTMLElement>("#ws-invites", page);
 
       let sessionRole: string | null | undefined;
+      let sessionEmail: string | undefined;
+      let canManage = false; // viewer is owner/admin of this workspace
 
       function showError(message: string, retry = true): void {
         if (!stillHere()) return;
@@ -159,10 +175,14 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         inviteSection.hidden = !isWorkspaceAdminRole(ws.role) && sessionRole !== "admin";
         inviteForm.hidden = !isWorkspaceAdminRole(ws.role);
 
+        canManage = isWorkspaceAdminRole(ws.role);
+        invitesSection.hidden = !canManage;
+
         statusEl.hidden = true;
         appEl.hidden = false;
 
         void loadMembers();
+        if (canManage) void loadInvites();
 
         const displayName = ws.organization.name || ws.workspace;
         slugEl.textContent =
@@ -192,8 +212,28 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           return;
         }
         membersEl.innerHTML = result.members.length
-          ? renderMembersHtml(result.members)
+          ? renderMembersHtml(result.members, { canManage, selfEmail: sessionEmail })
           : '<p class="muted">Just you so far.</p>';
+      }
+
+      async function loadInvites(): Promise<void> {
+        const result = await getWorkspaceInvites(apiOrigin, workspaceName);
+        if (!stillHere()) return;
+        if (result.kind === "unavailable") {
+          invitesEl.innerHTML =
+            '<p class="muted" role="alert">Invites are temporarily unavailable. Reload to try again.</p>';
+          return;
+        }
+        invitesEl.innerHTML = result.invites.length
+          ? renderInvitesHtml(result.invites)
+          : '<p class="muted">No pending invites.</p>';
+      }
+
+      function manageErrorText(reason: string, action: string): string {
+        if (reason === "forbidden") return `You don’t have permission to ${action}.`;
+        if (reason === "not_found") return `That item no longer exists — reload the page.`;
+        if (reason === "invalid") return `That change isn’t allowed.`;
+        return `Couldn’t ${action}. Try again.`;
       }
 
       bindCopyButtons(document);
@@ -240,12 +280,75 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         })();
       });
 
+      membersEl.addEventListener("click", (event) => {
+        const btn = (event.target as HTMLElement).closest<HTMLButtonElement>(
+          ".member-row__remove",
+        );
+        if (!btn) return;
+        void (async () => {
+          const memberId = btn.dataset.memberId ?? "";
+          const email = btn.dataset.memberEmail ?? "this member";
+          if (!memberId || !confirm(`Remove ${email} from this workspace?`)) return;
+          btn.disabled = true;
+          const res = await removeWorkspaceMember(apiOrigin, workspaceName, memberId);
+          if (!stillHere()) return;
+          if (res.kind === "ok") void loadMembers();
+          else {
+            btn.disabled = false;
+            alert(manageErrorText(res.reason, "remove this member"));
+          }
+        })();
+      });
+
+      membersEl.addEventListener("change", (event) => {
+        // Not closest<HTMLSelectElement>: worker-configuration.d.ts's HTMLRewriter
+        // ambient `Element` redeclares `remove()`, which makes HTMLSelectElement
+        // fail the `T extends Element` constraint (see consent.astro). Fetch as
+        // HTMLElement and cast instead.
+        const select = (event.target as HTMLElement).closest<HTMLElement>(
+          ".member-row__role-select",
+        ) as unknown as HTMLSelectElement | null;
+        if (!select) return;
+        void (async () => {
+          const memberId = select.dataset.memberId ?? "";
+          const role = select.value === "admin" ? "admin" : "member";
+          if (!memberId) return;
+          select.disabled = true;
+          const res = await updateWorkspaceMemberRole(apiOrigin, workspaceName, memberId, role);
+          if (!stillHere()) return;
+          select.disabled = false;
+          if (res.kind === "ok") void loadMembers();
+          else alert(manageErrorText(res.reason, "change this role"));
+        })();
+      });
+
+      invitesEl.addEventListener("click", (event) => {
+        const btn = (event.target as HTMLElement).closest<HTMLButtonElement>(
+          ".invite-row__revoke",
+        );
+        if (!btn) return;
+        void (async () => {
+          const inviteId = btn.dataset.inviteId ?? "";
+          const email = btn.dataset.inviteEmail ?? "this invite";
+          if (!inviteId || !confirm(`Revoke the pending invite for ${email}?`)) return;
+          btn.disabled = true;
+          const res = await revokeWorkspaceInvite(apiOrigin, workspaceName, inviteId);
+          if (!stillHere()) return;
+          if (res.kind === "ok") void loadInvites();
+          else {
+            btn.disabled = false;
+            alert(manageErrorText(res.reason, "revoke this invite"));
+          }
+        })();
+      });
+
       retryBtn.addEventListener("click", () => {
         void loadInvitePage();
       });
 
       onSession((user) => {
         sessionRole = user.role;
+        sessionEmail = user.email;
         void loadInvitePage();
       });
     });
