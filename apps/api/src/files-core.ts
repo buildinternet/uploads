@@ -421,6 +421,18 @@ export interface ListedObject {
   metadata?: Record<string, string>;
 }
 
+/**
+ * Canonical public file-page URL (`/f/<workspace>/<key>`) for an object, built
+ * against `WEB_ORIGIN` — the metadata-rich page apps/web serves (issues
+ * #135/#139). Sibling to `galleryUrl`. Callers must not synthesize this;
+ * the API returns it on the listing DTO.
+ */
+export function filePageUrl(env: Env, workspace: string, key: string): string {
+  const origin = env.WEB_ORIGIN.endsWith("/") ? env.WEB_ORIGIN.slice(0, -1) : env.WEB_ORIGIN;
+  const encodedKey = key.split("/").map(encodeURIComponent).join("/");
+  return `${origin}/f/${encodeURIComponent(workspace)}/${encodedKey}`;
+}
+
 export async function listObjects(
   env: Env,
   ws: WorkspaceRecord,
