@@ -307,4 +307,135 @@ describe("upsertBotComment", () => {
     );
     expect(res).toEqual({ degrade: "unavailable" });
   });
+
+  it("uses a cached comment id to PATCH directly, without listing", async () => {
+    const { env, kv } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    await kv.put("ghcomment:acme/web#12", "55");
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (url.includes("/access_tokens")) {
+        return new Response(JSON.stringify({ token: "t" }), { status: 201 });
+      }
+      // A cache hit must never list — fail loudly if it does.
+      if (url.includes("/issues/12/comments")) throw new Error("listed on cache hit");
+      if (url.includes("/issues/comments/55") && init.method === "PATCH") {
+        return new Response(
+          JSON.stringify({ id: 55, html_url: "https://github.com/acme/web/pull/12#c55" }),
+          { status: 200 },
+        );
+      }
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "BODY",
+      fetchImpl,
+    );
+    expect(res).toEqual({
+      action: "updated",
+      commentUrl: "https://github.com/acme/web/pull/12#c55",
+    });
+  });
+
+  it("re-hunts and recreates when the cached comment was deleted (404), refreshing the cache", async () => {
+    const { env, kv } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    await kv.put("ghcomment:acme/web#12", "55");
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (url.includes("/access_tokens")) {
+        return new Response(JSON.stringify({ token: "t" }), { status: 201 });
+      }
+      if (url.includes("/issues/comments/55")) return new Response("gone", { status: 404 });
+      if (url.includes("/issues/12/comments")) {
+        return init.method === "POST"
+          ? new Response(
+              JSON.stringify({ id: 88, html_url: "https://github.com/acme/web/pull/12#c88" }),
+              { status: 201 },
+            )
+          : new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "BODY",
+      fetchImpl,
+    );
+    expect(res).toEqual({
+      action: "created",
+      commentUrl: "https://github.com/acme/web/pull/12#c88",
+    });
+    expect(await kv.get("ghcomment:acme/web#12")).toBe("88");
+  });
+
+  it("finds the marker comment beyond the first page and caches its id", async () => {
+    const { env, kv } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    const fullPage = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, body: "noise" }));
+    const fetchImpl = (async (url: string) => {
+      if (url.includes("/access_tokens")) {
+        return new Response(JSON.stringify({ token: "t" }), { status: 201 });
+      }
+      if (url.includes("&page=2")) {
+        return new Response(JSON.stringify([{ id: 777, body: ATTACHMENTS_MARKER }]), {
+          status: 200,
+        });
+      }
+      if (url.includes("&page=1")) return new Response(JSON.stringify(fullPage), { status: 200 });
+      if (url.includes("/issues/comments/777")) {
+        return new Response(
+          JSON.stringify({ id: 777, html_url: "https://github.com/acme/web/pull/12#c777" }),
+          { status: 200 },
+        );
+      }
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "BODY",
+      fetchImpl,
+    );
+    expect(res).toEqual({
+      action: "updated",
+      commentUrl: "https://github.com/acme/web/pull/12#c777",
+    });
+    expect(await kv.get("ghcomment:acme/web#12")).toBe("777");
+  });
+
+  it("caches the id of a freshly created comment", async () => {
+    const { env, kv } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    const fetchImpl = fakeFetch({
+      "/access_tokens": () => new Response(JSON.stringify({ token: "t" }), { status: 201 }),
+      "/issues/12/comments": (init) =>
+        init.method === "POST"
+          ? new Response(
+              JSON.stringify({ id: 99, html_url: "https://github.com/acme/web/pull/12#c99" }),
+              { status: 201 },
+            )
+          : new Response(JSON.stringify([]), { status: 200 }),
+    });
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "BODY",
+      fetchImpl,
+    );
+    expect(res).toEqual({
+      action: "created",
+      commentUrl: "https://github.com/acme/web/pull/12#c99",
+    });
+    expect(await kv.get("ghcomment:acme/web#12")).toBe("99");
+  });
 });

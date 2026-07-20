@@ -119,6 +119,8 @@ describe("upsertAttachmentsComment", () => {
     });
     const result = upsertAttachmentsComment(target, `${ATTACHMENTS_MARKER}\nbody`, run);
     expect(result.created).toBe(true);
+    // The lookup paginates so the marker is found past the first 100 comments.
+    expect(calls[0].args).toContain("--paginate");
     const post = calls[1];
     expect(post.args).toContain("repos/o/r/issues/5/comments");
     expect(post.args).toContain("body=@-");

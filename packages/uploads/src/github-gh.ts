@@ -162,10 +162,15 @@ interface GhComment {
 
 /**
  * PR comments live on the issues endpoint, so one path covers PRs and issues.
- * Only the first 100 comments are searched (accepted v1 limitation).
+ * `--paginate` follows Link headers and merges every page into one array, so the
+ * marker comment is found even on threads past 100 comments.
  */
 function findManagedComment(target: GhTarget, run: CommandRunner): GhComment | undefined {
-  const raw = run("gh", ["api", `repos/${target.repo}/issues/${target.num}/comments?per_page=100`]);
+  const raw = run("gh", [
+    "api",
+    `repos/${target.repo}/issues/${target.num}/comments?per_page=100`,
+    "--paginate",
+  ]);
   const comments = JSON.parse(raw) as GhComment[];
   return comments.find((c) => typeof c.body === "string" && c.body.includes(ATTACHMENTS_MARKER));
 }

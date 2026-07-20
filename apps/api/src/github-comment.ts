@@ -118,12 +118,33 @@ interface GhComment {
   html_url: string;
 }
 
+/** KV TTL for a cached comment id. A stale id self-heals: a 404 on PATCH drops
+ * it and re-hunts. Long only to spare the hunt on active PRs. */
+const COMMENT_ID_TTL = 60 * 60 * 24 * 30; // 30 days.
+
+/** KV key for the managed comment's id, keyed by the coordinate the comment is
+ * unique on (repo#num — one managed comment per PR/issue, shared marker). */
+function commentCacheKey(target: Pick<GhTarget, "repo" | "num">): string {
+  return `ghcomment:${target.repo.toLowerCase()}#${target.num}`;
+}
+
+/** One create/patch write. `status` is 0 for a thrown request (network error). */
+type WriteOutcome = { ok: true; id?: number; commentUrl: string } | { ok: false; status: number };
+
+const degradeFor = (status: number): "forbidden" | "unavailable" =>
+  status === 403 ? "forbidden" : "unavailable";
+
 /**
  * Create or patch the one managed comment (identified by `ATTACHMENTS_MARKER`)
  * on a PR/issue, authenticated as the GitHub App installation (not the
  * calling user). Degrade-safe: any failure — 403, other non-2xx, a thrown
  * token mint, or a network error — resolves to a `degrade` result rather than
  * throwing, since a failed bot comment must never fail the caller's request.
+ *
+ * A cached comment id (KV) is the fast path: re-editing media becomes a single
+ * PATCH with no listing. The id is only an optimization — the marker in the
+ * body stays authoritative, so a stale/deleted id (404) drops the cache and
+ * falls back to the marker hunt, which pages through the whole thread.
  */
 export async function upsertBotComment(
   env: Env,
@@ -139,28 +160,9 @@ export async function upsertBotComment(
   if (!token) return { degrade: "unavailable" };
   const base = `https://api.github.com/repos/${target.repo}`;
   const jsonHeaders = { ...githubHeaders(token), "content-type": "application/json" };
+  const cacheKey = commentCacheKey(target);
 
-  let listRes: Response;
-  try {
-    listRes = await githubFetch(fetchImpl, `${base}/issues/${target.num}/comments?per_page=100`, {
-      headers: githubHeaders(token),
-    });
-  } catch {
-    return { degrade: "unavailable" };
-  }
-  if (listRes.status === 403) return { degrade: "forbidden" };
-  if (!listRes.ok) return { degrade: "unavailable" };
-  const comments = (await listRes.json().catch(() => [])) as GhComment[];
-  const existing = Array.isArray(comments)
-    ? comments.find((c) => typeof c.body === "string" && c.body.includes(ATTACHMENTS_MARKER))
-    : undefined;
-
-  const write = async (
-    url: string,
-    method: "POST" | "PATCH",
-  ): Promise<
-    { ok: true; commentUrl: string } | { ok: false; degrade: "forbidden" | "unavailable" }
-  > => {
+  const write = async (url: string, method: "POST" | "PATCH"): Promise<WriteOutcome> => {
     let res: Response;
     try {
       res = await githubFetch(fetchImpl, url, {
@@ -169,18 +171,77 @@ export async function upsertBotComment(
         body: JSON.stringify({ body }),
       });
     } catch {
-      return { ok: false, degrade: "unavailable" };
+      return { ok: false, status: 0 };
     }
-    if (res.status === 403) return { ok: false, degrade: "forbidden" };
-    if (!res.ok) return { ok: false, degrade: "unavailable" };
-    const parsed = (await res.json().catch(() => ({}))) as { html_url?: string };
-    return { ok: true, commentUrl: parsed.html_url ?? "" };
+    if (!res.ok) return { ok: false, status: res.status };
+    const parsed = (await res.json().catch(() => ({}))) as { id?: number; html_url?: string };
+    return { ok: true, id: parsed.id, commentUrl: parsed.html_url ?? "" };
   };
 
-  const url = existing
-    ? `${base}/issues/comments/${existing.id}`
-    : `${base}/issues/${target.num}/comments`;
-  const r = await write(url, existing ? "PATCH" : "POST");
-  if (!r.ok) return { degrade: r.degrade };
+  // Fast path: a cached id lets us PATCH the comment directly, no listing.
+  const cachedId = (await env.GITHUB_CACHE.get(cacheKey)) as string | null;
+  if (cachedId) {
+    const r = await write(`${base}/issues/comments/${cachedId}`, "PATCH");
+    if (r.ok) return { action: "updated", commentUrl: r.commentUrl };
+    if (r.status !== 404) return { degrade: degradeFor(r.status) };
+    // 404: the comment was deleted out from under us. Drop the stale id and
+    // fall through to a fresh hunt + create.
+    await env.GITHUB_CACHE.delete(cacheKey);
+  }
+
+  // Slow path: find the marker comment across all pages (a busy thread can push
+  // it past the first 100), then patch it; otherwise create a new one.
+  const found = await findMarkerComment(fetchImpl, token, base, target.num);
+  if (found.degrade) return { degrade: found.degrade };
+  const existing = found.comment;
+
+  const r = existing
+    ? await write(`${base}/issues/comments/${existing.id}`, "PATCH")
+    : await write(`${base}/issues/${target.num}/comments`, "POST");
+  if (!r.ok) return { degrade: degradeFor(r.status) };
+
+  const id = existing?.id ?? r.id;
+  if (id !== undefined) {
+    await env.GITHUB_CACHE.put(cacheKey, String(id), { expirationTtl: COMMENT_ID_TTL });
+  }
   return { action: existing ? "updated" : "created", commentUrl: r.commentUrl };
+}
+
+/**
+ * Page through the PR/issue comments (oldest-first) until the marker comment is
+ * found or the pages run out. Bounded so a pathological thread can't loop
+ * unboundedly; the cap is far beyond any real attachments thread, and the id
+ * cache means this hunt runs at most once per comment anyway.
+ */
+async function findMarkerComment(
+  fetchImpl: typeof fetch,
+  token: string,
+  base: string,
+  num: number,
+): Promise<{ comment?: GhComment; degrade?: "forbidden" | "unavailable" }> {
+  const MAX_PAGES = 20; // 2000 comments.
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    let res: Response;
+    try {
+      res = await githubFetch(
+        fetchImpl,
+        `${base}/issues/${num}/comments?per_page=100&page=${page}`,
+        {
+          headers: githubHeaders(token),
+        },
+      );
+    } catch {
+      return { degrade: "unavailable" };
+    }
+    if (res.status === 403) return { degrade: "forbidden" };
+    if (!res.ok) return { degrade: "unavailable" };
+    const comments = (await res.json().catch(() => [])) as GhComment[];
+    if (!Array.isArray(comments)) return {};
+    const hit = comments.find(
+      (c) => typeof c.body === "string" && c.body.includes(ATTACHMENTS_MARKER),
+    );
+    if (hit) return { comment: hit };
+    if (comments.length < 100) return {}; // last page reached, not found.
+  }
+  return {}; // page cap hit without a match — treat as not found (create).
 }
