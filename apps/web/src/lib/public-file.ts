@@ -11,6 +11,8 @@ export interface GithubContext {
   kind: "pull" | "issue";
   number: number;
   url: string;
+  /** Issue/PR title when the API resolved it; omitted when unavailable. */
+  title?: string;
 }
 
 /** Allowlisted metadata for one public object, as returned by the API. */
@@ -23,6 +25,8 @@ export interface PublicFile {
   size: number;
   contentType: string;
   uploaded: string | null;
+  /** Present when API reports a distinct last-modified time. */
+  modified?: string | null;
   /** Queryable `gh.*`-and-other custom metadata pairs; omitted when there are none. */
   metadata?: Record<string, string>;
   /** Convenience view of `gh.repo`/`gh.kind`/`gh.number`, when all three are present and valid. */
@@ -205,12 +209,15 @@ function isMetadataMap(value: unknown): value is Record<string, string> {
 function isGithubContext(value: unknown): value is GithubContext {
   if (typeof value !== "object" || value === null) return false;
   const github = value as Record<string, unknown>;
+  const titleOk =
+    github.title === undefined || (text(github.title, 512) && (github.title as string).length > 0);
   return (
     text(github.repo, 200) &&
     (github.kind === "pull" || github.kind === "issue") &&
     Number.isSafeInteger(github.number) &&
     (github.number as number) > 0 &&
-    httpsUrl(github.url)
+    httpsUrl(github.url) &&
+    titleOk
   );
 }
 
@@ -222,6 +229,10 @@ export function isPublicFile(value: unknown): value is PublicFile {
     file.uploaded === undefined ||
     file.uploaded === null ||
     (text(file.uploaded, 64) && Number.isFinite(Date.parse(file.uploaded as string)));
+  const modifiedOk =
+    file.modified === undefined ||
+    file.modified === null ||
+    (text(file.modified, 64) && Number.isFinite(Date.parse(file.modified as string)));
   const metadataOk = file.metadata === undefined || isMetadataMap(file.metadata);
   const githubOk = file.github === undefined || isGithubContext(file.github);
   return (
@@ -233,6 +244,7 @@ export function isPublicFile(value: unknown): value is PublicFile {
     (file.size as number) >= 0 &&
     text(file.contentType, 128) &&
     uploadedOk &&
+    modifiedOk &&
     metadataOk &&
     githubOk
   );
@@ -292,7 +304,14 @@ export async function fetchPublicFile(
     if (!response.ok) return { status: "unavailable" };
     const value: unknown = await response.json();
     return isPublicFile(value)
-      ? { status: "ok", file: { ...value, uploaded: value.uploaded ?? null } }
+      ? {
+          status: "ok",
+          file: {
+            ...value,
+            uploaded: value.uploaded ?? null,
+            modified: value.modified ?? null,
+          },
+        }
       : { status: "unavailable" };
   } catch {
     return { status: "unavailable" };
@@ -313,4 +332,56 @@ export function formatBytes(bytes: number): string {
     unit += 1;
   }
   return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+/** Hide "modified" when missing or effectively the same instant as uploaded (≤60s). */
+const SHOW_MODIFIED_MS = 60_000;
+
+/**
+ * Whether the share page should surface a separate "modified" date alongside
+ * uploaded. False when either timestamp is missing/invalid or they are within
+ * 60 seconds of each other (R2 often stamps both to the same write).
+ */
+export function shouldShowModified(
+  uploaded: string | null | undefined,
+  modified: string | null | undefined,
+): boolean {
+  if (!uploaded || !modified) return false;
+  const a = Date.parse(uploaded);
+  const b = Date.parse(modified);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  if (Math.abs(b - a) <= SHOW_MODIFIED_MS) return false;
+  return true;
+}
+
+/** Locale-formatted date for the share-page metadata rail; null if unparseable. */
+export function formatFileDate(iso: string, opts?: { withTime?: boolean }): string | null {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return null;
+  if (opts?.withTime) {
+    return d.toLocaleString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+  return d.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/** True when both timestamps fall on the same UTC calendar day. */
+export function sameUtcDay(a: string, b: string): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  if (!Number.isFinite(da.getTime()) || !Number.isFinite(db.getTime())) return false;
+  return (
+    da.getUTCFullYear() === db.getUTCFullYear() &&
+    da.getUTCMonth() === db.getUTCMonth() &&
+    da.getUTCDate() === db.getUTCDate()
+  );
 }

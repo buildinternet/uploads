@@ -7,9 +7,12 @@ import {
   fileKind,
   filePath,
   formatBytes,
+  formatFileDate,
   isPublicFile,
   isSafeKey,
   PUBLIC_FILE_CSP,
+  sameUtcDay,
+  shouldShowModified,
 } from "./public-file";
 
 const file = {
@@ -116,6 +119,65 @@ describe("isPublicFile", () => {
       isPublicFile({ ...file, github: { ...base, url: "http://github.com/x/y/pull/1" } }),
     ).toBe(false);
   });
+
+  it("accepts optional modified and github.title", () => {
+    expect(
+      isPublicFile({
+        ...file,
+        modified: "2026-07-14T12:00:00.000Z",
+        github: {
+          repo: "o/r",
+          kind: "pull",
+          number: 1,
+          url: "https://github.com/o/r/pull/1",
+          title: "Fix the thing",
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects overlong github.title and bad modified", () => {
+    expect(
+      isPublicFile({
+        ...file,
+        github: {
+          repo: "o/r",
+          kind: "pull",
+          number: 1,
+          url: "https://github.com/o/r/pull/1",
+          title: "x".repeat(513),
+        },
+      }),
+    ).toBe(false);
+    expect(isPublicFile({ ...file, modified: "not-a-date" })).toBe(false);
+  });
+});
+
+describe("shouldShowModified", () => {
+  it("is false when modified missing or within 60s", () => {
+    expect(shouldShowModified("2026-07-01T00:00:00.000Z", null)).toBe(false);
+    expect(shouldShowModified("2026-07-01T00:00:00.000Z", "2026-07-01T00:00:30.000Z")).toBe(false);
+  });
+  it("is true when day differs or delta > 60s", () => {
+    expect(shouldShowModified("2026-07-01T00:00:00.000Z", "2026-07-02T00:00:00.000Z")).toBe(true);
+    expect(shouldShowModified("2026-07-01T00:00:00.000Z", "2026-07-01T00:02:00.000Z")).toBe(true);
+  });
+});
+
+describe("formatFileDate", () => {
+  it("formats date-only and withTime; returns null for invalid input", () => {
+    expect(formatFileDate("2026-07-01T15:30:00.000Z")).toMatch(/Jul/);
+    expect(formatFileDate("2026-07-01T15:30:00.000Z", { withTime: true })).toMatch(/Jul/);
+    expect(formatFileDate("not-a-date")).toBe(null);
+  });
+});
+
+describe("sameUtcDay", () => {
+  it("compares UTC calendar days", () => {
+    expect(sameUtcDay("2026-07-01T00:00:00.000Z", "2026-07-01T23:59:59.000Z")).toBe(true);
+    expect(sameUtcDay("2026-07-01T00:00:00.000Z", "2026-07-02T00:00:00.000Z")).toBe(false);
+    expect(sameUtcDay("not-a-date", "2026-07-01T00:00:00.000Z")).toBe(false);
+  });
 });
 
 describe("key safety + path building", () => {
@@ -165,7 +227,7 @@ describe("fetchPublicFile", () => {
       origin: "https://api.uploads.sh",
       fetch: fetcher,
     });
-    expect(result).toEqual({ status: "ok", file: { ...file } });
+    expect(result).toEqual({ status: "ok", file: { ...file, modified: null } });
     expect(String(fetcher.mock.calls[0][0])).toBe(
       "https://api.uploads.sh/public/files/acme/screenshots/shot.png",
     );
