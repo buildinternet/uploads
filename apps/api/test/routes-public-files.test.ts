@@ -435,6 +435,35 @@ describe("GET /public/files/:workspace/:key?download=1", () => {
   });
 });
 
+describe("GET /public/files uploaded + modified dates", () => {
+  it("returns uploaded from uploaded-at and omits modified when equal", async () => {
+    const { env } = await makeEnv();
+    await seedShot(env);
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    const json = (await res.json()) as { uploaded?: string; modified?: string };
+    expect(json.uploaded).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // Fresh put: lastModified ≈ uploaded-at → modified omitted
+    expect(json.modified).toBeUndefined();
+  });
+
+  it("includes modified when lastModified differs from uploaded-at", async () => {
+    const { env, bucket } = await makeEnv();
+    await seedShot(env);
+    const entry = [...bucket.store.entries()].find(([k]) => k.endsWith("screenshots/shot.png"))!;
+    // Keep uploaded-at, advance R2 mtime
+    entry[1].customMetadata = {
+      ...entry[1].customMetadata,
+      "uploaded-at": "2026-01-01T00:00:00.000Z",
+    };
+    bucket.setUploaded(entry[0], new Date("2026-06-15T12:00:00.000Z"));
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    const json = (await res.json()) as { uploaded?: string; modified?: string };
+    expect(json.uploaded).toBe("2026-01-01T00:00:00.000Z");
+    expect(json.modified).toBe("2026-06-15T12:00:00.000Z");
+  });
+});
+
 // Task 1: first-upload stamp on putObject (Files SDK custom metadata).
 // Public JSON dual-date mapping is Task 2 — these only assert R2 customMetadata.
 describe("putObject uploaded-at stamp", () => {

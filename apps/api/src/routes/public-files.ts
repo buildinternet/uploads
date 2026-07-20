@@ -1,11 +1,42 @@
 import { NotFoundError, UnauthorizedError } from "@uploads/errors";
 import { Hono } from "hono";
 import type { Files } from "@uploads/storage";
-import { badKey, downloadResponse } from "../files-core";
+import { badKey, downloadResponse, UPLOADED_AT_META_KEY } from "../files-core";
 import { getFileMetadata } from "../file-metadata";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
+
+/** Same-second tolerance so storage noise does not force dual fields. */
+const DATE_EQUAL_MS = 1000;
+
+/**
+ * Prefer Files SDK `uploaded-at` for first-upload time; fall back to provider
+ * `lastModified`. Emit `modified` only when mtime meaningfully differs so share
+ * pages can show revisions without dual chips on a fresh put.
+ */
+function publicDateFields(meta: { lastModified?: number; metadata?: Record<string, string> }): {
+  uploaded?: string;
+  modified?: string;
+} {
+  const modifiedIso =
+    meta.lastModified != null && Number.isFinite(meta.lastModified)
+      ? new Date(meta.lastModified).toISOString()
+      : undefined;
+  const stamped = meta.metadata?.[UPLOADED_AT_META_KEY];
+  const uploadedIso =
+    typeof stamped === "string" && Number.isFinite(Date.parse(stamped))
+      ? new Date(stamped).toISOString()
+      : modifiedIso;
+
+  if (!uploadedIso && !modifiedIso) return {};
+  if (!uploadedIso) return modifiedIso ? { uploaded: modifiedIso } : {};
+  if (!modifiedIso) return { uploaded: uploadedIso };
+
+  const delta = Math.abs(Date.parse(modifiedIso) - Date.parse(uploadedIso));
+  if (delta < DATE_EQUAL_MS) return { uploaded: uploadedIso };
+  return { uploaded: uploadedIso, modified: modifiedIso };
+}
 
 type GithubKind = "pull" | "issue";
 
@@ -132,6 +163,7 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
   const metadata = await getFileMetadata(c.env.DB, workspace, key);
   const github = deriveGithubContext(metadata);
 
+  const dates = publicDateFields(meta);
   return c.json({
     workspace,
     key,
@@ -139,7 +171,7 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
     embedUrl: urls.embedUrl,
     size: meta.size ?? 0,
     contentType: meta.type ?? "application/octet-stream",
-    ...(meta.lastModified != null ? { uploaded: new Date(meta.lastModified).toISOString() } : {}),
+    ...dates,
     ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     ...(github ? { github } : {}),
   });
