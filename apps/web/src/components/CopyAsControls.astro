@@ -32,21 +32,23 @@ const show = Boolean(downloadUrl) || formats.length > 0;
             <select id="copy-format" aria-label="Copy as format">
               {formats.map((format) => <option value={format.id}>{format.label}</option>)}
             </select>
-            <input
-              id="copy-value"
-              type="text"
-              readonly
-              value={defaultCopyValue}
-              aria-label="Value to copy"
-            />
-            <button
-              type="button"
-              id="copy-format-btn"
-              data-copy={defaultCopyValue}
-              aria-live="polite"
-            >
-              Copy
-            </button>
+            <div class="copyout">
+              <input
+                id="copy-value"
+                type="text"
+                readonly
+                value={defaultCopyValue}
+                aria-label="Value to copy"
+              />
+              <button
+                type="button"
+                id="copy-format-btn"
+                data-copy={defaultCopyValue}
+                aria-live="polite"
+              >
+                Copy
+              </button>
+            </div>
           </div>
         </span>
       )}
@@ -129,9 +131,10 @@ const show = Boolean(downloadUrl) || formats.length > 0;
     color: var(--accent);
     outline: none;
   }
+  /* Always its own full-width row so the narrow file-page rail never overflows */
   .linkfield {
-    flex: 1;
-    min-width: 260px;
+    flex: 1 1 100%;
+    min-width: 0;
   }
   .linkfield label {
     display: block;
@@ -141,39 +144,52 @@ const show = Boolean(downloadUrl) || formats.length > 0;
     font: 11px var(--mono);
     margin-bottom: 5px;
   }
+  /* Stacked: format chooser on top, value + Copy beneath — keeps every control
+     legible in the ~300px rail instead of crushing them into one row. */
   .copyrow {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .copyout {
     display: flex;
     gap: 6px;
     align-items: stretch;
   }
   .copyrow select,
-  .copyrow input,
-  .copyrow button {
+  .copyout input,
+  .copyout button {
     padding: 8px;
     border: 1px solid var(--line);
     border-radius: var(--radius-md);
     font: 12px var(--mono);
   }
   .copyrow select,
-  .copyrow input {
+  .copyout input {
     background: var(--bg);
     color: var(--body);
   }
-  .copyrow input {
+  .copyrow select {
+    width: 100%;
+  }
+  .copyout input {
     flex: 1;
     min-width: 0;
     padding: 8px 10px;
   }
-  .copyrow button {
-    padding: 8px 12px;
-    background: var(--panel);
-    color: var(--fg);
+  /* Primary action — solid accent, mirroring the repo's .ul-btn--solid pattern. */
+  .copyout button {
+    padding: 8px 14px;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg);
+    font-weight: 600;
     cursor: pointer;
   }
-  .copyrow button:hover,
-  .copyrow button:focus-visible {
-    border-color: var(--accent);
-    color: var(--accent);
+  .copyout button:hover,
+  .copyout button:focus-visible {
+    background: color-mix(in srgb, var(--accent) 88%, #fff);
+    border-color: color-mix(in srgb, var(--accent) 88%, #fff);
     outline: none;
   }
 </style>
