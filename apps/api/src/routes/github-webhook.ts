@@ -3,9 +3,13 @@
  * Unauthenticated by session/bearer — the X-Hub-Signature-256 HMAC is the auth
  * boundary. Must be mounted BEFORE the `/v1/:workspace/*` guard in index.ts
  * (see that file): the guard pattern matches this two-segment path, so ordering
- * (route handler returns without next()) is what keeps workspaceAuth from
- * running. Reads the raw body and verifies before parsing JSON.
+ * (this handler returns/throws without calling next()) is what keeps
+ * workspaceAuth from running. Reads the raw body and verifies before parsing
+ * JSON. Failures throw the standard AppError subclasses so the shared
+ * respondError path emits the usual `{ error: { code, type, message } }`
+ * envelope (GitHub only reads the status code; the body is for our own logs).
  */
+import { ServiceUnavailableError, UnauthorizedError } from "@uploads/errors";
 import { Hono } from "hono";
 import { handleWebhook, verifySignature } from "../github-webhook";
 import type { WorkspaceVars } from "../workspace";
@@ -14,11 +18,16 @@ export const githubWebhook = new Hono<WorkspaceVars>();
 
 githubWebhook.post("/", async (c) => {
   const secret = c.env.GITHUB_APP_WEBHOOK_SECRET;
-  if (!secret) return c.body(null, 503); // honest "not configured"; never pretend to process.
+  // Honest "not configured" (503); never pretend to process a delivery we can't verify.
+  if (!secret) {
+    throw new ServiceUnavailableError("webhook not configured", { code: "webhook_not_configured" });
+  }
 
   const raw = await c.req.text();
   if (!(await verifySignature(raw, c.req.header("x-hub-signature-256") ?? null, secret))) {
-    return c.body(null, 401);
+    // One generic 401 for every signature failure (missing header, wrong
+    // secret, tampered body) — don't reveal which check failed.
+    throw new UnauthorizedError("invalid signature", { code: "invalid_signature" });
   }
 
   let payload: unknown;

@@ -23,14 +23,18 @@ function post(body: string, headers: Record<string, string>, env: Env) {
 }
 
 describe("POST /v1/github/webhook", () => {
-  it("503s when the secret is unset", async () => {
+  it("503s with the standard error envelope when the secret is unset", async () => {
     const env = { GITHUB_CACHE: new FakeKv() } as unknown as Env;
-    expect((await post("{}", {}, env)).status).toBe(503);
+    const res = await post("{}", {}, env);
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ error: { type: "unavailable" } });
   });
 
-  it("401s on a missing or bad signature", async () => {
+  it("401s with one generic error on a missing or bad signature", async () => {
     const env = { GITHUB_APP_WEBHOOK_SECRET: SECRET, GITHUB_CACHE: new FakeKv() } as unknown as Env;
-    expect((await post("{}", {}, env)).status).toBe(401);
+    const missing = await post("{}", {}, env);
+    expect(missing.status).toBe(401);
+    expect(await missing.json()).toMatchObject({ error: { type: "unauthorized" } });
     expect((await post("{}", { "x-hub-signature-256": "sha256=bad" }, env)).status).toBe(401);
   });
 
