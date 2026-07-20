@@ -211,6 +211,10 @@ export interface FindGalleriesByReferenceOptions {
   cursor?: string;
 }
 
+export type GithubCommentResult =
+  | { posted: true; action: "created" | "updated" | "skipped"; count: number; commentUrl?: string }
+  | { posted: false; reason: string };
+
 export interface HealthResult {
   ok: boolean;
 }
@@ -929,6 +933,21 @@ export function createUploadsClient(config: UploadsClientConfig) {
       if (opts.limit != null) params.set("limit", String(opts.limit));
       if (opts.cursor) params.set("cursor", opts.cursor);
       return request<GalleryListResult>("GET", galleriesBase(config) + "/by-reference?" + params);
+    },
+
+    async upsertGithubComment(opts: {
+      repo: string;
+      num: number;
+      kind: "pull" | "issues";
+    }): Promise<GithubCommentResult> {
+      return request<GithubCommentResult>(
+        "POST",
+        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/comment`,
+        {
+          body: new TextEncoder().encode(JSON.stringify(opts)),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     },
 
     async health(): Promise<HealthResult> {
