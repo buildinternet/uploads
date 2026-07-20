@@ -24,4 +24,10 @@ interface Env {
    * Set to "1" or "true" to reject new reports.
    */
   REPORTS_DISABLED?: string;
+  /** GitHub App id (spec .context/267-github-app-titles-design.md). Unset disables title resolution. */
+  GITHUB_APP_ID?: string;
+  /** GitHub App private key, PKCS#8 PEM (converted via openssl pkcs8 -topk8). */
+  GITHUB_APP_PRIVATE_KEY?: string;
+  /** Installation id of the App's home (buildinternet) installation — public-repo token source. */
+  GITHUB_APP_HOME_INSTALLATION_ID?: string;
 }

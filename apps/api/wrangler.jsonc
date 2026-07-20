@@ -39,6 +39,10 @@
       "binding": "REGISTRY",
       "id": "808bc1c3a86a4675b134e11b6dca303d",
     },
+    {
+      "binding": "GITHUB_CACHE",
+      "id": "TBD_BY_OPERATOR",
+    },
   ],
   // Browser Run binding (POST /v1/render, phase 1). "remote": true is
   // required — quickAction has no Miniflare/local simulation and always
