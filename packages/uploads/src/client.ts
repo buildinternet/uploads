@@ -97,6 +97,8 @@ export interface ListItem {
   key: string;
   url: string | null;
   embedUrl?: string | null;
+  /** Canonical `/f/` page URL when the API provides it. Absent on older API deployments. */
+  pageUrl?: string;
   size?: number;
   uploaded?: string;
 }
