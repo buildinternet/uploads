@@ -266,7 +266,11 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
     });
     expect(json.metadata?.["content-sha256"]).toMatch(/^[0-9a-f]{64}$/);
     expect(json.metadata?.["content-sha256"]).not.toBe("0".repeat(64));
-    expect(bucket.store.get("default/screenshots/shot.png")?.customMetadata).toEqual(json.metadata);
+    // R2 bag is provenance plus server-only keys (uploaded-at); put/head JSON
+    // still returns the allowlisted provenance subset only.
+    const storedMeta = bucket.store.get("default/screenshots/shot.png")?.customMetadata;
+    expect(storedMeta).toMatchObject(json.metadata!);
+    expect(storedMeta?.["uploaded-at"]).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
     const head = await app.request(
       "/v1/default/files/screenshots/shot.png",
@@ -282,6 +286,7 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
     expect(headJson.key).toBe("screenshots/shot.png");
     expect(headJson.contentType).toBe("image/png");
     expect(headJson.metadata).toEqual(json.metadata);
+    expect(headJson.metadata).not.toHaveProperty("uploaded-at");
   });
 
   it("stores private visibility from the upload header and surfaces it on authed head", async () => {

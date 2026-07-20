@@ -434,3 +434,37 @@ describe("GET /public/files/:workspace/:key?download=1", () => {
     expect(bytes).toEqual(PNG);
   });
 });
+
+// Task 1: first-upload stamp on putObject (Files SDK custom metadata).
+// Public JSON dual-date mapping is Task 2 — these only assert R2 customMetadata.
+describe("putObject uploaded-at stamp", () => {
+  it("stamps uploaded-at on first put and preserves it across overwrite", async () => {
+    const { env, bucket } = await makeEnv();
+    await seedShot(env);
+
+    const key = "default/screenshots/shot.png";
+    const first = bucket.store.get(key);
+    expect(first).toBeTruthy();
+    const firstStamp = first!.customMetadata?.["uploaded-at"];
+    expect(firstStamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+    // Overwrite same key
+    await seedShot(env);
+    expect(bucket.store.get(key)?.customMetadata?.["uploaded-at"]).toBe(firstStamp);
+  });
+
+  it("seeds uploaded-at from prior lastModified when overwriting a legacy object", async () => {
+    const { env, bucket } = await makeEnv();
+    await seedShot(env);
+    const key = "default/screenshots/shot.png";
+    const obj = bucket.store.get(key)!;
+    const priorLm = new Date("2026-01-15T10:00:00.000Z");
+    // Strip stamp + backdate mtime to simulate pre-feature object
+    obj.customMetadata = { ...obj.customMetadata };
+    delete obj.customMetadata["uploaded-at"];
+    bucket.setUploaded(key, priorLm);
+
+    await seedShot(env);
+    expect(bucket.store.get(key)?.customMetadata?.["uploaded-at"]).toBe(priorLm.toISOString());
+  });
+});
