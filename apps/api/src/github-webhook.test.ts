@@ -100,4 +100,21 @@ describe("handleWebhook", () => {
     await handleWebhook(envWith(kv), "star", { repository: { full_name: "o/r" } });
     expect(kv.store.has("ghref:o/r#1")).toBe(true);
   });
+
+  it("resolves even when a KV delete rejects", async () => {
+    const env = {
+      GITHUB_CACHE: {
+        delete: async () => {
+          throw new Error("kv down");
+        },
+      },
+    } as unknown as Env;
+    await expect(
+      handleWebhook(env, "issues", {
+        action: "edited",
+        repository: { full_name: "o/r" },
+        issue: { number: 1 },
+      }),
+    ).resolves.toBeUndefined();
+  });
 });

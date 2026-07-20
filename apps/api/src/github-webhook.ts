@@ -85,5 +85,9 @@ export async function handleWebhook(env: Env, eventType: string, payload: unknow
   }
   // ping and unknown events fall through with no keys.
 
-  await Promise.all(keys.map((key) => env.GITHUB_CACHE.delete(key)));
+  // Use allSettled, not all: a rejecting delete must never propagate out of
+  // handleWebhook and become a 500 on the webhook route. A failed delete is
+  // harmless — the entry self-heals on its phase-1 TTL — so a webhook outage
+  // must never break anything.
+  await Promise.allSettled(keys.map((key) => env.GITHUB_CACHE.delete(key)));
 }

@@ -62,4 +62,15 @@ describe("POST /v1/github/webhook", () => {
     );
     expect(res.status).toBe(204);
   });
+
+  it("204s a validly signed delivery whose body is not valid JSON", async () => {
+    const env = { GITHUB_APP_WEBHOOK_SECRET: SECRET, GITHUB_CACHE: new FakeKv() } as unknown as Env;
+    const body = "not json";
+    const res = await post(
+      body,
+      { "x-hub-signature-256": sign(body), "x-github-event": "issues" },
+      env,
+    );
+    expect(res.status).toBe(204);
+  });
 });
