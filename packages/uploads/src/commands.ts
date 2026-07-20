@@ -465,6 +465,11 @@ export async function syncAttachmentsComment(
   }
 
   // gh fallback: gather from this workspace's own data and post via local `gh`.
+  // Note (issue #304): this CLI process has no server-side WorkspaceRecord in
+  // scope, so it cannot honor a workspace's githubCommentLinkToFilePage=false
+  // — it always links to the file page here, matching the default. This only
+  // diverges from the bot-posted comment for a workspace that both sets the
+  // flag false and falls through to this gh-fallback path.
   const items: AttachmentItem[] = (await client.listAll({ prefix: ghKeyPrefix(target) })).map(
     ({ key, url, embedUrl, pageUrl }) => ({ key, url, embedUrl, pageUrl }),
   );

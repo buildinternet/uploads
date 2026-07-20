@@ -56,6 +56,11 @@ async function gatherAttachments(
   ws: WorkspaceRecord,
   target: GhTarget,
 ): Promise<AttachmentItem[]> {
+  // Per-workspace choice (issue #304): default (undefined/true) links the
+  // managed comment's attachments to their `/f/` file page (issue #301's
+  // behavior); `false` links to raw object bytes instead. Attachments only —
+  // does not affect gallery `itemUrl` below, which is a separate feature.
+  const linkToFilePage = ws.githubCommentLinkToFilePage !== false;
   const items: AttachmentItem[] = [];
   let cursor: string | undefined;
   do {
@@ -65,7 +70,12 @@ async function gatherAttachments(
       cursor,
     });
     for (const o of page.items)
-      items.push({ key: o.key, url: o.url, embedUrl: o.embedUrl, pageUrl: o.pageUrl });
+      items.push({
+        key: o.key,
+        url: o.url,
+        embedUrl: o.embedUrl,
+        pageUrl: linkToFilePage ? o.pageUrl : null,
+      });
     cursor = page.cursor ?? undefined;
   } while (cursor);
   return items;

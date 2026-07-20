@@ -612,6 +612,195 @@ describe("workspace limits editing", () => {
   });
 });
 
+describe("workspace github-comment settings editing", () => {
+  /** Env with a mutable ws:acme record and a session user (no usage needed). */
+  function settingsEnv(user: typeof ADMIN_USER | null, record: Record<string, unknown> | null) {
+    const store = new Map<string, string>();
+    if (record) store.set("ws:acme", JSON.stringify(record));
+    const base = stubEnv(user, () => new Response(null, { status: 404 }));
+    const env = {
+      ...base,
+      REGISTRY: {
+        get: (async (key: string) => {
+          const raw = store.get(key);
+          return raw ? JSON.parse(raw) : null;
+        }) as unknown as KVNamespace["get"],
+        put: (async (key: string, value: string) => {
+          store.set(key, value);
+        }) as unknown as KVNamespace["put"],
+      },
+    } as unknown as Env;
+    return { env, store };
+  }
+
+  const REC = {
+    provider: "r2",
+    bucket: "uploads-default",
+    prefix: "acme/",
+    maxUploadsPerPeriod: 3000,
+    retentionDays: 90,
+  };
+
+  it("GET returns the flag unset by default", async () => {
+    const { env } = settingsEnv(ADMIN_USER, REC);
+    const res = await app().request("/admin-ui/workspaces/acme/settings", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      workspace: "acme",
+      settings: { githubCommentLinkToFilePage: null },
+    });
+  });
+
+  it("GET reflects a previously-set flag", async () => {
+    const { env } = settingsEnv(ADMIN_USER, { ...REC, githubCommentLinkToFilePage: false });
+    const res = await app().request("/admin-ui/workspaces/acme/settings", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      workspace: "acme",
+      settings: { githubCommentLinkToFilePage: false },
+    });
+  });
+
+  it("PATCH sets the flag on the record", async () => {
+    const { env, store } = settingsEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentLinkToFilePage: false }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      workspace: "acme",
+      settings: { githubCommentLinkToFilePage: false },
+    });
+    const saved = JSON.parse(store.get("ws:acme")!);
+    expect(saved.githubCommentLinkToFilePage).toBe(false);
+  });
+
+  it("PATCH with the flag omitted leaves it unchanged", async () => {
+    const { env, store } = settingsEnv(ADMIN_USER, { ...REC, githubCommentLinkToFilePage: false });
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const saved = JSON.parse(store.get("ws:acme")!);
+    expect(saved.githubCommentLinkToFilePage).toBe(false);
+  });
+
+  it("PATCH true clears a previously-set false flag", async () => {
+    const { env, store } = settingsEnv(ADMIN_USER, { ...REC, githubCommentLinkToFilePage: false });
+    await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentLinkToFilePage: true }),
+      },
+      env,
+    );
+    const saved = JSON.parse(store.get("ws:acme")!);
+    expect(saved.githubCommentLinkToFilePage).toBe(true);
+  });
+
+  it("PATCH preserves other record fields (not clobbered)", async () => {
+    const { env, store } = settingsEnv(ADMIN_USER, REC);
+    await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentLinkToFilePage: false }),
+      },
+      env,
+    );
+    const saved = JSON.parse(store.get("ws:acme")!);
+    expect(saved.maxUploadsPerPeriod).toBe(3000);
+    expect(saved.retentionDays).toBe(90);
+    expect(saved.prefix).toBe("acme/");
+  });
+
+  it("PATCH 400s on a non-boolean flag value", async () => {
+    const { env } = settingsEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentLinkToFilePage: "nope" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH 400s on a malformed JSON body", async () => {
+    const { env, store } = settingsEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: "{ not valid json",
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(JSON.parse(store.get("ws:acme")!).githubCommentLinkToFilePage).toBeUndefined();
+  });
+
+  it("404s for an unknown workspace", async () => {
+    const { env } = settingsEnv(ADMIN_USER, null);
+    const res = await app().request("/admin-ui/workspaces/acme/settings", {}, env);
+    expect(res.status).toBe(404);
+  });
+
+  it("404s for a soft-deleted workspace", async () => {
+    const { env } = settingsEnv(ADMIN_USER, { ...REC, deletedAt: "2026-07-01T00:00:00.000Z" });
+    const res = await app().request("/admin-ui/workspaces/acme/settings", {}, env);
+    expect(res.status).toBe(404);
+  });
+
+  it("403s for a non-admin session", async () => {
+    const { env } = settingsEnv(NON_ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentLinkToFilePage: false }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("PATCH 429s when the per-workspace write budget is exhausted", async () => {
+    const { env } = settingsEnv(ADMIN_USER, REC);
+    (env as Env & { WRITE_LIMITER: { limit: () => Promise<{ success: boolean }> } }).WRITE_LIMITER =
+      { limit: async () => ({ success: false }) };
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentLinkToFilePage: false }),
+      },
+      env,
+    );
+    expect(res.status).toBe(429);
+  });
+});
+
 describe("POST /admin-ui/users/:userId/ban", () => {
   function banEnv(user: typeof ADMIN_USER | typeof NON_ADMIN_USER | null) {
     const banCalls: { path: string; body: unknown }[] = [];

@@ -88,6 +88,55 @@ describe("gatherCommentBody", () => {
     expect(result.count).toBe(1);
   });
 
+  it("links an attachment to its /f/ file page by default (flag absent)", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const result = await gatherCommentBody(env, { ...ws, name: workspaceName }, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+    expect(result.skip).toBe(false);
+    if (result.skip) return;
+    expect(result.body).toContain(`/f/${workspaceName}/`);
+  });
+
+  it("links an attachment to its /f/ file page when the flag is explicitly true", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName, githubCommentLinkToFilePage: true },
+      workspaceName,
+      { repo: "acme/web", num: 12, kind: "pull" },
+    );
+    expect(result.skip).toBe(false);
+    if (result.skip) return;
+    expect(result.body).toContain(`/f/${workspaceName}/`);
+  });
+
+  it("links an attachment to the raw url when githubCommentLinkToFilePage is false", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", PNG, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const result = await gatherCommentBody(
+      env,
+      { ...ws, name: workspaceName, githubCommentLinkToFilePage: false },
+      workspaceName,
+      { repo: "acme/web", num: 12, kind: "pull" },
+    );
+    expect(result.skip).toBe(false);
+    if (result.skip) return;
+    expect(result.body).not.toContain(`/f/${workspaceName}/`);
+    // Falls back to the raw storage url.
+    expect(result.body).toContain("storage.uploads.sh");
+  });
+
   it("renders galleries linked to the PR via an external reference, scoped to the calling workspace", async () => {
     const { env, ws, workspaceName, bucket } = makeTestEnv();
     await bucket.put("acme/screenshots/one.png", PNG, {
