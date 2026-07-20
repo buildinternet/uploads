@@ -11,4 +11,8 @@ export class FakeKv {
   async put(key: string, value: string, opts?: { expirationTtl?: number }): Promise<void> {
     this.store.set(key, { value, expirationTtl: opts?.expirationTtl });
   }
+
+  async delete(key: string): Promise<void> {
+    this.store.delete(key);
+  }
 }
