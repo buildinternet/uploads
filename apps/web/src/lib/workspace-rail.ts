@@ -116,14 +116,23 @@ function bindConnectedWorkSetter(
   const section = root.querySelector<HTMLElement>("[data-rail-connected]");
   const list = root.querySelector<HTMLElement>("[data-rail-connected-list]");
   let generation = 0;
+  // Whether the user has clicked "show N more" for the current item set. A
+  // title-resolution repaint (same generation) must preserve this so it
+  // doesn't collapse the list the user just expanded; a genuinely new setter
+  // call (new generation) starts collapsed again.
+  let expanded = false;
 
-  const paintItems = (items: GhWorkItem[]): void => {
+  // repaint=true means "same item set, just fresher labels" — keep whatever
+  // limit is currently on screen. repaint=false (a fresh setter call) always
+  // starts collapsed.
+  const paintItems = (items: GhWorkItem[], repaint = false): void => {
     if (!section || !list) return;
     if (!items.length) {
       section.hidden = true;
       list.innerHTML = "";
       return;
     }
+    if (!repaint) expanded = false;
     section.hidden = false;
     // A busy workspace can link dozens of PRs/issues; cap the default view and
     // reveal the rest behind one click rather than a wall of rows.
@@ -135,11 +144,16 @@ function bindConnectedWorkSetter(
         (hidden > 0
           ? `<button type="button" class="ws-rail__more" data-rail-more>show ${hidden} more</button>`
           : "");
-      list
-        .querySelector<HTMLButtonElement>("[data-rail-more]")
-        ?.addEventListener("click", () => paint(items.length), { once: true });
+      list.querySelector<HTMLButtonElement>("[data-rail-more]")?.addEventListener(
+        "click",
+        () => {
+          expanded = true;
+          paint(items.length);
+        },
+        { once: true },
+      );
     };
-    paint(CONNECTED_WORK_CAP);
+    paint(expanded ? items.length : CONNECTED_WORK_CAP);
   };
 
   const setter: ConnectedWorkSetter = (items) => {
@@ -149,8 +163,8 @@ function bindConnectedWorkSetter(
     const refs = [...new Set(items.map((item) => item.ref))].slice(0, TITLE_FETCH_CAP);
     void resolveTitles(refs).then((titles) => {
       if (current !== generation) return; // a newer paint superseded this fetch
-      const repaint = planTitleRepaint(items, titles);
-      if (repaint) paintItems(repaint);
+      const relabeled = planTitleRepaint(items, titles);
+      if (relabeled) paintItems(relabeled, true);
     });
   };
   window.__uploadsSetConnectedWork = setter;
