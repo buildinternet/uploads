@@ -56,6 +56,8 @@ export interface AttachmentItem {
   url: string | null;
   /** Prefer for `<img src>` on GitHub (Camo-friendly host). Falls back to `url`. */
   embedUrl?: string | null;
+  /** Canonical `/f/` file-page URL (server-computed). Preferred click-through target; falls back to `url`. */
+  pageUrl?: string | null;
 }
 
 /** A public gallery linked to the PR or issue whose managed comment is syncing. */
@@ -137,17 +139,18 @@ export function attachmentsCommentBody(
     const name = item.key.slice(item.key.lastIndexOf("/") + 1);
     const stable = item.url;
     const src = item.embedUrl ?? item.url;
+    const link = item.pageUrl ?? stable; // click-through: file page when known, else raw
     if (src && inferContentType(name).startsWith("image/")) {
       // Markdown ![]() has no width control — phone frames become full-column giants.
-      // img src uses embed host when available (Camo revalidates); click-through keeps stable URL.
+      // img src uses embed host when available (Camo revalidates); click-through prefers the file page.
       const w = attachmentImageWidth(name);
       const alt = escapeHtmlAttr(name);
-      const href = escapeHtmlAttr(stable ?? src);
+      const href = escapeHtmlAttr(link ?? src);
       const imgSrc = escapeHtmlAttr(src);
       lines.push(`<a href="${href}"><img width="${w}" alt="${alt}" src="${imgSrc}"></a>`);
       lines.push("");
-    } else if (stable) {
-      lines.push(`- [${name}](${stable})`);
+    } else if (link) {
+      lines.push(`- [${name}](${link})`);
     } else {
       lines.push(`- ${name}`);
     }

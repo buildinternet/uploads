@@ -206,4 +206,36 @@ describe("attachmentsCommentBody", () => {
     expect(body).not.toContain("### 🖼️ Galleries");
     expect(body).toContain("### 📎 Attachments");
   });
+
+  it("links an image to its pageUrl (not raw url) when present", () => {
+    const body = attachmentsCommentBody([
+      {
+        key: "gh/o/r/pull/1/after.png",
+        url: "https://x.test/after.png",
+        embedUrl: "https://embed.test/after.png",
+        pageUrl: "https://uploads.sh/f/ws/gh/o/r/pull/1/after.png",
+      },
+    ]);
+    expect(body).toContain(
+      '<a href="https://uploads.sh/f/ws/gh/o/r/pull/1/after.png"><img width="400" alt="after.png" src="https://embed.test/after.png"></a>',
+    );
+  });
+
+  it("links a non-image attachment to its pageUrl when present", () => {
+    const body = attachmentsCommentBody([
+      {
+        key: "gh/o/r/pull/1/demo.mp4",
+        url: "https://x.test/demo.mp4",
+        pageUrl: "https://uploads.sh/f/ws/gh/o/r/pull/1/demo.mp4",
+      },
+    ]);
+    expect(body).toContain("- [demo.mp4](https://uploads.sh/f/ws/gh/o/r/pull/1/demo.mp4)");
+  });
+
+  it("falls back to the raw url for the href when pageUrl is absent", () => {
+    const body = attachmentsCommentBody([
+      { key: "gh/o/r/pull/1/after.png", url: "https://x.test/after.png" },
+    ]);
+    expect(body).toContain('<a href="https://x.test/after.png"><img');
+  });
 });
