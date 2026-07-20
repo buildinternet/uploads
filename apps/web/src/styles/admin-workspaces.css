@@ -128,3 +128,61 @@
   padding: 7px 9px;
   font: 11px var(--mono);
 }
+.workspace .limits {
+  margin-top: 16px;
+  border-top: 1px solid var(--border, #e5e7eb);
+  padding-top: 12px;
+}
+.workspace .limits-heading {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.workspace .limit-usage {
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+.workspace .limits-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.workspace .limit-row {
+  display: grid;
+  grid-template-columns: 130px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+}
+.workspace .limit-row[data-byte] {
+  grid-template-columns: 130px 1fr 70px auto;
+}
+.workspace .limit-row > label:first-child {
+  font-size: 13px;
+}
+.workspace .limit-value,
+.workspace .limit-unit {
+  padding: 4px 6px;
+  font: inherit;
+}
+.workspace .limit-value:disabled,
+.workspace .limit-unit:disabled {
+  opacity: 0.5;
+}
+.workspace .limit-unlimited {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.workspace .limits-form button {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+.workspace .limit-status[data-state="error"] {
+  color: var(--danger, #b91c1c);
+  font-size: 12px;
+}
+.workspace .limit-status[data-state="ready"] {
+  color: var(--muted, #6b7280);
+  font-size: 12px;
+}

@@ -59,6 +59,184 @@ export const prerender = false;
       return (await res.json()) as T;
     }
 
+    interface Limits {
+      maxStorageBytes: number | null;
+      maxUploadsPerPeriod: number | null;
+      maxUploadBytes: number | null;
+      maxVideoUploadBytes: number | null;
+    }
+    interface LimitsResponse {
+      workspace: string;
+      limits: Limits;
+      usage: { bytes: number; uploads: number } | null;
+    }
+
+    const LIMIT_UNITS: { label: string; mult: number }[] = [
+      { label: "MB", mult: 1_000_000 },
+      { label: "GB", mult: 1_000_000_000 },
+      { label: "GiB", mult: 1024 ** 3 },
+    ];
+    const LIMIT_FIELDS: { key: keyof Limits; label: string; byte: boolean }[] = [
+      { key: "maxStorageBytes", label: "Storage", byte: true },
+      { key: "maxUploadsPerPeriod", label: "Uploads / month", byte: false },
+      { key: "maxUploadBytes", label: "Max file size", byte: true },
+      { key: "maxVideoUploadBytes", label: "Max video size", byte: true },
+    ];
+
+    /** Pick a friendly unit + value for a byte count (exact GiB > GB > MB). */
+    function splitBytes(n: number): { value: number; unit: string } {
+      for (const u of [...LIMIT_UNITS].reverse()) {
+        if (n % u.mult === 0) return { value: n / u.mult, unit: u.label };
+      }
+      return { value: n / 1_000_000, unit: "MB" };
+    }
+    function formatBytes(n: number): string {
+      const { value, unit } = splitBytes(n);
+      return `${value} ${unit}`;
+    }
+
+    function renderLimitsForm(host: HTMLElement, workspace: string, data: LimitsResponse): void {
+      const rows = LIMIT_FIELDS.map((f) => {
+        const raw = data.limits[f.key];
+        const unlimited = raw === null;
+        if (f.byte) {
+          const split = raw === null ? { value: "", unit: "MB" } : splitBytes(raw);
+          const options = LIMIT_UNITS.map(
+            (u) => `<option value="${u.label}"${u.label === split.unit ? " selected" : ""}>${u.label}</option>`,
+          ).join("");
+          return `
+            <div class="limit-row" data-field="${f.key}" data-byte="1">
+              <label>${f.label}</label>
+              <input type="number" min="1" step="1" class="limit-value" value="${split.value}" ${unlimited ? "disabled" : ""} />
+              <select class="limit-unit" ${unlimited ? "disabled" : ""}>${options}</select>
+              <label class="limit-unlimited"><input type="checkbox" class="limit-unlim" ${unlimited ? "checked" : ""} /> Unlimited</label>
+            </div>`;
+        }
+        return `
+          <div class="limit-row" data-field="${f.key}">
+            <label>${f.label}</label>
+            <input type="number" min="1" step="1" class="limit-value" value="${raw === null ? "" : raw}" ${unlimited ? "disabled" : ""} />
+            <label class="limit-unlimited"><input type="checkbox" class="limit-unlim" ${unlimited ? "checked" : ""} /> Unlimited</label>`
+          + `</div>`;
+      }).join("");
+
+      const usageLine =
+        data.usage && data.limits.maxStorageBytes !== null
+          ? `<p class="limit-usage muted">${formatBytes(data.usage.bytes)} of ${formatBytes(data.limits.maxStorageBytes)} stored · ${data.usage.uploads} uploads this month</p>`
+          : data.usage
+            ? `<p class="limit-usage muted">${formatBytes(data.usage.bytes)} stored · ${data.usage.uploads} uploads this month</p>`
+            : "";
+
+      host.innerHTML = `
+        <h4 class="limits-heading">Limits</h4>
+        ${usageLine}
+        <form class="limits-form">
+          ${rows}
+          <button type="submit">Save limits</button>
+          <div class="limit-status" role="status" aria-live="polite" hidden></div>
+        </form>`;
+
+      // Unlimited checkbox toggles its row's inputs.
+      host.querySelectorAll<HTMLElement>(".limit-row").forEach((row) => {
+        const check = row.querySelector<HTMLInputElement>(".limit-unlim");
+        // Not querySelectorAll<HTMLInputElement | HTMLSelectElement>:
+        // worker-configuration.d.ts's HTMLRewriter ambient `Element`
+        // redeclares `remove()`, which makes HTMLSelectElement fail the
+        // `T extends Element` constraint. Fetch as HTMLElement and cast.
+        const inputs = row.querySelectorAll<HTMLElement>(
+          ".limit-value, .limit-unit",
+        ) as unknown as NodeListOf<HTMLInputElement | HTMLSelectElement>;
+        check?.addEventListener("change", () => {
+          inputs.forEach((el) => (el.disabled = check.checked));
+        });
+      });
+
+      const form = host.querySelector<HTMLFormElement>(".limits-form");
+      const statusEl = host.querySelector<HTMLElement>(".limit-status");
+      form?.addEventListener("submit", (event) => {
+        void (async () => {
+          event.preventDefault();
+          if (statusEl) statusEl.hidden = true;
+          let body: Record<string, number | null>;
+          try {
+            body = buildLimitsBody(host);
+          } catch (err) {
+            if (statusEl) {
+              statusEl.dataset.state = "error";
+              statusEl.textContent = err instanceof Error ? err.message : "Invalid input.";
+              statusEl.hidden = false;
+            }
+            return;
+          }
+          const submitBtn = form.querySelector<HTMLButtonElement>("button[type=submit]");
+          if (submitBtn) submitBtn.disabled = true;
+          try {
+            const res = await fetch(
+              `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(workspace)}/limits`,
+              {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+              },
+            );
+            if (!res.ok) {
+              const payload = (await res.json().catch(() => null)) as
+                | { error?: { message?: string } }
+                | null;
+              throw new Error(payload?.error?.message || `save failed: ${res.status}`);
+            }
+            const updated = (await res.json()) as LimitsResponse;
+            renderLimitsForm(host, workspace, updated);
+            const freshStatus = host.querySelector<HTMLElement>(".limit-status");
+            if (freshStatus) {
+              freshStatus.dataset.state = "ready";
+              freshStatus.textContent = "Saved. Changes apply within ~60s.";
+              freshStatus.hidden = false;
+            }
+          } catch (err) {
+            if (statusEl) {
+              statusEl.dataset.state = "error";
+              statusEl.textContent = err instanceof Error && err.message ? err.message : "Couldn't save limits.";
+              statusEl.hidden = false;
+            }
+          } finally {
+            if (submitBtn) submitBtn.disabled = false;
+          }
+        })();
+      });
+    }
+
+    /** Read the form into a PATCH body; throws on empty non-unlimited fields. */
+    function buildLimitsBody(host: HTMLElement): Record<string, number | null> {
+      const body: Record<string, number | null> = {};
+      host.querySelectorAll<HTMLElement>(".limit-row").forEach((row) => {
+        const field = row.dataset.field;
+        if (!field) return;
+        const unlimited = row.querySelector<HTMLInputElement>(".limit-unlim")?.checked;
+        if (unlimited) {
+          body[field] = null;
+          return;
+        }
+        const valueInput = row.querySelector<HTMLInputElement>(".limit-value");
+        const num = Number(valueInput?.value);
+        if (!valueInput?.value || !Number.isInteger(num) || num < 1) {
+          throw new Error(`Enter a whole number ≥ 1 for "${field}", or check Unlimited.`);
+        }
+        if (row.dataset.byte) {
+          // Not querySelector<HTMLSelectElement>: same worker-configuration.d.ts
+          // `Element.remove()` drift noted above. Fetch as HTMLElement and cast.
+          const unitEl = row.querySelector<HTMLElement>(".limit-unit") as unknown as HTMLSelectElement | null;
+          const unit = unitEl?.value ?? "MB";
+          const mult = LIMIT_UNITS.find((u) => u.label === unit)?.mult ?? 1_000_000;
+          body[field] = Math.floor(num * mult);
+        } else {
+          body[field] = num;
+        }
+      });
+      return body;
+    }
+
     function renderWorkspace(ws: WorkspaceSummary): HTMLElement {
       const details = document.createElement("details");
       details.className = "workspace";
@@ -71,6 +249,7 @@ export const prerender = false;
       <div class="detail">
         <div class="members" data-state="unloaded">Members load when expanded.</div>
         <div class="invites"></div>
+        <div class="limits" data-state="unloaded"></div>
         ${
           ws.organization
             ? `<form class="invite-form" data-workspace="${escapeHtml(ws.workspace)}">
@@ -124,6 +303,17 @@ export const prerender = false;
               invitesEl.innerHTML = invites.length
                 ? `<ul>${invites.map((i) => `<li><span>${escapeHtml(i.email)}</span><span class="role">pending</span></li>`).join("")}</ul>`
                 : "";
+            }
+            const limitsEl = details.querySelector<HTMLElement>(".limits");
+            if (limitsEl) {
+              try {
+                const limitsData = await apiGet<LimitsResponse>(
+                  `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/limits`,
+                );
+                renderLimitsForm(limitsEl, ws.workspace, limitsData);
+              } catch {
+                limitsEl.innerHTML = `<p class="muted">Failed to load limits.</p>`;
+              }
             }
             // Only mark as loaded once the fetch actually succeeded — a failure
             // leaves `loaded` false so re-toggling the <details> retries instead
