@@ -44,14 +44,20 @@ const filename = key.split("/").filter(Boolean).pop() ?? key;
 const uploadedIso = file?.uploaded ?? null;
 const modifiedIso = file?.modified ?? null;
 const showModified = shouldShowModified(uploadedIso, modifiedIso);
-const useTime =
-  showModified &&
-  uploadedIso &&
-  modifiedIso &&
-  sameUtcDay(uploadedIso, modifiedIso);
-const uploadedLabel = uploadedIso ? formatFileDate(uploadedIso, { withTime: !!useTime }) : null;
+const withTime = Boolean(
+  showModified && uploadedIso && modifiedIso && sameUtcDay(uploadedIso, modifiedIso),
+);
+const uploadedLabel = uploadedIso ? formatFileDate(uploadedIso, { withTime }) : null;
 const modifiedLabel =
-  showModified && modifiedIso ? formatFileDate(modifiedIso, { withTime: !!useTime }) : null;
+  showModified && modifiedIso ? formatFileDate(modifiedIso, { withTime }) : null;
+const gh = file?.github;
+const ghKindLabel = gh?.kind === "pull" ? "Pull request" : gh ? "Issue" : "";
+const ghRef = gh ? `${gh.repo}#${gh.number}` : "";
+const ghAriaLabel = gh
+  ? gh.title
+    ? `${ghKindLabel} ${gh.title} (${ghRef}) on GitHub`
+    : `${ghKindLabel} ${ghRef} on GitHub`
+  : "";
 const canonical = new URL(file ? filePath(workspace, key) : Astro.url.pathname, Astro.url.origin)
   .href;
 // Generic metadata list excludes `gh.*` pairs — those render as the GitHub
@@ -141,20 +147,12 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
         .stage {
           display: grid;
           grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
-          align-items: stretch;
-        }
-        .media {
-          min-height: 320px;
-          max-height: 78vh;
         }
         .details {
           border-top: none;
           border-left: 1px solid var(--line);
           max-height: 78vh;
           overflow: auto;
-          display: flex;
-          flex-direction: column;
-          gap: 0;
         }
       }
       @media (max-width: 760px) {
@@ -179,16 +177,12 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
             </div>
             <figcaption class="details">
               <div class="filename">{filename}</div>
-              {file.github && (
+              {gh && (
                 <a
                   class="gh-chip"
-                  href={file.github.url}
+                  href={gh.url}
                   rel="noopener noreferrer"
-                  aria-label={
-                    file.github.title
-                      ? `${file.github.kind === "pull" ? "Pull request" : "Issue"} ${file.github.title} (${file.github.repo}#${file.github.number}) on GitHub`
-                      : `${file.github.kind === "pull" ? "Pull request" : "Issue"} ${file.github.repo}#${file.github.number} on GitHub`
-                  }
+                  aria-label={ghAriaLabel}
                 >
                   <svg
                     class="gh-chip-icon"
@@ -198,17 +192,17 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
                     aria-hidden="true"
                     focusable="false"
                   >
-                    <title>{file.github.kind === "pull" ? "pull request" : "issue"}</title>
-                    <path fill="currentColor" d={GH_KIND_PATH[file.github.kind]} />
+                    <title>{gh.kind === "pull" ? "pull request" : "issue"}</title>
+                    <path fill="currentColor" d={GH_KIND_PATH[gh.kind]} />
                   </svg>
                   <span class="gh-chip-text">
-                    {file.github.title ? (
+                    {gh.title ? (
                       <>
-                        <span class="gh-chip-title">{file.github.title}</span>
-                        <span class="gh-chip-ref">{file.github.repo}#{file.github.number}</span>
+                        <span class="gh-chip-title">{gh.title}</span>
+                        <span class="gh-chip-ref">{ghRef}</span>
                       </>
                     ) : (
-                      <span class="gh-chip-name">{file.github.repo}#{file.github.number}</span>
+                      <span class="gh-chip-name">{ghRef}</span>
                     )}
                   </span>
                 </a>

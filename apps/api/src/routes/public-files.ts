@@ -13,16 +13,14 @@ const DATE_EQUAL_MS = 1000;
 
 /**
  * Cap live GitHub title resolve on the public share JSON path only.
- * `resolveTitles` can spend up to ~8s per GitHub hop; apps/web's
- * `fetchPublicFile` aborts at 4s — a cold miss must not push the whole
- * response past that. Member-rail `/me` keeps the full resolve budget.
+ * `resolveTitles` can spend up to ~8s per hop; apps/web aborts at 4s.
+ * Member-rail `/me` keeps the full resolve budget.
  */
 const PUBLIC_TITLE_RESOLVE_BUDGET_MS = 1400;
 
 /**
- * Prefer Files SDK `uploaded-at` for first-upload time; fall back to provider
- * `lastModified`. Emit `modified` only when mtime meaningfully differs so share
- * pages can show revisions without dual chips on a fresh put.
+ * Prefer `uploaded-at` stamp; fall back to provider `lastModified`.
+ * Emit `modified` only when mtime meaningfully differs (fresh put → single field).
  */
 function publicDateFields(meta: { lastModified?: number; metadata?: Record<string, string> }): {
   uploaded?: string;
@@ -33,19 +31,31 @@ function publicDateFields(meta: { lastModified?: number; metadata?: Record<strin
       ? new Date(meta.lastModified).toISOString()
       : undefined;
   const stamped = meta.metadata?.[UPLOADED_AT_META_KEY];
-  // When the stamp is missing/invalid, uploaded falls back to mtime — so a
-  // falsy uploadedIso implies no usable timestamp at all.
   const uploadedIso =
     typeof stamped === "string" && Number.isFinite(Date.parse(stamped))
       ? new Date(stamped).toISOString()
       : modifiedIso;
 
   if (!uploadedIso) return {};
-  if (!modifiedIso) return { uploaded: uploadedIso };
-
-  const delta = Math.abs(Date.parse(modifiedIso) - Date.parse(uploadedIso));
-  if (delta < DATE_EQUAL_MS) return { uploaded: uploadedIso };
+  if (!modifiedIso || Math.abs(Date.parse(modifiedIso) - Date.parse(uploadedIso)) < DATE_EQUAL_MS) {
+    return { uploaded: uploadedIso };
+  }
   return { uploaded: uploadedIso, modified: modifiedIso };
+}
+
+/** Race work against the public title budget; null on timeout (errors propagate). */
+async function withPublicTitleBudget<T>(work: Promise<T>): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), PUBLIC_TITLE_RESOLVE_BUDGET_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 type GithubKind = "pull" | "issue";
@@ -92,14 +102,14 @@ function deriveGithubContext(metadata: Record<string, string>): GithubContext | 
   if (!Number.isSafeInteger(number)) return undefined;
 
   const path = kind === "pull" ? "pull" : "issues";
-  const base: GithubContext = {
+  const title = displayTitle(metadata["gh.title"]);
+  return {
     repo,
     kind,
     number,
     url: `https://github.com/${repo}/${path}/${number}`,
+    ...(title ? { title } : {}),
   };
-  const stamped = displayTitle(metadata["gh.title"]);
-  return stamped ? { ...base, title: stamped } : base;
 }
 
 /**
@@ -198,44 +208,26 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
     return downloadResponse(store, key, filename);
   }
 
-  // Fetched only after the visibility gate above — a private object 401s
-  // before this D1 read ever happens, so metadata never leaks.
+  // After the visibility gate — private objects 401 before this D1 read.
   const metadata = await getFileMetadata(c.env.DB, workspace, key);
   let github = deriveGithubContext(metadata);
 
-  // Live title (KV-cached App ladder) wins over attach-time gh.title. Failures
-  // and budget timeouts never 500 — keep the stamp or omit title entirely.
-  // Budget is public-path only so cold GitHub resolve cannot trip apps/web's
-  // 4s fetchPublicFile abort (member rail still uses full resolveTitles).
+  // Live title (KV-cached App ladder) wins over stamped gh.title. Failures and
+  // budget timeouts never 500 — keep the stamp or omit title entirely.
   if (github) {
+    const ref = githubRefKey(metadata, github);
+    let title = github.title;
     try {
-      const ref = githubRefKey(metadata, github);
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        const titles = await Promise.race([
-          resolveTitles(c.env, [ref]),
-          new Promise<null>((resolve) => {
-            timer = setTimeout(() => resolve(null), PUBLIC_TITLE_RESOLVE_BUDGET_MS);
-          }),
-        ]);
-        if (titles) {
-          const live = displayTitle(titles[ref]?.title);
-          if (live) github = { ...github, title: live };
-        }
-        // Budget won → leave stamped title (or omit below).
-      } finally {
-        if (timer !== undefined) clearTimeout(timer);
-      }
+      const titles = await withPublicTitleBudget(resolveTitles(c.env, [ref]));
+      const live = titles ? displayTitle(titles[ref]?.title) : undefined;
+      if (live) title = live;
     } catch {
-      // Missing GITHUB_CACHE / App misconfig / transient — stamped or no title.
+      // Missing GITHUB_CACHE / App misconfig / transient — keep stamp if any.
     }
-    if (!github.title) {
-      const { title: _drop, ...rest } = github;
-      github = rest;
-    }
+    const { title: _drop, ...base } = github;
+    github = title ? { ...base, title } : base;
   }
 
-  const dates = publicDateFields(meta);
   return c.json({
     workspace,
     key,
@@ -243,7 +235,7 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
     embedUrl: urls.embedUrl,
     size: meta.size ?? 0,
     contentType: meta.type ?? "application/octet-stream",
-    ...dates,
+    ...publicDateFields(meta),
     ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     ...(github ? { github } : {}),
   });

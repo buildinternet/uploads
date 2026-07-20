@@ -221,18 +221,19 @@ function isGithubContext(value: unknown): value is GithubContext {
   );
 }
 
+/** Optional ISO timestamp field: absent, null, or a bounded parseable string. */
+function optionalIsoDate(value: unknown): boolean {
+  return (
+    value === undefined ||
+    value === null ||
+    (text(value, 64) && Number.isFinite(Date.parse(value as string)))
+  );
+}
+
 /** Validate an untrusted API response against the bounded {@link PublicFile} shape. */
 export function isPublicFile(value: unknown): value is PublicFile {
   if (typeof value !== "object" || value === null) return false;
   const file = value as Record<string, unknown>;
-  const uploadedOk =
-    file.uploaded === undefined ||
-    file.uploaded === null ||
-    (text(file.uploaded, 64) && Number.isFinite(Date.parse(file.uploaded as string)));
-  const modifiedOk =
-    file.modified === undefined ||
-    file.modified === null ||
-    (text(file.modified, 64) && Number.isFinite(Date.parse(file.modified as string)));
   const metadataOk = file.metadata === undefined || isMetadataMap(file.metadata);
   const githubOk = file.github === undefined || isGithubContext(file.github);
   return (
@@ -243,8 +244,8 @@ export function isPublicFile(value: unknown): value is PublicFile {
     Number.isSafeInteger(file.size) &&
     (file.size as number) >= 0 &&
     text(file.contentType, 128) &&
-    uploadedOk &&
-    modifiedOk &&
+    optionalIsoDate(file.uploaded) &&
+    optionalIsoDate(file.modified) &&
     metadataOk &&
     githubOk
   );
@@ -334,15 +335,12 @@ export function formatBytes(bytes: number): string {
   return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
-/** Hide "modified" when missing or effectively the same instant as uploaded (≤60s). */
+/** Same-day writes within this window share one "Uploaded" chip (R2 mtime noise). */
 const SHOW_MODIFIED_MS = 60_000;
 
 /**
- * Whether the share page should surface a separate "modified" date alongside
- * uploaded. False when either timestamp is missing/invalid or they are within
- * 60 seconds of each other on the same UTC day (R2 often stamps both to the
- * same write). True when the UTC calendar day differs even if the delta is
- * small (midnight boundary), or when delta exceeds 60s on the same day.
+ * Show a separate "Modified" date when timestamps differ by calendar day or
+ * by more than 60s on the same UTC day. Midnight crossings always show both.
  */
 export function shouldShowModified(
   uploaded: string | null | undefined,
@@ -352,39 +350,32 @@ export function shouldShowModified(
   const a = Date.parse(uploaded);
   const b = Date.parse(modified);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
-  if (!sameUtcDay(uploaded, modified)) return true;
-  if (Math.abs(b - a) <= SHOW_MODIFIED_MS) return false;
-  return true;
+  return !sameUtcDay(uploaded, modified) || Math.abs(b - a) > SHOW_MODIFIED_MS;
 }
 
 /** Locale-formatted date for the share-page metadata rail; null if unparseable. */
 export function formatFileDate(iso: string, opts?: { withTime?: boolean }): string | null {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return null;
+  const dateOpts: Intl.DateTimeFormatOptions = {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  };
   if (opts?.withTime) {
     return d.toLocaleString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
+      ...dateOpts,
       hour: "numeric",
       minute: "2-digit",
     });
   }
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return d.toLocaleDateString("en-US", dateOpts);
 }
 
 /** True when both timestamps fall on the same UTC calendar day. */
 export function sameUtcDay(a: string, b: string): boolean {
-  const da = new Date(a);
-  const db = new Date(b);
-  if (!Number.isFinite(da.getTime()) || !Number.isFinite(db.getTime())) return false;
-  return (
-    da.getUTCFullYear() === db.getUTCFullYear() &&
-    da.getUTCMonth() === db.getUTCMonth() &&
-    da.getUTCDate() === db.getUTCDate()
-  );
+  const da = Date.parse(a);
+  const db = Date.parse(b);
+  if (!Number.isFinite(da) || !Number.isFinite(db)) return false;
+  return new Date(da).toISOString().slice(0, 10) === new Date(db).toISOString().slice(0, 10);
 }

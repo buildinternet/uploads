@@ -186,14 +186,12 @@ export async function putObject(
   if (!inspection.ok) throw inspection.error;
 
   const store = await storage(env, ws);
-  // Pre-upload head: size for ledger delta + prior uploaded-at / mtime so
-  // overwrites keep first-upload time. files-sdk upload() has no
-  // replaced/exists flag on UploadResult, so we derive it here.
+  // Pre-upload head: ledger size delta + prior stamp/mtime (overwrite keeps first upload).
+  // files-sdk upload() has no replaced/exists flag, so we derive it here.
   const prior = await existingHead(store, finalKey);
   const replaced = prior !== null;
-  const prevSize = prior?.size ?? null;
   const newSize = bytes.byteLength;
-  const deltaBytes = prevSize === null ? newSize : newSize - prevSize;
+  const deltaBytes = newSize - (prior?.size ?? 0);
   const uploadedAt = resolveUploadedAtMeta(prior);
 
   const usage = await getWorkspaceUsage(env.DB, workspaceName);
