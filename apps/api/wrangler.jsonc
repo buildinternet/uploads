@@ -15,6 +15,13 @@
     // (see routes/me.ts) skip the personal galleries/files browser for it.
     // Defaults to "default" in code, so this only needs setting to rename it.
     "DEFAULT_WORKSPACE": "default",
+    // GitHub App identity for server-side PR/issue title resolution (#267).
+    // Both ids are public (visible in GitHub URLs); the private key is the
+    // only true secret (GITHUB_APP_PRIVATE_KEY, via wrangler secret).
+    "GITHUB_APP_ID": "4346270",
+    // The App's installation on the buildinternet org — the general-purpose
+    // token source for public-repo reads.
+    "GITHUB_APP_HOME_INSTALLATION_ID": "147814297",
   },
   "routes": [
     {
