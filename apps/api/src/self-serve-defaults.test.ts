@@ -9,6 +9,7 @@ describe("selfServeWorkspaceRecord", () => {
       now: new Date("2026-07-14T00:00:00Z"),
     });
     expect(record).toMatchObject({
+      name: "zachbot",
       provider: "r2",
       bucket: "uploads-default",
       binding: "UPLOADS_DEFAULT",

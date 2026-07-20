@@ -669,7 +669,7 @@ describe("GET /me/workspaces/:name/files", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       communal: boolean;
-      files: { key: string; url: string }[];
+      files: { key: string; url: string; pageUrl?: string }[];
     };
     expect(body.communal).toBe(false);
     expect(body.files).toHaveLength(1);
@@ -677,6 +677,10 @@ describe("GET /me/workspaces/:name/files", () => {
       key: "f/x/shot.png",
       url: "https://storage.uploads.sh/acme/f/x/shot.png",
     });
+    // #303: this route never passed `workspaceName` into listObjects, so
+    // pageUrl was always missing here — loadWorkspaceRecord now stamps
+    // `name` from the lookup key, so listObjects computes it unconditionally.
+    expect(body.files[0].pageUrl).toBe("https://uploads.test/f/acme/f/x/shot.png");
   });
 
   it("lists a folder with prefix and hydrates gh.* metadata + public urls", async () => {

@@ -18,6 +18,12 @@ export type { FileScope } from "./auth-db";
  * record are a SHA-256 token hash plus (optional) bucket-scoped S3 keys.
  */
 export interface WorkspaceRecord {
+  /**
+   * The registry slug this record was loaded under; stamped by the loaders
+   * from the validated lookup key, not read from stored JSON. Absent only on
+   * records built outside the loaders.
+   */
+  name?: string;
   provider: StorageProvider;
   bucket: string;
   /** Name of an R2 binding declared in wrangler.jsonc (e.g. "UPLOADS"). When set, I/O uses the binding. */
@@ -175,7 +181,9 @@ export async function loadWorkspaceRecord(
   // unknown workspace (uniform 404/401 across every auth/serving path) while
   // still occupying the KV key, so the slug can't be re-registered.
   if (!record || isPurgedTombstone(record) || record.deletedAt) return null;
-  return record;
+  // Stamp the slug from the validated lookup key, never from the stored
+  // JSON — the key is the source of truth even if the blob is stale/hand-edited.
+  return { ...record, name };
 }
 
 /**
@@ -189,7 +197,13 @@ export async function loadWorkspaceRecordRaw(
   name: string | undefined,
 ): Promise<WorkspaceRecord | PurgedTombstone | null> {
   if (!name || !WS_NAME_RE.test(name)) return null;
-  return env.REGISTRY.get<WorkspaceRecord | PurgedTombstone>(`ws:${name}`, { type: "json" });
+  const record = await env.REGISTRY.get<WorkspaceRecord | PurgedTombstone>(`ws:${name}`, {
+    type: "json",
+  });
+  if (!record || isPurgedTombstone(record)) return record;
+  // Stamp the slug from the validated lookup key (same rule as loadWorkspaceRecord);
+  // tombstones are left untouched — they're not a WorkspaceRecord.
+  return { ...record, name };
 }
 
 function workspaceAuthWith(

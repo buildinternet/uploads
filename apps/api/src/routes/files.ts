@@ -198,7 +198,6 @@ export const files = new Hono<WorkspaceVars>()
         prefix,
         limit,
         cursor,
-        workspaceName: c.get("workspaceName"),
       }),
     );
   })

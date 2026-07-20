@@ -64,7 +64,6 @@ async function gatherAttachments(
       prefix: ghKeyPrefix(target),
       limit: 1000,
       cursor,
-      workspaceName,
     });
     for (const o of page.items)
       items.push({ key: o.key, url: o.url, embedUrl: o.embedUrl, pageUrl: o.pageUrl });

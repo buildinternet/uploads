@@ -420,7 +420,7 @@ export interface ListedObject {
    * `getMetadataForKeys`) and merge it onto each row.
    */
   metadata?: Record<string, string>;
-  /** Canonical public `/f/` page URL (issue #135). Present only when `url` is set and the caller passed `workspaceName`. */
+  /** Canonical public `/f/` page URL (issue #135). Present only when `url` is set and the workspace record carries a slug (`ws.name`, issue #303). */
   pageUrl?: string;
 }
 
@@ -443,7 +443,6 @@ export async function listObjects(
     delimiter?: string;
     limit?: number;
     cursor?: string;
-    workspaceName?: string;
   } = {},
 ): Promise<{ items: ListedObject[]; cursor: string | null; prefixes?: string[] }> {
   const limit = Math.min(Math.max(opts.limit ?? 100, 1), 1000);
@@ -468,9 +467,7 @@ export async function listObjects(
         embedUrl: urls.embedUrl,
         ...storedMetaJson(item),
         ...(visibility ? { visibility } : {}),
-        ...(urls.url && opts.workspaceName
-          ? { pageUrl: filePageUrl(env, opts.workspaceName, item.key) }
-          : {}),
+        ...(urls.url && ws.name ? { pageUrl: filePageUrl(env, ws.name, item.key) } : {}),
       };
     }),
     cursor: result.cursor ?? null,

@@ -26,7 +26,15 @@ function fakeRegistry(records: Record<string, unknown>): Env["REGISTRY"] {
 describe("loadWorkspaceRecord (#247 soft-delete filtering)", () => {
   it("returns the record for a normal workspace", async () => {
     const env = { REGISTRY: fakeRegistry({ "ws:acme": RECORD }) } as unknown as Env;
-    expect(await loadWorkspaceRecord(env, "acme")).toEqual(RECORD);
+    expect(await loadWorkspaceRecord(env, "acme")).toEqual({ ...RECORD, name: "acme" });
+  });
+
+  it("stamps name from the lookup key, not the stored JSON, even when the JSON has a different/absent name (#303)", async () => {
+    const stale: WorkspaceRecord = { ...RECORD, name: "stale-old-name" };
+    const env = { REGISTRY: fakeRegistry({ "ws:acme": stale }) } as unknown as Env;
+    expect((await loadWorkspaceRecord(env, "acme"))?.name).toBe("acme");
+    const raw = (await loadWorkspaceRecordRaw(env, "acme")) as WorkspaceRecord | null;
+    expect(raw?.name).toBe("acme");
   });
 
   it("returns null for a soft-deleted workspace (auth path denies like unknown)", async () => {
@@ -37,8 +45,8 @@ describe("loadWorkspaceRecord (#247 soft-delete filtering)", () => {
     };
     const env = { REGISTRY: fakeRegistry({ "ws:acme": softDeleted }) } as unknown as Env;
     expect(await loadWorkspaceRecord(env, "acme")).toBeNull();
-    // But the raw read (used by admin routes / the sweep) still sees it.
-    expect(await loadWorkspaceRecordRaw(env, "acme")).toEqual(softDeleted);
+    // But the raw read (used by admin routes / the sweep) still sees it, stamped too.
+    expect(await loadWorkspaceRecordRaw(env, "acme")).toEqual({ ...softDeleted, name: "acme" });
   });
 
   it("returns null for a purged tombstone", async () => {
