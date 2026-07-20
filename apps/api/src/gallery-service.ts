@@ -14,6 +14,7 @@ import {
   projectPublicGallery,
 } from "./galleries";
 import { objectPublicUrls, storage, storageConfig } from "./storage";
+import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
 
 export interface GalleryItemDto {
@@ -270,11 +271,7 @@ export async function hydrateGalleryItems(
 }
 
 export function galleryUrl(env: Env, id: string): string {
-  return (
-    (env.WEB_ORIGIN.endsWith("/") ? env.WEB_ORIGIN.slice(0, -1) : env.WEB_ORIGIN) +
-    "/g/" +
-    encodeURIComponent(id)
-  );
+  return webOrigin(env) + "/g/" + encodeURIComponent(id);
 }
 
 export function galleryItemUrl(env: Env, galleryId: string, itemId: string): string {

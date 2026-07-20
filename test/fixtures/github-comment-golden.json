@@ -3,12 +3,14 @@
     {
       "key": "gh/acme/web/pull/12/hero.png",
       "url": "https://uploads.sh/f/hero.png",
-      "embedUrl": "https://embed.uploads.sh/f/hero.png"
+      "embedUrl": "https://embed.uploads.sh/f/hero.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png"
     },
     {
       "key": "gh/acme/web/pull/12/build.log",
       "url": "https://uploads.sh/f/build.log",
-      "embedUrl": null
+      "embedUrl": null,
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log"
     }
   ],
   "galleries": [
@@ -25,5 +27,5 @@
       ]
     }
   ],
-  "expected": "<!-- uploads.sh:attachments -->\n### 🖼️ Galleries\n\n#### <a href=\"https://uploads.sh/g/abc\">Design review</a>\n<a href=\"https://uploads.sh/g/abc/i1\"><img width=\"320\" alt=\"screen one\" src=\"https://embed.uploads.sh/g/abc/i1.png\"></a>\n<sub><a href=\"https://uploads.sh/g/abc\">Open gallery</a></sub>\n\n\n### 📎 Attachments\n\n- [build.log](https://uploads.sh/f/build.log)\n<a href=\"https://uploads.sh/f/hero.png\"><img width=\"400\" alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>"
+  "expected": "<!-- uploads.sh:attachments -->\n### 🖼️ Galleries\n\n#### <a href=\"https://uploads.sh/g/abc\">Design review</a>\n<a href=\"https://uploads.sh/g/abc/i1\"><img width=\"320\" alt=\"screen one\" src=\"https://embed.uploads.sh/g/abc/i1.png\"></a>\n<sub><a href=\"https://uploads.sh/g/abc\">Open gallery</a></sub>\n\n\n### 📎 Attachments\n\n- [build.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log)\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img width=\"400\" alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>"
 }

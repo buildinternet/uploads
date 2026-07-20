@@ -466,7 +466,7 @@ export async function syncAttachmentsComment(
 
   // gh fallback: gather from this workspace's own data and post via local `gh`.
   const items: AttachmentItem[] = (await client.listAll({ prefix: ghKeyPrefix(target) })).map(
-    ({ key, url, embedUrl }) => ({ key, url, embedUrl }),
+    ({ key, url, embedUrl, pageUrl }) => ({ key, url, embedUrl, pageUrl }),
   );
 
   const galleries: (GalleryCommentItem & { id: string })[] = [];

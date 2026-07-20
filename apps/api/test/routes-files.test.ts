@@ -120,6 +120,7 @@ async function makeEnv(
     DB: db,
     UPLOADS_DEFAULT: bucket,
     WRITE_LIMITER: { limit: async () => ({ success: opts.rateLimitOk ?? true }) },
+    WEB_ORIGIN: "https://uploads.sh",
   };
   return { env, bucket, db };
 }

@@ -193,7 +193,14 @@ export const files = new Hono<WorkspaceVars>()
 
     const { prefix, cursor } = query;
     const limit = Number(c.req.query("limit") ?? 100) || 100;
-    return c.json(await listObjects(c.env, c.get("workspace"), { prefix, limit, cursor }));
+    return c.json(
+      await listObjects(c.env, c.get("workspace"), {
+        prefix,
+        limit,
+        cursor,
+        workspaceName: c.get("workspaceName"),
+      }),
+    );
   })
 
   // Metadata now lives on the key-at-tail routes (same shape PUT/GET/DELETE
