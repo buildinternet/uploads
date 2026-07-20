@@ -1085,4 +1085,88 @@ describe("DB-backed behavior", () => {
       });
     });
   });
+
+  describe("DELETE /internal/orgs/:slug/members/:memberId", () => {
+    async function seed() {
+      const org = await seedOrg();
+      const owner = await seedUser({ id: "u_owner", email: "owner@x.com" });
+      const admin = await seedUser({ id: "u_admin", email: "admin@x.com" });
+      const admin2 = await seedUser({ id: "u_admin2", email: "admin2@x.com" });
+      const member = await seedUser({ id: "u_member", email: "member@x.com" });
+      const rows = [
+        { id: "m_owner", userId: owner.id, role: "owner" },
+        { id: "m_admin", userId: admin.id, role: "admin" },
+        { id: "m_admin2", userId: admin2.id, role: "admin" },
+        { id: "m_member", userId: member.id, role: "member" },
+      ];
+      for (const r of rows) {
+        await orm.insert(schema.member).values({
+          id: r.id,
+          organizationId: org.id,
+          userId: r.userId,
+          role: r.role,
+          createdAt: new Date(),
+        });
+      }
+      return { org, owner, admin, admin2, member };
+    }
+    const del = (slug: string, memberId: string, actorUserId: string) =>
+      app().request(
+        `/internal/orgs/${slug}/members/${memberId}?actorUserId=${actorUserId}`,
+        { method: "DELETE" },
+        dbEnv(),
+      );
+
+    it("lets an admin remove a member", async () => {
+      const { org, admin } = await seed();
+      const res = await del(org.slug, "m_member", admin.id);
+      expect(res.status).toBe(200);
+      const rows = await orm.select().from(schema.member).where(eq(schema.member.id, "m_member"));
+      expect(rows).toHaveLength(0);
+    });
+    it("forbids an admin removing another admin", async () => {
+      const { org, admin } = await seed();
+      const res = await del(org.slug, "m_admin2", admin.id);
+      expect(res.status).toBe(403);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "actor_not_authorized" },
+      });
+    });
+    it("lets an owner remove an admin", async () => {
+      const { org, owner } = await seed();
+      const res = await del(org.slug, "m_admin", owner.id);
+      expect(res.status).toBe(200);
+    });
+    it("never removes an owner", async () => {
+      // Actor is admin (not owner) here so this exercises the
+      // owner-protection check specifically, rather than colliding with the
+      // self-removal check (which fires first per the brief's ordering and
+      // is covered separately by "blocks removing yourself" below) —
+      // the brief's verbatim test used owner-as-actor here, which is
+      // actually self-removal of the owner and would hit cannot_modify_self
+      // (400) before ever reaching the owner-protection branch.
+      const { org, admin } = await seed();
+      const res = await del(org.slug, "m_owner", admin.id);
+      expect(res.status).toBe(403);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "cannot_modify_owner" },
+      });
+    });
+    it("blocks removing yourself", async () => {
+      const { org, admin } = await seed();
+      const res = await del(org.slug, "m_admin", admin.id);
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "cannot_modify_self" },
+      });
+    });
+    it("404s for an unknown member id", async () => {
+      const { org, owner } = await seed();
+      const res = await del(org.slug, "nope", owner.id);
+      expect(res.status).toBe(404);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "member_not_found" },
+      });
+    });
+  });
 });

@@ -399,6 +399,46 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     await db.delete(schema.invitation).where(eq(schema.invitation.id, invite.id));
     return c.json({ ok: true });
   })
+  // Task 2 (#275): admin/owner-authorized member removal, used by the
+  // workspace people tab's member management. Reuses actorRole() above.
+  .delete("/orgs/:slug/members/:memberId", async (c) => {
+    const slug = c.req.param("slug");
+    const memberId = c.req.param("memberId");
+    const requestActorUserId = c.req.query("actorUserId") ?? "";
+    const db = drizzle(c.env.DB, { schema });
+    const [org] = await db
+      .select()
+      .from(schema.organization)
+      .where(eq(schema.organization.slug, slug))
+      .limit(1);
+    if (!org) {
+      return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
+    }
+    const [target] = await db
+      .select({ id: schema.member.id, userId: schema.member.userId, role: schema.member.role })
+      .from(schema.member)
+      .where(and(eq(schema.member.id, memberId), eq(schema.member.organizationId, org.id)))
+      .limit(1);
+    if (!target) {
+      return c.json(errorJson("member_not_found", "no member with that id in this org"), 404);
+    }
+    if (target.userId === requestActorUserId) {
+      return c.json(errorJson("cannot_modify_self", "you cannot remove yourself"), 400);
+    }
+    if (target.role === "owner") {
+      return c.json(errorJson("cannot_modify_owner", "the workspace owner cannot be removed"), 403);
+    }
+    const role = await actorRole(db, org.id, requestActorUserId);
+    if (role !== "owner" && role !== "admin") {
+      return c.json(errorJson("actor_not_authorized", "actor must be an org admin or owner"), 403);
+    }
+    // Only owners may remove admins; admins may remove members only.
+    if (target.role === "admin" && role !== "owner") {
+      return c.json(errorJson("actor_not_authorized", "only an owner can remove an admin"), 403);
+    }
+    await db.delete(schema.member).where(eq(schema.member.id, target.id));
+    return c.json({ ok: true });
+  })
   // Phase 3 (plan scope B): server-side invite creation for
   // POST /admin-ui/workspaces/:name/invites on apps/api.
   //
