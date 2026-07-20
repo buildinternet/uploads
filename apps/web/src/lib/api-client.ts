@@ -240,6 +240,7 @@ export type InviteResult =
   | { kind: "unavailable"; reason: RequestFailure | "server" | "forbidden" | "invalid" };
 
 export interface WorkspaceMember {
+  id?: string;
   email: string;
   name: string;
   role: string;
@@ -277,6 +278,7 @@ export async function getWorkspaceMembers(
     kind: "ok",
     communal: body.communal === true,
     members: body.members.filter(isMemberCandidate).map((row) => ({
+      id: typeof row.id === "string" ? row.id : undefined,
       email: row.email,
       name: typeof row.name === "string" ? row.name : "",
       role: row.role,
@@ -321,6 +323,116 @@ export async function inviteToWorkspace(
     acceptUrl: typeof body?.acceptUrl === "string" ? body.acceptUrl : undefined,
     emailConfigured: typeof body?.emailConfigured === "boolean" ? body.emailConfigured : undefined,
   };
+}
+
+export interface WorkspaceInvite {
+  id: string;
+  email: string;
+  role: string | null;
+  status: string;
+  expiresAt: string | number | null;
+}
+
+export type WorkspaceInvitesResult =
+  | { kind: "ok"; communal: boolean; invites: WorkspaceInvite[] }
+  | { kind: "unavailable" };
+
+export type ManageResult =
+  | { kind: "ok" }
+  | {
+      kind: "unavailable";
+      reason: RequestFailure | "server" | "forbidden" | "not_found" | "invalid";
+    };
+
+function manageResultFor(status: number): ManageResult {
+  if (status >= 200 && status < 300) return { kind: "ok" };
+  if (status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (status === 400) return { kind: "unavailable", reason: "invalid" };
+  return { kind: "unavailable", reason: "server" };
+}
+
+/** GET /me/workspaces/:name/invites — pending invites, admin/owner only. */
+export async function getWorkspaceInvites(
+  apiOrigin: string,
+  name: string,
+): Promise<WorkspaceInvitesResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/invites`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable" || !result.response.ok) return { kind: "unavailable" };
+  const body = (await result.response.json().catch(() => null)) as {
+    communal?: unknown;
+    invites?: unknown;
+  } | null;
+  if (!body || !Array.isArray(body.invites)) return { kind: "unavailable" };
+  return {
+    kind: "ok",
+    communal: body.communal === true,
+    invites: body.invites.filter(
+      (v): v is WorkspaceInvite =>
+        !!v && typeof v === "object" && typeof (v as { id?: unknown }).id === "string",
+    ),
+  };
+}
+
+async function manageMutation(
+  apiOrigin: string,
+  path: string,
+  init: RequestInit,
+): Promise<ManageResult> {
+  const result = await fetchWithTimeout(`${trimOrigin(apiOrigin)}${path}`, {
+    credentials: "include",
+    cache: "no-store",
+    ...init,
+  });
+  if (result.kind === "unavailable") return result;
+  return manageResultFor(result.response.status);
+}
+
+/** DELETE /me/workspaces/:name/invites/:id */
+export async function revokeWorkspaceInvite(
+  apiOrigin: string,
+  name: string,
+  inviteId: string,
+): Promise<ManageResult> {
+  return manageMutation(
+    apiOrigin,
+    `/me/workspaces/${encodeURIComponent(name)}/invites/${encodeURIComponent(inviteId)}`,
+    { method: "DELETE" },
+  );
+}
+
+/** DELETE /me/workspaces/:name/members/:memberId */
+export async function removeWorkspaceMember(
+  apiOrigin: string,
+  name: string,
+  memberId: string,
+): Promise<ManageResult> {
+  return manageMutation(
+    apiOrigin,
+    `/me/workspaces/${encodeURIComponent(name)}/members/${encodeURIComponent(memberId)}`,
+    { method: "DELETE" },
+  );
+}
+
+/** PATCH /me/workspaces/:name/members/:memberId */
+export async function updateWorkspaceMemberRole(
+  apiOrigin: string,
+  name: string,
+  memberId: string,
+  role: "admin" | "member",
+): Promise<ManageResult> {
+  return manageMutation(
+    apiOrigin,
+    `/me/workspaces/${encodeURIComponent(name)}/members/${encodeURIComponent(memberId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    },
+  );
 }
 
 export type CreateWorkspaceResult =

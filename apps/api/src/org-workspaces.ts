@@ -16,7 +16,13 @@
  * database, by design, see plan D1's "ownership boundary").
  */
 
-import { ConflictError, ServiceUnavailableError } from "@uploads/errors";
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  ServiceUnavailableError,
+  ValidationError,
+} from "@uploads/errors";
 
 export interface OrgSummary {
   id: string;
@@ -93,6 +99,99 @@ export async function membersForOrg(env: Env, slug: string): Promise<OrgMember[]
   }
   const body = (await response.json().catch(() => null)) as { members?: OrgMember[] } | null;
   return body?.members ?? [];
+}
+
+/** A pending invite row from `/internal/orgs/:slug/invites`. */
+export interface OrgInvite {
+  id: string;
+  email: string;
+  role: string | null;
+  status: string;
+  expiresAt: string | number | null;
+}
+
+/** Pending invites for an org. Non-ok is an auth-worker outage/bug (5xx), like the reads above. */
+export async function invitesForOrg(env: Env, slug: string): Promise<OrgInvite[]> {
+  const response = await env.AUTH.fetch(
+    `${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(slug)}/invites`,
+    { headers: internalHeaders() },
+  );
+  if (!response.ok) {
+    throw new ServiceUnavailableError("auth service returned an unexpected status", {
+      code: "auth_lookup_failed",
+      details: { status: response.status },
+    });
+  }
+  const body = (await response.json().catch(() => null)) as { invites?: OrgInvite[] } | null;
+  return body?.invites ?? [];
+}
+
+/**
+ * Maps the auth worker's authorization/validation failures to AppErrors. 403 →
+ * Forbidden, 404 → NotFound, 400 → Validation; anything else is treated as an
+ * outage. Shared by revoke/remove/role helpers below.
+ */
+async function throwForManageError(response: Response, context: string): Promise<never> {
+  const body = (await response.json().catch(() => null)) as { error?: { code?: string } } | null;
+  const code = body?.error?.code;
+  if (response.status === 403) throw new ForbiddenError(context, { code: code ?? "forbidden" });
+  if (response.status === 404) throw new NotFoundError(context, { code: code ?? "not_found" });
+  if (response.status === 400)
+    throw new ValidationError(context, { code: code ?? "invalid_request" });
+  throw new ServiceUnavailableError("auth service returned an unexpected status", {
+    code: "auth_lookup_failed",
+    details: { status: response.status },
+  });
+}
+
+/** Revoke a pending invite. `actorUserId` is the acting session user (authz). */
+export async function revokeInvite(
+  env: Env,
+  slug: string,
+  inviteId: string,
+  actorUserId: string,
+): Promise<void> {
+  const url = `${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(slug)}/invites/${encodeURIComponent(inviteId)}?actorUserId=${encodeURIComponent(actorUserId)}`;
+  const response = await env.AUTH.fetch(url, { method: "DELETE", headers: internalHeaders() });
+  if (!response.ok) await throwForManageError(response, "could not revoke invite");
+}
+
+/** Remove a member (by opaque member id). `actorUserId` is the acting session user. */
+export async function removeMember(
+  env: Env,
+  slug: string,
+  memberId: string,
+  actorUserId: string,
+): Promise<void> {
+  const url = `${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(slug)}/members/${encodeURIComponent(memberId)}?actorUserId=${encodeURIComponent(actorUserId)}`;
+  const response = await env.AUTH.fetch(url, { method: "DELETE", headers: internalHeaders() });
+  if (!response.ok) await throwForManageError(response, "could not remove member");
+}
+
+/** Change a member's role (admin↔member). Returns the updated member. */
+export async function updateMemberRole(
+  env: Env,
+  slug: string,
+  memberId: string,
+  role: string,
+  actorUserId: string,
+): Promise<{ id: string; userId: string; role: string }> {
+  const headers = internalHeaders();
+  headers.set("content-type", "application/json");
+  const response = await env.AUTH.fetch(
+    `${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(slug)}/members/${encodeURIComponent(memberId)}`,
+    { method: "PATCH", headers, body: JSON.stringify({ actorUserId, role }) },
+  );
+  if (!response.ok) await throwForManageError(response, "could not change member role");
+  const body = (await response.json().catch(() => null)) as {
+    member?: { id: string; userId: string; role: string };
+  } | null;
+  if (!body?.member) {
+    throw new ServiceUnavailableError("auth service returned a malformed body", {
+      code: "auth_lookup_failed",
+    });
+  }
+  return body.member;
 }
 
 /**

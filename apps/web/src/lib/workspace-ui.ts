@@ -117,23 +117,57 @@ export function renderUsageHtml(usage: UsageSnapshot): string {
 
 /** Minimal member shape `renderMembersHtml` needs — api-client's `WorkspaceMember` satisfies it. */
 export interface MemberRow {
+  id?: string;
   email: string;
   name: string;
   role: string;
 }
 
+export interface MemberRowOptions {
+  /** Viewer is owner/admin — enables per-row controls. */
+  canManage?: boolean;
+  /** Viewer's own email — their row never shows controls (no self-removal). */
+  selfEmail?: string;
+}
+
 /**
  * Pure row builder for the people tab's member list. Shows the display name
- * when the account has one (email then becomes the sub-line), otherwise the
- * email leads. `[]` → `""` (caller renders its own empty state).
+ * when set (email becomes the sub-line), else email leads. When `canManage`
+ * and the row has an `id`, non-owner rows other than the viewer's own get a
+ * role `<select>` and a remove button. `[]` → `""`.
  */
-export function renderMembersHtml(members: MemberRow[]): string {
+export function renderMembersHtml(members: MemberRow[], opts: MemberRowOptions = {}): string {
   return members
     .map((m) => {
       const lead = m.name || m.email;
       const sub = m.name ? `<span class="member-row__email">${escapeHtml(m.email)}</span>` : "";
-      return `<div class="member-row"><span class="member-row__who"><span class="member-row__name">${escapeHtml(lead)}</span>${sub}</span><span class="member-row__role">${escapeHtml(m.role)}</span></div>`;
+      const manageable =
+        !!opts.canManage && !!m.id && m.role !== "owner" && m.email !== opts.selfEmail;
+      const controls = manageable
+        ? `<span class="member-row__actions">` +
+          `<select class="member-row__role-select" data-member-id="${escapeHtml(m.id!)}" aria-label="Role for ${escapeHtml(m.email)}">` +
+          `<option value="member"${m.role === "member" ? " selected" : ""}>member</option>` +
+          `<option value="admin"${m.role === "admin" ? " selected" : ""}>admin</option>` +
+          `</select>` +
+          `<button type="button" class="text-btn member-row__remove" data-member-id="${escapeHtml(m.id!)}" data-member-email="${escapeHtml(m.email)}">Remove</button>` +
+          `</span>`
+        : `<span class="member-row__role">${escapeHtml(m.role)}</span>`;
+      return `<div class="member-row"><span class="member-row__who"><span class="member-row__name">${escapeHtml(lead)}</span>${sub}</span>${controls}</div>`;
     })
+    .join("");
+}
+
+/** Pure row builder for the pending-invites list. `[]` → `""` (caller shows empty state). */
+export function renderInvitesHtml(
+  invites: { id: string; email: string; status: string }[],
+): string {
+  return invites
+    .map(
+      (inv) =>
+        `<div class="invite-row"><span class="invite-row__email">${escapeHtml(inv.email)}</span>` +
+        `<span class="invite-row__status">${escapeHtml(inv.status)}</span>` +
+        `<button type="button" class="text-btn invite-row__revoke" data-invite-id="${escapeHtml(inv.id)}" data-invite-email="${escapeHtml(inv.email)}">Revoke</button></div>`,
+    )
     .join("");
 }
 

@@ -14,6 +14,35 @@ function errorJson(code: string, message: string) {
   return { error: { code, message } } as const;
 }
 
+/** The actor's org-scoped role, or null if they aren't a member of this org. */
+async function actorRole(
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  orgId: string,
+  actorUserId: string,
+): Promise<string | null> {
+  if (!actorUserId) return null;
+  const [row] = await db
+    .select({ role: schema.member.role })
+    .from(schema.member)
+    .where(and(eq(schema.member.organizationId, orgId), eq(schema.member.userId, actorUserId)))
+    .limit(1);
+  return row?.role ?? null;
+}
+
+/** A target member row (id/userId/role) scoped to the org, or null if none. */
+async function loadTargetMember(
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  orgId: string,
+  memberId: string,
+): Promise<{ id: string; userId: string; role: string } | null> {
+  const [row] = await db
+    .select({ id: schema.member.id, userId: schema.member.userId, role: schema.member.role })
+    .from(schema.member)
+    .where(and(eq(schema.member.id, memberId), eq(schema.member.organizationId, orgId)))
+    .limit(1);
+  return row ?? null;
+}
+
 // Lane 1 (operator OAuth admin panel contract, .context/2026-07-18-oauth-admin-panel-contract.md):
 // validation error shape differs from the rest of this file's errorJson —
 // the contract locks in `{error:"invalid_request", message}` for these routes.
@@ -347,6 +376,134 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
         and(eq(schema.invitation.organizationId, org.id), eq(schema.invitation.status, "pending")),
       );
     return c.json({ invites: rows });
+  })
+  // Task 1 (#275): admin/owner-authorized revocation of a pending invite,
+  // used by the workspace people tab's pending-invite management.
+  .delete("/orgs/:slug/invites/:id", async (c) => {
+    const slug = c.req.param("slug");
+    const inviteId = c.req.param("id");
+    const requestActorUserId = c.req.query("actorUserId") ?? "";
+    const db = drizzle(c.env.DB, { schema });
+    const [org] = await db
+      .select()
+      .from(schema.organization)
+      .where(eq(schema.organization.slug, slug))
+      .limit(1);
+    if (!org) {
+      return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
+    }
+    // Actor and invite lookups are independent; the authz check still gates
+    // before the not-found check below.
+    const [role, [invite]] = await Promise.all([
+      actorRole(db, org.id, requestActorUserId),
+      db
+        .select({ id: schema.invitation.id })
+        .from(schema.invitation)
+        .where(
+          and(
+            eq(schema.invitation.id, inviteId),
+            eq(schema.invitation.organizationId, org.id),
+            eq(schema.invitation.status, "pending"),
+          ),
+        )
+        .limit(1),
+    ]);
+    if (role !== "owner" && role !== "admin") {
+      return c.json(errorJson("actor_not_authorized", "actor must be an org admin or owner"), 403);
+    }
+    if (!invite) {
+      return c.json(errorJson("invite_not_found", "no pending invite with that id"), 404);
+    }
+    await db.delete(schema.invitation).where(eq(schema.invitation.id, invite.id));
+    return c.json({ ok: true });
+  })
+  // Task 2 (#275): admin/owner-authorized member removal, used by the
+  // workspace people tab's member management. Reuses actorRole() above.
+  .delete("/orgs/:slug/members/:memberId", async (c) => {
+    const slug = c.req.param("slug");
+    const memberId = c.req.param("memberId");
+    const requestActorUserId = c.req.query("actorUserId") ?? "";
+    const db = drizzle(c.env.DB, { schema });
+    const [org] = await db
+      .select()
+      .from(schema.organization)
+      .where(eq(schema.organization.slug, slug))
+      .limit(1);
+    if (!org) {
+      return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
+    }
+    // Target and actor lookups are independent; the ordered checks below run
+    // against the already-fetched rows.
+    const [target, role] = await Promise.all([
+      loadTargetMember(db, org.id, memberId),
+      actorRole(db, org.id, requestActorUserId),
+    ]);
+    if (!target) {
+      return c.json(errorJson("member_not_found", "no member with that id in this org"), 404);
+    }
+    if (target.userId === requestActorUserId) {
+      return c.json(errorJson("cannot_modify_self", "you cannot remove yourself"), 400);
+    }
+    if (target.role === "owner") {
+      return c.json(errorJson("cannot_modify_owner", "the workspace owner cannot be removed"), 403);
+    }
+    if (role !== "owner" && role !== "admin") {
+      return c.json(errorJson("actor_not_authorized", "actor must be an org admin or owner"), 403);
+    }
+    // Only owners may remove admins; admins may remove members only.
+    if (target.role === "admin" && role !== "owner") {
+      return c.json(errorJson("actor_not_authorized", "only an owner can remove an admin"), 403);
+    }
+    await db.delete(schema.member).where(eq(schema.member.id, target.id));
+    return c.json({ ok: true });
+  })
+  // Task 3 (#275): owner-only member role change, used by the workspace
+  // people tab's member management. Reuses actorRole() above.
+  .patch("/orgs/:slug/members/:memberId", async (c) => {
+    const slug = c.req.param("slug");
+    const memberId = c.req.param("memberId");
+    const body = await c.req
+      .json<{ actorUserId?: unknown; role?: unknown }>()
+      .catch(() => ({}) as { actorUserId?: unknown; role?: unknown });
+    const requestActorUserId = typeof body.actorUserId === "string" ? body.actorUserId : "";
+    const nextRole = typeof body.role === "string" ? body.role.trim() : "";
+    if (nextRole !== "admin" && nextRole !== "member") {
+      return c.json(errorJson("invalid_role", "role must be admin or member"), 400);
+    }
+    const db = drizzle(c.env.DB, { schema });
+    const [org] = await db
+      .select()
+      .from(schema.organization)
+      .where(eq(schema.organization.slug, slug))
+      .limit(1);
+    if (!org) {
+      return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
+    }
+    // Target and actor lookups are independent; the ordered checks below run
+    // against the already-fetched rows.
+    const [target, role] = await Promise.all([
+      loadTargetMember(db, org.id, memberId),
+      actorRole(db, org.id, requestActorUserId),
+    ]);
+    if (!target) {
+      return c.json(errorJson("member_not_found", "no member with that id in this org"), 404);
+    }
+    if (target.userId === requestActorUserId) {
+      return c.json(errorJson("cannot_modify_self", "you cannot change your own role"), 400);
+    }
+    if (target.role === "owner") {
+      return c.json(errorJson("cannot_modify_owner", "the workspace owner's role is fixed"), 403);
+    }
+    if (role !== "owner") {
+      return c.json(
+        errorJson("actor_not_authorized", "only an owner can change member roles"),
+        403,
+      );
+    }
+    if (target.role !== nextRole) {
+      await db.update(schema.member).set({ role: nextRole }).where(eq(schema.member.id, target.id));
+    }
+    return c.json({ member: { id: target.id, userId: target.userId, role: nextRole } });
   })
   // Phase 3 (plan scope B): server-side invite creation for
   // POST /admin-ui/workspaces/:name/invites on apps/api.

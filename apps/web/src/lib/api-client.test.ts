@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getMyWorkspaces,
+  getWorkspaceInvites,
+  getWorkspaceMembers,
   listWorkspaceFolder,
+  removeWorkspaceMember,
+  revokeWorkspaceInvite,
   searchWorkspaceFiles,
   setFileVisibility,
+  updateWorkspaceMemberRole,
 } from "./api-client";
 
 afterEach(() => {
@@ -353,6 +358,167 @@ describe("listWorkspaceFolder", () => {
       files: [],
       prefixes: [],
       cursor: undefined,
+    });
+  });
+});
+
+describe("getWorkspaceMembers", () => {
+  it("passes member id through when present", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          communal: false,
+          members: [{ id: "m1", email: "a@x.com", name: "A", role: "member" }],
+        }),
+      ),
+    );
+
+    const result = await getWorkspaceMembers("http://127.0.0.1:8787", "acme");
+    expect(result).toEqual({
+      kind: "ok",
+      communal: false,
+      members: [{ id: "m1", email: "a@x.com", name: "A", role: "member", createdAt: undefined }],
+    });
+  });
+
+  it("leaves id undefined when the API omits it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          communal: false,
+          members: [{ email: "a@x.com", name: "A", role: "member" }],
+        }),
+      ),
+    );
+
+    const result = await getWorkspaceMembers("http://127.0.0.1:8787", "acme");
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") expect(result.members[0]?.id).toBeUndefined();
+  });
+});
+
+describe("getWorkspaceInvites", () => {
+  it("parses invites and passes id through to members", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          communal: false,
+          invites: [
+            { id: "i1", email: "a@x.com", role: "member", status: "pending", expiresAt: 1 },
+          ],
+        }),
+      ),
+    );
+
+    const res = await getWorkspaceInvites("https://api.test", "acme");
+    expect(res).toMatchObject({ kind: "ok", communal: false });
+    if (res.kind === "ok") expect(res.invites[0]?.id).toBe("i1");
+  });
+
+  it("reports unavailable on a non-2xx response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 500 })),
+    );
+
+    await expect(getWorkspaceInvites("https://api.test", "acme")).resolves.toEqual({
+      kind: "unavailable",
+    });
+  });
+
+  it("reports unavailable on network failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new TypeError("network down"))),
+    );
+
+    await expect(getWorkspaceInvites("https://api.test", "acme")).resolves.toEqual({
+      kind: "unavailable",
+    });
+  });
+});
+
+describe("manage mutations map status codes", () => {
+  it("revokeWorkspaceInvite → forbidden on 403", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 403 })),
+    );
+
+    await expect(revokeWorkspaceInvite("https://api.test", "acme", "i1")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "forbidden",
+    });
+  });
+
+  it("removeWorkspaceMember → not_found on 404", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+
+    await expect(removeWorkspaceMember("https://api.test", "acme", "m1")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "not_found",
+    });
+  });
+
+  it("updateWorkspaceMemberRole → invalid on 400", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 400 })),
+    );
+
+    await expect(
+      updateWorkspaceMemberRole("https://api.test", "acme", "m1", "admin"),
+    ).resolves.toEqual({
+      kind: "unavailable",
+      reason: "invalid",
+    });
+  });
+
+  it("updateWorkspaceMemberRole → ok on 200, sending role in the PATCH body", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://api.test/me/workspaces/acme/members/m1");
+      expect(init?.method).toBe("PATCH");
+      expect(init?.credentials).toBe("include");
+      expect(JSON.parse(init!.body as string)).toEqual({ role: "admin" });
+      return Response.json({ member: { id: "m1", userId: "u2", role: "admin" } }, { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      updateWorkspaceMemberRole("https://api.test", "acme", "m1", "admin"),
+    ).resolves.toEqual({ kind: "ok" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("removeWorkspaceMember → ok on 200 via DELETE", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://api.test/me/workspaces/acme/members/m1");
+      expect(init?.method).toBe("DELETE");
+      expect(init?.credentials).toBe("include");
+      return new Response(null, { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(removeWorkspaceMember("https://api.test", "acme", "m1")).resolves.toEqual({
+      kind: "ok",
+    });
+  });
+
+  it("revokeWorkspaceInvite → unavailable(network) on transport failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new TypeError("network down"))),
+    );
+
+    await expect(revokeWorkspaceInvite("https://api.test", "acme", "i1")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "network",
     });
   });
 });

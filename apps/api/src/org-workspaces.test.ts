@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { deleteOrg, listOrgs, orgForWorkspace, workspacesForOrg } from "./org-workspaces";
+import { ForbiddenError, NotFoundError } from "@uploads/errors";
+import {
+  deleteOrg,
+  invitesForOrg,
+  listOrgs,
+  orgForWorkspace,
+  removeMember,
+  revokeInvite,
+  updateMemberRole,
+  workspacesForOrg,
+} from "./org-workspaces";
 
 /** Stub matching the Fetcher interface's `.fetch()` shape used by env.AUTH. */
 function stubAuth(handler: (req: Request) => Response | Promise<Response>): Pick<Fetcher, "fetch"> {
@@ -109,5 +119,69 @@ describe("deleteOrg force flag (#250)", () => {
       return new Response(null, { status: 200 });
     });
     await deleteOrg(envWith(auth), "acme", { force: true });
+  });
+});
+
+describe("invitesForOrg", () => {
+  it("returns the invites array", async () => {
+    const auth = stubAuth((req) => {
+      expect(req.url).toBe("https://auth.internal/internal/orgs/acme/invites");
+      return Response.json({
+        invites: [{ id: "i1", email: "a@x.com", role: "member", status: "pending", expiresAt: 1 }],
+      });
+    });
+    expect(await invitesForOrg(envWith(auth), "acme")).toEqual([
+      { id: "i1", email: "a@x.com", role: "member", status: "pending", expiresAt: 1 },
+    ]);
+  });
+
+  it("throws ServiceUnavailable on a non-ok response", async () => {
+    const auth = stubAuth(() => new Response("nope", { status: 500 }));
+    await expect(invitesForOrg(envWith(auth), "acme")).rejects.toThrow();
+  });
+});
+
+describe("revokeInvite / removeMember / updateMemberRole error mapping", () => {
+  it("revokeInvite maps 404 to NotFoundError", async () => {
+    const auth = stubAuth((req) => {
+      expect(req.url).toBe("https://auth.internal/internal/orgs/acme/invites/i1?actorUserId=u1");
+      expect(req.method).toBe("DELETE");
+      return Response.json({ error: { code: "invite_not_found" } }, { status: 404 });
+    });
+    await expect(revokeInvite(envWith(auth), "acme", "i1", "u1")).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
+  });
+
+  it("removeMember maps 403 to ForbiddenError", async () => {
+    const auth = stubAuth((req) => {
+      expect(req.url).toBe("https://auth.internal/internal/orgs/acme/members/m1?actorUserId=u1");
+      expect(req.method).toBe("DELETE");
+      return Response.json({ error: { code: "actor_not_authorized" } }, { status: 403 });
+    });
+    await expect(removeMember(envWith(auth), "acme", "m1", "u1")).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+  });
+
+  it("updateMemberRole returns the updated member on 200", async () => {
+    const auth = stubAuth((req) => {
+      expect(req.url).toBe("https://auth.internal/internal/orgs/acme/members/m1");
+      expect(req.method).toBe("PATCH");
+      expect(req.headers.get("content-type")).toBe("application/json");
+      return Response.json({ member: { id: "m1", userId: "u2", role: "admin" } });
+    });
+    expect(await updateMemberRole(envWith(auth), "acme", "m1", "admin", "u1")).toEqual({
+      id: "m1",
+      userId: "u2",
+      role: "admin",
+    });
+  });
+
+  it("updateMemberRole maps 400 to a thrown error", async () => {
+    const auth = stubAuth(() =>
+      Response.json({ error: { code: "invalid_role" } }, { status: 400 }),
+    );
+    await expect(updateMemberRole(envWith(auth), "acme", "m1", "owner", "u1")).rejects.toThrow();
   });
 });
