@@ -34,12 +34,12 @@ The public file share page (`/f/<workspace>/<key>`) is the durable link people p
 
 **Enrich the public-file API + page layout**, using the existing Files SDK surface through `@uploads/storage` / `createStorage()` — not raw R2 bindings.
 
-| Concern | Where | Mechanism |
-| --- | --- | --- |
+| Concern            | Where                              | Mechanism                                                                                              |
+| ------------------ | ---------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | First-upload stamp | `putObject` (+ visibility rewrite) | Files SDK `upload({ metadata })` key `uploaded-at`; preserve from prior `head().metadata` on overwrite |
-| Modified time | public-files route | Files SDK `head().lastModified` (already used, today labeled `uploaded`) |
-| Title | public-files route | `gh.title` from D1 file_metadata → overlay `resolveTitles` (App + `GITHUB_CACHE`) |
-| Layout | file page Astro + CSS | media \| rail grid ≥ ~1080px; stack below |
+| Modified time      | public-files route                 | Files SDK `head().lastModified` (already used, today labeled `uploaded`)                               |
+| Title              | public-files route                 | `gh.title` from D1 file_metadata → overlay `resolveTitles` (App + `GITHUB_CACHE`)                      |
+| Layout             | file page Astro + CSS              | media \| rail grid ≥ ~1080px; stack below                                                              |
 
 ## 4. Data model
 
@@ -98,11 +98,11 @@ Extend the existing response (no breaking renames of required fields beyond clar
 
 On the share page `dl.meta`:
 
-| Condition | UI |
-| --- | --- |
-| only `uploaded` | `Uploaded` → formatted date (unchanged label) |
-| `uploaded` + `modified` and they differ by calendar day **or** by more than 60 seconds | show both rows: `Uploaded`, `Modified` |
-| both present but within 60s / same instant | show only `Uploaded` |
+| Condition                                                                              | UI                                            |
+| -------------------------------------------------------------------------------------- | --------------------------------------------- |
+| only `uploaded`                                                                        | `Uploaded` → formatted date (unchanged label) |
+| `uploaded` + `modified` and they differ by calendar day **or** by more than 60 seconds | show both rows: `Uploaded`, `Modified`        |
+| both present but within 60s / same instant                                             | show only `Uploaded`                          |
 
 Formatting stays `toLocaleDateString("en-US", { year, month: "short", day: "numeric" })` unless both are same calendar day but still differ by >60s — then include time on both rows so the distinction is readable (optional polish; default can keep date-only if product prefers less noise).
 
@@ -158,11 +158,11 @@ No React island; plain Astro + inline styles as today. Footer remains below the 
 
 All object I/O continues through `createStorage()` → Files `Files` instance:
 
-| Operation | SDK | Notes |
-| --- | --- | --- |
-| Pre-put existence / prior mtime / prior metadata | `store.head(key)` or existing `existingSize` + head | Use `lastModified` + `metadata` from `StoredFile` |
-| Write with stamp | `store.upload(key, bytes, { contentType, cacheControl, metadata })` | Merge provenance + visibility + `uploaded-at` |
-| Public read meta | `store.head(key)` already in `resolvePublicObject` | Map fields in JSON builder |
+| Operation                                        | SDK                                                                 | Notes                                             |
+| ------------------------------------------------ | ------------------------------------------------------------------- | ------------------------------------------------- |
+| Pre-put existence / prior mtime / prior metadata | `store.head(key)` or existing `existingSize` + head                 | Use `lastModified` + `metadata` from `StoredFile` |
+| Write with stamp                                 | `store.upload(key, bytes, { contentType, cacheControl, metadata })` | Merge provenance + visibility + `uploaded-at`     |
+| Public read meta                                 | `store.head(key)` already in `resolvePublicObject`                  | Map fields in JSON builder                        |
 
 Do **not** call R2 `customMetadata` APIs via `files.raw` for this feature. If a future adapter lacks metadata round-trip, dual dates degrade to lastModified-only (single field) without breaking uploads.
 
@@ -217,7 +217,9 @@ CSS (wide):
 
 ```css
 @media (min-width: 1080px) {
-  .shell { width: min(1200px, calc(100% - 48px)); }
+  .shell {
+    width: min(1200px, calc(100% - 48px));
+  }
   .stage {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
@@ -229,18 +231,20 @@ CSS (wide):
     max-height: 78vh;
     overflow: auto;
   }
-  .media { max-height: 78vh; }
+  .media {
+    max-height: 78vh;
+  }
 }
 ```
 
 ## 11. Error handling
 
-| Failure | Behavior |
-| --- | --- |
-| `resolveTitles` slow/fail | omit live title; keep stamp or ref-only chip |
-| Invalid / missing `uploaded-at` | `uploaded` falls back to `lastModified` |
-| Adapter without metadata | single date field; puts still succeed |
-| Private file | unchanged `auth_required` branch; no title resolve after 401 |
+| Failure                         | Behavior                                                     |
+| ------------------------------- | ------------------------------------------------------------ |
+| `resolveTitles` slow/fail       | omit live title; keep stamp or ref-only chip                 |
+| Invalid / missing `uploaded-at` | `uploaded` falls back to `lastModified`                      |
+| Adapter without metadata        | single date field; puts still succeed                        |
+| Private file                    | unchanged `auth_required` branch; no title resolve after 401 |
 
 Public CSP / noindex / no-store headers unchanged from the file-page polish posture.
 
@@ -275,11 +279,11 @@ Public CSP / noindex / no-store headers unchanged from the file-page polish post
 
 ## 15. Decisions log
 
-| # | Decision | Choice |
-| --- | --- | --- |
-| Title source | Stamped + live resolve (like rail) | approved |
+| #                    | Decision                                                | Choice   |
+| -------------------- | ------------------------------------------------------- | -------- |
+| Title source         | Stamped + live resolve (like rail)                      | approved |
 | First-upload storage | Files SDK metadata `uploaded-at`, preserve on overwrite | approved |
-| Layout | Media left, meta+actions right ≥1080px | approved |
-| Architecture | Enrich public-file API + page layout | approved |
-| Gallery parity | Out of scope this PR | approved |
-| Dual-date display | Both when day differs or \|Δ\| > 60s | approved |
+| Layout               | Media left, meta+actions right ≥1080px                  | approved |
+| Architecture         | Enrich public-file API + page layout                    | approved |
+| Gallery parity       | Out of scope this PR                                    | approved |
+| Dual-date display    | Both when day differs or \|Δ\| > 60s                    | approved |

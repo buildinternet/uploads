@@ -24,25 +24,27 @@
 
 ## File map
 
-| File | Responsibility |
-| --- | --- |
-| `apps/api/src/files-core.ts` | Stamp/preserve `uploaded-at` on `putObject`; `existingHead` replaces size-only preflight |
-| `apps/api/src/routes/public-files.ts` | Emit `uploaded`/`modified`/`github.title`; call `resolveTitles` |
-| `apps/web/src/lib/public-file.ts` | DTO types + validation for `modified` and `github.title`; pure date/display helpers |
-| `apps/web/src/lib/public-file.test.ts` | Validator + helper tests |
-| `apps/web/src/pages/f/[workspace]/[...key].astro` | Chip title, dual dates, rail CSS |
-| `apps/api/test/routes-public-files.test.ts` | Integration tests for public JSON |
-| `docs/api.md` | Only if public files response is already documented — note new fields |
+| File                                              | Responsibility                                                                           |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `apps/api/src/files-core.ts`                      | Stamp/preserve `uploaded-at` on `putObject`; `existingHead` replaces size-only preflight |
+| `apps/api/src/routes/public-files.ts`             | Emit `uploaded`/`modified`/`github.title`; call `resolveTitles`                          |
+| `apps/web/src/lib/public-file.ts`                 | DTO types + validation for `modified` and `github.title`; pure date/display helpers      |
+| `apps/web/src/lib/public-file.test.ts`            | Validator + helper tests                                                                 |
+| `apps/web/src/pages/f/[workspace]/[...key].astro` | Chip title, dual dates, rail CSS                                                         |
+| `apps/api/test/routes-public-files.test.ts`       | Integration tests for public JSON                                                        |
+| `docs/api.md`                                     | Only if public files response is already documented — note new fields                    |
 
 ---
 
 ### Task 1: Stamp and preserve `uploaded-at` on put
 
 **Files:**
+
 - Modify: `apps/api/src/files-core.ts` (`existingSize` → richer preflight, `putObject` metadata bag)
 - Test: `apps/api/test/routes-public-files.test.ts` (route-level puts + head via FakeR2) **or** add `apps/api/test/files-core-uploaded-at.test.ts` if unit-testing `putObject` is easier with existing fixtures
 
 **Interfaces:**
+
 - Consumes: Files SDK `StoredFile` from `store.head` (`size`, `lastModified?`, `metadata?`)
 - Produces: object custom metadata always includes `uploaded-at` ISO string after every successful `putObject`
 - Constant: `UPLOADED_AT_META_KEY = "uploaded-at"` (export from `files-core.ts` or a one-line export next to visibility key for tests)
@@ -192,10 +194,12 @@ EOF
 ### Task 2: Public JSON `uploaded` + `modified`
 
 **Files:**
+
 - Modify: `apps/api/src/routes/public-files.ts`
 - Modify: `apps/api/test/routes-public-files.test.ts`
 
 **Interfaces:**
+
 - Consumes: `meta.lastModified`, `meta.metadata?.["uploaded-at"]` from `resolvePublicObject`
 - Produces: response fields `uploaded?: string`, `modified?: string` per spec §4–5
 
@@ -242,10 +246,10 @@ const UPLOADED_AT_META_KEY = "uploaded-at"; // or import from files-core
 /** Same-second tolerance so storage noise does not force dual fields. */
 const DATE_EQUAL_MS = 1000;
 
-function publicDateFields(meta: {
-  lastModified?: number;
-  metadata?: Record<string, string>;
-}): { uploaded?: string; modified?: string } {
+function publicDateFields(meta: { lastModified?: number; metadata?: Record<string, string> }): {
+  uploaded?: string;
+  modified?: string;
+} {
   const modifiedIso =
     meta.lastModified != null && Number.isFinite(meta.lastModified)
       ? new Date(meta.lastModified).toISOString()
@@ -305,11 +309,13 @@ EOF
 ### Task 3: `github.title` on public files (stamp + live resolve)
 
 **Files:**
+
 - Modify: `apps/api/src/routes/public-files.ts` (`deriveGithubContext`, GET handler)
 - Modify: `apps/api/test/routes-public-files.test.ts`
 - Optionally extend `makeEnv` to include a minimal `GITHUB_CACHE` KV + App vars when testing live resolve
 
 **Interfaces:**
+
 - Consumes: `resolveTitles(env, refs)` from `apps/api/src/github-titles.ts` → `Record<string, TitleInfo | null>`
 - Produces: `github.title?: string` on the public DTO
 
@@ -456,10 +462,12 @@ EOF
 ### Task 4: Web DTO validation + pure display helpers
 
 **Files:**
+
 - Modify: `apps/web/src/lib/public-file.ts`
 - Modify: `apps/web/src/lib/public-file.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `GithubContext.title?: string`
   - `PublicFile.modified: string | null` (or optional; match `uploaded` nullability style)
@@ -504,17 +512,11 @@ it("rejects overlong github.title and bad modified", () => {
 describe("shouldShowModified", () => {
   it("is false when modified missing or within 60s", () => {
     expect(shouldShowModified("2026-07-01T00:00:00.000Z", null)).toBe(false);
-    expect(
-      shouldShowModified("2026-07-01T00:00:00.000Z", "2026-07-01T00:00:30.000Z"),
-    ).toBe(false);
+    expect(shouldShowModified("2026-07-01T00:00:00.000Z", "2026-07-01T00:00:30.000Z")).toBe(false);
   });
   it("is true when day differs or delta > 60s", () => {
-    expect(
-      shouldShowModified("2026-07-01T00:00:00.000Z", "2026-07-02T00:00:00.000Z"),
-    ).toBe(true);
-    expect(
-      shouldShowModified("2026-07-01T00:00:00.000Z", "2026-07-01T00:02:00.000Z"),
-    ).toBe(true);
+    expect(shouldShowModified("2026-07-01T00:00:00.000Z", "2026-07-02T00:00:00.000Z")).toBe(true);
+    expect(shouldShowModified("2026-07-01T00:00:00.000Z", "2026-07-01T00:02:00.000Z")).toBe(true);
   });
 });
 ```
@@ -572,10 +574,7 @@ export function shouldShowModified(
   return true;
 }
 
-export function formatFileDate(
-  iso: string,
-  opts?: { withTime?: boolean },
-): string | null {
+export function formatFileDate(iso: string, opts?: { withTime?: boolean }): string | null {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return null;
   if (opts?.withTime) {
@@ -637,9 +636,11 @@ EOF
 ### Task 5: Share page UI — chip title, dual dates, large-screen rail
 
 **Files:**
+
 - Modify: `apps/web/src/pages/f/[workspace]/[...key].astro`
 
 **Interfaces:**
+
 - Consumes: `file.github.title`, `file.uploaded`, `file.modified`, helpers from Task 4
 
 - [ ] **Step 1: Frontmatter — compute display values**
@@ -657,11 +658,7 @@ import {
 const uploadedIso = file?.uploaded ?? null;
 const modifiedIso = file?.modified ?? null;
 const showModified = shouldShowModified(uploadedIso, modifiedIso);
-const useTime =
-  showModified &&
-  uploadedIso &&
-  modifiedIso &&
-  sameUtcDay(uploadedIso, modifiedIso);
+const useTime = showModified && uploadedIso && modifiedIso && sameUtcDay(uploadedIso, modifiedIso);
 const uploadedLabel = uploadedIso ? formatFileDate(uploadedIso, { withTime: !!useTime }) : null;
 const modifiedLabel =
   showModified && modifiedIso ? formatFileDate(modifiedIso, { withTime: !!useTime }) : null;
@@ -699,9 +696,21 @@ const modifiedLabel =
 CSS additions:
 
 ```css
-.gh-chip-text { display:flex; flex-direction:column; gap:2px; min-width:0; }
-.gh-chip-title { overflow-wrap:anywhere; font-weight:600; }
-.gh-chip-ref { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
+.gh-chip-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.gh-chip-title {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.gh-chip-ref {
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
 ```
 
 - [ ] **Step 3: Dual date rows**
@@ -720,13 +729,22 @@ CSS additions:
 Update shell + stage styles (keep narrow stack):
 
 ```css
-.shell { width:min(var(--width-viewer, 1080px),calc(100% - 48px)); margin:auto; padding:36px 0 64px; }
+.shell {
+  width: min(var(--width-viewer, 1080px), calc(100% - 48px));
+  margin: auto;
+  padding: 36px 0 64px;
+}
 /* ...existing... */
-.details { padding:18px 20px 22px; border-top:1px solid var(--line); }
+.details {
+  padding: 18px 20px 22px;
+  border-top: 1px solid var(--line);
+}
 
 @media (min-width: 1080px) {
   /* align with signed-in --bp-rail (1080px); media queries can't read custom props */
-  .shell { width: min(1200px, calc(100% - 48px)); }
+  .shell {
+    width: min(1200px, calc(100% - 48px));
+  }
   .stage {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
@@ -747,8 +765,13 @@ Update shell + stage styles (keep narrow stack):
   }
 }
 @media (max-width: 760px) {
-  .shell { width: min(100% - 32px, 1080px); padding-top: 24px; }
-  .media { min-height: 220px; }
+  .shell {
+    width: min(100% - 32px, 1080px);
+    padding-top: 24px;
+  }
+  .media {
+    min-height: 220px;
+  }
 }
 ```
 
@@ -779,6 +802,7 @@ EOF
 ### Task 6: Docs touch (only if needed) + final verification
 
 **Files:**
+
 - Modify (conditional): `docs/api.md` — only if `GET /public/files` response is already documented
 - No changeset required (private workers + web app; no `@buildinternet/uploads` user-facing package change unless you also change CLI)
 
@@ -821,22 +845,22 @@ Do not open the PR unless asked. Summarize commits on `feat/file-share-page-titl
 
 ## Spec coverage checklist
 
-| Spec requirement | Task |
-| --- | --- |
-| `uploaded-at` on create / preserve on overwrite | Task 1 |
-| Legacy overwrite seeds from prior lastModified | Task 1 |
-| Visibility rewrite preserves stamp | Task 1 (automatic via metadata spread) + optional assert |
-| Public `uploaded` / `modified` fields | Task 2 |
-| Omit `modified` when ~equal | Task 2 |
-| `github.title` stamp + live resolve | Task 3 |
-| Resolve failure never 500s | Task 3 |
-| Web DTO validation | Task 4 |
-| Dual-date UI (60s / day rules + time if same day) | Task 4–5 |
-| Chip title + secondary ref | Task 5 |
-| Rail ≥1080px | Task 5 |
-| Files SDK only | Tasks 1–2 |
-| Gallery out of scope | — |
-| No public batch titles API | Task 3 (inline resolve only) |
+| Spec requirement                                  | Task                                                     |
+| ------------------------------------------------- | -------------------------------------------------------- |
+| `uploaded-at` on create / preserve on overwrite   | Task 1                                                   |
+| Legacy overwrite seeds from prior lastModified    | Task 1                                                   |
+| Visibility rewrite preserves stamp                | Task 1 (automatic via metadata spread) + optional assert |
+| Public `uploaded` / `modified` fields             | Task 2                                                   |
+| Omit `modified` when ~equal                       | Task 2                                                   |
+| `github.title` stamp + live resolve               | Task 3                                                   |
+| Resolve failure never 500s                        | Task 3                                                   |
+| Web DTO validation                                | Task 4                                                   |
+| Dual-date UI (60s / day rules + time if same day) | Task 4–5                                                 |
+| Chip title + secondary ref                        | Task 5                                                   |
+| Rail ≥1080px                                      | Task 5                                                   |
+| Files SDK only                                    | Tasks 1–2                                                |
+| Gallery out of scope                              | —                                                        |
+| No public batch titles API                        | Task 3 (inline resolve only)                             |
 
 ## Self-review notes
 
