@@ -29,7 +29,8 @@ const consoleCors = cors({
     if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return origin;
     return null;
   },
-  allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+  // PATCH is used by browser console clients for file metadata + galleries.
+  allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowHeaders: ["Authorization", "Content-Type"],
   maxAge: 86400,
 });
@@ -49,7 +50,10 @@ const adminUiCors = cors({
     return null;
   },
   credentials: true,
-  allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+  // PATCH: admin workspace limits, OAuth client edits, /me member role +
+  // file-visibility updates. Omitting it fails the browser preflight with
+  // "Method PATCH is not allowed by Access-Control-Allow-Methods".
+  allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowHeaders: ["Content-Type"],
   maxAge: 86400,
 });
