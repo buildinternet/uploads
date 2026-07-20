@@ -275,6 +275,7 @@ export const prerender = false;
     `;
 
       let loaded = false;
+      let limitsLoaded = false;
       details.addEventListener("toggle", () => {
         void (async () => {
           if (!details.open || loaded) return;
@@ -304,23 +305,29 @@ export const prerender = false;
                 ? `<ul>${invites.map((i) => `<li><span>${escapeHtml(i.email)}</span><span class="role">pending</span></li>`).join("")}</ul>`
                 : "";
             }
-            const limitsEl = details.querySelector<HTMLElement>(".limits");
-            if (limitsEl) {
-              try {
-                const limitsData = await apiGet<LimitsResponse>(
-                  `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/limits`,
-                );
-                renderLimitsForm(limitsEl, ws.workspace, limitsData);
-              } catch {
-                limitsEl.innerHTML = `<p class="muted">Failed to load limits.</p>`;
-              }
-            }
             // Only mark as loaded once the fetch actually succeeded — a failure
             // leaves `loaded` false so re-toggling the <details> retries instead
             // of permanently showing "Failed to load members."
             loaded = true;
           } catch {
             if (membersEl) membersEl.textContent = "Failed to load members.";
+          }
+        })();
+        // Limits apply to every workspace regardless of org, and their load
+        // must not depend on the members/invites fetch — so run it in its own
+        // block with its own retry flag (only set on success).
+        void (async () => {
+          if (!details.open || limitsLoaded) return;
+          const limitsEl = details.querySelector<HTMLElement>(".limits");
+          if (!limitsEl) return;
+          try {
+            const limitsData = await apiGet<LimitsResponse>(
+              `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/limits`,
+            );
+            renderLimitsForm(limitsEl, ws.workspace, limitsData);
+            limitsLoaded = true;
+          } catch {
+            limitsEl.innerHTML = `<p class="muted">Failed to load limits.</p>`;
           }
         })();
       });

@@ -296,8 +296,20 @@ export const adminUi = new Hono<SessionVars>()
   // The whole record is written back so non-budget fields are preserved.
   .patch("/workspaces/:name/limits", async (c) => {
     const name = c.req.param("name");
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
     const record = await loadEditableWorkspace(c.env, name);
-    const patch = validateLimitsPatch(await c.req.json().catch(() => ({})));
+    // Distinguish malformed JSON (400) from an intentionally empty object
+    // (a no-op patch): swallowing a parse failure into `{}` would silently
+    // 200 on a broken request and rewrite the record unchanged.
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      throw new ValidationError("request body must be valid JSON", { code: "invalid_limit" });
+    }
+    const patch = validateLimitsPatch(body);
     for (const field of LIMIT_FIELDS) {
       if (!(field in patch)) continue;
       const value = patch[field];

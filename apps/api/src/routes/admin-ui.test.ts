@@ -576,4 +576,38 @@ describe("workspace limits editing", () => {
     const body = (await res.json()) as { usage: { bytes: number } | null };
     expect(body.usage).toEqual({ bytes: 0, uploads: 0 });
   });
+
+  it("PATCH 429s when the per-workspace write budget is exhausted", async () => {
+    const { env } = limitsEnv(ADMIN_USER, REC);
+    (env as Env & { WRITE_LIMITER: { limit: () => Promise<{ success: boolean }> } }).WRITE_LIMITER =
+      { limit: async () => ({ success: false }) };
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/limits",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ maxStorageBytes: 1 }),
+      },
+      env,
+    );
+    expect(res.status).toBe(429);
+  });
+
+  it("PATCH 400s on a malformed JSON body (not a silent no-op)", async () => {
+    const { env, store } = limitsEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/limits",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: "{ not valid json",
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    const payload = (await res.json()) as { error?: { code?: string } };
+    expect(payload.error?.code).toBe("invalid_limit");
+    // The record must be untouched — no write happened.
+    expect(JSON.parse(store.get("ws:acme")!).maxStorageBytes).toBe(250_000_000);
+  });
 });
