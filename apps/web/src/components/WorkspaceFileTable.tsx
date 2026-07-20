@@ -17,15 +17,18 @@
  */
 import { Callout } from "@uploads/ui";
 import "@uploads/ui/styles.css";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { ConnectedWorkSetter } from "../lib/workspace-rail";
-import { connectedWork, exactPrMatch, type GhWorkItem } from "../lib/gh-context";
+import { applyGhTitles, connectedWork, exactPrMatch, type GhWorkItem } from "../lib/gh-context";
 import {
+  GITHUB_TITLES_MAX_REFS,
+  getGithubTitles,
   getMyWorkspaces,
   listWorkspaceFolder,
   searchWorkspaceFiles,
   setFileVisibility,
   type FileVisibility,
+  type GithubTitleMap,
 } from "../lib/api-client";
 import { filePath, formatBytes } from "../lib/public-file";
 import {
@@ -215,6 +218,8 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
   const [togglingKeys, setTogglingKeys] = useState<ReadonlySet<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
+  const [githubTitles, setGithubTitles] = useState<GithubTitleMap | null>(null);
+  const githubTitlesGeneration = useRef(0);
 
   const filtersKey = filters.map((f) => `${f.key}=${f.value}`).join("&");
   const filtered = filters.length > 0;
@@ -241,6 +246,8 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
   useEffect(() => {
     if (info.status !== "ready" || info.communal) return;
     let cancelled = false;
+    githubTitlesGeneration.current += 1;
+    setGithubTitles(null);
     setState({ status: "loading" });
     async function run() {
       if (filtered) {
@@ -273,13 +280,36 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiOrigin, workspace, info, filtered, filtersKey, prefix]);
 
-  // Push the current row set to the rail + banner on every resolved listing.
+  // Resolve connected-work titles once per listing. The generation guard keeps
+  // a slower, superseded listing from repainting the current banner or rail.
+  useEffect(() => {
+    if (state.status !== "ok") return;
+    const generation = githubTitlesGeneration.current;
+    let cancelled = false;
+    const items = connectedWork(state.files);
+    const refs = [...new Set(items.map((item) => item.ref))].slice(0, GITHUB_TITLES_MAX_REFS);
+    if (!refs.length) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    void getGithubTitles(apiOrigin, workspace, refs).then((titles) => {
+      if (cancelled || generation !== githubTitlesGeneration.current) return;
+      setGithubTitles(titles);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiOrigin, workspace, state]);
+
+  // Share the table's title resolution with the rail so both surfaces paint
+  // the same label without the rail issuing a second request.
   useEffect(() => {
     if (state.status !== "ok") return;
     const setter = (window as unknown as { __uploadsSetConnectedWork?: ConnectedWorkSetter })
       .__uploadsSetConnectedWork;
-    setter?.(connectedWork(state.files));
-  }, [state]);
+    setter?.(connectedWork(state.files), githubTitles ?? undefined);
+  }, [githubTitles, state]);
 
   // Close the open `⋯` menu on outside click / Escape.
   useEffect(() => {
@@ -450,7 +480,8 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
     );
   }
 
-  const match: GhWorkItem | null = state.status === "ok" ? exactPrMatch(state.files) : null;
+  const bareMatch: GhWorkItem | null = state.status === "ok" ? exactPrMatch(state.files) : null;
+  const match = bareMatch && githubTitles ? applyGhTitles([bareMatch], githubTitles)[0] : bareMatch;
   const count = state.status === "ok" ? state.files.length : 0;
   const folderCount = state.status === "ok" ? state.prefixes.length : 0;
   const topLabel =

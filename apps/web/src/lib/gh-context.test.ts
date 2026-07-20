@@ -56,6 +56,15 @@ describe("gh-context", () => {
   it("exactPrMatch: one pull ref across all tagged files", () => {
     expect(exactPrMatch([{ metadata: pr }, { metadata: pr }])!.ref).toBe("o/uploads#1789");
   });
+  it("exactPrMatch can use a fetched title while keeping its ref fallback", () => {
+    const match = exactPrMatch([{ metadata: pr }])!;
+    expect(
+      applyGhTitles([match], {
+        "o/uploads#1789": { title: "Use the resolved title", state: "open", kind: "pull" },
+      })[0].label,
+    ).toBe("Use the resolved title");
+    expect(applyGhTitles([match], { "o/uploads#1789": null })[0].label).toBe("o/uploads#1789");
+  });
   it("exactPrMatch: null on mixed refs or when the single ref is an issue", () => {
     expect(exactPrMatch([{ metadata: pr }, { metadata: issue }])).toBeNull();
     expect(exactPrMatch([{ metadata: issue }])).toBeNull();
