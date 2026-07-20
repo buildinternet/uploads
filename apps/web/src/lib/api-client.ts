@@ -344,8 +344,8 @@ export type ManageResult =
       reason: RequestFailure | "server" | "forbidden" | "not_found" | "invalid";
     };
 
-function manageResultFor(status: number, ok: boolean): ManageResult {
-  if (ok) return { kind: "ok" };
+function manageResultFor(status: number): ManageResult {
+  if (status >= 200 && status < 300) return { kind: "ok" };
   if (status === 403) return { kind: "unavailable", reason: "forbidden" };
   if (status === 404) return { kind: "unavailable", reason: "not_found" };
   if (status === 400) return { kind: "unavailable", reason: "invalid" };
@@ -388,7 +388,7 @@ async function manageMutation(
     ...init,
   });
   if (result.kind === "unavailable") return result;
-  return manageResultFor(result.response.status, result.response.ok);
+  return manageResultFor(result.response.status);
 }
 
 /** DELETE /me/workspaces/:name/invites/:id */

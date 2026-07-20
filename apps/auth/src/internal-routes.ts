@@ -29,6 +29,20 @@ async function actorRole(
   return row?.role ?? null;
 }
 
+/** A target member row (id/userId/role) scoped to the org, or null if none. */
+async function loadTargetMember(
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  orgId: string,
+  memberId: string,
+): Promise<{ id: string; userId: string; role: string } | null> {
+  const [row] = await db
+    .select({ id: schema.member.id, userId: schema.member.userId, role: schema.member.role })
+    .from(schema.member)
+    .where(and(eq(schema.member.id, memberId), eq(schema.member.organizationId, orgId)))
+    .limit(1);
+  return row ?? null;
+}
+
 // Lane 1 (operator OAuth admin panel contract, .context/2026-07-18-oauth-admin-panel-contract.md):
 // validation error shape differs from the rest of this file's errorJson —
 // the contract locks in `{error:"invalid_request", message}` for these routes.
@@ -378,21 +392,25 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     if (!org) {
       return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
     }
-    const role = await actorRole(db, org.id, requestActorUserId);
+    // Actor and invite lookups are independent; the authz check still gates
+    // before the not-found check below.
+    const [role, [invite]] = await Promise.all([
+      actorRole(db, org.id, requestActorUserId),
+      db
+        .select({ id: schema.invitation.id })
+        .from(schema.invitation)
+        .where(
+          and(
+            eq(schema.invitation.id, inviteId),
+            eq(schema.invitation.organizationId, org.id),
+            eq(schema.invitation.status, "pending"),
+          ),
+        )
+        .limit(1),
+    ]);
     if (role !== "owner" && role !== "admin") {
       return c.json(errorJson("actor_not_authorized", "actor must be an org admin or owner"), 403);
     }
-    const [invite] = await db
-      .select({ id: schema.invitation.id })
-      .from(schema.invitation)
-      .where(
-        and(
-          eq(schema.invitation.id, inviteId),
-          eq(schema.invitation.organizationId, org.id),
-          eq(schema.invitation.status, "pending"),
-        ),
-      )
-      .limit(1);
     if (!invite) {
       return c.json(errorJson("invite_not_found", "no pending invite with that id"), 404);
     }
@@ -414,11 +432,12 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     if (!org) {
       return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
     }
-    const [target] = await db
-      .select({ id: schema.member.id, userId: schema.member.userId, role: schema.member.role })
-      .from(schema.member)
-      .where(and(eq(schema.member.id, memberId), eq(schema.member.organizationId, org.id)))
-      .limit(1);
+    // Target and actor lookups are independent; the ordered checks below run
+    // against the already-fetched rows.
+    const [target, role] = await Promise.all([
+      loadTargetMember(db, org.id, memberId),
+      actorRole(db, org.id, requestActorUserId),
+    ]);
     if (!target) {
       return c.json(errorJson("member_not_found", "no member with that id in this org"), 404);
     }
@@ -428,7 +447,6 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     if (target.role === "owner") {
       return c.json(errorJson("cannot_modify_owner", "the workspace owner cannot be removed"), 403);
     }
-    const role = await actorRole(db, org.id, requestActorUserId);
     if (role !== "owner" && role !== "admin") {
       return c.json(errorJson("actor_not_authorized", "actor must be an org admin or owner"), 403);
     }
@@ -461,11 +479,12 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     if (!org) {
       return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
     }
-    const [target] = await db
-      .select({ id: schema.member.id, userId: schema.member.userId, role: schema.member.role })
-      .from(schema.member)
-      .where(and(eq(schema.member.id, memberId), eq(schema.member.organizationId, org.id)))
-      .limit(1);
+    // Target and actor lookups are independent; the ordered checks below run
+    // against the already-fetched rows.
+    const [target, role] = await Promise.all([
+      loadTargetMember(db, org.id, memberId),
+      actorRole(db, org.id, requestActorUserId),
+    ]);
     if (!target) {
       return c.json(errorJson("member_not_found", "no member with that id in this org"), 404);
     }
@@ -475,7 +494,6 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     if (target.role === "owner") {
       return c.json(errorJson("cannot_modify_owner", "the workspace owner's role is fixed"), 403);
     }
-    const role = await actorRole(db, org.id, requestActorUserId);
     if (role !== "owner") {
       return c.json(
         errorJson("actor_not_authorized", "only an owner can change member roles"),
