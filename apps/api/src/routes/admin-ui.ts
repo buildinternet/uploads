@@ -27,6 +27,9 @@ import {
   sessionAuth,
   type SessionVars,
 } from "../session-auth";
+import { getWorkspaceUsage } from "../usage";
+import { isPurgedTombstone, loadWorkspaceRecordRaw, type WorkspaceRecord } from "../workspace";
+import { LIMIT_FIELDS, validateLimitsPatch } from "../workspace-limits";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -94,6 +97,38 @@ async function proxyOauthClients(
     });
   }
   return Response.json(payload, { status: response.status });
+}
+
+/**
+ * Raw-reads ws:<name> for a limits edit and 404s on missing / soft-deleted /
+ * purged-tombstone records (an admin can't edit limits on a workspace that no
+ * longer serves). Uses the uncached raw read so the edit sees the freshest
+ * record. Returns a live WorkspaceRecord the caller mutates and writes back.
+ */
+async function loadEditableWorkspace(env: Env, name: string): Promise<WorkspaceRecord> {
+  const record = await loadWorkspaceRecordRaw(env, name);
+  if (!record || isPurgedTombstone(record) || record.deletedAt) {
+    throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+  }
+  return record;
+}
+
+/** Response body shared by GET and PATCH: current budget limits + usage. */
+async function limitsResponse(env: Env, name: string, record: WorkspaceRecord) {
+  const limits = {
+    maxStorageBytes: record.maxStorageBytes ?? null,
+    maxUploadsPerPeriod: record.maxUploadsPerPeriod ?? null,
+    maxUploadBytes: record.maxUploadBytes ?? null,
+    maxVideoUploadBytes: record.maxVideoUploadBytes ?? null,
+  };
+  let usage: { bytes: number; uploads: number } | null = null;
+  try {
+    const u = await getWorkspaceUsage(env.DB, name);
+    usage = { bytes: u.bytes, uploads: u.uploadsInPeriod };
+  } catch {
+    usage = null;
+  }
+  return { workspace: name, limits, usage };
 }
 
 export const adminUi = new Hono<SessionVars>()
@@ -247,6 +282,42 @@ export const adminUi = new Hono<SessionVars>()
       },
       201,
     );
+  })
+
+  // Read the four budget limits (+ current usage) for one workspace.
+  .get("/workspaces/:name/limits", async (c) => {
+    const name = c.req.param("name");
+    const record = await loadEditableWorkspace(c.env, name);
+    return c.json(await limitsResponse(c.env, name, record));
+  })
+
+  // Patch the four budget limits. Each field is optional; a positive integer
+  // sets the cap, null clears it (-> unlimited), omitted leaves it unchanged.
+  // The whole record is written back so non-budget fields are preserved.
+  .patch("/workspaces/:name/limits", async (c) => {
+    const name = c.req.param("name");
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+    const record = await loadEditableWorkspace(c.env, name);
+    // Distinguish malformed JSON (400) from an intentionally empty object
+    // (a no-op patch): swallowing a parse failure into `{}` would silently
+    // 200 on a broken request and rewrite the record unchanged.
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      throw new ValidationError("request body must be valid JSON", { code: "invalid_limit" });
+    }
+    const patch = validateLimitsPatch(body);
+    for (const field of LIMIT_FIELDS) {
+      if (!(field in patch)) continue;
+      const value = patch[field];
+      if (value === null) delete record[field];
+      else record[field] = value;
+    }
+    await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(record));
+    return c.json(await limitsResponse(c.env, name, record));
   })
 
   // OAuth client registrations — proxied 1:1 to Lane 1's internal routes

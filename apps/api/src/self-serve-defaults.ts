@@ -2,12 +2,14 @@
  * Record template for self-serve workspaces (spec 2026-07-14, D3).
  * Deliberately tighter than the operator template in
  * scripts/workspace-limit-defaults.json (25 GB): self-serve tenants start at
- * 1 GB / 3000 uploads per UTC month; raises are admin-only.
+ * 250 MB / 3000 uploads per UTC month; raises are admin-only. Uploads are
+ * WebP-converted by default, so 250 MB of stored assets holds far more
+ * screenshots than the raw byte figure suggests.
  */
 import type { WorkspaceRecord } from "./workspace";
 
 export const SELF_SERVE_LIMITS = {
-  maxStorageBytes: 1_000_000_000,
+  maxStorageBytes: 250_000_000,
   maxUploadsPerPeriod: 3000,
   maxUploadBytes: 25_000_000,
   maxVideoUploadBytes: 8_000_000,

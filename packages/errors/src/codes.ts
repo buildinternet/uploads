@@ -73,6 +73,7 @@ export const ERROR_CODES = [
   "invalid_scopes",
   "invalid_label",
   "invalid_expires",
+  "invalid_limit",
   "hash_prefix_or_label_required",
 ] as const;
 
