@@ -12,9 +12,11 @@ import { findGalleriesByReference, listGalleryItems, type GalleryCursor } from "
 import { galleryUrl, hydrateOwnerGallery } from "./gallery-service";
 import { parseExternalReference } from "./external-references";
 import type { WorkspaceRecord } from "./workspace";
+import { githubFetch, githubHeaders, installationToken, type GithubAppConfig } from "./github-app";
 import {
   attachmentsCommentBody,
   ghKeyPrefix,
+  ATTACHMENTS_MARKER,
   type AttachmentItem,
   type GalleryCommentItem,
   type GhTarget,
@@ -81,4 +83,77 @@ export async function gatherCommentBody(
   const count = items.length + galleries.length;
   if (count === 0) return { skip: true };
   return { skip: false, body: attachmentsCommentBody(items, galleries), count };
+}
+
+interface GhComment {
+  id: number;
+  body: string;
+  html_url: string;
+}
+
+/**
+ * Create or patch the one managed comment (identified by `ATTACHMENTS_MARKER`)
+ * on a PR/issue, authenticated as the GitHub App installation (not the
+ * calling user). Degrade-safe: any failure — 403, other non-2xx, a thrown
+ * token mint, or a network error — resolves to a `degrade` result rather than
+ * throwing, since a failed bot comment must never fail the caller's request.
+ */
+export async function upsertBotComment(
+  env: Env,
+  cfg: GithubAppConfig,
+  installationId: number,
+  target: Pick<GhTarget, "repo" | "num">,
+  body: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<
+  { action: "created" | "updated"; commentUrl: string } | { degrade: "forbidden" | "unavailable" }
+> {
+  const token = await installationToken(env, cfg, installationId, fetchImpl);
+  if (!token) return { degrade: "unavailable" };
+  const base = `https://api.github.com/repos/${target.repo}`;
+  const jsonHeaders = { ...githubHeaders(token), "content-type": "application/json" };
+
+  let listRes: Response;
+  try {
+    listRes = await githubFetch(fetchImpl, `${base}/issues/${target.num}/comments?per_page=100`, {
+      headers: githubHeaders(token),
+    });
+  } catch {
+    return { degrade: "unavailable" };
+  }
+  if (listRes.status === 403) return { degrade: "forbidden" };
+  if (!listRes.ok) return { degrade: "unavailable" };
+  const comments = (await listRes.json().catch(() => [])) as GhComment[];
+  const existing = Array.isArray(comments)
+    ? comments.find((c) => typeof c.body === "string" && c.body.includes(ATTACHMENTS_MARKER))
+    : undefined;
+
+  const write = async (
+    url: string,
+    method: "POST" | "PATCH",
+  ): Promise<
+    { ok: true; commentUrl: string } | { ok: false; degrade: "forbidden" | "unavailable" }
+  > => {
+    let res: Response;
+    try {
+      res = await githubFetch(fetchImpl, url, {
+        method,
+        headers: jsonHeaders,
+        body: JSON.stringify({ body }),
+      });
+    } catch {
+      return { ok: false, degrade: "unavailable" };
+    }
+    if (res.status === 403) return { ok: false, degrade: "forbidden" };
+    if (!res.ok) return { ok: false, degrade: "unavailable" };
+    const parsed = (await res.json().catch(() => ({}))) as { html_url?: string };
+    return { ok: true, commentUrl: parsed.html_url ?? "" };
+  };
+
+  if (existing) {
+    const r = await write(`${base}/issues/comments/${existing.id}`, "PATCH");
+    return r.ok ? { action: "updated", commentUrl: r.commentUrl } : { degrade: r.degrade };
+  }
+  const r = await write(`${base}/issues/${target.num}/comments`, "POST");
+  return r.ok ? { action: "created", commentUrl: r.commentUrl } : { degrade: r.degrade };
 }
