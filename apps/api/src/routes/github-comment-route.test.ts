@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { app } from "../index";
 import { sha256Hex, type WorkspaceRecord } from "../workspace";
 import { FakeKv } from "../../test/fake-kv";
+import { FakeR2Bucket } from "../../test/fake-r2";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
 import { GITHUB_APP_CFG_ENV } from "../../test/github-app-env";
 
@@ -65,5 +66,76 @@ describe("POST /v1/:workspace/github/comment", () => {
     const env = await seededEnv();
     const res = await post(env, { repo: "not-a-repo", num: 0, kind: "nope" });
     expect(res.status).toBe(400);
+  });
+
+  it("400s on a dot-only repo segment (path-traversal guard)", async () => {
+    const env = await seededEnv();
+    const res = await post(env, { repo: "../etc", num: 12, kind: "pull" });
+    expect(res.status).toBe(400);
+  });
+
+  it("posts as the bot and returns the upsert result end-to-end", async () => {
+    const hash = await sha256Hex(TOKEN);
+    const record: WorkspaceRecord = {
+      provider: "r2",
+      bucket: "b",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "acme/",
+      publicBaseUrl: "https://storage.uploads.sh",
+      tokens: [{ hash, createdAt: new Date().toISOString() }],
+    };
+    const registry = {
+      get: (async (key: string) =>
+        key === `ws:${WS}` ? record : null) as unknown as KVNamespace["get"],
+    };
+    const githubCache = new FakeKv();
+    githubCache.store.set("ghinst:acme/web", { value: "42" }); // installed
+    githubCache.store.set("ghtok:42", { value: "cached-token" }); // skip JWT mint
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", new Uint8Array([0x89, 0x50]), {
+      httpMetadata: { contentType: "image/png" },
+    });
+    // Minimal D1: null for the auth-token lookup, empty for the galleries read.
+    const db = {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => null,
+          all: async () => ({ results: [] }),
+          run: async () => ({}),
+        }),
+      }),
+    } as unknown as D1Database;
+    const env = {
+      REGISTRY: registry,
+      DB: db,
+      GITHUB_CACHE: githubCache,
+      UPLOADS_DEFAULT: bucket,
+      ...GITHUB_APP_CFG_ENV,
+    } as unknown as Env;
+
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
+      if (String(url).includes("/issues/12/comments")) {
+        return init.method === "POST"
+          ? new Response(
+              JSON.stringify({ id: 5, html_url: "https://github.com/acme/web/pull/12#c5" }),
+              { status: 201 },
+            )
+          : new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+    try {
+      const res = await post(env, { repo: "acme/web", num: 12, kind: "pull" });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        posted: true,
+        action: "created",
+        count: 1,
+        commentUrl: "https://github.com/acme/web/pull/12#c5",
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });

@@ -10,12 +10,15 @@ import { Hono } from "hono";
 import { gatherCommentBody, upsertBotComment } from "../github-comment";
 import { githubAppConfig, installationForRepo } from "../github-app";
 import type { GhTargetKind } from "../github-comment-render";
+import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
 
-// Same owner/name grammar as public-files.ts's deriveGithubContext, so a repo
-// string validates identically across the API.
+// Same owner/name grammar as public-files.ts's deriveGithubContext, plus a guard
+// against dot-only segments (".", "..") — unlike public-files this repo string is
+// interpolated into a server-side api.github.com path, where "../" would traverse.
 const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+const DOTS_ONLY_RE = /^\.+$/;
 
 function parseTarget(body: Record<string, unknown>): {
   repo: string;
@@ -23,9 +26,9 @@ function parseTarget(body: Record<string, unknown>): {
   kind: GhTargetKind;
 } {
   const repo = typeof body.repo === "string" ? body.repo : "";
-  const num = typeof body.num === "number" ? body.num : Number(body.num);
+  const num = typeof body.num === "number" ? body.num : NaN;
   const kind = body.kind;
-  if (!REPO_RE.test(repo))
+  if (!REPO_RE.test(repo) || repo.split("/").some((seg) => DOTS_ONLY_RE.test(seg)))
     throw new ValidationError("repo must be owner/name.", { code: "invalid_repo" });
   if (!Number.isSafeInteger(num) || num < 1)
     throw new ValidationError("num must be a positive integer.");
@@ -36,6 +39,7 @@ function parseTarget(body: Record<string, unknown>): {
 
 export const githubComment = new Hono<WorkspaceVars>().post(
   "/comment",
+  writeRateLimit,
   requireScope("files:read"),
   async (c) => {
     const target = parseTarget(await jsonBody(c));
