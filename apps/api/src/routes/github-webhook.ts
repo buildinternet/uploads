@@ -13,7 +13,7 @@ import type { WorkspaceVars } from "../workspace";
 export const githubWebhook = new Hono<WorkspaceVars>();
 
 githubWebhook.post("/", async (c) => {
-  const secret = c.env.GITHUB_WEBHOOK_SECRET;
+  const secret = c.env.GITHUB_APP_WEBHOOK_SECRET;
   if (!secret) return c.body(null, 503); // honest "not configured"; never pretend to process.
 
   const raw = await c.req.text();

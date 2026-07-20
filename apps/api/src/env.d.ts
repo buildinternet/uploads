@@ -30,10 +30,4 @@ interface Env {
    * true secret, so unset still disables title resolution gracefully.
    */
   GITHUB_APP_PRIVATE_KEY?: string;
-  /**
-   * HMAC secret for GitHub App webhook deliveries (X-Hub-Signature-256).
-   * Set via `wrangler secret put GITHUB_WEBHOOK_SECRET`; unset disables the
-   * webhook endpoint (503), degrading title freshness to phase-1 TTL-only.
-   */
-  GITHUB_WEBHOOK_SECRET?: string;
 }

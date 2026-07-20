@@ -29,7 +29,7 @@ describe("POST /v1/github/webhook", () => {
   });
 
   it("401s on a missing or bad signature", async () => {
-    const env = { GITHUB_WEBHOOK_SECRET: SECRET, GITHUB_CACHE: new FakeKv() } as unknown as Env;
+    const env = { GITHUB_APP_WEBHOOK_SECRET: SECRET, GITHUB_CACHE: new FakeKv() } as unknown as Env;
     expect((await post("{}", {}, env)).status).toBe(401);
     expect((await post("{}", { "x-hub-signature-256": "sha256=bad" }, env)).status).toBe(401);
   });
@@ -37,7 +37,7 @@ describe("POST /v1/github/webhook", () => {
   it("204s a valid delivery and invalidates the ref cache", async () => {
     const kv = new FakeKv();
     kv.store.set("ghref:owner/repo#7", { value: "{}" });
-    const env = { GITHUB_WEBHOOK_SECRET: SECRET, GITHUB_CACHE: kv } as unknown as Env;
+    const env = { GITHUB_APP_WEBHOOK_SECRET: SECRET, GITHUB_CACHE: kv } as unknown as Env;
     const body = JSON.stringify({
       action: "edited",
       repository: { full_name: "Owner/Repo" },
@@ -53,7 +53,7 @@ describe("POST /v1/github/webhook", () => {
   });
 
   it("204s a ping without touching the cache", async () => {
-    const env = { GITHUB_WEBHOOK_SECRET: SECRET, GITHUB_CACHE: new FakeKv() } as unknown as Env;
+    const env = { GITHUB_APP_WEBHOOK_SECRET: SECRET, GITHUB_CACHE: new FakeKv() } as unknown as Env;
     const body = "{}";
     const res = await post(
       body,
