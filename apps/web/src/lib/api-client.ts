@@ -523,6 +523,48 @@ export async function searchWorkspaceFiles(
   return { kind: "ok", items: b.items, truncated: b.truncated };
 }
 
+export interface GithubTitleInfo {
+  title: string;
+  state: string;
+  kind: "pull" | "issue";
+}
+export type GithubTitleMap = Record<string, GithubTitleInfo | null>;
+
+/** Server-enforced per-request ref cap on `/me/workspaces/:name/github-titles`. */
+export const GITHUB_TITLES_MAX_REFS = 20;
+
+/**
+ * Batch PR/issue titles for the connected-work rail (issue #267). `{}` for an
+ * empty ref list (no request); null on outage/non-2xx/malformed body — the
+ * caller keeps its metadata-derived labels.
+ */
+export async function getGithubTitles(
+  apiOrigin: string,
+  name: string,
+  refs: string[],
+): Promise<GithubTitleMap | null> {
+  if (refs.length === 0) return {};
+  const qs = encodeURIComponent(refs.slice(0, GITHUB_TITLES_MAX_REFS).join(","));
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/github-titles?refs=${qs}`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable" || !result.response.ok) return null;
+  const body = (await result.response.json().catch(() => null)) as { refs?: unknown } | null;
+  const map = body && typeof body === "object" ? body.refs : null;
+  if (!map || typeof map !== "object" || Array.isArray(map)) return null;
+  // Per-entry shape check so a malformed payload can't push a non-string
+  // label into rail rendering: entries are null or a full TitleInfo.
+  for (const entry of Object.values(map)) {
+    if (entry === null) continue;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+    const t = entry as Record<string, unknown>;
+    if (typeof t.title !== "string" || typeof t.state !== "string") return null;
+    if (t.kind !== "pull" && t.kind !== "issue") return null;
+  }
+  return map as GithubTitleMap;
+}
+
 export interface WorkspaceFolderFile {
   key: string;
   url: string | null;

@@ -13,6 +13,7 @@ import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
+import { parseExternalReference } from "../external-references";
 import {
   findObjectsByMetadata,
   getMetadataForKeys,
@@ -21,6 +22,7 @@ import {
 import { badKey, listObjects, setObjectVisibility } from "../files-core";
 import { listGalleries } from "../galleries";
 import { gallerySummary } from "../gallery-service";
+import { resolveTitles } from "../github-titles";
 import { allowWrite } from "../guards";
 import {
   invitesForOrg,
@@ -532,4 +534,36 @@ export const me = new Hono<SessionVars>()
       userId,
     );
     return c.json({ member });
+  })
+
+  // Batch PR/issue titles for the connected-work rail (issue #267). Member-
+  // gated: title text for private repos is sensitive, and membership scoping
+  // keeps this from becoming a public title oracle for whatever repos the
+  // App can read. Per-ref failures are nulls — the endpoint never fails the
+  // batch wholesale.
+  .get("/workspaces/:name/github-titles", async (c) => {
+    const name = c.req.param("name");
+    await memberWorkspaceOr404(c.env, requireUserId(c), name);
+
+    const raw = (c.req.query("refs") ?? "").split(",").filter((s) => s.length > 0);
+    if (raw.length === 0) {
+      throw new ValidationError("refs query parameter required", { code: "refs_required" });
+    }
+    if (raw.length > 20) {
+      throw new ValidationError("at most 20 refs per request", { code: "too_many_refs" });
+    }
+    const normalized = raw.map((coordinate) => {
+      const parsed = parseExternalReference("github", coordinate);
+      if (!parsed.ok) {
+        throw new ValidationError(`invalid ref: ${coordinate}`, { code: "invalid_ref" });
+      }
+      // normalizedKey carries a `github:item:` provider prefix — the gh.ref
+      // metadata shape (and this response's keys) is bare
+      // `owner/repo#number`, so derive it from the locator instead.
+      const { owner, repository, number } = parsed.value.locator;
+      return `${owner}/${repository}#${number}`;
+    });
+
+    const titles = await resolveTitles(c.env, [...new Set(normalized)]);
+    return c.json({ refs: titles });
   });

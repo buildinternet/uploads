@@ -18,11 +18,18 @@
  * item; an empty array hides it. Non-files tabs never call it, so the section
  * stays hidden by construction.
  */
-import { getMyWorkspaces, getMyWorkspaceUsage, type MyWorkspace } from "./api-client";
+import {
+  GITHUB_TITLES_MAX_REFS,
+  getGithubTitles,
+  getMyWorkspaces,
+  getMyWorkspaceUsage,
+  type GithubTitleMap,
+  type MyWorkspace,
+} from "./api-client";
 import { onSession } from "./account-shell";
 import { bindCopyButtons, escapeHtml, renderUsageHtml } from "./workspace-ui";
 import { githubKindSvg } from "./brand-icons";
-import type { GhKind, GhWorkItem } from "./gh-context";
+import { applyGhTitles, type GhKind, type GhWorkItem } from "./gh-context";
 
 export type ConnectedWorkSetter = (items: GhWorkItem[]) => void;
 
@@ -86,16 +93,44 @@ export function renderDetailsHtml(ws: WorkspaceRailDetails): string {
 /** Connected-work rows shown before a "show N more" toggle reveals the rest. */
 const CONNECTED_WORK_CAP = 6;
 
-function bindConnectedWorkSetter(root: Document | Element): ConnectedWorkSetter {
+/**
+ * Decide whether a titles response warrants a repaint: the relabeled items
+ * when at least one label changed, else null (failed fetch, empty map, or
+ * titles identical to what's already painted).
+ */
+export function planTitleRepaint(
+  items: GhWorkItem[],
+  titles: GithubTitleMap | null,
+): GhWorkItem[] | null {
+  if (!titles) return null;
+  const updated = applyGhTitles(items, titles);
+  return updated.some((item, i) => item.label !== items[i].label) ? updated : null;
+}
+
+function bindConnectedWorkSetter(
+  root: Document | Element,
+  resolveTitles?: (refs: string[]) => Promise<GithubTitleMap | null>,
+): ConnectedWorkSetter {
   const section = root.querySelector<HTMLElement>("[data-rail-connected]");
   const list = root.querySelector<HTMLElement>("[data-rail-connected-list]");
-  const setter: ConnectedWorkSetter = (items) => {
+  let generation = 0;
+  // Whether the user has clicked "show N more" for the current item set. A
+  // title-resolution repaint (same generation) must preserve this so it
+  // doesn't collapse the list the user just expanded; a genuinely new setter
+  // call (new generation) starts collapsed again.
+  let expanded = false;
+
+  // repaint=true means "same item set, just fresher labels" — keep whatever
+  // limit is currently on screen. repaint=false (a fresh setter call) always
+  // starts collapsed.
+  const paintItems = (items: GhWorkItem[], repaint = false): void => {
     if (!section || !list) return;
     if (!items.length) {
       section.hidden = true;
       list.innerHTML = "";
       return;
     }
+    if (!repaint) expanded = false;
     section.hidden = false;
     // A busy workspace can link dozens of PRs/issues; cap the default view and
     // reveal the rest behind one click rather than a wall of rows.
@@ -107,11 +142,28 @@ function bindConnectedWorkSetter(root: Document | Element): ConnectedWorkSetter 
         (hidden > 0
           ? `<button type="button" class="ws-rail__more" data-rail-more>show ${hidden} more</button>`
           : "");
-      list
-        .querySelector<HTMLButtonElement>("[data-rail-more]")
-        ?.addEventListener("click", () => paint(items.length), { once: true });
+      list.querySelector<HTMLButtonElement>("[data-rail-more]")?.addEventListener(
+        "click",
+        () => {
+          expanded = true;
+          paint(items.length);
+        },
+        { once: true },
+      );
     };
-    paint(CONNECTED_WORK_CAP);
+    paint(expanded ? items.length : CONNECTED_WORK_CAP);
+  };
+
+  const setter: ConnectedWorkSetter = (items) => {
+    const current = ++generation;
+    paintItems(items);
+    if (!items.length || !resolveTitles) return;
+    const refs = [...new Set(items.map((item) => item.ref))].slice(0, GITHUB_TITLES_MAX_REFS);
+    void resolveTitles(refs).then((titles) => {
+      if (current !== generation) return; // a newer paint superseded this fetch
+      const relabeled = planTitleRepaint(items, titles);
+      if (relabeled) paintItems(relabeled, true);
+    });
   };
   window.__uploadsSetConnectedWork = setter;
   return setter;
@@ -138,7 +190,9 @@ export function initWorkspaceRail(
 ): void {
   const root = opts.root ?? document;
 
-  const setConnectedWork = bindConnectedWorkSetter(root);
+  const setConnectedWork = bindConnectedWorkSetter(root, (refs) =>
+    getGithubTitles(apiOrigin, workspace, refs),
+  );
   setConnectedWork([]);
 
   const railRoot = root.querySelector<HTMLElement>("[data-workspace-rail]");
