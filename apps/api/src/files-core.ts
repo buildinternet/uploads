@@ -34,6 +34,9 @@ import type { WorkspaceRecord } from "./workspace";
 // kept replaced images stale for hours.
 export const UPLOAD_CACHE_CONTROL = "public, max-age=60";
 
+/** Server-only first-upload stamp (Files SDK object metadata). Not client provenance. */
+export const UPLOADED_AT_META_KEY = "uploaded-at";
+
 const KEY_RE = /^[\w!*'()./-]+$/;
 
 export function badKey(key: string): boolean {
@@ -90,14 +93,44 @@ export function finalizeUploadKey(key: string, ws: KeyPolicyRecord): string {
   return finalKey;
 }
 
-/** Size of an existing object, or `null` if missing / unreadable (metering may drift). */
-async function existingSize(store: Files, key: string): Promise<number | null> {
+/** Prior object head fields needed for metering + uploaded-at, or null if missing. */
+async function existingHead(
+  store: Files,
+  key: string,
+): Promise<{ size: number; lastModified?: number; metadata?: Record<string, string> } | null> {
   try {
     const meta = await store.head(key);
-    return meta.size ?? 0;
+    return {
+      size: meta.size ?? 0,
+      lastModified: meta.lastModified,
+      metadata: meta.metadata,
+    };
   } catch {
     return null;
   }
+}
+
+/** Size of an existing object, or `null` if missing / unreadable (metering may drift). */
+async function existingSize(store: Files, key: string): Promise<number | null> {
+  const head = await existingHead(store, key);
+  return head?.size ?? null;
+}
+
+/**
+ * Decide `uploaded-at` for a put. Create → now; overwrite → prior stamp, else
+ * prior lastModified (legacy), else now. Never accepts a client-supplied value.
+ */
+export function resolveUploadedAtMeta(
+  prior: { lastModified?: number; metadata?: Record<string, string> } | null,
+  now: Date = new Date(),
+): string {
+  if (!prior) return now.toISOString();
+  const stamped = prior.metadata?.[UPLOADED_AT_META_KEY];
+  if (typeof stamped === "string" && Number.isFinite(Date.parse(stamped))) return stamped;
+  if (prior.lastModified != null && Number.isFinite(prior.lastModified)) {
+    return new Date(prior.lastModified).toISOString();
+  }
+  return now.toISOString();
 }
 
 /**
@@ -153,12 +186,13 @@ export async function putObject(
   if (!inspection.ok) throw inspection.error;
 
   const store = await storage(env, ws);
-  // Pre-upload head: size for ledger delta. files-sdk upload() has no
-  // replaced/exists flag on UploadResult, so we derive it here.
-  const prev = await existingSize(store, finalKey);
-  const replaced = prev !== null;
+  // Pre-upload head: ledger size delta + prior stamp/mtime (overwrite keeps first upload).
+  // files-sdk upload() has no replaced/exists flag, so we derive it here.
+  const prior = await existingHead(store, finalKey);
+  const replaced = prior !== null;
   const newSize = bytes.byteLength;
-  const deltaBytes = prev === null ? newSize : newSize - prev;
+  const deltaBytes = newSize - (prior?.size ?? 0);
+  const uploadedAt = resolveUploadedAtMeta(prior);
 
   const usage = await getWorkspaceUsage(env.DB, workspaceName);
   const denial = checkPutBudget(usage, ws, { bytes: deltaBytes, uploads: 1 });
@@ -179,6 +213,7 @@ export async function putObject(
   // Client headers first; always attach content-sha256 of the final stored body
   // (never trust a client-supplied hash). Visibility lives alongside provenance
   // in the same custom-metadata bag but is tracked separately (not client-free-form).
+  // `uploaded-at` is server-only — set on the final bag, never via sanitizeProvenance.
   const provenance: ProvenanceMap = {
     ...sanitizeProvenance(opts?.provenance, { clientOnly: true }),
     "content-sha256": await contentSha256Hex(bytes),
@@ -189,6 +224,7 @@ export async function putObject(
     // Only written when private — absence is the (majority) public default,
     // matching the historical shape of objects uploaded before this existed.
     ...(storedVisibility ? { [VISIBILITY_META_KEY]: storedVisibility } : {}),
+    [UPLOADED_AT_META_KEY]: uploadedAt,
   };
 
   try {

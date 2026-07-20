@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
+import { FakeKv } from "./fake-kv";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
@@ -342,6 +343,92 @@ describe("GET /public/files/:workspace/:key", () => {
     expect(json).not.toHaveProperty("metadata");
     expect(json).not.toHaveProperty("github");
   });
+
+  it("includes github.title from stamped gh.title when live resolve is unavailable", async () => {
+    // No GITHUB_CACHE / App → resolveTitles throws or returns nulls; stamp still wins.
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "142",
+      "X-Uploads-Meta-gh.title": "Fix the login bug",
+    });
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { github?: { title?: string } };
+    expect(json.github?.title).toBe("Fix the login bug");
+  });
+
+  it("prefers live-resolved title over stamped gh.title", async () => {
+    const kv = new FakeKv();
+    // Cache hit short-circuits before App config is required (no network).
+    kv.store.set("ghref:buildinternet/uploads#142", {
+      value: JSON.stringify({
+        v: { title: "Live title from cache", state: "open", kind: "pull" },
+      }),
+    });
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    (env as { GITHUB_CACHE?: FakeKv }).GITHUB_CACHE = kv;
+
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "142",
+      "X-Uploads-Meta-gh.title": "Stamped title",
+    });
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { github?: { title?: string } };
+    expect(json.github?.title).toBe("Live title from cache");
+  });
+
+  it("omits github.title when neither stamp nor live resolve provides one", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "142",
+    });
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { github?: { title?: string } };
+    expect(json.github).toBeDefined();
+    expect(json.github).not.toHaveProperty("title");
+  });
+
+  it("keeps stamped title when live resolve exceeds the public budget", async () => {
+    // Slow GITHUB_CACHE.get simulates a cold ladder that would otherwise
+    // approach resolveTitles' ~8s GitHub abort and trip apps/web's 4s fetch.
+    // Public route races resolve with ~1.4s and must return the stamp.
+    const slowKv = {
+      async get() {
+        await new Promise((r) => setTimeout(r, 5000));
+        return null;
+      },
+      async put() {
+        /* no-op */
+      },
+    };
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    (env as { GITHUB_CACHE?: typeof slowKv }).GITHUB_CACHE = slowKv;
+
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "142",
+      "X-Uploads-Meta-gh.title": "Stamped under budget",
+    });
+
+    const started = Date.now();
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    const elapsedMs = Date.now() - started;
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { github?: { title?: string } };
+    expect(json.github?.title).toBe("Stamped under budget");
+    // Budget 1400ms + request overhead; must stay well under web's 4s abort.
+    expect(elapsedMs).toBeLessThan(3000);
+  });
 });
 
 // Task 3 (corrected): forced-download streaming lives behind a `?download=1`
@@ -432,5 +519,68 @@ describe("GET /public/files/:workspace/:key?download=1", () => {
     );
     const bytes = new Uint8Array(await download.arrayBuffer());
     expect(bytes).toEqual(PNG);
+  });
+});
+
+describe("GET /public/files uploaded + modified dates", () => {
+  it("returns uploaded from uploaded-at and omits modified when equal", async () => {
+    const { env } = await makeEnv();
+    await seedShot(env);
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    const json = (await res.json()) as { uploaded?: string; modified?: string };
+    expect(json.uploaded).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // Fresh put: lastModified ≈ uploaded-at → modified omitted
+    expect(json.modified).toBeUndefined();
+  });
+
+  it("includes modified when lastModified differs from uploaded-at", async () => {
+    const { env, bucket } = await makeEnv();
+    await seedShot(env);
+    const entry = [...bucket.store.entries()].find(([k]) => k.endsWith("screenshots/shot.png"))!;
+    // Keep uploaded-at, advance R2 mtime
+    entry[1].customMetadata = {
+      ...entry[1].customMetadata,
+      "uploaded-at": "2026-01-01T00:00:00.000Z",
+    };
+    bucket.setUploaded(entry[0], new Date("2026-06-15T12:00:00.000Z"));
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    const json = (await res.json()) as { uploaded?: string; modified?: string };
+    expect(json.uploaded).toBe("2026-01-01T00:00:00.000Z");
+    expect(json.modified).toBe("2026-06-15T12:00:00.000Z");
+  });
+});
+
+// Task 1: first-upload stamp on putObject (Files SDK custom metadata).
+// Public JSON dual-date mapping is Task 2 — these only assert R2 customMetadata.
+describe("putObject uploaded-at stamp", () => {
+  it("stamps uploaded-at on first put and preserves it across overwrite", async () => {
+    const { env, bucket } = await makeEnv();
+    await seedShot(env);
+
+    const key = "default/screenshots/shot.png";
+    const first = bucket.store.get(key);
+    expect(first).toBeTruthy();
+    const firstStamp = first!.customMetadata?.["uploaded-at"];
+    expect(firstStamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+    // Overwrite same key
+    await seedShot(env);
+    expect(bucket.store.get(key)?.customMetadata?.["uploaded-at"]).toBe(firstStamp);
+  });
+
+  it("seeds uploaded-at from prior lastModified when overwriting a legacy object", async () => {
+    const { env, bucket } = await makeEnv();
+    await seedShot(env);
+    const key = "default/screenshots/shot.png";
+    const obj = bucket.store.get(key)!;
+    const priorLm = new Date("2026-01-15T10:00:00.000Z");
+    // Strip stamp + backdate mtime to simulate pre-feature object
+    obj.customMetadata = { ...obj.customMetadata };
+    delete obj.customMetadata["uploaded-at"];
+    bucket.setUploaded(key, priorLm);
+
+    await seedShot(env);
+    expect(bucket.store.get(key)?.customMetadata?.["uploaded-at"]).toBe(priorLm.toISOString());
   });
 });
