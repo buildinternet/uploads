@@ -18,6 +18,7 @@ import { publicFiles } from "./routes/public-files";
 import { telemetry } from "./routes/telemetry";
 import { reports } from "./routes/reports";
 import { render } from "./routes/render";
+import { githubWebhook } from "./routes/github-webhook";
 import { protectedResourceMetadata, requestOrigin } from "./well-known";
 
 // Lets the browser console on the web origin (and local dev) call the token-
@@ -114,6 +115,10 @@ export const app = new Hono<WorkspaceVars>()
   // guard: that pattern requires a trailing segment and never matches this
   // route. See src/routes/render.ts.
   .route("/v1/render", render)
+  // GitHub App webhooks (phase 2 PR A). HMAC-verified, no session/bearer auth.
+  // MUST stay before the `/v1/:workspace/*` guard below: that pattern matches
+  // this path, so registration order is what keeps workspaceAuth from running.
+  .route("/v1/github/webhook", githubWebhook)
   .use("/v1/:workspace/*", workspaceAuth)
   .route("/v1/:workspace/galleries", galleries)
   .route("/v1/:workspace/files", files)
