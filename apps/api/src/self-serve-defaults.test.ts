@@ -17,7 +17,7 @@ describe("selfServeWorkspaceRecord", () => {
       selfServe: true,
       createdByUserId: "u1",
       createdAt: "2026-07-14T00:00:00.000Z",
-      maxStorageBytes: 1_000_000_000,
+      maxStorageBytes: 250_000_000,
       maxUploadsPerPeriod: 3000,
       maxUploadBytes: 25_000_000,
       maxVideoUploadBytes: 8_000_000,
@@ -31,8 +31,8 @@ describe("selfServeWorkspaceRecord", () => {
     const b = selfServeWorkspaceRecord({ name: "b", userId: "u", now: new Date(0) });
     expect(a.allowedKeyPrefixes).not.toBe(b.allowedKeyPrefixes);
   });
-  it("limits are 1GB/3000-per-month", () => {
-    expect(SELF_SERVE_LIMITS.maxStorageBytes).toBe(1_000_000_000);
+  it("limits are 250MB/3000-per-month", () => {
+    expect(SELF_SERVE_LIMITS.maxStorageBytes).toBe(250_000_000);
     expect(SELF_SERVE_LIMITS.maxUploadsPerPeriod).toBe(3000);
   });
 });
