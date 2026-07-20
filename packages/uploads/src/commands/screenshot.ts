@@ -87,7 +87,9 @@ Options:
   --keep-exif               Keep EXIF/XMP/ICC when optimizing
   --pr <num>                Attach to a pull request (stable URL, no hash)
   --issue <num>             Attach to an issue
-  --comment                 With --pr/--issue: update the managed attachments comment
+  --comment                 With --pr/--issue: update the managed attachments comment.
+                             Posts as uploads-sh[bot] when the GitHub App is installed;
+                             otherwise via local gh.
   --gallery <id>            Add the uploaded object to this public gallery
   --meta <k=v>              Queryable custom metadata (repeatable)
   --workspace, -w <name>    Override workspace
@@ -326,12 +328,17 @@ export async function runScreenshot(
     }
   }
 
-  let comment: { action: "created" | "updated" | "skipped"; count: number } | undefined;
+  let comment:
+    | { action: "created" | "updated" | "skipped"; count: number; via: "bot" | "gh" }
+    | undefined;
   let commentError: string | undefined;
   if (wantComment && ghTarget) {
     try {
       comment = await syncAttachmentsComment(ctx.client, ghTarget, run);
-      if (logHuman) process.stderr.write(`>> attachments comment ${comment.action}\n`);
+      if (logHuman)
+        process.stderr.write(
+          `>> attachments comment ${comment.action}${comment.via === "bot" ? " (uploads-sh[bot])" : " (via gh)"}\n`,
+        );
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);
       process.stderr.write(
