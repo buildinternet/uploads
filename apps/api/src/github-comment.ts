@@ -41,7 +41,7 @@ export async function gatherCommentBody(
   // Attachments (R2 list) and galleries (D1) are independent reads — overlap
   // them so the request only waits the longer of the two, not their sum.
   const [items, galleries] = await Promise.all([
-    gatherAttachments(env, ws, target),
+    gatherAttachments(env, ws, workspaceName, target),
     gatherGalleries(env, ws, workspaceName, target),
   ]);
 
@@ -54,13 +54,20 @@ export async function gatherCommentBody(
 async function gatherAttachments(
   env: Env,
   ws: WorkspaceRecord,
+  workspaceName: string,
   target: GhTarget,
 ): Promise<AttachmentItem[]> {
   const items: AttachmentItem[] = [];
   let cursor: string | undefined;
   do {
-    const page = await listObjects(env, ws, { prefix: ghKeyPrefix(target), limit: 1000, cursor });
-    for (const o of page.items) items.push({ key: o.key, url: o.url, embedUrl: o.embedUrl });
+    const page = await listObjects(env, ws, {
+      prefix: ghKeyPrefix(target),
+      limit: 1000,
+      cursor,
+      workspaceName,
+    });
+    for (const o of page.items)
+      items.push({ key: o.key, url: o.url, embedUrl: o.embedUrl, pageUrl: o.pageUrl });
     cursor = page.cursor ?? undefined;
   } while (cursor);
   return items;
