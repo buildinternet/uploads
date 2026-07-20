@@ -23,13 +23,16 @@ const TOC = [
   active="github-app"
   toc={TOC}
 >
+  {/* Post-install landing: GitHub's Setup URL redirect arrives with
+      ?setup_action=install|update, which reveals this banner client-side. */}
+  <aside class="installed" id="installed-note" hidden aria-live="polite">
+    <strong data-installed-heading>App installed — you're done.</strong> There is nothing to
+    configure on this side. The CLI notices the installation automatically the next time you
+    run <code>uploads attach</code>.
+  </aside>
+
   <section class="lead" id="what-it-adds">
     <h2>What it adds <a class="anchor" href="#what-it-adds" aria-label="Link to this section">#</a></h2>
-    <p>
-      <strong>Just installed the App? You're done.</strong> There is nothing to configure on
-      this side — the CLI notices the installation automatically the next time you run&#32;
-      <code>uploads attach</code>.
-    </p>
     <p>
       Everything in these docs works without the App. Installing the&#32;
       <a href={APP_URL}>uploads-sh GitHub App</a> on your repos upgrades three things:
@@ -107,3 +110,19 @@ const TOC = [
     <a class="next" href="/docs/agents"><span class="dir">Next →</span>Set up your agent</a>
   </nav>
 </DocsLayout>
+
+
+<script is:inline>
+  // GitHub's post-install redirect lands here with ?setup_action=install|update.
+  (() => {
+    const action = new URLSearchParams(location.search).get("setup_action");
+    if (action !== "install" && action !== "update") return;
+    const note = document.getElementById("installed-note");
+    if (!note) return;
+    if (action === "update") {
+      const heading = note.querySelector("[data-installed-heading]");
+      if (heading) heading.textContent = "Installation updated — you're done.";
+    }
+    note.hidden = false;
+  })();
+</script>
