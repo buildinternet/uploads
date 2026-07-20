@@ -102,6 +102,7 @@ async function makeEnv(
     d1?: { tokenHash: string; scopes: string };
     rateLimitOk?: boolean;
     record?: Partial<WorkspaceRecord>;
+    webOrigin?: string;
   } = {},
 ): Promise<{
   env: Env;
@@ -239,6 +240,7 @@ async function makeEnv(
       },
     },
     UPLOADS: bucket,
+    ...(options.webOrigin === undefined ? {} : { WEB_ORIGIN: options.webOrigin }),
     ...(options.rateLimitOk === undefined
       ? {}
       : {
@@ -945,7 +947,7 @@ describe("mcp worker", () => {
   });
 
   it("lists uploaded objects with public urls, then deletes them", async () => {
-    const { env, bucket } = await makeEnv();
+    const { env, bucket } = await makeEnv({ webOrigin: "https://uploads.test" });
     await callTool(env, "put", {
       contentBase64: PNG_B64,
       filename: "shot.png",
@@ -957,10 +959,16 @@ describe("mcp worker", () => {
     const items = listed.structuredContent?.items as {
       key: string;
       url: string;
+      pageUrl?: string;
     }[];
     expect(items).toHaveLength(1);
     expect(items[0].key).toBe("shots/shot.png");
     expect(items[0].url).toBe("https://storage.example.com/shots/shot.png");
+    // #303: the MCP `list` tool resolves its workspace record via
+    // loadWorkspaceRecord (apps/mcp/src/index.ts), which stamps `name` from
+    // the validated lookup key ("test-ws") — so pageUrl comes for free here,
+    // no opt to remember.
+    expect(items[0].pageUrl).toBe("https://uploads.test/f/test-ws/shots/shot.png");
 
     const deleted = await callTool(env, "delete", { key: "shots/shot.png" });
     expect(deleted.isError).toBe(false);

@@ -23,6 +23,7 @@ export function selfServeWorkspaceRecord(args: {
   now: Date;
 }): WorkspaceRecord {
   return {
+    name: args.name,
     provider: "r2",
     bucket: "uploads-default",
     binding: "UPLOADS_DEFAULT",
