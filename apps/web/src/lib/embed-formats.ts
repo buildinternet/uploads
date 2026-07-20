@@ -4,7 +4,13 @@
  * Dependency-free so it stays unit-testable without a render harness.
  */
 
-export type EmbedFormatId = "page" | "url" | "markdown-image" | "markdown-link" | "html-img";
+export type EmbedFormatId =
+  | "page"
+  | "url"
+  | "markdown-image"
+  | "markdown-image-linked"
+  | "markdown-link"
+  | "html-img";
 
 /** Escapes `&`, `<`, `>`, and `"` for HTML attribute values. */
 function escapeHtmlAttr(s: string): string {
@@ -42,20 +48,30 @@ export interface EmbedFormatInput {
 }
 
 /**
- * Formats in design-spec §3.3 order: Page link, Direct file URL, Markdown image
- * (image only), Markdown link, HTML `<img>` (image only). Embed *snippet*
- * formats prefer `embedUrl` and fall back to `url`; "Direct file URL" always
- * uses the stable `url` (same convention as the CLI MARKDOWN path).
+ * The first element is the pre-selected default. For images that's the linked
+ * Markdown image — the agent-PR headline: a screenshot that opens the file page
+ * when clicked. Full order for images: Markdown image (linked), Markdown image,
+ * Page link, Direct file URL, Markdown link, HTML `<img>`. Non-image kinds get
+ * Page link, Direct file URL, Markdown link (Page link is their default). Embed
+ * *snippet* formats prefer `embedUrl` and fall back to `url`; "Direct file URL"
+ * always uses the stable `url` (same convention as the CLI MARKDOWN path).
  */
 export function buildEmbedFormats(input: EmbedFormatInput): EmbedFormatOption[] {
   const embedSrc = input.embedUrl ?? input.url;
   const isImage = input.kind === "image";
   return [
+    ...(isImage
+      ? [
+          {
+            id: "markdown-image-linked" as const,
+            label: "Markdown image (linked)",
+            value: `[![](${embedSrc})](${input.canonical})`,
+          },
+          { id: "markdown-image" as const, label: "Markdown image", value: `![](${embedSrc})` },
+        ]
+      : []),
     { id: "page", label: "Page link", value: input.canonical },
     { id: "url", label: "Direct file URL", value: input.url },
-    ...(isImage
-      ? [{ id: "markdown-image" as const, label: "Markdown image", value: `![](${embedSrc})` }]
-      : []),
     {
       id: "markdown-link",
       label: "Markdown link",

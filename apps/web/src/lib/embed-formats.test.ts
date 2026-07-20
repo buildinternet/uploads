@@ -9,19 +9,25 @@ const base = {
 };
 
 describe("buildEmbedFormats", () => {
-  it("returns all five formats, in order, for an image", () => {
+  it("returns all six formats for an image, with the linked Markdown image first (default)", () => {
     const formats = buildEmbedFormats({ ...base, kind: "image" });
     expect(formats.map((f) => f.id)).toEqual([
+      "markdown-image-linked",
+      "markdown-image",
       "page",
       "url",
-      "markdown-image",
       "markdown-link",
       "html-img",
     ]);
     expect(formats).toEqual([
+      {
+        id: "markdown-image-linked",
+        label: "Markdown image (linked)",
+        value: `[![](${base.embedUrl})](${base.canonical})`,
+      },
+      { id: "markdown-image", label: "Markdown image", value: `![](${base.embedUrl})` },
       { id: "page", label: "Page link", value: base.canonical },
       { id: "url", label: "Direct file URL", value: base.url },
-      { id: "markdown-image", label: "Markdown image", value: `![](${base.embedUrl})` },
       { id: "markdown-link", label: "Markdown link", value: `[shot.png](${base.canonical})` },
       {
         id: "html-img",
@@ -29,6 +35,15 @@ describe("buildEmbedFormats", () => {
         value: `<img src="${base.embedUrl}" alt="shot.png">`,
       },
     ]);
+  });
+
+  it("defaults to the linked Markdown image for images (first element)", () => {
+    const formats = buildEmbedFormats({ ...base, kind: "image" });
+    expect(formats[0]).toEqual({
+      id: "markdown-image-linked",
+      label: "Markdown image (linked)",
+      value: `[![](${base.embedUrl})](${base.canonical})`,
+    });
   });
 
   it("drops the markdown-image and html-img formats for video/file/unsupported kinds", () => {

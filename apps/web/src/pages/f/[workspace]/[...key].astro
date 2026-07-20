@@ -208,7 +208,6 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
                 </a>
               )}
               <dl class="meta">
-                <dt>Type</dt><dd>{file.contentType}</dd>
                 <dt>Size</dt><dd>{formatBytes(file.size)}</dd>
                 {uploadedLabel && (<><dt>Uploaded</dt><dd>{uploadedLabel}</dd></>)}
                 {modifiedLabel && (<><dt>Modified</dt><dd>{modifiedLabel}</dd></>)}
