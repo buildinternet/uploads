@@ -30,4 +30,12 @@ interface Env {
    * true secret, so unset still disables title resolution gracefully.
    */
   GITHUB_APP_PRIVATE_KEY?: string;
+  /**
+   * HMAC secret for GitHub App webhook deliveries (X-Hub-Signature-256), set via
+   * `wrangler secret put`. Declared here (not only in the generated
+   * worker-configuration.d.ts) because that file is git-ignored and regenerated
+   * in CI without remote secrets — same reason GITHUB_APP_PRIVATE_KEY is here.
+   * Unset/empty disables the webhook endpoint (503).
+   */
+  GITHUB_APP_WEBHOOK_SECRET?: string;
 }
