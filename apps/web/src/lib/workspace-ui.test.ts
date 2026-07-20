@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   orderOrgsOldestFirst,
+  renderInvitesHtml,
   renderMembersHtml,
   renderUsageHtml,
   safeSameOriginPath,
@@ -28,6 +29,35 @@ describe("renderMembersHtml", () => {
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;img");
     expect(renderMembersHtml([])).toBe("");
+  });
+});
+
+describe("renderMembersHtml controls", () => {
+  const rows = [
+    { id: "m_owner", email: "owner@x.com", name: "", role: "owner" },
+    { id: "m_admin", email: "admin@x.com", name: "", role: "admin" },
+    { id: "m_me", email: "me@x.com", name: "", role: "admin" },
+  ];
+  it("renders no controls without canManage", () => {
+    const html = renderMembersHtml(rows);
+    expect(html).not.toContain("data-member-id");
+  });
+  it("renders controls for manageable rows only", () => {
+    const html = renderMembersHtml(rows, { canManage: true, selfEmail: "me@x.com" });
+    expect(html).toContain('data-member-id="m_admin"'); // manageable
+    expect(html).not.toContain('data-member-id="m_owner"'); // owner protected
+    expect(html).not.toContain('data-member-id="m_me"'); // self
+  });
+});
+
+describe("renderInvitesHtml", () => {
+  it("renders a revoke control per invite", () => {
+    const html = renderInvitesHtml([{ id: "i1", email: "a@x.com", status: "pending" }]);
+    expect(html).toContain('data-invite-id="i1"');
+    expect(html).toContain("a@x.com");
+  });
+  it("returns empty string for no invites", () => {
+    expect(renderInvitesHtml([])).toBe("");
   });
 });
 
