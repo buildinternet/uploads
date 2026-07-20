@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
+import { FakeKv } from "./fake-kv";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
@@ -341,6 +342,59 @@ describe("GET /public/files/:workspace/:key", () => {
     const json = (await res.json()) as Record<string, unknown>;
     expect(json).not.toHaveProperty("metadata");
     expect(json).not.toHaveProperty("github");
+  });
+
+  it("includes github.title from stamped gh.title when live resolve is unavailable", async () => {
+    // No GITHUB_CACHE / App → resolveTitles throws or returns nulls; stamp still wins.
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "142",
+      "X-Uploads-Meta-gh.title": "Fix the login bug",
+    });
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { github?: { title?: string } };
+    expect(json.github?.title).toBe("Fix the login bug");
+  });
+
+  it("prefers live-resolved title over stamped gh.title", async () => {
+    const kv = new FakeKv();
+    // Cache hit short-circuits before App config is required (no network).
+    kv.store.set("ghref:buildinternet/uploads#142", {
+      value: JSON.stringify({
+        v: { title: "Live title from cache", state: "open", kind: "pull" },
+      }),
+    });
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    (env as { GITHUB_CACHE?: FakeKv }).GITHUB_CACHE = kv;
+
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "142",
+      "X-Uploads-Meta-gh.title": "Stamped title",
+    });
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { github?: { title?: string } };
+    expect(json.github?.title).toBe("Live title from cache");
+  });
+
+  it("omits github.title when neither stamp nor live resolve provides one", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env, {
+      "X-Uploads-Meta-gh.repo": "buildinternet/uploads",
+      "X-Uploads-Meta-gh.kind": "pull",
+      "X-Uploads-Meta-gh.number": "142",
+    });
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { github?: { title?: string } };
+    expect(json.github).toBeDefined();
+    expect(json.github).not.toHaveProperty("title");
   });
 });
 

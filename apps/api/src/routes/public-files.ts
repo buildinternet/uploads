@@ -2,7 +2,8 @@ import { NotFoundError, UnauthorizedError } from "@uploads/errors";
 import { Hono } from "hono";
 import type { Files } from "@uploads/storage";
 import { badKey, downloadResponse, UPLOADED_AT_META_KEY } from "../files-core";
-import { getFileMetadata } from "../file-metadata";
+import { getFileMetadata, META_VALUE_MAX } from "../file-metadata";
+import { resolveTitles } from "../github-titles";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
@@ -45,6 +46,8 @@ interface GithubContext {
   kind: GithubKind;
   number: number;
   url: string;
+  /** Attach-time stamp and/or live resolveTitles overlay; omitted when unknown. */
+  title?: string;
 }
 
 // Deliberately permissive (not the full GitHub owner/repo charset) — this only
@@ -52,11 +55,21 @@ interface GithubContext {
 // leaving the raw `gh.*` pairs in `metadata` (see task-5 brief).
 const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 const POSITIVE_INT_RE = /^[1-9][0-9]*$/;
+/** Lowercased `owner/repo#number` — same shape as CLI `gh.ref` / resolveTitles keys. */
+const GH_REF_RE = /^[a-z0-9._-]+\/[a-z0-9._-]+#[1-9][0-9]*$/;
+
+/** Cap titles to the same bound as stored metadata values (META_VALUE_MAX). */
+function displayTitle(raw: string | undefined): string | undefined {
+  const t = raw?.trim();
+  if (!t) return undefined;
+  return t.length > META_VALUE_MAX ? t.slice(0, META_VALUE_MAX) : t;
+}
 
 /**
  * Derives the `github` convenience object from `gh.repo`/`gh.kind`/`gh.number`
  * when all three are present and valid. Any missing or malformed piece omits
  * the object entirely — the raw pairs still flow through in `metadata`.
+ * Optional `gh.title` becomes `github.title` (live resolve may overwrite later).
  */
 function deriveGithubContext(metadata: Record<string, string>): GithubContext | undefined {
   const repo = metadata["gh.repo"];
@@ -70,7 +83,25 @@ function deriveGithubContext(metadata: Record<string, string>): GithubContext | 
   if (!Number.isSafeInteger(number)) return undefined;
 
   const path = kind === "pull" ? "pull" : "issues";
-  return { repo, kind, number, url: `https://github.com/${repo}/${path}/${number}` };
+  const base: GithubContext = {
+    repo,
+    kind,
+    number,
+    url: `https://github.com/${repo}/${path}/${number}`,
+  };
+  const stamped = displayTitle(metadata["gh.title"]);
+  return stamped ? { ...base, title: stamped } : base;
+}
+
+/**
+ * Cache / resolveTitles key for a derived github context. Prefer stamped
+ * `gh.ref` when well-formed (already lowercased by the CLI); else build from
+ * repo + number so keys match `ghref:owner/repo#num`.
+ */
+function githubRefKey(metadata: Record<string, string>, github: GithubContext): string {
+  const stamped = metadata["gh.ref"]?.trim().toLowerCase();
+  if (stamped && GH_REF_RE.test(stamped)) return stamped;
+  return `${github.repo.toLowerCase()}#${github.number}`;
 }
 
 interface ResolvedPublicObject {
@@ -161,7 +192,24 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
   // Fetched only after the visibility gate above — a private object 401s
   // before this D1 read ever happens, so metadata never leaks.
   const metadata = await getFileMetadata(c.env.DB, workspace, key);
-  const github = deriveGithubContext(metadata);
+  let github = deriveGithubContext(metadata);
+
+  // Live title (KV-cached App ladder) wins over attach-time gh.title. Failures
+  // never 500 — keep the stamp or omit title entirely.
+  if (github) {
+    try {
+      const ref = githubRefKey(metadata, github);
+      const titles = await resolveTitles(c.env, [ref]);
+      const live = displayTitle(titles[ref]?.title);
+      if (live) github = { ...github, title: live };
+    } catch {
+      // Missing GITHUB_CACHE / App misconfig / transient — stamped or no title.
+    }
+    if (!github.title) {
+      const { title: _drop, ...rest } = github;
+      github = rest;
+    }
+  }
 
   const dates = publicDateFields(meta);
   return c.json({
