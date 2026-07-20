@@ -3,7 +3,7 @@ import BaseHead from "../../../components/BaseHead.astro";
 import Brand from "../../../components/Brand.astro";
 import CopyAsControls from "../../../components/CopyAsControls.astro";
 import Footer from "../../../components/Footer.astro";
-import GitHubMark from "../../../components/GitHubMark.astro";
+import { GH_KIND_PATH } from "../../../lib/brand-icons";
 import { buildEmbedFormats } from "../../../lib/embed-formats";
 import {
   applyPublicFileHeaders,
@@ -113,8 +113,8 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
       dl.meta dd { margin:0; color:var(--body); overflow-wrap:anywhere; }
       .gh-chip { display:inline-flex; align-items:center; gap:6px; margin:10px 0 0; padding:6px 10px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel); color:var(--fg); font:12px var(--mono); text-decoration:none; }
       .gh-chip:hover, .gh-chip:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
+      .gh-chip-icon { flex:none; }
       .gh-chip-name { overflow-wrap:anywhere; }
-      .gh-chip-kind { padding:1px 5px; border:1px solid var(--line); border-radius:4px; color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.06em; }
       .section-label { margin:16px 0 0; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font:11px var(--mono); }
       dl.meta.metadata { margin-top:6px; }
       .error { padding:70px 24px; border:1px solid var(--line); border-radius:var(--radius-lg); text-align:center; background:var(--panel); color:var(--body); }
@@ -143,10 +143,24 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
             <figcaption class="details">
               <div class="filename">{filename}</div>
               {file.github && (
-                <a class="gh-chip" href={file.github.url} rel="noopener noreferrer">
-                  <GitHubMark size={14} />
+                <a
+                  class="gh-chip"
+                  href={file.github.url}
+                  rel="noopener noreferrer"
+                  aria-label={`${file.github.kind === "pull" ? "Pull request" : "Issue"} ${file.github.repo}#${file.github.number} on GitHub`}
+                >
+                  <svg
+                    class="gh-chip-icon"
+                    viewBox="0 0 16 16"
+                    width="14"
+                    height="14"
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    <title>{file.github.kind === "pull" ? "pull request" : "issue"}</title>
+                    <path fill="currentColor" d={GH_KIND_PATH[file.github.kind]} />
+                  </svg>
                   <span class="gh-chip-name">{file.github.repo}#{file.github.number}</span>
-                  <span class="gh-chip-kind">{file.github.kind === "pull" ? "PR" : "Issue"}</span>
                 </a>
               )}
               <dl class="meta">

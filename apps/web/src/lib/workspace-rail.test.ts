@@ -20,13 +20,14 @@ describe("renderConnectedWorkHtml", () => {
     expect(renderConnectedWorkHtml([])).toBe("");
   });
 
-  it("renders a pull-request row with the label link and kindLabel subtitle", () => {
+  it("renders a pull-request row with the label link and a kind icon (no subtitle)", () => {
     const html = renderConnectedWorkHtml([ghItem()]);
     expect(html).toContain('href="https://github.com/buildinternet/uploads/pull/1789"');
     expect(html).toContain(">buildinternet/uploads#1789<");
-    expect(html).toContain('class="ws-rail__connected-sub"');
-    expect(html).toContain(">pull request<");
     expect(html).toContain("ws-rail__connected-item");
+    // The octicon carries the kind (title/aria-label); no repeated word subtitle.
+    expect(html).not.toContain("ws-rail__connected-sub");
+    expect(html).toContain("<title>pull request</title>");
   });
 
   it("uses a different icon for issue rows than pull-request rows", () => {
@@ -44,8 +45,8 @@ describe("renderConnectedWorkHtml", () => {
     expect(issueHtml).toContain(">issue<");
     expect(issueHtml).not.toBe(pullHtml);
     // Different octicon path data per kind.
-    const pullIconPath = pullHtml.match(/<path d="([^"]+)"/)?.[1];
-    const issueIconPath = issueHtml.match(/<path d="([^"]+)"/)?.[1];
+    const pullIconPath = pullHtml.match(/<path[^>]* d="([^"]+)"/)?.[1];
+    const issueIconPath = issueHtml.match(/<path[^>]* d="([^"]+)"/)?.[1];
     expect(pullIconPath).toBeTruthy();
     expect(issueIconPath).toBeTruthy();
     expect(pullIconPath).not.toBe(issueIconPath);
