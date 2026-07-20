@@ -50,6 +50,9 @@ async function fetchIssue(
       state?: string;
       pull_request?: { merged_at?: string | null };
     } | null;
+    // A 2xx with an unparseable/malformed body is treated like a transient
+    // error: negative-cached at the base TTL so a misbehaving upstream isn't
+    // re-fetched per paint, and retried once the entry expires.
     if (!body || typeof body.title !== "string") return { kind: "error" };
     const kind: TitleInfo["kind"] = body.pull_request ? "pull" : "issue";
     const state: TitleInfo["state"] =
