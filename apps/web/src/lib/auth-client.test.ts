@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  banUser,
   getAccountInfo,
   getOAuthPublicClient,
   getSession,
+  isBannedAuthError,
   linkGitHub,
   listAccounts,
+  listAdminUsers,
   listSessions,
   revokeSession,
   sendMagicLink,
@@ -13,6 +16,7 @@ import {
   setOAuthWorkspaceChoice,
   startLocalDemoSession,
   submitOAuthConsent,
+  unbanUser,
 } from "./auth-client";
 import { BROWSER_REQUEST_TIMEOUT_MS, fetchWithTimeout } from "./request";
 
@@ -51,6 +55,19 @@ describe("getSession", () => {
       "http://127.0.0.1:8788/api/auth/get-session",
       expect.objectContaining({ cache: "no-store", credentials: "include" }),
     );
+  });
+
+  it("treats a banned session payload as signed out", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          session: {},
+          user: { id: "u1", email: "a@b.com", name: "A", banned: true },
+        }),
+      ),
+    );
+    await expect(getSession("http://127.0.0.1:8788")).resolves.toEqual({ kind: "signed_out" });
   });
 
   it("reports service failures and network errors as unavailable", async () => {
@@ -132,6 +149,173 @@ describe("listSessions / listAccounts", () => {
         scopes: ["read:user", "user:email"],
       },
     ]);
+  });
+});
+
+describe("listAdminUsers", () => {
+  it("parses the admin list-users payload and builds the query string", async () => {
+    const fetcher = vi.fn(async () =>
+      Response.json({
+        users: [
+          {
+            id: "u1",
+            email: "admin@example.com",
+            name: "Admin",
+            emailVerified: true,
+            role: "admin",
+            banned: false,
+            createdAt: "2026-07-01T00:00:00.000Z",
+          },
+          { id: "bad" },
+        ],
+        total: 1,
+        limit: 50,
+      }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      listAdminUsers("https://auth.uploads.sh", {
+        limit: 50,
+        searchValue: "admin@",
+        searchField: "email",
+      }),
+    ).resolves.toEqual({
+      users: [
+        {
+          id: "u1",
+          email: "admin@example.com",
+          name: "Admin",
+          emailVerified: true,
+          role: "admin",
+          banned: false,
+          createdAt: "2026-07-01T00:00:00.000Z",
+        },
+      ],
+      total: 1,
+      limit: 50,
+    });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      expect.stringMatching(/^https:\/\/auth\.uploads\.sh\/api\/auth\/admin\/list-users\?/),
+      expect.objectContaining({ credentials: "include", cache: "no-store" }),
+    );
+    const requestedUrl = String(fetcher.mock.calls.at(0)?.at(0) ?? "");
+    const called = new URL(requestedUrl);
+    expect(called.searchParams.get("limit")).toBe("50");
+    expect(called.searchParams.get("searchValue")).toBe("admin@");
+    expect(called.searchParams.get("searchField")).toBe("email");
+    expect(called.searchParams.get("searchOperator")).toBe("contains");
+    expect(called.searchParams.get("sortBy")).toBe("createdAt");
+    expect(called.searchParams.get("sortDirection")).toBe("desc");
+  });
+
+  it("returns null on forbidden, outage, or malformed body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 403 })),
+    );
+    await expect(listAdminUsers("http://127.0.0.1:8788")).resolves.toBeNull();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 503 })),
+    );
+    await expect(listAdminUsers("http://127.0.0.1:8788")).resolves.toBeNull();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ notUsers: [] })),
+    );
+    await expect(listAdminUsers("http://127.0.0.1:8788")).resolves.toBeNull();
+  });
+});
+
+describe("banUser / unbanUser", () => {
+  it("posts to admin-ui ban and returns tokensRevoked", async () => {
+    const fetcher = vi.fn(async () =>
+      Response.json({
+        user: {
+          id: "u1",
+          email: "a@b.com",
+          name: "A",
+          emailVerified: true,
+          banned: true,
+          createdAt: "2026-07-01T00:00:00.000Z",
+        },
+        tokensRevoked: 3,
+      }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(banUser("https://api.uploads.sh", "u1", { banReason: "spam" })).resolves.toEqual({
+      ok: true,
+      tokensRevoked: 3,
+      user: {
+        id: "u1",
+        email: "a@b.com",
+        name: "A",
+        emailVerified: true,
+        banned: true,
+        createdAt: "2026-07-01T00:00:00.000Z",
+      },
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://api.uploads.sh/admin-ui/users/u1/ban",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({ banReason: "spam" }),
+      }),
+    );
+  });
+
+  it("maps ban failures and unban success", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: { message: "you cannot ban yourself", code: "cannot_ban_self" } },
+          { status: 400 },
+        ),
+      ),
+    );
+    await expect(banUser("https://api.uploads.sh", "u1")).resolves.toEqual({
+      ok: false,
+      status: 400,
+      message: "you cannot ban yourself",
+      code: "cannot_ban_self",
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          user: {
+            id: "u1",
+            email: "a@b.com",
+            name: "A",
+            emailVerified: true,
+            banned: false,
+            createdAt: "2026-07-01T00:00:00.000Z",
+          },
+        }),
+      ),
+    );
+    await expect(unbanUser("https://api.uploads.sh", "u1")).resolves.toMatchObject({
+      ok: true,
+      tokensRevoked: 0,
+      user: { id: "u1", banned: false },
+    });
+  });
+});
+
+describe("isBannedAuthError", () => {
+  it("detects BANNED_USER codes and ban copy", () => {
+    expect(isBannedAuthError({ error: "BANNED_USER" })).toBe(true);
+    expect(isBannedAuthError({ errorCode: "banned_user" })).toBe(true);
+    expect(isBannedAuthError({ message: "This account has been deactivated." })).toBe(true);
+    expect(isBannedAuthError({ error: "access_denied" })).toBe(false);
   });
 });
 

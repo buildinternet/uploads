@@ -31,9 +31,15 @@ export interface SessionUser {
   name: string;
   image?: string | null;
   role?: string | null;
+  /** Set when Better Auth's admin plugin has banned the account. */
+  banned?: boolean | null;
   /** First CLI device-flow session (sticky); de-emphasizes account setup. */
   cliOnboardedAt?: string | Date | null;
 }
+
+/** Operator-facing copy when sign-in is refused for a banned account. */
+export const BANNED_ACCOUNT_MESSAGE =
+  "This account has been deactivated. Contact support if you believe this is a mistake.";
 
 /** Session row from get-session / list-sessions. */
 export interface AuthSession {
@@ -108,6 +114,9 @@ export async function getSession(origin: string): Promise<SessionResult> {
   const body = (await response.json().catch(() => undefined)) as SessionResponse | null | undefined;
   if (body === null) return { kind: "signed_out" };
   if (!body || !body.user) return { kind: "unavailable", reason: "malformed" };
+  // Ban clears sessions; if a banned flag still appears, treat as signed out
+  // so shells never paint account chrome for a deactivated user.
+  if (body.user.banned === true) return { kind: "signed_out" };
   return { kind: "signed_in", session: body };
 }
 
@@ -406,6 +415,196 @@ export async function listSessions(origin: string): Promise<AuthSession[] | null
     const r = row as Record<string, unknown>;
     return typeof r.id === "string" && typeof r.token === "string";
   });
+}
+
+/**
+ * Global user row from Better Auth's admin plugin (`GET /admin/list-users`).
+ * Session + `user.role === "admin"` required; non-admins get 403.
+ */
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  emailVerified: boolean;
+  image?: string | null;
+  role?: string | null;
+  banned?: boolean | null;
+  banReason?: string | null;
+  createdAt: string | Date;
+  updatedAt?: string | Date;
+  cliOnboardedAt?: string | Date | null;
+}
+
+export interface ListAdminUsersResult {
+  users: AdminUser[];
+  total: number;
+  limit?: number;
+  offset?: number;
+}
+
+export type ListAdminUsersOptions = {
+  /** Max rows (Better Auth coerces the query string). Default 100. */
+  limit?: number;
+  offset?: number;
+  /** Substring match on email or name (see `searchField`). */
+  searchValue?: string;
+  searchField?: "email" | "name";
+  sortBy?: string;
+  sortDirection?: "asc" | "desc";
+};
+
+function parseAdminUserRow(row: unknown): AdminUser | null {
+  if (!row || typeof row !== "object") return null;
+  const r = row as Record<string, unknown>;
+  if (typeof r.id !== "string" || typeof r.email !== "string" || typeof r.name !== "string") {
+    return null;
+  }
+  return {
+    id: r.id,
+    email: r.email,
+    name: r.name,
+    emailVerified: Boolean(r.emailVerified),
+    createdAt: (r.createdAt as string | Date) ?? new Date(0),
+    ...(r.image !== undefined ? { image: r.image as string | null } : {}),
+    ...(r.role !== undefined ? { role: r.role as string | null } : {}),
+    ...(r.banned !== undefined ? { banned: r.banned as boolean | null } : {}),
+    ...(r.banReason !== undefined ? { banReason: r.banReason as string | null } : {}),
+    ...(r.updatedAt !== undefined ? { updatedAt: r.updatedAt as string | Date } : {}),
+    ...(r.cliOnboardedAt !== undefined
+      ? { cliOnboardedAt: r.cliOnboardedAt as string | Date | null }
+      : {}),
+  };
+}
+
+/**
+ * GET /api/auth/admin/list-users — operator directory for `/admin/users`.
+ * Null on outage / non-2xx so the page can tell "couldn't load" from empty.
+ */
+export async function listAdminUsers(
+  origin: string,
+  options: ListAdminUsersOptions = {},
+): Promise<ListAdminUsersResult | null> {
+  const params = new URLSearchParams({
+    limit: String(options.limit ?? 100),
+    sortBy: options.sortBy ?? "createdAt",
+    sortDirection: options.sortDirection ?? "desc",
+  });
+  if (options.offset !== undefined) params.set("offset", String(options.offset));
+  if (options.searchValue) {
+    params.set("searchValue", options.searchValue);
+    params.set("searchField", options.searchField ?? "email");
+    params.set("searchOperator", "contains");
+  }
+
+  const result = await fetchWithTimeout(
+    `${authOrigin(origin)}/api/auth/admin/list-users?${params}`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable" || !result.response.ok) return null;
+  const body = (await result.response.json().catch(() => undefined)) as
+    | { users?: unknown; total?: unknown; limit?: unknown; offset?: unknown }
+    | null
+    | undefined;
+  if (!body || !Array.isArray(body.users) || typeof body.total !== "number") return null;
+
+  const users = body.users
+    .map((row) => parseAdminUserRow(row))
+    .filter((u): u is AdminUser => u !== null);
+
+  return {
+    users,
+    total: body.total,
+    ...(typeof body.limit === "number" ? { limit: body.limit } : {}),
+    ...(typeof body.offset === "number" ? { offset: body.offset } : {}),
+  };
+}
+
+export type BanUserResult =
+  | { ok: true; user: AdminUser | null; tokensRevoked: number }
+  | { ok: false; status: number; message: string; code?: string };
+
+type BanWirePayload = {
+  user?: unknown;
+  tokensRevoked?: unknown;
+  error?: { message?: string; code?: string } | string;
+  message?: string;
+} | null;
+
+function wireError(payload: BanWirePayload, fallback: string): { message: string; code?: string } {
+  if (payload?.error && typeof payload.error === "object") {
+    return {
+      message: payload.error.message || fallback,
+      code: payload.error.code,
+    };
+  }
+  if (typeof payload?.error === "string") return { message: payload.error };
+  if (payload?.message) return { message: payload.message };
+  return { message: fallback };
+}
+
+async function postAdminUserAction(
+  apiOrigin: string,
+  userId: string,
+  action: "ban" | "unban",
+  body: Record<string, unknown>,
+): Promise<BanUserResult> {
+  try {
+    const res = await fetch(
+      `${apiOrigin.replace(/\/$/, "")}/admin-ui/users/${encodeURIComponent(userId)}/${action}`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    const payload = (await res.json().catch(() => null)) as BanWirePayload;
+    if (!res.ok) {
+      const { message, code } = wireError(payload, `${action} failed (${res.status})`);
+      return { ok: false, status: res.status, message, code };
+    }
+    return {
+      ok: true,
+      user: parseAdminUserRow(payload?.user),
+      tokensRevoked: typeof payload?.tokensRevoked === "number" ? payload.tokensRevoked : 0,
+    };
+  } catch {
+    return { ok: false, status: 0, message: "Couldn't reach the API." };
+  }
+}
+
+/** POST /admin-ui/users/:id/ban — wipe sessions + revoke minted workspace tokens. */
+export function banUser(
+  apiOrigin: string,
+  userId: string,
+  options: { banReason?: string } = {},
+): Promise<BanUserResult> {
+  return postAdminUserAction(apiOrigin, userId, "ban", {
+    banReason: options.banReason?.trim() || undefined,
+  });
+}
+
+/** POST /admin-ui/users/:id/unban — clears ban flags (does not restore tokens). */
+export function unbanUser(apiOrigin: string, userId: string): Promise<BanUserResult> {
+  return postAdminUserAction(apiOrigin, userId, "unban", {});
+}
+
+/** True when a login callback / error body is a Better Auth ban refusal. */
+export function isBannedAuthError(input: {
+  error?: string | null;
+  errorCode?: string | null;
+  message?: string | null;
+}): boolean {
+  const blob = [input.error, input.errorCode, input.message]
+    .filter((v): v is string => typeof v === "string" && v.length > 0)
+    .join(" ")
+    .toLowerCase();
+  return (
+    blob.includes("banned_user") ||
+    blob.includes("has been banned") ||
+    blob.includes("has been deactivated") ||
+    blob.includes("you have been banned")
+  );
 }
 
 /** GET /api/auth/list-accounts — linked identity providers (e.g. GitHub). */

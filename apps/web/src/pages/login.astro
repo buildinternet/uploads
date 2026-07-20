@@ -81,7 +81,12 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
 </script>
 <script>
-  import { sendMagicLink, signInWithGitHub } from "../lib/auth-client";
+  import {
+    BANNED_ACCOUNT_MESSAGE,
+    isBannedAuthError,
+    sendMagicLink,
+    signInWithGitHub,
+  } from "../lib/auth-client";
 
   const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string }).__UPLOADS_AUTH_ORIGIN__;
 
@@ -106,6 +111,18 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   // query, instead of stranding the pending authorize request at /account.
   // The consent endpoint re-validates the signature server-side.
   const params = new URLSearchParams(location.search);
+
+  // Surface ban refusals after OAuth / magic-link callback (?error=BANNED_USER).
+  if (
+    isBannedAuthError({
+      error: params.get("error"),
+      errorCode: params.get("error_code") ?? params.get("code"),
+      message: params.get("error_description") ?? params.get("message"),
+    })
+  ) {
+    errorBox.textContent = BANNED_ACCOUNT_MESSAGE;
+    errorBox.hidden = false;
+  }
   const defaultCallback = params.has("sig")
     ? `${location.origin}/oauth/consent${location.search}`
     : `${location.origin}/account#cli-setup`;

@@ -392,6 +392,10 @@ function buildAuth(
       admin({
         defaultRole: "user",
         adminRoles: ["admin"],
+        // Shown when a banned account tries to open a new session (magic link,
+        // GitHub, device flow). Operators set bans from /admin/users.
+        bannedUserMessage:
+          "This account has been deactivated. Contact support if you believe this is a mistake.",
       }),
       // D3/D4 (Phase 3): orgs, membership, invitations. No `team` support.
       // No org auto-provisioning hook — workspaces (and their 1:1 orgs) are
