@@ -25,6 +25,7 @@ import {
 import { objectPublicUrls, storage, storageConfig } from "./storage";
 import { getWorkspaceUsage, recordUsageSafe, releaseUploadsSafe, reserveUploads } from "./usage";
 import { objectVisibility, VISIBILITY_META_KEY, type Visibility } from "./visibility";
+import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
 
 // The freshness floor on overwrite for every bucket. This is the operative lever
@@ -430,9 +431,8 @@ export interface ListedObject {
  * the API returns it on the listing DTO.
  */
 export function filePageUrl(env: Env, workspace: string, key: string): string {
-  const origin = env.WEB_ORIGIN.endsWith("/") ? env.WEB_ORIGIN.slice(0, -1) : env.WEB_ORIGIN;
   const encodedKey = key.split("/").map(encodeURIComponent).join("/");
-  return `${origin}/f/${encodeURIComponent(workspace)}/${encodedKey}`;
+  return `${webOrigin(env)}/f/${encodeURIComponent(workspace)}/${encodedKey}`;
 }
 
 export async function listObjects(
