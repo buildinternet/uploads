@@ -41,7 +41,7 @@
     },
     {
       "binding": "GITHUB_CACHE",
-      "id": "TBD_BY_OPERATOR",
+      "id": "8076084dae50495ab883ec79c1c5968f",
     },
   ],
   // Browser Run binding (POST /v1/render, phase 1). "remote": true is
