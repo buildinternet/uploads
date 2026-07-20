@@ -12,15 +12,13 @@
  *  - fetches `getMyWorkspaceUsage` → usage meters (`renderUsageHtml`, reused as-is).
  *
  * Connected-work hook contract (Task 8's files tab is the only caller):
- *   `window.__uploadsSetConnectedWork(items: GhWorkItem[]): void`
+ *   `window.__uploadsSetConnectedWork(items: GhWorkItem[], titles?: GithubTitleMap): void`
  * Call with the current view's deduped `connectedWork(files)` result. A
  * non-empty array shows the "connected work" section and renders one row per
  * item; an empty array hides it. Non-files tabs never call it, so the section
  * stays hidden by construction.
  */
 import {
-  GITHUB_TITLES_MAX_REFS,
-  getGithubTitles,
   getMyWorkspaces,
   getMyWorkspaceUsage,
   type GithubTitleMap,
@@ -31,7 +29,8 @@ import { bindCopyButtons, escapeHtml, renderUsageHtml } from "./workspace-ui";
 import { githubKindSvg } from "./brand-icons";
 import { applyGhTitles, type GhKind, type GhWorkItem } from "./gh-context";
 
-export type ConnectedWorkSetter = (items: GhWorkItem[]) => void;
+/** Optional titles come from the files tab's one listing-scoped title request. */
+export type ConnectedWorkSetter = (items: GhWorkItem[], titles?: GithubTitleMap) => void;
 
 declare global {
   interface Window {
@@ -107,13 +106,9 @@ export function planTitleRepaint(
   return updated.some((item, i) => item.label !== items[i].label) ? updated : null;
 }
 
-function bindConnectedWorkSetter(
-  root: Document | Element,
-  resolveTitles?: (refs: string[]) => Promise<GithubTitleMap | null>,
-): ConnectedWorkSetter {
+function bindConnectedWorkSetter(root: Document | Element): ConnectedWorkSetter {
   const section = root.querySelector<HTMLElement>("[data-rail-connected]");
   const list = root.querySelector<HTMLElement>("[data-rail-connected-list]");
-  let generation = 0;
   // Whether the user has clicked "show N more" for the current item set. A
   // title-resolution repaint (same generation) must preserve this so it
   // doesn't collapse the list the user just expanded; a genuinely new setter
@@ -154,16 +149,9 @@ function bindConnectedWorkSetter(
     paint(expanded ? items.length : CONNECTED_WORK_CAP);
   };
 
-  const setter: ConnectedWorkSetter = (items) => {
-    const current = ++generation;
-    paintItems(items);
-    if (!items.length || !resolveTitles) return;
-    const refs = [...new Set(items.map((item) => item.ref))].slice(0, GITHUB_TITLES_MAX_REFS);
-    void resolveTitles(refs).then((titles) => {
-      if (current !== generation) return; // a newer paint superseded this fetch
-      const relabeled = planTitleRepaint(items, titles);
-      if (relabeled) paintItems(relabeled, true);
-    });
+  const setter: ConnectedWorkSetter = (items, titles) => {
+    const relabeled = planTitleRepaint(items, titles ?? null);
+    paintItems(relabeled ?? items, titles !== undefined);
   };
   window.__uploadsSetConnectedWork = setter;
   return setter;
@@ -190,9 +178,7 @@ export function initWorkspaceRail(
 ): void {
   const root = opts.root ?? document;
 
-  const setConnectedWork = bindConnectedWorkSetter(root, (refs) =>
-    getGithubTitles(apiOrigin, workspace, refs),
-  );
+  const setConnectedWork = bindConnectedWorkSetter(root);
   setConnectedWork([]);
 
   const railRoot = root.querySelector<HTMLElement>("[data-workspace-rail]");
