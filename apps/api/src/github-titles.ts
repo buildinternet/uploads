@@ -7,6 +7,7 @@
  */
 import {
   githubAppConfig,
+  githubFetch,
   githubHeaders,
   installationForRepo,
   installationToken,
@@ -38,7 +39,7 @@ async function fetchIssue(
 ): Promise<FetchOutcome> {
   let res: Response;
   try {
-    res = await fetchImpl(`https://api.github.com/repos/${repo}/issues/${num}`, {
+    res = await githubFetch(fetchImpl, `https://api.github.com/repos/${repo}/issues/${num}`, {
       headers: githubHeaders(token),
     });
   } catch {
@@ -89,7 +90,11 @@ async function resolveOne(
   const homeToken = await getHomeToken();
   if (homeToken) outcome = await fetchIssue(repo, num, homeToken, fetchImpl);
 
-  if (outcome.kind === "no-access") {
+  // Retry via the repo's own installation on no-access, and also when the
+  // home token itself failed to mint (transient blip) — otherwise a ref with
+  // a perfectly good cached installation would be negative-cached for an
+  // hour because of an unrelated home-token failure.
+  if (outcome.kind === "no-access" || homeToken === null) {
     const installId = await installationForRepo(env, cfg, repo, fetchImpl);
     if (installId !== null) {
       const instToken = await installationToken(env, cfg, installId, fetchImpl);

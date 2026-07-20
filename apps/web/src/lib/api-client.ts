@@ -551,8 +551,18 @@ export async function getGithubTitles(
   );
   if (result.kind === "unavailable" || !result.response.ok) return null;
   const body = (await result.response.json().catch(() => null)) as { refs?: unknown } | null;
-  if (!body || typeof body !== "object" || !body.refs || typeof body.refs !== "object") return null;
-  return body.refs as GithubTitleMap;
+  const map = body && typeof body === "object" ? body.refs : null;
+  if (!map || typeof map !== "object" || Array.isArray(map)) return null;
+  // Per-entry shape check so a malformed payload can't push a non-string
+  // label into rail rendering: entries are null or a full TitleInfo.
+  for (const entry of Object.values(map)) {
+    if (entry === null) continue;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+    const t = entry as Record<string, unknown>;
+    if (typeof t.title !== "string" || typeof t.state !== "string") return null;
+    if (t.kind !== "pull" && t.kind !== "issue") return null;
+  }
+  return map as GithubTitleMap;
 }
 
 export interface WorkspaceFolderFile {

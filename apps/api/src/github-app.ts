@@ -66,6 +66,22 @@ const INSTALL_TTL = 3600;
 const TOKEN_TTL = 3000; // GitHub tokens live 60min; cache 50.
 
 /**
+ * Hard deadline on every outbound GitHub call: the titles endpoint awaits
+ * these in the request path, so a hanging upstream must abort fast and fall
+ * into each caller's existing degrade-to-null handling.
+ */
+const GITHUB_FETCH_TIMEOUT_MS = 8000;
+
+/** `fetchImpl` with the standard GitHub deadline attached. */
+export function githubFetch(
+  fetchImpl: typeof fetch,
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  return fetchImpl(url, { ...init, signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS) });
+}
+
+/**
  * Installation id for `repo` ("owner/name"), or null when the App is not
  * installed there. 404 (not installed) is cached as "none"; transient
  * failures are not cached.
@@ -80,7 +96,7 @@ export async function installationForRepo(
   const cached = (await env.GITHUB_CACHE.get(key)) as string | null;
   if (cached !== null) return cached === "none" ? null : Number(cached);
   try {
-    const res = await fetchImpl(`https://api.github.com/repos/${repo}/installation`, {
+    const res = await githubFetch(fetchImpl, `https://api.github.com/repos/${repo}/installation`, {
       headers: githubHeaders(await appJwt(cfg)),
     });
     if (res.status === 404) {
@@ -112,7 +128,8 @@ export async function installationToken(
   const cached = (await env.GITHUB_CACHE.get(key)) as string | null;
   if (cached !== null) return cached;
   try {
-    const res = await fetchImpl(
+    const res = await githubFetch(
+      fetchImpl,
       `https://api.github.com/app/installations/${installationId}/access_tokens`,
       { method: "POST", headers: githubHeaders(await appJwt(cfg)) },
     );

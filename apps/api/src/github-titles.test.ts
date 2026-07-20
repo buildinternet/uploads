@@ -56,6 +56,22 @@ describe("resolveTitles", () => {
     expect(out["o/r#9"]).toEqual({ title: "Cached", state: "open", kind: "issue" });
   });
 
+  it("falls back to the repo installation when the home token itself fails to mint", async () => {
+    const kv = new FakeKv();
+    // No ghtok:777 seeded and the dummy private key can't sign, so the home
+    // mint fails; the cached repo installation must still be tried.
+    kv.store.set("ghinst:o/r", { value: "4242" });
+    kv.store.set("ghtok:4242", { value: "ghs_inst" });
+    const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(((init?.headers ?? {}) as Record<string, string>).authorization).toBe(
+        "Bearer ghs_inst",
+      );
+      return new Response(issueJson(), { status: 200 });
+    }) as typeof fetch;
+    const out = await resolveTitles(envWith(kv), ["o/r#9"], fetchImpl);
+    expect(out["o/r#9"]).toEqual({ title: "Fix the thing", state: "open", kind: "issue" });
+  });
+
   it("falls back to the repo's own installation on 404, then negative-caches a double miss", async () => {
     const kv = new FakeKv();
     seedHomeToken(kv);
