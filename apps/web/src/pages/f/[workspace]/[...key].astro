@@ -13,6 +13,9 @@ import {
   fileKind as kind,
   filePath,
   formatBytes,
+  formatFileDate,
+  shouldShowModified,
+  sameUtcDay,
 } from "../../../lib/public-file";
 import { oembedDiscoveryHref } from "../../../lib/oembed";
 import { env } from "cloudflare:workers";
@@ -38,11 +41,17 @@ else if (result.status === "auth_required") Astro.response.status = 401;
 else if (!file) Astro.response.status = 404;
 
 const filename = key.split("/").filter(Boolean).pop() ?? key;
-const uploaded = file?.uploaded ? new Date(file.uploaded) : null;
-const uploadedLabel =
-  uploaded && Number.isFinite(uploaded.getTime())
-    ? uploaded.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
-    : null;
+const uploadedIso = file?.uploaded ?? null;
+const modifiedIso = file?.modified ?? null;
+const showModified = shouldShowModified(uploadedIso, modifiedIso);
+const useTime =
+  showModified &&
+  uploadedIso &&
+  modifiedIso &&
+  sameUtcDay(uploadedIso, modifiedIso);
+const uploadedLabel = uploadedIso ? formatFileDate(uploadedIso, { withTime: !!useTime }) : null;
+const modifiedLabel =
+  showModified && modifiedIso ? formatFileDate(modifiedIso, { withTime: !!useTime }) : null;
 const canonical = new URL(file ? filePath(workspace, key) : Astro.url.pathname, Astro.url.origin)
   .href;
 // Generic metadata list excludes `gh.*` pairs — those render as the GitHub
@@ -114,6 +123,9 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
       .gh-chip { display:inline-flex; align-items:center; gap:6px; margin:10px 0 0; padding:6px 10px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel); color:var(--fg); font:12px var(--mono); text-decoration:none; }
       .gh-chip:hover, .gh-chip:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
       .gh-chip-icon { flex:none; }
+      .gh-chip-text { display:flex; flex-direction:column; gap:2px; min-width:0; }
+      .gh-chip-title { overflow-wrap:anywhere; font-weight:600; }
+      .gh-chip-ref { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
       .gh-chip-name { overflow-wrap:anywhere; }
       .section-label { margin:16px 0 0; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font:11px var(--mono); }
       dl.meta.metadata { margin-top:6px; }
@@ -123,7 +135,32 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
       .error .signin:hover, .error .signin:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
       .error .checking { display:block; margin-top:14px; color:var(--muted); font:12px var(--mono); }
       a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
-      @media (max-width:760px) { .shell{width:min(100% - 32px,1080px);padding-top:24px} .media{min-height:220px} }
+      @media (min-width: 1080px) {
+        /* align with signed-in --bp-rail (1080px); media queries can't read custom props */
+        .shell { width: min(1200px, calc(100% - 48px)); }
+        .stage {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+          align-items: stretch;
+        }
+        .media {
+          min-height: 320px;
+          max-height: 78vh;
+        }
+        .details {
+          border-top: none;
+          border-left: 1px solid var(--line);
+          max-height: 78vh;
+          overflow: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 0;
+        }
+      }
+      @media (max-width: 760px) {
+        .shell { width: min(100% - 32px, 1080px); padding-top: 24px; }
+        .media { min-height: 220px; }
+      }
       .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); clip-path:inset(50%); white-space:nowrap; border:0; }
     </style>
   </head>
@@ -147,7 +184,11 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
                   class="gh-chip"
                   href={file.github.url}
                   rel="noopener noreferrer"
-                  aria-label={`${file.github.kind === "pull" ? "Pull request" : "Issue"} ${file.github.repo}#${file.github.number} on GitHub`}
+                  aria-label={
+                    file.github.title
+                      ? `${file.github.kind === "pull" ? "Pull request" : "Issue"} ${file.github.title} (${file.github.repo}#${file.github.number}) on GitHub`
+                      : `${file.github.kind === "pull" ? "Pull request" : "Issue"} ${file.github.repo}#${file.github.number} on GitHub`
+                  }
                 >
                   <svg
                     class="gh-chip-icon"
@@ -160,13 +201,23 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
                     <title>{file.github.kind === "pull" ? "pull request" : "issue"}</title>
                     <path fill="currentColor" d={GH_KIND_PATH[file.github.kind]} />
                   </svg>
-                  <span class="gh-chip-name">{file.github.repo}#{file.github.number}</span>
+                  <span class="gh-chip-text">
+                    {file.github.title ? (
+                      <>
+                        <span class="gh-chip-title">{file.github.title}</span>
+                        <span class="gh-chip-ref">{file.github.repo}#{file.github.number}</span>
+                      </>
+                    ) : (
+                      <span class="gh-chip-name">{file.github.repo}#{file.github.number}</span>
+                    )}
+                  </span>
                 </a>
               )}
               <dl class="meta">
                 <dt>Type</dt><dd>{file.contentType}</dd>
                 <dt>Size</dt><dd>{formatBytes(file.size)}</dd>
-                {uploadedLabel && <><dt>Uploaded</dt><dd>{uploadedLabel}</dd></>}
+                {uploadedLabel && (<><dt>Uploaded</dt><dd>{uploadedLabel}</dd></>)}
+                {modifiedLabel && (<><dt>Modified</dt><dd>{modifiedLabel}</dd></>)}
               </dl>
               {metadataEntries.length > 0 && (
                 <>
