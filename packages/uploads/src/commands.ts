@@ -451,6 +451,14 @@ export async function syncAttachmentsComment(
       kind: target.kind,
     });
     if (bot.posted) return { action: bot.action, count: bot.count, via: "bot" };
+    // Installed-but-unapproved is a fixable misconfiguration, not a silent
+    // degrade: tell the user (and how to fix it) before falling back to gh.
+    if (bot.reason === "forbidden" && bot.message) {
+      process.stderr.write(
+        `note: ${bot.message}${bot.fixUrl ? `\n  ${bot.fixUrl}` : ""}\n` +
+          `Posting via local gh in the meantime.\n`,
+      );
+    }
   } catch {
     // Endpoint absent/unreachable (self-hosted, network, older worker) — fall
     // through to the gh path below.

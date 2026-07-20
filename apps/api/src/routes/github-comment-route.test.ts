@@ -138,4 +138,69 @@ describe("POST /v1/:workspace/github/comment", () => {
       globalThis.fetch = realFetch;
     }
   });
+
+  it("enriches a forbidden decline with an actionable message + fix link", async () => {
+    const hash = await sha256Hex(TOKEN);
+    const record: WorkspaceRecord = {
+      provider: "r2",
+      bucket: "b",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "acme/",
+      publicBaseUrl: "https://storage.uploads.sh",
+      tokens: [{ hash, createdAt: new Date().toISOString() }],
+    };
+    const registry = {
+      get: (async (key: string) =>
+        key === `ws:${WS}` ? record : null) as unknown as KVNamespace["get"],
+    };
+    const githubCache = new FakeKv();
+    githubCache.store.set("ghinst:acme/web", { value: "42" });
+    githubCache.store.set("ghtok:42", { value: "cached-token" });
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", new Uint8Array([0x89, 0x50]), {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const db = {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => null,
+          all: async () => ({ results: [] }),
+          run: async () => ({}),
+        }),
+      }),
+    } as unknown as D1Database;
+    const env = {
+      REGISTRY: registry,
+      DB: db,
+      GITHUB_CACHE: githubCache,
+      UPLOADS_DEFAULT: bucket,
+      ...GITHUB_APP_CFG_ENV,
+    } as unknown as Env;
+
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string) =>
+      String(url).includes("/issues/12/comments")
+        ? new Response("no", { status: 403 }) // App lacks write
+        : new Response("nf", { status: 404 })) as unknown as typeof fetch;
+    try {
+      const res = await post(env, { repo: "acme/web", num: 12, kind: "pull" });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        posted: boolean;
+        reason: string;
+        message: string;
+        fixUrl: string;
+        required: string[];
+      };
+      expect(body.posted).toBe(false);
+      expect(body.reason).toBe("forbidden");
+      expect(body.message).toContain("Issues and Pull requests write");
+      expect(body.fixUrl).toBe(
+        "https://github.com/organizations/acme/settings/installations/42/permissions/update",
+      );
+      expect(body.required).toEqual(["issues:write", "pull_requests:write"]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 });

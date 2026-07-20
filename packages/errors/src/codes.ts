@@ -43,6 +43,9 @@ export const ERROR_CODES = [
   // Auth / enrollment
   "invalid_enrollment",
 
+  // External integrations (GitHub App, OAuth providers, …)
+  "integration_authorization_required",
+
   // Galleries
   "gallery_not_found",
   "gallery_item_not_found",

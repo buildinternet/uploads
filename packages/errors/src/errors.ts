@@ -43,6 +43,28 @@ export class ForbiddenError extends AppError {
   }
 }
 
+/**
+ * An external integration (GitHub App, OAuth provider, …) is connected but is
+ * missing a permission that must be granted out of band — e.g. a GitHub App
+ * whose new Issues/Pull-requests write scope is pending org approval. Carries
+ * the provider, the permissions still needed, and an optional `fix_url` the
+ * caller can surface so an admin can approve it. Shares the 403 `forbidden`
+ * category; the specific `code` is what distinguishes it from a plain refusal.
+ */
+export class IntegrationAuthorizationError extends AppError {
+  constructor(
+    provider: string,
+    opts: { required: string[]; fixUrl?: string; message?: string } = { required: [] },
+  ) {
+    super({
+      type: "forbidden",
+      code: "integration_authorization_required",
+      message: opts.message ?? `${provider} needs additional permissions approved.`,
+      details: { provider, required: opts.required, fix_url: opts.fixUrl },
+    });
+  }
+}
+
 /** Missing OAuth/API scope — fixed code + `{ required_scope }` details. */
 export class InsufficientScopeError extends AppError {
   constructor(requiredScope: string, message = "Insufficient scope.") {

@@ -220,7 +220,15 @@ export type GithubCommentDeclineReason =
 
 export type GithubCommentResult =
   | { posted: true; action: "created" | "updated" | "skipped"; count: number; commentUrl?: string }
-  | { posted: false; reason: GithubCommentDeclineReason };
+  | {
+      posted: false;
+      reason: GithubCommentDeclineReason;
+      // Present on `forbidden` (App installed, write pending approval): a ready
+      // human message + fix link the CLI surfaces instead of degrading silently.
+      message?: string;
+      fixUrl?: string;
+      required?: string[];
+    };
 
 export interface HealthResult {
   ok: boolean;
