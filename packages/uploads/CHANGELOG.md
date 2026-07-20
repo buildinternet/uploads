@@ -1,5 +1,19 @@
 # @buildinternet/uploads
 
+## 0.14.0
+
+### Minor Changes
+
+- b9955b2: `uploads attach` and `put --pr`/`--issue` now also stamp `gh.title` with the resolved PR/issue title (best-effort via local `gh`, never blocks the upload) so the connected-work label in the workspace rail can show the real title instead of the bare `owner/repo#123` ref.
+- 9b73337: Managed attachments comment can now be posted by the uploads.sh GitHub App as
+  `uploads-sh[bot]` when the App is installed on the target repo, so `--comment` /
+  `uploads comment` no longer require a locally authenticated `gh`. Falls back to
+  the existing `gh`-authored comment where the App is not installed.
+
+  Both paths now find and edit the existing managed comment on threads past 100
+  comments (the `gh` fallback paginates the lookup), so updating attachment media
+  edits the one comment in place instead of posting a duplicate.
+
 ## 0.13.1
 
 ### Patch Changes
