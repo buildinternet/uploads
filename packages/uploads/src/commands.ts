@@ -143,7 +143,9 @@ Options:
   --format human|url|markdown|json
   --pr <num>            Attach to a pull request: key gh/<owner>/<repo>/pull/<num>/<name> (stable URL, no hash)
   --issue <num>         Attach to an issue: key gh/<owner>/<repo>/issues/<num>/<name>
-  --comment             With --pr/--issue: update one managed comment with attachments and linked galleries via local gh auth
+  --comment             With --pr/--issue: update one managed comment with
+                        attachments and linked galleries. Posts as uploads-sh[bot]
+                        when the GitHub App is installed; otherwise via local gh.
   --gallery <id>         Add the uploaded object(s) to this public gallery
   --meta <k=v>          Queryable custom metadata (repeatable; value may contain "="): key ^[a-z][a-z0-9._-]{0,63}$, value 1-512 printable ASCII, max 24 pairs
                         Re-uploading to an existing key WITH --meta replaces that file's
@@ -1660,7 +1662,8 @@ export async function runDelete(ctx: CliContext, args: string[], help = false): 
 const COMMENT_HELP = `uploads comment (--pr <num> | --issue <num>) [--repo <owner/name>] [--workspace <name>]
 
 Create or update the managed attachments comment on a GitHub PR or issue,
-listing everything uploaded for it. Uses your local gh auth. Finds its own
+listing everything uploaded for it. Posts as uploads-sh[bot] when the GitHub
+App is installed on the repo; otherwise via your local gh auth. Finds its own
 prior comment via a hidden marker and edits it in place; never touches other
 comments or the description.
 
