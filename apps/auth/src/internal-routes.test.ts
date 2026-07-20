@@ -1017,4 +1017,72 @@ describe("DB-backed behavior", () => {
       expect(await unknownRes.json()).toEqual({ githubLinked: false });
     });
   });
+
+  describe("DELETE /internal/orgs/:slug/invites/:id", () => {
+    async function seed(actorRole: string) {
+      const org = await seedOrg();
+      const actor = await seedUser({ id: "u_actor", email: "actor@x.com" });
+      await orm.insert(schema.member).values({
+        id: "m_actor",
+        organizationId: org.id,
+        userId: actor.id,
+        role: actorRole,
+        createdAt: new Date(),
+      });
+      const inviteId = "inv_1";
+      await orm.insert(schema.invitation).values({
+        id: inviteId,
+        organizationId: org.id,
+        email: "invitee@x.com",
+        role: "member",
+        status: "pending",
+        expiresAt: new Date(Date.now() + 86400000),
+        inviterId: actor.id,
+        createdAt: new Date(),
+      });
+      return { org, actor, inviteId };
+    }
+
+    it("revokes a pending invite for an admin actor", async () => {
+      const { org, actor, inviteId } = await seed("admin");
+      const res = await app().request(
+        `/internal/orgs/${org.slug}/invites/${inviteId}?actorUserId=${actor.id}`,
+        { method: "DELETE" },
+        dbEnv(),
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+      const rows = await orm
+        .select()
+        .from(schema.invitation)
+        .where(eq(schema.invitation.id, inviteId));
+      expect(rows).toHaveLength(0);
+    });
+
+    it("403s when the actor is only a member", async () => {
+      const { org, actor, inviteId } = await seed("member");
+      const res = await app().request(
+        `/internal/orgs/${org.slug}/invites/${inviteId}?actorUserId=${actor.id}`,
+        { method: "DELETE" },
+        dbEnv(),
+      );
+      expect(res.status).toBe(403);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "actor_not_authorized" },
+      });
+    });
+
+    it("404s for an unknown invite id", async () => {
+      const { org, actor } = await seed("owner");
+      const res = await app().request(
+        `/internal/orgs/${org.slug}/invites/nope?actorUserId=${actor.id}`,
+        { method: "DELETE" },
+        dbEnv(),
+      );
+      expect(res.status).toBe(404);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "invite_not_found" },
+      });
+    });
+  });
 });

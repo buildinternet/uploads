@@ -14,6 +14,21 @@ function errorJson(code: string, message: string) {
   return { error: { code, message } } as const;
 }
 
+/** The actor's org-scoped role, or null if they aren't a member of this org. */
+async function actorRole(
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  orgId: string,
+  actorUserId: string,
+): Promise<string | null> {
+  if (!actorUserId) return null;
+  const [row] = await db
+    .select({ role: schema.member.role })
+    .from(schema.member)
+    .where(and(eq(schema.member.organizationId, orgId), eq(schema.member.userId, actorUserId)))
+    .limit(1);
+  return row?.role ?? null;
+}
+
 // Lane 1 (operator OAuth admin panel contract, .context/2026-07-18-oauth-admin-panel-contract.md):
 // validation error shape differs from the rest of this file's errorJson —
 // the contract locks in `{error:"invalid_request", message}` for these routes.
@@ -347,6 +362,42 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
         and(eq(schema.invitation.organizationId, org.id), eq(schema.invitation.status, "pending")),
       );
     return c.json({ invites: rows });
+  })
+  // Task 1 (#275): admin/owner-authorized revocation of a pending invite,
+  // used by the workspace people tab's pending-invite management.
+  .delete("/orgs/:slug/invites/:id", async (c) => {
+    const slug = c.req.param("slug");
+    const inviteId = c.req.param("id");
+    const requestActorUserId = c.req.query("actorUserId") ?? "";
+    const db = drizzle(c.env.DB, { schema });
+    const [org] = await db
+      .select()
+      .from(schema.organization)
+      .where(eq(schema.organization.slug, slug))
+      .limit(1);
+    if (!org) {
+      return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
+    }
+    const role = await actorRole(db, org.id, requestActorUserId);
+    if (role !== "owner" && role !== "admin") {
+      return c.json(errorJson("actor_not_authorized", "actor must be an org admin or owner"), 403);
+    }
+    const [invite] = await db
+      .select({ id: schema.invitation.id })
+      .from(schema.invitation)
+      .where(
+        and(
+          eq(schema.invitation.id, inviteId),
+          eq(schema.invitation.organizationId, org.id),
+          eq(schema.invitation.status, "pending"),
+        ),
+      )
+      .limit(1);
+    if (!invite) {
+      return c.json(errorJson("invite_not_found", "no pending invite with that id"), 404);
+    }
+    await db.delete(schema.invitation).where(eq(schema.invitation.id, invite.id));
+    return c.json({ ok: true });
   })
   // Phase 3 (plan scope B): server-side invite creation for
   // POST /admin-ui/workspaces/:name/invites on apps/api.
