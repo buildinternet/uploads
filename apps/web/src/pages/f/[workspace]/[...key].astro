@@ -122,7 +122,7 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
       .fallback strong { display:block; color:var(--fg); margin-bottom:8px; }
       .fallback a { color:var(--fg); overflow-wrap:anywhere; }
       .details { padding:18px 20px 22px; border-top:1px solid var(--line); }
-      .filename { color:var(--fg); font:600 14px var(--mono); overflow-wrap:anywhere; }
+      .filetitle { margin:0 0 16px; color:var(--fg); font:600 17px var(--mono); letter-spacing:-.01em; overflow-wrap:anywhere; }
       dl.meta { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; margin:14px 0 0; font:12px var(--mono); }
       dl.meta dt { color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-size:11px; }
       dl.meta dd { margin:0; color:var(--body); overflow-wrap:anywhere; }
@@ -159,7 +159,6 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
         .shell { width: min(100% - 32px, 1080px); padding-top: 24px; }
         .media { min-height: 220px; }
       }
-      .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); clip-path:inset(50%); white-space:nowrap; border:0; }
     </style>
   </head>
   <body>
@@ -167,7 +166,7 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
       <nav class="top"><Brand /><span class="public">public file</span></nav>
       {file ? (
         <>
-          <h1 class="sr-only">{filename}</h1>
+          <h1 class="filetitle">{filename}</h1>
           <figure class="stage" style="margin:0">
             <div class="media">
               {kind(file.contentType) === "image" && <img src={file.url} alt={filename} decoding="async" />}
@@ -176,7 +175,6 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
               {kind(file.contentType) === "unsupported" && <div class="fallback"><strong>Unsupported media type</strong><span>This file cannot be previewed inline.</span></div>}
             </div>
             <figcaption class="details">
-              <div class="filename">{filename}</div>
               {gh && (
                 <a
                   class="gh-chip"
