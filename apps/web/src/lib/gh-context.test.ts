@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { ghWorkItemFromMetadata, connectedWork, exactPrMatch, githubUrl } from "./gh-context";
+import {
+  ghWorkItemFromMetadata,
+  connectedWork,
+  exactPrMatch,
+  githubUrl,
+  applyGhTitles,
+  type GhWorkItem,
+} from "./gh-context";
 
 const pr = {
   "gh.repo": "o/uploads",
@@ -57,5 +64,39 @@ describe("gh-context", () => {
   it("githubUrl maps kind → path", () => {
     expect(githubUrl("o/r", "pull", "5")).toBe("https://github.com/o/r/pull/5");
     expect(githubUrl("o/r", "issue", "5")).toBe("https://github.com/o/r/issues/5");
+  });
+});
+
+function railItem(overrides: Partial<GhWorkItem> = {}): GhWorkItem {
+  return {
+    repo: "o/r",
+    kind: "pull",
+    number: "1",
+    ref: "o/r#1",
+    url: "https://github.com/o/r/pull/1",
+    label: "o/r#1",
+    kindLabel: "pull request",
+    ...overrides,
+  };
+}
+
+describe("applyGhTitles", () => {
+  it("replaces labels for refs with fetched titles and leaves the rest", () => {
+    const items = [railItem(), railItem({ ref: "o/r#2", number: "2", label: "stamped title" })];
+    const out = applyGhTitles(items, {
+      "o/r#1": { title: "Fresh title", state: "open", kind: "pull" },
+      "o/r#2": null,
+    });
+    expect(out[0].label).toBe("Fresh title");
+    expect(out[1].label).toBe("stamped title");
+    expect(items[0].label).toBe("o/r#1"); // input untouched
+  });
+
+  it("ignores empty titles and unknown refs", () => {
+    const items = [railItem()];
+    expect(
+      applyGhTitles(items, { "o/r#1": { title: "", state: "open", kind: "pull" } })[0].label,
+    ).toBe("o/r#1");
+    expect(applyGhTitles(items, {})[0].label).toBe("o/r#1");
   });
 });

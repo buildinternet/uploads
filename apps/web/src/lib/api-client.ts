@@ -523,6 +523,35 @@ export async function searchWorkspaceFiles(
   return { kind: "ok", items: b.items, truncated: b.truncated };
 }
 
+export interface GithubTitleInfo {
+  title: string;
+  state: string;
+  kind: "pull" | "issue";
+}
+export type GithubTitleMap = Record<string, GithubTitleInfo | null>;
+
+/**
+ * Batch PR/issue titles for the connected-work rail (issue #267). `{}` for an
+ * empty ref list (no request); null on outage/non-2xx/malformed body — the
+ * caller keeps its metadata-derived labels.
+ */
+export async function getGithubTitles(
+  apiOrigin: string,
+  name: string,
+  refs: string[],
+): Promise<GithubTitleMap | null> {
+  if (refs.length === 0) return {};
+  const qs = encodeURIComponent(refs.slice(0, 20).join(","));
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/github-titles?refs=${qs}`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable" || !result.response.ok) return null;
+  const body = (await result.response.json().catch(() => null)) as { refs?: unknown } | null;
+  if (!body || typeof body !== "object" || !body.refs || typeof body.refs !== "object") return null;
+  return body.refs as GithubTitleMap;
+}
+
 export interface WorkspaceFolderFile {
   key: string;
   url: string | null;

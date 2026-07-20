@@ -12,6 +12,8 @@
  * `apps/api/src/routes/public-files.ts`.
  */
 
+import type { GithubTitleMap } from "./api-client";
+
 export type GhKind = "pull" | "issue";
 
 export interface GhWorkItem {
@@ -81,4 +83,16 @@ export function exactPrMatch(files: { metadata?: Record<string, string> }[]): Gh
   if (items.length !== 1) return null;
   const [only] = items;
   return only.kind === "pull" ? only : null;
+}
+
+/**
+ * Overlay server-fetched titles (issue #267) onto rail items. A fetched title
+ * is strictly newer than any attach-time `gh.title`, so it wins; refs the
+ * server couldn't resolve (null / absent / empty) keep their existing label.
+ */
+export function applyGhTitles(items: GhWorkItem[], titles: GithubTitleMap): GhWorkItem[] {
+  return items.map((item) => {
+    const fetched = titles[item.ref];
+    return fetched && fetched.title ? { ...item, label: fetched.title } : item;
+  });
 }
