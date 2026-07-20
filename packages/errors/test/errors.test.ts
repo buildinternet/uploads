@@ -8,6 +8,7 @@ import {
   isErrorEnvelope,
   isKnownErrorCode,
   InsufficientStorageError,
+  IntegrationAuthorizationError,
   InternalError,
   NotFoundError,
   RateLimitedError,
@@ -94,6 +95,23 @@ describe("subclasses", () => {
     expect(err.status).toBe(507);
     expect(err.type).toBe("insufficient_storage");
     expect(err.code).toBe("storage_quota_exceeded");
+  });
+
+  it("IntegrationAuthorizationError is a 403 carrying provider + required + fix_url", () => {
+    const err = new IntegrationAuthorizationError("GitHub App", {
+      required: ["issues:write", "pull_requests:write"],
+      fixUrl: "https://github.com/organizations/acme/settings/installations/1/permissions/update",
+      message: "GitHub App needs write approved for acme.",
+    });
+    expect(err.status).toBe(403);
+    expect(err.type).toBe("forbidden");
+    expect(err.code).toBe("integration_authorization_required");
+    expect(err.toWire().error.details).toEqual({
+      provider: "GitHub App",
+      required: ["issues:write", "pull_requests:write"],
+      fix_url: "https://github.com/organizations/acme/settings/installations/1/permissions/update",
+    });
+    expect(err.toWire().error.message).toBe("GitHub App needs write approved for acme.");
   });
 });
 

@@ -186,6 +186,34 @@ describe("syncAttachmentsComment", () => {
     expect(res.action).toBe("created");
   });
 
+  it("warns with the fix message on forbidden, then falls back to gh", async () => {
+    const client = fakeClient({
+      upsertGithubComment: async () => ({
+        posted: false,
+        reason: "forbidden",
+        message: "The uploads.sh GitHub App is installed on acme/web but needs write approved.",
+        fixUrl: "https://github.com/organizations/acme/settings/installations/1/permissions/update",
+        required: ["issues:write", "pull_requests:write"],
+      }),
+      listAll: async () => [{ key: "gh/acme/web/pull/12/a.png", url: "u", embedUrl: null }],
+      findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+    });
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    try {
+      const res = await syncAttachmentsComment(
+        client,
+        { repo: "acme/web", num: 12, kind: "pull" },
+        ghRunnerThatFindsNoMarkerThenCreates(),
+      );
+      expect(res.via).toBe("gh");
+      const printed = stderr.mock.calls.map((c) => String(c[0])).join("");
+      expect(printed).toContain("needs write approved");
+      expect(printed).toContain("/permissions/update");
+    } finally {
+      stderr.mockRestore();
+    }
+  });
+
   it("falls back to the gh path when the endpoint throws (self-hosted 404)", async () => {
     const client = fakeClient({
       upsertGithubComment: async () => {

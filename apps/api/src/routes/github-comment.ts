@@ -37,6 +37,26 @@ function parseTarget(body: Record<string, unknown>): {
   return { repo, num, kind };
 }
 
+/**
+ * Actionable body for a `forbidden` (App installed, write not yet approved)
+ * decline. `fixUrl` is the org install's permission-review page — this product
+ * installs on orgs, so the org form is the right target; the message stands on
+ * its own if an install is ever user-owned.
+ */
+function forbiddenDecline(repo: string, installId: number) {
+  const owner = repo.split("/")[0];
+  return {
+    posted: false as const,
+    reason: "forbidden" as const,
+    message:
+      `The uploads.sh GitHub App is installed on ${repo} but needs Issues and ` +
+      `Pull requests write access approved before it can comment as ` +
+      `uploads-sh[bot]. An org admin must approve the updated permissions.`,
+    fixUrl: `https://github.com/organizations/${owner}/settings/installations/${installId}/permissions/update`,
+    required: ["issues:write", "pull_requests:write"],
+  };
+}
+
 export const githubComment = new Hono<WorkspaceVars>().post(
   "/comment",
   writeRateLimit,
@@ -57,7 +77,15 @@ export const githubComment = new Hono<WorkspaceVars>().post(
     if (gathered.skip) return c.json({ posted: true, action: "skipped", count: 0 });
 
     const result = await upsertBotComment(c.env, cfg, installId, target, gathered.body);
-    if ("degrade" in result) return c.json({ posted: false, reason: result.degrade });
+    if ("degrade" in result) {
+      // A 403 means the App is installed but lacks Issues/PR write (pending org
+      // approval). Enrich that one reason with actionable guidance so the CLI
+      // can tell the user instead of silently falling back to gh. Mirrors the
+      // IntegrationAuthorizationError vocabulary (@uploads/errors) for the soft,
+      // never-5xx decline path.
+      if (result.degrade === "forbidden") return c.json(forbiddenDecline(target.repo, installId));
+      return c.json({ posted: false, reason: result.degrade });
+    }
     return c.json({
       posted: true,
       action: result.action,
