@@ -1,0 +1,128 @@
+---
+// uploads.sh — docs / GitHub App. What installing the uploads-sh App adds on
+// top of the CLI (bot comments, private-repo titles, live title updates), and
+// the post-install landing page (the App's Setup URL points here).
+import DocsLayout from "../../layouts/DocsLayout.astro";
+
+const APP_URL = "https://github.com/apps/uploads-sh";
+
+const TOC = [
+  { id: "what-it-adds", label: "What it adds" },
+  { id: "install", label: "Install it" },
+  { id: "permissions", label: "Permissions" },
+  { id: "without-it", label: "Without the App" },
+];
+---
+
+<DocsLayout
+  title="GitHub App"
+  description="Install the uploads-sh GitHub App so attachment comments post as uploads-sh[bot], private-repo PR and issue titles show on file pages, and titles stay current."
+  path="/docs/github-app"
+  heading="GitHub App"
+  tagline="Optional, but nicer: bot-posted comments and live PR/issue titles."
+  active="github-app"
+  toc={TOC}
+>
+  {/* Post-install landing: GitHub's Setup URL redirect arrives with
+      ?setup_action=install|update, which reveals this banner client-side. */}
+  <aside class="installed" id="installed-note" hidden aria-live="polite">
+    <strong data-installed-heading>App installed — you're done.</strong> There is nothing to
+    configure on this side. The CLI notices the installation automatically the next time you
+    run <code>uploads attach</code>.
+  </aside>
+
+  <section class="lead" id="what-it-adds">
+    <h2>What it adds <a class="anchor" href="#what-it-adds" aria-label="Link to this section">#</a></h2>
+    <p>
+      Everything in these docs works without the App. Installing the&#32;
+      <a href={APP_URL}>uploads-sh GitHub App</a> on your repos upgrades three things:
+    </p>
+    <ul>
+      <li>
+        <strong>Comments post as <code>uploads-sh[bot]</code>.</strong> The managed
+        "📎 Attachments" comment is created and updated by the App on the server, instead of
+        under your own GitHub identity via the local <code>gh</code> CLI. That keeps
+        attachment noise off your account — and it works in environments with no&#32;
+        <code>gh</code> auth at all.
+      </li>
+      <li>
+        <strong>File pages show titles for private repos.</strong> A file attached to a PR or
+        issue gets a share page that names its PR or issue. For public repos that works out
+        of the box; for private repos the App is what grants read access to the title.
+      </li>
+      <li>
+        <strong>Titles stay current.</strong> The App's webhooks tell uploads.sh when a PR or
+        issue is renamed, closed, or merged, so file pages don't show stale titles.
+      </li>
+    </ul>
+  </section>
+
+  <section id="install">
+    <h2>Install it <a class="anchor" href="#install" aria-label="Link to this section">#</a></h2>
+    <p>
+      Install from <a href={APP_URL}>github.com/apps/uploads-sh</a>. Pick the organization or
+      account, then choose the repositories you attach files to — "only select repositories"
+      is fine, and you can add more later from GitHub's settings.
+    </p>
+    <p>
+      That's the whole setup. The next <code>uploads attach</code> against an installed repo
+      prints <code>(uploads-sh[bot])</code> instead of <code>(via gh)</code>:
+    </p>
+    <div class="cmd">
+      <span class="text">uploads attach ./after.png</span>
+      <button type="button" data-copy="uploads attach ./after.png" aria-live="polite">copy</button>
+    </div>
+    <div class="block" aria-label="Example output">
+      <pre>&gt;&gt; uploading ./after.png
+<span class="ok">&gt;&gt; attachments comment updated (uploads-sh[bot])</span></pre>
+    </div>
+  </section>
+
+  <section id="permissions">
+    <h2>Permissions <a class="anchor" href="#permissions" aria-label="Link to this section">#</a></h2>
+    <p>The App asks for the minimum it needs:</p>
+    <ul>
+      <li>
+        <strong>Issues and Pull requests: read &amp; write</strong> — read titles and state,
+        and post the one managed attachments comment. It never touches other comments, PR
+        descriptions, or your code.
+      </li>
+    </ul>
+    <p>
+      If your org installed the App before a permission was added, GitHub holds the upgrade
+      until an org admin approves it. The CLI tells you when that's the case — it prints the
+      exact approval link and falls back to posting via <code>gh</code> in the meantime.
+    </p>
+  </section>
+
+  <section id="without-it">
+    <h2>Without the App <a class="anchor" href="#without-it" aria-label="Link to this section">#</a></h2>
+    <p>
+      No install, no problem: <code>uploads attach</code> posts the same managed comment
+      through your local <code>gh</code> CLI, and file pages still resolve titles for public
+      repos. Uninstalling later just returns you to that behavior — hosted files and their
+      URLs are unaffected either way.
+    </p>
+  </section>
+
+  <nav class="page-nav" aria-label="More docs">
+    <a class="prev" href="/docs/attach-pull-request-images"><span class="dir">← Back</span>Attach &amp; share</a>
+    <a class="next" href="/docs/agents"><span class="dir">Next →</span>Set up your agent</a>
+  </nav>
+</DocsLayout>
+
+
+<script is:inline>
+  // GitHub's post-install redirect lands here with ?setup_action=install|update.
+  (() => {
+    const action = new URLSearchParams(location.search).get("setup_action");
+    if (action !== "install" && action !== "update") return;
+    const note = document.getElementById("installed-note");
+    if (!note) return;
+    if (action === "update") {
+      const heading = note.querySelector("[data-installed-heading]");
+      if (heading) heading.textContent = "Installation updated — you're done.";
+    }
+    note.hidden = false;
+  })();
+</script>

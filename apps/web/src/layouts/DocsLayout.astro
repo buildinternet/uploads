@@ -41,6 +41,7 @@ const DOCS_NAV = [
     items: [
       { slug: "overview", href: "/docs", label: "Overview" },
       { slug: "attach", href: "/docs/attach-pull-request-images", label: "Attach & share" },
+      { slug: "github-app", href: "/docs/github-app", label: "GitHub App" },
       { slug: "agents", href: "/docs/agents", label: "Set up your agent" },
       { slug: "reference", href: "/docs/reference", label: "Reference" },
     ],
@@ -452,6 +453,17 @@ const fullTitle = `${title} · uploads.sh`;
       @media (max-width: 560px) {
         .doc .ghc .imgs { grid-template-columns: 1fr; }
       }
+      /* Post-install banner (docs/github-app), revealed by ?setup_action=install|update. */
+      .doc .installed {
+        margin: 0 0 28px;
+        padding: 12px 16px;
+        border: 1px solid color-mix(in srgb, var(--green) 35%, transparent);
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--green) 8%, transparent);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .doc .installed strong { color: var(--green); }
       .doc .note {
         margin: 20px 0 0;
         color: var(--muted);
