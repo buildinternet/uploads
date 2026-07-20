@@ -23,9 +23,13 @@ import { listGalleries } from "../galleries";
 import { gallerySummary } from "../gallery-service";
 import { allowWrite } from "../guards";
 import {
+  invitesForOrg,
   membersForOrg,
   membershipsForUser,
   orgForWorkspace,
+  removeMember,
+  revokeInvite,
+  updateMemberRole,
   workspacesForOrg,
 } from "../org-workspaces";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
@@ -187,11 +191,15 @@ export const me = new Hono<SessionVars>()
     if (ws.communal) return c.json({ communal: true, members: [] });
 
     // `ws.organization` was already resolved by the membership lookup — no
-    // second org fetch. Internal `id`/`userId` never reach teammates.
+    // second org fetch. Internal `id`/`userId` never reach teammates; admins
+    // and owners get the opaque `id` too, since they need it to target the
+    // management routes below.
+    const canManage = ws.role === "admin" || ws.role === "owner";
     const members = await membersForOrg(c.env, ws.organization.slug);
     return c.json({
       communal: false,
       members: members.map((m) => ({
+        ...(canManage ? { id: m.id } : {}),
         email: m.email ?? "",
         name: m.name ?? "",
         role: m.role ?? "member",
@@ -474,4 +482,54 @@ export const me = new Hono<SessionVars>()
     const acceptUrl =
       payload?.acceptUrl ?? (id ? `${webOrigin}/accept-invitation/${id}` : undefined);
     return c.json({ ...payload, acceptUrl }, response.status === 200 ? 200 : 201);
+  })
+
+  // Pending invites for this workspace — admin/owner only (they can revoke).
+  .get("/workspaces/:name/invites", async (c) => {
+    const name = c.req.param("name");
+    const ws = await adminWorkspaceOr403(c.env, requireUserId(c), name);
+    if (ws.communal) return c.json({ communal: true, invites: [] });
+    const invites = await invitesForOrg(c.env, ws.organization.slug);
+    return c.json({ communal: false, invites });
+  })
+
+  // Revoke a pending invite — admin/owner only.
+  .delete("/workspaces/:name/invites/:id", async (c) => {
+    const name = c.req.param("name");
+    const userId = requireUserId(c);
+    const ws = await adminWorkspaceOr403(c.env, userId, name);
+    if (!(await allowWrite(c.env, name))) throw new RateLimitedError("rate limit exceeded");
+    await revokeInvite(c.env, ws.organization.slug, c.req.param("id"), userId);
+    return c.json({ ok: true });
+  })
+
+  // Remove a member (by opaque member id) — admin/owner only; matrix enforced in auth worker.
+  .delete("/workspaces/:name/members/:memberId", async (c) => {
+    const name = c.req.param("name");
+    const userId = requireUserId(c);
+    const ws = await adminWorkspaceOr403(c.env, userId, name);
+    if (!(await allowWrite(c.env, name))) throw new RateLimitedError("rate limit exceeded");
+    await removeMember(c.env, ws.organization.slug, c.req.param("memberId"), userId);
+    return c.json({ ok: true });
+  })
+
+  // Change a member's role (admin<->member) — owner-only enforced in auth worker.
+  .patch("/workspaces/:name/members/:memberId", async (c) => {
+    const name = c.req.param("name");
+    const userId = requireUserId(c);
+    const ws = await adminWorkspaceOr403(c.env, userId, name);
+    if (!(await allowWrite(c.env, name))) throw new RateLimitedError("rate limit exceeded");
+    const body = await c.req.json<{ role?: unknown }>().catch(() => ({}) as { role?: unknown });
+    const role = typeof body.role === "string" ? body.role.trim() : "";
+    if (role !== "admin" && role !== "member") {
+      throw new ValidationError("role must be admin or member", { code: "invalid_role" });
+    }
+    const member = await updateMemberRole(
+      c.env,
+      ws.organization.slug,
+      c.req.param("memberId"),
+      role,
+      userId,
+    );
+    return c.json({ member });
   });

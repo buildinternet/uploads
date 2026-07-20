@@ -395,6 +395,199 @@ describe("GET /me/workspaces/:name/members", () => {
   });
 });
 
+describe("GET /me/workspaces/:name/members id exposure", () => {
+  function membersEnv(role: string): Env {
+    return stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") {
+        return Response.json([{ organizationId: "org1", organizationSlug: "acme", role }]);
+      }
+      if (path === "/internal/orgs/acme") {
+        return Response.json({ organization: { id: "org1", slug: "acme", name: "Acme Inc" } });
+      }
+      if (path === "/internal/orgs/acme/members") {
+        return Response.json({
+          members: [
+            {
+              id: "m1",
+              userId: "u1",
+              email: "a@b.com",
+              name: "Ada",
+              role: "owner",
+              createdAt: "2026-01-01T00:00:00.000Z",
+            },
+          ],
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+  }
+
+  it("includes member id for an admin/owner caller", async () => {
+    const env = membersEnv("owner");
+    const res = await app().request("/me/workspaces/acme/members", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { members: Record<string, unknown>[] };
+    expect(body.members[0]).toHaveProperty("id", "m1");
+  });
+
+  it("includes member id for an admin caller", async () => {
+    const env = membersEnv("admin");
+    const res = await app().request("/me/workspaces/acme/members", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { members: Record<string, unknown>[] };
+    expect(body.members[0]).toHaveProperty("id", "m1");
+  });
+
+  it("omits member id for a plain member caller", async () => {
+    const env = membersEnv("member");
+    const res = await app().request("/me/workspaces/acme/members", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { members: Record<string, unknown>[] };
+    expect(body.members[0]).not.toHaveProperty("id");
+  });
+});
+
+describe("member management routes", () => {
+  function manageEnv(opts: {
+    workspace?: string;
+    role: string;
+    onManage?: (path: string, req: Request) => Response | Promise<Response> | undefined;
+  }): Env {
+    const { workspace = "acme", role, onManage } = opts;
+    const auth = stubAuth(async (req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/api/auth/get-session") {
+        return new Response(JSON.stringify({ session: {}, user: USER }), { status: 200 });
+      }
+      if (url.pathname === "/internal/memberships") {
+        return Response.json([{ organizationId: "org1", organizationSlug: workspace, role }]);
+      }
+      if (url.pathname === `/internal/orgs/${workspace}`) {
+        return Response.json({ organization: { id: "org1", slug: workspace, name: workspace } });
+      }
+      const handled = onManage?.(url.pathname, req);
+      if (handled) return handled;
+      if (url.pathname === `/internal/orgs/${workspace}/invites`) {
+        return Response.json({ invites: [] });
+      }
+      if (
+        url.pathname.startsWith(`/internal/orgs/${workspace}/invites/`) &&
+        req.method === "DELETE"
+      ) {
+        return Response.json({ ok: true });
+      }
+      if (
+        url.pathname.startsWith(`/internal/orgs/${workspace}/members/`) &&
+        req.method === "DELETE"
+      ) {
+        return Response.json({ ok: true });
+      }
+      if (
+        url.pathname.startsWith(`/internal/orgs/${workspace}/members/`) &&
+        req.method === "PATCH"
+      ) {
+        return Response.json({ member: { id: "m1", userId: "u1", role: "admin" } });
+      }
+      return new Response(null, { status: 404 });
+    });
+    return { AUTH: auth, DB: new UsageFakeD1() } as unknown as Env;
+  }
+
+  it("GET invites requires admin/owner (403 for a member)", async () => {
+    const env = manageEnv({ role: "member" });
+    const res = await app().request("/me/workspaces/acme/invites", {}, env);
+    expect(res.status).toBe(403);
+  });
+
+  it("GET invites returns pending invites for an admin", async () => {
+    const env = manageEnv({ role: "admin" });
+    const res = await app().request("/me/workspaces/acme/invites", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { communal: boolean; invites: unknown[] };
+    expect(body.invites).toBeInstanceOf(Array);
+  });
+
+  it("DELETE invites revokes for an admin/owner", async () => {
+    const env = manageEnv({ role: "owner" });
+    const res = await app().request("/me/workspaces/acme/invites/inv1", { method: "DELETE" }, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+  });
+
+  it("DELETE invites 403s for a plain member", async () => {
+    const env = manageEnv({ role: "member" });
+    const res = await app().request("/me/workspaces/acme/invites/inv1", { method: "DELETE" }, env);
+    expect(res.status).toBe(403);
+  });
+
+  it("DELETE members removes a member for an admin/owner", async () => {
+    const env = manageEnv({ role: "owner" });
+    const res = await app().request("/me/workspaces/acme/members/m1", { method: "DELETE" }, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+  });
+
+  it("DELETE members 403s for a plain member", async () => {
+    const env = manageEnv({ role: "member" });
+    const res = await app().request("/me/workspaces/acme/members/m1", { method: "DELETE" }, env);
+    expect(res.status).toBe(403);
+  });
+
+  it("PATCH members changes the role for an admin/owner", async () => {
+    const env = manageEnv({ role: "owner" });
+    const res = await app().request(
+      "/me/workspaces/acme/members/m1",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ role: "admin" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { member: { role: string } };
+    expect(body.member.role).toBe("admin");
+  });
+
+  it("PATCH members validates the role", async () => {
+    const env = manageEnv({ role: "owner" });
+    const res = await app().request(
+      "/me/workspaces/acme/members/m1",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ role: "owner" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "invalid_role" },
+    });
+  });
+
+  it("PATCH members 403s for a plain member", async () => {
+    const env = manageEnv({ role: "member" });
+    const res = await app().request(
+      "/me/workspaces/acme/members/m1",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ role: "admin" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("communal workspace short-circuits invites for an admin/owner caller", async () => {
+    const env = manageEnv({ workspace: "default", role: "owner" });
+    const res = await app().request("/me/workspaces/default/invites", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ communal: true, invites: [] });
+  });
+});
+
 describe("GET /me/workspaces/:name/galleries", () => {
   it("404s for a workspace the caller is not a member of", async () => {
     const env = stubEnv(USER, (path) => {
