@@ -237,6 +237,32 @@ export const prerender = false;
       return body;
     }
 
+    interface GithubLink {
+      repo: string;
+      workspace: string;
+      source: string;
+      installationId: number | null;
+      createdAt: string;
+    }
+    interface GithubLinksResponse {
+      workspace: string;
+      links: GithubLink[];
+    }
+
+    function renderGithubLinks(host: HTMLElement, links: GithubLink[]): void {
+      host.innerHTML = links.length
+        ? `<h4 class="github-links-heading">GitHub repos claimed</h4>
+           <ul class="github-links-list">
+             ${links
+               .map(
+                 (l) =>
+                   `<li><span class="repo">${escapeHtml(l.repo)}</span><span class="muted">${escapeHtml(l.source)}</span></li>`,
+               )
+               .join("")}
+           </ul>`
+        : "";
+    }
+
     function renderWorkspace(ws: WorkspaceSummary): HTMLElement {
       const details = document.createElement("details");
       details.className = "workspace";
@@ -250,6 +276,7 @@ export const prerender = false;
         <div class="members" data-state="unloaded">Members load when expanded.</div>
         <div class="invites"></div>
         <div class="limits" data-state="unloaded"></div>
+        <div class="github-links" data-state="unloaded"></div>
         ${
           ws.organization
             ? `<form class="invite-form" data-workspace="${escapeHtml(ws.workspace)}">
@@ -276,6 +303,7 @@ export const prerender = false;
 
       let loaded = false;
       let limitsLoaded = false;
+      let githubLinksLoaded = false;
       details.addEventListener("toggle", () => {
         void (async () => {
           if (!details.open || loaded) return;
@@ -328,6 +356,22 @@ export const prerender = false;
             limitsLoaded = true;
           } catch {
             limitsEl.innerHTML = `<p class="muted">Failed to load limits.</p>`;
+          }
+        })();
+        // GitHub repo bindings (issue #318 admin visibility) — same
+        // independent-load pattern as limits, own retry flag.
+        void (async () => {
+          if (!details.open || githubLinksLoaded) return;
+          const githubLinksEl = details.querySelector<HTMLElement>(".github-links");
+          if (!githubLinksEl) return;
+          try {
+            const { links } = await apiGet<GithubLinksResponse>(
+              `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/github-links`,
+            );
+            renderGithubLinks(githubLinksEl, links);
+            githubLinksLoaded = true;
+          } catch {
+            githubLinksEl.innerHTML = `<p class="muted">Failed to load GitHub links.</p>`;
           }
         })();
       });

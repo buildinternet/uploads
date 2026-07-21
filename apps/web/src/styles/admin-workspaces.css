@@ -167,6 +167,32 @@
 .workspace .limit-unit:disabled {
   opacity: 0.5;
 }
+.workspace .github-links:not(:empty) {
+  margin-top: 16px;
+  border-top: 1px solid var(--border, #e5e7eb);
+  padding-top: 12px;
+}
+.workspace .github-links-heading {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.workspace .github-links-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.workspace .github-links-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+.workspace .github-links-list .repo {
+  font: 12px var(--mono);
+}
 .workspace .limit-unlimited {
   display: inline-flex;
   align-items: center;
