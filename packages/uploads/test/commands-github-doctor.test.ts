@@ -126,4 +126,61 @@ describe("runGithub (doctor)", () => {
     } as unknown as UploadsClient;
     await expect(runGithub(ctxWith(client), ["doctor"])).rejects.toThrow(UsageError);
   });
+
+  it("exits 0 but prints a note line when only a recommended event is missing", async () => {
+    const stdout: string[] = [];
+    const spy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: unknown) => (stdout.push(String(chunk)), true));
+    try {
+      const code = await runGithub(
+        ctxWith(
+          clientWith({
+            configured: true,
+            ok: true,
+            events: ["ping", "issues", "pull_request"],
+            missingEvents: [],
+            requiredEvents: ["issues", "pull_request"],
+            recommendedEvents: ["issue_comment"],
+            missingRecommendedEvents: ["issue_comment"],
+          }),
+        ),
+        ["doctor"],
+      );
+      expect(code).toBe(0);
+      const out = stdout.join("");
+      expect(out).toContain("ok");
+      expect(out).toContain("note: not subscribed to issue_comment (recommended)");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("tolerates an older server payload without recommended fields (no crash, no note line)", async () => {
+    const stdout: string[] = [];
+    const spy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: unknown) => (stdout.push(String(chunk)), true));
+    try {
+      const code = await runGithub(
+        ctxWith(
+          clientWith({
+            configured: true,
+            ok: true,
+            events: ["ping", "issues", "pull_request"],
+            missingEvents: [],
+            requiredEvents: ["issues", "pull_request"],
+            // recommendedEvents/missingRecommendedEvents intentionally omitted
+          }),
+        ),
+        ["doctor"],
+      );
+      expect(code).toBe(0);
+      const out = stdout.join("");
+      expect(out).toContain("ok");
+      expect(out).not.toContain("note:");
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

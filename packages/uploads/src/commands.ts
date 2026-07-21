@@ -2177,6 +2177,17 @@ Examples:
   uploads github doctor
 `;
 
+/** Older servers' health payload predates recommendedEvents/missingRecommendedEvents — treat as no recommendations rather than crashing. */
+function missingRecommendedEventsOf(result: GithubHealthResult): string[] {
+  return Array.isArray(result.missingRecommendedEvents) ? result.missingRecommendedEvents : [];
+}
+
+function recommendedNoteLine(result: GithubHealthResult): string {
+  const missing = missingRecommendedEventsOf(result);
+  if (missing.length === 0) return "";
+  return `note: not subscribed to ${missing.join(", ")} (recommended) — enables bot-comment self-healing; subscribe under the App's Permissions & events\n`;
+}
+
 function formatGithubDoctor(result: GithubHealthResult): string {
   if (!result.configured) {
     return `github app: not configured on this server${result.hint ? ` — ${result.hint}` : ""}\n`;
@@ -2185,11 +2196,15 @@ function formatGithubDoctor(result: GithubHealthResult): string {
     return `github app: configured, but health check failed${result.hint ? ` — ${result.hint}` : ""}\n`;
   }
   if (result.ok) {
-    return `github app: ok — subscribed to ${result.requiredEvents.join(", ")}\n`;
+    return (
+      `github app: ok — subscribed to ${result.requiredEvents.join(", ")}\n` +
+      recommendedNoteLine(result)
+    );
   }
   return (
     `github app: missing webhook event subscription(s): ${result.missingEvents.join(", ")}\n` +
-    (result.hint ? `  ${result.hint}\n` : "")
+    (result.hint ? `  ${result.hint}\n` : "") +
+    recommendedNoteLine(result)
   );
 }
 

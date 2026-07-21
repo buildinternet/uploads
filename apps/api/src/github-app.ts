@@ -94,6 +94,16 @@ export function githubFetch(
 export const REQUIRED_WEBHOOK_EVENTS = ["issues", "pull_request"] as const;
 
 /**
+ * Webhook events that are useful but not load-bearing: `issue_comment`
+ * enables bot-comment self-healing (reconciling the managed attachments
+ * comment when someone edits/deletes it) but nothing breaks silently without
+ * it the way it would for REQUIRED_WEBHOOK_EVENTS. Missing recommended events
+ * never flip the health check's `ok` to false — they're surfaced as a
+ * separate, non-gating tier (issue #333).
+ */
+export const RECOMMENDED_WEBHOOK_EVENTS = ["issue_comment"] as const;
+
+/**
  * The App's subscribed webhook events, straight from `GET /app` (App-JWT
  * auth, not installation-token — this is app-level metadata, no installation
  * needed). Returns null on any failure so callers degrade the same way the
