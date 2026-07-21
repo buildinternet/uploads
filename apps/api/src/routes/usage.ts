@@ -14,7 +14,14 @@ import { requireScope, type WorkspaceVars } from "../workspace";
 export const usage = new Hono<WorkspaceVars>()
   .get("/", requireScope("files:read"), async (c) => {
     const snapshot = await getWorkspaceUsage(c.env.DB, c.get("workspaceName"));
-    return c.json(usageWithLimits(snapshot, c.get("workspace")));
+    // `scopes` reflects the presented credential, not the workspace — doctor
+    // uses it to surface a token that can't delete before the user hits a
+    // surprise `forbidden`. Legacy tokens report the full file-scope set,
+    // which is what they actually have.
+    return c.json({
+      ...usageWithLimits(snapshot, c.get("workspace")),
+      scopes: c.get("authScopes"),
+    });
   })
 
   .post("/reconcile", requireScope("files:write"), async (c) => {

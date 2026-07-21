@@ -215,8 +215,11 @@ describe("runLogin device flow", () => {
     expect((mintCall![1] as RequestInit).headers).toMatchObject({
       Authorization: "Bearer sess-tok",
     });
+    // Interactive login requests the full file-scope set (including delete)
+    // by default — the server's conservative read+write default is for
+    // automation mints, not the user's own credential.
     expect(JSON.parse(String((mintCall![1] as RequestInit).body))).toMatchObject({
-      grants: [{ workspace: "acme" }],
+      grants: [{ workspace: "acme", scopes: ["files:read", "files:write", "files:delete"] }],
     });
     expect(loadConfigFile(path).UPLOADS_TOKEN).toBe(token);
     expect(loadConfigFile(path).UPLOADS_WORKSPACE).toBe("acme");

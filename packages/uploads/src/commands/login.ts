@@ -34,7 +34,8 @@ Options:
   --create            With --workspace: create the workspace first if your
                       account doesn't have it yet (device flow only) — lets
                       scripted/agent logins provision without a prompt
-  --scopes <list>     Comma-separated scopes (default: files:read,files:write)
+  --scopes <list>     Comma-separated scopes (default:
+                      files:read,files:write,files:delete)
   --label <text>      Token label (default: this machine's hostname)
   --auth-url <url>    Auth base (default: https://auth.uploads.sh)
   --no-open           Don't try to open a browser automatically
@@ -241,7 +242,16 @@ async function runDeviceLogin(
   opts: { apiUrl: string; authUrl: string; noOpen: boolean },
   io: DeviceLoginIo,
 ): Promise<LoginResult> {
-  const scopes = parseScopes(flagString(parsed.flags, "--scopes"));
+  // Interactive login is the user's own credential: default to the full file
+  // scope set (including delete) so the CLI's own `delete` command works out
+  // of the box. Automation tokens minted elsewhere keep the server's
+  // conservative read+write default — narrowness there is a deliberate
+  // choice, not a surprise. `--scopes` still overrides.
+  const scopes = parseScopes(flagString(parsed.flags, "--scopes")) ?? [
+    "files:read",
+    "files:write",
+    "files:delete",
+  ];
   const label = flagString(parsed.flags, "--label") ?? safeHostname();
   const requestedWorkspace = flagString(parsed.flags, "--workspace");
 
