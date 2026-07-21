@@ -2,7 +2,6 @@ import { renderEnrollmentInvitationEmail } from "@uploads/email";
 import {
   AppError,
   ConflictError,
-  ForbiddenError,
   NotFoundError,
   RateLimitedError,
   ValidationError,
@@ -23,7 +22,6 @@ import {
 } from "../auth-db";
 import { deriveWebOrigin, inviteLinkUrl as inviteMagicLink } from "../invite-links";
 import { reencryptRegistryCredentials } from "../reencrypt-registry";
-import { isCommunal } from "./me";
 import { storage } from "../storage";
 import { teardownWorkspace } from "../workspace-teardown";
 import {
@@ -463,18 +461,10 @@ export const admin = new Hono<{ Bindings: Env }>()
    * objects, file_metadata + galleries rows, best-effort auth org, then the
    * `ws:<name>` KV key is deleted outright (the only path that frees the
    * slug). Non-empty workspaces still require `?force=1` on top.
-   *
-   * The communal/protected-workspace guard applies to both modes.
    */
   .delete("/workspaces/:name", async (c) => {
     const name = c.req.param("name");
     requireWorkspaceName(name);
-
-    if (isCommunal(c.env, name)) {
-      throw new ForbiddenError("cannot delete the communal workspace", {
-        code: "protected_workspace",
-      });
-    }
 
     const raw = await loadWorkspaceRecordRaw(c.env, name);
     if (!raw || isPurgedTombstone(raw)) {

@@ -519,8 +519,7 @@ export function commentViaSuffix(via: AttachmentsCommentResult["via"]): string {
 /**
  * Thrown by `syncAttachmentsComment` when the server declines with
  * `not_authorized` (issue #297 baseline control) — this repo is bound to a
- * different workspace, or unbound and unclaimable by the communal `default`
- * workspace. Deliberately not caught by the generic "bot endpoint
+ * different workspace. Deliberately not caught by the generic "bot endpoint
  * unreachable" fallback below: falling back to gh here would let the
  * human's own credentials post anyway, defeating the point of the
  * server-side gate.
@@ -2106,10 +2105,9 @@ App is installed on the repo; otherwise via your local gh auth. Finds its own
 prior comment via a hidden marker and edits it in place; never touches other
 comments or the description.
 
-If this repo is bound to a different workspace (or unbound and you're on the
-communal "default" workspace), the bot post is declined and this command
-fails rather than silently falling back to gh — see \`uploads github link
---status\`.
+If this repo is bound to a different workspace, the bot post is declined and
+this command fails rather than silently falling back to gh — see
+\`uploads github link --status\`.
 
 Examples:
   uploads --env-file .env comment --pr 123

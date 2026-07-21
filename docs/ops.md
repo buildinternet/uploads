@@ -88,8 +88,7 @@ force-deletes any whose slug has no `ws:<slug>` KV key at all, or only a
 purged tombstone — the multi-member orgs left behind by hard/finalized
 workspace teardown (see "Auth org deletion" in `docs/deletion.md`). A
 soft-deleted workspace still inside its grace window is never treated as an
-orphan. The communal workspace slug is skipped defensively, and an AUTH
-outage or a single org's delete failure is isolated (logged, sweep
+orphan. An AUTH outage or a single org's delete failure is isolated (logged, sweep
 continues) rather than failing the run. Results roll up into the sweep's
 `orgsSwept` field.
 
@@ -128,8 +127,7 @@ best-effort auth-org delete, then the KV key removed outright). Non-empty
 workspaces still need `?force=1` on top, same as before. This is the only
 path that frees a slug for reuse — every other path (soft delete → grace
 period → sweep finalization) leaves a permanent `{ status: "purged" }`
-tombstone under `ws:<name>` so the name can never be re-registered. The
-communal/protected-workspace guard applies to both modes.
+tombstone under `ws:<name>` so the name can never be re-registered.
 
 See [docs/deletion.md](deletion.md) for the full cross-surface deletion
 policy and rationale.
@@ -141,8 +139,7 @@ signed-in owner the same soft-delete/restore surface as the admin path
 above, session-authed (browser cookie) instead of `ADMIN_TOKEN`. Ownership
 gate: the record must have `selfServe === true` and `createdByUserId`
 matching the caller's session user id — a workspace that exists but isn't
-owned self-serve (or isn't this user's) 403s `not_owner`; the communal
-workspace is excluded outright. Semantics are otherwise identical to the
+owned self-serve (or isn't this user's) 403s `not_owner`. Semantics are otherwise identical to the
 admin soft-delete/restore path (409 `already_deleted` / `not_deleted`, 410
 `grace_expired`, never hard, never frees the slug) via a shared stamp helper
 so the two paths can't drift. No web console UI yet — API only.
@@ -252,8 +249,8 @@ pnpm dev:stack:smoke
 Both prove `dev session → get-session → /me/workspaces → dev-demo file listing`
 with a cookie jar. They exercise the real Better Auth cookie, API service binding,
 membership lookup, workspace prefix, and local R2—not a mock API. `dev-demo` is
-the only workspace overwritten by the stack; `default` stays communal and is never
-used for browser enumeration. Fixture object previews intentionally remain out of
+the only workspace overwritten by the stack; `default` has no local Better Auth
+membership in this stack, so it isn't used for browser enumeration here. Fixture object previews intentionally remain out of
 scope because simulated R2 objects do not exist at `storage.uploads.sh`.
 
 The zero-input `POST /api/auth/dev-session` route is absent unless `dev:stack`

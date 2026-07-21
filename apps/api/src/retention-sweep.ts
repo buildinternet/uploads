@@ -155,11 +155,9 @@ export async function runRetentionSweep(env: Env): Promise<SweepResult> {
   // only a purged tombstone. A soft-deleted-but-still-in-grace record is NOT
   // an orphan — restore must bring the org back intact, so it's left alone.
   const orgsSwept: SweepResult["orgsSwept"] = [];
-  const communalWorkspace = env.DEFAULT_WORKSPACE || "default";
   try {
     const orgs = await listOrgs(env);
     for (const org of orgs) {
-      if (org.slug === communalWorkspace) continue;
       // Registration provisions the org BEFORE writing the ws: KV record
       // (routes/workspaces.ts), so a just-created org can look orphaned for a
       // moment. Skip anything inside the provisioning window — or with no

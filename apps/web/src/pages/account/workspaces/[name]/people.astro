@@ -176,19 +176,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         statusEl.hidden = true;
         appEl.hidden = false;
 
-        if (result.communal) {
-          membersEl.innerHTML =
-            '<p class="muted">Shared, public space — no member list to show.</p>';
-          invitesEl.innerHTML = "";
-        } else {
-          membersEl.innerHTML = result.members.length
-            ? renderMembersHtml(result.members, { canManage, selfEmail: sessionEmail })
-            : '<p class="muted">Just you so far.</p>';
-          if (canManage) {
-            invitesEl.innerHTML = result.invites.length
-              ? renderInvitesHtml(result.invites)
-              : '<p class="muted">No pending invites.</p>';
-          }
+        membersEl.innerHTML = result.members.length
+          ? renderMembersHtml(result.members, { canManage, selfEmail: sessionEmail })
+          : '<p class="muted">Just you so far.</p>';
+        if (canManage) {
+          invitesEl.innerHTML = result.invites.length
+            ? renderInvitesHtml(result.invites)
+            : '<p class="muted">No pending invites.</p>';
         }
 
         const displayName = result.organization.name || workspaceName;
@@ -207,7 +201,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
       async function refreshPeopleLists(): Promise<void> {
         const result = await getWorkspacePeople(apiOrigin, workspaceName);
-        if (!stillHere() || result.kind !== "ok" || result.communal) return;
+        if (!stillHere() || result.kind !== "ok") return;
         membersEl.innerHTML = result.members.length
           ? renderMembersHtml(result.members, { canManage, selfEmail: sessionEmail })
           : '<p class="muted">Just you so far.</p>';

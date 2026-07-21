@@ -1,7 +1,7 @@
 import { WS_NAME_RE } from "./workspace";
 import { SLUG_BLOCKLIST, SLUG_BLOCKLIST_ALLOW } from "./slug-blocklist";
 
-/** Names that collide with routes, subdomains, or communal tenants. */
+/** Names that collide with routes or subdomains. */
 export const RESERVED_WORKSPACE_NAMES: ReadonlySet<string> = new Set([
   "default",
   "admin",

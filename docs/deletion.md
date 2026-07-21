@@ -52,8 +52,7 @@ teardown, no ability to free a slug. `DELETE /v1/workspaces/:name` and
 `POST /v1/workspaces/:name/restore` are session-authed and require
 `selfServe === true`; the caller is authorized as either the record creator
 (`createdByUserId`) or the org `owner` (not `admin`) for that workspace
-(#265, extending the original creator-only gate from #249) — the communal
-workspace is excluded outright. Org role is resolved via the same membership
+(#265, extending the original creator-only gate from #249). Org role is resolved via the same membership
 lookup as the #262 governance gates (`isWorkspaceOwner` in
 `apps/api/src/routes/me.ts`); a platform-admin role never bypasses this,
 since operators already have `/admin/workspaces/:name` for break-glass
@@ -69,8 +68,7 @@ The daily retention sweep (`apps/api/src/retention-sweep.ts`) also lists
 every auth-side org (`GET /internal/orgs` on the auth worker) and deletes
 (force) any whose slug has no `ws:<slug>` KV key at all, or only a purged
 tombstone. A soft-deleted-but-still-in-grace workspace is NOT an orphan —
-restore must bring the org back intact, so it's left alone. The communal
-workspace slug is skipped defensively, and an AUTH-fetch failure or a
-per-org delete failure is isolated (logged, sweep continues) rather than
+restore must bring the org back intact, so it's left alone. An AUTH-fetch
+failure or a per-org delete failure is isolated (logged, sweep continues) rather than
 failing the whole run. Results land in the sweep's `orgsSwept` array and log
 line.

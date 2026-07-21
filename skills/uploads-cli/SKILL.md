@@ -487,8 +487,7 @@ routes they fail with a clear "server does not support repo bindings/GitHub
 App health check yet" message.
 
 **`not_authorized` on `comment`/`attach --comment`** means the repo is bound
-to a different workspace (or unbound and you're on the communal `default`
-workspace, which can never claim a fresh repo). This is a hard decline, not a
+to a different workspace. This is a hard decline, not a
 degrade — the CLI does **not** fall back to posting via local `gh` in this
 case, unlike other bot-post failures. Run `uploads github link --status` to
 see who owns it, switch to that workspace, or ask an operator to reassign the
