@@ -161,6 +161,42 @@ node --env-file=.env apps/api/scripts/backfill-gh-metadata.mjs
 for one run. Test against a local `wrangler dev` stack first — never point
 this at production while testing.
 
+## Account linking (issue #233)
+
+A person can end up with two Better Auth users for one identity: a
+magic-link user (created the first time they signed in by email) and a
+separate GitHub-originated user, if their GitHub email differs from — or was
+entered before — the magic-link address. Unlinked, the GitHub user looks
+"brand new" to OAuth/consent flows and gets routed into workspace creation
+even though a workspace already exists under the other user.
+
+Policy (`apps/auth/src/auth.ts`, `account.accountLinking`):
+
+- Linking is **enabled**, and only ever happens on a **verified** email.
+  Completing a magic-link sign-in counts as verifying that address (`better-auth`'s
+  `magicLink` plugin sets `emailVerified: true` on verify); a GitHub sign-in
+  or explicit "Connect" whose GitHub-reported email is verified and matches
+  an existing user's email attaches to that user instead of creating a
+  second one.
+- An **unverified** GitHub email never links, full stop — this is
+  deliberately not bypassed by `trustedProviders`. Verified against
+  better-auth 1.6.23's actual implementation:
+  `trustedProviders` skips the provider-email-verified check entirely, so
+  listing `"github"` there would let an unverified GitHub email auto-link —
+  the exact account-takeover vector the issue calls out. `trustedProviders`
+  is left empty on purpose; see the comment in `auth.ts` for detail.
+- `allowDifferentEmails: true` covers the common case where the GitHub email
+  differs from the magic-link address, for both the implicit (sign-in) and
+  explicit (`/account/profile` "Connect") linking paths.
+
+For someone who already ended up split across two users: sign in as either
+identity, go to `/account/profile` → "Sign-in methods" → **Connect** GitHub
+(or magic-link, if the other side already has GitHub). The OAuth consent
+page's "you don't have a workspace yet" panel and the profile page both hint
+at this so it's discoverable without operator intervention. There is no
+backfill/merge tool for users who linked before this policy shipped — that
+would need a one-off migration script if it comes up.
+
 ## Invitations
 
 ### Workspace admins (normal path)
