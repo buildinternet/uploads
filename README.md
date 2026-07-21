@@ -76,6 +76,13 @@ npx @buildinternet/uploads attach ./before.png ./after.png
 `attach` detects the GitHub repository and current PR through `gh`, uploads
 all files, and creates or updates one managed attachments comment.
 
+No PR yet? Stage files against the branch while you work — `uploads attach
+./shot.png --branch` — and they are promoted into the PR's attachments
+automatically when one opens: instantly if the
+[GitHub App](https://uploads.sh/docs/github-app) is installed, otherwise on
+your first `uploads attach` (or `uploads attach --promote`) after the PR
+exists.
+
 An uploads.sh administrator invites your email to a workspace; `uploads login`
 opens a browser to sign in (GitHub or a magic link) and saves the resulting
 workspace token — see [enrollment](docs/enrollment.md). Hosted files are
