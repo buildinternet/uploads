@@ -478,6 +478,45 @@ describe("runAttach --branch (branch-staged, pre-PR)", () => {
       ),
     ).rejects.toThrow(UsageError);
   });
+
+  describe("--branch filename guard (issue #319)", () => {
+    it("rejects --branch <path> when the value names a file that exists on disk", async () => {
+      const { client } = fakeClient();
+      const { run } = branchRunner();
+      const [existingFile] = files("shot.png");
+      await expect(
+        runAttach(ctxWith(client), ["--branch", existingFile, "--repo", "o/r"], false, run),
+      ).rejects.toThrow(UsageError);
+    });
+
+    it("rejects --branch <name> with a media extension even when the file doesn't exist", async () => {
+      const { client } = fakeClient();
+      const { run } = branchRunner();
+      await expect(
+        runAttach(
+          ctxWith(client),
+          ["--branch", "definitely-not-a-real-file.png", "--repo", "o/r"],
+          false,
+          run,
+        ),
+      ).rejects.toThrow(UsageError);
+    });
+
+    it.each(["v1.2", "v1.2.3", "release/1.2", "feature/thing"])(
+      "accepts a normal branch name %s (dots allowed)",
+      async (branchName) => {
+        const { client, puts } = fakeClient();
+        const { run } = branchRunner(branchName);
+        await runAttach(
+          ctxWith(client),
+          [...files("shot.png"), "--branch", branchName, "--repo", "o/r"],
+          false,
+          run,
+        );
+        expect(puts.length).toBe(1);
+      },
+    );
+  });
 });
 
 describe("runAttach gh.title metadata (issue #267)", () => {
