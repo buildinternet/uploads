@@ -4,6 +4,7 @@
  */
 
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
+import { RepoLinksTable } from "./helpers/fake-repo-links-table";
 
 export type UsageRow = {
   workspace: string;
@@ -23,6 +24,12 @@ export class UsageFakeD1 {
   get fileMetadata() {
     return this.fileMetadataTable.metadata;
   }
+  // Backs `github_repo_links` for implicit-claim (comment/promote routes)
+  // and webhook auto-promotion tests.
+  private repoLinksTable = new RepoLinksTable();
+  get repoLinks() {
+    return this.repoLinksTable.rows;
+  }
 
   prepare = (sql: string) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -38,16 +45,27 @@ export class UsageFakeD1 {
         if (normalized.includes("FROM workspace_usage")) {
           return this.usage.get(values[0] as string) ?? null;
         }
+        const linkResult = this.repoLinksTable.tryFirst(normalized, values);
+        if (linkResult !== undefined) return linkResult;
         throw new Error(`unsupported first: ${normalized}`);
       },
       all: async <T>() => {
         const result = this.fileMetadataTable.tryAll<T>(normalized, values);
         if (result) return result;
+        // Galleries aren't modeled by this fake (route/gallery-specific tests
+        // bring their own D1 stand-in) — an empty page is a safe, honest
+        // default for callers (e.g. the webhook auto-promote gather) that
+        // only care that "no galleries" doesn't blow up.
+        if (normalized.includes("FROM galleries") || normalized.includes("gallery_")) {
+          return { success: true as const, results: [] as T[], meta: {} };
+        }
         throw new Error(`unsupported all: ${normalized}`);
       },
       run: async () => {
         const metaResult = this.fileMetadataTable.tryRun(normalized, values);
         if (metaResult) return metaResult;
+        const linkResult = this.repoLinksTable.tryRun(normalized, values);
+        if (linkResult) return linkResult;
         if (normalized.startsWith("INSERT OR IGNORE INTO workspace_usage")) {
           // applyUsageDelta: (ws, period, updatedAt) with zeros
           // setUsageTotals: (ws, bytes, objects, period, updatedAt)

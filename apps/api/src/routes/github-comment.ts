@@ -9,6 +9,7 @@ import { ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
 import { gatherCommentBody, upsertBotComment } from "../github-comment";
 import { githubAppConfig, installationForRepo } from "../github-app";
+import { recordRepoLink } from "../github-repo-links";
 import type { GhTargetKind } from "../github-comment-render";
 import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
@@ -86,6 +87,13 @@ export const githubComment = new Hono<WorkspaceVars>().post(
       if (result.degrade === "forbidden") return c.json(forbiddenDecline(target.repo, installId));
       return c.json({ posted: false, reason: result.degrade });
     }
+
+    // Implicit claim (phase 3): the comment actually posted, so this
+    // workspace has proven authenticated write access to this repo's
+    // PR/issue thread — best-effort record it as the repo's bound workspace.
+    // First-claim-wins (recordRepoLink) and never affects this response.
+    await recordRepoLink(c.env.DB, target.repo, c.get("workspaceName"), "comment", installId);
+
     return c.json({
       posted: true,
       action: result.action,

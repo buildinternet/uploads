@@ -39,6 +39,16 @@ githubWebhook.post("/", async (c) => {
     return c.body(null, 204);
   }
 
-  await handleWebhook(c.env, c.req.header("x-github-event") ?? "", payload);
+  // c.executionCtx throws when no platform ExecutionContext was supplied
+  // (e.g. app.request(...) in tests without a 4th arg) — treat that as "no
+  // waitUntil available" rather than let it escape as a 500.
+  let executionCtx: Pick<ExecutionContext, "waitUntil"> | undefined;
+  try {
+    executionCtx = c.executionCtx;
+  } catch {
+    executionCtx = undefined;
+  }
+
+  await handleWebhook(c.env, c.req.header("x-github-event") ?? "", payload, executionCtx);
   return c.body(null, 204);
 });
