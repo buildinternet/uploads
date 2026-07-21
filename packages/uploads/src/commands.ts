@@ -162,11 +162,11 @@ Options:
                         when the GitHub App is installed; otherwise via local gh.
   --gallery <id>         Add the uploaded object(s) to this public gallery
   --meta <k=v>          Queryable custom metadata (repeatable; value may contain "="): key ^[a-z][a-z0-9._-]{0,63}$, value 1-512 printable ASCII, max 24 pairs
-  --state <s>           before|after|empty|error|loading — the UI state shown (sets meta state=)
-  --app <name>          Surface shown: web, ios, android, cli (sets meta app=)
                         Re-uploading to an existing key WITH --meta replaces that file's
                         entire metadata set; without --meta the existing metadata is
                         preserved. Use "uploads meta set" to edit individual keys.
+  --state <s>           before|after|empty|error|loading — the UI state shown (sets meta state=)
+  --app <name>          Surface shown: web, ios, android, cli (sets meta app=)
   --replace             Allow overwriting an existing object on a strict (--key/default) key
                         (or UPLOADS_OVERWRITE=1). No effect on --pr/--issue, which always overwrite.
   --dry-run             Print key + public URL without uploading; reports if the key would replace
@@ -758,14 +758,14 @@ Options:
   --keep-exif           Keep EXIF/XMP/ICC when optimizing (default: strip for privacy)
   --workspace, -w <name>  Override workspace
   --meta <k=v>          Extra queryable metadata (repeatable; value may contain "=").
-  --state <s>           before|after|empty|error|loading — the UI state shown (sets meta state=)
-  --app <name>          Surface shown: web, ios, android, cli (sets meta app=)
                         gh.repo/gh.kind/gh.number/gh.ref are always set from the resolved
                         target (or gh.repo/gh.kind/gh.branch/gh.staged-at with --branch) —
                         a --meta pair with the same key is overridden by it.
                         Because attach always sends its own gh.* pairs, re-attaching to
                         the same key always replaces that file's entire metadata set
                         (never preserves) — use "uploads meta set" to add to it instead.
+  --state <s>           before|after|empty|error|loading — the UI state shown (sets meta state=)
+  --app <name>          Surface shown: web, ios, android, cli (sets meta app=)
 
 Examples:
   uploads attach ./before.png ./after.png
