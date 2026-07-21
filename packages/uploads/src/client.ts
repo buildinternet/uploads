@@ -263,6 +263,13 @@ export interface GithubLinkClaimResult extends GithubLinkResult {
   claimed: boolean;
 }
 
+/** `DELETE /v1/:workspace/github/link` result (issue #318, self-serve unlink). */
+export interface GithubLinkUnlinkResult {
+  repo: string;
+  unlinked: boolean;
+  reason?: "not_linked";
+}
+
 export interface HealthResult {
   ok: boolean;
 }
@@ -1064,6 +1071,20 @@ export function createUploadsClient(config: UploadsClientConfig) {
       return request<GithubHealthResult>(
         "GET",
         `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/health`,
+      );
+    },
+
+    /**
+     * Self-serve unlink (issue #318): removes `repo`'s binding, but only if
+     * this workspace currently owns it. Throws `UploadsError` (status 403)
+     * when a different workspace owns the binding — never steals or
+     * overwrites another workspace's claim. Throws (status 404) on an
+     * older/self-hosted server without this route.
+     */
+    async githubLinkUnlink(repo: string): Promise<GithubLinkUnlinkResult> {
+      return request<GithubLinkUnlinkResult>(
+        "DELETE",
+        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/link?repo=${encodeURIComponent(repo)}`,
       );
     },
 

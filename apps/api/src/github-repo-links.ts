@@ -103,6 +103,20 @@ export async function findRepoLink(db: D1Database, repo: string): Promise<RepoLi
 }
 
 /**
+ * Strict counterpart to `findRepoLink` for callers that must distinguish
+ * "no binding" from "D1 is unavailable" (self-serve/admin lookups, issue
+ * #318 CodeRabbit review) — a lookup failure here throws instead of being
+ * reported as an honest-looking `{unlinked: false, reason: "not_linked"}`.
+ */
+export async function findRepoLinkStrict(db: D1Database, repo: string): Promise<RepoLink | null> {
+  const row = await db
+    .prepare(`SELECT * FROM github_repo_links WHERE repo_full_name = ?`)
+    .bind(normalizeRepo(repo))
+    .first<RepoLinkRow>();
+  return row ? rowToLink(row) : null;
+}
+
+/**
  * Removes a stale link (e.g. its workspace was deleted/tombstoned). Never
  * throws — cleanup is best-effort; a failed delete just means the next
  * webhook delivery re-discovers the same stale state and retries the cleanup.
@@ -122,4 +136,84 @@ export async function deleteRepoLink(db: D1Database, repo: string): Promise<void
       }),
     );
   }
+}
+
+/**
+ * Strict counterpart to `deleteRepoLink` for the admin operator-override
+ * DELETE route (issue #318 CodeRabbit review) — that route must not report
+ * `unlinked: true` when the D1 delete actually failed, so this propagates
+ * failures instead of catching/logging them. Returns whether a row existed
+ * to delete (not just whether the statement ran).
+ */
+export async function deleteRepoLinkStrict(db: D1Database, repo: string): Promise<boolean> {
+  const result = await db
+    .prepare(`DELETE FROM github_repo_links WHERE repo_full_name = ?`)
+    .bind(normalizeRepo(repo))
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+/**
+ * Self-serve unlink (issue #318): removes `repo`'s binding only if it is
+ * currently owned by `workspaceName`. Unlike `deleteRepoLink` (used for
+ * best-effort cleanup of stale/tombstoned-workspace links), this throws on a
+ * D1 failure — the caller (routes/github-link.ts) needs to know whether the
+ * delete actually happened rather than silently reporting success.
+ * Returns true only if a row owned by `workspaceName` was deleted.
+ */
+export async function deleteRepoLinkForWorkspace(
+  db: D1Database,
+  repo: string,
+  workspaceName: string,
+): Promise<boolean> {
+  const result = await db
+    .prepare(`DELETE FROM github_repo_links WHERE repo_full_name = ? AND workspace_name = ?`)
+    .bind(normalizeRepo(repo), workspaceName)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+/**
+ * All repos currently bound to `workspaceName` (admin visibility, issue
+ * #318) — surfaced in the admin panel so an operator can see what a
+ * workspace has claimed without querying D1 directly.
+ */
+export async function listRepoLinksForWorkspace(
+  db: D1Database,
+  workspaceName: string,
+): Promise<RepoLink[]> {
+  const { results } = await db
+    .prepare(`SELECT * FROM github_repo_links WHERE workspace_name = ? ORDER BY created_at DESC`)
+    .bind(workspaceName)
+    .all<RepoLinkRow>();
+  return (results ?? []).map(rowToLink);
+}
+
+/**
+ * Operator override (issue #318): forcibly (re)assigns `repo` to
+ * `workspaceName`, overwriting any existing owner — unlike `recordRepoLink`'s
+ * `INSERT OR IGNORE` first-claim-wins semantics. Used only from the
+ * admin-gated route; self-serve callers never get this power.
+ */
+export async function setRepoLink(
+  db: D1Database,
+  repo: string,
+  workspaceName: string,
+  source: string,
+  installationId: number | null = null,
+  now = new Date(),
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO github_repo_links
+         (repo_full_name, workspace_name, installation_id, source, created_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(repo_full_name) DO UPDATE SET
+         workspace_name = excluded.workspace_name,
+         installation_id = excluded.installation_id,
+         source = excluded.source,
+         created_at = excluded.created_at`,
+    )
+    .bind(normalizeRepo(repo), workspaceName, installationId, source, now.toISOString())
+    .run();
 }

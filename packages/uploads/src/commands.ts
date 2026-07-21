@@ -2118,17 +2118,20 @@ export async function runComment(
 // --- github link ---
 
 const GITHUB_HELP = `uploads github link [--repo <owner/name>] [--status] [--workspace <name>]
+uploads github unlink [--repo <owner/name>] [--workspace <name>]
 uploads github doctor [--workspace <name>]
 
-Claim or inspect this workspace's binding to a GitHub repo (see the managed
-attachments comment / webhook auto-promotion, which use this binding).
-First-claim-wins: claiming an already-bound repo never steals it from
-whichever workspace claimed it first — the command reports who owns it
-instead.
+Claim, inspect, or release this workspace's binding to a GitHub repo (see the
+managed attachments comment / webhook auto-promotion, which use this
+binding). First-claim-wins: claiming an already-bound repo never steals it
+from whichever workspace claimed it first — the command reports who owns it,
+and how to get it released, instead.
 
 --repo defaults the same way as --pr/--issue elsewhere (gh repo view, then
 the git remote). --status only inspects the current binding (files:read);
-without it, the command claims the repo (files:write).
+without it, "link" claims the repo (files:write). "unlink" releases a
+binding this workspace owns — it 403s (via the server) if another workspace
+owns it; an operator can reassign or remove that binding instead.
 
 \`doctor\` checks the GitHub App itself: whether it's configured on the
 server, and whether it's subscribed to the webhook events uploads.sh's
@@ -2141,6 +2144,7 @@ Examples:
   uploads github link
   uploads github link --repo buildinternet/uploads
   uploads github link --status
+  uploads github unlink --repo buildinternet/uploads
   uploads github doctor
 `;
 
@@ -2169,45 +2173,27 @@ function formatGithubLink(
     : `${repo} is not bound to any workspace\n`;
 }
 
-export async function runGithub(
-  ctx: CliContext,
-  args: string[],
-  help = false,
-  run: CommandRunner = execRunner,
-): Promise<number> {
-  const parsed = parseCommandArgs(args);
-  const action = parsed.positionals[0];
-  if (help || parsed.help || !action) {
-    writeCommandHelp(GITHUB_HELP);
-    return help || parsed.help ? 0 : 2;
-  }
-  if (action !== "link" && action !== "doctor") {
-    throw new UsageError(`unknown github subcommand: ${action}`);
-  }
-
-  if (action === "doctor") {
-    let result: GithubHealthResult;
-    try {
-      result = await ctx.client.githubHealth();
-    } catch (err) {
-      if (err instanceof UploadsError && err.status === 404) {
-        throw new UsageError(
-          "server does not support the GitHub App health check yet (404) — upgrade the uploads.sh API/self-hosted worker",
-        );
-      }
-      throw err;
+async function runGithubDoctor(ctx: CliContext): Promise<number> {
+  let result: GithubHealthResult;
+  try {
+    result = await ctx.client.githubHealth();
+  } catch (err) {
+    if (err instanceof UploadsError && err.status === 404) {
+      throw new UsageError(
+        "server does not support the GitHub App health check yet (404) — upgrade the uploads.sh API/self-hosted worker",
+      );
     }
-    if (ctx.json) {
-      await writeJson(result);
-    } else {
-      await writeStdout(formatGithubDoctor(result));
-    }
-    return result.ok ? 0 : 1;
+    throw err;
   }
+  if (ctx.json) {
+    await writeJson(result);
+  } else {
+    await writeStdout(formatGithubDoctor(result));
+  }
+  return result.ok ? 0 : 1;
+}
 
-  const repo = resolveRepo(flagString(parsed.flags, "--repo"), run);
-  const statusOnly = flagBool(parsed.flags, "--status");
-
+async function runGithubLink(ctx: CliContext, repo: string, statusOnly: boolean): Promise<number> {
   let result: {
     repo: string;
     linked: boolean;
@@ -2234,11 +2220,67 @@ export async function runGithub(
   }
   if (!statusOnly && result.claimed === false) {
     process.stderr.write(
-      `note: ${repo} is already bound to a different workspace ("${result.workspace}") — first-claim-wins, not overwritten\n`,
+      `note: ${repo} is already bound to a different workspace ("${result.workspace}") — first-claim-wins, not overwritten. Run "uploads github unlink --repo ${repo}" from that workspace, or ask an operator to reassign it.\n`,
     );
   }
   await writeStdout(formatGithubLink(repo, result));
   return 0;
+}
+
+async function runGithubUnlink(ctx: CliContext, repo: string): Promise<number> {
+  let result: { repo: string; unlinked: boolean; reason?: "not_linked" };
+  try {
+    result = await ctx.client.githubLinkUnlink(repo);
+  } catch (err) {
+    if (err instanceof UploadsError && err.status === 404) {
+      throw new UsageError(
+        "server does not support repo bindings yet (404) — upgrade the uploads.sh API/self-hosted worker",
+      );
+    }
+    if (err instanceof UploadsError && err.status === 403) {
+      throw new UsageError(
+        `${repo} is bound to a different workspace — ask an operator to reassign or remove it (${err.message})`,
+      );
+    }
+    throw err;
+  }
+
+  if (ctx.json) {
+    await writeJson(result);
+    return 0;
+  }
+  await writeStdout(
+    result.unlinked
+      ? `unlinked ${repo}\n`
+      : `${repo} was not bound to any workspace — nothing to unlink\n`,
+  );
+  return 0;
+}
+
+export async function runGithub(
+  ctx: CliContext,
+  args: string[],
+  help = false,
+  run: CommandRunner = execRunner,
+): Promise<number> {
+  const parsed = parseCommandArgs(args);
+  const action = parsed.positionals[0];
+  if (help || parsed.help || !action) {
+    writeCommandHelp(GITHUB_HELP);
+    return help || parsed.help ? 0 : 2;
+  }
+  if (action !== "link" && action !== "unlink" && action !== "doctor") {
+    throw new UsageError(`unknown github subcommand: ${action}`);
+  }
+
+  if (action === "doctor") return runGithubDoctor(ctx);
+
+  const repo = resolveRepo(flagString(parsed.flags, "--repo"), run);
+
+  if (action === "unlink") return runGithubUnlink(ctx, repo);
+
+  const statusOnly = flagBool(parsed.flags, "--status");
+  return runGithubLink(ctx, repo, statusOnly);
 }
 
 // --- usage / reconcile / purge ---

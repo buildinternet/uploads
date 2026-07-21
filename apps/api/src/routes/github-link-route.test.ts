@@ -61,6 +61,17 @@ function post(env: Env, workspace: string, body: unknown, token: string) {
   );
 }
 
+function del(env: Env, workspace: string, repo: string, token: string) {
+  return app.request(
+    `/v1/${workspace}/github/link?repo=${encodeURIComponent(repo)}`,
+    {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${token}` },
+    },
+    env,
+  );
+}
+
 describe("GET /v1/:workspace/github/link", () => {
   it("reports no binding when the repo is unclaimed", async () => {
     const { env } = await seededEnv();
@@ -157,5 +168,70 @@ describe("POST /v1/:workspace/github/link", () => {
       env,
     );
     expect(res.status).toBe(401);
+  });
+});
+
+describe("DELETE /v1/:workspace/github/link", () => {
+  it("unlinks a binding owned by the calling workspace", async () => {
+    const { env, db } = await seededEnv();
+    db.repoLinks.set(REPO, {
+      repo_full_name: REPO,
+      workspace_name: WS,
+      installation_id: null,
+      source: "cli",
+      created_at: "2026-01-01T00:00:00.000Z",
+    });
+    const res = await del(env, WS, REPO, TOKEN);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ repo: REPO, unlinked: true });
+    expect(db.repoLinks.has(REPO)).toBe(false);
+  });
+
+  it("reports not_linked for an unclaimed repo without erroring", async () => {
+    const { env } = await seededEnv();
+    const res = await del(env, WS, REPO, TOKEN);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ repo: REPO, unlinked: false, reason: "not_linked" });
+  });
+
+  it("403s when the caller does not own the binding, and leaves it intact", async () => {
+    const { env, db } = await seededEnv();
+    db.repoLinks.set(REPO, {
+      repo_full_name: REPO,
+      workspace_name: "someone-else",
+      installation_id: null,
+      source: "comment",
+      created_at: "2026-01-01T00:00:00.000Z",
+    });
+    const res = await del(env, WS, REPO, TOKEN);
+    expect(res.status).toBe(403);
+    expect(db.repoLinks.get(REPO)?.workspace_name).toBe("someone-else");
+  });
+
+  it("400s on a malformed repo", async () => {
+    const { env } = await seededEnv();
+    const res = await del(env, WS, "not-a-repo", TOKEN);
+    expect(res.status).toBe(400);
+  });
+
+  it("401s with no bearer token", async () => {
+    const { env } = await seededEnv();
+    const res = await app.request(`/v1/${WS}/github/link?repo=${REPO}`, { method: "DELETE" }, env);
+    expect(res.status).toBe(401);
+  });
+
+  it("propagates a D1 read failure instead of reporting not_linked", async () => {
+    const { env } = await seededEnv();
+    const failingDb = {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => {
+            throw new Error("d1 unavailable");
+          },
+        }),
+      }),
+    };
+    const res = await del({ ...env, DB: failingDb } as unknown as Env, WS, REPO, TOKEN);
+    expect(res.status).toBeGreaterThanOrEqual(500);
   });
 });

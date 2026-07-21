@@ -8,9 +8,15 @@
  * binding never steals it — the response reports who actually owns it
  * (`claimed: false`, `owner`) rather than silently pretending to succeed.
  */
-import { ValidationError } from "@uploads/errors";
+import { ValidationError, ForbiddenError } from "@uploads/errors";
 import { Hono } from "hono";
-import { findRepoLink, recordRepoLink, type RepoLink } from "../github-repo-links";
+import {
+  deleteRepoLinkForWorkspace,
+  findRepoLink,
+  findRepoLinkStrict,
+  recordRepoLink,
+  type RepoLink,
+} from "../github-repo-links";
 import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
@@ -69,4 +75,29 @@ export const githubLink = new Hono<WorkspaceVars>()
       claimed: after?.workspaceName === workspaceName,
       ...linkResponse(repo, after),
     });
+  })
+  // Self-serve unlink (issue #318): a workspace can only remove a binding it
+  // owns — this never lets one workspace unclaim another's repo. Use the
+  // admin-gated route (routes/admin-ui.ts) to reassign or remove someone
+  // else's stuck/abandoned binding.
+  .delete("/link", writeRateLimit, requireScope("files:write"), async (c) => {
+    const repo = parseRepo(c.req.query("repo"));
+    const workspaceName = c.get("workspaceName");
+
+    // Strict lookup: unlike the GET/POST handlers above (where a D1 blip
+    // degrading to "unclaimed" is an acceptable inspect-only fallback), a
+    // D1 read failure here must surface as a 5xx, not silently report
+    // `{unlinked: false, reason: "not_linked"}` (CodeRabbit, issue #318).
+    const before = await findRepoLinkStrict(c.env.DB, repo);
+    if (!before) {
+      return c.json({ repo, unlinked: false, reason: "not_linked" as const });
+    }
+    if (before.workspaceName !== workspaceName) {
+      throw new ForbiddenError(
+        `${repo} is bound to a different workspace ("${before.workspaceName}") — ask an operator to reassign it`,
+        { code: "not_link_owner" },
+      );
+    }
+    const removed = await deleteRepoLinkForWorkspace(c.env.DB, repo, workspaceName);
+    return c.json({ repo, unlinked: removed });
   });

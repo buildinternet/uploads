@@ -21,6 +21,13 @@ import {
   revokeTokensForMintingUser,
   validateScopes,
 } from "../auth-db";
+import {
+  deleteRepoLinkStrict,
+  findRepoLinkStrict,
+  listRepoLinksForWorkspace,
+  setRepoLink,
+  type RepoLink,
+} from "../github-repo-links";
 import { allowWrite } from "../guards";
 import { deriveWebOrigin, inviteLinkUrl } from "../invite-links";
 import { membersForOrg, orgForWorkspace } from "../org-workspaces";
@@ -233,6 +240,32 @@ function githubCommentSettingsResponse(name: string, record: WorkspaceRecord) {
     settings: {
       githubCommentLinkToFilePage: record.githubCommentLinkToFilePage ?? null,
     },
+  };
+}
+
+// Same owner/name grammar + dot-only-segment guard as routes/github-link.ts's
+// parseRepo (issue #318 operator-override routes below).
+const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+const DOTS_ONLY_RE = /^\.+$/;
+
+function parseRepoParam(repo: unknown): string {
+  if (
+    typeof repo !== "string" ||
+    !REPO_RE.test(repo) ||
+    repo.split("/").some((seg) => DOTS_ONLY_RE.test(seg))
+  ) {
+    throw new ValidationError("repo must be owner/name.", { code: "invalid_repo" });
+  }
+  return repo;
+}
+
+function repoLinkResponse(link: RepoLink) {
+  return {
+    repo: link.repo,
+    workspace: link.workspaceName,
+    source: link.source,
+    installationId: link.installationId,
+    createdAt: link.createdAt,
   };
 }
 
@@ -471,6 +504,71 @@ export const adminUi = new Hono<SessionVars>()
     }
     await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(record));
     return c.json(githubCommentSettingsResponse(name, record));
+  })
+
+  // Admin visibility (issue #318): the repos this workspace has claimed in
+  // `github_repo_links`. Read-only — reassigning/removing a binding is the
+  // dedicated /github-links routes below, which act on the repo (any
+  // workspace), not scoped to one workspace's list.
+  .get("/workspaces/:name/github-links", async (c) => {
+    const name = c.req.param("name");
+    const links = await listRepoLinksForWorkspace(c.env.DB, name);
+    return c.json({ workspace: name, links: links.map(repoLinkResponse) });
+  })
+
+  // Operator override (issue #318): forcibly reassign a repo's binding to
+  // `workspace`, overwriting whichever workspace claimed it first. Unlike the
+  // self-serve `/v1/:workspace/github/link` POST (first-claim-wins), this
+  // never reports `claimed: false` — an admin's call always wins. Rate
+  // limited (and workspace-existence checked) against the destination
+  // workspace, same as the other admin-ui writes below.
+  .put("/github-links", async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      throw new ValidationError("request body must be valid JSON", { code: "invalid_body" });
+    }
+    const { repo: rawRepo, workspace: rawWorkspace } = (body ?? {}) as {
+      repo?: unknown;
+      workspace?: unknown;
+    };
+    const repo = parseRepoParam(rawRepo);
+    if (typeof rawWorkspace !== "string" || !rawWorkspace.trim()) {
+      throw new ValidationError("workspace is required", { code: "invalid_workspace" });
+    }
+    const workspace = rawWorkspace.trim();
+    // A typo'd destination would otherwise silently create a binding owned
+    // by a workspace that doesn't exist (CodeRabbit, issue #318).
+    const existing = await c.env.REGISTRY.get(`ws:${workspace}`);
+    if (!existing) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
+    if (!(await allowWrite(c.env, workspace))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+    await setRepoLink(c.env.DB, repo, workspace, "admin");
+    return c.json({ repo, workspace, reassigned: true });
+  })
+
+  // Operator override (issue #318): remove any repo's binding outright
+  // (stuck/abandoned claim, no replacement owner). Unlike the self-serve
+  // DELETE (workspace-scoped, refuses non-owners), this always succeeds
+  // regardless of who owns the binding. Uses the strict lookup/delete so a
+  // D1 failure surfaces as an error rather than a false `unlinked: true`
+  // (CodeRabbit, issue #318); rate limited against the current owner
+  // (there's no destination workspace to key on, unlike PUT above).
+  .delete("/github-links", async (c) => {
+    const repo = parseRepoParam(c.req.query("repo"));
+    const before = await findRepoLinkStrict(c.env.DB, repo);
+    if (!before) {
+      return c.json({ repo, unlinked: false, reason: "not_linked" as const });
+    }
+    if (!(await allowWrite(c.env, before.workspaceName))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+    const removed = await deleteRepoLinkStrict(c.env.DB, repo);
+    return c.json({ repo, unlinked: removed });
   })
 
   // Ban / unban (abuse). Proxies Better Auth admin ban/unban; ban also
