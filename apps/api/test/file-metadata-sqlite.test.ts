@@ -371,6 +371,84 @@ describe("file metadata persistence against SQLite", () => {
         sqlite.close();
       }
     });
+
+    it("restricts the result to opts.metaKeys when given", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        await replaceFileMetadata(database(sqlite), "ws1", "a.png", {
+          path: "/settings",
+          state: "before",
+          device: "iPhone 15 Pro",
+          "gh.repo": "o/r",
+        });
+
+        const out = await getMetadataForKeys(database(sqlite), "ws1", ["a.png"], {
+          metaKeys: ["path", "state"],
+        });
+        // The EXIF-derived key must not come back — the comment path relies on
+        // this to keep `device`/`software` out of a public GitHub comment.
+        expect(out.get("a.png")).toEqual({ path: "/settings", state: "before" });
+      } finally {
+        sqlite.close();
+      }
+    });
+
+    it("omits a key entirely when it has none of the requested meta keys", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        await replaceFileMetadata(database(sqlite), "ws1", "a.png", { "gh.repo": "o/r" });
+
+        const out = await getMetadataForKeys(database(sqlite), "ws1", ["a.png"], {
+          metaKeys: ["path", "state"],
+        });
+        expect(out.has("a.png")).toBe(false);
+      } finally {
+        sqlite.close();
+      }
+    });
+
+    it("treats an omitted or empty metaKeys list as unfiltered", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        const all = { path: "/settings", "gh.repo": "o/r" };
+        await replaceFileMetadata(database(sqlite), "ws1", "a.png", all);
+
+        // Empty array means "no filter", NOT "select nothing": a caller that
+        // built the list dynamically is better served by the full map than by
+        // a silently empty one.
+        await expect(
+          getMetadataForKeys(database(sqlite), "ws1", ["a.png"], { metaKeys: [] }),
+        ).resolves.toEqual(new Map([["a.png", all]]));
+        await expect(getMetadataForKeys(database(sqlite), "ws1", ["a.png"], {})).resolves.toEqual(
+          new Map([["a.png", all]]),
+        );
+      } finally {
+        sqlite.close();
+      }
+    });
+
+    it("applies the filter across every chunk when keys exceed the chunk size", async () => {
+      const sqlite = new SqliteD1(MIGRATION);
+      try {
+        const keys = Array.from({ length: 150 }, (_, i) => `f/${i}.png`);
+        for (const key of keys) {
+          await replaceFileMetadata(database(sqlite), "ws1", key, {
+            path: "/p",
+            device: "iPhone 15 Pro",
+          });
+        }
+
+        const out = await getMetadataForKeys(database(sqlite), "ws1", keys, {
+          metaKeys: ["path", "state"],
+        });
+        expect(out.size).toBe(150);
+        // The 101st key proves the filter is bound into the second chunk too,
+        // not just the first prepared statement.
+        expect(out.get("f/100.png")).toEqual({ path: "/p" });
+      } finally {
+        sqlite.close();
+      }
+    });
   });
 
   describe("deleteFileMetadataForWorkspace", () => {
