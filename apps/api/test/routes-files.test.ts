@@ -1055,3 +1055,28 @@ describe("PUT /v1/:workspace/files uploader attribution (issue #340)", () => {
     expect(meta).toEqual({ "gh.repo": "acme/web" });
   });
 });
+
+describe("uploader attribution never breaks a cap-limit upload (issue #340 review)", () => {
+  it("drops the server tags instead of failing when the merge would exceed 24 keys", async () => {
+    const SCOPED = "up_default_minted2";
+    const { env, db } = await makeEnv(
+      {},
+      { scopedToken: { rawToken: SCOPED, scopes: ["files:write"], mintingUserId: "user-1" } },
+    );
+    // 24 client pairs (the cap), one of them gh.* so attribution triggers.
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${SCOPED}`,
+      "X-Uploads-Meta-gh.repo": "acme/web",
+    };
+    for (let i = 1; i <= 23; i++) headers[`X-Uploads-Meta-extra${i}`] = "v";
+    const res = await putShot(env, { headers });
+    expect(res.status).toBe(201);
+    const meta = await getFileMetadata(
+      db as unknown as D1Database,
+      "default",
+      "screenshots/shot.png",
+    );
+    expect(Object.keys(meta)).toHaveLength(24);
+    expect(meta["gh.uploader-id"]).toBeUndefined();
+  });
+});

@@ -11,6 +11,7 @@ import {
 import {
   findObjectsByMetadata,
   getFileMetadata,
+  META_MAX_KEYS,
   setFileMetadata,
   validateMetadataFilters,
 } from "../file-metadata";
@@ -137,7 +138,13 @@ export const files = new Hono<WorkspaceVars>()
     let metadata = hasCustomMeta ? custom : undefined;
     if (metadata && hasGithubTags(metadata)) {
       const uploader = await uploaderTags(c.env, c.get("mintingUserId"));
-      if (uploader) metadata = { ...metadata, ...uploader };
+      if (uploader) {
+        // Attribution must never break an upload that was valid without it:
+        // if the merged set would blow the per-object key cap (validated
+        // inside putObject), keep the client's pairs and drop the server tags.
+        const merged = { ...metadata, ...uploader };
+        if (Object.keys(merged).length <= META_MAX_KEYS) metadata = merged;
+      }
     }
     const result = await putObject(
       c.env,
