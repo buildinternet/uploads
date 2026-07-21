@@ -199,23 +199,32 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
   // Phase 3 (plan scope A): memberships for a user, used by
   // apps/api/src/org-workspaces.ts and the admin-ui endpoints to resolve
   // "what orgs/workspaces can this user act on".
+  // Optional `slug` filters to one org (member-gated route authz: one D1
+  // join instead of loading every membership then scanning).
   .get("/memberships", async (c) => {
     const userId = c.req.query("userId")?.trim();
     if (!userId) {
       return c.json(errorJson("invalid_user_id", "userId is required"), 400);
     }
+    const slug = c.req.query("slug")?.trim() || undefined;
 
     const db = drizzle(c.env.DB, { schema });
-    const rows = await db
+    const conditions = [eq(schema.member.userId, userId)];
+    if (slug) conditions.push(eq(schema.organization.slug, slug));
+
+    const query = db
       .select({
         organizationId: schema.member.organizationId,
         organizationSlug: schema.organization.slug,
+        organizationName: schema.organization.name,
         role: schema.member.role,
       })
       .from(schema.member)
       .innerJoin(schema.organization, eq(schema.member.organizationId, schema.organization.id))
-      .where(eq(schema.member.userId, userId));
+      .where(and(...conditions));
 
+    // Single-org lookups only need one row (LIMIT 1 still bills one match).
+    const rows = slug ? await query.limit(1) : await query;
     return c.json(rows);
   })
   // Phase 3 (plan scope A): admin-provisioned org creation, idempotent on

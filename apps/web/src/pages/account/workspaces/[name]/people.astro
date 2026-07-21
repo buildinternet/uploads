@@ -83,15 +83,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       requireElement,
     } from "../../../../lib/account-shell";
     import {
-      getMyWorkspaces,
-      getWorkspaceMembers,
+      getWorkspacePeople,
       inviteToWorkspace,
-      getWorkspaceInvites,
       revokeWorkspaceInvite,
       removeWorkspaceMember,
       updateWorkspaceMemberRole,
     } from "../../../../lib/api-client";
-    import { writeCachedWorkspaces } from "../../../../lib/workspaces-nav";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
     import {
       bindCopyButtons,
@@ -155,78 +152,70 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         retryBtn.hidden = true;
         appEl.hidden = true;
 
-        const result = await getMyWorkspaces(apiOrigin);
+        // One combined people payload (authz + members + invites) instead of
+        // full workspace list + members + invites round-trips.
+        const result = await getWorkspacePeople(apiOrigin, workspaceName);
         if (!stillHere()) return;
         if (result.kind === "unavailable") {
-          showError("Workspaces are temporarily unavailable. Check the local stack or try again.");
-          return;
-        }
-
-        writeCachedWorkspaces(result.workspaces);
-
-        const ws = result.workspaces.find((item) => item.workspace === workspaceName);
-        if (!ws) {
-          showError("You don’t have access to this workspace.", false);
+          if (result.reason === "not_found") {
+            showError("You don’t have access to this workspace.", false);
+            return;
+          }
+          showError("People are temporarily unavailable. Check the local stack or try again.");
           return;
         }
 
         // Every member sees the people list; inviting stays admin-only (site
         // operators may still open the page for the ADMIN_TOKEN command).
-        inviteSection.hidden = !isWorkspaceAdminRole(ws.role) && sessionRole !== "admin";
-        inviteForm.hidden = !isWorkspaceAdminRole(ws.role);
+        inviteSection.hidden = !isWorkspaceAdminRole(result.role) && sessionRole !== "admin";
+        inviteForm.hidden = !isWorkspaceAdminRole(result.role);
 
-        canManage = isWorkspaceAdminRole(ws.role);
+        canManage = result.canManage;
         invitesSection.hidden = !canManage;
 
         statusEl.hidden = true;
         appEl.hidden = false;
 
-        void loadMembers();
-        if (canManage) void loadInvites();
+        if (result.communal) {
+          membersEl.innerHTML =
+            '<p class="muted">Shared, public space — no member list to show.</p>';
+          invitesEl.innerHTML = "";
+        } else {
+          membersEl.innerHTML = result.members.length
+            ? renderMembersHtml(result.members, { canManage, selfEmail: sessionEmail })
+            : '<p class="muted">Just you so far.</p>';
+          if (canManage) {
+            invitesEl.innerHTML = result.invites.length
+              ? renderInvitesHtml(result.invites)
+              : '<p class="muted">No pending invites.</p>';
+          }
+        }
 
-        const displayName = ws.organization.name || ws.workspace;
+        const displayName = result.organization.name || workspaceName;
         slugEl.textContent =
-          displayName === ws.workspace ? ws.workspace : `${displayName} · ${ws.workspace}`;
+          displayName === workspaceName ? workspaceName : `${displayName} · ${workspaceName}`;
         document.title = `People · ${displayName} · uploads.sh`;
 
         const isOperator = sessionRole === "admin";
         operatorCard.hidden = !isOperator;
         if (isOperator) {
-          const cmd = operatorInviteCommand(ws.workspace);
+          const cmd = operatorInviteCommand(workspaceName);
           operatorCmd.textContent = cmd;
           operatorCopy.dataset.copy = cmd;
         }
       }
 
-      async function loadMembers(): Promise<void> {
-        const result = await getWorkspaceMembers(apiOrigin, workspaceName);
-        if (!stillHere()) return;
-        if (result.kind === "unavailable") {
-          membersEl.innerHTML =
-            '<p class="muted" role="alert">People are temporarily unavailable. Reload to try again.</p>';
-          return;
-        }
-        if (result.communal) {
-          membersEl.innerHTML =
-            '<p class="muted">Shared, public space — no member list to show.</p>';
-          return;
-        }
+      async function refreshPeopleLists(): Promise<void> {
+        const result = await getWorkspacePeople(apiOrigin, workspaceName);
+        if (!stillHere() || result.kind !== "ok" || result.communal) return;
         membersEl.innerHTML = result.members.length
           ? renderMembersHtml(result.members, { canManage, selfEmail: sessionEmail })
           : '<p class="muted">Just you so far.</p>';
-      }
-
-      async function loadInvites(): Promise<void> {
-        const result = await getWorkspaceInvites(apiOrigin, workspaceName);
-        if (!stillHere()) return;
-        if (result.kind === "unavailable") {
-          invitesEl.innerHTML =
-            '<p class="muted" role="alert">Invites are temporarily unavailable. Reload to try again.</p>';
-          return;
+        if (canManage) {
+          invitesEl.innerHTML = result.invites.length
+            ? renderInvitesHtml(result.invites)
+            : '<p class="muted">No pending invites.</p>';
         }
-        invitesEl.innerHTML = result.invites.length
-          ? renderInvitesHtml(result.invites)
-          : '<p class="muted">No pending invites.</p>';
       }
 
       function manageErrorText(reason: string, action: string): string {
@@ -269,6 +258,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
               inviteLink.hidden = false;
               inviteLink.innerHTML = `Accept link: <a href="${escapeHtml(result.acceptUrl)}">${escapeHtml(result.acceptUrl)}</a>`;
             }
+            if (canManage) void refreshPeopleLists();
             return;
           }
           inviteStatus.textContent =
@@ -292,7 +282,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           btn.disabled = true;
           const res = await removeWorkspaceMember(apiOrigin, workspaceName, memberId);
           if (!stillHere()) return;
-          if (res.kind === "ok") void loadMembers();
+          if (res.kind === "ok") void refreshPeopleLists();
           else {
             btn.disabled = false;
             alert(manageErrorText(res.reason, "remove this member"));
@@ -317,7 +307,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           const res = await updateWorkspaceMemberRole(apiOrigin, workspaceName, memberId, role);
           if (!stillHere()) return;
           select.disabled = false;
-          if (res.kind === "ok") void loadMembers();
+          if (res.kind === "ok") void refreshPeopleLists();
           else alert(manageErrorText(res.reason, "change this role"));
         })();
       });
@@ -334,7 +324,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           btn.disabled = true;
           const res = await revokeWorkspaceInvite(apiOrigin, workspaceName, inviteId);
           if (!stillHere()) return;
-          if (res.kind === "ok") void loadInvites();
+          if (res.kind === "ok") void refreshPeopleLists();
           else {
             btn.disabled = false;
             alert(manageErrorText(res.reason, "revoke this invite"));

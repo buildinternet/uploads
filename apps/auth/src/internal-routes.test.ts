@@ -332,9 +332,54 @@ describe("DB-backed behavior", () => {
       const body = (await res.json()) as Array<{
         organizationId: string;
         organizationSlug: string;
+        organizationName: string;
         role: string;
       }>;
-      expect(body).toEqual([{ organizationId: org.id, organizationSlug: org.slug, role: "owner" }]);
+      expect(body).toEqual([
+        {
+          organizationId: org.id,
+          organizationSlug: org.slug,
+          organizationName: org.name,
+          role: "owner",
+        },
+      ]);
+    });
+
+    it("filters to a single org when slug is provided", async () => {
+      const user = await seedUser();
+      const acme = await seedOrg({ slug: "acme", name: "Acme" });
+      const beta = await seedOrg({ slug: "beta", name: "Beta" });
+      await orm.insert(schema.member).values([
+        {
+          id: crypto.randomUUID(),
+          organizationId: acme.id,
+          userId: user.id,
+          role: "owner",
+          createdAt: new Date(),
+        },
+        {
+          id: crypto.randomUUID(),
+          organizationId: beta.id,
+          userId: user.id,
+          role: "member",
+          createdAt: new Date(),
+        },
+      ]);
+
+      const res = await app().request(
+        `/internal/memberships?userId=${user.id}&slug=acme`,
+        {},
+        dbEnv(),
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual([
+        {
+          organizationId: acme.id,
+          organizationSlug: "acme",
+          organizationName: "Acme",
+          role: "owner",
+        },
+      ]);
     });
 
     it("returns an empty list for a user with no memberships", async () => {
