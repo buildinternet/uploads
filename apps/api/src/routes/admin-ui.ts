@@ -218,26 +218,36 @@ async function loadEditableWorkspace(env: Env, name: string): Promise<WorkspaceR
   return record;
 }
 
+/** The per-workspace managed-comment booleans (issues #304, #365). */
+const GITHUB_COMMENT_SETTING_KEYS = [
+  "githubCommentLinkToFilePage",
+  "githubCommentShowMetadata",
+] as const;
+
+type GithubCommentSettingsPatch = Partial<
+  Record<(typeof GITHUB_COMMENT_SETTING_KEYS)[number], boolean>
+>;
+
 /**
- * Validates a PATCH body for the github-comment settings route (issue #304).
- * Only `githubCommentLinkToFilePage` is accepted; when present it must be a
- * boolean. Omitted means "leave unchanged" — distinct from a validation
- * error, mirroring `validateLimitsPatch`'s omit-vs-invalid distinction.
+ * Validates a PATCH body for the github-comment settings route. Only the known
+ * booleans are accepted; when present each must be a boolean. An omitted key
+ * means "leave unchanged" — distinct from a validation error, mirroring
+ * `validateLimitsPatch`'s omit-vs-invalid distinction.
  */
-function validateGithubCommentSettingsPatch(body: unknown): {
-  githubCommentLinkToFilePage?: boolean;
-} {
+function validateGithubCommentSettingsPatch(body: unknown): GithubCommentSettingsPatch {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new ValidationError("request body must be an object", { code: "invalid_settings" });
   }
-  const raw = (body as Record<string, unknown>).githubCommentLinkToFilePage;
-  if (raw === undefined) return {};
-  if (typeof raw !== "boolean") {
-    throw new ValidationError("githubCommentLinkToFilePage must be a boolean", {
-      code: "invalid_settings",
-    });
+  const patch: GithubCommentSettingsPatch = {};
+  for (const key of GITHUB_COMMENT_SETTING_KEYS) {
+    const raw = (body as Record<string, unknown>)[key];
+    if (raw === undefined) continue;
+    if (typeof raw !== "boolean") {
+      throw new ValidationError(`${key} must be a boolean`, { code: "invalid_settings" });
+    }
+    patch[key] = raw;
   }
-  return { githubCommentLinkToFilePage: raw };
+  return patch;
 }
 
 /** Response body shared by GET and PATCH: the github-comment settings. */
@@ -246,6 +256,7 @@ function githubCommentSettingsResponse(name: string, record: WorkspaceRecord) {
     workspace: name,
     settings: {
       githubCommentLinkToFilePage: record.githubCommentLinkToFilePage ?? null,
+      githubCommentShowMetadata: record.githubCommentShowMetadata ?? null,
     },
   };
 }
@@ -496,8 +507,8 @@ export const adminUi = new Hono<SessionVars>()
       throw new ValidationError("request body must be valid JSON", { code: "invalid_settings" });
     }
     const patch = validateGithubCommentSettingsPatch(body);
-    if ("githubCommentLinkToFilePage" in patch) {
-      record.githubCommentLinkToFilePage = patch.githubCommentLinkToFilePage;
+    for (const key of GITHUB_COMMENT_SETTING_KEYS) {
+      if (key in patch) record[key] = patch[key];
     }
     await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(record));
     return c.json(githubCommentSettingsResponse(name, record));
