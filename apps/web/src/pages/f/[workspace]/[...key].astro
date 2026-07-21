@@ -235,8 +235,8 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
       ) : result.status === "auth_required" ? (
         <section class="error" id="auth-required">
           <code>file.auth_required</code>
-          <h1>This file is private</h1>
-          <p>Sign in to view this file if you're a member of this workspace.</p>
+          <h1>This file is unlisted</h1>
+          <p>Sign in to view this page if you're a member of this workspace.</p>
           <a class="signin" id="signin-link" href="/login">Sign in</a>
           <span class="checking" id="auth-checking" hidden>Checking your session…</span>
         </section>

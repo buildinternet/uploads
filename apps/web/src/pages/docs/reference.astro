@@ -42,6 +42,15 @@ const REPO = "https://github.com/buildinternet/uploads";
         media attached to private repositories. Don't upload secrets or sensitive UI.
       </li>
       <li>
+        <strong>The visibility toggle unlists — it doesn't lock down bytes.</strong> Marking a
+        file "private" hides it from your workspace's public file listing and gates the
+        <code>/f/…</code> page behind sign-in. The raw file URL (<code>storage.uploads.sh/…</code>)
+        keeps serving the same bytes to anyone who already has it, and edge caches can keep
+        serving recently-public bytes for a short window after the toggle. Treat it as
+        "unlisted," not "private." True byte-level privacy would require a workspace with no
+        public domain (signed URLs only), which isn't how uploads.sh workspaces work today.
+      </li>
+      <li>
         <strong>Share pages support embeds.</strong> Every public file and gallery has a
         page at <code>/f/…</code> or <code>/g/…</code> with
         <a href="https://oembed.com/">oEmbed</a> discovery, so tools that unfurl links can
