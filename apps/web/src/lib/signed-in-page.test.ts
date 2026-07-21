@@ -50,6 +50,12 @@ describe("signed-in / auth CSP builders", () => {
     expect(csp).not.toContain("img-src data: https:");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("form-action 'none'");
+
+    // Drift guard: ensure devicePageCsp is authPageCsp with API origin added to connect-src.
+    // This prevents silent directive drift that the spot-checks above wouldn't catch.
+    const authCsp = authPageCsp(AUTH);
+    const expectedDeviceCsp = authCsp.replace(`connect-src ${AUTH}`, `connect-src ${AUTH} ${API}`);
+    expect(devicePageCsp(AUTH, API)).toBe(expectedDeviceCsp);
   });
 
   it("INVITE_CSP targets prod API and keeps frame-ancestors", () => {
