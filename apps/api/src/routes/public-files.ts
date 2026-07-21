@@ -1,62 +1,12 @@
 import { NotFoundError, UnauthorizedError } from "@uploads/errors";
 import { Hono } from "hono";
 import type { Files } from "@uploads/storage";
-import { badKey, downloadResponse, UPLOADED_AT_META_KEY } from "../files-core";
-import { getFileMetadata, META_VALUE_MAX } from "../file-metadata";
-import { resolveTitles } from "../github-titles";
+import { badKey, downloadResponse, publicObjectDateFields } from "../files-core";
+import { displayTitle, getFileMetadata } from "../file-metadata";
+import { resolveTitles, withPublicTitleBudget } from "../github-titles";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
-
-/** Same-second tolerance so storage noise does not force dual fields. */
-const DATE_EQUAL_MS = 1000;
-
-/**
- * Cap live GitHub title resolve on the public share JSON path only.
- * `resolveTitles` can spend up to ~8s per hop; apps/web aborts at 4s.
- * Member-rail `/me` keeps the full resolve budget.
- */
-const PUBLIC_TITLE_RESOLVE_BUDGET_MS = 1400;
-
-/**
- * Prefer `uploaded-at` stamp; fall back to provider `lastModified`.
- * Emit `modified` only when mtime meaningfully differs (fresh put → single field).
- */
-function publicDateFields(meta: { lastModified?: number; metadata?: Record<string, string> }): {
-  uploaded?: string;
-  modified?: string;
-} {
-  const modifiedIso =
-    meta.lastModified != null && Number.isFinite(meta.lastModified)
-      ? new Date(meta.lastModified).toISOString()
-      : undefined;
-  const stamped = meta.metadata?.[UPLOADED_AT_META_KEY];
-  const uploadedIso =
-    typeof stamped === "string" && Number.isFinite(Date.parse(stamped))
-      ? new Date(stamped).toISOString()
-      : modifiedIso;
-
-  if (!uploadedIso) return {};
-  if (!modifiedIso || Math.abs(Date.parse(modifiedIso) - Date.parse(uploadedIso)) < DATE_EQUAL_MS) {
-    return { uploaded: uploadedIso };
-  }
-  return { uploaded: uploadedIso, modified: modifiedIso };
-}
-
-/** Race work against the public title budget; null on timeout (errors propagate). */
-async function withPublicTitleBudget<T>(work: Promise<T>): Promise<T | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      work,
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), PUBLIC_TITLE_RESOLVE_BUDGET_MS);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
 
 type GithubKind = "pull" | "issue";
 
@@ -76,13 +26,6 @@ const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 const POSITIVE_INT_RE = /^[1-9][0-9]*$/;
 /** Lowercased `owner/repo#number` — same shape as CLI `gh.ref` / resolveTitles keys. */
 const GH_REF_RE = /^[a-z0-9._-]+\/[a-z0-9._-]+#[1-9][0-9]*$/;
-
-/** Cap titles to the same bound as stored metadata values (META_VALUE_MAX). */
-function displayTitle(raw: string | undefined): string | undefined {
-  const t = raw?.trim();
-  if (!t) return undefined;
-  return t.length > META_VALUE_MAX ? t.slice(0, META_VALUE_MAX) : t;
-}
 
 /**
  * Derives the `github` convenience object from `gh.repo`/`gh.kind`/`gh.number`
@@ -235,7 +178,7 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
     embedUrl: urls.embedUrl,
     size: meta.size ?? 0,
     contentType: meta.type ?? "application/octet-stream",
-    ...publicDateFields(meta),
+    ...publicObjectDateFields(meta),
     ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     ...(github ? { github } : {}),
   });
