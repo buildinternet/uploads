@@ -78,6 +78,24 @@ export function resolveCurrentPullRequest(repo: string, run: CommandRunner = exe
   );
 }
 
+/** Resolve the current git branch (`--branch` with no value). Throws UsageError on detached HEAD or outside a git repo. */
+export function resolveCurrentBranch(run: CommandRunner = execRunner): string {
+  let branch: string;
+  try {
+    branch = run("git", ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+  } catch {
+    throw new UsageError(
+      "could not determine the current git branch — pass --branch <name> or run inside a git repo",
+    );
+  }
+  if (branch === "" || branch === "HEAD") {
+    throw new UsageError(
+      "could not determine the current branch (detached HEAD) — pass --branch <name>",
+    );
+  }
+  return branch;
+}
+
 /**
  * Classify a bare PR/issue number via the GitHub API so the default `put`
  * path can stamp the right `gh.kind`. Returns undefined on any failure (gh

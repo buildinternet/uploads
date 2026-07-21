@@ -277,6 +277,110 @@ describe("runScreenshot upload tail", () => {
   });
 });
 
+describe("runScreenshot --branch (branch-staged, pre-PR)", () => {
+  it("stages under gh/<owner>/<repo>/branch/<branch>/<filename>, sanitizing the branch segment", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--branch", "feature/thing", "--repo", "o/r"],
+      false,
+      noRun,
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
+  });
+
+  it("defaults --branch (no value) to the current git branch", async () => {
+    const { client, puts } = fakeClient();
+    const run: CommandRunner = (cmd, args) => {
+      if (cmd === "git" && args[0] === "rev-parse") return "main\n";
+      throw new Error(`unexpected call: ${cmd} ${args.join(" ")}`);
+    };
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--branch", "--repo", "o/r"],
+      false,
+      run,
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.key).toBe("gh/o/r/branch/main/example-com.png");
+  });
+
+  it("throws UsageError on detached HEAD when --branch has no value", async () => {
+    const { client } = fakeClient();
+    const run: CommandRunner = (cmd, args) => {
+      if (cmd === "git" && args[0] === "rev-parse") return "HEAD\n";
+      throw new Error(`unexpected call: ${cmd} ${args.join(" ")}`);
+    };
+    await expect(
+      runScreenshot(
+        ctxWith(client),
+        ["https://example.com", "--branch", "--repo", "o/r"],
+        false,
+        run,
+        fakeCapture("remote"),
+      ),
+    ).rejects.toThrow(UsageError);
+  });
+
+  it("writes gh.repo/gh.kind=branch/gh.branch/gh.staged-at (no gh.number/gh.ref/gh.title)", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--branch", "feature/thing", "--repo", "o/r"],
+      false,
+      noRun,
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    const metadata = puts[0]?.metadata;
+    expect(metadata).toMatchObject({
+      "gh.repo": "o/r",
+      "gh.kind": "branch",
+      "gh.branch": "feature/thing",
+    });
+    expect(metadata?.["gh.staged-at"]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    expect(metadata?.["gh.number"]).toBeUndefined();
+    expect(metadata?.["gh.ref"]).toBeUndefined();
+  });
+
+  it.each([
+    ["--pr", "1"],
+    ["--issue", "1"],
+    ["--comment", undefined],
+    ["--key", "gh/o/r/branch/x/explicit.png"],
+    ["--ref", "123"],
+    ["--prefix", "gh"],
+  ])("rejects --branch combined with %s", async (flag, value) => {
+    const { client } = fakeClient();
+    const extra = value !== undefined ? [flag, value] : [flag];
+    await expect(
+      runScreenshot(
+        ctxWith(client),
+        ["https://example.com", "--branch", "feature/thing", "--repo", "o/r", ...extra],
+        false,
+        noRun,
+        fakeCapture("remote"),
+      ),
+    ).rejects.toThrow(UsageError);
+  });
+
+  it("rejects an unsafe branch name that fails the printable-ASCII metadata rule", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runScreenshot(
+        ctxWith(client),
+        ["https://example.com", "--branch", "feature/🚀", "--repo", "o/r"],
+        false,
+        noRun,
+        fakeCapture("remote"),
+      ),
+    ).rejects.toThrow(UsageError);
+  });
+});
+
 describe("runScreenshot gh.title metadata (issue #267)", () => {
   it("stamps gh.title alongside the base gh.* pairs when the title resolves", async () => {
     const { client, puts } = fakeClient();

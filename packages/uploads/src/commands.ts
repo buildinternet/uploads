@@ -29,8 +29,10 @@ import { writeJson, writeStdout } from "./io.js";
 import { parseMetaFlags, validateMetaMap } from "./metadata.js";
 import {
   ghAttachmentKey,
+  ghBranchAttachmentKey,
   ghKeyPrefix,
   ghMetadataFromTarget,
+  ghMetadataForBranch,
   attachmentsCommentBody,
   type GhTarget,
   type AttachmentItem,
@@ -40,6 +42,7 @@ import {
 import {
   resolveRepo,
   resolveCurrentPullRequest,
+  resolveCurrentBranch,
   classifyGhNumber,
   execRunner,
   ghMetadataFromTargetWithTitle,
@@ -197,6 +200,25 @@ export function ghTargetFromFlags(
     flagString(flags, "--repo"),
     run,
   );
+}
+
+/**
+ * Reads `--branch [name]` — an optional-value flag: `--branch` alone resolves
+ * the current git branch (`resolveCurrentBranch`); `--branch feature/x` uses
+ * the given name verbatim. Returns undefined when the flag is absent at all
+ * (distinct from an empty/whitespace value, which is rejected). Throws
+ * UsageError if `--branch` is given more than once.
+ */
+export function branchFromFlags(
+  flags: CommandFlags["flags"],
+  run: CommandRunner,
+): string | undefined {
+  if (!flags.has("--branch")) return undefined;
+  const raw = flags.get("--branch");
+  if (Array.isArray(raw)) throw new UsageError("--branch may only be given once");
+  if (raw === true) return resolveCurrentBranch(run);
+  if (typeof raw === "string" && raw.trim().length > 0) return raw;
+  throw new UsageError("--branch requires a non-empty branch name");
 }
 
 /**
@@ -546,9 +568,23 @@ URL and every embed hot-swap. Human mode prints ">> replaced existing object
 Still images are optimized to WebP by default (same as put). Use --no-optimize
 to upload originals. Optional --frame wraps images in device/browser chrome.
 
+Branch staging (pre-PR): --branch [name] stages files against a git branch
+before a pull request exists, e.g. for a coding agent working a branch that
+hasn't opened a PR yet. Key: gh/<owner>/<repo>/branch/<branch>/<filename>
+("/" in the branch name sanitizes to "-", e.g. feature/x -> feature-x).
+With no value, --branch resolves the current git branch. Staged files are
+public like every other attachment — same public-URL caveat applies. There is
+no managed comment for a branch (no PR/issue to comment on yet); --branch
+never runs the comment sync and cannot combine with --pr/--issue/--comment.
+Promoting staged files into the PR's managed comment once one opens ships in
+a later phase — for now, find them again with
+"uploads find gh.branch=<branch>".
+
 Options:
   --pr <num>            Attach to this pull request
   --issue <num>         Attach to this issue
+  --branch [name]       Stage against a branch, pre-PR (default: current git branch);
+                        not with --pr/--issue/--comment
   --repo <owner/repo>   Repository (default: gh/git inference)
   --no-comment          Upload only; don't create/update the managed comment
   --content-type <mime> Override Content-Type (applied to every file; ignored when optimize rewrites)
@@ -562,7 +598,8 @@ Options:
   --workspace, -w <name>  Override workspace
   --meta <k=v>          Extra queryable metadata (repeatable; value may contain "=").
                         gh.repo/gh.kind/gh.number/gh.ref are always set from the resolved
-                        target — a --meta pair with the same key is overridden by it.
+                        target (or gh.repo/gh.kind/gh.branch/gh.staged-at with --branch) —
+                        a --meta pair with the same key is overridden by it.
                         Because attach always sends its own gh.* pairs, re-attaching to
                         the same key always replaces that file's entire metadata set
                         (never preserves) — use "uploads meta set" to add to it instead.
@@ -573,6 +610,8 @@ Examples:
   uploads attach ./shot.png --pr 123 --repo myorg/myapp
   uploads attach ./artifact.zip --issue 45 --no-comment
   uploads attach ./shot.png --meta app=myapp --meta page=settings
+  uploads attach ./shot.png --branch
+  uploads attach ./shot.png --branch feature/new-settings
 `;
 
 export type AttachUploadItem = PutResult & {
@@ -593,15 +632,11 @@ export type AttachFailure = {
   error: { message: string; code?: string; status?: number };
 };
 
-/**
- * Prepare + put each path as a PR/issue attachment with bounded concurrency.
- * Per-file errors collect in `failures` (does not throw). `firstError` is the
- * original cause of the first failure — for rethrowing single-file CLI paths.
- */
-export async function uploadAttachments(opts: {
+interface UploadAttachmentBatchOptions {
   client: UploadsClient;
-  target: GhTarget;
   files: readonly string[];
+  /** Builds the object key for a file from its (post-optimize) filename. */
+  keyFor: (filename: string) => string;
   contentType?: string;
   optimize: OptimizeImageOptions;
   frame: {
@@ -613,7 +648,17 @@ export async function uploadAttachments(opts: {
   /** Provenance `client` field (default uploads-cli). */
   provenanceClient?: string;
   concurrency?: number;
-}): Promise<{ uploads: AttachUploadItem[]; failures: AttachFailure[]; firstError?: unknown }> {
+}
+
+/**
+ * Shared prepare + put loop for both PR/issue attach (`uploadAttachments`)
+ * and branch-staged attach (`uploadBranchAttachments`) — bounded concurrency,
+ * per-file errors collect in `failures` (does not throw). `firstError` is the
+ * original cause of the first failure — for rethrowing single-file CLI paths.
+ */
+async function uploadAttachmentBatch(
+  opts: UploadAttachmentBatchOptions,
+): Promise<{ uploads: AttachUploadItem[]; failures: AttachFailure[]; firstError?: unknown }> {
   if (opts.files.some((f) => f === "-")) {
     throw new UsageError("attach does not support stdin; pass one or more file paths");
   }
@@ -632,7 +677,7 @@ export async function uploadAttachments(opts: {
         });
         const result = await opts.client.put(prepared.bytes, {
           filename: prepared.filename,
-          key: ghAttachmentKey(opts.target, prepared.filename),
+          key: opts.keyFor(prepared.filename),
           contentType: prepared.optimized ? prepared.contentType : opts.contentType,
           provenance: buildCliProvenance({
             sourceName,
@@ -678,6 +723,67 @@ export async function uploadAttachments(opts: {
     }
   }
   return { uploads, failures, firstError };
+}
+
+/**
+ * Prepare + put each path as a PR/issue attachment with bounded concurrency.
+ * Per-file errors collect in `failures` (does not throw). `firstError` is the
+ * original cause of the first failure — for rethrowing single-file CLI paths.
+ */
+export async function uploadAttachments(opts: {
+  client: UploadsClient;
+  target: GhTarget;
+  files: readonly string[];
+  contentType?: string;
+  optimize: OptimizeImageOptions;
+  frame: {
+    frameId?: string;
+    frameUrl?: string;
+    frameFit?: "cover" | "contain";
+  };
+  metadata?: Record<string, string>;
+  /** Provenance `client` field (default uploads-cli). */
+  provenanceClient?: string;
+  concurrency?: number;
+}): Promise<{ uploads: AttachUploadItem[]; failures: AttachFailure[]; firstError?: unknown }> {
+  return uploadAttachmentBatch({
+    ...opts,
+    keyFor: (filename) => ghAttachmentKey(opts.target, filename),
+  });
+}
+
+/** A branch to stage attachments against pre-PR (`uploads attach --branch`). */
+export interface BranchTarget {
+  repo: string;
+  branch: string;
+}
+
+/**
+ * Prepare + put each path as a branch-staged attachment (pre-PR) with
+ * bounded concurrency. Same shape as `uploadAttachments`, keyed under
+ * `gh/<owner>/<repo>/branch/<branch>/<filename>` instead of a PR/issue
+ * number. Never syncs the managed comment — callers must not call
+ * `syncAttachmentsComment` for a branch target.
+ */
+export async function uploadBranchAttachments(opts: {
+  client: UploadsClient;
+  target: BranchTarget;
+  files: readonly string[];
+  contentType?: string;
+  optimize: OptimizeImageOptions;
+  frame: {
+    frameId?: string;
+    frameUrl?: string;
+    frameFit?: "cover" | "contain";
+  };
+  metadata?: Record<string, string>;
+  provenanceClient?: string;
+  concurrency?: number;
+}): Promise<{ uploads: AttachUploadItem[]; failures: AttachFailure[]; firstError?: unknown }> {
+  return uploadAttachmentBatch({
+    ...opts,
+    keyFor: (filename) => ghBranchAttachmentKey(opts.target.repo, opts.target.branch, filename),
+  });
 }
 
 function errorDetail(err: unknown): { message: string; code?: string; status?: number } {
@@ -823,6 +929,16 @@ export async function runAttach(
     throw new UsageError("--no-comment takes no value — place it after the file arguments");
   }
 
+  const branchArg = branchFromFlags(parsed.flags, run);
+  if (branchArg !== undefined) {
+    if (parsed.flags.has("--pr")) throw new UsageError("--branch cannot be combined with --pr");
+    if (parsed.flags.has("--issue"))
+      throw new UsageError("--branch cannot be combined with --issue");
+    if (parsed.flags.has("--comment"))
+      throw new UsageError("--branch cannot be combined with --comment");
+    return runAttachBranch(ctx, parsed, branchArg, run);
+  }
+
   const explicitTarget = ghTargetFromFlags(parsed.flags, run);
   const target =
     explicitTarget ??
@@ -902,6 +1018,79 @@ export async function runAttach(
     if (!ctx.quiet && uploads.length > 0) {
       const ref = ghMetadataFromTarget(target)["gh.ref"];
       process.stderr.write(`>> find these later: uploads find gh.ref=${ref}\n`);
+    }
+  }
+  return failures.length === 0 ? 0 : 1;
+}
+
+/**
+ * `attach --branch` path: stages files under
+ * `gh/<owner>/<repo>/branch/<branch>/<filename>` instead of a PR/issue
+ * number. Never syncs the managed comment (there is no PR/issue to comment
+ * on yet, and the comment-gatherer only lists PR/issue prefixes anyway —
+ * branch-staged keys are invisible to it by construction).
+ */
+async function runAttachBranch(
+  ctx: CliContext,
+  parsed: CommandFlags,
+  branch: string,
+  run: CommandRunner,
+): Promise<number> {
+  const repo = resolveRepo(flagString(parsed.flags, "--repo"), run);
+  const defaults = resolvePutDefaults({ envFile: ctx.envFile });
+  const optimizeOpts = optimizeOptionsFromFlags(parsed.flags, defaults);
+  const frameOpts = frameOptionsFromFlags(parsed.flags);
+  const contentTypeOverride = flagString(parsed.flags, "--content-type");
+  const metaExtras = parseMetaFlags(flagValues(parsed.flags, "--meta"));
+  const metadata = { ...metaExtras, ...ghMetadataForBranch(repo, branch) };
+  validateMetaMap(metadata);
+
+  const logHuman = !ctx.quiet && !ctx.json;
+  if (logHuman) {
+    const n = parsed.positionals.length;
+    process.stderr.write(
+      `>> uploading ${n} file${n === 1 ? "" : "s"} (staged for branch ${branch})\n`,
+    );
+  }
+
+  const target: BranchTarget = { repo, branch };
+  const { uploads, failures, firstError } = await uploadBranchAttachments({
+    client: ctx.client,
+    target,
+    files: parsed.positionals,
+    contentType: contentTypeOverride,
+    optimize: optimizeOpts,
+    frame: frameOpts,
+    metadata,
+  });
+
+  // Single-file total failure: rethrow so CLI exit codes stay auth/network-aware.
+  if (uploads.length === 0 && failures.length === 1 && parsed.positionals.length === 1) {
+    throw firstError instanceof Error ? firstError : new Error(String(firstError));
+  }
+
+  if (ctx.json) {
+    await writeJson({ target, uploads, failures });
+  } else {
+    for (const result of uploads) {
+      if (logHuman) {
+        if (result.frame?.framed) {
+          process.stderr.write(
+            `>> ${basename(result.file)}: framed with ${result.frame.frameId}\n`,
+          );
+        }
+        const note = formatOptimizeNote(result.optimize);
+        if (note) process.stderr.write(`>> ${basename(result.file)}: ${note}\n`);
+        writeReplacedNote(result.replaced, false);
+      }
+      const embedLine = result.embedUrl ? `EMBED: ${result.embedUrl}\n` : "";
+      await writeStdout(`URL: ${result.url}\n${embedLine}MARKDOWN: ${result.markdown}\n`);
+    }
+    for (const failure of failures) {
+      process.stderr.write(`warning: could not upload ${failure.file}: ${failure.error.message}\n`);
+    }
+    if (!ctx.quiet && uploads.length > 0) {
+      process.stderr.write(`>> find these later: uploads find gh.branch=${branch.toLowerCase()}\n`);
     }
   }
   return failures.length === 0 ? 0 : 1;

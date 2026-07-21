@@ -1,5 +1,7 @@
 import { inferContentType } from "./embed.js";
 import { sanitizeKeySegment } from "./keys.js";
+import { UsageError } from "./cli-args.js";
+import { isMetaValueSafe } from "./metadata.js";
 
 export type GhTargetKind = "pull" | "issues";
 
@@ -83,6 +85,51 @@ export function ghKeyPrefix(target: GhTarget): string {
  */
 export function ghAttachmentKey(target: GhTarget, filename: string): string {
   return `${ghKeyPrefix(target)}${sanitizeKeySegment(filename)}`;
+}
+
+/**
+ * Branch-staged attachment key prefix: `gh/<owner>/<repo>/branch/<branch>/`.
+ * Pre-PR staging (Phase 1 of branch-staged attachments) — no PR/issue number
+ * exists yet. `branch` goes through `sanitizeKeySegment` like every other key
+ * segment, so e.g. `feature/x` becomes `feature-x`.
+ */
+export function ghBranchKeyPrefix(repo: string, branch: string): string {
+  const [owner, name] = repo.split("/");
+  return `gh/${sanitizeKeySegment(owner)}/${sanitizeKeySegment(name)}/branch/${sanitizeKeySegment(branch)}/`;
+}
+
+/** Branch-staged attachment key: `ghBranchKeyPrefix` + the sanitized filename. */
+export function ghBranchAttachmentKey(repo: string, branch: string, filename: string): string {
+  return `${ghBranchKeyPrefix(repo, branch)}${sanitizeKeySegment(filename)}`;
+}
+
+/**
+ * `gh.*` metadata for a branch-staged attach: `gh.repo`, `gh.kind=branch`,
+ * `gh.branch` (lowercased), and `gh.staged-at` (ISO 8601 UTC, no fractional
+ * seconds). No `gh.number`/`gh.ref`/`gh.title` — there is no PR/issue yet.
+ * Throws `UsageError` when the lowercased branch name fails the metadata
+ * value rule (printable ASCII, 1-512 chars) — unlike `gh.title`'s best-effort
+ * degrade, a branch name the caller explicitly chose (via `--branch` or the
+ * current git branch) is worth failing loudly on rather than silently
+ * dropping from the metadata set.
+ */
+export function ghMetadataForBranch(
+  repo: string,
+  branch: string,
+  now: Date = new Date(),
+): Record<string, string> {
+  const branchLower = branch.toLowerCase();
+  if (!isMetaValueSafe(branchLower)) {
+    throw new UsageError(
+      `invalid --branch: "${branch}" must be printable ASCII to stage as gh.branch metadata`,
+    );
+  }
+  return {
+    "gh.repo": repo.toLowerCase(),
+    "gh.kind": "branch",
+    "gh.branch": branchLower,
+    "gh.staged-at": now.toISOString().replace(/\.\d{3}Z$/, "Z"),
+  };
 }
 
 /**

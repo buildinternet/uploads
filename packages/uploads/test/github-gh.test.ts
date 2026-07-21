@@ -4,6 +4,7 @@ import { ATTACHMENTS_MARKER, type GhTarget } from "../src/github.js";
 import {
   classifyGhNumber,
   ghMetadataFromTargetWithTitle,
+  resolveCurrentBranch,
   resolveCurrentPullRequest,
   resolveGhTitle,
   resolveRepo,
@@ -102,6 +103,32 @@ describe("resolveCurrentPullRequest", () => {
       },
     });
     expect(() => resolveCurrentPullRequest("o/r", run)).toThrow(/could not infer a pull request/);
+  });
+});
+
+describe("resolveCurrentBranch", () => {
+  it("returns the current branch name", () => {
+    const { run } = fakeRunner({
+      git: (args) => {
+        expect(args).toEqual(["rev-parse", "--abbrev-ref", "HEAD"]);
+        return "feature/thing\n";
+      },
+    });
+    expect(resolveCurrentBranch(run)).toBe("feature/thing");
+  });
+
+  it("throws UsageError on a detached HEAD", () => {
+    const { run } = fakeRunner({ git: () => "HEAD\n" });
+    expect(() => resolveCurrentBranch(run)).toThrow(UsageError);
+  });
+
+  it("throws UsageError when git fails (not a repo)", () => {
+    const { run } = fakeRunner({
+      git: () => {
+        throw new Error("not a git repository");
+      },
+    });
+    expect(() => resolveCurrentBranch(run)).toThrow(UsageError);
   });
 });
 

@@ -335,6 +335,123 @@ describe("runAttach gh.* metadata", () => {
   });
 });
 
+describe("runAttach --branch (branch-staged, pre-PR)", () => {
+  /** No PR/issue lookups expected — --branch must never call resolveCurrentPullRequest or gh pr view. */
+  const branchRunner = (branch = "feature/thing"): { run: CommandRunner; calls: string[][] } => {
+    const calls: string[][] = [];
+    const run: CommandRunner = (cmd, args) => {
+      calls.push([cmd, ...args]);
+      if (cmd === "git" && args[0] === "rev-parse") return `${branch}\n`;
+      throw new Error(`unexpected call: ${cmd} ${args.join(" ")}`);
+    };
+    return { run, calls };
+  };
+
+  it("stages under gh/<owner>/<repo>/branch/<branch>/<filename>, sanitizing the branch segment", async () => {
+    const { client, puts } = fakeClient();
+    const { run } = branchRunner();
+    expect(
+      await runAttach(
+        ctxWith(client),
+        [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        run,
+      ),
+    ).toBe(0);
+    expect(puts).toEqual(["gh/o/r/branch/feature-thing/shot.png"]);
+  });
+
+  it("defaults --branch (no value) to the current git branch", async () => {
+    const { client, puts } = fakeClient();
+    const { run, calls } = branchRunner("main");
+    expect(
+      await runAttach(
+        ctxWith(client),
+        [...files("shot.png"), "--branch", "--repo", "o/r"],
+        false,
+        run,
+      ),
+    ).toBe(0);
+    expect(puts).toEqual(["gh/o/r/branch/main/shot.png"]);
+    expect(calls).toEqual([["git", "rev-parse", "--abbrev-ref", "HEAD"]]);
+  });
+
+  it("throws UsageError on detached HEAD when --branch has no value", async () => {
+    const { client } = fakeClient();
+    const run: CommandRunner = (cmd, args) => {
+      if (cmd === "git" && args[0] === "rev-parse") return "HEAD\n";
+      throw new Error(`unexpected call: ${cmd} ${args.join(" ")}`);
+    };
+    await expect(
+      runAttach(ctxWith(client), [...files("shot.png"), "--branch", "--repo", "o/r"], false, run),
+    ).rejects.toThrow(UsageError);
+  });
+
+  it("writes gh.repo/gh.kind=branch/gh.branch/gh.staged-at (no gh.number/gh.ref/gh.title)", async () => {
+    const { client, metadataByKey } = fakeClient();
+    const { run } = branchRunner();
+    await runAttach(
+      ctxWith(client),
+      [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r"],
+      false,
+      run,
+    );
+    const metadata = metadataByKey["gh/o/r/branch/feature-thing/shot.png"];
+    expect(metadata).toMatchObject({
+      "gh.repo": "o/r",
+      "gh.kind": "branch",
+      "gh.branch": "feature/thing",
+    });
+    expect(metadata?.["gh.staged-at"]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    expect(metadata?.["gh.number"]).toBeUndefined();
+    expect(metadata?.["gh.ref"]).toBeUndefined();
+    expect(metadata?.["gh.title"]).toBeUndefined();
+  });
+
+  it("never attempts the managed comment sync (no gh api comments call)", async () => {
+    const { client } = fakeClient();
+    const { run, calls } = branchRunner();
+    await runAttach(
+      ctxWith(client),
+      [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r"],
+      false,
+      run,
+    );
+    expect(calls.some((c) => c.join(" ").includes("/comments"))).toBe(false);
+  });
+
+  it.each([
+    ["--pr", "1"],
+    ["--issue", "1"],
+    ["--comment", undefined],
+  ])("rejects --branch combined with %s", async (flag, value) => {
+    const { client } = fakeClient();
+    const { run } = branchRunner();
+    const extra = value !== undefined ? [flag, value] : [flag];
+    await expect(
+      runAttach(
+        ctxWith(client),
+        [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r", ...extra],
+        false,
+        run,
+      ),
+    ).rejects.toThrow(UsageError);
+  });
+
+  it("rejects an unsafe branch name that fails the printable-ASCII metadata rule", async () => {
+    const { client } = fakeClient();
+    const { run } = branchRunner();
+    await expect(
+      runAttach(
+        ctxWith(client),
+        [...files("shot.png"), "--branch", "feature/🚀", "--repo", "o/r"],
+        false,
+        run,
+      ),
+    ).rejects.toThrow(UsageError);
+  });
+});
+
 describe("runAttach gh.title metadata (issue #267)", () => {
   it("stamps gh.title when the resolved PR title is available", async () => {
     const { client, metadataByKey } = fakeClient();

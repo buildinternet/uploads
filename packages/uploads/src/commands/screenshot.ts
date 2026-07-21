@@ -10,6 +10,7 @@ import {
 } from "../cli-args.js";
 import { writeCommandHelp } from "../cli-style.js";
 import {
+  branchFromFlags,
   frameOptionsFromFlags,
   ghTargetFromFlags,
   optimizeOptionsFromFlags,
@@ -22,7 +23,13 @@ import {
 import { resolvePutDefaults } from "../config.js";
 import { loadDefaultsRaw, resolveScreenshotDefaults } from "../config-file.js";
 import { resolvePutPrefix } from "../destinations.js";
-import { execRunner, ghMetadataFromTargetWithTitle, type CommandRunner } from "../github-gh.js";
+import {
+  execRunner,
+  ghMetadataFromTargetWithTitle,
+  resolveRepo,
+  type CommandRunner,
+} from "../github-gh.js";
+import { ghBranchAttachmentKey, ghMetadataForBranch } from "../github.js";
 import { parseMetaFlags, validateMetaMap } from "../metadata.js";
 import { writeJson, writeStdout } from "../io.js";
 import {
@@ -89,6 +96,11 @@ Options:
   --keep-exif               Keep EXIF/XMP/ICC when optimizing
   --pr <num>                Attach to a pull request (stable URL, no hash)
   --issue <num>             Attach to an issue
+  --branch [name]           Stage against a branch, pre-PR (default: current git branch):
+                             key gh/<owner>/<repo>/branch/<branch>/<name>; not with
+                             --pr/--issue/--comment/--key/--ref/--prefix. No managed
+                             comment exists yet — promoting into the PR's comment once
+                             one opens ships in a later phase.
   --comment                 With --pr/--issue: update the managed attachments comment.
                              Posts as uploads-sh[bot] when the GitHub App is installed;
                              otherwise via local gh.
@@ -107,6 +119,7 @@ Examples:
   uploads screenshot http://localhost:3000 --via local --full-page
   uploads screenshot https://uploads.sh --pr 128 --comment
   uploads screenshot ./card.html --no-upload --out ./card.png
+  uploads screenshot https://app.example/settings --branch
 `;
 
 function colorSchemeFromFlags(
@@ -199,10 +212,14 @@ export async function runScreenshot(
   const destFlag = flagString(parsed.flags, "--destination");
   const prefixFlag = flagString(parsed.flags, "--prefix");
   const ghTarget = ghTargetFromFlags(parsed.flags, run);
+  const branchArg = branchFromFlags(parsed.flags, run);
   const wantComment = parsed.flags.has("--comment");
   const galleryId = flagString(parsed.flags, "--gallery");
   const dryRun = flagBool(parsed.flags, "--dry-run");
 
+  if (branchArg !== undefined && ghTarget) {
+    throw new UsageError("--branch cannot be combined with --pr/--issue");
+  }
   if (wantComment && !ghTarget) throw new UsageError("--comment requires --pr or --issue");
   if (ghTarget) {
     if (keyHint) throw new UsageError("--key cannot be combined with --pr/--issue");
@@ -210,11 +227,21 @@ export async function runScreenshot(
       throw new UsageError("--ref cannot be combined with --pr/--issue");
     if (prefixFlag) throw new UsageError("--prefix cannot be combined with --pr/--issue");
   }
+  if (branchArg !== undefined) {
+    if (wantComment) throw new UsageError("--branch cannot be combined with --comment");
+    if (keyHint) throw new UsageError("--key cannot be combined with --branch");
+    if (flagString(parsed.flags, "--ref"))
+      throw new UsageError("--ref cannot be combined with --branch");
+    if (prefixFlag) throw new UsageError("--prefix cannot be combined with --branch");
+  }
   if (dryRun) {
     if (wantComment) throw new UsageError("--dry-run cannot be combined with --comment");
     if (galleryId) throw new UsageError("--dry-run cannot be combined with --gallery");
     if (noUpload) throw new UsageError("--dry-run cannot be combined with --no-upload");
   }
+
+  const branchRepo =
+    branchArg !== undefined ? resolveRepo(flagString(parsed.flags, "--repo"), run) : undefined;
 
   let resolvedPrefix: string | undefined;
   try {
@@ -222,7 +249,7 @@ export async function runScreenshot(
       destination: destFlag,
       prefix: prefixFlag,
       key: keyHint,
-      ghAttachment: Boolean(ghTarget),
+      ghAttachment: Boolean(ghTarget) || branchArg !== undefined,
     });
   } catch (err) {
     throw new UsageError(err instanceof Error ? err.message : String(err));
@@ -247,6 +274,9 @@ export async function runScreenshot(
   let metadata: Record<string, string> | undefined = metaExtras;
   if (ghTarget) {
     metadata = { ...metaExtras, ...ghMetadataFromTargetWithTitle(ghTarget, run) };
+    validateMetaMap(metadata);
+  } else if (branchArg !== undefined) {
+    metadata = { ...metaExtras, ...ghMetadataForBranch(branchRepo!, branchArg) };
     validateMetaMap(metadata);
   } else if (Object.keys(metaExtras).length > 0) {
     validateMetaMap(metaExtras);
@@ -292,6 +322,10 @@ export async function runScreenshot(
 
   const repo = flagString(parsed.flags, "--repo") ?? putDefaults.repo;
   const ref = flagString(parsed.flags, "--ref") ?? putDefaults.ref;
+  const branchKey =
+    branchArg !== undefined
+      ? ghBranchAttachmentKey(branchRepo!, branchArg, captured.filename)
+      : undefined;
 
   const alt = altFlag ?? basename(captured.filename);
   const { result, prepared, markdown } = await uploadPreparedImage(
@@ -302,7 +336,7 @@ export async function runScreenshot(
       frame: frameOpts,
       optimize: optimizeOpts,
       ghTarget,
-      key: keyHint,
+      key: keyHint ?? branchKey,
       prefix: resolvedPrefix ?? putDefaults.prefix,
       repo,
       ref,
