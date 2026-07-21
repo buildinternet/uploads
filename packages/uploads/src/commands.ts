@@ -2484,6 +2484,8 @@ export interface DoctorReport {
     uploadsInPeriod?: number;
     error?: string;
   };
+  /** File scopes of the presented token (absent against pre-scopes servers). */
+  scopes?: string[];
   /** Workspace/token mismatch warning (also present in hints). */
   warning?: string;
   hints: string[];
@@ -2587,6 +2589,7 @@ export async function buildDoctorReport(
         error?: string;
       }
     | undefined;
+  let scopes: string[] | undefined;
   if (authOk) {
     try {
       const snap = await client.usage();
@@ -2596,6 +2599,12 @@ export async function buildDoctorReport(
         objects: snap.objects,
         uploadsInPeriod: snap.uploadsInPeriod,
       };
+      scopes = snap.scopes;
+      if (scopes && !scopes.includes("files:delete")) {
+        hints.push(
+          "token lacks files:delete (`uploads delete` will be forbidden) — re-run `uploads login` for a full-scope token",
+        );
+      }
     } catch (err) {
       usage = {
         ok: false,
@@ -2620,6 +2629,7 @@ export async function buildDoctorReport(
     health,
     auth: { ok: authOk, error: authError },
     usage,
+    scopes,
     warning: mismatch,
     hints,
     browser,
@@ -2646,6 +2656,7 @@ export async function runDoctor(ctx: CliContext, args: string[], help = false): 
     `workspace: ${report.workspace}`,
     `auth:      ${report.auth.ok ? "ok" : `failed — ${report.auth.error ?? "no token"}`}`,
   ];
+  if (report.scopes) lines.push(`scopes:    ${report.scopes.join(", ")}`);
   if (report.usage) {
     lines.push(
       report.usage.ok

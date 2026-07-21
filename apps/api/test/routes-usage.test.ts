@@ -58,6 +58,8 @@ describe("GET /v1/:workspace/usage + put/delete metering", () => {
       objects: 0,
       uploadsInPeriod: 0,
       periodStart: usagePeriodStart(),
+      // Legacy KV-hash token (this suite's TOKEN) → full file-scope set.
+      scopes: ["files:read", "files:write", "files:delete"],
     });
   });
 

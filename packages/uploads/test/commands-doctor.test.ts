@@ -23,6 +23,44 @@ function fakeClient(): UploadsClient {
   } as unknown as UploadsClient;
 }
 
+describe("buildDoctorReport token scopes", () => {
+  it("surfaces the token's scopes and hints when files:delete is missing", async () => {
+    const client = {
+      list: async () => ({ items: [], cursor: null }),
+      health: async () => ({ ok: true }),
+      usage: async () => ({
+        bytes: 0,
+        objects: 0,
+        uploadsInPeriod: 0,
+        scopes: ["files:read", "files:write"],
+      }),
+    } as unknown as UploadsClient;
+    const report = await buildDoctorReport(fakeConfig(), client);
+    expect(report.scopes).toEqual(["files:read", "files:write"]);
+    expect(report.hints.some((h) => h.includes("files:delete"))).toBe(true);
+  });
+
+  it("no delete hint for a full-scope token, no scopes field on older servers", async () => {
+    const full = {
+      list: async () => ({ items: [], cursor: null }),
+      health: async () => ({ ok: true }),
+      usage: async () => ({
+        bytes: 0,
+        objects: 0,
+        uploadsInPeriod: 0,
+        scopes: ["files:read", "files:write", "files:delete"],
+      }),
+    } as unknown as UploadsClient;
+    const fullReport = await buildDoctorReport(fakeConfig(), full);
+    expect(fullReport.hints.some((h) => h.includes("files:delete"))).toBe(false);
+
+    // Pre-scopes server: usage has no scopes field → no line, no hint.
+    const older = await buildDoctorReport(fakeConfig(), fakeClient());
+    expect(older.scopes).toBeUndefined();
+    expect(older.hints.some((h) => h.includes("files:delete"))).toBe(false);
+  });
+});
+
 describe("buildDoctorReport browser section", () => {
   it("reports a browser section (fs scans only — never launches a browser)", async () => {
     const report = await buildDoctorReport(fakeConfig(), fakeClient());

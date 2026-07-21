@@ -311,6 +311,8 @@ export interface UsageResult {
   storageRemainingBytes?: number;
   maxUploadsPerPeriod?: number;
   uploadsRemaining?: number;
+  /** File scopes of the presented token (servers ≥ this field's release). */
+  scopes?: Array<TokenScope>;
 }
 
 export interface ReconcileResult {
