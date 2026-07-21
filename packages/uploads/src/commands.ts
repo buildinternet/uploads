@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, extname } from "node:path";
 import { mapBounded } from "./async.js";
 import {
   createUploadsClient,
@@ -205,11 +205,53 @@ export function ghTargetFromFlags(
 }
 
 /**
+ * Extensions that mark a `--branch` value as almost certainly a filename that
+ * got swallowed by the optional-value lookahead (e.g. `--branch shot.png`
+ * with no other file args). Branch names legitimately contain dots (e.g.
+ * `release/1.2`, `v1.2.3`), so this only matches known media/document
+ * extensions, never bare dotted segments.
+ */
+const BRANCH_LIKE_FILE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".bmp",
+  ".svg",
+  ".ico",
+  ".tif",
+  ".tiff",
+  ".heic",
+  ".avif",
+  ".mp4",
+  ".mov",
+  ".avi",
+  ".webm",
+  ".mkv",
+  ".pdf",
+]);
+
+/**
+ * True when `value` looks like a filename that was mistakenly consumed as the
+ * `--branch` value: it names a file that exists on disk, or its extension is
+ * a known media/document type. Ordinary branch names (including dotted ones
+ * like `v1.2` or `release/1.2`) never match either check.
+ */
+function looksLikeFileNotBranch(value: string): boolean {
+  if (existsSync(value)) return true;
+  return BRANCH_LIKE_FILE_EXTENSIONS.has(extname(value).toLowerCase());
+}
+
+/**
  * Reads `--branch [name]` — an optional-value flag: `--branch` alone resolves
  * the current git branch (`resolveCurrentBranch`); `--branch feature/x` uses
  * the given name verbatim. Returns undefined when the flag is absent at all
  * (distinct from an empty/whitespace value, which is rejected). Throws
- * UsageError if `--branch` is given more than once.
+ * UsageError if `--branch` is given more than once, or if the value looks
+ * like a filename accidentally swallowed by the optional-value lookahead
+ * (e.g. `uploads attach --branch shot.png` with no other file args) — see
+ * `looksLikeFileNotBranch`.
  */
 export function branchFromFlags(
   flags: CommandFlags["flags"],
@@ -219,7 +261,16 @@ export function branchFromFlags(
   const raw = flags.get("--branch");
   if (Array.isArray(raw)) throw new UsageError("--branch may only be given once");
   if (raw === true) return resolveCurrentBranch(run);
-  if (typeof raw === "string" && raw.trim().length > 0) return raw;
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    if (looksLikeFileNotBranch(raw)) {
+      throw new UsageError(
+        `"${raw}" looks like a file, not a branch name — did you mean ` +
+          `"uploads attach ${raw} --branch" (auto-detect the current branch), ` +
+          `or "uploads attach --branch <name> ${raw}" (explicit branch name)?`,
+      );
+    }
+    return raw;
+  }
   throw new UsageError("--branch requires a non-empty branch name");
 }
 
@@ -995,12 +1046,17 @@ export async function runAttach(
     return runAttachPromoteOnly(ctx, parsed, run);
   }
 
+  // Validate --branch (including the filename-lookahead guard) before the
+  // zero-positionals bailout below — otherwise `uploads attach --branch
+  // shot.png` (where shot.png is swallowed as the branch value, leaving no
+  // file args) would silently print help instead of a clear UsageError.
+  const branchArg = branchFromFlags(parsed.flags, run);
+
   if (parsed.positionals.length === 0) {
     writeCommandHelp(ATTACH_HELP);
     return 2;
   }
 
-  const branchArg = branchFromFlags(parsed.flags, run);
   if (branchArg !== undefined) {
     if (parsed.flags.has("--pr")) throw new UsageError("--branch cannot be combined with --pr");
     if (parsed.flags.has("--issue"))
