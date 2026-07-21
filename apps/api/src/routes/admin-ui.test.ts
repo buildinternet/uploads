@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
+import { UsageFakeD1 } from "../../test/usage-fake-d1";
 import { respondError } from "../error-response";
 import { adminUi } from "./admin-ui";
 
@@ -915,5 +916,134 @@ describe("POST /admin-ui/users/:userId/ban", () => {
     ]);
     const body = (await res.json()) as { user: { banned: boolean } };
     expect(body.user.banned).toBe(false);
+  });
+});
+
+describe("github repo link admin routes (issue #318)", () => {
+  function githubLinksEnv(user: typeof ADMIN_USER | null) {
+    const db = new UsageFakeD1();
+    const base = stubEnv(user, () => new Response(null, { status: 404 }));
+    const env = { ...base, DB: db } as unknown as Env;
+    return { env, db };
+  }
+
+  describe("GET /workspaces/:name/github-links", () => {
+    it("lists only the bindings owned by this workspace", async () => {
+      const { env, db } = githubLinksEnv(ADMIN_USER);
+      db.repoLinks.set("acme/web", {
+        repo_full_name: "acme/web",
+        workspace_name: "acme",
+        installation_id: null,
+        source: "comment",
+        created_at: "2026-01-01T00:00:00.000Z",
+      });
+      db.repoLinks.set("other/repo", {
+        repo_full_name: "other/repo",
+        workspace_name: "someone-else",
+        installation_id: null,
+        source: "comment",
+        created_at: "2026-01-01T00:00:00.000Z",
+      });
+      const res = await app().request("/admin-ui/workspaces/acme/github-links", {}, env);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { workspace: string; links: { repo: string }[] };
+      expect(body.workspace).toBe("acme");
+      expect(body.links.map((l) => l.repo)).toEqual(["acme/web"]);
+    });
+
+    it("403s for a non-admin session", async () => {
+      const { env } = githubLinksEnv(NON_ADMIN_USER);
+      const res = await app().request("/admin-ui/workspaces/acme/github-links", {}, env);
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe("PUT /admin-ui/github-links", () => {
+    it("reassigns a repo to a different workspace, overwriting the prior owner", async () => {
+      const { env, db } = githubLinksEnv(ADMIN_USER);
+      db.repoLinks.set("acme/web", {
+        repo_full_name: "acme/web",
+        workspace_name: "acme",
+        installation_id: null,
+        source: "comment",
+        created_at: "2026-01-01T00:00:00.000Z",
+      });
+      const res = await app().request(
+        "/admin-ui/github-links",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: "acme/web", workspace: "new-owner" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        repo: "acme/web",
+        workspace: "new-owner",
+        reassigned: true,
+      });
+      expect(db.repoLinks.get("acme/web")?.workspace_name).toBe("new-owner");
+      expect(db.repoLinks.get("acme/web")?.source).toBe("admin");
+    });
+
+    it("400s on a malformed repo", async () => {
+      const { env } = githubLinksEnv(ADMIN_USER);
+      const res = await app().request(
+        "/admin-ui/github-links",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: "not-a-repo", workspace: "acme" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it("403s for a non-admin session", async () => {
+      const { env } = githubLinksEnv(NON_ADMIN_USER);
+      const res = await app().request(
+        "/admin-ui/github-links",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: "acme/web", workspace: "acme" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe("DELETE /admin-ui/github-links", () => {
+    it("removes any workspace's binding", async () => {
+      const { env, db } = githubLinksEnv(ADMIN_USER);
+      db.repoLinks.set("acme/web", {
+        repo_full_name: "acme/web",
+        workspace_name: "acme",
+        installation_id: null,
+        source: "comment",
+        created_at: "2026-01-01T00:00:00.000Z",
+      });
+      const res = await app().request(
+        "/admin-ui/github-links?repo=acme%2Fweb",
+        { method: "DELETE" },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ repo: "acme/web", unlinked: true });
+      expect(db.repoLinks.has("acme/web")).toBe(false);
+    });
+
+    it("403s for a non-admin session", async () => {
+      const { env } = githubLinksEnv(NON_ADMIN_USER);
+      const res = await app().request(
+        "/admin-ui/github-links?repo=acme%2Fweb",
+        { method: "DELETE" },
+        env,
+      );
+      expect(res.status).toBe(403);
+    });
   });
 });
