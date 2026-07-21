@@ -14,6 +14,7 @@ import {
   uploadBudgetDenial,
 } from "./budget";
 import { deleteFileMetadata, replaceFileMetadata, validateMetadataEntries } from "./file-metadata";
+import { recordPrActivityFromMetadata } from "./github-pr-activity";
 import { DEFAULT_MAX_UPLOAD_BYTES, inspectUpload, resolveUploadPolicy } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
 import {
@@ -257,6 +258,7 @@ export async function putObject(
     // one atomic batch (replaceFileMetadata) rather than a delete followed
     // by a separate re-read-then-write.
     await replaceFileMetadata(env.DB, workspaceName, finalKey, opts.metadata);
+    await recordPrActivityFromMetadata(env.DB, workspaceName, opts.metadata);
   }
 
   const cfg = await storageConfig(env, ws);

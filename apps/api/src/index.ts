@@ -25,6 +25,7 @@ import { githubComment } from "./routes/github-comment";
 import { githubPromote } from "./routes/github-promote";
 import { githubLink } from "./routes/github-link";
 import { githubHealth } from "./routes/github-health";
+import { githubActivity } from "./routes/github-activity";
 import { protectedResourceMetadata, requestOrigin } from "./well-known";
 
 // Lets the browser console on the web origin (and local dev) call the token-
@@ -142,6 +143,9 @@ export const app = new Hono<WorkspaceVars>()
   // Issue #293 follow-up: App-level webhook event subscription check, same
   // base path, distinct sub-route "/health".
   .route("/v1/:workspace/github", githubHealth)
+  // Issue #338: recent-PRs-with-media feed, same base path, distinct
+  // sub-route "/activity".
+  .route("/v1/:workspace/github", githubActivity)
   .onError((err, c) => respondError(c, err))
   .notFound((c) => respondError(c, new NotFoundError()));
 

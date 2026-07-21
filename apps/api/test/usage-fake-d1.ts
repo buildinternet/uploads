@@ -4,6 +4,7 @@
  */
 
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
+import { PrActivityTable } from "./helpers/fake-pr-activity-table";
 import { RepoLinksTable } from "./helpers/fake-repo-links-table";
 
 export type UsageRow = {
@@ -30,6 +31,12 @@ export class UsageFakeD1 {
   get repoLinks() {
     return this.repoLinksTable.rows;
   }
+  // Backs `github_pr_activity` — putObject upserts a row whenever
+  // gh.kind=pull metadata lands (issue #338).
+  private prActivityTable = new PrActivityTable();
+  get prActivity() {
+    return this.prActivityTable.rows;
+  }
 
   prepare = (sql: string) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -54,6 +61,8 @@ export class UsageFakeD1 {
         if (result) return result;
         const linkResult = this.repoLinksTable.tryAll<T>(normalized, values);
         if (linkResult) return linkResult;
+        const activityResult = this.prActivityTable.tryAll<T>(normalized, values);
+        if (activityResult) return activityResult;
         // Galleries aren't modeled by this fake (route/gallery-specific tests
         // bring their own D1 stand-in) — an empty page is a safe, honest
         // default for callers (e.g. the webhook auto-promote gather) that
@@ -68,6 +77,8 @@ export class UsageFakeD1 {
         if (metaResult) return metaResult;
         const linkResult = this.repoLinksTable.tryRun(normalized, values);
         if (linkResult) return linkResult;
+        const activityResult = this.prActivityTable.tryRun(normalized, values);
+        if (activityResult) return activityResult;
         if (normalized.startsWith("INSERT OR IGNORE INTO workspace_usage")) {
           // applyUsageDelta: (ws, period, updatedAt) with zeros
           // setUsageTotals: (ws, bytes, objects, period, updatedAt)
