@@ -52,10 +52,40 @@ optimizer only rewrites still images (PNG/JPEG → WebP).
 
 ## Step 2 — Host and embed
 
-For the common case — files attached to the current branch's PR — use
-`uploads attach`. It infers the PR, uploads under stable keys in parallel, and
-maintains a single managed "attachments" comment. Multi-file runs keep going if
-one path fails (`failures` in `--json`; exit `1` when any failed):
+**Default loop: stage as you go, from the first visual milestone.** Don't wait
+for a PR to exist. The moment you have something worth capturing — mid-task,
+still on a branch, no PR yet — attach it right then with `uploads attach
+--branch`:
+
+```bash
+uploads attach ./step1-before.png --branch
+uploads attach ./step2-after.png --branch      # later in the same task, same branch
+```
+
+This uploads under stable, branch-keyed paths (no PR/issue target needed, no
+comment yet — there's nothing to comment on until a PR exists). Keep doing
+this at each meaningful visual milestone as you work; don't batch everything
+into one attach at the end.
+
+**The PR comment assembles itself — you don't drive that step.** Once the PR
+opens (whether via `gh pr create` or the GitHub UI), every branch-staged file
+gets promoted into that PR's attachments and the managed "📎 Attachments"
+comment is created automatically:
+
+- **With the uploads-sh GitHub App installed** on the repo, a webhook does
+  this the moment the PR opens, reopens, or gets a new commit — no CLI call
+  required at all.
+- **Without the App**, the next `uploads attach` you run against that PR
+  triggers the same promotion + comment refresh as a side effect. If you have
+  nothing new to add right after opening the PR, run `uploads attach
+--promote` (zero file arguments) to promote and refresh explicitly — it
+  exits `0` even if nothing was staged. Skip auto-promotion on a given call
+  with `--no-promote`.
+
+**"PR already exists" is just the simple case of the same command** — same
+`uploads attach`, just pointed at a PR/issue number instead of a branch, and
+the comment updates immediately since there's already something to comment
+on:
 
 ```bash
 uploads attach ./before.png ./after.png
@@ -79,19 +109,23 @@ uploads put ./demo.gif --format url
 Always embed the returned **markdown** (or `embedUrl`) in GitHub — it uses the
 no-cache host so overwrites propagate. Don't hand-build storage URLs.
 
-**Capturing before the PR exists?** (e.g. mid-task on a branch, no PR yet)
-stage with `uploads attach --branch` instead — same upload path, but keyed to
-the branch rather than a PR/issue number:
+**Bot comment not showing up?** The managed comment needs a repo↔workspace
+binding (normally created implicitly by the first comment/promote call, or by
+installing the GitHub App). If a comment you expected doesn't appear, check
+the binding first:
 
 ```bash
-uploads attach ./shot.png --branch
+uploads github link --status
 ```
 
-Once you open the PR (`gh pr create`), the next `uploads attach` to it
-auto-promotes those staged files into the PR's attachments (and refreshes the
-comment) — no extra step needed. If that first attach has no new file to add,
-run `uploads attach --promote` instead to promote and refresh without
-uploading anything.
+That's read-only and shows the current binding (or that the repo is
+unbound) without claiming anything.
+
+**Curate, don't dump.** The comment inlines up to **16 images**; anything past
+that collapses into a `<details>` overflow list. Name and pick shots
+meaningfully (`before.png`/`after.png`, not `capture-1`..`capture-40`) rather
+than attaching every incidental screenshot from a long session — a curated
+handful of milestones reads better than a dumped folder.
 
 ## Step 3 — Embed well
 

@@ -41,19 +41,32 @@ uploads attach ./shot.png --issue 45 --repo buildinternet/uploads
 Pass `--no-comment` when only stable URLs are wanted. Use `put` for lower-level
 naming and output control.
 
-**No PR yet?** `uploads attach ./shot.png --branch [name]` stages files under
-`gh/<owner>/<repo>/branch/<branch>/<filename>` instead of a PR/issue number —
-same upload path, no target flags, no comment (there's nothing to comment on
-yet). With no value, `--branch` resolves the current git branch; `/` in the
-name sanitizes to `-`. Once a PR opens for that branch, the next
-`uploads attach` targeting it **auto-promotes** those staged files into the
-PR's attachment prefix before the comment refresh — no extra step. If that
-first attach has nothing new to upload, run `uploads attach --promote`
-(zero file arguments) to promote and refresh the comment on its own; it
-exits `0` even when nothing was staged. Skip auto-promotion with
-`--no-promote`. Promotion only applies to PRs, never issues, and both paths
-degrade silently (no error) if the workspace's server doesn't support
-promotion yet.
+**Stage as you go, before a PR exists.** `uploads attach ./shot.png --branch
+[name]` stages files under `gh/<owner>/<repo>/branch/<branch>/<filename>`
+instead of a PR/issue number — same upload path, no target flags, no comment
+(there's nothing to comment on yet). With no value, `--branch` resolves the
+current git branch; `/` in the name sanitizes to `-`. Attach this way at every
+visual milestone during the work, not just once at the end.
+
+Getting those files into the PR's attachments comment needs no extra step
+once a PR exists for that branch:
+
+- **GitHub App installed** on the repo: a webhook auto-promotes staged files
+  into the PR's attachment prefix and creates/updates the managed comment the
+  moment the PR opens, reopens, or gets a new commit.
+- **No GitHub App**: the next `uploads attach` targeting that PR
+  **auto-promotes** those staged files into the PR's attachment prefix before
+  the comment refresh. If that first attach has nothing new to upload, run
+  `uploads attach --promote` (zero file arguments) to promote and refresh the
+  comment on its own; it exits `0` even when nothing was staged. Skip
+  auto-promotion on a given call with `--no-promote`.
+
+Promotion only applies to PRs, never issues, and both paths degrade silently
+(no error) if the workspace's server doesn't support promotion yet.
+
+**Comment missing?** Check the repo↔workspace binding first —
+`uploads github link --status` (read-only, shows the binding without
+claiming it). See "Repo binding" below.
 
 The killer feature for GitHub: `--pr`/`--issue` produce **hash-free, stable keys**
 (`gh/<owner>/<repo>/pull/<num>/<name>`), so re-uploading the same filename overwrites
