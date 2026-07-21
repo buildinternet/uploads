@@ -58,14 +58,21 @@ still on a branch, no PR yet — attach it right then with `uploads attach
 --branch`:
 
 ```bash
-uploads attach ./step1-before.png --branch
-uploads attach ./step2-after.png --branch      # later in the same task, same branch
+uploads attach ./step1-before.png --branch --state before
+uploads attach ./step2-after.png --branch --state after   # later, same branch
 ```
 
 This uploads under stable, branch-keyed paths (no PR/issue target needed, no
 comment yet — there's nothing to comment on until a PR exists). Keep doing
 this at each meaningful visual milestone as you work; don't batch everything
 into one attach at the end.
+
+**Pass `--state before`/`--state after` as a habit.** Before/after is the whole
+point of most PR screenshots, and it's the one thing no tool can infer from the
+image. It costs a flag now and makes `uploads find state=after` work months
+later, when the filenames mean nothing to anyone. (`--state` also takes `empty`,
+`error`, and `loading`.) Route and viewport are derived for you — see the
+**uploads-cli** skill for the full canonical vocabulary.
 
 **The PR comment assembles itself — you don't drive that step.** Once the PR
 opens (whether via `gh pr create` or the GitHub UI), every branch-staged file

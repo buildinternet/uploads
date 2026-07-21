@@ -11,9 +11,12 @@ import {
 import { writeCommandHelp } from "../cli-style.js";
 import {
   branchFromFlags,
+  derivedMetaEnabled,
   frameOptionsFromFlags,
   ghTargetFromFlags,
   optimizeOptionsFromFlags,
+  stateAppMetaFromFlags,
+  warnNearMissMeta,
   syncAttachmentsComment,
   commentViaSuffix,
   type AttachmentsCommentResult,
@@ -30,7 +33,9 @@ import {
   type CommandRunner,
 } from "../github-gh.js";
 import { ghBranchAttachmentKey, ghMetadataForBranch } from "../github.js";
+import { safeCaptureFacts } from "../capture-facts.js";
 import { parseMetaFlags, validateMetaMap } from "../metadata.js";
+import { mergeDerivedMeta } from "../metadata-vocab.js";
 import { writeJson, writeStdout } from "../io.js";
 import {
   assertHideSelector,
@@ -106,6 +111,8 @@ Options:
                              otherwise via local gh.
   --gallery <id>            Add the uploaded object to this public gallery
   --meta <k=v>              Queryable custom metadata (repeatable)
+  --state <s>               before|after|empty|error|loading — the UI state shown
+  --app <name>              Surface shown: web, ios, android, cli
   --workspace, -w <name>    Override workspace
   --dry-run                 Capture + resolve key/URL without uploading
   --format human|url|markdown|json
@@ -270,16 +277,24 @@ export async function runScreenshot(
   const altFlag = flagString(parsed.flags, "--alt");
   const width = flagInt(parsed.flags, "--width", "--width") ?? putDefaults.width;
 
-  const metaExtras = parseMetaFlags(flagValues(parsed.flags, "--meta"));
-  let metadata: Record<string, string> | undefined = metaExtras;
+  const metaExtras = warnNearMissMeta(ctx, parseMetaFlags(flagValues(parsed.flags, "--meta")));
+  // Explicit input (--meta plus the dedicated flags) wins over capture facts.
+  const explicitMeta = { ...metaExtras, ...stateAppMetaFromFlags(parsed.flags) };
+  const deriveMeta = derivedMetaEnabled(parsed.flags, putDefaults);
+  const withFacts = mergeDerivedMeta(
+    explicitMeta,
+    deriveMeta ? safeCaptureFacts(target, viewport, colorScheme) : {},
+  );
+
+  let metadata: Record<string, string> | undefined = withFacts;
   if (ghTarget) {
-    metadata = { ...metaExtras, ...ghMetadataFromTargetWithTitle(ghTarget, run) };
+    metadata = { ...withFacts, ...ghMetadataFromTargetWithTitle(ghTarget, run) };
     validateMetaMap(metadata);
   } else if (branchArg !== undefined) {
-    metadata = { ...metaExtras, ...ghMetadataForBranch(branchRepo!, branchArg) };
+    metadata = { ...withFacts, ...ghMetadataForBranch(branchRepo!, branchArg) };
     validateMetaMap(metadata);
-  } else if (Object.keys(metaExtras).length > 0) {
-    validateMetaMap(metaExtras);
+  } else if (Object.keys(withFacts).length > 0) {
+    validateMetaMap(withFacts);
   }
 
   const logHuman = !ctx.quiet && format === "human";

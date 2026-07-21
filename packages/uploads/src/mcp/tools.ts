@@ -25,7 +25,9 @@ import {
 } from "../config.js";
 import { resolvePutPrefix } from "../destinations.js";
 import { ghKeyPrefix, type GhTarget } from "../github.js";
+import { safeCaptureFacts } from "../capture-facts.js";
 import { validateMetaMap } from "../metadata.js";
+import { mergeDerivedMeta } from "../metadata-vocab.js";
 import { type OptimizeImageOptions } from "../optimize.js";
 import {
   execRunner,
@@ -35,13 +37,17 @@ import {
   type CommandRunner,
 } from "../github-gh.js";
 import {
+  appProp,
+  canonicalMetaFromArgs,
   METADATA_DESCRIPTION,
+  metadataArgWithCanonical,
   metadataProp,
   optBool,
   optPosInt,
   optString,
   optStringArray,
   optStringRecord,
+  stateProp,
   usage,
   type ToolArgs,
 } from "./args.js";
@@ -421,6 +427,8 @@ export function createUploadsMcpTools(opts: {
               "Allow overwriting an existing object on a strict (non-gh/) key: explicit key, or the default put path. Default false — an existing object there is refused (key_exists) unless this is true or UPLOADS_OVERWRITE=1 is set in the server's environment. No effect on pr/issue keys, which always overwrite.",
           },
           metadata: metadataProp,
+          state: stateProp,
+          app: appProp,
           workspace: workspaceProp,
         },
         additionalProperties: false,
@@ -467,7 +475,7 @@ export function createUploadsMcpTools(opts: {
         // Validate up front (fail fast, before reading/optimizing the file).
         // undefined leaves existing metadata untouched; an object (even {})
         // fully replaces it — see metadataProp's description.
-        const metadata = optStringRecord(args, "metadata");
+        const metadata = metadataArgWithCanonical(args);
         if (metadata) validateMetaMap(metadata);
         let resolvedPrefix: string | undefined;
         try {
@@ -502,6 +510,9 @@ export function createUploadsMcpTools(opts: {
           optimize: optimizeOpts,
           frame: frameOpts,
           metadata,
+          // The shared metadata description promises uploads.sh derives these
+          // "automatically where it can" — MCP has no --no-auto, so always on.
+          deriveImageFacts: true,
           provenanceClient: "uploads-mcp" as const,
           alt,
           width,
@@ -714,6 +725,8 @@ export function createUploadsMcpTools(opts: {
               "Capture + resolve key/URL without uploading. Not with comment or galleryId.",
           },
           metadata: metadataProp,
+          state: stateProp,
+          app: appProp,
           workspace: workspaceProp,
         },
         required: ["target"],
@@ -747,7 +760,7 @@ export function createUploadsMcpTools(opts: {
           if (refArg) usage("ref cannot be combined with pr/issue");
           if (prefixArg) usage("prefix cannot be combined with pr/issue");
         }
-        const metadata = optStringRecord(args, "metadata");
+        const metadata = metadataArgWithCanonical(args);
         if (metadata) validateMetaMap(metadata);
         let resolvedPrefix: string | undefined;
         try {
@@ -784,6 +797,19 @@ export function createUploadsMcpTools(opts: {
           );
         }
 
+        const viewport = screenshotModule.parseViewport(optString(args, "viewport"));
+        // Same derivation the CLI does — explicit args win over capture facts.
+        // Keep undefined when nothing at all was supplied or derived, so the
+        // "omit to leave stored metadata untouched" contract still holds.
+        const captureDerived = safeCaptureFacts(
+          targetArg!,
+          viewport,
+          colorSchemeArg as "dark" | "light" | undefined,
+        );
+        const metadataWithCaptureFacts =
+          metadata === undefined && Object.keys(captureDerived).length === 0
+            ? undefined
+            : mergeDerivedMeta(metadata ?? {}, captureDerived);
         let captured: Awaited<ReturnType<typeof screenshotModule.captureScreenshot>>;
         try {
           captured = await screenshotModule.captureScreenshot({
@@ -791,7 +817,7 @@ export function createUploadsMcpTools(opts: {
             via: viaArg,
             browserPath: optString(args, "browser"),
             cdp: optString(args, "cdp"),
-            viewport: screenshotModule.parseViewport(optString(args, "viewport")),
+            viewport,
             selector: optString(args, "selector"),
             fullPage: optBool(args, "fullPage"),
             colorScheme: colorSchemeArg as "dark" | "light" | undefined,
@@ -828,7 +854,8 @@ export function createUploadsMcpTools(opts: {
             ref: refArg ?? defaults.ref,
             deriveRepoFromGit: !noGit,
             dryRun,
-            metadata,
+            metadata: metadataWithCaptureFacts,
+            deriveImageFacts: true,
             provenanceClient: "uploads-mcp-screenshot",
             alt: (p) => alt ?? p.filename,
             width,
@@ -921,6 +948,8 @@ export function createUploadsMcpTools(opts: {
               "Extra queryable metadata (key→value), merged with the automatic gh.repo/gh.kind/gh.number/gh.ref pairs — a gh.* pair here loses to the resolved target's own gh.* value. " +
               METADATA_DESCRIPTION,
           },
+          state: stateProp,
+          app: appProp,
           workspace: workspaceProp,
         },
         required: ["files"],
@@ -945,7 +974,10 @@ export function createUploadsMcpTools(opts: {
         // just the extras) so the 24-key/8KB caps are enforced client-side —
         // extras alone might pass while extras + the gh.* pairs exceed the
         // cap, which would otherwise only be caught server-side after upload.
-        const metaExtras = optStringRecord(args, "metadata") ?? {};
+        const metaExtras = {
+          ...optStringRecord(args, "metadata"),
+          ...canonicalMetaFromArgs(args),
+        };
         const metadata = { ...metaExtras, ...ghMetadataFromTargetWithTitle(target, run) };
         if (Object.keys(metadata).length > 0) validateMetaMap(metadata);
 

@@ -63,6 +63,7 @@
     "provenance": true
   },
   "dependencies": {
+    "exif-reader": "^2.0.3",
     "sharp": "^0.35.3"
   },
   "optionalDependencies": {

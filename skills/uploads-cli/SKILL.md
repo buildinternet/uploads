@@ -340,39 +340,85 @@ backend `--via auto` would currently pick.
 ## Custom metadata & search
 
 Every object can carry queryable key-value metadata (distinct from optimize/frame
-provenance) — tag uploads at put time, then find them later. Useful pairs for
-screenshots:
+provenance) — tag uploads at put time, then find them later.
 
-| Key    | Example                        | Use                                |
-| ------ | ------------------------------ | ---------------------------------- |
-| `url`  | `https://app.example/settings` | Page URL the screenshot represents |
-| `path` | `/settings`                    | In-app route or navigation path    |
-| `app`  | `web` / `ios` / `android`      | Which surface is shown             |
+### The canonical vocabulary
+
+Metadata is only useful if it is spelled the same way every time. These ten keys
+are the agreed vocabulary; **most are derived for you**, so the main job is not
+to fight them by inventing a different spelling.
+
+| Key        | Source                     | Example                        |
+| ---------- | -------------------------- | ------------------------------ |
+| `url`      | auto — screenshot target   | `https://app.example/settings` |
+| `path`     | auto — pathname            | `/settings`                    |
+| `env`      | auto — **`local` only**    | `local`                        |
+| `theme`    | auto — only when forced    | `dark`                         |
+| `viewport` | auto — capture opts / EXIF | `1280x800@2x`                  |
+| `device`   | auto — image EXIF          | `Apple iPhone 16 Pro`          |
+| `software` | auto — image EXIF          | `Figma`                        |
+| `captured` | auto — image EXIF          | `2026-07-20T20:35:39`          |
+| `state`    | **you** — `--state`        | `before` \| `after`            |
+| `app`      | **you** — `--app`          | `web` \| `ios`                 |
+
+**`path` is the key to search by.** It is the one most worth getting right, and
+the one agents most often misspell as `route`, `page`, or `screen`. A near-miss
+key warns on stderr and suggests the canonical spelling — but is never rewritten
+for you, so fix it at the source.
+
+**`state` is the highest-value thing you can add by hand**, because before/after
+is the dominant pattern in PR screenshots and nothing can infer it. It is a
+closed set: `before`, `after`, `empty`, `error`, `loading`. A near-miss like
+`--state post` fails fast and suggests `after`.
 
 ```bash
-uploads put ./settings.png \
-  --meta url=https://app.example/settings \
-  --meta path=/settings \
-  --meta app=web
+uploads screenshot https://app.example/settings --state before
+# → stamps url, path=/settings, viewport, state=before
 
-uploads attach ./checkout.png \
-  --meta url=https://app.example/checkout \
-  --meta path=/checkout \
-  --meta app=ios
-
-uploads meta get screenshots/myapp/42/settings.webp
-uploads meta set screenshots/myapp/42/settings.webp path=/onboarding --delete url
-uploads list --meta app=web --meta path=/settings   # ANDed, repeatable
-uploads find app=web path=/settings                 # same filter, positional pairs
+uploads put ./after.png --state after --app web
+uploads find path=/settings state=after        # what it was all for
 ```
 
-Rules (validated client-side, fail-fast, before uploading): key
+### What is derived, and when
+
+- **`uploads screenshot`** knows its own target, so it stamps `url`, `path`
+  (query stripped), `viewport`, `env=local` for a local target, and `theme`
+  when `--dark`/`--light` forced one.
+- **`uploads put`/`attach`** read the image's own EXIF _before_ the optimizer
+  strips it, promoting an allowlist: `viewport` (from pixel dimensions and DPI),
+  `device`, `software`, `captured`.
+
+`env` is only ever `local`. It is never set to `prod` — inferring that from "not
+localhost" would mislabel every staging and preview URL, and wrong metadata is
+worse than none.
+
+**Never promoted from EXIF, regardless of `--keep-exif`:** all GPS tags, body and
+lens serial numbers, `Artist`/`Copyright`/`OwnerName`, and free-form user
+comments. Note the flip side: `device` and `software` were previously discarded
+and now become queryable metadata that renders on the public `/f/` page.
+
+**Precedence:** explicit `--meta`/`--state`/`--app` > screenshot capture facts >
+EXIF > unset. Derived keys are also dropped first if the 24-key cap is reached —
+your own keys are never dropped, and a full key budget never fails an upload.
+
+Turn the whole derived tier off with `--no-auto` or `UPLOADS_NO_AUTO_META=1`.
+
+### Rules and reserved keys
+
+Validated client-side, fail-fast, before uploading: key
 `^[a-z][a-z0-9._-]{0,63}$` (lowercase, dot-namespacing allowed, e.g. `gh.repo`);
 value 1–512 printable ASCII characters; `--meta k=v` may repeat up to 24 times per
 request; a value may itself contain `=` (only the first `=` splits key from value).
 `content-sha256` and `visibility` are reserved (server-computed / the real R2
 visibility gate, respectively). `uploads attach` writes its own `gh.*`
 reserved-by-convention keys automatically — see below.
+
+```bash
+uploads meta get screenshots/myapp/42/settings.webp
+uploads meta set screenshots/myapp/42/settings.webp path=/onboarding --delete url
+uploads list --meta app=web --meta path=/settings   # ANDed, repeatable
+uploads find app=web path=/settings                 # same filter, positional pairs
+```
 
 On the default `screenshots/…` path, `put` also auto-derives GitHub context and
 stamps `gh.repo`/`gh.kind`/`gh.number`/`gh.ref` from the current branch's PR (or
@@ -383,10 +429,12 @@ opposite of the `--pr`/`--issue` precedence below, where the target's own `gh.*`
 Both paths also stamp `gh.title` with the resolved PR/issue title when local `gh`
 can resolve one — best-effort, never blocks the upload if it can't.
 
-**Re-upload semantics:** re-uploading to an existing key **with** `--meta` replaces
-that file's entire metadata set (delete-then-set, not a merge); re-uploading
-**without** `--meta` at all preserves the existing metadata untouched. Use
-`uploads meta set` to edit individual keys without disturbing the rest.
+**Re-upload semantics:** re-uploading to an existing key **with** metadata replaces
+that file's entire metadata set (delete-then-set, not a merge); re-uploading with
+**no** metadata at all preserves the existing metadata untouched. Derived keys
+count as metadata here, so a re-upload that derives anything replaces the set —
+pass `--no-auto` when re-uploading a key whose metadata you curated with
+`uploads meta set`.
 
 Non-`gh.*` metadata values supplied via `--meta` (CLI) or `metadata` (MCP) render
 on the object's public `/f/<key>` file page. Treat them like the URL itself:

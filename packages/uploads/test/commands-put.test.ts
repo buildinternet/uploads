@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import { UploadsError } from "../src/errors.js";
 import type { UploadsClient } from "../src/client.js";
-import { runPut, type CliContext } from "../src/commands.js";
+import { runPut, stateAppMetaFromFlags, type CliContext } from "../src/commands.js";
 import type { CommandRunner } from "../src/github-gh.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -864,5 +864,152 @@ describe("runPut gh.* attach success note", () => {
       ),
     );
     expect(output).not.toContain("attached to");
+  });
+});
+
+describe("stateAppMetaFromFlags", () => {
+  it("maps --state and --app onto canonical keys", () => {
+    const flags = new Map<string, string | boolean>([
+      ["--state", "after"],
+      ["--app", "web"],
+    ]);
+    expect(stateAppMetaFromFlags(flags)).toEqual({ state: "after", app: "web" });
+  });
+
+  it("rejects an invalid --state with a suggestion", () => {
+    const flags = new Map<string, string | boolean>([["--state", "post"]]);
+    expect(() => stateAppMetaFromFlags(flags)).toThrow(/did you mean "after"/);
+  });
+
+  it("returns an empty map when neither flag is present", () => {
+    expect(stateAppMetaFromFlags(new Map())).toEqual({});
+  });
+});
+
+describe("runPut canonical metadata flags", () => {
+  it("stamps state and app as metadata", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--no-git", "--no-auto", "--state", "after", "--app", "web"],
+      false,
+      noRun,
+    );
+    expect(puts[0]?.metadata?.state).toBe("after");
+    expect(puts[0]?.metadata?.app).toBe("web");
+  });
+
+  it("lets --state win over a --meta state pair", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--no-git", "--no-auto", "--meta", "state=before", "--state", "after"],
+      false,
+      noRun,
+    );
+    expect(puts[0]?.metadata?.state).toBe("after");
+  });
+
+  it("rejects an invalid --state before uploading anything", async () => {
+    const { client, puts } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), [tmpFile(), "--no-git", "--state", "nope"], false, noRun),
+    ).rejects.toThrow(UsageError);
+    expect(puts).toHaveLength(0);
+  });
+
+  it("warns about a near-miss metadata key without rewriting it", async () => {
+    const { client, puts } = fakeClient();
+    const warnings: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+      warnings.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+    try {
+      await runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--no-git", "--no-auto", "--meta", "route=/settings"],
+        false,
+        noRun,
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(warnings.join("")).toContain('did you mean "path"');
+    // The caller's key is preserved verbatim — we nag, we never rewrite.
+    expect(puts[0]?.metadata?.route).toBe("/settings");
+    expect(puts[0]?.metadata?.path).toBeUndefined();
+  });
+});
+
+describe("put promotes EXIF facts", () => {
+  async function retinaPng(): Promise<Buffer> {
+    const sharp = (await import("sharp")).default;
+    return sharp({
+      create: { width: 1624, height: 1154, channels: 3, background: { r: 5, g: 5, b: 5 } },
+    })
+      .withMetadata({ density: 144 })
+      .png()
+      .toBuffer();
+  }
+
+  function fileWith(bytes: Buffer): string {
+    const dir = mkdtempSync(join(tmpdir(), "uploads-exif-"));
+    const file = join(dir, "shot.png");
+    writeFileSync(file, bytes);
+    return file;
+  }
+
+  it("stamps viewport from a retina PNG's density", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [fileWith(await retinaPng()), "--no-git"], false, noRun);
+    expect(puts[0]?.metadata?.viewport).toBe("812x577@2x");
+  });
+
+  it("lets an explicit --meta viewport win", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [fileWith(await retinaPng()), "--no-git", "--meta", "viewport=1x1@1x"],
+      false,
+      noRun,
+    );
+    expect(puts[0]?.metadata?.viewport).toBe("1x1@1x");
+  });
+
+  // Undefined (not {}) matters: apps/api/src/files-core.ts:313 full-replaces a
+  // key's metadata whenever any is sent, so derived facts make a previously
+  // metadata-free re-upload start replacing. --no-auto is the opt-out for
+  // callers who curate metadata with `uploads meta set` and re-upload.
+  it("derives nothing when --no-auto opts out", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [fileWith(await retinaPng()), "--no-git", "--no-auto"],
+      false,
+      noRun,
+    );
+    expect(puts[0]?.metadata).toBeUndefined();
+  });
+
+  it("does not leak one file's facts onto another's upload", async () => {
+    const { client, puts } = fakeClient();
+    const sharp = (await import("sharp")).default;
+    const plain = await sharp({
+      create: { width: 40, height: 40, channels: 3, background: { r: 1, g: 1, b: 1 } },
+    })
+      .withMetadata({ density: 72 })
+      .png()
+      .toBuffer();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-exif-multi-"));
+    const retinaFile = join(dir, "retina.png");
+    const plainFile = join(dir, "plain.png");
+    writeFileSync(retinaFile, await retinaPng());
+    writeFileSync(plainFile, plain);
+    await runPut(ctxWith(client), [retinaFile, plainFile, "--no-git"], false, noRun);
+    // The optimizer rewrites PNG → WebP, so uploads land under .webp names.
+    const byName = new Map(puts.map((p) => [p.filename, p.metadata]));
+    expect(byName.get("retina.webp")?.viewport).toBe("812x577@2x");
+    expect(byName.get("plain.webp")?.viewport).toBeUndefined();
   });
 });

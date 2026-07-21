@@ -93,3 +93,71 @@ describe("mcp screenshot tool", () => {
     expect(res.result.isError).toBe(true);
   });
 });
+
+describe("mcp screenshot canonical metadata", () => {
+  /** Like serverWith(), but exposes the captured put() options. */
+  function serverCapturing() {
+    const puts: { metadata?: Record<string, string> }[] = [];
+    const client = {
+      put: async (
+        body: Uint8Array,
+        opts: { filename: string; key?: string; metadata?: Record<string, string> },
+      ) => {
+        puts.push({ metadata: opts.metadata });
+        return {
+          workspace: "test",
+          key: opts.key ?? "screenshots/misc/generated.png",
+          url: `https://x.test/${opts.key ?? "screenshots/misc/generated.png"}`,
+          embedUrl: null,
+          size: body.byteLength,
+          contentType: "image/png",
+        };
+      },
+      list: async () => ({ items: [], cursor: null }),
+      health: async () => ({ ok: true }),
+    } as unknown as UploadsClient;
+    const server = createMcpServer({
+      serverInfo: { name: "uploads", version: "0.0.0-test" },
+      tools: createUploadsMcpTools({
+        globals: { apiUrl: "https://x.test", token: "up_test_x" },
+        clientFactory: (_config: UploadsClientConfig) => client,
+      }),
+    });
+    return { server, puts };
+  }
+
+  // The shared metadata description promises uploads.sh derives these
+  // "automatically where it can" — that must hold on MCP, not just the CLI.
+  it("derives path, url and viewport like the CLI does", async () => {
+    const { server, puts } = serverCapturing();
+    await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: { target: "https://app.example/settings?tab=billing", noGit: true },
+    });
+    expect(puts[0]?.metadata?.path).toBe("/settings");
+    expect(puts[0]?.metadata?.url).toBe("https://app.example/settings?tab=billing");
+    expect(puts[0]?.metadata?.viewport).toBeDefined();
+  });
+
+  it("lets an explicit metadata key win over a derived one", async () => {
+    const { server, puts } = serverCapturing();
+    await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: {
+        target: "https://app.example/settings",
+        metadata: { path: "/custom" },
+        noGit: true,
+      },
+    });
+    expect(puts[0]?.metadata?.path).toBe("/custom");
+  });
+
+  it("stamps env=local for a localhost target", async () => {
+    const { server, puts } = serverCapturing();
+    await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: { target: "http://localhost:4321/docs", via: "local", noGit: true },
+    });
+    expect(puts[0]?.metadata?.env).toBe("local");
+  });
+});

@@ -29,7 +29,9 @@ import { buildMarkdown } from "./embed.js";
 import { urlForGithubEmbed } from "./public-urls.js";
 import { UploadsError } from "./errors.js";
 import { writeJson, writeStdout } from "./io.js";
+import { imageFactsFromBytes } from "./image-facts.js";
 import { parseMetaFlags, validateMetaMap } from "./metadata.js";
+import { mergeDerivedMeta, nearMissMetaWarnings, validateStateValue } from "./metadata-vocab.js";
 import {
   ghAttachmentKey,
   ghBranchAttachmentKey,
@@ -163,6 +165,8 @@ Options:
                         Re-uploading to an existing key WITH --meta replaces that file's
                         entire metadata set; without --meta the existing metadata is
                         preserved. Use "uploads meta set" to edit individual keys.
+  --state <s>           before|after|empty|error|loading — the UI state shown (sets meta state=)
+  --app <name>          Surface shown: web, ios, android, cli (sets meta app=)
   --replace             Allow overwriting an existing object on a strict (--key/default) key
                         (or UPLOADS_OVERWRITE=1). No effect on --pr/--issue, which always overwrite.
   --dry-run             Print key + public URL without uploading; reports if the key would replace
@@ -180,7 +184,7 @@ Examples:
   uploads put ./capture-….webp --pr 128 --name hero.webp
   uploads put ./shot.png --pr 128 --name hero.webp --dry-run --format url
   uploads put ./after.png --gallery gal_example
-  uploads put ./shot.png --meta app=myapp --meta page=settings
+  uploads put ./shot.png --meta path=/settings --state after --app web
 `;
 
 /**
@@ -329,6 +333,59 @@ export function optimizeOptionsFromFlags(
   };
 }
 
+/**
+ * Whether the derived-metadata tier is on — screenshot capture facts and EXIF
+ * promotion. `--no-auto` and `UPLOADS_NO_AUTO_META=1` turn it off; `--auto`
+ * forces past the config default.
+ *
+ * Deliberately *not* gated on `--no-git`. That flag means "don't shell out to
+ * git", which says nothing about a viewport or a URL path — a capture of a
+ * local .html file outside any repo should still record what it captured.
+ * `--no-git` still disables gh.* below, which genuinely needs a repo.
+ */
+export function derivedMetaEnabled(
+  flags: CommandFlags["flags"],
+  defaults: Pick<PutDefaults, "noAutoMeta">,
+): boolean {
+  return (
+    !flagBool(flags, "--no-auto") && (flagBool(flags, "--auto") || defaults.noAutoMeta !== true)
+  );
+}
+
+/**
+ * Warn about metadata keys that look like misspellings of canonical ones, then
+ * return the map unchanged — we nag, we never rewrite a caller's key.
+ */
+export function warnNearMissMeta(
+  ctx: CliContext,
+  meta: Record<string, string>,
+): Record<string, string> {
+  if (!ctx.quiet) {
+    for (const warning of nearMissMetaWarnings(Object.keys(meta))) {
+      process.stderr.write(`!! ${warning}\n`);
+    }
+  }
+  return meta;
+}
+
+/**
+ * Canonical `state`/`app` pairs from their dedicated flags. Shared by put,
+ * attach and screenshot. These are sugar for the matching `--meta` keys; the
+ * point is `--help` discoverability and `--state` validation.
+ */
+export function stateAppMetaFromFlags(flags: CommandFlags["flags"]): Record<string, string> {
+  const meta: Record<string, string> = {};
+  const state = flagString(flags, "--state");
+  if (state !== undefined) meta.state = validateStateValue(state);
+  const app = flagString(flags, "--app");
+  if (app !== undefined) {
+    const normalized = app.trim().toLowerCase();
+    if (normalized.length === 0) throw new UsageError("--app requires a value");
+    meta.app = normalized;
+  }
+  return meta;
+}
+
 function formatOptimizeNote(opt: {
   optimized: boolean;
   skippedReason?: OptimizeImageResult["skippedReason"];
@@ -407,6 +464,22 @@ export async function prepareImageForUpload(
   return { ...optimized, frame: frameMeta };
 }
 
+/**
+ * Merge an image's own EXIF-derived facts under any explicit metadata.
+ * Best-effort by contract: `imageFactsFromBytes` never rejects, and a full key
+ * budget drops the derived pairs rather than failing the upload. Returns the
+ * input untouched (including `undefined`) when there is nothing to add, so a
+ * metadata-free upload stays metadata-free.
+ */
+async function mergeImageFacts(
+  bytes: Uint8Array,
+  metadata: Record<string, string> | undefined,
+): Promise<Record<string, string> | undefined> {
+  const facts = await imageFactsFromBytes(bytes);
+  if (Object.keys(facts).length === 0) return metadata;
+  return mergeDerivedMeta(metadata ?? {}, facts);
+}
+
 export interface UploadPreparedImageOptions {
   frame: {
     frameId?: string;
@@ -430,6 +503,12 @@ export interface UploadPreparedImageOptions {
    */
   replace?: boolean;
   metadata?: Record<string, string>;
+  /**
+   * Promote this image's own EXIF allowlist into its metadata (see
+   * image-facts.ts). Lives here, on the shared bytes tail, so every upload
+   * surface — CLI put/screenshot, MCP put/screenshot — derives alike.
+   */
+  deriveImageFacts?: boolean;
   provenanceClient?: string;
   /**
    * Alt text for the markdown. Takes the prepared result so callers whose
@@ -462,6 +541,10 @@ export async function uploadPreparedImage(
   sourceName: string,
   opts: UploadPreparedImageOptions,
 ): Promise<UploadPreparedImageResult> {
+  // Read EXIF from the original bytes before the optimizer strips it.
+  const metadata = opts.deriveImageFacts
+    ? await mergeImageFacts(bytes, opts.metadata)
+    : opts.metadata;
   const prepared = await prepareImageForUpload(bytes, sourceName, {
     frameId: opts.frame.frameId,
     frameUrl: opts.frame.frameUrl,
@@ -487,7 +570,7 @@ export async function uploadPreparedImage(
       frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
       keepExif: opts.optimize.keepExif === true,
     }),
-    metadata: opts.metadata,
+    metadata,
   });
   const markdown = buildMarkdown(urlForGithubEmbed(result.url, result.embedUrl)!, {
     alt: opts.alt(prepared),
@@ -723,13 +806,15 @@ Options:
                         Because attach always sends its own gh.* pairs, re-attaching to
                         the same key always replaces that file's entire metadata set
                         (never preserves) — use "uploads meta set" to add to it instead.
+  --state <s>           before|after|empty|error|loading — the UI state shown (sets meta state=)
+  --app <name>          Surface shown: web, ios, android, cli (sets meta app=)
 
 Examples:
   uploads attach ./before.png ./after.png
   uploads attach ./mobile.png --frame phone
   uploads attach ./shot.png --pr 123 --repo myorg/myapp
   uploads attach ./artifact.zip --issue 45 --no-comment
-  uploads attach ./shot.png --meta app=myapp --meta page=settings
+  uploads attach ./shot.png --meta path=/settings --state after
   uploads attach ./shot.png --branch
   uploads attach ./shot.png --branch feature/new-settings
   uploads attach --promote
@@ -766,6 +851,8 @@ interface UploadAttachmentBatchOptions {
     frameFit?: "cover" | "contain";
   };
   metadata?: Record<string, string>;
+  /** Forwarded per file — see image-facts.ts. */
+  deriveImageFacts?: boolean;
   /** Provenance `client` field (default uploads-cli). */
   provenanceClient?: string;
   concurrency?: number;
@@ -792,7 +879,13 @@ async function uploadAttachmentBatch(
     async (file): Promise<Slot> => {
       try {
         const sourceName = basename(file);
-        const prepared = await prepareImageForUpload(readFileArg(file), sourceName, {
+        const bytes = readFileArg(file);
+        // Same EXIF promotion uploadPreparedImage does; attach keeps its own
+        // per-file tail (it builds keys differently), so it opts in here too.
+        const metadata = opts.deriveImageFacts
+          ? await mergeImageFacts(bytes, opts.metadata)
+          : opts.metadata;
+        const prepared = await prepareImageForUpload(bytes, sourceName, {
           ...opts.frame,
           optimize: opts.optimize,
         });
@@ -807,7 +900,7 @@ async function uploadAttachmentBatch(
             frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
             keepExif: opts.optimize.keepExif === true,
           }),
-          metadata: opts.metadata,
+          metadata,
         });
         return {
           ok: true,
@@ -863,6 +956,8 @@ export async function uploadAttachments(opts: {
     frameFit?: "cover" | "contain";
   };
   metadata?: Record<string, string>;
+  /** Forwarded per file — see image-facts.ts. */
+  deriveImageFacts?: boolean;
   /** Provenance `client` field (default uploads-cli). */
   provenanceClient?: string;
   concurrency?: number;
@@ -898,6 +993,8 @@ export async function uploadBranchAttachments(opts: {
     frameFit?: "cover" | "contain";
   };
   metadata?: Record<string, string>;
+  /** Forwarded per file — see image-facts.ts. */
+  deriveImageFacts?: boolean;
   provenanceClient?: string;
   concurrency?: number;
 }): Promise<{ uploads: AttachUploadItem[]; failures: AttachFailure[]; firstError?: unknown }> {
@@ -951,6 +1048,8 @@ export async function uploadPuts(opts: {
     frameFit?: "cover" | "contain";
   };
   metadata?: Record<string, string>;
+  /** Forwarded per file to `uploadPreparedImage` — see image-facts.ts. */
+  deriveImageFacts?: boolean;
   provenanceClient?: string;
   /** When set, used as alt for every file; else each file's basename. */
   alt?: string;
@@ -998,6 +1097,7 @@ export async function uploadPuts(opts: {
             dryRun: opts.dryRun,
             replace: opts.replace,
             metadata: opts.metadata,
+            deriveImageFacts: opts.deriveImageFacts,
             provenanceClient: opts.provenanceClient,
             alt: () => opts.alt ?? basename(sourceName),
             width: opts.width,
@@ -1137,8 +1237,12 @@ export async function runAttach(
   // Validate the merged map (not just the extras) so the 24-key/8KB caps are
   // enforced client-side even when extras alone are under the cap but extras
   // + the gh.* pairs push the merged map over it.
-  const metaExtras = parseMetaFlags(flagValues(parsed.flags, "--meta"));
-  const metadata = { ...metaExtras, ...ghMetadataFromTargetWithTitle(target, run) };
+  const metaExtras = warnNearMissMeta(ctx, parseMetaFlags(flagValues(parsed.flags, "--meta")));
+  const metadata = {
+    ...metaExtras,
+    ...stateAppMetaFromFlags(parsed.flags),
+    ...ghMetadataFromTargetWithTitle(target, run),
+  };
   if (Object.keys(metadata).length > 0) validateMetaMap(metadata);
 
   const logHuman = !ctx.quiet && !ctx.json;
@@ -1155,6 +1259,7 @@ export async function runAttach(
     optimize: optimizeOpts,
     frame: frameOpts,
     metadata,
+    deriveImageFacts: derivedMetaEnabled(parsed.flags, defaults),
   });
 
   // Single-file total failure: rethrow so CLI exit codes stay auth/network-aware.
@@ -1257,8 +1362,12 @@ async function runAttachBranch(
   const optimizeOpts = optimizeOptionsFromFlags(parsed.flags, defaults);
   const frameOpts = frameOptionsFromFlags(parsed.flags);
   const contentTypeOverride = flagString(parsed.flags, "--content-type");
-  const metaExtras = parseMetaFlags(flagValues(parsed.flags, "--meta"));
-  const metadata = { ...metaExtras, ...ghMetadataForBranch(repo, branch) };
+  const metaExtras = warnNearMissMeta(ctx, parseMetaFlags(flagValues(parsed.flags, "--meta")));
+  const metadata = {
+    ...metaExtras,
+    ...stateAppMetaFromFlags(parsed.flags),
+    ...ghMetadataForBranch(repo, branch),
+  };
   validateMetaMap(metadata);
 
   const logHuman = !ctx.quiet && !ctx.json;
@@ -1278,6 +1387,7 @@ async function runAttachBranch(
     optimize: optimizeOpts,
     frame: frameOpts,
     metadata,
+    deriveImageFacts: derivedMetaEnabled(parsed.flags, defaults),
   });
 
   // Single-file total failure: rethrow so CLI exit codes stay auth/network-aware.
@@ -1408,7 +1518,12 @@ export async function runPut(
   // Validate --meta up front (fail fast, before reading/optimizing the file).
   const userMeta = ((): Record<string, string> | undefined => {
     const pairs = flagValues(parsed.flags, "--meta");
-    return pairs.length > 0 ? parseMetaFlags(pairs) : undefined;
+    const fromMeta = warnNearMissMeta(ctx, pairs.length > 0 ? parseMetaFlags(pairs) : {});
+    // Dedicated flags are explicit input and win over a same-named --meta pair.
+    const merged = { ...fromMeta, ...stateAppMetaFromFlags(parsed.flags) };
+    if (Object.keys(merged).length === 0) return undefined;
+    validateMetaMap(merged);
+    return merged;
   })();
   if (wantComment && typeof parsed.flags.get("--comment") === "string") {
     throw new UsageError("--comment takes no value — place it after the file argument");
@@ -1498,11 +1613,8 @@ export async function runPut(
     metadata = merged;
     attachedRef = merged["gh.ref"];
   } else {
-    const autoEnabled =
-      !noGit &&
-      !flagBool(parsed.flags, "--no-auto") &&
-      (flagBool(parsed.flags, "--auto") || defaults.noAutoMeta !== true);
-    if (autoEnabled) {
+    // gh.* additionally needs git, which the shared derived gate ignores.
+    if (!noGit && derivedMetaEnabled(parsed.flags, defaults)) {
       const autoTarget = resolveAutoGhTarget(
         flagString(parsed.flags, "--repo") ?? defaults.repo,
         flagString(parsed.flags, "--ref") ?? defaults.ref,
@@ -1553,6 +1665,7 @@ export async function runPut(
     optimize: optimizeOpts,
     frame: frameOpts,
     metadata,
+    deriveImageFacts: derivedMetaEnabled(parsed.flags, defaults),
     alt: altFlag,
     width,
   });
@@ -2023,7 +2136,7 @@ Human-friendly alias for \`uploads list --meta k=v...\` — same metadata filter
 
 Examples:
   uploads find gh.repo=buildinternet/uploads gh.number=123
-  uploads find app=myapp page=settings --prefix screenshots/
+  uploads find path=/settings state=after --prefix screenshots/
 `;
 
 export async function runFind(ctx: CliContext, args: string[], help = false): Promise<number> {
@@ -2053,8 +2166,8 @@ Commands:
 
 Examples:
   uploads meta get screenshots/myapp/42/shot.png
-  uploads meta set screenshots/myapp/42/shot.png app=myapp page=settings
-  uploads meta set screenshots/myapp/42/shot.png --delete app --delete page
+  uploads meta set screenshots/myapp/42/shot.png path=/settings state=after
+  uploads meta set screenshots/myapp/42/shot.png --delete path --delete state
 `;
 
 export async function runMeta(ctx: CliContext, args: string[], help = false): Promise<number> {
