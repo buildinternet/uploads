@@ -30,7 +30,7 @@ import {
 } from "../github-repo-links";
 import { allowWrite } from "../guards";
 import { deriveWebOrigin, inviteLinkUrl } from "../invite-links";
-import { membersForOrg, orgForWorkspace } from "../org-workspaces";
+import { invitesForOrg, membersForOrg, orgForWorkspace } from "../org-workspaces";
 import {
   requireAdminUser,
   requireSessionUser,
@@ -149,13 +149,20 @@ interface OrgSummary {
   pendingInviteCount: number;
 }
 
-async function orgSummaryForWorkspace(env: Env, name: string): Promise<OrgSummary | null> {
-  const response = await env.AUTH.fetch(
-    `https://auth.internal/internal/orgs/${encodeURIComponent(name)}`,
-    { headers: { "x-uploads-internal": "1" } },
-  );
-  if (!response.ok) return null;
-  return (await response.json().catch(() => null)) as OrgSummary | null;
+/** Org member/invite counts for the admin workspace list — one AUTH round-trip. */
+async function allOrgSummaries(env: Env): Promise<Map<string, OrgSummary>> {
+  const response = await env.AUTH.fetch(`https://auth.internal/internal/orgs/summaries`, {
+    headers: { "x-uploads-internal": "1" },
+  });
+  if (!response.ok) return new Map();
+  const body = (await response.json().catch(() => null)) as {
+    organizations?: OrgSummary[];
+  } | null;
+  const map = new Map<string, OrgSummary>();
+  for (const row of body?.organizations ?? []) {
+    if (row?.organization?.slug) map.set(row.organization.slug, row);
+  }
+  return map;
 }
 
 /**
@@ -303,17 +310,16 @@ export const adminUi = new Hono<SessionVars>()
       cursor = page.list_complete ? undefined : page.cursor;
     } while (cursor);
 
-    const workspaces = await Promise.all(
-      names.map(async (name) => {
-        const summary = await orgSummaryForWorkspace(c.env, name);
-        return {
-          workspace: name,
-          organization: summary?.organization ?? null,
-          memberCount: summary?.memberCount ?? 0,
-          pendingInviteCount: summary?.pendingInviteCount ?? 0,
-        };
-      }),
-    );
+    const summaries = await allOrgSummaries(c.env);
+    const workspaces = names.map((name) => {
+      const summary = summaries.get(name);
+      return {
+        workspace: name,
+        organization: summary?.organization ?? null,
+        memberCount: summary?.memberCount ?? 0,
+        pendingInviteCount: summary?.pendingInviteCount ?? 0,
+      };
+    });
     return c.json({ workspaces });
   })
 
@@ -334,16 +340,7 @@ export const adminUi = new Hono<SessionVars>()
     if (!org)
       throw new NotFoundError("no organization for this workspace", { code: "org_not_found" });
 
-    const response = await c.env.AUTH.fetch(
-      `https://auth.internal/internal/orgs/${encodeURIComponent(org.slug)}/invites`,
-      { headers: { "x-uploads-internal": "1" } },
-    );
-    if (!response.ok) {
-      throw new ValidationError("failed to list invites", {
-        details: await response.json().catch(() => null),
-      });
-    }
-    return c.json(await response.json());
+    return c.json({ invites: await invitesForOrg(c.env, org.slug) });
   })
 
   // Invite an email to the org backing this workspace.

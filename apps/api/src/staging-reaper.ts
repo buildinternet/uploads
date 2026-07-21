@@ -15,7 +15,7 @@
  * `/v1/:workspace/files` DELETE route uses.
  */
 import { deleteObject } from "./files-core";
-import { findObjectsByMetadataAcrossWorkspaces, getFileMetadata } from "./file-metadata";
+import { findObjectsByMetadataAcrossWorkspaces, getMetadataForKeys } from "./file-metadata";
 import { loadWorkspaceRecord } from "./workspace";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -65,53 +65,72 @@ export async function runStagingReaper(env: Env): Promise<StagingReapResult> {
   let skipped = 0;
   const workspaceCache = new Map<string, Awaited<ReturnType<typeof loadWorkspaceRecord>>>();
 
+  // Group valid keys by workspace so hydrate is one IN-list query per workspace.
+  const keysByWorkspace = new Map<string, string[]>();
   for (const { workspace, key } of candidates) {
     if (!looksLikeBranchStagingKey(key)) {
       skipped += 1;
       continue;
     }
+    const list = keysByWorkspace.get(workspace);
+    if (list) list.push(key);
+    else keysByWorkspace.set(workspace, [key]);
+  }
 
-    let meta: Record<string, string>;
+  const metaByWorkspace = new Map<string, Map<string, Record<string, string>>>();
+  const hydrateFailed = new Set<string>();
+  for (const [workspace, keys] of keysByWorkspace) {
     try {
-      meta = await getFileMetadata(env.DB, workspace, key);
+      metaByWorkspace.set(workspace, await getMetadataForKeys(env.DB, workspace, keys));
     } catch (err) {
-      errors.push({ workspace, key, error: err instanceof Error ? err.message : String(err) });
-      continue;
+      hydrateFailed.add(workspace);
+      const message = err instanceof Error ? err.message : String(err);
+      for (const key of keys) errors.push({ workspace, key, error: message });
     }
-    if (meta["gh.kind"] !== "branch") {
-      skipped += 1;
-      continue;
-    }
+  }
 
-    let reason: "promoted" | "abandoned" | undefined;
-    if (meta["gh.promoted-at"]) {
-      if (isOlderThan(meta["gh.promoted-at"], PROMOTED_MAX_AGE_DAYS * MS_PER_DAY, now)) {
-        reason = "promoted";
+  // Candidates arrive ordered by (workspace, key); Map insertion order preserves that.
+  for (const [workspace, keys] of keysByWorkspace) {
+    if (hydrateFailed.has(workspace)) continue;
+    const metaMap = metaByWorkspace.get(workspace);
+
+    for (const key of keys) {
+      const meta = metaMap?.get(key);
+      // Missing: row raced away between candidate scan and hydrate.
+      if (!meta || meta["gh.kind"] !== "branch") {
+        skipped += 1;
+        continue;
       }
-    } else if (isOlderThan(meta["gh.staged-at"], ABANDONED_MAX_AGE_DAYS * MS_PER_DAY, now)) {
-      reason = "abandoned";
-    }
 
-    if (!reason) {
-      skipped += 1;
-      continue;
-    }
+      let reason: "promoted" | "abandoned" | undefined;
+      if (meta["gh.promoted-at"]) {
+        if (isOlderThan(meta["gh.promoted-at"], PROMOTED_MAX_AGE_DAYS * MS_PER_DAY, now)) {
+          reason = "promoted";
+        }
+      } else if (isOlderThan(meta["gh.staged-at"], ABANDONED_MAX_AGE_DAYS * MS_PER_DAY, now)) {
+        reason = "abandoned";
+      }
+      if (!reason) {
+        skipped += 1;
+        continue;
+      }
 
-    let ws = workspaceCache.get(workspace);
-    if (ws === undefined) {
-      ws = await loadWorkspaceRecord(env, workspace);
-      workspaceCache.set(workspace, ws);
-    }
-    if (!ws) {
-      errors.push({ workspace, key, error: "workspace not found" });
-      continue;
-    }
+      let ws = workspaceCache.get(workspace);
+      if (ws === undefined) {
+        ws = await loadWorkspaceRecord(env, workspace);
+        workspaceCache.set(workspace, ws);
+      }
+      if (!ws) {
+        errors.push({ workspace, key, error: "workspace not found" });
+        continue;
+      }
 
-    try {
-      await deleteObject(env, ws, key, workspace);
-      deleted.push({ workspace, key, reason });
-    } catch (err) {
-      errors.push({ workspace, key, error: err instanceof Error ? err.message : String(err) });
+      try {
+        await deleteObject(env, ws, key, workspace);
+        deleted.push({ workspace, key, reason });
+      } catch (err) {
+        errors.push({ workspace, key, error: err instanceof Error ? err.message : String(err) });
+      }
     }
   }
 

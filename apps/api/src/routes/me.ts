@@ -28,11 +28,12 @@ import {
   invitesForOrg,
   membersForOrg,
   membershipsForUser,
-  orgForWorkspace,
   removeMember,
   revokeInvite,
   updateMemberRole,
-  workspacesForOrg,
+  workspacesFromMembership,
+  type Membership,
+  type OrgMember,
 } from "../org-workspaces";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
 import { objectPublicUrls, publicUrl, storage, storageConfig } from "../storage";
@@ -60,46 +61,75 @@ export function isCommunal(env: Env, name: string): boolean {
   return name === (env.DEFAULT_WORKSPACE || "default");
 }
 
+function myWorkspaceFromMembership(
+  env: Env,
+  membership: Membership,
+  workspace: string,
+): MyWorkspace {
+  return {
+    workspace,
+    organization: {
+      id: membership.organizationId,
+      slug: membership.organizationSlug,
+      name: membership.organizationName || membership.organizationSlug,
+    },
+    role: membership.role,
+    communal: isCommunal(env, workspace),
+  };
+}
+
+function canManageRole(role: string): boolean {
+  return role === "admin" || role === "owner";
+}
+
+/** Sanitize org members for the account people UI (opaque `id` only for managers). */
+function projectMembers(members: OrgMember[], canManage: boolean) {
+  return members.map((m) => {
+    const row: {
+      id?: string;
+      email: string;
+      name: string;
+      role: string;
+      createdAt?: string;
+    } = {
+      email: m.email ?? "",
+      name: m.name ?? "",
+      role: m.role ?? "member",
+      createdAt: m.createdAt,
+    };
+    if (canManage) row.id = m.id;
+    return row;
+  });
+}
+
 /**
- * Every workspace the user's memberships map to, one entry per (workspace,
- * membership) pair — `workspacesForOrg` never assumes slug === workspace
- * name directly, so this is a small fan-out rather than a 1:1 zip.
+ * Every workspace the user's memberships map to. Memberships already include
+ * org id/slug/name from AUTH, so this is one service call — not N org
+ * lookups. Workspace names come from `workspacesFromMembership` (today 1:1).
  */
 async function myWorkspaces(env: Env, userId: string): Promise<MyWorkspace[]> {
   const memberships = await membershipsForUser(env, userId);
   const out: MyWorkspace[] = [];
   for (const membership of memberships) {
-    const [org, names] = await Promise.all([
-      orgForWorkspace(env, membership.organizationSlug),
-      workspacesForOrg(env, membership.organizationSlug),
-    ]);
-    for (const workspace of names) {
-      out.push({
-        workspace,
-        organization: org ?? {
-          id: membership.organizationId,
-          slug: membership.organizationSlug,
-          name: membership.organizationSlug,
-        },
-        role: membership.role,
-        communal: isCommunal(env, workspace),
-      });
+    for (const workspace of workspacesFromMembership(membership)) {
+      out.push(myWorkspaceFromMembership(env, membership, workspace));
     }
   }
   return out;
 }
 
 /**
- * The caller's membership entry for `name`, or a uniform 404. Authorization for
- * every `/workspaces/:name/*` route is this lookup: a workspace absent from the
- * caller's memberships 404s (`workspace_not_found`) rather than 403ing, so
- * membership can't be probed for workspace existence.
+ * Caller's membership for `name`, or a uniform 404 (not 403 — no existence
+ * probe). Slug-scoped membership query (one AUTH join), not the full list.
  */
 async function memberWorkspaceOr404(env: Env, userId: string, name: string): Promise<MyWorkspace> {
-  const workspaces = await myWorkspaces(env, userId);
-  const ws = workspaces.find((w) => w.workspace === name);
-  if (!ws) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-  return ws;
+  // 1:1 today: workspace name === org slug. Multi-workspace orgs would expand
+  // via workspacesFromMembership over the full list instead.
+  const [membership] = await membershipsForUser(env, userId, { slug: name });
+  if (!membership || !workspacesFromMembership(membership).includes(name)) {
+    throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+  }
+  return myWorkspaceFromMembership(env, membership, name);
 }
 
 function requireUserId(c: Context<SessionVars>): string {
@@ -139,8 +169,13 @@ export async function adminWorkspaceOr403(
  * "not authorized" outcome rather than a membership-probing 404.
  */
 export async function isWorkspaceOwner(env: Env, userId: string, name: string): Promise<boolean> {
-  const workspaces = await myWorkspaces(env, userId);
-  return workspaces.some((w) => w.workspace === name && w.role === "owner");
+  try {
+    const ws = await memberWorkspaceOr404(env, userId, name);
+    return ws.role === "owner";
+  } catch (err) {
+    if (err instanceof NotFoundError) return false;
+    throw err;
+  }
 }
 
 export const me = new Hono<SessionVars>()
@@ -183,30 +218,79 @@ export const me = new Hono<SessionVars>()
     return c.json(usageWithLimits(usage, record));
   })
 
-  // People in one workspace — member-gated (any member may see who they share
-  // the workspace with; only the fields a teammate needs, not the raw member
-  // rows the admin panel gets). Communal is a shared public space with no real
-  // team behind it — same branch-free `communal: true` shape as galleries.
+  // Workspace shell for the account rail: membership + public URL + usage.
+  .get("/workspaces/:name/summary", async (c) => {
+    const name = c.req.param("name");
+    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
+
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record && !ws.communal) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
+
+    const publicBaseUrl = ws.communal ? undefined : record?.publicBaseUrl;
+    let usage: ReturnType<typeof usageWithLimits> | null = null;
+    if (record) {
+      try {
+        usage = usageWithLimits(await getWorkspaceUsage(c.env.DB, name), record);
+      } catch {
+        usage = null;
+      }
+    }
+
+    return c.json({
+      workspace: ws.workspace,
+      organization: ws.organization,
+      role: ws.role,
+      communal: ws.communal,
+      hasPublicUrl: Boolean(publicBaseUrl),
+      publicBaseUrl,
+      usage,
+    });
+  })
+
+  // People in one workspace — member-gated (teammate fields only, not admin raw
+  // rows). Communal: shared public space, empty list (same shape as galleries).
   .get("/workspaces/:name/members", async (c) => {
     const name = c.req.param("name");
     const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
     if (ws.communal) return c.json({ communal: true, members: [] });
 
-    // `ws.organization` was already resolved by the membership lookup — no
-    // second org fetch. Internal `id`/`userId` never reach teammates; admins
-    // and owners get the opaque `id` too, since they need it to target the
-    // management routes below.
-    const canManage = ws.role === "admin" || ws.role === "owner";
+    const canManage = canManageRole(ws.role);
     const members = await membersForOrg(c.env, ws.organization.slug);
     return c.json({
       communal: false,
-      members: members.map((m) => ({
-        ...(canManage ? { id: m.id } : {}),
-        email: m.email ?? "",
-        name: m.name ?? "",
-        role: m.role ?? "member",
-        createdAt: m.createdAt,
-      })),
+      members: projectMembers(members, canManage),
+    });
+  })
+
+  // People tab: members + (for admins) pending invites + role in one authz pass.
+  .get("/workspaces/:name/people", async (c) => {
+    const name = c.req.param("name");
+    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
+    if (ws.communal) {
+      return c.json({
+        communal: true,
+        role: ws.role,
+        canManage: false,
+        members: [],
+        invites: [],
+      });
+    }
+
+    const canManage = canManageRole(ws.role);
+    const [members, invites] = await Promise.all([
+      membersForOrg(c.env, ws.organization.slug),
+      canManage ? invitesForOrg(c.env, ws.organization.slug) : Promise.resolve([]),
+    ]);
+
+    return c.json({
+      communal: false,
+      role: ws.role,
+      canManage,
+      organization: ws.organization,
+      members: projectMembers(members, canManage),
+      invites: canManage ? invites : [],
     });
   })
 
@@ -420,17 +504,11 @@ export const me = new Hono<SessionVars>()
   .post("/workspaces/:name/invites", async (c) => {
     const name = c.req.param("name");
     const userId = requireUserId(c);
-    await adminWorkspaceOr403(c.env, userId, name);
+    // Membership already carries org slug (1:1 mapping) — no second org fetch.
+    const ws = await adminWorkspaceOr403(c.env, userId, name);
 
     if (!(await allowWrite(c.env, name))) {
       throw new RateLimitedError("rate limit exceeded");
-    }
-
-    const org = await orgForWorkspace(c.env, name);
-    if (!org) {
-      throw new NotFoundError("no organization for this workspace — ask a site operator", {
-        code: "org_not_found",
-      });
     }
 
     const body = await c.req
@@ -459,7 +537,7 @@ export const me = new Hono<SessionVars>()
       method: "POST",
       headers: { "content-type": "application/json", "x-uploads-internal": "1" },
       body: JSON.stringify({
-        organizationSlug: org.slug,
+        organizationSlug: ws.organization.slug,
         email,
         role,
         inviterUserId: userId,

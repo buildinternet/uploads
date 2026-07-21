@@ -196,26 +196,31 @@ function validateOptionalUrl(value: unknown): { ok: true; value: string | null }
 }
 
 export const internal = new Hono<{ Bindings: AuthEnv }>()
-  // Phase 3 (plan scope A): memberships for a user, used by
-  // apps/api/src/org-workspaces.ts and the admin-ui endpoints to resolve
-  // "what orgs/workspaces can this user act on".
+  // Memberships for a user (org-workspaces + member-gated /me routes).
+  // Optional `slug` → one-org authz lookup (LIMIT 1; bills one match).
   .get("/memberships", async (c) => {
     const userId = c.req.query("userId")?.trim();
     if (!userId) {
       return c.json(errorJson("invalid_user_id", "userId is required"), 400);
     }
+    const slug = c.req.query("slug")?.trim() || undefined;
 
     const db = drizzle(c.env.DB, { schema });
-    const rows = await db
+    const conditions = [eq(schema.member.userId, userId)];
+    if (slug) conditions.push(eq(schema.organization.slug, slug));
+
+    const query = db
       .select({
         organizationId: schema.member.organizationId,
         organizationSlug: schema.organization.slug,
+        organizationName: schema.organization.name,
         role: schema.member.role,
       })
       .from(schema.member)
       .innerJoin(schema.organization, eq(schema.member.organizationId, schema.organization.id))
-      .where(eq(schema.member.userId, userId));
+      .where(and(...conditions));
 
+    const rows = slug ? await query.limit(1) : await query;
     return c.json(rows);
   })
   // Phase 3 (plan scope A): admin-provisioned org creation, idempotent on
@@ -295,34 +300,85 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       .from(schema.organization);
     return c.json({ organizations: rows });
   })
+  // Admin list: all org member/pending-invite counts in 3 queries (not N×3).
+  // Registered before `/orgs/:slug` so "summaries" is not parsed as a slug.
+  .get("/orgs/summaries", async (c) => {
+    const db = drizzle(c.env.DB, { schema });
+    const [orgs, memberRows, inviteRows] = await Promise.all([
+      db
+        .select({
+          id: schema.organization.id,
+          slug: schema.organization.slug,
+          name: schema.organization.name,
+        })
+        .from(schema.organization),
+      db
+        .select({
+          organizationId: schema.member.organizationId,
+          memberCount: count(),
+        })
+        .from(schema.member)
+        .groupBy(schema.member.organizationId),
+      db
+        .select({
+          organizationId: schema.invitation.organizationId,
+          pendingInviteCount: count(),
+        })
+        .from(schema.invitation)
+        .where(eq(schema.invitation.status, "pending"))
+        .groupBy(schema.invitation.organizationId),
+    ]);
+
+    const membersByOrg = new Map(memberRows.map((row) => [row.organizationId, row.memberCount]));
+    const invitesByOrg = new Map(
+      inviteRows.map((row) => [row.organizationId, row.pendingInviteCount]),
+    );
+
+    return c.json({
+      organizations: orgs.map((org) => ({
+        organization: { id: org.id, slug: org.slug, name: org.name },
+        memberCount: membersByOrg.get(org.id) ?? 0,
+        pendingInviteCount: invitesByOrg.get(org.id) ?? 0,
+      })),
+    });
+  })
   // Phase 3 (plan scope B): org lookup + member/invite counts for
-  // GET /admin-ui/workspaces on apps/api.
+  // single-workspace admin detail / orgForWorkspace.
   .get("/orgs/:slug", async (c) => {
     const slug = c.req.param("slug");
     const db = drizzle(c.env.DB, { schema });
     const [org] = await db
-      .select()
+      .select({
+        id: schema.organization.id,
+        slug: schema.organization.slug,
+        name: schema.organization.name,
+      })
       .from(schema.organization)
       .where(eq(schema.organization.slug, slug))
       .limit(1);
     if (!org) {
       return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
     }
-    const members = await db
-      .select({ id: schema.member.id })
-      .from(schema.member)
-      .where(eq(schema.member.organizationId, org.id));
-    const invites = await db
-      .select({ id: schema.invitation.id })
-      .from(schema.invitation)
-      .where(
-        and(eq(schema.invitation.organizationId, org.id), eq(schema.invitation.status, "pending")),
-      );
-    const pendingInvites = invites.length;
+    // COUNT aggregates (not id lists + .length) so only the count crosses the wire.
+    const [[memberRow], [inviteRow]] = await Promise.all([
+      db
+        .select({ memberCount: count() })
+        .from(schema.member)
+        .where(eq(schema.member.organizationId, org.id)),
+      db
+        .select({ pendingInviteCount: count() })
+        .from(schema.invitation)
+        .where(
+          and(
+            eq(schema.invitation.organizationId, org.id),
+            eq(schema.invitation.status, "pending"),
+          ),
+        ),
+    ]);
     return c.json({
       organization: { id: org.id, slug: org.slug, name: org.name },
-      memberCount: members.length,
-      pendingInviteCount: pendingInvites,
+      memberCount: memberRow?.memberCount ?? 0,
+      pendingInviteCount: inviteRow?.pendingInviteCount ?? 0,
     });
   })
   // Phase 3 (plan scope B): member list for GET /admin-ui/workspaces/:name/members.
@@ -774,11 +830,11 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       );
     }
     const force = c.req.query("force") === "1" || c.req.query("force") === "true";
-    const members = await db
-      .select({ id: schema.member.id })
+    const [memberCountRow] = await db
+      .select({ memberCount: count() })
       .from(schema.member)
       .where(eq(schema.member.organizationId, org.id));
-    if (members.length > 1 && !force) {
+    if ((memberCountRow?.memberCount ?? 0) > 1 && !force) {
       return c.json(errorJson("org_not_empty", "organization has more than one member"), 409);
     }
     await db.delete(schema.member).where(eq(schema.member.organizationId, org.id));
@@ -851,31 +907,31 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     // orderBy asc by default; contract wants createdAt desc.
     rows.reverse();
 
-    // Two grouped aggregate queries instead of one statsForClient() call per
-    // row — avoids an N+1 (2N) query fan-out on the list endpoint.
-    const consentRows = await db
-      .select({
-        clientId: schema.oauthConsent.clientId,
-        consentCount: countDistinct(schema.oauthConsent.userId),
-        lastConsentAt: max(schema.oauthConsent.createdAt),
-      })
-      .from(schema.oauthConsent)
-      .groupBy(schema.oauthConsent.clientId);
+    // Grouped aggregates instead of statsForClient() per row (avoids N+1).
+    const [consentRows, tokenRows] = await Promise.all([
+      db
+        .select({
+          clientId: schema.oauthConsent.clientId,
+          consentCount: countDistinct(schema.oauthConsent.userId),
+          lastConsentAt: max(schema.oauthConsent.createdAt),
+        })
+        .from(schema.oauthConsent)
+        .groupBy(schema.oauthConsent.clientId),
+      db
+        .select({
+          clientId: schema.oauthRefreshToken.clientId,
+          activeTokenCount: count(),
+        })
+        .from(schema.oauthRefreshToken)
+        .where(
+          and(
+            isNull(schema.oauthRefreshToken.revoked),
+            gt(schema.oauthRefreshToken.expiresAt, new Date()),
+          ),
+        )
+        .groupBy(schema.oauthRefreshToken.clientId),
+    ]);
     const consentByClient = new Map(consentRows.map((row) => [row.clientId, row]));
-
-    const tokenRows = await db
-      .select({
-        clientId: schema.oauthRefreshToken.clientId,
-        activeTokenCount: count(),
-      })
-      .from(schema.oauthRefreshToken)
-      .where(
-        and(
-          isNull(schema.oauthRefreshToken.revoked),
-          gt(schema.oauthRefreshToken.expiresAt, new Date()),
-        ),
-      )
-      .groupBy(schema.oauthRefreshToken.clientId);
     const tokensByClient = new Map(tokenRows.map((row) => [row.clientId, row.activeTokenCount]));
 
     const clients = rows.map((row) => {

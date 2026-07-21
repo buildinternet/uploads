@@ -210,7 +210,11 @@ export const invitation = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     createdAt: timestampCol("created_at"),
   },
-  (t) => [index("idx_invitation_organization_id").on(t.organizationId)],
+  (t) => [
+    index("idx_invitation_organization_id").on(t.organizationId),
+    // Pending counts/list: (org, status). Migration: 20260721160000_invitation_org_status_idx.sql
+    index("idx_invitation_organization_status").on(t.organizationId, t.status),
+  ],
 );
 
 /**

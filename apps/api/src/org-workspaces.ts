@@ -33,6 +33,8 @@ export interface OrgSummary {
 export interface Membership {
   organizationId: string;
   organizationSlug: string;
+  /** Org display name from AUTH; falls back to slug when an older worker omits it. */
+  organizationName: string;
   role: string;
 }
 
@@ -42,19 +44,47 @@ function internalHeaders(): Headers {
   return new Headers({ "x-uploads-internal": "1" });
 }
 
+function parseMembershipRows(body: unknown): Membership[] | null {
+  if (!Array.isArray(body)) return null;
+  const out: Membership[] = [];
+  for (const raw of body) {
+    if (!raw || typeof raw !== "object") return null;
+    const row = raw as Record<string, unknown>;
+    if (
+      typeof row.organizationId !== "string" ||
+      typeof row.organizationSlug !== "string" ||
+      typeof row.role !== "string"
+    ) {
+      return null;
+    }
+    out.push({
+      organizationId: row.organizationId,
+      organizationSlug: row.organizationSlug,
+      organizationName:
+        typeof row.organizationName === "string" && row.organizationName
+          ? row.organizationName
+          : row.organizationSlug,
+      role: row.role,
+    });
+  }
+  return out;
+}
+
 /**
  * A user's org memberships via `GET /internal/memberships?userId=` over the
- * AUTH binding. Like `orgForWorkspace`, a non-ok (or malformed) response is an
- * auth-worker outage/bug — surfaced as a 5xx — NOT "this user has no
- * memberships", so an outage can never masquerade as lost access. A user with
- * genuinely no memberships gets a 200 with `[]`. Shared by the session-auth
- * surfaces that need it (src/routes/me.ts, src/routes/tokens.ts).
+ * AUTH binding. Non-ok/malformed → 5xx (outage ≠ empty memberships). Pass
+ * `slug` for a single-org lookup (member-gated routes: one indexed join).
  */
-export async function membershipsForUser(env: Env, userId: string): Promise<Membership[]> {
-  const response = await env.AUTH.fetch(
-    `${INTERNAL_ORIGIN}/internal/memberships?userId=${encodeURIComponent(userId)}`,
-    { headers: internalHeaders() },
-  );
+export async function membershipsForUser(
+  env: Env,
+  userId: string,
+  opts?: { slug?: string },
+): Promise<Membership[]> {
+  const url = new URL(`${INTERNAL_ORIGIN}/internal/memberships`);
+  url.searchParams.set("userId", userId);
+  if (opts?.slug) url.searchParams.set("slug", opts.slug);
+
+  const response = await env.AUTH.fetch(url.toString(), { headers: internalHeaders() });
   if (!response.ok) {
     throw new ServiceUnavailableError("auth service returned an unexpected status", {
       code: "auth_lookup_failed",
@@ -62,12 +92,23 @@ export async function membershipsForUser(env: Env, userId: string): Promise<Memb
     });
   }
   const body = await response.json().catch(() => null);
-  if (!Array.isArray(body)) {
+  const rows = parseMembershipRows(body);
+  if (!rows) {
     throw new ServiceUnavailableError("auth service returned a malformed body", {
       code: "auth_lookup_failed",
     });
   }
-  return body as Membership[];
+  return rows;
+}
+
+/**
+ * Workspace names granted by one membership. Today the mapping is 1:1
+ * (`organization.slug === workspace name`); keep this helper as the only
+ * place that expands a membership into workspace names so multi-workspace
+ * orgs only touch `org-workspaces.ts`.
+ */
+export function workspacesFromMembership(membership: Membership): string[] {
+  return [membership.organizationSlug];
 }
 
 /** A raw member row from the auth worker's `/internal/orgs/:slug/members`. */

@@ -60,10 +60,12 @@ export class PrActivityTable {
   }
 
   tryAll<T>(normalizedSql: string, args: unknown[]): FakeAllResult<T> | undefined {
-    if (normalizedSql.startsWith("SELECT * FROM github_pr_activity WHERE workspace_name")) {
+    if (
+      normalizedSql.includes("FROM github_pr_activity") &&
+      normalizedSql.includes("workspace_name")
+    ) {
       const [workspace, limit] = args as [string, number];
-      // Non-mutating sort — lib ES2022 predates Array#toSorted (see
-      // fake-repo-links-table.ts).
+      // Copy + sort: lib ES2022 predates Array#toSorted.
       const results = [...this.rows.values()]
         .filter((row) => row.workspace_name === workspace)
         .sort((a, b) => b.last_media_at.localeCompare(a.last_media_at))

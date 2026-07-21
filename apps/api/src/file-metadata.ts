@@ -261,12 +261,9 @@ export async function replaceFileMetadata(
 }
 
 /**
- * Cross-workspace lookup of objects carrying a given `(meta_key, meta_value)`
- * pair — unlike `findObjectsByMetadata`, not scoped to a single workspace.
- * Used by the staging reaper (branch-staged attachment cleanup) to discover
- * `gh.kind=branch` rows across every workspace in one query. Bounded by
- * `limit`; ordering is stable (workspace, object_key) so repeated calls with
- * the same limit see the same head of the set.
+ * Cross-workspace `(meta_key, meta_value)` lookup (staging reaper: `gh.kind=branch`).
+ * Bounded by `limit`; ordered by (workspace, object_key).
+ * Needs `file_metadata_value_lookup_idx` — workspace-leading index cannot serve this.
  */
 export async function findObjectsByMetadataAcrossWorkspaces(
   db: D1Database,
@@ -304,6 +301,12 @@ function escapeLikePattern(raw: string): string {
  * Finds objects whose metadata matches ALL `filters` (ANDed equality), with
  * an optional key-prefix and result limit. Returns each match's key plus its
  * full metadata map (not just the matched pairs).
+ *
+ * Index-aware against `file_metadata_lookup_idx (workspace, meta_key, meta_value)`:
+ * - one filter → equality (+ optional prefix) + LIMIT
+ * - multi-filter → INTERSECT of per-filter key sets (each leg uses the index)
+ *   rather than OR + GROUP BY HAVING, which over-reads when any filter value
+ *   is common (e.g. `gh.kind=pull`).
  */
 export async function findObjectsByMetadata(
   db: D1Database,
@@ -315,18 +318,30 @@ export async function findObjectsByMetadata(
   if (entries.length === 0) return [];
 
   const limit = Math.max(1, Math.min(opts.limit ?? FIND_DEFAULT_LIMIT, FIND_MAX_LIMIT));
+  const params: unknown[] = [];
+  const legs = entries.map(([key, value]) => {
+    params.push(workspace, key, value);
+    return `SELECT object_key FROM file_metadata WHERE workspace = ? AND meta_key = ? AND meta_value = ?`;
+  });
 
-  const conditions = entries.map(() => `(meta_key = ? AND meta_value = ?)`).join(" OR ");
-  const params: unknown[] = [workspace];
-  for (const [key, value] of entries) params.push(key, value);
-
-  let sql = `SELECT object_key FROM file_metadata WHERE workspace = ? AND (${conditions})`;
-  if (opts.prefix) {
-    sql += ` AND object_key LIKE ? || '%' ESCAPE '\\'`;
-    params.push(escapeLikePattern(opts.prefix));
+  // Single filter: prefix in-leg so LIMIT applies to the narrowed set.
+  // Multi-filter: INTERSECT first, then prefix/limit on the intersection.
+  let sql: string;
+  if (entries.length === 1) {
+    sql = legs[0]!;
+    if (opts.prefix) {
+      sql += ` AND object_key LIKE ? || '%' ESCAPE '\\'`;
+      params.push(escapeLikePattern(opts.prefix));
+    }
+  } else {
+    sql = `SELECT object_key FROM (${legs.join(" INTERSECT ")})`;
+    if (opts.prefix) {
+      sql += ` WHERE object_key LIKE ? || '%' ESCAPE '\\'`;
+      params.push(escapeLikePattern(opts.prefix));
+    }
   }
-  sql += ` GROUP BY object_key HAVING COUNT(DISTINCT meta_key) = ? ORDER BY object_key LIMIT ?`;
-  params.push(entries.length, limit);
+  sql += ` ORDER BY object_key LIMIT ?`;
+  params.push(limit);
 
   const matched = await db
     .prepare(sql)
@@ -335,20 +350,8 @@ export async function findObjectsByMetadata(
   const keys = matched.results.map((row) => row.object_key);
   if (keys.length === 0) return [];
 
-  const placeholders = keys.map(() => "?").join(", ");
-  const hydrated = await db
-    .prepare(
-      `SELECT object_key, meta_key, meta_value FROM file_metadata
-       WHERE workspace = ? AND object_key IN (${placeholders})`,
-    )
-    .bind(workspace, ...keys)
-    .all<{ object_key: string; meta_key: string; meta_value: string }>();
-
-  const byKey = new Map<string, Record<string, string>>(keys.map((key) => [key, {}]));
-  for (const row of hydrated.results) {
-    byKey.get(row.object_key)![row.meta_key] = row.meta_value;
-  }
-  return keys.map((key) => ({ key, metadata: byKey.get(key)! }));
+  const byKey = await getMetadataForKeys(db, workspace, keys);
+  return keys.map((key) => ({ key, metadata: byKey.get(key) ?? {} }));
 }
 
 /** Max object keys bound into a single `object_key IN (...)` statement (SQLite's ~999 host-parameter limit, kept well under it). */

@@ -55,13 +55,17 @@ describe("/me auth gate", () => {
 });
 
 describe("GET /me/workspaces", () => {
-  it("maps memberships to workspaces via workspacesForOrg", async () => {
+  it("maps memberships to workspaces without per-org AUTH round-trips", async () => {
     const env = stubEnv(USER, (path) => {
       if (path === "/internal/memberships") {
-        return Response.json([{ organizationId: "org1", organizationSlug: "acme", role: "owner" }]);
-      }
-      if (path === "/internal/orgs/acme") {
-        return Response.json({ organization: { id: "org1", slug: "acme", name: "Acme Inc" } });
+        return Response.json([
+          {
+            organizationId: "org1",
+            organizationSlug: "acme",
+            organizationName: "Acme Inc",
+            role: "owner",
+          },
+        ]);
       }
       return new Response(null, { status: 404 });
     });
@@ -83,10 +87,14 @@ describe("GET /me/workspaces", () => {
   it("flags hasPublicUrl for a workspace whose storage record has a publicBaseUrl", async () => {
     const env = stubEnv(USER, (path) => {
       if (path === "/internal/memberships") {
-        return Response.json([{ organizationId: "org1", organizationSlug: "acme", role: "owner" }]);
-      }
-      if (path === "/internal/orgs/acme") {
-        return Response.json({ organization: { id: "org1", slug: "acme", name: "Acme Inc" } });
+        return Response.json([
+          {
+            organizationId: "org1",
+            organizationSlug: "acme",
+            organizationName: "Acme Inc",
+            role: "owner",
+          },
+        ]);
       }
       return new Response(null, { status: 404 });
     });
@@ -114,11 +122,13 @@ describe("GET /me/workspaces", () => {
     const env = stubEnv(USER, (path) => {
       if (path === "/internal/memberships") {
         return Response.json([
-          { organizationId: "org2", organizationSlug: "default", role: "member" },
+          {
+            organizationId: "org2",
+            organizationSlug: "default",
+            organizationName: "Default",
+            role: "member",
+          },
         ]);
-      }
-      if (path === "/internal/orgs/default") {
-        return Response.json({ organization: { id: "org2", slug: "default", name: "Default" } });
       }
       return new Response(null, { status: 404 });
     });
@@ -143,15 +153,19 @@ describe("GET /me/workspaces", () => {
     const env = stubEnv(USER, (path) => {
       if (path === "/internal/memberships") {
         return Response.json([
-          { organizationId: "org1", organizationSlug: "acme", role: "admin" },
-          { organizationId: "org2", organizationSlug: "default", role: "member" },
+          {
+            organizationId: "org1",
+            organizationSlug: "acme",
+            organizationName: "Acme Inc",
+            role: "admin",
+          },
+          {
+            organizationId: "org2",
+            organizationSlug: "default",
+            organizationName: "Default",
+            role: "member",
+          },
         ]);
-      }
-      if (path === "/internal/orgs/acme") {
-        return Response.json({ organization: { id: "org1", slug: "acme", name: "Acme Inc" } });
-      }
-      if (path === "/internal/orgs/default") {
-        return Response.json({ organization: { id: "org2", slug: "default", name: "Default" } });
       }
       return new Response(null, { status: 404 });
     });
@@ -291,7 +305,14 @@ function memberEnv(opts: {
       return new Response(JSON.stringify({ session: {}, user: USER }), { status: 200 });
     }
     if (url.pathname === "/internal/memberships") {
-      return Response.json([{ organizationId: "org1", organizationSlug: workspace, role }]);
+      return Response.json([
+        {
+          organizationId: "org1",
+          organizationSlug: workspace,
+          organizationName: workspace,
+          role,
+        },
+      ]);
     }
     if (url.pathname === `/internal/orgs/${workspace}`) {
       return Response.json({ organization: { id: "org1", slug: workspace, name: workspace } });
@@ -337,6 +358,112 @@ const R2_RECORD = {
   prefix: "acme/",
   publicBaseUrl: "https://storage.uploads.sh",
 };
+
+describe("GET /me/workspaces/:name/summary", () => {
+  it("returns membership + usage + public URL in one payload", async () => {
+    const db = new UsageFakeD1();
+    db.usage.set("acme", {
+      workspace: "acme",
+      bytes: 1024,
+      objects: 2,
+      uploads_in_period: 3,
+      period_start: "2026-07",
+      updated_at: "2026-07-21T00:00:00.000Z",
+    });
+    const env = memberEnv({ workspace: "acme", role: "owner", db, record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/summary", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      workspace: "acme",
+      role: "owner",
+      communal: false,
+      hasPublicUrl: true,
+      publicBaseUrl: "https://storage.uploads.sh",
+      usage: { workspace: "acme", bytes: 1024, objects: 2, uploadsInPeriod: 3 },
+    });
+  });
+
+  it("404s when the caller is not a member", async () => {
+    const env = stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") return Response.json([]);
+      return new Response(null, { status: 404 });
+    });
+    const res = await app().request("/me/workspaces/acme/summary", {}, env);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /me/workspaces/:name/people", () => {
+  it("returns members + invites for an admin in one authz pass", async () => {
+    const env = stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") {
+        return Response.json([
+          {
+            organizationId: "org1",
+            organizationSlug: "acme",
+            organizationName: "Acme Inc",
+            role: "admin",
+          },
+        ]);
+      }
+      if (path === "/internal/orgs/acme/members") {
+        return Response.json({
+          members: [
+            { id: "m1", userId: "u1", email: "a@b.com", name: "Ada", role: "owner" },
+            { id: "m2", userId: "u2", email: "c@d.com", name: null, role: "member" },
+          ],
+        });
+      }
+      if (path === "/internal/orgs/acme/invites") {
+        return Response.json({
+          invites: [{ id: "i1", email: "x@y.com", role: "member", status: "pending" }],
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    const res = await app().request("/me/workspaces/acme/people", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      communal: false,
+      role: "admin",
+      canManage: true,
+      organization: { id: "org1", slug: "acme", name: "Acme Inc" },
+      members: [
+        { id: "m1", email: "a@b.com", name: "Ada", role: "owner" },
+        { id: "m2", email: "c@d.com", name: "", role: "member" },
+      ],
+      invites: [{ id: "i1", email: "x@y.com", role: "member", status: "pending" }],
+    });
+  });
+
+  it("omits invites for a non-admin member", async () => {
+    const env = stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") {
+        return Response.json([
+          {
+            organizationId: "org1",
+            organizationSlug: "acme",
+            organizationName: "Acme Inc",
+            role: "member",
+          },
+        ]);
+      }
+      if (path === "/internal/orgs/acme/members") {
+        return Response.json({
+          members: [{ id: "m1", userId: "u1", email: "a@b.com", name: "Ada", role: "owner" }],
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    const res = await app().request("/me/workspaces/acme/people", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      canManage: false,
+      members: [{ email: "a@b.com", name: "Ada", role: "owner" }],
+      invites: [],
+    });
+  });
+});
 
 describe("GET /me/workspaces/:name/members", () => {
   it("404s for a workspace the caller is not a member of", async () => {

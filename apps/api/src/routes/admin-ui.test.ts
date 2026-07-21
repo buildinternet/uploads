@@ -68,11 +68,15 @@ describe("GET /admin-ui/workspaces", () => {
       if (url.pathname === "/api/auth/get-session") {
         return new Response(JSON.stringify({ session: {}, user: ADMIN_USER }), { status: 200 });
       }
-      if (url.pathname === "/internal/orgs/acme") {
+      if (url.pathname === "/internal/orgs/summaries") {
         return Response.json({
-          organization: { id: "org1", slug: "acme", name: "acme" },
-          memberCount: 2,
-          pendingInviteCount: 1,
+          organizations: [
+            {
+              organization: { id: "org1", slug: "acme", name: "acme" },
+              memberCount: 2,
+              pendingInviteCount: 1,
+            },
+          ],
         });
       }
       return new Response(null, { status: 404 });
@@ -87,6 +91,32 @@ describe("GET /admin-ui/workspaces", () => {
           organization: { id: "org1", slug: "acme", name: "acme" },
           memberCount: 2,
           pendingInviteCount: 1,
+        },
+      ],
+    });
+  });
+
+  it("leaves org null when a workspace has no matching summary", async () => {
+    const auth = stubAuth((req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/api/auth/get-session") {
+        return new Response(JSON.stringify({ session: {}, user: ADMIN_USER }), { status: 200 });
+      }
+      if (url.pathname === "/internal/orgs/summaries") {
+        return Response.json({ organizations: [] });
+      }
+      return new Response(null, { status: 404 });
+    });
+    const env = { AUTH: auth, REGISTRY: fakeKv(["orphan"]) } as unknown as Env;
+    const res = await app().request("/admin-ui/workspaces", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      workspaces: [
+        {
+          workspace: "orphan",
+          organization: null,
+          memberCount: 0,
+          pendingInviteCount: 0,
         },
       ],
     });

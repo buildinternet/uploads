@@ -8,8 +8,7 @@
  *    synchronously, before any network round trip, so a files-tab script that
  *    races ahead of this module's session-gated fetches never calls a
  *    not-yet-defined function;
- *  - fetches `getMyWorkspaces` → role badge (header) + details (slug/role/public url);
- *  - fetches `getMyWorkspaceUsage` → usage meters (`renderUsageHtml`, reused as-is).
+ *  - fetches `getWorkspaceSummary` → role badge, details, and usage.
  *
  * Connected-work hook contract (Task 8's files tab is the only caller):
  *   `window.__uploadsSetConnectedWork(items: GhWorkItem[], titles?: GithubTitleMap): void`
@@ -18,12 +17,7 @@
  * item; an empty array hides it. Non-files tabs never call it, so the section
  * stays hidden by construction.
  */
-import {
-  getMyWorkspaces,
-  getMyWorkspaceUsage,
-  type GithubTitleMap,
-  type MyWorkspace,
-} from "./api-client";
+import { getWorkspaceSummary, type GithubTitleMap, type MyWorkspace } from "./api-client";
 import { onSession } from "./account-shell";
 import { bindCopyButtons, escapeHtml, renderUsageHtml } from "./workspace-ui";
 import { githubKindSvg } from "./brand-icons";
@@ -189,27 +183,21 @@ export function initWorkspaceRail(
   const usageEl = root.querySelector<HTMLElement>("[data-rail-usage]");
 
   onSession(() => {
-    void getMyWorkspaces(apiOrigin).then((result) => {
+    void getWorkspaceSummary(apiOrigin, workspace).then((result) => {
       if (result.kind !== "success") {
-        // Mirror the usage fetch below (and the files tab's explicit outage
-        // state) rather than leaving the details list silently blank.
         if (detailsEl) detailsEl.textContent = "Details unavailable.";
+        if (usageEl) usageEl.textContent = "Usage unavailable.";
         return;
       }
-      const ws: MyWorkspace | undefined = result.workspaces.find(
-        (item) => item.workspace === workspace,
-      );
-      if (!ws) return;
+      const ws: MyWorkspace = result.workspace;
       if (roleBadge) {
         roleBadge.textContent = ws.role;
         roleBadge.hidden = false;
       }
       if (detailsEl) detailsEl.innerHTML = renderDetailsHtml(ws);
-    });
-
-    void getMyWorkspaceUsage(apiOrigin, workspace).then((usage) => {
-      if (!usageEl) return;
-      usageEl.innerHTML = usage ? renderUsageHtml(usage) : "Usage unavailable.";
+      if (usageEl) {
+        usageEl.innerHTML = result.usage ? renderUsageHtml(result.usage) : "Usage unavailable.";
+      }
     });
   });
 }

@@ -49,6 +49,23 @@ function isMyWorkspaceCore(
   );
 }
 
+/** Coerce optional/legacy fields; shared by list + summary mappers. */
+function mapMyWorkspace(ws: Omit<MyWorkspace, "communal" | "hasPublicUrl">): MyWorkspace {
+  const raw = ws as Omit<MyWorkspace, "communal" | "hasPublicUrl"> & {
+    communal?: unknown;
+    hasPublicUrl?: unknown;
+    publicBaseUrl?: unknown;
+  };
+  return {
+    workspace: raw.workspace,
+    organization: raw.organization,
+    role: raw.role,
+    communal: raw.communal === true,
+    hasPublicUrl: raw.hasPublicUrl === true,
+    publicBaseUrl: typeof raw.publicBaseUrl === "string" ? raw.publicBaseUrl : undefined,
+  };
+}
+
 export type WorkspacesResult =
   | { kind: "success"; workspaces: MyWorkspace[] }
   | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
@@ -68,19 +85,7 @@ export async function getMyWorkspaces(apiOrigin: string): Promise<WorkspacesResu
   if (!body || !Array.isArray(body.workspaces)) return { kind: "unavailable", reason: "malformed" };
   return {
     kind: "success",
-    workspaces: body.workspaces.filter(isMyWorkspaceCore).map(
-      (ws): MyWorkspace => ({
-        workspace: ws.workspace,
-        organization: ws.organization,
-        role: ws.role,
-        communal: (ws as { communal?: unknown }).communal === true,
-        hasPublicUrl: (ws as { hasPublicUrl?: unknown }).hasPublicUrl === true,
-        publicBaseUrl:
-          typeof (ws as { publicBaseUrl?: unknown }).publicBaseUrl === "string"
-            ? (ws as { publicBaseUrl: string }).publicBaseUrl
-            : undefined,
-      }),
-    ),
+    workspaces: body.workspaces.filter(isMyWorkspaceCore).map(mapMyWorkspace),
   };
 }
 
@@ -97,6 +102,19 @@ export interface WorkspaceUsage {
   uploadsRemaining?: number;
 }
 
+function parseWorkspaceUsage(body: unknown): WorkspaceUsage | null {
+  if (
+    !body ||
+    typeof body !== "object" ||
+    typeof (body as WorkspaceUsage).bytes !== "number" ||
+    typeof (body as WorkspaceUsage).objects !== "number" ||
+    typeof (body as WorkspaceUsage).uploadsInPeriod !== "number"
+  ) {
+    return null;
+  }
+  return body as WorkspaceUsage;
+}
+
 /** GET /me/workspaces/:name/usage. Returns null on any non-2xx or malformed body. */
 export async function getMyWorkspaceUsage(
   apiOrigin: string,
@@ -107,17 +125,41 @@ export async function getMyWorkspaceUsage(
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable" || !result.response.ok) return null;
-  const body = (await result.response.json().catch(() => null)) as WorkspaceUsage | null;
-  if (
-    !body ||
-    typeof body !== "object" ||
-    typeof body.bytes !== "number" ||
-    typeof body.objects !== "number" ||
-    typeof body.uploadsInPeriod !== "number"
-  ) {
-    return null;
-  }
-  return body;
+  return parseWorkspaceUsage(await result.response.json().catch(() => null));
+}
+
+export type WorkspaceSummaryResult =
+  | {
+      kind: "success";
+      workspace: MyWorkspace;
+      usage: WorkspaceUsage | null;
+    }
+  | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" | "not_found" };
+
+/**
+ * GET /me/workspaces/:name/summary — membership + public URL + usage for the
+ * workspace shell/rail (one authz pass instead of full list + usage).
+ */
+export async function getWorkspaceSummary(
+  apiOrigin: string,
+  name: string,
+): Promise<WorkspaceSummaryResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/summary`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body || !isMyWorkspaceCore(body)) return { kind: "unavailable", reason: "malformed" };
+  return {
+    kind: "success",
+    workspace: mapMyWorkspace(body),
+    // `usage` is summary-only; not part of the workspace core shape.
+    usage: parseWorkspaceUsage((body as Record<string, unknown>).usage),
+  };
 }
 
 /**
@@ -259,6 +301,16 @@ function isMemberCandidate(
   return typeof row.email === "string" && typeof row.role === "string";
 }
 
+function mapWorkspaceMembers(list: unknown[]): WorkspaceMember[] {
+  return list.filter(isMemberCandidate).map((row) => ({
+    id: typeof row.id === "string" ? row.id : undefined,
+    email: row.email,
+    name: typeof row.name === "string" ? row.name : "",
+    role: row.role,
+    createdAt: typeof row.createdAt === "string" ? row.createdAt : undefined,
+  }));
+}
+
 /** GET /me/workspaces/:name/members — teammates in the workspace, member-gated. */
 export async function getWorkspaceMembers(
   apiOrigin: string,
@@ -277,13 +329,60 @@ export async function getWorkspaceMembers(
   return {
     kind: "ok",
     communal: body.communal === true,
-    members: body.members.filter(isMemberCandidate).map((row) => ({
-      id: typeof row.id === "string" ? row.id : undefined,
-      email: row.email,
-      name: typeof row.name === "string" ? row.name : "",
-      role: row.role,
-      createdAt: typeof row.createdAt === "string" ? row.createdAt : undefined,
-    })),
+    members: mapWorkspaceMembers(body.members),
+  };
+}
+
+export type WorkspacePeopleResult =
+  | {
+      kind: "ok";
+      communal: boolean;
+      role: string;
+      canManage: boolean;
+      organization: { id: string; slug: string; name: string };
+      members: WorkspaceMember[];
+      invites: WorkspaceInvite[];
+    }
+  | { kind: "unavailable"; reason?: "not_found" | "server" | RequestFailure };
+
+/**
+ * GET /me/workspaces/:name/people — members + invites (+ role) for the people
+ * tab in one request.
+ */
+export async function getWorkspacePeople(
+  apiOrigin: string,
+  name: string,
+): Promise<WorkspacePeopleResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/people`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body || !Array.isArray(body.members) || typeof body.role !== "string") {
+    return { kind: "unavailable", reason: "server" };
+  }
+  const org = body.organization as Record<string, unknown> | undefined;
+  return {
+    kind: "ok",
+    communal: body.communal === true,
+    role: body.role,
+    canManage: body.canManage === true,
+    organization: {
+      id: typeof org?.id === "string" ? org.id : "",
+      slug: typeof org?.slug === "string" ? org.slug : name,
+      name: typeof org?.name === "string" ? org.name : name,
+    },
+    members: mapWorkspaceMembers(body.members),
+    invites: Array.isArray(body.invites)
+      ? body.invites.filter(
+          (v): v is WorkspaceInvite =>
+            !!v && typeof v === "object" && typeof (v as { id?: unknown }).id === "string",
+        )
+      : [],
   };
 }
 

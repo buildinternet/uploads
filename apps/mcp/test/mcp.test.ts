@@ -181,29 +181,42 @@ async function makeEnv(
                 meta: {},
               };
             }
-            // findObjectsByMetadata's first query: matches by ANDed key/value
-            // pairs (+ optional escaped-LIKE prefix), grouped/having-counted.
-            // Good enough for tests — not a general SQL engine.
-            if (normalized.startsWith("SELECT object_key FROM file_metadata WHERE workspace")) {
+            // findObjectsByMetadata: single equality or multi-filter INTERSECT
+            // legs — args are (workspace, key, value)×N, optional escaped
+            // prefix, limit. Mirrors apps/api/test/helpers/fake-file-metadata-table.
+            if (
+              normalized.startsWith("SELECT object_key FROM file_metadata WHERE workspace") ||
+              normalized.startsWith("SELECT object_key FROM (SELECT object_key FROM file_metadata")
+            ) {
               const vals = values as unknown[];
-              const ws = vals[0] as string;
-              const hasPrefix = normalized.includes("LIKE");
-              const pairsEnd = hasPrefix ? vals.length - 3 : vals.length - 2;
-              const pairs: Array<[string, string]> = [];
-              for (let i = 1; i < pairsEnd; i += 2) {
-                pairs.push([vals[i] as string, vals[i + 1] as string]);
+              const filterCount = (normalized.match(/meta_key = \? AND meta_value = \?/g) ?? [])
+                .length;
+              const hasPrefix = normalized.includes("object_key LIKE ? || '%'");
+              const filters: Array<{ workspace: string; key: string; value: string }> = [];
+              for (let i = 0; i < filterCount; i++) {
+                const base = i * 3;
+                filters.push({
+                  workspace: vals[base] as string,
+                  key: vals[base + 1] as string,
+                  value: vals[base + 2] as string,
+                });
               }
+              let idx = filterCount * 3;
               const prefix = hasPrefix
-                ? (vals[pairsEnd] as string).replace(/\\([%_\\])/g, "$1")
+                ? String(vals[idx++]).replace(/\\([\\%_])/g, "$1")
                 : undefined;
-              const limit = vals[vals.length - 1] as number;
+              const limit = vals[idx] as number;
+              const ws = filters[0]?.workspace;
 
               const matches: string[] = [];
-              for (const [scoped, map] of metadata.entries()) {
-                const [scopedWs, objectKey] = scoped.split(" ");
-                if (scopedWs !== ws) continue;
-                if (prefix !== undefined && !objectKey.startsWith(prefix)) continue;
-                if (pairs.every(([k, v]) => map.get(k) === v)) matches.push(objectKey);
+              if (ws && filters.every((f) => f.workspace === ws)) {
+                const scopePrefix = `${ws} `;
+                for (const [scoped, map] of metadata.entries()) {
+                  if (!scoped.startsWith(scopePrefix)) continue;
+                  const objectKey = scoped.slice(scopePrefix.length);
+                  if (prefix !== undefined && !objectKey.startsWith(prefix)) continue;
+                  if (filters.every((f) => map.get(f.key) === f.value)) matches.push(objectKey);
+                }
               }
               matches.sort();
               return {
