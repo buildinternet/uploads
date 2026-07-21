@@ -5,9 +5,13 @@
  * bar with the maintainer credit + a cross-link to the sibling Build Internet
  * tool (releases.sh links back to us the same way).
  *
- * Full-bleed border; inner column is max-width + centered (same pattern as
- * releases.sh). Do not nest this inside a left-aligned content shell — place
- * it as a sibling of `.shell` so it centers on the viewport.
+ * Layout contract (mirrors releases.sh):
+ * - Full-bleed border; inner column is max-width + centered.
+ * - Place as a *sibling* of the content shell (`.shell`, `main`, `.docs-shell`),
+ *   not nested inside a max-width column — otherwise the footer shrinks with
+ *   the reading column and `margin-top: auto` has nothing to push against.
+ * - Body is a flex column (`min-height: 100dvh`); content shell is `flex: 1`;
+ *   footer uses `margin-top: auto` so short pages pin it to the viewport bottom.
  *
  * `compact` keeps the original one-liner for the centered auth/error cards.
  */
@@ -97,6 +101,9 @@ const COLUMNS: FooterColumn[] = [
 <style>
   .site-footer {
     width: 100%;
+    /* Sticky bottom when body is a flex column and a sibling content shell
+       has flex:1. When content is taller than the viewport this collapses to
+       0 — content shells supply their own bottom padding for breathing room. */
     margin-top: auto;
     border-top: 1px solid var(--line, #232327);
     color: var(--muted, #7d7d77);
@@ -104,12 +111,13 @@ const COLUMNS: FooterColumn[] = [
     letter-spacing: 0.01em;
     line-height: 1.7;
   }
-  /* Centered column — independent of any left-aligned account/admin shell. */
+  /* Centered column — independent of any left-aligned account/admin shell.
+     Vertical rhythm mirrors releases.sh (pt-10 / pb-6 on the link grid). */
   .site-footer__inner {
     width: 100%;
     max-width: var(--width-shell, 960px);
     margin: 0 auto;
-    padding: 0 20px 28px;
+    padding: 40px 24px 24px;
     box-sizing: border-box;
   }
   .site-footer.compact .site-footer__inner {
@@ -136,7 +144,6 @@ const COLUMNS: FooterColumn[] = [
     display: grid;
     grid-template-columns: 1.4fr 1fr 1fr;
     gap: 24px 32px;
-    padding: 24px 0 10px;
   }
   .wordmark {
     font-weight: 600;
@@ -146,30 +153,30 @@ const COLUMNS: FooterColumn[] = [
   .site-footer a.wordmark:hover,
   .site-footer a.wordmark:focus-visible { color: var(--accent, #c27eff); }
   .brand p {
-    margin: 4px 0 0;
+    margin: 8px 0 0;
     max-width: 30ch;
   }
   .col-title {
     font-size: 10.5px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
   }
   .cols ul {
     list-style: none;
     margin: 0;
     padding: 0;
     display: grid;
-    gap: 3px;
+    gap: 8px;
   }
   .family {
     display: flex;
     flex-wrap: wrap;
     justify-content: space-between;
-    gap: 4px 24px;
+    gap: 8px 24px;
     border-top: 1px solid var(--line, #232327);
-    margin-top: 14px;
-    padding: 12px 0 0;
+    margin-top: 28px;
+    padding: 16px 0 0;
     font-size: 11.5px;
   }
   .family p {

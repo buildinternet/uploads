@@ -55,8 +55,8 @@ const oembedHref = gallery ? oembedDiscoveryHref(canonical, Astro.url.origin) : 
     )}
     <style>
       * { box-sizing:border-box; }
-      body { margin:0; min-height:100vh; color:var(--fg); background:var(--bg); font-family:var(--sans); }
-      .shell { width:min(var(--width-viewer, 1080px),calc(100% - 48px)); margin:auto; padding:36px 0 64px; }
+      body { margin:0; min-height:100dvh; color:var(--fg); background:var(--bg); font-family:var(--sans); display:flex; flex-direction:column; }
+      .shell { width:min(var(--width-viewer, 1080px),calc(100% - 48px)); margin:0 auto; padding:36px 0 64px; flex:1 0 auto; box-sizing:border-box; }
       nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:40px; font:13px var(--mono); letter-spacing:.02em; }
       .public { color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:6px 11px; background:var(--panel); }
       header { max-width:720px; margin-bottom:28px; }
@@ -113,11 +113,11 @@ const oembedHref = gallery ? oembedDiscoveryHref(canonical, Astro.url.origin) : 
             </section>
           )}
           <GalleryReferences references={gallery.references} />
-          <Footer />
         </>
       ) : (
         <section class="error"><code>{result.status === "not_found" ? "gallery.not_found" : "gallery.unavailable"}</code><h1>{result.status === "not_found" ? "Gallery not found" : "Gallery temporarily unavailable"}</h1><p>{result.status === "not_found" ? "Check the link or ask the gallery owner for a current URL." : "The gallery service could not be reached. Please try again shortly."}</p></section>
       )}
     </main>
+    <Footer />
   </body>
 </html>

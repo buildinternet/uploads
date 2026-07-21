@@ -106,12 +106,6 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         border-color: var(--accent);
         outline: none;
       }
-      /* Full site footer under the card, same column width as legal pages. */
-      .error-foot {
-        width: min(var(--width-content, 720px), 100%);
-        margin: 0 auto;
-        padding: 0 24px 28px;
-      }
     </style>
   </head>
   <body>
@@ -135,8 +129,7 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         </section>
       </div>
     </main>
-    <div class="error-foot">
-      <Footer />
-    </div>
+    {/* Full-bleed shell footer — sibling of main, same as legal/content pages. */}
+    <Footer />
   </body>
 </html>

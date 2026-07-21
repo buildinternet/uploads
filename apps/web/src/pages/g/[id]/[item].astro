@@ -101,8 +101,8 @@ const sizeLabel =
     )}
     <style>
       * { box-sizing:border-box; }
-      body { margin:0; min-height:100vh; color:var(--fg); background:var(--bg); font-family:var(--sans); }
-      .shell { width:min(var(--width-viewer, 1080px),calc(100% - 48px)); margin:auto; padding:36px 0 64px; }
+      body { margin:0; min-height:100dvh; color:var(--fg); background:var(--bg); font-family:var(--sans); display:flex; flex-direction:column; }
+      .shell { width:min(var(--width-viewer, 1080px),calc(100% - 48px)); margin:0 auto; padding:36px 0 64px; flex:1 0 auto; box-sizing:border-box; }
       nav.top { display:flex; align-items:center; justify-content:space-between; margin-bottom:32px; font:13px var(--mono); letter-spacing:.02em; }
       .public { color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:6px 11px; background:var(--panel); }
       .crumbs { margin-bottom:12px; color:var(--muted); font:13px var(--mono); overflow-wrap:anywhere; }
@@ -186,11 +186,11 @@ const sizeLabel =
             <a href={listPath}>All items</a>
             {next ? <a href={itemPath(next)} rel="next">{next.filename} →</a> : <span class="disabled">End →</span>}
           </nav>
-          <Footer />
         </>
       ) : (
         <section class="error"><code>{result.status === "unavailable" ? "gallery.unavailable" : "gallery.item_not_found"}</code><h1>{result.status === "unavailable" ? "Gallery temporarily unavailable" : "Media not found"}</h1><p>{result.status === "unavailable" ? "The gallery service could not be reached. Please try again shortly." : "This item may have been removed, or the link is incorrect."}</p>{result.status !== "unavailable" && <p><a href={listPath}>View the gallery</a></p>}</section>
       )}
     </main>
+    <Footer />
   </body>
 </html>
