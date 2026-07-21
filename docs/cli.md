@@ -151,7 +151,9 @@ replaces the whole metadata set; re-upload **without** `--meta` leaves existing
 pairs alone. `uploads attach` and `put --pr`/`--issue` also stamp `gh.repo` /
 `gh.kind` / `gh.number` / `gh.ref` automatically, plus `gh.title` when the
 PR/issue title is resolvable via local `gh` (best-effort — never blocks the
-upload).
+upload). Branch staging (`attach --branch`) stamps `gh.status=staged`, flipped
+to `promoted` on promotion — query in-flight files with
+`uploads find gh.status=staged`.
 
 Non-`gh.*` metadata may appear on the public `/f/…` file page — don't store
 secrets or private notes.
