@@ -207,6 +207,22 @@ const TOC = [
       tenant like any other here — it claims and posts to repos under the exact same rules as
       every other workspace.
     </p>
+    <p>
+      <strong>Claiming an unbound repo is authorized, not just first-come.</strong> Because the
+      App is installed org-wide, uploads.sh holds a write token for every org that has installed
+      it — so nothing about the App's own installation says a given workspace should be allowed
+      to post into a given repo. Before a workspace's first <code>comment</code>,
+      <code>attach --comment</code>, <code>promote</code>, or explicit <code>uploads github
+      link</code> call is allowed to bind an unclaimed repo, the server verifies that the calling
+      token's linked GitHub account actually has push (or higher) access to that repo — checked
+      live against GitHub via the App's own installation token, the same way GitHub itself would
+      answer "can this user push here?" A token with no linked GitHub identity (a legacy,
+      enrollment, or shared token — including <code>default</code>'s) can never make a first
+      claim; it can still act normally on any repo already bound to it. An unauthorized claim
+      attempt gets the same soft <code>not_authorized</code> decline as posting to someone else's
+      bound repo — never a server error, and the CLI never silently falls back to <code>gh</code>
+      for it. Repos bound before this check existed keep working unchanged.
+    </p>
   </section>
 
   <section id="self-healing">

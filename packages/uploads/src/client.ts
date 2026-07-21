@@ -282,6 +282,13 @@ export interface GithubLinkResult {
 /** POST-only: whether THIS call's workspace ended up owning the binding. */
 export interface GithubLinkClaimResult extends GithubLinkResult {
   claimed: boolean;
+  /**
+   * Present (only) when `claimed` is false because the repo is unbound and
+   * this workspace couldn't be verified as entitled to claim it — issue
+   * #297's cross-tenant authorization gate. Distinct from the "someone else
+   * already owns it" case, which instead reports a non-null `workspace`.
+   */
+  reason?: "not_authorized";
 }
 
 /** `DELETE /v1/:workspace/github/link` result (issue #318, self-serve unlink). */

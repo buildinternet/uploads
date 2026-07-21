@@ -3,7 +3,9 @@ import { app } from "../index";
 import { getFileMetadata, replaceFileMetadata } from "../file-metadata";
 import { sha256Hex, type WorkspaceRecord } from "../workspace";
 import { FakeR2Bucket } from "../../test/fake-r2";
+import { FakeKv } from "../../test/fake-kv";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
+import { GITHUB_APP_CFG_ENV } from "../../test/github-app-env";
 
 // Same node-vs-workerd Web Crypto gap as github-comment-route.test.ts — this
 // suite exercises the real workspaceAuth middleware end to end.
@@ -40,6 +42,15 @@ interface Seeded {
 async function seededEnv(
   opts: {
     scopedToken?: { rawToken: string; scopes: string[] };
+    /**
+     * Wires the calling token to a Better Auth minting user id (issue #297's
+     * claim-authorization gate reads this via `c.get("mintingUserId")`), plus
+     * GitHub App config/cache so `isEntitledToClaimRepo` can resolve an
+     * installation. Callers still need to preseed `ghlogin:<mintingUserId>`
+     * in the returned GITHUB_CACHE (or mock the AUTH-lookup fetch) and mock
+     * the collaborator-permission fetch to actually grant entitlement.
+     */
+    mintingUserId?: string;
   } = {},
 ): Promise<Seeded> {
   const record: WorkspaceRecord = {
@@ -56,12 +67,55 @@ async function seededEnv(
   };
   const bucket = new FakeR2Bucket();
   const db = new UsageFakeD1();
+  const githubCache = new FakeKv();
 
   const env = {
     REGISTRY: registry,
     DB: db,
     UPLOADS_DEFAULT: bucket,
+    GITHUB_CACHE: githubCache,
+    ...GITHUB_APP_CFG_ENV,
   } as unknown as Env;
+
+  if (opts.mintingUserId) {
+    // Layer a D1-backed token carrying a minting user id on top of the
+    // fake's auth_tokens no-op — same shape `workspaceAuth` reads via
+    // `findActiveToken`/`d1Token.minting_user_id` (workspace.ts).
+    const hash = await sha256Hex(TOKEN);
+    const mintingUserId = opts.mintingUserId;
+    const originalPrepare = db.prepare.bind(db);
+    db.prepare = ((sql: string) => {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("SELECT id, workspace, token_hash")) {
+        let args: unknown[] = [];
+        return {
+          bind: (...v: unknown[]) => {
+            args = v;
+            return {
+              first: async () => {
+                const tokHash = args[1] as string;
+                if (tokHash !== hash) return null;
+                return {
+                  id: "token-id",
+                  workspace: WS,
+                  token_hash: hash,
+                  label: null,
+                  scopes: JSON.stringify(["files:read", "files:write", "files:delete"]),
+                  created_at: "2026-07-13T00:00:00.000Z",
+                  expires_at: null,
+                  revoked_at: null,
+                  minting_user_id: mintingUserId,
+                };
+              },
+              all: async () => ({ results: [] }),
+              run: async () => ({}),
+            };
+          },
+        };
+      }
+      return originalPrepare(sql);
+    }) as typeof db.prepare;
+  }
 
   if (opts.scopedToken) {
     // Layer a D1-backed scoped token on top of the fake's auth_tokens no-op,
@@ -389,12 +443,55 @@ describe("POST /v1/:workspace/github/promote", () => {
     expect(seeded.bucket.store.has(`${PREFIX}${destKey("hero.png")}`)).toBe(true);
   });
 
-  it("records an implicit repo-link claim on a successful (2xx) promote", async () => {
+  it("records an implicit repo-link claim when the caller is verified entitled to the repo", async () => {
+    const seeded = await seededEnv({ mintingUserId: "user-1" });
+    (seeded.env as unknown as { GITHUB_CACHE: FakeKv }).GITHUB_CACHE.store.set("ghinst:acme/web", {
+      value: "42",
+    });
+    (seeded.env as unknown as { GITHUB_CACHE: FakeKv }).GITHUB_CACHE.store.set("ghtok:42", {
+      value: "cached-token",
+    });
+    (seeded.env as unknown as { GITHUB_CACHE: FakeKv }).GITHUB_CACHE.store.set("ghlogin:user-1", {
+      value: "octocat",
+    });
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string) =>
+      String(url).includes("/collaborators/octocat/permission")
+        ? new Response(JSON.stringify({ permission: "write" }), { status: 200 })
+        : new Response("nf", { status: 404 })) as unknown as typeof fetch;
+    try {
+      const res = await post(seeded.env, { repo: REPO, num: NUM, branch: BRANCH });
+      expect(res.status).toBe(200);
+      const link = seeded.db.repoLinks.get("acme/web");
+      expect(link).toMatchObject({ workspace_name: WS, source: "promote" });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("does not record a claim when the caller can't be verified entitled to an unbound repo", async () => {
+    // No mintingUserId — a legacy/shared token (e.g. the communal `default`
+    // workspace) can't be tied to a GitHub identity, so it must never claim a
+    // NEW repo. The promote operation itself (copying the workspace's own
+    // staged data) still succeeds — only the claim side effect is withheld.
     const seeded = await seededEnv();
     const res = await post(seeded.env, { repo: REPO, num: NUM, branch: BRANCH });
     expect(res.status).toBe(200);
-    const link = seeded.db.repoLinks.get("acme/web");
-    expect(link).toMatchObject({ workspace_name: WS, source: "promote" });
+    expect(seeded.db.repoLinks.has("acme/web")).toBe(false);
+  });
+
+  it("re-records (no-ops) an already-bound repo without an entitlement check", async () => {
+    const seeded = await seededEnv();
+    seeded.db.repoLinks.set("acme/web", {
+      repo_full_name: "acme/web",
+      workspace_name: WS,
+      installation_id: null,
+      source: "comment",
+      created_at: "2026-01-01T00:00:00.000Z",
+    });
+    const res = await post(seeded.env, { repo: REPO, num: NUM, branch: BRANCH });
+    expect(res.status).toBe(200);
+    expect(seeded.db.repoLinks.get("acme/web")?.workspace_name).toBe(WS);
   });
 
   it("first-claim-wins: a second workspace's promote never overwrites an existing link", async () => {

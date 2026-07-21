@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { app } from "../index";
 import { sha256Hex, type WorkspaceRecord } from "../workspace";
+import { FakeKv } from "../../test/fake-kv";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
+import { GITHUB_APP_CFG_ENV } from "../../test/github-app-env";
 
 // Same node-vs-workerd Web Crypto gap as github-promote-route.test.ts — this
 // suite exercises the real workspaceAuth middleware end to end.
@@ -21,7 +23,11 @@ interface Seeded {
   db: UsageFakeD1;
 }
 
-async function seededEnv(workspace = WS, token = TOKEN): Promise<Seeded> {
+async function seededEnv(
+  workspace = WS,
+  token = TOKEN,
+  opts: { mintingUserId?: string } = {},
+): Promise<Seeded> {
   const record: WorkspaceRecord = {
     provider: "r2",
     bucket: "b",
@@ -35,7 +41,54 @@ async function seededEnv(workspace = WS, token = TOKEN): Promise<Seeded> {
       key === `ws:${workspace}` ? record : null) as unknown as KVNamespace["get"],
   };
   const db = new UsageFakeD1();
-  const env = { REGISTRY: registry, DB: db } as unknown as Env;
+  const githubCache = new FakeKv();
+  const env = {
+    REGISTRY: registry,
+    DB: db,
+    GITHUB_CACHE: githubCache,
+    ...GITHUB_APP_CFG_ENV,
+  } as unknown as Env;
+
+  if (opts.mintingUserId) {
+    // Layer a D1-backed token carrying a minting user id (issue #297's
+    // claim-authorization gate reads it via `c.get("mintingUserId")`) — same
+    // shape `workspaceAuth` reads via `findActiveToken` (workspace.ts).
+    const hash = await sha256Hex(token);
+    const mintingUserId = opts.mintingUserId;
+    const originalPrepare = db.prepare.bind(db);
+    db.prepare = ((sql: string) => {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (normalized.startsWith("SELECT id, workspace, token_hash")) {
+        let args: unknown[] = [];
+        return {
+          bind: (...v: unknown[]) => {
+            args = v;
+            return {
+              first: async () => {
+                const tokHash = args[1] as string;
+                if (tokHash !== hash) return null;
+                return {
+                  id: "token-id",
+                  workspace,
+                  token_hash: hash,
+                  label: null,
+                  scopes: JSON.stringify(["files:read", "files:write", "files:delete"]),
+                  created_at: "2026-07-13T00:00:00.000Z",
+                  expires_at: null,
+                  revoked_at: null,
+                  minting_user_id: mintingUserId,
+                };
+              },
+              all: async () => ({ results: [] }),
+              run: async () => ({}),
+            };
+          },
+        };
+      }
+      return originalPrepare(sql);
+    }) as typeof db.prepare;
+  }
+
   return { env, db };
 }
 
@@ -108,12 +161,46 @@ describe("GET /v1/:workspace/github/link", () => {
 });
 
 describe("POST /v1/:workspace/github/link", () => {
-  it("claims an unbound repo", async () => {
+  it("claims an unbound repo when the caller is verified entitled to it", async () => {
+    const { env, db } = await seededEnv(WS, TOKEN, { mintingUserId: "user-1" });
+    (env as unknown as { GITHUB_CACHE: FakeKv }).GITHUB_CACHE.store.set("ghinst:acme/web", {
+      value: "42",
+    });
+    (env as unknown as { GITHUB_CACHE: FakeKv }).GITHUB_CACHE.store.set("ghtok:42", {
+      value: "cached-token",
+    });
+    (env as unknown as { GITHUB_CACHE: FakeKv }).GITHUB_CACHE.store.set("ghlogin:user-1", {
+      value: "octocat",
+    });
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string) =>
+      String(url).includes("/collaborators/octocat/permission")
+        ? new Response(JSON.stringify({ permission: "write" }), { status: 200 })
+        : new Response("nf", { status: 404 })) as unknown as typeof fetch;
+    try {
+      const res = await post(env, WS, { repo: REPO }, TOKEN);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ claimed: true, workspace: WS, source: "cli" });
+      expect(db.repoLinks.get(REPO)).toMatchObject({ workspace_name: WS, source: "cli" });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("declines to claim an unbound repo when the caller can't be verified entitled (issue #297)", async () => {
+    // No minting user — a legacy/shared token (e.g. the communal `default`
+    // workspace) can't be tied to a GitHub identity, so `uploads github
+    // link` must not let it claim a repo it has no proven access to.
     const { env, db } = await seededEnv();
     const res = await post(env, WS, { repo: REPO }, TOKEN);
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ claimed: true, workspace: WS, source: "cli" });
-    expect(db.repoLinks.get(REPO)).toMatchObject({ workspace_name: WS, source: "cli" });
+    expect(await res.json()).toMatchObject({
+      claimed: false,
+      reason: "not_authorized",
+      linked: false,
+      workspace: null,
+    });
+    expect(db.repoLinks.has(REPO)).toBe(false);
   });
 
   it("honestly reports an already-bound-by-another-workspace repo (claimed: false)", async () => {

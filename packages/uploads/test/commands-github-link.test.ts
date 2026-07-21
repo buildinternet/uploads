@@ -93,6 +93,35 @@ describe("runGithub (link)", () => {
     }
   });
 
+  it("reports claimed: false with an actionable note when not entitled (issue #297)", async () => {
+    const client = {
+      githubLinkClaim: async (repo: string) => ({
+        repo,
+        linked: false,
+        workspace: null,
+        source: null,
+        createdAt: null,
+        claimed: false,
+        reason: "not_authorized" as const,
+      }),
+    } as unknown as UploadsClient;
+    const stderr: string[] = [];
+    const spy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((chunk: unknown) => (stderr.push(String(chunk)), true));
+    try {
+      const code = await runGithub(ctxWith(client), ["link"], false, runnerWithRepo());
+      expect(code).toBe(0);
+      const note = stderr.join("");
+      expect(note).toContain("couldn't be");
+      expect(note).toContain("verified as entitled");
+      // Distinct from the "someone else owns it" note — no workspace name to report.
+      expect(note).not.toContain("someone-else");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("degrades clearly on a 404 (older server without bindings)", async () => {
     const client = {
       githubLinkClaim: async () => {
