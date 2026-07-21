@@ -232,6 +232,23 @@ export type GithubCommentResult =
       required?: string[];
     };
 
+/** `POST /v1/:workspace/github/promote` request/response (server contract, PR #310). */
+export interface PromoteBranchAttachmentsOptions {
+  repo: string;
+  num: number;
+  branch: string;
+}
+
+export interface PromoteSkip {
+  key: string;
+  reason: string;
+}
+
+export interface PromoteBranchAttachmentsResult {
+  promoted: string[];
+  skipped: PromoteSkip[];
+}
+
 export interface HealthResult {
   ok: boolean;
 }
@@ -960,6 +977,25 @@ export function createUploadsClient(config: UploadsClientConfig) {
       return request<GithubCommentResult>(
         "POST",
         `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/comment`,
+        {
+          body: new TextEncoder().encode(JSON.stringify(opts)),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    },
+
+    /**
+     * Promote a workspace's branch-staged attachments into a PR's stable
+     * attachment prefix (server contract, PR #310 — degrade-safe callers
+     * treat any failure, including a 404 from an older/self-hosted worker
+     * that doesn't have this route yet, as "nothing promoted").
+     */
+    async promoteBranchAttachments(
+      opts: PromoteBranchAttachmentsOptions,
+    ): Promise<PromoteBranchAttachmentsResult> {
+      return request<PromoteBranchAttachmentsResult>(
+        "POST",
+        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/promote`,
         {
           body: new TextEncoder().encode(JSON.stringify(opts)),
           headers: { "Content-Type": "application/json" },

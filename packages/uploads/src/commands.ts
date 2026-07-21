@@ -4,6 +4,7 @@ import { mapBounded } from "./async.js";
 import {
   createUploadsClient,
   type GalleryItem,
+  type PromoteBranchAttachmentsResult,
   type PutResult,
   type UploadsClient,
 } from "./client.js";
@@ -576,15 +577,29 @@ With no value, --branch resolves the current git branch. Staged files are
 public like every other attachment — same public-URL caveat applies. There is
 no managed comment for a branch (no PR/issue to comment on yet); --branch
 never runs the comment sync and cannot combine with --pr/--issue/--comment.
-Promoting staged files into the PR's managed comment once one opens ships in
-a later phase — for now, find them again with
-"uploads find gh.branch=<branch>".
+
+Promotion: once a PR exists, staged files for the current branch are picked
+up automatically the first time you attach to that PR (a plain "uploads
+attach <file> --pr <num>", or the inferred-PR default with no target flags) —
+they're copied into the PR's attachment prefix before the managed comment is
+built, so they show up in the same run. Pass --no-promote to skip that. If
+you'd rather promote without attaching a new file (e.g. right after
+"gh pr create" with nothing new to upload), run "uploads attach --promote"
+with no file arguments — it resolves the PR the same way, promotes, and
+refreshes the comment; it exits 0 even if nothing was staged. --promote only
+takes effect with zero files and cannot combine with --branch/--issue/
+--no-promote. Promotion never applies to issues. Staged files stay findable
+with "uploads find gh.branch=<branch>" either way.
 
 Options:
   --pr <num>            Attach to this pull request
   --issue <num>         Attach to this issue
   --branch [name]       Stage against a branch, pre-PR (default: current git branch);
                         not with --pr/--issue/--comment
+  --promote             No files: promote branch-staged attachments into the
+                        resolved PR and refresh the comment; not with
+                        --branch/--issue/--no-promote
+  --no-promote          Skip auto-promoting branch-staged attachments (default path only)
   --repo <owner/repo>   Repository (default: gh/git inference)
   --no-comment          Upload only; don't create/update the managed comment
   --content-type <mime> Override Content-Type (applied to every file; ignored when optimize rewrites)
@@ -612,6 +627,7 @@ Examples:
   uploads attach ./shot.png --meta app=myapp --meta page=settings
   uploads attach ./shot.png --branch
   uploads attach ./shot.png --branch feature/new-settings
+  uploads attach --promote
 `;
 
 export type AttachUploadItem = PutResult & {
@@ -910,6 +926,35 @@ export async function uploadPuts(opts: {
   return { uploads, failures, firstError };
 }
 
+/**
+ * Best-effort call to `POST /v1/:workspace/github/promote` (server contract,
+ * PR #310). Degrade-safe like `syncAttachmentsComment`'s bot path: an older
+ * or self-hosted worker without this route (404), a forbidden token (403),
+ * or a network error all collapse to "nothing promoted" — the caller must
+ * never let this fail the attach. Returns undefined on any failure.
+ */
+async function attemptPromoteBranch(
+  client: UploadsClient,
+  target: GhTarget,
+  branch: string,
+): Promise<PromoteBranchAttachmentsResult | undefined> {
+  try {
+    return await client.promoteBranchAttachments({ repo: target.repo, num: target.num, branch });
+  } catch {
+    return undefined;
+  }
+}
+
+/** Human-mode note for a promotion that actually promoted something. */
+function promotionNote(
+  promotion: PromoteBranchAttachmentsResult,
+  branch: string | undefined,
+): string {
+  const n = promotion.promoted.length;
+  const branchSuffix = branch ? ` from branch ${branch}` : "";
+  return `>> promoted ${n} staged attachment${n === 1 ? "" : "s"}${branchSuffix}\n`;
+}
+
 export async function runAttach(
   ctx: CliContext,
   args: string[],
@@ -921,12 +966,35 @@ export async function runAttach(
     writeCommandHelp(ATTACH_HELP);
     return 0;
   }
+  if (parsed.flags.has("--no-comment") && typeof parsed.flags.get("--no-comment") === "string") {
+    throw new UsageError("--no-comment takes no value — place it after the file arguments");
+  }
+  if (parsed.flags.has("--promote") && typeof parsed.flags.get("--promote") === "string") {
+    throw new UsageError("--promote takes no value — place it after the file arguments");
+  }
+  if (parsed.flags.has("--no-promote") && typeof parsed.flags.get("--no-promote") === "string") {
+    throw new UsageError("--no-promote takes no value — place it after the file arguments");
+  }
+
+  if (parsed.flags.has("--promote")) {
+    if (parsed.positionals.length > 0) {
+      throw new UsageError(
+        "--promote takes no file arguments — attaching a file to a PR already auto-promotes " +
+          "staged files; use `uploads attach <file> --pr <num>` instead",
+      );
+    }
+    if (parsed.flags.has("--branch"))
+      throw new UsageError("--promote cannot be combined with --branch");
+    if (parsed.flags.has("--issue"))
+      throw new UsageError("--promote cannot be combined with --issue");
+    if (parsed.flags.has("--no-promote"))
+      throw new UsageError("--promote cannot be combined with --no-promote");
+    return runAttachPromoteOnly(ctx, parsed, run);
+  }
+
   if (parsed.positionals.length === 0) {
     writeCommandHelp(ATTACH_HELP);
     return 2;
-  }
-  if (parsed.flags.has("--no-comment") && typeof parsed.flags.get("--no-comment") === "string") {
-    throw new UsageError("--no-comment takes no value — place it after the file arguments");
   }
 
   const branchArg = branchFromFlags(parsed.flags, run);
@@ -977,6 +1045,27 @@ export async function runAttach(
     throw firstError instanceof Error ? firstError : new Error(String(firstError));
   }
 
+  // Auto-promote: before the comment sync, best-effort promote this
+  // workspace's own branch-staged attachments (from an earlier `attach
+  // --branch` while the PR didn't exist yet) into this PR's attachment
+  // prefix, so the comment gather below sees them in the same invocation.
+  // Never for issues (branch staging only ever targets a future PR), never
+  // with --no-promote, and silently skipped (no client call at all) when the
+  // current git branch can't be resolved (detached HEAD, not a repo) — this
+  // must never fail the attach itself.
+  let promotion: PromoteBranchAttachmentsResult | undefined;
+  let promotedBranch: string | undefined;
+  if (target.kind === "pull" && !parsed.flags.has("--no-promote")) {
+    try {
+      promotedBranch = resolveCurrentBranch(run);
+    } catch {
+      promotedBranch = undefined;
+    }
+    if (promotedBranch !== undefined) {
+      promotion = await attemptPromoteBranch(ctx.client, target, promotedBranch);
+    }
+  }
+
   let comment: AttachmentsCommentResult | undefined;
   let commentError: string | undefined;
   // Skip comment refresh when every upload failed — nothing new from this batch.
@@ -992,7 +1081,14 @@ export async function runAttach(
   }
 
   if (ctx.json) {
-    await writeJson({ target, uploads, failures, comment, commentError });
+    await writeJson({
+      target,
+      uploads,
+      failures,
+      comment,
+      commentError,
+      promotion: promotion ?? null,
+    });
   } else {
     for (const result of uploads) {
       if (logHuman) {
@@ -1010,6 +1106,9 @@ export async function runAttach(
     }
     for (const failure of failures) {
       process.stderr.write(`warning: could not upload ${failure.file}: ${failure.error.message}\n`);
+    }
+    if (!ctx.quiet && promotion && promotion.promoted.length > 0) {
+      process.stderr.write(promotionNote(promotion, promotedBranch));
     }
     if (!ctx.quiet && comment)
       process.stderr.write(
@@ -1094,6 +1193,64 @@ async function runAttachBranch(
     }
   }
   return failures.length === 0 ? 0 : 1;
+}
+
+/**
+ * `attach --promote` with zero file arguments: resolve the PR target (same
+ * resolution as the default `runAttach` path), promote this workspace's
+ * branch-staged attachments into it, then run the comment sync — useful
+ * right after `gh pr create` when the PR was opened without a fresh attach
+ * (auto-promotion on the default path only fires when you attach a file).
+ * Unlike the default path's best-effort branch resolution, this is an
+ * explicit user action: `resolveCurrentBranch` throwing (detached HEAD, not
+ * a repo) propagates as a UsageError instead of silently skipping. Always
+ * exits 0 — an empty staging prefix is success, not a failure.
+ */
+async function runAttachPromoteOnly(
+  ctx: CliContext,
+  parsed: CommandFlags,
+  run: CommandRunner,
+): Promise<number> {
+  const explicitTarget = ghTargetFromFlags(parsed.flags, run);
+  const target =
+    explicitTarget ??
+    resolveCurrentPullRequest(resolveRepo(flagString(parsed.flags, "--repo"), run), run);
+  const branch = resolveCurrentBranch(run);
+
+  const promotion = await attemptPromoteBranch(ctx.client, target, branch);
+
+  let comment: AttachmentsCommentResult | undefined;
+  let commentError: string | undefined;
+  if (!parsed.flags.has("--no-comment")) {
+    try {
+      comment = await syncAttachmentsComment(ctx.client, target, run);
+    } catch (err) {
+      commentError = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `warning: promotion succeeded but the GitHub comment failed (is gh installed and authenticated?): ${commentError}\n`,
+      );
+    }
+  }
+
+  if (ctx.json) {
+    await writeJson({
+      target,
+      uploads: [],
+      failures: [],
+      comment,
+      commentError,
+      promotion: promotion ?? null,
+    });
+  } else {
+    if (!ctx.quiet && promotion && promotion.promoted.length > 0) {
+      process.stderr.write(promotionNote(promotion, branch));
+    }
+    if (!ctx.quiet && comment)
+      process.stderr.write(
+        `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n`,
+      );
+  }
+  return 0;
 }
 
 export async function runPut(

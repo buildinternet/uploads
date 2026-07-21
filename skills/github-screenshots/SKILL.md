@@ -79,6 +79,20 @@ uploads put ./demo.gif --format url
 Always embed the returned **markdown** (or `embedUrl`) in GitHub — it uses the
 no-cache host so overwrites propagate. Don't hand-build storage URLs.
 
+**Capturing before the PR exists?** (e.g. mid-task on a branch, no PR yet)
+stage with `uploads attach --branch` instead — same upload path, but keyed to
+the branch rather than a PR/issue number:
+
+```bash
+uploads attach ./shot.png --branch
+```
+
+Once you open the PR (`gh pr create`), the next `uploads attach` to it
+auto-promotes those staged files into the PR's attachments (and refreshes the
+comment) — no extra step needed. If that first attach has no new file to add,
+run `uploads attach --promote` instead to promote and refresh without
+uploading anything.
+
 ## Step 3 — Embed well
 
 - **Meaningful alt text**, always (`--alt`).

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
-import type { UploadsClient } from "../src/client.js";
+import type { PromoteBranchAttachmentsResult, UploadsClient } from "../src/client.js";
 import { runAttach, type CliContext } from "../src/commands.js";
 import { UploadsError } from "../src/errors.js";
 import type { CommandRunner } from "../src/github-gh.js";
@@ -20,9 +20,17 @@ function files(...names: string[]): string[] {
 function fakeClient(opts?: {
   /** Reject put for keys whose leaf matches this predicate. */
   failLeaf?: (leaf: string) => boolean | Error;
+  /** `client.promoteBranchAttachments` behavior; omitted → method is absent (older-server simulation). */
+  promote?: (opts: {
+    repo: string;
+    num: number;
+    branch: string;
+  }) => Promise<PromoteBranchAttachmentsResult> | PromoteBranchAttachmentsResult;
 }) {
   const puts: string[] = [];
   const metadataByKey: Record<string, Record<string, string> | undefined> = {};
+  const promoteCalls: { repo: string; num: number; branch: string }[] = [];
+  const callOrder: string[] = [];
   const list = async ({ prefix }: { prefix?: string } = {}) => ({
     items: puts
       .filter((key) => key.startsWith(prefix ?? ""))
@@ -52,11 +60,31 @@ function fakeClient(opts?: {
       };
     },
     list,
-    listAll: async (listOpts: { prefix?: string } = {}) => (await list(listOpts)).items,
+    listAll: async (listOpts: { prefix?: string } = {}) => {
+      callOrder.push("comment-gather");
+      return (await list(listOpts)).items;
+    },
     findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
     getGallery: async () => ({ items: [] }),
+    ...(opts?.promote
+      ? {
+          promoteBranchAttachments: async (promoteOpts: {
+            repo: string;
+            num: number;
+            branch: string;
+          }) => {
+            promoteCalls.push(promoteOpts);
+            callOrder.push("promote");
+            const result = await opts.promote!(promoteOpts);
+            // Simulate the server-side effect: promoted keys become real
+            // objects under the workspace, visible to a subsequent list.
+            for (const key of result.promoted) if (!puts.includes(key)) puts.push(key);
+            return result;
+          },
+        }
+      : {}),
   } as unknown as UploadsClient;
-  return { client, puts, metadataByKey };
+  return { client, puts, metadataByKey, promoteCalls, callOrder };
 }
 
 function ctxWith(client: UploadsClient): CliContext {
@@ -477,5 +505,303 @@ describe("runAttach gh.title metadata (issue #267)", () => {
       "gh.number": "123",
       "gh.ref": "buildinternet/uploads#123",
     });
+  });
+});
+
+/**
+ * A `gh`/`git` runner that fully controls the current branch (`git rev-parse
+ * --abbrev-ref HEAD`) as well as the usual PR-view/title-view stubs, so
+ * promotion tests can assert on the exact branch name sent to the promote
+ * endpoint. `branch: undefined` simulates detached HEAD ("HEAD").
+ */
+function promoteRunner(
+  opts: { branch?: string | undefined; detached?: boolean; title?: string } = {},
+): { run: CommandRunner; calls: string[][] } {
+  const calls: string[][] = [];
+  const branch = opts.detached ? "HEAD" : (opts.branch ?? "feature-x");
+  const run: CommandRunner = (cmd, args) => {
+    calls.push([cmd, ...args]);
+    if (cmd === "git" && args[0] === "rev-parse") return `${branch}\n`;
+    if (args[0] === "repo") return "buildinternet/uploads\n";
+    if ((args[0] === "pr" || args[0] === "issue") && args[1] === "view" && args.includes("title")) {
+      if (opts.title !== undefined) return `${opts.title}\n`;
+      throw new Error("gh: title not resolvable");
+    }
+    if (args[0] === "pr" && args[1] === "view") return "123\n";
+    if (args[1]?.includes("per_page=100")) return "[]";
+    return JSON.stringify({ id: 9 });
+  };
+  return { run, calls };
+}
+
+describe("runAttach auto-promote (default PR path)", () => {
+  it("calls promoteBranchAttachments with the resolved repo/num/branch before the comment sync", async () => {
+    const { client, promoteCalls, callOrder } = fakeClient({
+      promote: async () => ({
+        promoted: ["gh/buildinternet/uploads/pull/123/hero.png"],
+        skipped: [],
+      }),
+    });
+    const { run } = promoteRunner({ branch: "feature-x" });
+    expect(await runAttach(ctxWith(client), files("shot.png"), false, run)).toBe(0);
+    expect(promoteCalls).toEqual([
+      { repo: "buildinternet/uploads", num: 123, branch: "feature-x" },
+    ]);
+    expect(callOrder.indexOf("promote")).toBeLessThan(callOrder.indexOf("comment-gather"));
+  });
+
+  it("never promotes for an --issue target", async () => {
+    const { client, promoteCalls } = fakeClient({
+      promote: async () => ({ promoted: [], skipped: [] }),
+    });
+    const { run } = promoteRunner();
+    await runAttach(
+      ctxWith(client),
+      [...files("artifact.zip"), "--issue", "45", "--repo", "o/r"],
+      false,
+      run,
+    );
+    expect(promoteCalls).toEqual([]);
+  });
+
+  it("silently skips promotion when the endpoint 404s (older/self-hosted server)", async () => {
+    const { client } = fakeClient({
+      promote: async () => {
+        throw new UploadsError("not found", "NOT_FOUND", 404);
+      },
+    });
+    const { run } = promoteRunner();
+    expect(await runAttach(ctxWith(client), files("shot.png"), false, run)).toBe(0);
+  });
+
+  it("silently skips promotion on a network error", async () => {
+    const { client } = fakeClient({
+      promote: async () => {
+        throw new UploadsError("network request failed", "NETWORK");
+      },
+    });
+    const { run } = promoteRunner();
+    expect(await runAttach(ctxWith(client), files("shot.png"), false, run)).toBe(0);
+  });
+
+  it("silently skips promotion when the client has no promoteBranchAttachments method at all", async () => {
+    const { client } = fakeClient(); // no `promote` opt → method absent
+    const { run } = promoteRunner();
+    expect(await runAttach(ctxWith(client), files("shot.png"), false, run)).toBe(0);
+  });
+
+  it("silently skips promotion on detached HEAD", async () => {
+    const { client, promoteCalls } = fakeClient({
+      promote: async () => ({ promoted: [], skipped: [] }),
+    });
+    // Explicit --pr so target resolution doesn't itself need the current
+    // branch (resolveCurrentPullRequest also shells out to git rev-parse) —
+    // isolates the assertion to auto-promote's own best-effort branch read.
+    const { run } = promoteRunner({ detached: true });
+    expect(
+      await runAttach(
+        ctxWith(client),
+        [...files("shot.png"), "--pr", "123", "--repo", "buildinternet/uploads"],
+        false,
+        run,
+      ),
+    ).toBe(0);
+    expect(promoteCalls).toEqual([]);
+  });
+
+  it("--no-promote skips the promote call entirely", async () => {
+    const { client, promoteCalls } = fakeClient({
+      promote: async () => ({ promoted: ["x"], skipped: [] }),
+    });
+    const { run } = promoteRunner();
+    await runAttach(ctxWith(client), [...files("shot.png"), "--no-promote"], false, run);
+    expect(promoteCalls).toEqual([]);
+  });
+
+  it("prints a human note only when something was actually promoted", async () => {
+    const { client } = fakeClient({
+      promote: async () => ({
+        promoted: ["gh/buildinternet/uploads/pull/123/hero.png"],
+        skipped: [],
+      }),
+    });
+    const { run } = promoteRunner({ branch: "feature-x" });
+    const ctx = { ...ctxWith(client), quiet: false };
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+    vi.spyOn(process.stdout, "write").mockImplementation(
+      (() => true) as typeof process.stdout.write,
+    );
+    try {
+      await runAttach(ctx, files("shot.png"), false, run);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(stderr.join("")).toContain(">> promoted 1 staged attachment from branch feature-x\n");
+  });
+
+  it("stays quiet when promotion runs but promotes nothing", async () => {
+    const { client } = fakeClient({
+      promote: async () => ({ promoted: [], skipped: [] }),
+    });
+    const { run } = promoteRunner();
+    const ctx = { ...ctxWith(client), quiet: false };
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+    vi.spyOn(process.stdout, "write").mockImplementation(
+      (() => true) as typeof process.stdout.write,
+    );
+    try {
+      await runAttach(ctx, files("shot.png"), false, run);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(stderr.join("")).not.toContain("promoted");
+  });
+
+  it("includes a `promotion` field in JSON output", async () => {
+    const { client } = fakeClient({
+      promote: async () => ({
+        promoted: ["gh/buildinternet/uploads/pull/123/hero.png"],
+        skipped: [{ key: "gh/buildinternet/uploads/branch/feature-x/stale.png", reason: "stale" }],
+      }),
+    });
+    const { run } = promoteRunner({ branch: "feature-x" });
+    const ctx = { ...ctxWith(client), json: true };
+    const chunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      await runAttach(ctx, files("shot.png"), false, run);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    const payload = JSON.parse(chunks.join("")) as {
+      promotion: PromoteBranchAttachmentsResult | null;
+    };
+    expect(payload.promotion).toEqual({
+      promoted: ["gh/buildinternet/uploads/pull/123/hero.png"],
+      skipped: [{ key: "gh/buildinternet/uploads/branch/feature-x/stale.png", reason: "stale" }],
+    });
+  });
+
+  it("JSON output has promotion: null when the endpoint is unavailable", async () => {
+    const { client } = fakeClient({
+      promote: async () => {
+        throw new UploadsError("not found", "NOT_FOUND", 404);
+      },
+    });
+    const { run } = promoteRunner();
+    const ctx = { ...ctxWith(client), json: true };
+    const chunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      await runAttach(ctx, files("shot.png"), false, run);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    const payload = JSON.parse(chunks.join("")) as { promotion: unknown };
+    expect(payload.promotion).toBeNull();
+  });
+});
+
+describe("runAttach --promote (explicit promote-only mode)", () => {
+  it("promotes staged files with zero file arguments and refreshes the comment", async () => {
+    const { client, promoteCalls, callOrder } = fakeClient({
+      promote: async () => ({
+        promoted: ["gh/buildinternet/uploads/pull/123/hero.png"],
+        skipped: [],
+      }),
+    });
+    const { run, calls } = promoteRunner({ branch: "feature-x" });
+    expect(await runAttach(ctxWith(client), ["--promote"], false, run)).toBe(0);
+    expect(promoteCalls).toEqual([
+      { repo: "buildinternet/uploads", num: 123, branch: "feature-x" },
+    ]);
+    expect(callOrder.indexOf("promote")).toBeLessThan(callOrder.indexOf("comment-gather"));
+    expect(
+      calls.some((call) => call.includes("repos/buildinternet/uploads/issues/123/comments")),
+    ).toBe(true);
+  });
+
+  it("exits 0 with empty promoted/skipped when nothing was staged", async () => {
+    const { client, promoteCalls } = fakeClient({
+      promote: async () => ({ promoted: [], skipped: [] }),
+    });
+    const { run } = promoteRunner();
+    const ctx = { ...ctxWith(client), json: true };
+    const chunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      expect(await runAttach(ctx, ["--promote"], false, run)).toBe(0);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(promoteCalls).toHaveLength(1);
+    const payload = JSON.parse(chunks.join("")) as {
+      uploads: unknown[];
+      failures: unknown[];
+      promotion: PromoteBranchAttachmentsResult | null;
+    };
+    expect(payload.uploads).toEqual([]);
+    expect(payload.failures).toEqual([]);
+    expect(payload.promotion).toEqual({ promoted: [], skipped: [] });
+  });
+
+  it("supports an explicit --pr target", async () => {
+    const { client, promoteCalls } = fakeClient({
+      promote: async () => ({ promoted: [], skipped: [] }),
+    });
+    const { run } = promoteRunner({ branch: "feature-x" });
+    await runAttach(ctxWith(client), ["--promote", "--pr", "77", "--repo", "o/r"], false, run);
+    expect(promoteCalls).toEqual([{ repo: "o/r", num: 77, branch: "feature-x" }]);
+  });
+
+  it("still requires an inferable PR when no target is supplied", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runAttach(ctxWith(client), ["--promote"], false, noPullRequestRunner),
+    ).rejects.toThrow(UsageError);
+  });
+
+  it("propagates a UsageError on detached HEAD (explicit action, not silently skipped)", async () => {
+    const { client } = fakeClient();
+    const { run } = promoteRunner({ detached: true });
+    await expect(runAttach(ctxWith(client), ["--promote"], false, run)).rejects.toThrow(UsageError);
+  });
+
+  it("rejects --promote combined with files", async () => {
+    const { client } = fakeClient();
+    const { run } = promoteRunner();
+    await expect(
+      runAttach(ctxWith(client), [...files("shot.png"), "--promote"], false, run),
+    ).rejects.toThrow(UsageError);
+  });
+
+  it.each([
+    ["--branch", "feature/x"],
+    ["--issue", "45"],
+    ["--no-promote", undefined],
+  ])("rejects --promote combined with %s", async (flag, value) => {
+    const { client } = fakeClient();
+    const { run } = promoteRunner();
+    const extra = value !== undefined ? [flag, value] : [flag];
+    await expect(runAttach(ctxWith(client), ["--promote", ...extra], false, run)).rejects.toThrow(
+      UsageError,
+    );
   });
 });
