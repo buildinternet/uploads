@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { UsageError } from "../src/cli-args.js";
 import {
   ATTACHMENTS_MARKER,
   attachmentsCommentBody,
   ghAttachmentKey,
+  ghBranchAttachmentKey,
+  ghBranchKeyPrefix,
   ghKeyPrefix,
+  ghMetadataForBranch,
   isValidRepo,
   normalizeGithubCoordinate,
   parseRepoFromRemoteUrl,
@@ -81,6 +85,54 @@ describe("ghKeyPrefix / ghAttachmentKey", () => {
     expect(ghAttachmentKey(pr, "my shot (1).png")).toBe(
       "gh/buildinternet/uploads/pull/123/my-shot--1-.png",
     );
+  });
+});
+
+describe("ghBranchKeyPrefix / ghBranchAttachmentKey", () => {
+  it("builds the branch prefix", () => {
+    expect(ghBranchKeyPrefix("buildinternet/uploads", "main")).toBe(
+      "gh/buildinternet/uploads/branch/main/",
+    );
+  });
+  it("sanitizes a branch name with slashes (e.g. feature/x -> feature-x)", () => {
+    expect(ghBranchKeyPrefix("o/r", "feature/x")).toBe("gh/o/r/branch/feature-x/");
+  });
+  it("builds a stable key with no content hash, preserving branch case", () => {
+    expect(ghBranchAttachmentKey("o/r", "Feature/X", "after.png")).toBe(
+      "gh/o/r/branch/Feature-X/after.png",
+    );
+  });
+  it("sanitizes filename characters", () => {
+    expect(ghBranchAttachmentKey("o/r", "main", "my shot (1).png")).toBe(
+      "gh/o/r/branch/main/my-shot--1-.png",
+    );
+  });
+});
+
+describe("ghMetadataForBranch", () => {
+  const now = new Date("2026-07-20T18:00:00.123Z");
+
+  it("writes gh.repo/gh.kind=branch/gh.branch/gh.staged-at (no gh.number/gh.ref/gh.title)", () => {
+    expect(ghMetadataForBranch("BuildInternet/Uploads", "main", now)).toEqual({
+      "gh.repo": "buildinternet/uploads",
+      "gh.kind": "branch",
+      "gh.branch": "main",
+      "gh.staged-at": "2026-07-20T18:00:00Z",
+    });
+  });
+
+  it("lowercases gh.branch but preserves the key path's original case (handled separately by ghBranchAttachmentKey)", () => {
+    const metadata = ghMetadataForBranch("o/r", "Feature/X", now);
+    expect(metadata["gh.branch"]).toBe("feature/x");
+  });
+
+  it("drops the fractional seconds from gh.staged-at", () => {
+    const metadata = ghMetadataForBranch("o/r", "main", now);
+    expect(metadata["gh.staged-at"]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  });
+
+  it("throws UsageError when the lowercased branch name fails the printable-ASCII metadata rule", () => {
+    expect(() => ghMetadataForBranch("o/r", "feature/🚀", now)).toThrow(UsageError);
   });
 });
 
