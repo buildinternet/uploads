@@ -10,7 +10,9 @@ const TOC = [
   { id: "what-it-adds", label: "What it adds" },
   { id: "install", label: "Install it" },
   { id: "staging", label: "Staging before a PR exists" },
-  { id: "permissions", label: "Permissions" },
+  { id: "permissions", label: "Permissions & events" },
+  { id: "bindings", label: "Repo bindings" },
+  { id: "self-healing", label: "Self-healing comments" },
   { id: "without-it", label: "Without the App" },
 ];
 ---
@@ -31,6 +33,19 @@ const TOC = [
     configure on this side. The CLI notices the installation automatically the next time you
     run <code>uploads attach</code>.
   </aside>
+
+  <p>
+    Landed here from a <code>uploads-sh[bot]</code> comment's "docs" link? That comment is a
+    managed, auto-updating attachment list — images and files someone uploaded for this PR or
+    issue, kept current under one collapsible block instead of scattered across separate
+    comments. Anyone with repo access can add to it:
+    install the <a href="https://www.npmjs.com/package/@buildinternet/uploads">uploads CLI</a>,
+    run <code>uploads login</code> once, then <code>uploads put ./file.png --pr 123 --comment</code>
+    (or <code>--issue 123</code>) to upload a file and refresh the comment in one step. See&#32;
+    <a href="/docs/attach-pull-request-images">Attach &amp; share</a> for the full put/attach
+    walkthrough. The rest of this page is about the optional GitHub App that makes that comment
+    post as the bot instead of via your own <code>gh</code> auth.
+  </p>
 
   <section class="lead" id="what-it-adds">
     <h2>What it adds <a class="anchor" href="#what-it-adds" aria-label="Link to this section">#</a></h2>
@@ -121,7 +136,7 @@ const TOC = [
   </section>
 
   <section id="permissions">
-    <h2>Permissions <a class="anchor" href="#permissions" aria-label="Link to this section">#</a></h2>
+    <h2>Permissions &amp; events <a class="anchor" href="#permissions" aria-label="Link to this section">#</a></h2>
     <p>The App asks for the minimum it needs:</p>
     <ul>
       <li>
@@ -136,19 +151,76 @@ const TOC = [
       exact approval link and falls back to posting via <code>gh</code> in the meantime.
     </p>
     <p>
-      The App also needs to be <strong>subscribed to the <code>issues</code> and
-      <code>pull_request</code> webhook events</strong> (Settings → your App →
-      <em>Permissions &amp; events</em> → <em>Subscribe to events</em>). Without them the App's
-      ping still shows green — GitHub always sends <code>ping</code> and installation events
-      regardless of subscription — but webhook-driven title cache invalidation and branch-staged
-      attachment auto-promotion silently do nothing. Run <code>uploads github doctor</code> to
-      check: it calls the App API directly and reports any missing subscription.
+      Permissions alone aren't enough — the App also has to be
+      <strong>subscribed to webhook events</strong> (Settings → your App →
+      <em>Permissions &amp; events</em> → <em>Subscribe to events</em>):
+    </p>
+    <ul>
+      <li>
+        <strong>Required — <code>issues</code> and <code>pull_request</code>.</strong> Without
+        these the App's ping still shows green (GitHub always sends <code>ping</code> and
+        installation events regardless of subscription) but webhook-driven title cache
+        invalidation and branch-staged attachment auto-promotion silently do nothing.
+      </li>
+      <li>
+        <strong>Recommended — <code>issue_comment</code>.</strong> Optional; the App works fully
+        without it. It's what lets the managed attachments comment&#32;
+        <a href="#self-healing">self-heal</a> if it's ever deleted or edited out from under the
+        bot, instead of waiting for the next PR push to re-render it.
+      </li>
+    </ul>
+    <p>
+      Run <code>uploads github doctor</code> to check: it calls the App API directly and
+      reports any missing required subscription, so a silent misconfiguration doesn't sit there
+      unnoticed.
+    </p>
+    <div class="cmd">
+      <span class="text">uploads github doctor</span>
+      <button type="button" data-copy="uploads github doctor" aria-live="polite">copy</button>
+    </div>
+  </section>
+
+  <section id="bindings">
+    <h2>Repo bindings <a class="anchor" href="#bindings" aria-label="Link to this section">#</a></h2>
+    <p>
+      One repo maps to at most one workspace's managed comment — first claim wins. The binding
+      is normally created implicitly the first time a workspace successfully comments, attaches,
+      or promotes against a repo; you can also inspect or claim it explicitly:
+    </p>
+    <div class="cmd">
+      <span class="text">uploads github link --status</span>
+      <button type="button" data-copy="uploads github link --status" aria-live="polite">copy</button>
+    </div>
+    <p>
+      Claiming an already-bound repo never steals it from whoever claimed it first — the
+      command just reports the current owner. <code>uploads github unlink</code> releases a
+      binding your own workspace owns; it fails if another workspace owns it, same as claiming
+      does. If a binding is stuck or abandoned, an operator can reassign or remove it from the
+      admin panel without going through the owning workspace at all.
     </p>
     <p>
-      We also recommend subscribing to the <code>issue_comment</code> event. It's optional — the
-      App works fully without it — but it lets the managed attachments comment self-heal if it's
-      ever deleted or edited out from under the bot, instead of waiting for the next PR push to
-      re-render it.
+      <strong>Other workspaces can't post to your repo.</strong> If your repo is bound to your
+      workspace, a different workspace's <code>comment</code>/<code>attach</code> call against it
+      is declined outright (<code>not_authorized</code>) — it does not fall back to posting
+      under that person's own <code>gh</code> credentials, so there's no way for someone else's
+      workspace to deface or duplicate the bot comment on your repo. The one exception runs the
+      other way: the shared, communal <code>default</code> workspace can post to repos it
+      already owns, but it can never claim a fresh, unbound repo — that keeps the widest-shared
+      workspace from silently annexing other people's repos.
+    </p>
+  </section>
+
+  <section id="self-healing">
+    <h2>Self-healing comments <a class="anchor" href="#self-healing" aria-label="Link to this section">#</a></h2>
+    <p>
+      With the <code>issue_comment</code> event subscribed (see
+      <a href="#permissions">Permissions &amp; events</a> above), deleting the managed
+      <code>uploads-sh[bot]</code> comment — or editing out its hidden marker — doesn't leave a
+      PR or issue without one for long. The next <code>issue_comment</code> webhook delivery
+      notices it's gone or mangled and recreates it automatically, with the same attachment
+      list it would have shown. No CLI call needed to trigger it. If an agent notices the
+      comment briefly missing, that's expected — it isn't a signal to panic-repost with a fresh
+      <code>uploads comment</code> call.
     </p>
   </section>
 
