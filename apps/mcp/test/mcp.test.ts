@@ -659,6 +659,36 @@ describe("mcp worker", () => {
     });
   });
 
+  it("stamps the canonical state/app params alongside the upload", async () => {
+    const { env, metadata } = await makeEnv();
+    const result = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/canonical.png",
+      metadata: { path: "/settings" },
+      state: "after",
+      app: "web",
+    });
+    expect(result.isError).toBe(false);
+    expect(Object.fromEntries(metadata.get("test-ws shots/canonical.png") ?? [])).toEqual({
+      path: "/settings",
+      state: "after",
+      app: "web",
+    });
+  });
+
+  it("rejects a state outside the canonical enum, with a suggestion", async () => {
+    const { env } = await makeEnv();
+    const result = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/bad-state.png",
+      state: "post",
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result)).toContain("did you mean");
+  });
+
   it("leaves existing metadata untouched when the metadata argument is omitted", async () => {
     const { env, metadata } = await makeEnv();
     await callTool(env, "put", {
