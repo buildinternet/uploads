@@ -133,7 +133,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
       let sessionRole: string | null | undefined;
       let sessionEmail: string | undefined;
-      let canManage = false; // viewer is owner/admin of this workspace
+      /** People-list controls: canManage + viewerRole feed renderMembersHtml. */
+      let memberOpts: { canManage: boolean; viewerRole: string; selfEmail?: string } = {
+        canManage: false,
+        viewerRole: "",
+      };
 
       function showError(message: string, retry = true): void {
         if (!stillHere()) return;
@@ -170,16 +174,20 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         inviteSection.hidden = !isWorkspaceAdminRole(result.role) && sessionRole !== "admin";
         inviteForm.hidden = !isWorkspaceAdminRole(result.role);
 
-        canManage = result.canManage;
-        invitesSection.hidden = !canManage;
+        memberOpts = {
+          canManage: result.canManage,
+          viewerRole: result.role,
+          selfEmail: sessionEmail,
+        };
+        invitesSection.hidden = !memberOpts.canManage;
 
         statusEl.hidden = true;
         appEl.hidden = false;
 
         membersEl.innerHTML = result.members.length
-          ? renderMembersHtml(result.members, { canManage, selfEmail: sessionEmail })
+          ? renderMembersHtml(result.members, memberOpts)
           : '<p class="muted">Just you so far.</p>';
-        if (canManage) {
+        if (memberOpts.canManage) {
           invitesEl.innerHTML = result.invites.length
             ? renderInvitesHtml(result.invites)
             : '<p class="muted">No pending invites.</p>';
@@ -202,10 +210,15 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       async function refreshPeopleLists(): Promise<void> {
         const result = await getWorkspacePeople(apiOrigin, workspaceName);
         if (!stillHere() || result.kind !== "ok") return;
+        memberOpts = {
+          canManage: result.canManage,
+          viewerRole: result.role,
+          selfEmail: sessionEmail,
+        };
         membersEl.innerHTML = result.members.length
-          ? renderMembersHtml(result.members, { canManage, selfEmail: sessionEmail })
+          ? renderMembersHtml(result.members, memberOpts)
           : '<p class="muted">Just you so far.</p>';
-        if (canManage) {
+        if (memberOpts.canManage) {
           invitesEl.innerHTML = result.invites.length
             ? renderInvitesHtml(result.invites)
             : '<p class="muted">No pending invites.</p>';
@@ -253,7 +266,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
               inviteLink.hidden = false;
               inviteLink.innerHTML = `Accept link: <a href="${escapeHtml(result.acceptUrl)}">${escapeHtml(result.acceptUrl)}</a>`;
             }
-            if (canManage) void refreshPeopleLists();
+            if (memberOpts.canManage) void refreshPeopleLists();
             return;
           }
           if (result.reason === "forbidden") {

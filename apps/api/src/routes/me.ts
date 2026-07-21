@@ -544,7 +544,7 @@ export const me = new Hono<SessionVars>()
     return c.json({ ok: true });
   })
 
-  // Change a member's role (admin<->member) — owner-only enforced in auth worker.
+  // Change a member's role (admin↔member); auth worker enforces the matrix.
   .patch("/workspaces/:name/members/:memberId", async (c) => {
     const name = c.req.param("name");
     const userId = requireUserId(c);

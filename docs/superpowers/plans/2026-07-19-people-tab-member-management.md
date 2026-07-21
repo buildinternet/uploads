@@ -4,13 +4,14 @@
 
 **Goal:** Let workspace owners/admins see and revoke pending invites and manage members (remove, change role) from the `/account/workspaces/:name/people` tab.
 
-**Architecture:** Three layers. The auth worker (`apps/auth`) gains three internal routes that own the role-matrix invariants (it holds the `member`/`invitation` tables). `apps/api` adds thin `org-workspaces` helpers and `adminWorkspaceOr403`-gated `/me` routes. `apps/web` adds api-client calls, pure render helpers, and people-tab wiring. Full spec: `docs/superpowers/specs/2026-07-19-people-tab-member-management-design.md`.
+**Architecture:** Three layers. The auth worker (`apps/auth`) gains three internal routes that own the role-matrix invariants (it holds the `member`/`invitation` tables). `apps/api` adds thin `org-workspaces` helpers and `adminWorkspaceOr403`-gated `/me` routes. `apps/web` adds api-client calls, pure render helpers, and people-tab wiring. Full spec: `docs/superpowers/specs/2026-07-19-people-tab-member-management-design.md` (**source of truth** — prefer it over verbatim task snippets below when they disagree).
 
 **Tech Stack:** Hono, drizzle-orm/d1, better-auth org tables, Astro islands, vitest with in-process fake-D1.
 
 ## Global Constraints
 
-- **Permission matrix** (enforced in the auth worker): remove `member` → owner or admin; remove `admin` → owner only; remove/modify `owner` → never (`403 cannot_modify_owner`); promote/demote (`admin↔member`) → owner only; act on self → never (`400 cannot_modify_self`); revoke invite → owner or admin. Actor lacking owner|admin → `403 actor_not_authorized`.
+- **Permission matrix** (enforced in the auth worker via `memberManageDenied`): remove `member` → owner or admin; remove `admin` → owner only; remove/modify `owner` → never (`403 cannot_modify_owner`); promote `member`→`admin` → owner or admin; demote `admin`→`member` → owner only; act on self → never (`400 cannot_modify_self`); revoke invite → owner or admin. Actor lacking owner|admin → `403 actor_not_authorized`.
+  - _Amendment (post-#275):_ promote was originally owner-only in this plan’s task snippets; current product matches the design-spec table (admins may promote members).
 - **Role values:** `owner | admin | member`. Role-change target role must be `admin` or `member` (`400 invalid_role`); `owner` is never a source or target through these endpoints.
 - **Management targets `member.id`** (opaque), never the global `userId`.
 - **Error shapes:** auth worker uses `errorJson(code, message)` → `{ error: { code, message } }`. `apps/api` throws `@uploads/errors` classes. Auth internal routes are reached only via `env.AUTH.fetch("https://auth.internal/…")` with header `x-uploads-internal: 1`.

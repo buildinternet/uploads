@@ -150,8 +150,9 @@ config file is written, every later `uploads` invocation — including from a
 non-interactive agent — just reads the saved token. Routine agents never need
 `ADMIN_TOKEN`.
 
-**Inviting a teammate** (workspace admin/owner only): open the workspace under
-`/account/workspaces/<name>` in the browser, or:
+**Inviting a teammate** (workspace admin/owner only): open the people tab under
+`/account/workspaces/<name>/people` in the browser (invite, revoke pending
+invites, promote members to admin), or:
 
 ```bash
 uploads invite create --email teammate@example.com --workspace acme
@@ -159,6 +160,8 @@ uploads invite create --email teammate@example.com --workspace acme
 
 Device login as you (not `ADMIN_TOKEN` / not a workspace token). The CLI prints an
 accept URL to share if email isn’t configured. Invitee accepts, then `uploads login`.
+Workspace admins can promote existing members to admin on that people tab; only the
+workspace owner can demote or remove other admins.
 
 For headless machines with no browser at all, an operator can mint a token directly
 (`/admin/tokens`, `ADMIN_TOKEN`-gated — see `docs/admin-tokens.md`) and hand it to the

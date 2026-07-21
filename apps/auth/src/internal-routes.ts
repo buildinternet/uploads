@@ -43,6 +43,44 @@ async function loadTargetMember(
   return row ?? null;
 }
 
+/**
+ * Shared matrix for remove + role-change on a loaded target:
+ * owner|admin may act on members; only owners may act on other admins;
+ * owner rows and self are never manageable.
+ * Returns an errorJson payload + status, or null when allowed.
+ */
+function memberManageDenied(
+  actorOrgRole: string | null,
+  target: { userId: string; role: string },
+  actorUserId: string,
+): { status: 400 | 403; body: ReturnType<typeof errorJson> } | null {
+  if (target.userId === actorUserId) {
+    return {
+      status: 400,
+      body: errorJson("cannot_modify_self", "you cannot modify yourself"),
+    };
+  }
+  if (target.role === "owner") {
+    return {
+      status: 403,
+      body: errorJson("cannot_modify_owner", "the workspace owner cannot be modified"),
+    };
+  }
+  if (actorOrgRole !== "owner" && actorOrgRole !== "admin") {
+    return {
+      status: 403,
+      body: errorJson("actor_not_authorized", "actor must be an org admin or owner"),
+    };
+  }
+  if (target.role === "admin" && actorOrgRole !== "owner") {
+    return {
+      status: 403,
+      body: errorJson("actor_not_authorized", "only an owner can manage an admin"),
+    };
+  }
+  return null;
+}
+
 // Lane 1 (operator OAuth admin panel contract, .context/2026-07-18-oauth-admin-panel-contract.md):
 // validation error shape differs from the rest of this file's errorJson —
 // the contract locks in `{error:"invalid_request", message}` for these routes.
@@ -463,8 +501,7 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     await db.delete(schema.invitation).where(eq(schema.invitation.id, invite.id));
     return c.json({ ok: true });
   })
-  // Task 2 (#275): admin/owner-authorized member removal, used by the
-  // workspace people tab's member management. Reuses actorRole() above.
+  // Task 2 (#275): member removal — matrix in memberManageDenied().
   .delete("/orgs/:slug/members/:memberId", async (c) => {
     const slug = c.req.param("slug");
     const memberId = c.req.param("memberId");
@@ -478,8 +515,6 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     if (!org) {
       return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
     }
-    // Target and actor lookups are independent; the ordered checks below run
-    // against the already-fetched rows.
     const [target, role] = await Promise.all([
       loadTargetMember(db, org.id, memberId),
       actorRole(db, org.id, requestActorUserId),
@@ -487,24 +522,12 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     if (!target) {
       return c.json(errorJson("member_not_found", "no member with that id in this org"), 404);
     }
-    if (target.userId === requestActorUserId) {
-      return c.json(errorJson("cannot_modify_self", "you cannot remove yourself"), 400);
-    }
-    if (target.role === "owner") {
-      return c.json(errorJson("cannot_modify_owner", "the workspace owner cannot be removed"), 403);
-    }
-    if (role !== "owner" && role !== "admin") {
-      return c.json(errorJson("actor_not_authorized", "actor must be an org admin or owner"), 403);
-    }
-    // Only owners may remove admins; admins may remove members only.
-    if (target.role === "admin" && role !== "owner") {
-      return c.json(errorJson("actor_not_authorized", "only an owner can remove an admin"), 403);
-    }
+    const denied = memberManageDenied(role, target, requestActorUserId);
+    if (denied) return c.json(denied.body, denied.status);
     await db.delete(schema.member).where(eq(schema.member.id, target.id));
     return c.json({ ok: true });
   })
-  // Task 3 (#275): owner-only member role change, used by the workspace
-  // people tab's member management. Reuses actorRole() above.
+  // Task 3 (#275): member role change (admin↔member) — same matrix as remove.
   .patch("/orgs/:slug/members/:memberId", async (c) => {
     const slug = c.req.param("slug");
     const memberId = c.req.param("memberId");
@@ -525,8 +548,6 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     if (!org) {
       return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
     }
-    // Target and actor lookups are independent; the ordered checks below run
-    // against the already-fetched rows.
     const [target, role] = await Promise.all([
       loadTargetMember(db, org.id, memberId),
       actorRole(db, org.id, requestActorUserId),
@@ -534,18 +555,8 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     if (!target) {
       return c.json(errorJson("member_not_found", "no member with that id in this org"), 404);
     }
-    if (target.userId === requestActorUserId) {
-      return c.json(errorJson("cannot_modify_self", "you cannot change your own role"), 400);
-    }
-    if (target.role === "owner") {
-      return c.json(errorJson("cannot_modify_owner", "the workspace owner's role is fixed"), 403);
-    }
-    if (role !== "owner") {
-      return c.json(
-        errorJson("actor_not_authorized", "only an owner can change member roles"),
-        403,
-      );
-    }
+    const denied = memberManageDenied(role, target, requestActorUserId);
+    if (denied) return c.json(denied.body, denied.status);
     if (target.role !== nextRole) {
       await db.update(schema.member).set({ role: nextRole }).where(eq(schema.member.id, target.id));
     }

@@ -19,7 +19,7 @@ enforced fresh, inside the auth worker (which owns the `member` table).
 | Remove a `member`               | ✅                           | ✅                            |
 | Remove an `admin`               | ✅                           | ❌ `403 actor_not_authorized` |
 | Remove an `owner`               | ❌ `403 cannot_modify_owner` | ❌ `403 cannot_modify_owner`  |
-| Promote `member`→`admin`        | ✅                           | ❌ `403 actor_not_authorized` |
+| Promote `member`→`admin`        | ✅                           | ✅                            |
 | Demote `admin`→`member`         | ✅                           | ❌ `403 actor_not_authorized` |
 | Set an `owner` to any role      | ❌ `403 cannot_modify_owner` | ❌ `403 cannot_modify_owner`  |
 | Act on **self** (remove / role) | ❌ `400 cannot_modify_self`  | ❌ `400 cannot_modify_self`   |
@@ -31,8 +31,9 @@ Consequences, by design:
   (created at provision; no path mints a second), so "the last owner can never be removed or
   demoted" holds without any admin-counting query — the owner is simply protected from every
   actor including themselves.
-- **Changing the admin roster is an owner privilege.** Admins handle members (remove members)
-  but cannot remove, promote, or demote admins, nor touch the owner.
+- **Admins manage the member roster; only owners manage other admins.** Admins may promote
+  members to admin (and remove members) — matching invites and common SaaS org models — but
+  cannot remove, demote, or otherwise act on peer admins, nor touch the owner.
 - **Self-actions are blocked** to avoid accidental self-lockout. "Leave workspace" is a
   separate future feature, not part of this work.
 
@@ -70,7 +71,9 @@ the matrix. Error shape is the file's `errorJson(code, message)` → `{ error: {
   - Target member row → else `404 member_not_found`.
   - `target.userId === actorUserId` → `400 cannot_modify_self`.
   - `target.role === "owner"` → `403 cannot_modify_owner`.
-  - Actor is not `owner` → `403 actor_not_authorized` (only owners change roles).
+  - Actor not `owner|admin` → `403 actor_not_authorized`.
+  - `target.role === "admin"` and actor is not `owner` → `403 actor_not_authorized`
+    (same peer-admin rule as remove).
   - Idempotent: already at `role` → `200` no-op.
   - Update `member.role`. → `200 { member: { id, userId, role } }`.
 

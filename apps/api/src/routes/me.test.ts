@@ -647,8 +647,24 @@ describe("member management routes", () => {
     expect(res.status).toBe(403);
   });
 
-  it("PATCH members changes the role for an admin/owner", async () => {
+  it("PATCH members changes the role for an owner", async () => {
     const env = manageEnv({ role: "owner" });
+    const res = await app().request(
+      "/me/workspaces/acme/members/m1",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ role: "admin" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { member: { role: string } };
+    expect(body.member.role).toBe("admin");
+  });
+
+  it("PATCH members changes the role for a workspace admin", async () => {
+    const env = manageEnv({ role: "admin" });
     const res = await app().request(
       "/me/workspaces/acme/members/m1",
       {
