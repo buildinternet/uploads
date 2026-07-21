@@ -20,6 +20,7 @@ import { reports } from "./routes/reports";
 import { render } from "./routes/render";
 import { githubWebhook } from "./routes/github-webhook";
 import { githubComment } from "./routes/github-comment";
+import { githubPromote } from "./routes/github-promote";
 import { protectedResourceMetadata, requestOrigin } from "./well-known";
 
 // Lets the browser console on the web origin (and local dev) call the token-
@@ -127,6 +128,10 @@ export const app = new Hono<WorkspaceVars>()
   // Bot-owned managed comment (phase 2 PR B). Workspace-authed (unlike the
   // HMAC-public /v1/github/webhook above) — behind the workspaceAuth guard.
   .route("/v1/:workspace/github", githubComment)
+  // Phase 2a: promotes branch-staged attachments into a PR's attachment
+  // prefix. Same base path as the comment route above (workspace-authed,
+  // distinct sub-route "/promote" vs "/comment").
+  .route("/v1/:workspace/github", githubPromote)
   .onError((err, c) => respondError(c, err))
   .notFound((c) => respondError(c, new NotFoundError()));
 
