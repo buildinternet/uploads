@@ -15,6 +15,7 @@ import type { WorkspaceRecord } from "./workspace";
 import { githubFetch, githubHeaders, installationToken, type GithubAppConfig } from "./github-app";
 import {
   attachmentsCommentBody,
+  attachmentsMarker,
   ghKeyPrefix,
   ATTACHMENTS_MARKER,
   type AttachmentItem,
@@ -47,7 +48,8 @@ export async function gatherCommentBody(
 
   const count = items.length + galleries.length;
   if (count === 0) return { skip: true };
-  return { skip: false, body: attachmentsCommentBody(items, galleries), count };
+  const marker = attachmentsMarker(workspaceName);
+  return { skip: false, body: attachmentsCommentBody(items, galleries, marker), count };
 }
 
 /** The workspace's own objects under the stable gh key prefix. */
@@ -137,10 +139,13 @@ interface GhComment {
  * it and re-hunts. Long only to spare the hunt on active PRs. */
 const COMMENT_ID_TTL = 60 * 60 * 24 * 30; // 30 days.
 
-/** KV key for the managed comment's id, keyed by the coordinate the comment is
- * unique on (repo#num — one managed comment per PR/issue, shared marker). */
-function commentCacheKey(target: Pick<GhTarget, "repo" | "num">): string {
-  return `ghcomment:${target.repo.toLowerCase()}#${target.num}`;
+/** KV key for the managed comment's id, keyed by the workspace + coordinate the
+ * comment is unique on (repo#num — one managed comment per PR/issue per
+ * workspace, phase 4b). A cache entry written under the pre-4b key format
+ * (`ghcomment:<repo>#<num>`, no workspace dimension) simply misses under this
+ * key and falls through to a fresh marker hunt — no migration needed. */
+function commentCacheKey(workspaceName: string, target: Pick<GhTarget, "repo" | "num">): string {
+  return `ghcomment:${workspaceName}:${target.repo.toLowerCase()}#${target.num}`;
 }
 
 /** One create/patch write. `status` is 0 for a thrown request (network error). */
@@ -167,6 +172,7 @@ export async function upsertBotComment(
   installationId: number,
   target: Pick<GhTarget, "repo" | "num">,
   body: string,
+  workspaceName: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<
   { action: "created" | "updated"; commentUrl: string } | { degrade: "forbidden" | "unavailable" }
@@ -175,7 +181,8 @@ export async function upsertBotComment(
   if (!token) return { degrade: "unavailable" };
   const base = `https://api.github.com/repos/${target.repo}`;
   const jsonHeaders = { ...githubHeaders(token), "content-type": "application/json" };
-  const cacheKey = commentCacheKey(target);
+  const cacheKey = commentCacheKey(workspaceName, target);
+  const marker = attachmentsMarker(workspaceName);
 
   const write = async (url: string, method: "POST" | "PATCH"): Promise<WriteOutcome> => {
     let res: Response;
@@ -205,8 +212,11 @@ export async function upsertBotComment(
   }
 
   // Slow path: find the marker comment across all pages (a busy thread can push
-  // it past the first 100), then patch it; otherwise create a new one.
-  const found = await findMarkerComment(fetchImpl, token, base, target.num);
+  // it past the first 100), then patch it; otherwise create a new one. Hunts
+  // the namespaced marker first; a legacy (pre-4b, unnamespaced) comment is
+  // adopted — `body` already carries the namespaced marker, so patching it
+  // migrates the comment in place.
+  const found = await findMarkerComment(fetchImpl, token, base, target.num, marker);
   if (found.degrade) return { degrade: found.degrade };
   const existing = found.comment;
 
@@ -227,14 +237,23 @@ export async function upsertBotComment(
  * found or the pages run out. Bounded so a pathological thread can't loop
  * unboundedly; the cap is far beyond any real attachments thread, and the id
  * cache means this hunt runs at most once per comment anyway.
+ *
+ * Prefers a comment carrying `marker` (the namespaced, per-workspace marker);
+ * if none is found across every page, falls back to a comment carrying the
+ * shared legacy `ATTACHMENTS_MARKER` (pre-4b, unnamespaced) so it can be
+ * adopted and migrated in place. When `marker` IS the legacy marker (no
+ * workspace to namespace with) this collapses to a single hunt, unchanged
+ * from pre-4b behavior.
  */
 async function findMarkerComment(
   fetchImpl: typeof fetch,
   token: string,
   base: string,
   num: number,
+  marker: string,
 ): Promise<{ comment?: GhComment; degrade?: "forbidden" | "unavailable" }> {
   const MAX_PAGES = 20; // 2000 comments.
+  let legacyHit: GhComment | undefined;
   for (let page = 1; page <= MAX_PAGES; page++) {
     let res: Response;
     try {
@@ -251,12 +270,17 @@ async function findMarkerComment(
     if (res.status === 403) return { degrade: "forbidden" };
     if (!res.ok) return { degrade: "unavailable" };
     const comments = (await res.json().catch(() => [])) as GhComment[];
-    if (!Array.isArray(comments)) return {};
-    const hit = comments.find(
-      (c) => typeof c.body === "string" && c.body.includes(ATTACHMENTS_MARKER),
+    if (!Array.isArray(comments)) return { comment: legacyHit };
+    const namespacedHit = comments.find(
+      (c) => typeof c.body === "string" && c.body.includes(marker),
     );
-    if (hit) return { comment: hit };
-    if (comments.length < 100) return {}; // last page reached, not found.
+    if (namespacedHit) return { comment: namespacedHit };
+    if (!legacyHit && marker !== ATTACHMENTS_MARKER) {
+      legacyHit = comments.find(
+        (c) => typeof c.body === "string" && c.body.includes(ATTACHMENTS_MARKER),
+      );
+    }
+    if (comments.length < 100) return { comment: legacyHit }; // last page reached.
   }
-  return {}; // page cap hit without a match — treat as not found (create).
+  return { comment: legacyHit }; // page cap hit — best effort, still adopt a legacy hit if seen.
 }

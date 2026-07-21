@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import type { UploadsClient } from "../src/client.js";
 import { runComment, syncAttachmentsComment, type CliContext } from "../src/commands.js";
-import { ATTACHMENTS_MARKER } from "../src/github.js";
+import { attachmentsMarker } from "../src/github.js";
 import type { CommandRunner } from "../src/github-gh.js";
 
 function listClient(
@@ -88,7 +88,9 @@ describe("runComment", () => {
     expect(code).toBe(0);
     const create = calls.find((c) => c.args.includes("repos/o/r/issues/5/comments"));
     expect(create).toBeDefined();
-    expect(create!.input).toContain(ATTACHMENTS_MARKER);
+    // ctxWith's workspace ("test") is a valid slug, so the gh-fallback path
+    // uses the namespaced marker (phase 4b).
+    expect(create!.input).toContain(attachmentsMarker("test"));
     expect(create!.input).toContain("after.png");
   });
 

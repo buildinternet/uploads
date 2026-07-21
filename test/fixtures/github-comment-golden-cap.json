@@ -1,0 +1,109 @@
+{
+  "items": [
+    {
+      "key": "gh/acme/web/pull/12/img01.png",
+      "url": "https://uploads.sh/f/img01.png",
+      "embedUrl": "https://embed.uploads.sh/f/img01.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img01.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img02.png",
+      "url": "https://uploads.sh/f/img02.png",
+      "embedUrl": "https://embed.uploads.sh/f/img02.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img02.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img03.png",
+      "url": "https://uploads.sh/f/img03.png",
+      "embedUrl": "https://embed.uploads.sh/f/img03.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img03.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img04.png",
+      "url": "https://uploads.sh/f/img04.png",
+      "embedUrl": "https://embed.uploads.sh/f/img04.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img04.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img05.png",
+      "url": "https://uploads.sh/f/img05.png",
+      "embedUrl": "https://embed.uploads.sh/f/img05.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img05.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img06.png",
+      "url": "https://uploads.sh/f/img06.png",
+      "embedUrl": "https://embed.uploads.sh/f/img06.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img06.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img07.png",
+      "url": "https://uploads.sh/f/img07.png",
+      "embedUrl": "https://embed.uploads.sh/f/img07.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img07.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img08.png",
+      "url": "https://uploads.sh/f/img08.png",
+      "embedUrl": "https://embed.uploads.sh/f/img08.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img08.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img09.png",
+      "url": "https://uploads.sh/f/img09.png",
+      "embedUrl": "https://embed.uploads.sh/f/img09.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img09.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img10.png",
+      "url": "https://uploads.sh/f/img10.png",
+      "embedUrl": "https://embed.uploads.sh/f/img10.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img10.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img11.png",
+      "url": "https://uploads.sh/f/img11.png",
+      "embedUrl": "https://embed.uploads.sh/f/img11.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img11.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img12.png",
+      "url": "https://uploads.sh/f/img12.png",
+      "embedUrl": "https://embed.uploads.sh/f/img12.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img12.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img13.png",
+      "url": "https://uploads.sh/f/img13.png",
+      "embedUrl": "https://embed.uploads.sh/f/img13.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img13.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img14.png",
+      "url": "https://uploads.sh/f/img14.png",
+      "embedUrl": "https://embed.uploads.sh/f/img14.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img14.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img15.png",
+      "url": "https://uploads.sh/f/img15.png",
+      "embedUrl": "https://embed.uploads.sh/f/img15.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img15.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img16.png",
+      "url": "https://uploads.sh/f/img16.png",
+      "embedUrl": "https://embed.uploads.sh/f/img16.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img16.png"
+    },
+    {
+      "key": "gh/acme/web/pull/12/img17.png",
+      "url": "https://uploads.sh/f/img17.png",
+      "embedUrl": "https://embed.uploads.sh/f/img17.png",
+      "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/img17.png"
+    }
+  ],
+  "galleries": [],
+  "marker": "<!-- uploads.sh:attachments ws=acme -->",
+  "expected": "<!-- uploads.sh:attachments ws=acme -->\n### 📎 Attachments\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img01.png\"><img width=\"400\" alt=\"img01.png\" src=\"https://embed.uploads.sh/f/img01.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img02.png\"><img width=\"400\" alt=\"img02.png\" src=\"https://embed.uploads.sh/f/img02.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img03.png\"><img width=\"400\" alt=\"img03.png\" src=\"https://embed.uploads.sh/f/img03.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img04.png\"><img width=\"400\" alt=\"img04.png\" src=\"https://embed.uploads.sh/f/img04.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img05.png\"><img width=\"400\" alt=\"img05.png\" src=\"https://embed.uploads.sh/f/img05.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img06.png\"><img width=\"400\" alt=\"img06.png\" src=\"https://embed.uploads.sh/f/img06.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img07.png\"><img width=\"400\" alt=\"img07.png\" src=\"https://embed.uploads.sh/f/img07.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img08.png\"><img width=\"400\" alt=\"img08.png\" src=\"https://embed.uploads.sh/f/img08.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img09.png\"><img width=\"400\" alt=\"img09.png\" src=\"https://embed.uploads.sh/f/img09.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img10.png\"><img width=\"400\" alt=\"img10.png\" src=\"https://embed.uploads.sh/f/img10.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img11.png\"><img width=\"400\" alt=\"img11.png\" src=\"https://embed.uploads.sh/f/img11.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img12.png\"><img width=\"400\" alt=\"img12.png\" src=\"https://embed.uploads.sh/f/img12.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img13.png\"><img width=\"400\" alt=\"img13.png\" src=\"https://embed.uploads.sh/f/img13.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img14.png\"><img width=\"400\" alt=\"img14.png\" src=\"https://embed.uploads.sh/f/img14.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img15.png\"><img width=\"400\" alt=\"img15.png\" src=\"https://embed.uploads.sh/f/img15.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/img16.png\"><img width=\"400\" alt=\"img16.png\" src=\"https://embed.uploads.sh/f/img16.png\"></a>\n\n<details><summary>1 more attachment</summary>\n\n- [img17.png](https://uploads.sh/f/acme/gh/acme/web/pull/12/img17.png)\n\n</details>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>"
+}

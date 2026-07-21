@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { UsageError } from "../src/cli-args.js";
-import { ATTACHMENTS_MARKER, type GhTarget } from "../src/github.js";
+import { ATTACHMENTS_MARKER, attachmentsMarker, type GhTarget } from "../src/github.js";
 import {
   classifyGhNumber,
   ghMetadataFromTargetWithTitle,
@@ -172,6 +172,44 @@ describe("upsertAttachmentsComment", () => {
     expect(patch.args).toContain("repos/o/r/issues/comments/42");
     expect(patch.args).toContain("PATCH");
     expect(patch.input).toContain("new body");
+  });
+
+  it("hunts for the namespaced marker first, even when a legacy marker comment also exists", () => {
+    const marker = attachmentsMarker("acme");
+    const { run, calls } = fakeRunner({
+      gh: (args) => {
+        if (args[1]?.includes("/comments?per_page=100")) {
+          return JSON.stringify([
+            { id: 1, body: `${ATTACHMENTS_MARKER}\nsomeone else's legacy comment` },
+            { id: 2, body: `${marker}\nours` },
+          ]);
+        }
+        return JSON.stringify({ id: 2 });
+      },
+    });
+    const result = upsertAttachmentsComment(target, `${marker}\nnew body`, run, marker);
+    expect(result.created).toBe(false);
+    const patch = calls[1];
+    expect(patch.args).toContain("repos/o/r/issues/comments/2");
+  });
+
+  it("adopts a legacy (unnamespaced) marker comment when no namespaced one exists yet", () => {
+    const marker = attachmentsMarker("acme");
+    const { run, calls } = fakeRunner({
+      gh: (args) => {
+        if (args[1]?.includes("/comments?per_page=100")) {
+          return JSON.stringify([{ id: 7, body: `${ATTACHMENTS_MARKER}\nold body` }]);
+        }
+        return JSON.stringify({ id: 7 });
+      },
+    });
+    // The namespaced marker is already the first line of the new body —
+    // patching the legacy comment with it migrates the comment in place.
+    const result = upsertAttachmentsComment(target, `${marker}\nnew body`, run, marker);
+    expect(result.created).toBe(false);
+    const patch = calls[1];
+    expect(patch.args).toContain("repos/o/r/issues/comments/7");
+    expect(patch.input).toContain(marker);
   });
 });
 

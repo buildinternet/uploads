@@ -438,6 +438,28 @@ uploads comment --pr 123
 uploads comment --issue 45 --repo buildinternet/uploads
 ```
 
+Past 16 inline images, the comment collapses the rest into a `<details>` link
+list so a heavily-screenshotted PR stays readable. Each workspace gets its own
+managed comment on a shared repo (namespaced under the hood) instead of
+clobbering another workspace's — use `uploads github link` (below) to see or
+set which workspace a repo is bound to.
+
+### Repo binding (`uploads github link`)
+
+The managed comment and webhook auto-promotion use a first-claim-wins binding
+between a repo and a workspace, normally created implicitly by your first
+`comment`/`put --comment`/promote call. Inspect or explicitly claim it:
+
+```bash
+uploads github link                       # claim the current repo for this workspace
+uploads github link --repo owner/name     # claim a specific repo
+uploads github link --status              # read-only: show the current binding, don't claim
+```
+
+Claiming an already-bound repo never steals it — the command reports the
+existing owner instead. On an older/self-hosted server without this route it
+fails with a clear "server does not support repo bindings yet" message.
+
 ### Embedding best practices
 
 - **Meaningful alt text**, always — it's what readers with images off and search see.

@@ -77,7 +77,14 @@ export const githubComment = new Hono<WorkspaceVars>().post(
     );
     if (gathered.skip) return c.json({ posted: true, action: "skipped", count: 0 });
 
-    const result = await upsertBotComment(c.env, cfg, installId, target, gathered.body);
+    const result = await upsertBotComment(
+      c.env,
+      cfg,
+      installId,
+      target,
+      gathered.body,
+      c.get("workspaceName"),
+    );
     if ("degrade" in result) {
       // A 403 means the App is installed but lacks Issues/PR write (pending org
       // approval). Enrich that one reason with actionable guidance so the CLI

@@ -156,6 +156,31 @@ export function ghMetadataFromTarget(target: GhTarget): Record<string, string> {
 /** Hidden marker identifying the one comment this CLI manages. Never change it — existing comments are found by exact match. */
 export const ATTACHMENTS_MARKER = "<!-- uploads.sh:attachments -->";
 
+/** Workspace slugs are `[a-z0-9-]`-ish; only markers built from a slug matching
+ * this are trusted as a distinct namespace — anything else (empty, unsafe
+ * chars) degrades to the shared legacy marker rather than emitting untrusted
+ * text into comment HTML. */
+const WORKSPACE_SLUG_RE = /^[a-z0-9-]{1,64}$/;
+
+/**
+ * Per-workspace marker (`<!-- uploads.sh:attachments ws=<workspace> -->`) so
+ * two workspaces managing the same repo don't clobber each other's comment.
+ * Falls back to the shared legacy marker when `workspace` is missing or does
+ * not look like a safe slug — degrade, don't guess or risk breaking the
+ * comment's HTML.
+ */
+export function attachmentsMarker(workspace?: string): string {
+  if (workspace && WORKSPACE_SLUG_RE.test(workspace)) {
+    return `<!-- uploads.sh:attachments ws=${workspace} -->`;
+  }
+  return ATTACHMENTS_MARKER;
+}
+
+/** Max attachments embedded as inline `<img>` tags before the rest collapse
+ * into a `<details>` link list. Keeps very large threads from becoming a wall
+ * of images. */
+export const MAX_INLINE_ATTACHMENT_IMAGES = 16;
+
 export interface AttachmentItem {
   key: string;
   url: string | null;
@@ -214,12 +239,13 @@ function escapeHtmlText(s: string): string {
 export function attachmentsCommentBody(
   items: AttachmentItem[],
   galleries: GalleryCommentItem[] = [],
+  marker: string = ATTACHMENTS_MARKER,
 ): string {
   const sorted = items.toSorted((a, b) => a.key.localeCompare(b.key));
   const sortedGalleries = galleries.toSorted(
     (a, b) => a.title.localeCompare(b.title) || a.url.localeCompare(b.url),
   );
-  const lines: string[] = [ATTACHMENTS_MARKER];
+  const lines: string[] = [marker];
   if (sortedGalleries.length > 0) {
     lines.push("### 🖼️ Galleries", "");
     for (const gallery of sortedGalleries) {
@@ -237,18 +263,28 @@ export function attachmentsCommentBody(
     lines.push("");
   }
   if (sorted.length > 0 || sortedGalleries.length === 0) lines.push("### 📎 Attachments", "");
+  let inlinedImages = 0;
+  const overflowImages: AttachmentItem[] = [];
   for (const item of sorted) {
     const name = item.key.slice(item.key.lastIndexOf("/") + 1);
     const stable = item.url;
     const src = item.embedUrl ?? item.url;
     const link = item.pageUrl ?? stable; // click-through: file page when known, else raw
-    if (src && inferContentType(name).startsWith("image/")) {
+    const isImage = Boolean(src) && inferContentType(name).startsWith("image/");
+    if (isImage && inlinedImages >= MAX_INLINE_ATTACHMENT_IMAGES) {
+      // Cap hit — defer to the collapsed overflow list below rather than
+      // embedding every remaining image inline.
+      overflowImages.push(item);
+      continue;
+    }
+    if (isImage) {
+      inlinedImages++;
       // Markdown ![]() has no width control — phone frames become full-column giants.
       // img src uses embed host when available (Camo revalidates); click-through prefers the file page.
       const w = attachmentImageWidth(name);
       const alt = escapeHtmlAttr(name);
-      const href = escapeHtmlAttr(link ?? src);
-      const imgSrc = escapeHtmlAttr(src);
+      const href = escapeHtmlAttr(link ?? (src as string));
+      const imgSrc = escapeHtmlAttr(src as string);
       lines.push(`<a href="${href}"><img width="${w}" alt="${alt}" src="${imgSrc}"></a>`);
       lines.push("");
     } else if (link) {
@@ -256,6 +292,16 @@ export function attachmentsCommentBody(
     } else {
       lines.push(`- ${name}`);
     }
+  }
+  if (overflowImages.length > 0) {
+    const n = overflowImages.length;
+    lines.push(`<details><summary>${n} more attachment${n === 1 ? "" : "s"}</summary>`, "");
+    for (const item of overflowImages) {
+      const name = item.key.slice(item.key.lastIndexOf("/") + 1);
+      const link = item.pageUrl ?? item.url;
+      lines.push(link ? `- [${name}](${link})` : `- ${name}`);
+    }
+    lines.push("", "</details>", "");
   }
   lines.push(
     '<sub>Maintained by <a href="https://uploads.sh">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>',

@@ -150,6 +150,11 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
     summary: "Create/update a PR/issue attachments comment (via gh)",
   },
   {
+    name: "github",
+    summary: "Claim/inspect this workspace's binding to a GitHub repo",
+    subcommands: [{ name: "link", summary: "Claim or inspect the repo binding" }],
+  },
+  {
     name: "list",
     summary: "List objects (--meta k=v filters by queryable metadata)",
     essential: true,

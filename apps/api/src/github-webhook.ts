@@ -151,7 +151,14 @@ async function autoPromoteAndComment(env: Env, p: PullRequestPayload): Promise<v
     const installId = link.installationId ?? (await installationForRepo(env, cfg, repo));
     if (installId === null) return;
 
-    const result = await upsertBotComment(env, cfg, installId, target, gathered.body);
+    const result = await upsertBotComment(
+      env,
+      cfg,
+      installId,
+      target,
+      gathered.body,
+      link.workspaceName,
+    );
     if ("degrade" in result) {
       console.error(
         JSON.stringify({

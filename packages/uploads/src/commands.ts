@@ -35,6 +35,7 @@ import {
   ghMetadataFromTarget,
   ghMetadataForBranch,
   attachmentsCommentBody,
+  attachmentsMarker,
   type GhTarget,
   type AttachmentItem,
   type GalleryCommentItem,
@@ -466,6 +467,7 @@ export async function syncAttachmentsComment(
   client: UploadsClient,
   target: GhTarget,
   run: CommandRunner,
+  workspace?: string,
 ): Promise<AttachmentsCommentResult> {
   try {
     const bot = await client.upsertGithubComment({
@@ -539,8 +541,9 @@ export async function syncAttachmentsComment(
   if (items.length === 0 && previewGalleries.length === 0)
     return { action: "skipped", count: 0, via: "gh" };
 
-  const body = attachmentsCommentBody(items, previewGalleries);
-  const { created } = upsertAttachmentsComment(target, body, run);
+  const marker = attachmentsMarker(workspace);
+  const body = attachmentsCommentBody(items, previewGalleries, marker);
+  const { created } = upsertAttachmentsComment(target, body, run, marker);
   return {
     action: created ? "created" : "updated",
     count: items.length + previewGalleries.length,
@@ -1071,7 +1074,7 @@ export async function runAttach(
   // Skip comment refresh when every upload failed — nothing new from this batch.
   if (!parsed.flags.has("--no-comment") && uploads.length > 0) {
     try {
-      comment = await syncAttachmentsComment(ctx.client, target, run);
+      comment = await syncAttachmentsComment(ctx.client, target, run, ctx.config.workspace);
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);
       process.stderr.write(
@@ -1223,7 +1226,7 @@ async function runAttachPromoteOnly(
   let commentError: string | undefined;
   if (!parsed.flags.has("--no-comment")) {
     try {
-      comment = await syncAttachmentsComment(ctx.client, target, run);
+      comment = await syncAttachmentsComment(ctx.client, target, run, ctx.config.workspace);
     } catch (err) {
       commentError = err instanceof Error ? err.message : String(err);
       process.stderr.write(
@@ -1470,7 +1473,7 @@ export async function runPut(
   let commentError: string | undefined;
   if (wantComment && ghTarget && uploads.length > 0) {
     try {
-      comment = await syncAttachmentsComment(ctx.client, ghTarget, run);
+      comment = await syncAttachmentsComment(ctx.client, ghTarget, run, ctx.config.workspace);
       if (logHuman)
         process.stderr.write(
           `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n`,
@@ -2041,7 +2044,7 @@ export async function runComment(
   const target = ghTargetFromFlags(parsed.flags, run);
   if (!target) throw new UsageError("comment requires --pr or --issue");
 
-  const result = await syncAttachmentsComment(ctx.client, target, run);
+  const result = await syncAttachmentsComment(ctx.client, target, run, ctx.config.workspace);
   if (ctx.json) {
     await writeJson({ ...target, ...result });
   } else if (!ctx.quiet) {
@@ -2052,6 +2055,85 @@ export async function runComment(
         : `${result.action} attachments comment on ${target.repo}#${target.num} (${result.count} file${result.count === 1 ? "" : "s"})${via}\n`,
     );
   }
+  return 0;
+}
+
+// --- github link ---
+
+const GITHUB_HELP = `uploads github link [--repo <owner/name>] [--status] [--workspace <name>]
+
+Claim or inspect this workspace's binding to a GitHub repo (see the managed
+attachments comment / webhook auto-promotion, which use this binding).
+First-claim-wins: claiming an already-bound repo never steals it from
+whichever workspace claimed it first — the command reports who owns it
+instead.
+
+--repo defaults the same way as --pr/--issue elsewhere (gh repo view, then
+the git remote). --status only inspects the current binding (files:read);
+without it, the command claims the repo (files:write).
+
+Examples:
+  uploads github link
+  uploads github link --repo buildinternet/uploads
+  uploads github link --status
+`;
+
+function formatGithubLink(
+  repo: string,
+  result: { workspace: string | null; source: string | null },
+): string {
+  return result.workspace
+    ? `${repo} is bound to workspace "${result.workspace}"${result.source ? ` (${result.source})` : ""}\n`
+    : `${repo} is not bound to any workspace\n`;
+}
+
+export async function runGithub(
+  ctx: CliContext,
+  args: string[],
+  help = false,
+  run: CommandRunner = execRunner,
+): Promise<number> {
+  const parsed = parseCommandArgs(args);
+  const action = parsed.positionals[0];
+  if (help || parsed.help || !action) {
+    writeCommandHelp(GITHUB_HELP);
+    return help || parsed.help ? 0 : 2;
+  }
+  if (action !== "link") throw new UsageError(`unknown github subcommand: ${action}`);
+
+  const repo = resolveRepo(flagString(parsed.flags, "--repo"), run);
+  const statusOnly = flagBool(parsed.flags, "--status");
+
+  let result: {
+    repo: string;
+    linked: boolean;
+    workspace: string | null;
+    source: string | null;
+    claimed?: boolean;
+  };
+  try {
+    result = statusOnly
+      ? await ctx.client.githubLinkStatus(repo)
+      : await ctx.client.githubLinkClaim(repo);
+  } catch (err) {
+    if (err instanceof UploadsError && err.status === 404) {
+      throw new UsageError(
+        "server does not support repo bindings yet (404) — upgrade the uploads.sh API/self-hosted worker",
+      );
+    }
+    throw err;
+  }
+
+  if (ctx.json) {
+    await writeJson(result);
+    return 0;
+  }
+  if (!statusOnly && result.claimed === false) {
+    process.stderr.write(
+      `note: ${repo} is already bound to a different workspace ("${result.workspace}") — first-claim-wins, not overwritten\n`,
+    );
+  }
+  await writeStdout(formatGithubLink(repo, result));
   return 0;
 }
 
