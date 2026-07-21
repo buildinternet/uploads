@@ -166,6 +166,9 @@ describe("account linking (issue #233)", () => {
     // better-auth redirects to the error callback rather than linking or
     // silently minting a second user for the same email.
     expect(res.status).toBe(302);
+    const location = res.headers.get("location");
+    expect(location).toContain("/api/auth/error");
+    expect(location).toContain("error=");
 
     const users = await orm.select().from(schema.user).where(eq(schema.user.email, email));
     expect(users).toHaveLength(1);
@@ -194,5 +197,63 @@ describe("account linking (issue #233)", () => {
     const users = await orm.select().from(schema.user).where(eq(schema.user.email, email));
     expect(users).toHaveLength(1);
     expect(users[0].emailVerified).toBe(true);
+  });
+
+  // Verified against the real handler: a verified GitHub email that differs
+  // from an existing magic-link user's email does NOT link to that user,
+  // even with `allowDifferentEmails: true`. That flag governs the explicit
+  // "connect another account while already signed in" flow
+  // (api/routes/account.mjs `linkSocialAccount`); it does not change how an
+  // *unauthenticated* sign-in resolves which existing user to attach to —
+  // that lookup is still by matching email (see the "attaches ... existing
+  // magic-link user" test above, where the emails match). So a differing,
+  // verified email here mints a second, independent user and attaches the
+  // GitHub account to that new user — it does not merge into the
+  // magic-link user. This test documents that actual behavior rather than
+  // asserting the merge outcome floated during review.
+  it("mints a separate user for a verified GitHub email that differs from an existing magic-link user's email", async () => {
+    const magicLinkEmail = "magiclink-owner@example.com";
+    const githubEmail = "github-owner@example.com";
+    const magicLinkUserId = crypto.randomUUID();
+    await orm.insert(schema.user).values({
+      id: magicLinkUserId,
+      name: "Magic Link User",
+      email: magicLinkEmail,
+      emailVerified: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const env = dbEnv(db);
+    const { state, cookie } = await beginGithubSignIn(env);
+    stubGithubFetch({ id: 6161, login: "diff-email-user", email: githubEmail }, [
+      { email: githubEmail, primary: true, verified: true },
+    ]);
+
+    const res = await completeGithubCallback(env, state, cookie);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).not.toContain("error=");
+
+    const allUsers = await orm.select().from(schema.user);
+    expect(allUsers).toHaveLength(2);
+
+    const githubUser = allUsers.find((u) => u.email === githubEmail);
+    expect(githubUser).toBeDefined();
+    expect(githubUser?.id).not.toBe(magicLinkUserId);
+
+    const accounts = await orm
+      .select()
+      .from(schema.account)
+      .where(eq(schema.account.userId, githubUser!.id));
+    const githubAccount = accounts.find((a) => a.providerId === "github");
+    expect(githubAccount).toBeDefined();
+    expect(githubAccount?.accountId).toBe("6161");
+
+    // The original magic-link user is untouched and has no GitHub account.
+    const magicLinkAccounts = await orm
+      .select()
+      .from(schema.account)
+      .where(eq(schema.account.userId, magicLinkUserId));
+    expect(magicLinkAccounts.find((a) => a.providerId === "github")).toBeUndefined();
   });
 });

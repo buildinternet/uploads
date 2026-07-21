@@ -137,9 +137,11 @@ policy and rationale.
 `DELETE /v1/workspaces/:name` and `POST /v1/workspaces/:name/restore` give a
 signed-in owner the same soft-delete/restore surface as the admin path
 above, session-authed (browser cookie) instead of `ADMIN_TOKEN`. Ownership
-gate: the record must have `selfServe === true` and `createdByUserId`
-matching the caller's session user id — a workspace that exists but isn't
-owned self-serve (or isn't this user's) 403s `not_owner`. Semantics are otherwise identical to the
+gate: the record must have `selfServe === true`, and the caller must be
+either the record creator (`createdByUserId` match) or hold org role
+`owner` (not `admin`) in that workspace's org (#265, via `isWorkspaceOwner`
+— same membership lookup the #262 governance gates use) — anything else
+403s `not_owner`. Semantics are otherwise identical to the
 admin soft-delete/restore path (409 `already_deleted` / `not_deleted`, 410
 `grace_expired`, never hard, never frees the slug) via a shared stamp helper
 so the two paths can't drift. No web console UI yet — API only.

@@ -377,6 +377,87 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
   });
 });
 
+describe("POST /v1/:workspace/files/sign strict-overwrite gate (review follow-up)", () => {
+  it("refuses to sign an overwrite of an existing strict key without replace", async () => {
+    const { env } = await makeEnv();
+    const put = await putShot(env);
+    expect(put.status).toBe(201);
+
+    const res = await app.request(
+      "/v1/default/files/sign",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({ key: "screenshots/shot.png" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(409);
+    const json = (await res.json()) as { error: { code: string } };
+    expect(json.error.code).toBe("key_exists");
+  });
+
+  it("signs an overwrite when replace: true is passed", async () => {
+    const { env } = await makeEnv();
+    const put = await putShot(env);
+    expect(put.status).toBe(201);
+
+    const res = await app.request(
+      "/v1/default/files/sign",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({ key: "screenshots/shot.png", replace: true }),
+      },
+      env,
+    );
+    // No S3 HTTP credentials on this fake record, so signing itself still
+    // 400s — the point of this test is that the strict-overwrite gate does
+    // NOT block the request when replace is opted in (a 409 here would mean
+    // the gate fired regardless of replace).
+    expect(res.status).not.toBe(409);
+  });
+
+  it("does not gate signing a key that has never been uploaded to", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/default/files/sign",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({ key: "screenshots/never-uploaded.png" }),
+      },
+      env,
+    );
+    expect(res.status).not.toBe(409);
+  });
+
+  it("always allows signing a gh/-prefixed key even when it already exists", async () => {
+    const { env } = await makeEnv();
+    const put = await app.request(
+      "/v1/default/files/gh/acme/widgets/pull/1/shot.png",
+      {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png" },
+        body: PNG,
+      },
+      env,
+    );
+    expect(put.status).toBe(201);
+
+    const res = await app.request(
+      "/v1/default/files/sign",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({ key: "gh/acme/widgets/pull/1/shot.png" }),
+      },
+      env,
+    );
+    expect(res.status).not.toBe(409);
+  });
+});
+
 describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
   it("splits non-allowlisted X-Uploads-Meta-* headers into D1 while keeping allowlisted ones as R2 provenance", async () => {
     const { env, db, bucket } = await makeEnv();

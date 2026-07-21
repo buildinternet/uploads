@@ -1,7 +1,22 @@
 import { WS_NAME_RE } from "./workspace";
 import { SLUG_BLOCKLIST, SLUG_BLOCKLIST_ALLOW } from "./slug-blocklist";
 
-/** Names that collide with routes or subdomains. */
+/**
+ * Names that collide with routes or subdomains.
+ *
+ * `default` is redundant with the existing-name check today (the built-in
+ * `default` workspace is always registered, so self-serve registration
+ * would already 409 `workspace_name_taken` without this entry) — but it
+ * stays reserved deliberately, not just for symmetry. Hard-delete is the
+ * only path that ever frees a slug (see docs/deletion.md), and `default` is
+ * uniquely privileged: it's the communal/agent workspace exempted from the
+ * reaper and referenced by ops tooling, docs, and bootstrap scripts by
+ * name. If it were ever hard-deleted (accidentally or deliberately) and
+ * this entry were removed, self-serve registration would let any signed-in
+ * user reclaim the `default` slug for an unrelated, non-communal workspace
+ * — a name-squatting/confusion risk this list exists to close for the
+ * other entries. Keeping it here costs nothing and closes that latent gap.
+ */
 export const RESERVED_WORKSPACE_NAMES: ReadonlySet<string> = new Set([
   "default",
   "admin",

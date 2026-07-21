@@ -220,6 +220,27 @@ export async function putObject(
   // every other key refuses an overwrite unless the caller opted in via
   // `opts.replace`. Checked before any budget reservation or write so a
   // refusal never touches usage accounting.
+  //
+  // Known TOCTOU, accepted deliberately: `existingHead` above and the R2
+  // write below are two separate calls, not one atomic operation, so two
+  // concurrent first-puts to the same never-before-seen `finalKey` can both
+  // observe `replaced === false` and both proceed as "creates" — each gets
+  // its own upload-count reservation (see `reserveUploads` below), and
+  // whichever R2 write lands last silently wins, same as the other's bytes
+  // being clobbered. True cross-request atomicity per key would need a
+  // Durable Object (or a D1-backed claim table with its own cleanup/TTL
+  // story for crashed claims) serializing every put — disproportionate
+  // infrastructure for a race that only bites two truly simultaneous first
+  // writes to the *same* key, and whose worst case is exactly the
+  // pre-#174 behavior (silent overwrite, last-write-wins) for that narrow
+  // window — not a new failure mode, not a security regression, and not
+  // reachable at all once the key exists (the second writer's read then
+  // correctly observes `replaced === true`). Usage accounting can double-count
+  // the upload delta for that one race (two reservations for one surviving
+  // object); left unmitigated as the same order-of-magnitude inaccuracy
+  // budget checks already tolerate at their cap boundary (see the comment
+  // on `reserveUploads` below). Revisit only if this key-collision race is
+  // ever observed in practice, not preemptively.
   if (replaced && !opts?.replace && !isManagedGithubKey(finalKey)) {
     const cfg = await storageConfig(env, ws);
     const urls = objectPublicUrls(env, cfg, finalKey);

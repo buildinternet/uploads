@@ -1,4 +1,4 @@
-import { NotFoundError, ValidationError } from "@uploads/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
 import {
   badKey,
@@ -33,6 +33,7 @@ export const files = new Hono<WorkspaceVars>()
         contentType?: string;
         maxSize?: number;
         expiresIn?: number;
+        replace?: boolean;
       }>()
       .catch(
         () =>
@@ -41,6 +42,7 @@ export const files = new Hono<WorkspaceVars>()
             contentType?: string;
             maxSize?: number;
             expiresIn?: number;
+            replace?: boolean;
           },
       );
 
@@ -63,6 +65,28 @@ export const files = new Hono<WorkspaceVars>()
 
     try {
       const store = await storage(c.env, ws);
+
+      // Strict-overwrite gate (issue #174), best-effort here: /sign mints a
+      // presigned URL for a direct-to-bucket PUT that happens later (up to
+      // `expiresIn`, max 24h) and entirely outside this worker, so there is
+      // no atomic check-then-write available the way there is in the
+      // regular PUT route (files-core.ts `putObject`) — the client may sign
+      // now and write minutes or hours after this check, or never. This
+      // still rejects the common case (an existing strict key, checked at
+      // mint time) and mirrors the PUT route's `replace` opt-in / gh/
+      // hot-swap exemption, but it is NOT a security boundary: a signed URL
+      // for a free key can still land on an object created after signing.
+      // Treat this as UX guardrail parity with PUT, not a guarantee.
+      const replaced = await store.exists(key);
+      if (replaced && !body.replace && !isManagedGithubKey(key)) {
+        const cfg = await storageConfig(c.env, ws);
+        const urls = objectPublicUrls(c.env, cfg, key);
+        throw new ConflictError(
+          `An object already exists at "${key}". Pass replace: true to sign an overwrite.`,
+          { code: "key_exists", details: { key, url: urls.url, embedUrl: urls.embedUrl } },
+        );
+      }
+
       const upload = await store.signedUploadUrl(key, {
         expiresIn,
         contentType: body.contentType,
@@ -80,6 +104,7 @@ export const files = new Hono<WorkspaceVars>()
         upload,
       });
     } catch (err) {
+      if (err instanceof ConflictError) throw err;
       const message = err instanceof Error ? err.message : String(err);
       console.error(JSON.stringify({ message: "presign failed", error: message }));
       throw new ValidationError(
