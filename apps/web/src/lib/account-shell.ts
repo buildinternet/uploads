@@ -52,8 +52,10 @@ export function writeCachedSessionUser(user: SessionUser): void {
 export function clearCachedSessionUser(): void {
   try {
     sessionStorage.removeItem(SESSION_CACHE_KEY);
-    // Membership list is also a session-scoped UX cache — drop it with the user.
+    // Keep in sync with WORKSPACES_CACHE_KEY / ACTIVE_WORKSPACE_CACHE_KEY
+    // in workspaces-nav.ts (avoid importing that module from here).
     sessionStorage.removeItem("uploads:myWorkspaces");
+    sessionStorage.removeItem("uploads:activeWorkspace");
   } catch {
     // ignore
   }

@@ -1,19 +1,28 @@
-/* Flat 3A account nav + optional right-rail column for /account/*.
+/* Flat 3A account nav + right-rail column for /account/*.
    Every selector here is scoped under `.account-shell` (the AccountLayout
-   `#app` root) so /admin/* — which shares nav.side / .layout / .side-foot
-   markup and signed-in-shell.css — renders exactly as before. Do NOT add
-   an unscoped nav.side, .layout, or .side-foot rule to this file; put
-   account-only overrides here instead of editing signed-in-shell.css. */
+   `#app` root) so /admin/* — which shares nav.side / .layout markup and
+   signed-in-shell.css — renders exactly as before. Do NOT add an unscoped
+   nav.side or .layout rule to this file; put account-only overrides here
+   instead of editing signed-in-shell.css. */
 
-/* Layout grid: 2-col by default, 3-col (+ rail) when AccountLayout is given
-   a `rail` slot (data-rail="true", set server-side via Astro.slots.has). */
-.account-shell .layout {
-  grid-template-columns: 180px 1fr;
-  gap: 24px;
+/* Always 3 columns (nav · content · rail) at the same shell width so
+   personal and workspace pages share content geometry. Empty rail still
+   reserves the track. Shell is left-aligned so the nav does not re-center
+   as the viewport grows. */
+.account-shell {
+  --width-shell: 1200px;
 }
-.account-shell .layout[data-rail="true"] {
+.account-shell .shell {
+  margin-left: 0;
+  margin-right: auto;
+}
+.account-shell .layout {
   grid-template-columns: 180px minmax(0, 1fr) 272px;
   gap: 40px;
+}
+.account-shell .content {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
 }
 
 /* Flat nav rows ---------------------------------------------------------- */
@@ -21,8 +30,6 @@
   gap: 2px;
   font-size: 13px;
 }
-
-/* Flat rows — active = accent color only. */
 .account-shell nav.side .side-link {
   display: block;
   padding: 5px 0;
@@ -38,7 +45,7 @@
   color: var(--accent);
 }
 
-/* Section labels (YOU). Workspace heading is the switcher trigger. */
+/* Section labels (PERSONAL). Workspace heading is the switcher trigger. */
 .account-shell nav.side .side-label {
   margin: 14px 0 4px;
   color: var(--muted);
@@ -146,64 +153,25 @@
   display: none;
 }
 
-/* Foot — console / admin / sign out. */
-.account-shell nav.side .side-foot {
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
-  gap: 6px;
-}
-.account-shell nav.side .side-foot a {
-  display: block;
-  font-size: 12px;
-  color: var(--muted);
-  text-decoration: none;
-}
-.account-shell nav.side .side-foot a:hover,
-.account-shell nav.side .side-foot a:focus-visible {
-  color: var(--accent);
-  outline: none;
-}
-.account-shell nav.side .side-foot button {
-  padding: 5px 0;
-  border: 0;
-  border-radius: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-.account-shell nav.side .side-foot button:hover,
-.account-shell nav.side .side-foot button:focus-visible {
-  color: var(--red);
-  outline: none;
-}
-
-/* Right rail --------------------------------------------------------------
-   Container mechanics only — the rail's own section content (connected
-   work, usage, details, quick actions) is supplied by the page via the
-   `rail` slot and styled where it's rendered. */
+/* Right rail — always a grid track; content from the `rail` slot. */
 .account-shell aside.rail {
   display: grid;
   gap: 22px;
   font-size: 12.5px;
   position: sticky;
   top: 28px;
+  min-width: 0;
 }
 
-/* Mid-width rail tier (--bp-stack+1 … --bp-rail): not enough room for the
-   fixed 272px rail column next to the content (the file grid needs ~320px
-   minimum), so keep the side nav, drop to 2-col, and move the rail under the
-   main column. Bounded below at 681px (--bp-stack + 1) so the ≤680 full-stack
-   rules stay the single authority at that edge. See the breakpoint scale in
-   signed-in-shell.css. */
+/* Mid-width (--bp-stack+1 … --bp-rail): drop rail beside content, restack
+   under the main column. Hide empty rails so they leave no hairline. See
+   breakpoint scale in signed-in-shell.css. */
 @media (min-width: 681px) and (max-width: 1080px) {
-  .account-shell .layout[data-rail="true"] {
+  .account-shell .layout {
     grid-template-columns: 180px minmax(0, 1fr);
     gap: 24px;
   }
-  .account-shell .layout[data-rail="true"] aside.rail {
+  .account-shell aside.rail {
     grid-column: 2;
     position: static;
     top: auto;
@@ -211,12 +179,14 @@
     padding-top: 20px;
     border-top: 1px solid var(--line);
   }
+  .account-shell aside.rail[data-empty] {
+    display: none;
+  }
 }
 
-/* --bp-stack: collapse to a single column (mirrors signed-in-shell.css). */
+/* --bp-stack: single column. */
 @media (max-width: 680px) {
-  .account-shell .layout,
-  .account-shell .layout[data-rail="true"] {
+  .account-shell .layout {
     grid-template-columns: 1fr;
     gap: 24px;
   }
@@ -224,17 +194,11 @@
   .account-shell nav.side .ws-switcher {
     grid-column: 1 / -1;
   }
-  .account-shell nav.side .side-foot {
-    grid-column: 1 / -1;
-    border: 0;
-    margin: 0;
-    padding: 0;
-    grid-template-columns: subgrid;
-  }
-  /* Rail stacks below main; sticky positioning only makes sense in the
-     desktop 3-col layout. */
   .account-shell aside.rail {
     position: static;
     top: auto;
+  }
+  .account-shell aside.rail[data-empty] {
+    display: none;
   }
 }

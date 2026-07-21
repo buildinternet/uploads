@@ -1,11 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  ACTIVE_WORKSPACE_CACHE_KEY,
+  clearCachedActiveWorkspace,
   clearCachedWorkspaces,
+  readCachedActiveWorkspace,
   readCachedWorkspaces,
   renderSwitcherMenuHtml,
   renderWorkspaceSectionNavHtml,
+  resolveSidebarWorkspace,
   switcherLabel,
   workspaceTabFromPathname,
+  writeCachedActiveWorkspace,
   writeCachedWorkspaces,
   WORKSPACES_CACHE_KEY,
 } from "./workspaces-nav";
@@ -79,6 +84,46 @@ describe("workspaceTabFromPathname", () => {
   });
 });
 
+describe("active workspace cache + resolveSidebarWorkspace", () => {
+  it("round-trips the last-used workspace slug", () => {
+    installStorage();
+    writeCachedActiveWorkspace("buildinternet");
+    expect(readCachedActiveWorkspace()).toBe("buildinternet");
+    clearCachedActiveWorkspace();
+    expect(readCachedActiveWorkspace()).toBe("");
+    expect(sessionStorage.getItem(ACTIVE_WORKSPACE_CACHE_KEY)).toBeNull();
+  });
+
+  it("rejects invalid slugs", () => {
+    installStorage();
+    writeCachedActiveWorkspace("Not_Valid");
+    expect(readCachedActiveWorkspace()).toBe("");
+    writeCachedActiveWorkspace("new");
+    expect(readCachedActiveWorkspace()).toBe("");
+  });
+
+  it("prefers the URL and refreshes the last-used cache", () => {
+    installStorage();
+    writeCachedActiveWorkspace("side");
+    expect(resolveSidebarWorkspace("/account/workspaces/buildinternet", "side")).toBe(
+      "buildinternet",
+    );
+    expect(readCachedActiveWorkspace()).toBe("buildinternet");
+  });
+
+  it("falls back to last-used cache on personal routes", () => {
+    installStorage();
+    writeCachedActiveWorkspace("buildinternet");
+    expect(resolveSidebarWorkspace("/account/profile", "")).toBe("buildinternet");
+    expect(resolveSidebarWorkspace("/account/developers", "side")).toBe("side");
+  });
+
+  it("returns empty when nothing is known", () => {
+    installStorage();
+    expect(resolveSidebarWorkspace("/account/profile", "")).toBe("");
+  });
+});
+
 describe("switcherLabel", () => {
   it("prefers the membership display name, falls back to slug or workspaces", () => {
     expect(switcherLabel(sample, "side")).toBe("Side Project");
@@ -123,5 +168,11 @@ describe("renderWorkspaceSectionNavHtml", () => {
 
   it("returns empty when no workspace is active", () => {
     expect(renderWorkspaceSectionNavHtml("")).toBe("");
+  });
+
+  it("marks no tab current when activeTab is empty (personal routes)", () => {
+    const html = renderWorkspaceSectionNavHtml("buildinternet", "");
+    expect(html).not.toContain('aria-current="page"');
+    expect(html).toContain('href="/account/workspaces/buildinternet"');
   });
 });
