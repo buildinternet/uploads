@@ -414,7 +414,7 @@ export function createUploadsMcpTools(opts: {
           comment: {
             type: "boolean",
             description:
-              "With pr/issue: create or update the managed attachments comment via local gh auth (best-effort).",
+              "With pr/issue: create or update the managed attachments comment. Posts as uploads-sh[bot] when the GitHub App is installed on the repo; otherwise via local gh auth (best-effort).",
           },
           dryRun: {
             type: "boolean",
@@ -1159,7 +1159,7 @@ export function createUploadsMcpTools(opts: {
     {
       name: "comment",
       description:
-        "Create or update the managed attachments comment on a GitHub PR or issue, listing everything uploaded for it. Uses local gh auth; edits its own prior comment in place and never touches other comments.",
+        "Create or update the managed attachments comment on a GitHub PR or issue, listing everything uploaded for it. Posts as uploads-sh[bot] when the GitHub App is installed on the repo; otherwise via local gh auth. Edits its own prior comment in place and never touches other comments.",
       inputSchema: {
         type: "object",
         properties: {
