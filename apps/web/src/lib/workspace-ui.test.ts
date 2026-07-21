@@ -36,17 +36,34 @@ describe("renderMembersHtml controls", () => {
   const rows = [
     { id: "m_owner", email: "owner@x.com", name: "", role: "owner" },
     { id: "m_admin", email: "admin@x.com", name: "", role: "admin" },
+    { id: "m_member", email: "member@x.com", name: "", role: "member" },
     { id: "m_me", email: "me@x.com", name: "", role: "admin" },
   ];
   it("renders no controls without canManage", () => {
     const html = renderMembersHtml(rows);
     expect(html).not.toContain("data-member-id");
   });
-  it("renders controls for manageable rows only", () => {
-    const html = renderMembersHtml(rows, { canManage: true, selfEmail: "me@x.com" });
-    expect(html).toContain('data-member-id="m_admin"'); // manageable
-    expect(html).not.toContain('data-member-id="m_owner"'); // owner protected
-    expect(html).not.toContain('data-member-id="m_me"'); // self
+  it("renders owner controls for member and admin rows (not owner/self)", () => {
+    const html = renderMembersHtml(rows, {
+      canManage: true,
+      viewerRole: "owner",
+      selfEmail: "me@x.com",
+    });
+    expect(html).toContain('data-member-id="m_admin"');
+    expect(html).toContain('data-member-id="m_member"');
+    expect(html).not.toContain('data-member-id="m_owner"');
+    expect(html).not.toContain('data-member-id="m_me"');
+  });
+  it("renders admin controls for member rows only (not other admins)", () => {
+    const html = renderMembersHtml(rows, {
+      canManage: true,
+      viewerRole: "admin",
+      selfEmail: "me@x.com",
+    });
+    expect(html).toContain('data-member-id="m_member"');
+    expect(html).not.toContain('data-member-id="m_admin"');
+    expect(html).not.toContain('data-member-id="m_owner"');
+    expect(html).not.toContain('data-member-id="m_me"');
   });
 });
 

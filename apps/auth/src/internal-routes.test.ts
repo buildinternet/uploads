@@ -1307,9 +1307,35 @@ describe("DB-backed behavior", () => {
       const [row] = await orm.select().from(schema.member).where(eq(schema.member.id, "m_member"));
       expect(row.role).toBe("admin");
     });
-    it("forbids an admin changing roles", async () => {
+    it("lets an admin promote a member to admin", async () => {
       const { org, admin } = await seed();
       const res = await patch(org.slug, "m_member", admin.id, "admin");
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { member: { role: string } }).toMatchObject({
+        member: { id: "m_member", role: "admin" },
+      });
+      const [row] = await orm.select().from(schema.member).where(eq(schema.member.id, "m_member"));
+      expect(row.role).toBe("admin");
+    });
+    it("forbids an admin demoting another admin", async () => {
+      const { org, admin } = await seed();
+      const res = await patch(org.slug, "m_admin2", admin.id, "member");
+      expect(res.status).toBe(403);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "actor_not_authorized" },
+      });
+    });
+    it("lets an owner demote an admin to member", async () => {
+      const { org, owner } = await seed();
+      const res = await patch(org.slug, "m_admin2", owner.id, "member");
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { member: { role: string } }).toMatchObject({
+        member: { id: "m_admin2", role: "member" },
+      });
+    });
+    it("forbids a plain member changing roles", async () => {
+      const { org, member } = await seed();
+      const res = await patch(org.slug, "m_admin", member.id, "member");
       expect(res.status).toBe(403);
       expect((await res.json()) as { error: { code: string } }).toMatchObject({
         error: { code: "actor_not_authorized" },

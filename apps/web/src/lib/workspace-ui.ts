@@ -124,26 +124,34 @@ export interface MemberRow {
 }
 
 export interface MemberRowOptions {
-  /** Viewer is owner/admin — enables per-row controls. */
+  /** Viewer is owner/admin — enables controls when the per-row matrix allows. */
   canManage?: boolean;
-  /** Viewer's own email — their row never shows controls (no self-removal). */
+  /** Org role of the viewer (`owner` | `admin`). Admins only manage members. */
+  viewerRole?: string;
+  /** Viewer's email — no controls on their own row. */
   selfEmail?: string;
 }
 
+/** Mirrors auth `memberManageDenied`: owner|admin on members; owner-only on admins. */
+export function canManageMemberRow(member: MemberRow, opts: MemberRowOptions): boolean {
+  if (!opts.canManage || !member.id) return false;
+  if (member.role === "owner") return false;
+  if (opts.selfEmail && member.email === opts.selfEmail) return false;
+  // Admin → members only. Owner (or canManage without role) → members + admins.
+  if (opts.viewerRole === "admin") return member.role === "member";
+  return true;
+}
+
 /**
- * Pure row builder for the people tab's member list. Shows the display name
- * when set (email becomes the sub-line), else email leads. When `canManage`
- * and the row has an `id`, non-owner rows other than the viewer's own get a
- * role `<select>` and a remove button. `[]` → `""`.
+ * People-tab member list. Name leads when set (email sub-line); manageable
+ * rows get role `<select>` + remove. `[]` → `""`.
  */
 export function renderMembersHtml(members: MemberRow[], opts: MemberRowOptions = {}): string {
   return members
     .map((m) => {
       const lead = m.name || m.email;
       const sub = m.name ? `<span class="member-row__email">${escapeHtml(m.email)}</span>` : "";
-      const manageable =
-        !!opts.canManage && !!m.id && m.role !== "owner" && m.email !== opts.selfEmail;
-      const controls = manageable
+      const controls = canManageMemberRow(m, opts)
         ? `<span class="member-row__actions">` +
           `<select class="member-row__role-select" data-member-id="${escapeHtml(m.id!)}" aria-label="Role for ${escapeHtml(m.email)}">` +
           `<option value="member"${m.role === "member" ? " selected" : ""}>member</option>` +
