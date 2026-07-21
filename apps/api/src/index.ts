@@ -20,6 +20,7 @@ import { telemetry } from "./routes/telemetry";
 import { reports } from "./routes/reports";
 import { render } from "./routes/render";
 import { githubWebhook } from "./routes/github-webhook";
+import { handleGithubWebhookBatch } from "./github-webhook-queue";
 import { githubComment } from "./routes/github-comment";
 import { githubPromote } from "./routes/github-promote";
 import { githubLink } from "./routes/github-link";
@@ -144,9 +145,12 @@ export const app = new Hono<WorkspaceVars>()
   .onError((err, c) => respondError(c, err))
   .notFound((c) => respondError(c, new NotFoundError()));
 
-/** Worker entry: fetch + daily retention cron. */
+/** Worker entry: fetch + daily retention cron + GitHub webhook queue consumer. */
 export default {
   fetch: app.fetch.bind(app),
+  // GitHub webhook ingestion queue + its DLQ (issue #287); see
+  // github-webhook-queue.ts. Batch handling never throws.
+  queue: handleGithubWebhookBatch,
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(
       runRetentionSweep(env).catch((err) => {
