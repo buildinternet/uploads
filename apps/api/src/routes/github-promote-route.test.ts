@@ -232,6 +232,16 @@ describe("POST /v1/:workspace/github/promote", () => {
     expect(originalMeta["gh.branch"]).toBe(BRANCH);
     expect(originalMeta["gh.promoted-to"]).toBe("acme/web#12");
     expect(typeof originalMeta["gh.promoted-at"]).toBe("string");
+
+    // Promotion also upserts the PR activity rollup (issue #338) via
+    // putObject's gh.kind=pull metadata hook.
+    expect(seeded.db.prActivity.get("acme/web#12")).toMatchObject({
+      repo_full_name: "acme/web",
+      pr_number: NUM,
+      branch: BRANCH,
+      workspace_name: WS,
+      media_count: 1,
+    });
   });
 
   it("treats a missing gh.staged-at as fresh (workspace's own data)", async () => {
