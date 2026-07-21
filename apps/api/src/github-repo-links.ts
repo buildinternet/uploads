@@ -86,7 +86,10 @@ export async function recordRepoLink(
 export async function findRepoLink(db: D1Database, repo: string): Promise<RepoLink | null> {
   try {
     const row = await db
-      .prepare(`SELECT * FROM github_repo_links WHERE repo_full_name = ?`)
+      .prepare(
+        `SELECT repo_full_name, workspace_name, installation_id, source, created_at
+         FROM github_repo_links WHERE repo_full_name = ?`,
+      )
       .bind(normalizeRepo(repo))
       .first<RepoLinkRow>();
     return row ? rowToLink(row) : null;
@@ -110,7 +113,10 @@ export async function findRepoLink(db: D1Database, repo: string): Promise<RepoLi
  */
 export async function findRepoLinkStrict(db: D1Database, repo: string): Promise<RepoLink | null> {
   const row = await db
-    .prepare(`SELECT * FROM github_repo_links WHERE repo_full_name = ?`)
+    .prepare(
+      `SELECT repo_full_name, workspace_name, installation_id, source, created_at
+       FROM github_repo_links WHERE repo_full_name = ?`,
+    )
     .bind(normalizeRepo(repo))
     .first<RepoLinkRow>();
   return row ? rowToLink(row) : null;
@@ -183,7 +189,10 @@ export async function listRepoLinksForWorkspace(
   workspaceName: string,
 ): Promise<RepoLink[]> {
   const { results } = await db
-    .prepare(`SELECT * FROM github_repo_links WHERE workspace_name = ? ORDER BY created_at DESC`)
+    .prepare(
+      `SELECT repo_full_name, workspace_name, installation_id, source, created_at
+       FROM github_repo_links WHERE workspace_name = ? ORDER BY created_at DESC`,
+    )
     .bind(workspaceName)
     .all<RepoLinkRow>();
   return (results ?? []).map(rowToLink);

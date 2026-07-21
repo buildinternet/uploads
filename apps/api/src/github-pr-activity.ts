@@ -142,7 +142,9 @@ export async function listPrActivityForWorkspace(
 ): Promise<PrActivity[]> {
   const { results } = await db
     .prepare(
-      `SELECT * FROM github_pr_activity
+      `SELECT ref, repo_full_name, pr_number, branch, workspace_name,
+              media_count, first_media_at, last_media_at
+       FROM github_pr_activity
        WHERE workspace_name = ?
        ORDER BY last_media_at DESC
        LIMIT ?`,

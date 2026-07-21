@@ -72,40 +72,42 @@ export class FileMetadataTable {
       );
       return { success: true, results: results as T[], meta: {} };
     }
-    // findObjectsByMetadata's match query: ANDed equality filters (parsed by
-    // counting the repeated `(meta_key = ? AND meta_value = ?)` clause), an
-    // optional prefix LIKE, and a trailing HAVING-count + LIMIT. Mirrors the
-    // real SQL semantics against the in-memory store so route-level filter
-    // tests exercise real wiring, not a stub.
-    if (normalizedSql.startsWith("SELECT object_key FROM file_metadata WHERE workspace")) {
+    // findObjectsByMetadata: single equality, or multi-filter INTERSECT legs.
+    // Args: (workspace, key, value)×N, optional escaped prefix, limit.
+    if (
+      normalizedSql.startsWith("SELECT object_key FROM file_metadata WHERE workspace") ||
+      normalizedSql.startsWith("SELECT object_key FROM (SELECT object_key FROM file_metadata")
+    ) {
       const filterCount = (normalizedSql.match(/meta_key = \? AND meta_value = \?/g) ?? []).length;
       const hasPrefix = normalizedSql.includes("object_key LIKE ? || '%'");
-      let idx = 0;
-      const workspace = args[idx++] as string;
-      const filters: Array<[string, string]> = [];
+      const filters: Array<{ workspace: string; key: string; value: string }> = [];
       for (let i = 0; i < filterCount; i++) {
-        filters.push([args[idx] as string, args[idx + 1] as string]);
-        idx += 2;
+        const base = i * 3;
+        filters.push({
+          workspace: args[base] as string,
+          key: args[base + 1] as string,
+          value: args[base + 2] as string,
+        });
       }
+      let idx = filterCount * 3;
       const prefix = hasPrefix ? (args[idx++] as string) : undefined;
-      const requiredCount = args[idx++] as number;
-      const limit = args[idx++] as number;
+      const limit = args[idx] as number;
+      const workspace = filters[0]?.workspace;
+      if (!workspace || filters.some((f) => f.workspace !== workspace)) {
+        return { success: true, results: [] as T[], meta: {} };
+      }
 
       const results: { object_key: string }[] = [];
-      const prefixMatch = `${workspace} `;
-      for (const [scopedKey, map] of this.metadata.entries()) {
-        if (!scopedKey.startsWith(prefixMatch)) continue;
-        const objectKey = scopedKey.slice(prefixMatch.length);
+      const scopePrefix = `${workspace} `;
+      for (const [scopedKey, map] of this.metadata) {
+        if (!scopedKey.startsWith(scopePrefix)) continue;
+        const objectKey = scopedKey.slice(scopePrefix.length);
         if (prefix && !objectKey.startsWith(prefix)) continue;
-        let matchCount = 0;
-        for (const [key, value] of filters) {
-          if (map.get(key) === value) matchCount++;
+        if (filters.every((f) => map.get(f.key) === f.value)) {
+          results.push({ object_key: objectKey });
         }
-        if (matchCount === requiredCount) results.push({ object_key: objectKey });
       }
-      results.sort((a, b) =>
-        a.object_key < b.object_key ? -1 : a.object_key > b.object_key ? 1 : 0,
-      );
+      results.sort((a, b) => a.object_key.localeCompare(b.object_key));
       return { success: true, results: results.slice(0, limit) as T[], meta: {} };
     }
     if (normalizedSql.startsWith("SELECT object_key, meta_key, meta_value FROM file_metadata")) {

@@ -295,34 +295,86 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       .from(schema.organization);
     return c.json({ organizations: rows });
   })
+  // Admin workspace list: every org's member/invite counts in three D1 queries
+  // (orgs + grouped member COUNT + grouped pending-invite COUNT), not N×3.
+  // Registered before `/orgs/:slug` so "summaries" is not treated as a slug.
+  .get("/orgs/summaries", async (c) => {
+    const db = drizzle(c.env.DB, { schema });
+    const [orgs, memberRows, inviteRows] = await Promise.all([
+      db
+        .select({
+          id: schema.organization.id,
+          slug: schema.organization.slug,
+          name: schema.organization.name,
+        })
+        .from(schema.organization),
+      db
+        .select({
+          organizationId: schema.member.organizationId,
+          memberCount: count(),
+        })
+        .from(schema.member)
+        .groupBy(schema.member.organizationId),
+      db
+        .select({
+          organizationId: schema.invitation.organizationId,
+          pendingInviteCount: count(),
+        })
+        .from(schema.invitation)
+        .where(eq(schema.invitation.status, "pending"))
+        .groupBy(schema.invitation.organizationId),
+    ]);
+
+    const membersByOrg = new Map(memberRows.map((row) => [row.organizationId, row.memberCount]));
+    const invitesByOrg = new Map(
+      inviteRows.map((row) => [row.organizationId, row.pendingInviteCount]),
+    );
+
+    return c.json({
+      organizations: orgs.map((org) => ({
+        organization: { id: org.id, slug: org.slug, name: org.name },
+        memberCount: membersByOrg.get(org.id) ?? 0,
+        pendingInviteCount: invitesByOrg.get(org.id) ?? 0,
+      })),
+    });
+  })
   // Phase 3 (plan scope B): org lookup + member/invite counts for
-  // GET /admin-ui/workspaces on apps/api.
+  // single-workspace admin detail / orgForWorkspace.
   .get("/orgs/:slug", async (c) => {
     const slug = c.req.param("slug");
     const db = drizzle(c.env.DB, { schema });
     const [org] = await db
-      .select()
+      .select({
+        id: schema.organization.id,
+        slug: schema.organization.slug,
+        name: schema.organization.name,
+      })
       .from(schema.organization)
       .where(eq(schema.organization.slug, slug))
       .limit(1);
     if (!org) {
       return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
     }
-    const members = await db
-      .select({ id: schema.member.id })
-      .from(schema.member)
-      .where(eq(schema.member.organizationId, org.id));
-    const invites = await db
-      .select({ id: schema.invitation.id })
-      .from(schema.invitation)
-      .where(
-        and(eq(schema.invitation.organizationId, org.id), eq(schema.invitation.status, "pending")),
-      );
-    const pendingInvites = invites.length;
+    // COUNT aggregates (not id lists + .length) so only the count crosses the wire.
+    const [[memberRow], [inviteRow]] = await Promise.all([
+      db
+        .select({ memberCount: count() })
+        .from(schema.member)
+        .where(eq(schema.member.organizationId, org.id)),
+      db
+        .select({ pendingInviteCount: count() })
+        .from(schema.invitation)
+        .where(
+          and(
+            eq(schema.invitation.organizationId, org.id),
+            eq(schema.invitation.status, "pending"),
+          ),
+        ),
+    ]);
     return c.json({
       organization: { id: org.id, slug: org.slug, name: org.name },
-      memberCount: members.length,
-      pendingInviteCount: pendingInvites,
+      memberCount: memberRow?.memberCount ?? 0,
+      pendingInviteCount: inviteRow?.pendingInviteCount ?? 0,
     });
   })
   // Phase 3 (plan scope B): member list for GET /admin-ui/workspaces/:name/members.
@@ -774,11 +826,11 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       );
     }
     const force = c.req.query("force") === "1" || c.req.query("force") === "true";
-    const members = await db
-      .select({ id: schema.member.id })
+    const [memberCountRow] = await db
+      .select({ memberCount: count() })
       .from(schema.member)
       .where(eq(schema.member.organizationId, org.id));
-    if (members.length > 1 && !force) {
+    if ((memberCountRow?.memberCount ?? 0) > 1 && !force) {
       return c.json(errorJson("org_not_empty", "organization has more than one member"), 409);
     }
     await db.delete(schema.member).where(eq(schema.member.organizationId, org.id));

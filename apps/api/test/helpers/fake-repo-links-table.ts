@@ -99,21 +99,18 @@ export class RepoLinksTable {
   }
 
   tryFirst<T>(normalizedSql: string, args: unknown[]): T | null | undefined {
-    if (normalizedSql.startsWith("SELECT * FROM github_repo_links WHERE repo_full_name")) {
+    if (normalizedSql.includes("FROM github_repo_links WHERE repo_full_name")) {
       const [repo] = args as [string];
       return (this.rows.get(repo) as T) ?? null;
     }
     return undefined;
   }
 
-  // listRepoLinksForWorkspace (issue #318, admin visibility): all bindings
-  // owned by one workspace, newest first — matches the real `ORDER BY
-  // created_at DESC`.
+  // listRepoLinksForWorkspace: bindings for one workspace, newest first.
   tryAll<T>(normalizedSql: string, args: unknown[]): FakeAllResult<T> | undefined {
-    if (normalizedSql.startsWith("SELECT * FROM github_repo_links WHERE workspace_name")) {
+    if (normalizedSql.includes("FROM github_repo_links WHERE workspace_name")) {
       const [workspace] = args as [string];
-      // Non-mutating sort (see github-comment-render.ts: this worker's
-      // tsconfig targets lib ES2022, which predates Array#toSorted).
+      // Copy + sort: lib ES2022 predates Array#toSorted.
       const results = [...this.rows.values()]
         .filter((row) => row.workspace_name === workspace)
         .sort((a, b) => b.created_at.localeCompare(a.created_at));

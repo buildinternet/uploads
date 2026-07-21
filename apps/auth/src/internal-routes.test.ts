@@ -396,6 +396,53 @@ describe("DB-backed behavior", () => {
     });
   });
 
+  describe("GET /internal/orgs/summaries", () => {
+    it("returns every org with aggregated member and pending-invite counts", async () => {
+      const acme = await seedOrg({ slug: "acme", name: "Acme" });
+      const beta = await seedOrg({ slug: "beta", name: "Beta" });
+      const user = await seedUser();
+      await orm.insert(schema.member).values([
+        {
+          id: crypto.randomUUID(),
+          organizationId: acme.id,
+          userId: user.id,
+          role: "owner",
+          createdAt: new Date(),
+        },
+        {
+          id: crypto.randomUUID(),
+          organizationId: beta.id,
+          userId: user.id,
+          role: "member",
+          createdAt: new Date(),
+        },
+      ]);
+      await orm.insert(schema.invitation).values({
+        id: crypto.randomUUID(),
+        organizationId: acme.id,
+        email: "pending@example.com",
+        role: "member",
+        status: "pending",
+        expiresAt: new Date(Date.now() + 86_400_000),
+        inviterId: user.id,
+        createdAt: new Date(),
+      });
+
+      const res = await app().request("/internal/orgs/summaries", {}, dbEnv());
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        organizations: Array<{
+          organization: { slug: string };
+          memberCount: number;
+          pendingInviteCount: number;
+        }>;
+      };
+      const bySlug = new Map(body.organizations.map((row) => [row.organization.slug, row]));
+      expect(bySlug.get("acme")).toMatchObject({ memberCount: 1, pendingInviteCount: 1 });
+      expect(bySlug.get("beta")).toMatchObject({ memberCount: 1, pendingInviteCount: 0 });
+    });
+  });
+
   describe("POST /internal/invite", () => {
     async function seedOrgAdmin(
       role: "owner" | "admin" | "member" = "owner",
