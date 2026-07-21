@@ -11,7 +11,7 @@
  */
 import exifReader from "exif-reader";
 import sharp from "sharp";
-import { isMetaValueSafe } from "./metadata.js";
+import { dropUnsafeMetaValues } from "./metadata.js";
 import { formatViewport } from "./metadata-vocab.js";
 
 /** Below this, the image is a 1:1 photo rather than a scaled screen capture. */
@@ -70,11 +70,7 @@ export function factsFromExifTags(tags: unknown): Record<string, string> {
 
   // Derived values must satisfy the metadata contract or be dropped silently —
   // same posture as the existing best-effort gh.title.
-  for (const [key, value] of Object.entries(facts)) {
-    if (!isMetaValueSafe(value)) delete facts[key];
-  }
-
-  return facts;
+  return dropUnsafeMetaValues(facts);
 }
 
 /**

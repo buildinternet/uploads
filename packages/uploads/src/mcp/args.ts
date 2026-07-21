@@ -4,7 +4,7 @@
  * Workers as well as Node.
  */
 import { UploadsError } from "../errors.js";
-import { META_STATE_VALUES } from "../metadata-vocab.js";
+import { META_STATE_VALUES, validateStateValue } from "../metadata-vocab.js";
 
 export type ToolArgs = Record<string, unknown>;
 
@@ -102,11 +102,18 @@ export function canonicalMetaFromArgs(args: ToolArgs): Record<string, string> {
   const meta: Record<string, string> = {};
   const state = optString(args, "state");
   if (state !== undefined) {
-    const normalized = state.trim().toLowerCase();
-    if (!(META_STATE_VALUES as readonly string[]).includes(normalized)) {
-      usage(`state must be one of: ${META_STATE_VALUES.join(", ")}`);
+    // Delegate rather than re-checking the enum here, so MCP callers get the
+    // same near-miss suggestions ("post" → "after") the CLI gives. Only the
+    // error channel differs.
+    try {
+      meta.state = validateStateValue(state);
+    } catch (err) {
+      usage(
+        err instanceof Error
+          ? err.message.replace(/^invalid --state: /, "invalid state: ")
+          : String(err),
+      );
     }
-    meta.state = normalized;
   }
   const app = optString(args, "app");
   if (app !== undefined) {
@@ -114,4 +121,17 @@ export function canonicalMetaFromArgs(args: ToolArgs): Record<string, string> {
     if (normalized.length > 0) meta.app = normalized;
   }
   return meta;
+}
+
+/**
+ * The `metadata` tool arg merged with the canonical `state`/`app` params.
+ * `undefined` (leave stored metadata untouched) is preserved only when the
+ * caller supplied none of the three.
+ */
+export function metadataArgWithCanonical(args: ToolArgs): Record<string, string> | undefined {
+  const canonical = canonicalMetaFromArgs(args);
+  const metadataArg = optStringRecord(args, "metadata");
+  return metadataArg === undefined && Object.keys(canonical).length === 0
+    ? undefined
+    : { ...metadataArg, ...canonical };
 }

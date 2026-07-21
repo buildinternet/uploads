@@ -25,7 +25,9 @@ import {
 } from "../config.js";
 import { resolvePutPrefix } from "../destinations.js";
 import { ghKeyPrefix, type GhTarget } from "../github.js";
+import { safeCaptureFacts } from "../capture-facts.js";
 import { validateMetaMap } from "../metadata.js";
+import { mergeDerivedMeta } from "../metadata-vocab.js";
 import { type OptimizeImageOptions } from "../optimize.js";
 import {
   execRunner,
@@ -38,6 +40,7 @@ import {
   appProp,
   canonicalMetaFromArgs,
   METADATA_DESCRIPTION,
+  metadataArgWithCanonical,
   metadataProp,
   optBool,
   optPosInt,
@@ -472,14 +475,7 @@ export function createUploadsMcpTools(opts: {
         // Validate up front (fail fast, before reading/optimizing the file).
         // undefined leaves existing metadata untouched; an object (even {})
         // fully replaces it — see metadataProp's description.
-        const canonical = canonicalMetaFromArgs(args);
-        const metadataArg = optStringRecord(args, "metadata");
-        // state/app are explicit input and win over a same-named metadata key.
-        // Either one alone is enough to make this a metadata-replacing call.
-        const metadata =
-          metadataArg === undefined && Object.keys(canonical).length === 0
-            ? undefined
-            : { ...metadataArg, ...canonical };
+        const metadata = metadataArgWithCanonical(args);
         if (metadata) validateMetaMap(metadata);
         let resolvedPrefix: string | undefined;
         try {
@@ -514,6 +510,9 @@ export function createUploadsMcpTools(opts: {
           optimize: optimizeOpts,
           frame: frameOpts,
           metadata,
+          // The shared metadata description promises uploads.sh derives these
+          // "automatically where it can" — MCP has no --no-auto, so always on.
+          deriveImageFacts: true,
           provenanceClient: "uploads-mcp" as const,
           alt,
           width,
@@ -761,14 +760,7 @@ export function createUploadsMcpTools(opts: {
           if (refArg) usage("ref cannot be combined with pr/issue");
           if (prefixArg) usage("prefix cannot be combined with pr/issue");
         }
-        const canonical = canonicalMetaFromArgs(args);
-        const metadataArg = optStringRecord(args, "metadata");
-        // state/app are explicit input and win over a same-named metadata key.
-        // Either one alone is enough to make this a metadata-replacing call.
-        const metadata =
-          metadataArg === undefined && Object.keys(canonical).length === 0
-            ? undefined
-            : { ...metadataArg, ...canonical };
+        const metadata = metadataArgWithCanonical(args);
         if (metadata) validateMetaMap(metadata);
         let resolvedPrefix: string | undefined;
         try {
@@ -805,6 +797,19 @@ export function createUploadsMcpTools(opts: {
           );
         }
 
+        const viewport = screenshotModule.parseViewport(optString(args, "viewport"));
+        // Same derivation the CLI does — explicit args win over capture facts.
+        // Keep undefined when nothing at all was supplied or derived, so the
+        // "omit to leave stored metadata untouched" contract still holds.
+        const captureDerived = safeCaptureFacts(
+          targetArg!,
+          viewport,
+          colorSchemeArg as "dark" | "light" | undefined,
+        );
+        const metadataWithCaptureFacts =
+          metadata === undefined && Object.keys(captureDerived).length === 0
+            ? undefined
+            : mergeDerivedMeta(metadata ?? {}, captureDerived);
         let captured: Awaited<ReturnType<typeof screenshotModule.captureScreenshot>>;
         try {
           captured = await screenshotModule.captureScreenshot({
@@ -812,7 +817,7 @@ export function createUploadsMcpTools(opts: {
             via: viaArg,
             browserPath: optString(args, "browser"),
             cdp: optString(args, "cdp"),
-            viewport: screenshotModule.parseViewport(optString(args, "viewport")),
+            viewport,
             selector: optString(args, "selector"),
             fullPage: optBool(args, "fullPage"),
             colorScheme: colorSchemeArg as "dark" | "light" | undefined,
@@ -849,7 +854,8 @@ export function createUploadsMcpTools(opts: {
             ref: refArg ?? defaults.ref,
             deriveRepoFromGit: !noGit,
             dryRun,
-            metadata,
+            metadata: metadataWithCaptureFacts,
+            deriveImageFacts: true,
             provenanceClient: "uploads-mcp-screenshot",
             alt: (p) => alt ?? p.filename,
             width,

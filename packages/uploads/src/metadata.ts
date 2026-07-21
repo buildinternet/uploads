@@ -61,6 +61,19 @@ export function isMetaValueSafe(value: string): boolean {
 }
 
 /**
+ * Drop, in place, any entry whose value breaks the metadata contract. For
+ * *derived* pairs only: a fact we inferred must never fail an upload, so an
+ * over-long URL or non-ASCII EXIF string is silently discarded rather than
+ * surfaced. Never use this on caller-supplied metadata, which should error.
+ */
+export function dropUnsafeMetaValues(facts: Record<string, string>): Record<string, string> {
+  for (const [key, value] of Object.entries(facts)) {
+    if (!isMetaValueSafe(value)) delete facts[key];
+  }
+  return facts;
+}
+
+/**
  * Split `k=v` on the FIRST "=" (so values may themselves contain "="), then
  * validate the pair. Throws `UsageError` on malformed input.
  */

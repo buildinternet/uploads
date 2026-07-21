@@ -844,3 +844,54 @@ describe("runAttach --promote (explicit promote-only mode)", () => {
     );
   });
 });
+
+describe("attach canonical metadata", () => {
+  // --state/--app are documented in ATTACH_HELP, listed in PUT_LIKE_FLAGS (so
+  // they complete), and recommended by the github-screenshots skill. They were
+  // parsed but never read — the flag silently did nothing.
+  it("stamps --state and --app alongside the gh.* pairs", async () => {
+    const { client, metadataByKey } = fakeClient();
+    const { run } = ghRunner();
+    await runAttach(
+      ctxWith(client),
+      [...files("after.png"), "--no-comment", "--state", "after", "--app", "web"],
+      false,
+      run,
+    );
+    const meta = metadataByKey["gh/buildinternet/uploads/pull/123/after.png"];
+    expect(meta?.state).toBe("after");
+    expect(meta?.app).toBe("web");
+    expect(meta?.["gh.repo"]).toBe("buildinternet/uploads");
+  });
+
+  it("rejects an invalid --state with a suggestion", async () => {
+    const { client } = fakeClient();
+    const { run } = ghRunner();
+    await expect(
+      runAttach(
+        ctxWith(client),
+        [...files("after.png"), "--no-comment", "--state", "post"],
+        false,
+        run,
+      ),
+    ).rejects.toThrow(/did you mean "after"/);
+  });
+
+  it("promotes EXIF facts from the file's own bytes", async () => {
+    const sharp = (await import("sharp")).default;
+    const png = await sharp({
+      create: { width: 1624, height: 1154, channels: 3, background: { r: 3, g: 3, b: 3 } },
+    })
+      .withMetadata({ density: 144 })
+      .png()
+      .toBuffer();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-attach-exif-"));
+    const file = join(dir, "shot.png");
+    writeFileSync(file, png);
+    const { client, metadataByKey } = fakeClient();
+    const { run } = ghRunner();
+    await runAttach(ctxWith(client), [file, "--no-comment"], false, run);
+    const meta = metadataByKey["gh/buildinternet/uploads/pull/123/shot.webp"];
+    expect(meta?.viewport).toBe("812x577@2x");
+  });
+});

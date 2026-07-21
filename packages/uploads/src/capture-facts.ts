@@ -5,9 +5,9 @@
  *
  * Design: .context/2026-07-21-upload-metadata-vocabulary-design.md
  */
-import { isMetaValueSafe } from "./metadata.js";
+import { dropUnsafeMetaValues } from "./metadata.js";
 import { formatViewport } from "./metadata-vocab.js";
-import type { ScreenshotTarget, ScreenshotViewport } from "./screenshot.js";
+import { classifyTarget, type ScreenshotTarget, type ScreenshotViewport } from "./screenshot.js";
 
 export interface CaptureFactsInput {
   target: ScreenshotTarget;
@@ -45,9 +45,22 @@ export function captureFacts(input: CaptureFactsInput): Record<string, string> {
 
   // A long query string can exceed the 512-char value cap; drop rather than
   // let a derived value fail the upload.
-  for (const [key, value] of Object.entries(facts)) {
-    if (!isMetaValueSafe(value)) delete facts[key];
-  }
+  return dropUnsafeMetaValues(facts);
+}
 
-  return facts;
+/**
+ * `captureFacts` for a raw target string, never at the cost of the capture
+ * itself: an unclassifiable target yields no facts rather than an error.
+ * Shared by the CLI and MCP screenshot paths.
+ */
+export function safeCaptureFacts(
+  target: string,
+  viewport: ScreenshotViewport,
+  colorScheme: "dark" | "light" | undefined,
+): Record<string, string> {
+  try {
+    return captureFacts({ target: classifyTarget(target), viewport, colorScheme });
+  } catch {
+    return {}; // derived metadata must never fail a capture
+  }
 }

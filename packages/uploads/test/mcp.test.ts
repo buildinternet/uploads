@@ -1101,7 +1101,9 @@ describe("canonical metadata params reach the upload", () => {
       name: "put",
       arguments: { file, state: "post" },
     });
-    expect(JSON.stringify(res)).toMatch(/state must be one of/);
+    // MCP delegates to the CLI's validator, so it gets the same suggestion.
+    expect(JSON.stringify(res)).toContain("did you mean");
+    expect(JSON.stringify(res)).toContain("after");
   });
 
   it("state wins over a same-named metadata key", async () => {

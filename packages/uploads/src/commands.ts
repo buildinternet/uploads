@@ -353,6 +353,22 @@ export function derivedMetaEnabled(
 }
 
 /**
+ * Warn about metadata keys that look like misspellings of canonical ones, then
+ * return the map unchanged — we nag, we never rewrite a caller's key.
+ */
+export function warnNearMissMeta(
+  ctx: CliContext,
+  meta: Record<string, string>,
+): Record<string, string> {
+  if (!ctx.quiet) {
+    for (const warning of nearMissMetaWarnings(Object.keys(meta))) {
+      process.stderr.write(`!! ${warning}\n`);
+    }
+  }
+  return meta;
+}
+
+/**
  * Canonical `state`/`app` pairs from their dedicated flags. Shared by put,
  * attach and screenshot. These are sugar for the matching `--meta` keys; the
  * point is `--help` discoverability and `--state` validation.
@@ -448,6 +464,22 @@ export async function prepareImageForUpload(
   return { ...optimized, frame: frameMeta };
 }
 
+/**
+ * Merge an image's own EXIF-derived facts under any explicit metadata.
+ * Best-effort by contract: `imageFactsFromBytes` never rejects, and a full key
+ * budget drops the derived pairs rather than failing the upload. Returns the
+ * input untouched (including `undefined`) when there is nothing to add, so a
+ * metadata-free upload stays metadata-free.
+ */
+async function mergeImageFacts(
+  bytes: Uint8Array,
+  metadata: Record<string, string> | undefined,
+): Promise<Record<string, string> | undefined> {
+  const facts = await imageFactsFromBytes(bytes);
+  if (Object.keys(facts).length === 0) return metadata;
+  return mergeDerivedMeta(metadata ?? {}, facts);
+}
+
 export interface UploadPreparedImageOptions {
   frame: {
     frameId?: string;
@@ -471,6 +503,12 @@ export interface UploadPreparedImageOptions {
    */
   replace?: boolean;
   metadata?: Record<string, string>;
+  /**
+   * Promote this image's own EXIF allowlist into its metadata (see
+   * image-facts.ts). Lives here, on the shared bytes tail, so every upload
+   * surface — CLI put/screenshot, MCP put/screenshot — derives alike.
+   */
+  deriveImageFacts?: boolean;
   provenanceClient?: string;
   /**
    * Alt text for the markdown. Takes the prepared result so callers whose
@@ -503,6 +541,10 @@ export async function uploadPreparedImage(
   sourceName: string,
   opts: UploadPreparedImageOptions,
 ): Promise<UploadPreparedImageResult> {
+  // Read EXIF from the original bytes before the optimizer strips it.
+  const metadata = opts.deriveImageFacts
+    ? await mergeImageFacts(bytes, opts.metadata)
+    : opts.metadata;
   const prepared = await prepareImageForUpload(bytes, sourceName, {
     frameId: opts.frame.frameId,
     frameUrl: opts.frame.frameUrl,
@@ -528,7 +570,7 @@ export async function uploadPreparedImage(
       frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
       keepExif: opts.optimize.keepExif === true,
     }),
-    metadata: opts.metadata,
+    metadata,
   });
   const markdown = buildMarkdown(urlForGithubEmbed(result.url, result.embedUrl)!, {
     alt: opts.alt(prepared),
@@ -809,6 +851,8 @@ interface UploadAttachmentBatchOptions {
     frameFit?: "cover" | "contain";
   };
   metadata?: Record<string, string>;
+  /** Forwarded per file — see image-facts.ts. */
+  deriveImageFacts?: boolean;
   /** Provenance `client` field (default uploads-cli). */
   provenanceClient?: string;
   concurrency?: number;
@@ -835,7 +879,13 @@ async function uploadAttachmentBatch(
     async (file): Promise<Slot> => {
       try {
         const sourceName = basename(file);
-        const prepared = await prepareImageForUpload(readFileArg(file), sourceName, {
+        const bytes = readFileArg(file);
+        // Same EXIF promotion uploadPreparedImage does; attach keeps its own
+        // per-file tail (it builds keys differently), so it opts in here too.
+        const metadata = opts.deriveImageFacts
+          ? await mergeImageFacts(bytes, opts.metadata)
+          : opts.metadata;
+        const prepared = await prepareImageForUpload(bytes, sourceName, {
           ...opts.frame,
           optimize: opts.optimize,
         });
@@ -850,7 +900,7 @@ async function uploadAttachmentBatch(
             frameId: prepared.frame?.framed ? prepared.frame.frameId : undefined,
             keepExif: opts.optimize.keepExif === true,
           }),
-          metadata: opts.metadata,
+          metadata,
         });
         return {
           ok: true,
@@ -906,6 +956,8 @@ export async function uploadAttachments(opts: {
     frameFit?: "cover" | "contain";
   };
   metadata?: Record<string, string>;
+  /** Forwarded per file — see image-facts.ts. */
+  deriveImageFacts?: boolean;
   /** Provenance `client` field (default uploads-cli). */
   provenanceClient?: string;
   concurrency?: number;
@@ -941,6 +993,8 @@ export async function uploadBranchAttachments(opts: {
     frameFit?: "cover" | "contain";
   };
   metadata?: Record<string, string>;
+  /** Forwarded per file — see image-facts.ts. */
+  deriveImageFacts?: boolean;
   provenanceClient?: string;
   concurrency?: number;
 }): Promise<{ uploads: AttachUploadItem[]; failures: AttachFailure[]; firstError?: unknown }> {
@@ -994,11 +1048,7 @@ export async function uploadPuts(opts: {
     frameFit?: "cover" | "contain";
   };
   metadata?: Record<string, string>;
-  /**
-   * Promote each file's own EXIF allowlist into its metadata (see
-   * image-facts.ts). Per-file by nature, so it happens here rather than once
-   * for the command — one file's camera must never label another's upload.
-   */
+  /** Forwarded per file to `uploadPreparedImage` — see image-facts.ts. */
   deriveImageFacts?: boolean;
   provenanceClient?: string;
   /** When set, used as alt for every file; else each file's basename. */
@@ -1030,20 +1080,9 @@ export async function uploadPuts(opts: {
               ? basename(opts.explicitKey)
               : "stdin.bin"
             : basename(file));
-        const bytes = readFileArg(file);
-        // Read EXIF before the optimizer strips it from the bytes. Best-effort:
-        // imageFactsFromBytes never rejects, and a full key budget drops the
-        // derived pairs rather than failing the upload.
-        let metadataForFile = opts.metadata;
-        if (opts.deriveImageFacts) {
-          const facts = await imageFactsFromBytes(bytes);
-          if (Object.keys(facts).length > 0) {
-            metadataForFile = mergeDerivedMeta(opts.metadata ?? {}, facts);
-          }
-        }
         const { result, prepared, markdown } = await uploadPreparedImage(
           opts.client,
-          bytes,
+          readFileArg(file),
           sourceName,
           {
             frame: opts.frame,
@@ -1057,7 +1096,8 @@ export async function uploadPuts(opts: {
             contentType: opts.contentType,
             dryRun: opts.dryRun,
             replace: opts.replace,
-            metadata: metadataForFile,
+            metadata: opts.metadata,
+            deriveImageFacts: opts.deriveImageFacts,
             provenanceClient: opts.provenanceClient,
             alt: () => opts.alt ?? basename(sourceName),
             width: opts.width,
@@ -1197,8 +1237,12 @@ export async function runAttach(
   // Validate the merged map (not just the extras) so the 24-key/8KB caps are
   // enforced client-side even when extras alone are under the cap but extras
   // + the gh.* pairs push the merged map over it.
-  const metaExtras = parseMetaFlags(flagValues(parsed.flags, "--meta"));
-  const metadata = { ...metaExtras, ...ghMetadataFromTargetWithTitle(target, run) };
+  const metaExtras = warnNearMissMeta(ctx, parseMetaFlags(flagValues(parsed.flags, "--meta")));
+  const metadata = {
+    ...metaExtras,
+    ...stateAppMetaFromFlags(parsed.flags),
+    ...ghMetadataFromTargetWithTitle(target, run),
+  };
   if (Object.keys(metadata).length > 0) validateMetaMap(metadata);
 
   const logHuman = !ctx.quiet && !ctx.json;
@@ -1215,6 +1259,7 @@ export async function runAttach(
     optimize: optimizeOpts,
     frame: frameOpts,
     metadata,
+    deriveImageFacts: derivedMetaEnabled(parsed.flags, defaults),
   });
 
   // Single-file total failure: rethrow so CLI exit codes stay auth/network-aware.
@@ -1317,8 +1362,12 @@ async function runAttachBranch(
   const optimizeOpts = optimizeOptionsFromFlags(parsed.flags, defaults);
   const frameOpts = frameOptionsFromFlags(parsed.flags);
   const contentTypeOverride = flagString(parsed.flags, "--content-type");
-  const metaExtras = parseMetaFlags(flagValues(parsed.flags, "--meta"));
-  const metadata = { ...metaExtras, ...ghMetadataForBranch(repo, branch) };
+  const metaExtras = warnNearMissMeta(ctx, parseMetaFlags(flagValues(parsed.flags, "--meta")));
+  const metadata = {
+    ...metaExtras,
+    ...stateAppMetaFromFlags(parsed.flags),
+    ...ghMetadataForBranch(repo, branch),
+  };
   validateMetaMap(metadata);
 
   const logHuman = !ctx.quiet && !ctx.json;
@@ -1338,6 +1387,7 @@ async function runAttachBranch(
     optimize: optimizeOpts,
     frame: frameOpts,
     metadata,
+    deriveImageFacts: derivedMetaEnabled(parsed.flags, defaults),
   });
 
   // Single-file total failure: rethrow so CLI exit codes stay auth/network-aware.
@@ -1468,10 +1518,7 @@ export async function runPut(
   // Validate --meta up front (fail fast, before reading/optimizing the file).
   const userMeta = ((): Record<string, string> | undefined => {
     const pairs = flagValues(parsed.flags, "--meta");
-    const fromMeta = pairs.length > 0 ? parseMetaFlags(pairs) : {};
-    for (const warning of nearMissMetaWarnings(Object.keys(fromMeta))) {
-      if (!ctx.quiet) process.stderr.write(`!! ${warning}\n`);
-    }
+    const fromMeta = warnNearMissMeta(ctx, pairs.length > 0 ? parseMetaFlags(pairs) : {});
     // Dedicated flags are explicit input and win over a same-named --meta pair.
     const merged = { ...fromMeta, ...stateAppMetaFromFlags(parsed.flags) };
     if (Object.keys(merged).length === 0) return undefined;

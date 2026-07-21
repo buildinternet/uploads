@@ -977,6 +977,10 @@ describe("put promotes EXIF facts", () => {
     expect(puts[0]?.metadata?.viewport).toBe("1x1@1x");
   });
 
+  // Undefined (not {}) matters: apps/api/src/files-core.ts:313 full-replaces a
+  // key's metadata whenever any is sent, so derived facts make a previously
+  // metadata-free re-upload start replacing. --no-auto is the opt-out for
+  // callers who curate metadata with `uploads meta set` and re-upload.
   it("derives nothing when --no-auto opts out", async () => {
     const { client, puts } = fakeClient();
     await runPut(
@@ -1007,21 +1011,5 @@ describe("put promotes EXIF facts", () => {
     const byName = new Map(puts.map((p) => [p.filename, p.metadata]));
     expect(byName.get("retina.webp")?.viewport).toBe("812x577@2x");
     expect(byName.get("plain.webp")?.viewport).toBeUndefined();
-  });
-
-  // Documents a real consequence, resolved against apps/api/src/files-core.ts:313:
-  // any metadata sent on a put fully replaces the stored set (delete-then-insert).
-  // Derived facts therefore make a previously metadata-free re-upload start
-  // replacing stored metadata — matching how the existing gh.* derived tier
-  // already behaves. --no-auto is the opt-out for callers who curate metadata
-  // with `uploads meta set` and re-upload the same key.
-  it("sends a metadata map once facts are derived, which the server treats as a full replace", async () => {
-    const { client, puts } = fakeClient();
-    await runPut(ctxWith(client), [fileWith(await retinaPng()), "--no-git"], false, noRun);
-    expect(puts[0]?.metadata).toBeDefined();
-
-    const { client: c2, puts: p2 } = fakeClient();
-    await runPut(ctxWith(c2), [fileWith(await retinaPng()), "--no-git", "--no-auto"], false, noRun);
-    expect(p2[0]?.metadata).toBeUndefined();
   });
 });

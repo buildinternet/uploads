@@ -16,6 +16,7 @@ import {
   ghTargetFromFlags,
   optimizeOptionsFromFlags,
   stateAppMetaFromFlags,
+  warnNearMissMeta,
   syncAttachmentsComment,
   commentViaSuffix,
   type AttachmentsCommentResult,
@@ -32,14 +33,13 @@ import {
   type CommandRunner,
 } from "../github-gh.js";
 import { ghBranchAttachmentKey, ghMetadataForBranch } from "../github.js";
-import { captureFacts } from "../capture-facts.js";
+import { safeCaptureFacts } from "../capture-facts.js";
 import { parseMetaFlags, validateMetaMap } from "../metadata.js";
-import { mergeDerivedMeta, nearMissMetaWarnings } from "../metadata-vocab.js";
+import { mergeDerivedMeta } from "../metadata-vocab.js";
 import { writeJson, writeStdout } from "../io.js";
 import {
   assertHideSelector,
   captureScreenshot,
-  classifyTarget,
   parseViewport,
   parseWaitUntil,
   type ScreenshotBackend,
@@ -277,22 +277,14 @@ export async function runScreenshot(
   const altFlag = flagString(parsed.flags, "--alt");
   const width = flagInt(parsed.flags, "--width", "--width") ?? putDefaults.width;
 
-  const metaExtras = parseMetaFlags(flagValues(parsed.flags, "--meta"));
-  for (const warning of nearMissMetaWarnings(Object.keys(metaExtras))) {
-    if (!ctx.quiet) process.stderr.write(`!! ${warning}\n`);
-  }
+  const metaExtras = warnNearMissMeta(ctx, parseMetaFlags(flagValues(parsed.flags, "--meta")));
   // Explicit input (--meta plus the dedicated flags) wins over capture facts.
   const explicitMeta = { ...metaExtras, ...stateAppMetaFromFlags(parsed.flags) };
-  const captureDerived = derivedMetaEnabled(parsed.flags, putDefaults)
-    ? (() => {
-        try {
-          return captureFacts({ target: classifyTarget(target), viewport, colorScheme });
-        } catch {
-          return {}; // derived metadata must never fail a capture
-        }
-      })()
-    : {};
-  const withFacts = mergeDerivedMeta(explicitMeta, captureDerived);
+  const deriveMeta = derivedMetaEnabled(parsed.flags, putDefaults);
+  const withFacts = mergeDerivedMeta(
+    explicitMeta,
+    deriveMeta ? safeCaptureFacts(target, viewport, colorScheme) : {},
+  );
 
   let metadata: Record<string, string> | undefined = withFacts;
   if (ghTarget) {
