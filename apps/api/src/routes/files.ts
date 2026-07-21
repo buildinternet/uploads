@@ -137,7 +137,7 @@ export const files = new Hono<WorkspaceVars>()
     // untouched.
     let metadata = hasCustomMeta ? custom : undefined;
     if (metadata && hasGithubTags(metadata)) {
-      const uploader = await uploaderTags(c.env, c.get("mintingUserId"));
+      const uploader = await uploaderTags(c.env, c.get("mintingUserId"), metadata["gh.repo"]);
       if (uploader) {
         // Attribution must never break an upload that was valid without it:
         // if the merged set would blow the per-object key cap (validated

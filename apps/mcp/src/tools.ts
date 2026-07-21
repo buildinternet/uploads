@@ -482,7 +482,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         // a caller can't spoof those keys. Applied once for the whole call —
         // metadata (like prefix/repo/ref) applies to every item in a batch.
         if (metadata && hasGithubTags(metadata)) {
-          const uploader = await uploaderTags(env, ctx.mintingUserId);
+          const uploader = await uploaderTags(env, ctx.mintingUserId, metadata["gh.repo"]);
           if (uploader) {
             // Never let attribution break an upload that was valid without
             // it: drop the server tags if the merge would exceed the cap.
