@@ -1,10 +1,10 @@
 /**
  * The 3A workspace files tab — filter bar, chips ↔ breadcrumbs, a conditional
- * exact-PR-match banner, and the file row grid (thumbnail, size, type,
- * visibility, `⋯` actions). Replaces `WorkspaceFiles` + `AccountFileBrowser` +
- * `MetadataSearchResults` as the single island mounted by
- * `pages/account/workspaces/[name].astro`. See
- * `.superpowers/sdd/task-8-brief.md` for the row grid / thumbnail / chip spec.
+ * exact-PR-match banner, and the file listing (list or grid view: thumbnail,
+ * size, type, visibility, `⋯` actions). Replaces `WorkspaceFiles` +
+ * `AccountFileBrowser` + `MetadataSearchResults` as the single island mounted
+ * by `pages/account/workspaces/[name].astro`. See
+ * `.superpowers/sdd/task-8-brief.md` for the row / thumbnail / chip spec.
  *
  * Data source: `listWorkspaceFolder` when no filters are active (folder
  * browse, URL-synced via `workspace-browse-url`), `searchWorkspaceFiles` when
@@ -14,6 +14,10 @@
  * right-rail "connected work" section (Task 7's
  * `window.__uploadsSetConnectedWork` hook) and checked for an exact
  * single-pull-request match (the banner).
+ *
+ * List vs grid is a soft client preference: `?view=list|grid` in the URL
+ * (wins when present), else `uploads:filesView` in localStorage, else list.
+ * Browse/search URL writers leave `view` alone, so folder/filter nav keeps it.
  */
 import { Callout } from "@uploads/ui";
 import "@uploads/ui/styles.css";
@@ -47,6 +51,7 @@ import {
   readBrowseLocation,
   replaceBrowseLocation,
 } from "../lib/workspace-browse-url";
+import { replaceFilesView, resolveFilesView, type FilesView } from "../lib/workspace-files-view";
 import {
   isValidMetaKey,
   isValidMetaValue,
@@ -153,6 +158,133 @@ function FolderIcon({ className }: { className?: string }) {
   );
 }
 
+function ListViewIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
+    </svg>
+  );
+}
+
+function GridViewIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      aria-hidden="true"
+    >
+      <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="0.5" />
+      <rect x="9" y="2.5" width="4.5" height="4.5" rx="0.5" />
+      <rect x="2.5" y="9" width="4.5" height="4.5" rx="0.5" />
+      <rect x="9" y="9" width="4.5" height="4.5" rx="0.5" />
+    </svg>
+  );
+}
+
+function FileThumb({ thumb }: { thumb: ReturnType<typeof pickThumbnail> }) {
+  if (thumb.kind === "image") {
+    return (
+      <span
+        className="wft-thumb"
+        style={{ backgroundImage: `url(${thumb.src})` }}
+        aria-hidden="true"
+      />
+    );
+  }
+  return (
+    <span className="wft-thumb wft-thumb--tile" aria-hidden="true">
+      {thumb.kind === "video" && <PlayIcon />}
+      {thumb.kind === "lock" && <LockIcon />}
+    </span>
+  );
+}
+
+function VisibilityBadge({ private: priv }: { private: boolean }) {
+  return (
+    <span
+      className={`wft-vis ${priv ? "wft-vis--private" : "wft-vis--public"}`}
+      title={
+        priv
+          ? "Unlisted: hidden from listings and the /f/ page unless signed in. The raw file URL still works for anyone who has it."
+          : "Public: listed and reachable by anyone with the URL."
+      }
+    >
+      {priv ? (
+        <LockIcon className="wft-vis__icon" />
+      ) : (
+        <span className="wft-vis__dot" aria-hidden="true" />
+      )}
+      {priv ? "unlisted" : "public"}
+    </span>
+  );
+}
+
+function FileActionsMenu({
+  open,
+  busy,
+  isPrivate,
+  onToggle,
+  onCopy,
+  onToggleVisibility,
+}: {
+  open: boolean;
+  busy: boolean;
+  isPrivate: boolean;
+  onToggle: () => void;
+  onCopy: (button: HTMLButtonElement) => void;
+  onToggleVisibility: () => void;
+}) {
+  return (
+    <div className="wft-menu">
+      <button
+        type="button"
+        className="wft-menu__trigger"
+        aria-expanded={open}
+        aria-label="File actions"
+        onClick={onToggle}
+      >
+        ⋯
+      </button>
+      {open && (
+        <div role="menu" className="wft-menu__popover">
+          <button
+            type="button"
+            role="menuitem"
+            className="wft-menu__item"
+            onClick={(e) => onCopy(e.currentTarget)}
+          >
+            copy link
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="wft-menu__item"
+            disabled={busy}
+            onClick={onToggleVisibility}
+          >
+            {isPrivate ? "make public" : "unlist"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function sizeLabel(size: number | undefined): string {
+  return typeof size === "number" ? formatBytes(size) : "—";
+}
+
 // ── URL-resolution helpers (open-file / copy-link) ────────────────────────
 // Mirrors AccountFileBrowser's hasPublicUrl-branching open logic verbatim:
 // a workspace with a stable public domain always opens through the chrome-
@@ -219,7 +351,14 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
   const [togglingKeys, setTogglingKeys] = useState<ReadonlySet<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
   const [githubTitles, setGithubTitles] = useState<GithubTitleMap | null>(null);
+  const [view, setView] = useState<FilesView>(() => resolveFilesView(window.location.search));
   const githubTitlesGeneration = useRef(0);
+
+  const setFilesView = (next: FilesView) => {
+    setView(next);
+    replaceFilesView(next);
+    setOpenMenuKey(null);
+  };
 
   const filtersKey = filters.map((f) => `${f.key}=${f.value}`).join("&");
   const filtered = filters.length > 0;
@@ -469,8 +608,11 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
 
   const bareMatch: GhWorkItem | null = state.status === "ok" ? exactPrMatch(state.files) : null;
   const match = bareMatch && githubTitles ? applyGhTitles([bareMatch], githubTitles)[0] : bareMatch;
-  const count = state.status === "ok" ? state.files.length : 0;
-  const folderCount = state.status === "ok" ? state.prefixes.length : 0;
+  // Folders only in browse mode (search has no prefix tree). Empty while loading/error.
+  const folders = state.status === "ok" && !filtered ? state.prefixes : [];
+  const files = state.status === "ok" ? state.files : [];
+  const count = files.length;
+  const folderCount = folders.length;
   const topLabel =
     state.status === "loading"
       ? ""
@@ -533,6 +675,26 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
         <span className="wft-sectionhead__label">files</span>
         <span className="wft-sectionhead__rule" />
         <span className="wft-sectionhead__count">{topLabel}</span>
+        <div className="wft-view" role="group" aria-label="File layout">
+          {(
+            [
+              ["list", "List view", ListViewIcon],
+              ["grid", "Grid view", GridViewIcon],
+            ] as const
+          ).map(([id, label, Icon]) => (
+            <button
+              key={id}
+              type="button"
+              className="wft-view__btn"
+              aria-pressed={view === id}
+              aria-label={label}
+              title={label}
+              onClick={() => setFilesView(id)}
+            >
+              <Icon />
+            </button>
+          ))}
+        </div>
       </div>
 
       {filtered ? (
@@ -610,18 +772,17 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
         </div>
       )}
 
-      <div className="wft-grid">
-        <div className="wft-head">
-          <span>name</span>
-          <span className="wft-head__size">size</span>
-          <span className="wft-head__type">type</span>
-          <span>visibility</span>
-          <span />
-        </div>
+      {view === "list" ? (
+        <div className="wft-grid">
+          <div className="wft-head">
+            <span>name</span>
+            <span className="wft-head__size">size</span>
+            <span className="wft-head__type">type</span>
+            <span>visibility</span>
+            <span />
+          </div>
 
-        {state.status === "ok" &&
-          !filtered &&
-          state.prefixes.map((folder) => (
+          {folders.map((folder) => (
             <button
               key={folder}
               type="button"
@@ -641,17 +802,13 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
             </button>
           ))}
 
-        {state.status === "ok" &&
-          state.files.map((file) => {
-            // Show the file's own name (leaf), not the full key — at the flat
-            // root the key is the whole `screenshots/…/x.png` path, whose
-            // distinctive tail would otherwise be ellipsized away.
+          {files.map((file) => {
+            // Leaf name only — at the flat root the key is `screenshots/…/x.png`,
+            // and ellipsis would otherwise hide the distinctive tail.
             const name = leafName(file.key);
             const thumb = pickThumbnail(file);
             const type = fileTypeLabel(file);
             const priv = isPrivateFile(file);
-            const menuOpen = openMenuKey === file.key;
-            const busy = togglingKeys.has(file.key);
 
             return (
               <div className="wft-row" key={file.key}>
@@ -660,82 +817,105 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
                   className="wft-name wft-name--btn"
                   onClick={() => openFile(apiOrigin, workspace, info.hasPublicUrl, file.key)}
                 >
-                  {thumb.kind === "image" && (
+                  {thumb.kind !== "none" && <FileThumb thumb={thumb} />}
+                  <span className="wft-filename">{name}</span>
+                </button>
+                <span className="wft-size">{sizeLabel(file.size)}</span>
+                <span className="wft-type">{type}</span>
+                <VisibilityBadge private={priv} />
+                <FileActionsMenu
+                  open={openMenuKey === file.key}
+                  busy={togglingKeys.has(file.key)}
+                  isPrivate={priv}
+                  onToggle={() => setOpenMenuKey((prev) => (prev === file.key ? null : file.key))}
+                  onCopy={(btn) => void copyLink(file, btn)}
+                  onToggleVisibility={() => void toggleVisibility(file)}
+                />
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="wft-cards">
+          {folders.map((folder) => (
+            <button
+              key={folder}
+              type="button"
+              className="wft-card wft-card--folder"
+              onClick={() => navigate(folder)}
+            >
+              <span className="wft-card__media" aria-hidden="true">
+                <span className="wft-card__placeholder">
+                  <FolderIcon />
+                </span>
+              </span>
+              <span className="wft-card__body">
+                <span className="wft-card__name">{childName(folder, prefix)}/</span>
+                <span className="wft-card__meta">folder</span>
+              </span>
+            </button>
+          ))}
+
+          {files.map((file) => {
+            const name = leafName(file.key);
+            const thumb = pickThumbnail(file);
+            const type = fileTypeLabel(file);
+            const priv = isPrivateFile(file);
+            const open = () => openFile(apiOrigin, workspace, info.hasPublicUrl, file.key);
+
+            return (
+              <div className="wft-card" key={file.key}>
+                <button
+                  type="button"
+                  className="wft-card__media"
+                  onClick={open}
+                  aria-label={`Open ${name}`}
+                >
+                  {thumb.kind === "image" ? (
                     <span
-                      className="wft-thumb"
+                      className="wft-card__img"
                       style={{ backgroundImage: `url(${thumb.src})` }}
                       aria-hidden="true"
                     />
-                  )}
-                  {thumb.kind === "video" && (
-                    <span className="wft-thumb wft-thumb--tile" aria-hidden="true">
-                      <PlayIcon />
-                    </span>
-                  )}
-                  {thumb.kind === "lock" && (
-                    <span className="wft-thumb wft-thumb--tile" aria-hidden="true">
-                      <LockIcon />
-                    </span>
-                  )}
-                  <span className="wft-filename">{name}</span>
-                </button>
-                <span className="wft-size">
-                  {typeof file.size === "number" ? formatBytes(file.size) : "—"}
-                </span>
-                <span className="wft-type">{type}</span>
-                <span
-                  className={`wft-vis ${priv ? "wft-vis--private" : "wft-vis--public"}`}
-                  title={
-                    priv
-                      ? "Unlisted: hidden from listings and the /f/ page unless signed in. The raw file URL still works for anyone who has it."
-                      : "Public: listed and reachable by anyone with the URL."
-                  }
-                >
-                  {priv ? (
-                    <LockIcon className="wft-vis__icon" />
                   ) : (
-                    <span className="wft-vis__dot" aria-hidden="true" />
+                    <span className="wft-card__placeholder" aria-hidden="true">
+                      {thumb.kind === "video" && <PlayIcon />}
+                      {thumb.kind === "lock" && <LockIcon />}
+                      {thumb.kind === "none" && <span className="wft-card__ext">{type}</span>}
+                    </span>
                   )}
-                  {priv ? "unlisted" : "public"}
-                </span>
-                <div className="wft-menu">
-                  <button
-                    type="button"
-                    className="wft-menu__trigger"
-                    aria-expanded={menuOpen}
-                    aria-label="File actions"
-                    onClick={() => setOpenMenuKey((prev) => (prev === file.key ? null : file.key))}
-                  >
-                    ⋯
-                  </button>
-                  {menuOpen && (
-                    <div role="menu" className="wft-menu__popover">
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="wft-menu__item"
-                        onClick={(e) => void copyLink(file, e.currentTarget)}
-                      >
-                        copy link
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        className="wft-menu__item"
-                        disabled={busy}
-                        onClick={() => void toggleVisibility(file)}
-                      >
-                        {priv ? "make public" : "unlist"}
-                      </button>
-                    </div>
-                  )}
+                </button>
+                <div className="wft-card__body">
+                  <div className="wft-card__title">
+                    <button type="button" className="wft-card__name" title={name} onClick={open}>
+                      {name}
+                    </button>
+                    <FileActionsMenu
+                      open={openMenuKey === file.key}
+                      busy={togglingKeys.has(file.key)}
+                      isPrivate={priv}
+                      onToggle={() =>
+                        setOpenMenuKey((prev) => (prev === file.key ? null : file.key))
+                      }
+                      onCopy={(btn) => void copyLink(file, btn)}
+                      onToggleVisibility={() => void toggleVisibility(file)}
+                    />
+                  </div>
+                  <div className="wft-card__meta">
+                    <span>
+                      {sizeLabel(file.size)} · {type}
+                    </span>
+                    <span className="wft-card__spacer" />
+                    <VisibilityBadge private={priv} />
+                  </div>
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
 
-        <div className="wft-end">{endLabel}</div>
-      </div>
+      <div className="wft-end">{endLabel}</div>
 
       {state.status === "ok" && state.cursor && (
         <button type="button" className="wft-loadmore text-btn" onClick={() => void loadMore()}>

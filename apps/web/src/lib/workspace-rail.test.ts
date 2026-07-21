@@ -82,7 +82,7 @@ describe("renderConnectedWorkHtml", () => {
 });
 
 describe("renderDetailsHtml", () => {
-  it("renders the public url as a host-labeled link when the URL is known", () => {
+  it("renders the base url as plain host text when the URL is known", () => {
     const html = renderDetailsHtml({
       organization: { slug: "buildinternet" },
       hasPublicUrl: true,
@@ -90,8 +90,10 @@ describe("renderDetailsHtml", () => {
     });
     expect(html).toContain(">buildinternet<");
     expect(html).not.toContain("your role");
-    expect(html).toContain('href="https://storage.uploads.sh/"');
-    expect(html).toContain(">storage.uploads.sh</a>");
+    expect(html).toContain(">base url<");
+    expect(html).toContain(">storage.uploads.sh<");
+    expect(html).not.toContain("<a");
+    expect(html).not.toContain("href=");
     expect(html).not.toContain(">configured<");
   });
 
@@ -104,7 +106,7 @@ describe("renderDetailsHtml", () => {
     expect(html).not.toContain("<a");
   });
 
-  it("escapes an interpolated public url", () => {
+  it("escapes an interpolated base url", () => {
     const html = renderDetailsHtml({
       organization: { slug: "acme" },
       hasPublicUrl: true,
@@ -114,7 +116,7 @@ describe("renderDetailsHtml", () => {
     expect(html).toContain("&lt;script&gt;");
   });
 
-  it("renders an em-dash for public url when hasPublicUrl is false", () => {
+  it("renders an em-dash for base url when hasPublicUrl is false", () => {
     const html = renderDetailsHtml({
       organization: { slug: "side-project" },
       hasPublicUrl: false,

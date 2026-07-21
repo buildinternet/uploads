@@ -89,7 +89,7 @@ describe("readBrowseLocation", () => {
 
 describe("applyBrowseLocation", () => {
   it("writes path-based workspace routes and keeps other search keys", () => {
-    const base = new URL("https://uploads.sh/account/workspaces?tab=1");
+    const base = new URL("https://uploads.sh/account/workspaces?tab=1&view=grid");
     const withPath = applyBrowseLocation(base, {
       workspace: "buildinternet",
       path: "screenshots/",
@@ -98,11 +98,14 @@ describe("applyBrowseLocation", () => {
     expect(withPath.searchParams.get("ws")).toBeNull();
     expect(withPath.searchParams.get("path")).toBe("screenshots/");
     expect(withPath.searchParams.get("tab")).toBe("1");
+    // Layout preference is owned by workspace-files-view; folder nav must keep it.
+    expect(withPath.searchParams.get("view")).toBe("grid");
 
     const cleared = applyBrowseLocation(withPath, { workspace: "", path: "ignored" });
     expect(cleared.searchParams.get("ws")).toBeNull();
     expect(cleared.searchParams.get("path")).toBeNull();
     expect(cleared.searchParams.get("tab")).toBe("1");
+    expect(cleared.searchParams.get("view")).toBe("grid");
   });
 
   it("updates path only when already on the workspace page", () => {
