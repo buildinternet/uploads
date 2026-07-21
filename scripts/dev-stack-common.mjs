@@ -128,14 +128,23 @@ export async function waitFor(url, label, timeoutMs = 30_000) {
   );
 }
 
-/** Upload the normal API fixtures with the newly minted dev-demo bearer token. */
+/**
+ * Upload the normal API fixtures with the newly minted dev-demo bearer token.
+ * Local R2 state persists across boots, so the strict-overwrite contract
+ * (issue #174) would 409 every fixture after the first — seeding opts into
+ * replacement the same way the CLI's `--replace` does to stay idempotent.
+ */
 export async function seedFixtures(token) {
   for (const key of FIXTURES) {
     const response = await boundedFetch(
       `${API_ORIGIN}/v1/${encodeURIComponent(DEMO_WORKSPACE)}/files/${key}`,
       {
         method: "PUT",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "image/png" },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "image/png",
+          "X-Uploads-Replace": "1",
+        },
         body: PNG,
       },
     );
