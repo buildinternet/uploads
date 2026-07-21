@@ -4,12 +4,16 @@ import { describe, expect, it } from "vitest";
 import { gatherCommentBody, upsertBotComment } from "./github-comment";
 import { ATTACHMENTS_MARKER, attachmentsMarker } from "./github-comment-render";
 import { addExternalReference, addGalleryItem, createGallery } from "./galleries";
+import { replaceFileMetadata } from "./file-metadata";
 import type { WorkspaceRecord } from "./workspace";
 import { FakeR2Bucket } from "../test/fake-r2";
 import { FakeKv } from "../test/fake-kv";
 import { SqliteD1, database } from "../test/helpers/sqlite-d1";
 
-const MIGRATION = "migrations/20260711180000_galleries.sql";
+const MIGRATION = [
+  "migrations/20260711180000_galleries.sql",
+  "migrations/20260713210559_file_metadata.sql",
+];
 const PRAGMAS = ["PRAGMA foreign_keys = ON"];
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
@@ -186,6 +190,86 @@ describe("gatherCommentBody", () => {
     expect(result.body).toContain("Launch media");
     expect(result.body).not.toContain("Not ours");
     expect(result.count).toBe(1);
+  });
+});
+
+describe("gatherCommentBody attachment metadata (issue #365)", () => {
+  async function seed(env: Env, bucket: FakeR2Bucket, meta: Record<string, string>) {
+    await bucket.put("acme/gh/acme/web/pull/12/before.webp", PNG);
+    await replaceFileMetadata(env.DB, "acme", "gh/acme/web/pull/12/before.webp", meta);
+  }
+
+  it("renders path and state from D1 on the attachment", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await seed(env, bucket, { path: "/settings", state: "before" });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+
+    expect(result.skip).toBe(false);
+    expect((result as { body: string }).body).toContain("<sub>/settings · before</sub>");
+  });
+
+  it("never fetches or renders EXIF-derived keys", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await seed(env, bucket, {
+      path: "/settings",
+      device: "iPhone 15 Pro",
+      software: "Adobe Photoshop 26.0",
+    });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+
+    const body = (result as { body: string }).body;
+    expect(body).toContain("<sub>/settings</sub>");
+    expect(body).not.toContain("iPhone");
+    expect(body).not.toContain("Photoshop");
+  });
+
+  it("renders exactly as before when the workspace has no metadata", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await bucket.put("acme/gh/acme/web/pull/12/before.webp", PNG);
+
+    const result = await gatherCommentBody(env, ws, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+
+    expect((result as { body: string }).body).not.toContain("<sub>/");
+  });
+
+  it("skips the D1 read entirely when githubCommentShowMetadata is false", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await seed(env, bucket, { path: "/settings", state: "before" });
+
+    let metadataQueries = 0;
+    // Delegate explicitly rather than spreading `env.DB` — it is a class
+    // instance, so a spread would drop its prototype methods.
+    const spied = {
+      prepare: (sql: string) => {
+        if (sql.includes("FROM file_metadata")) metadataQueries++;
+        return env.DB.prepare(sql);
+      },
+      batch: (statements: D1PreparedStatement[]) => env.DB.batch(statements),
+    } as unknown as D1Database;
+
+    const result = await gatherCommentBody(
+      { ...env, DB: spied } as Env,
+      { ...ws, githubCommentShowMetadata: false },
+      workspaceName,
+      { repo: "acme/web", num: 12, kind: "pull" },
+    );
+
+    expect(metadataQueries).toBe(0);
+    expect((result as { body: string }).body).not.toContain("<sub>/settings");
   });
 });
 

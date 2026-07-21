@@ -8,6 +8,7 @@
  */
 
 import { listObjects } from "./files-core";
+import { getMetadataForKeys } from "./file-metadata";
 import { findGalleriesByReference, listGalleryItems, type GalleryCursor } from "./galleries";
 import { galleryUrl, hydrateOwnerGallery } from "./gallery-service";
 import { parseExternalReference } from "./external-references";
@@ -42,7 +43,7 @@ export async function gatherCommentBody(
   // Attachments (R2 list) and galleries (D1) are independent reads — overlap
   // them so the request only waits the longer of the two, not their sum.
   const [items, galleries] = await Promise.all([
-    gatherAttachments(env, ws, target),
+    gatherAttachments(env, ws, workspaceName, target),
     gatherGalleries(env, ws, workspaceName, target),
   ]);
 
@@ -52,10 +53,19 @@ export async function gatherCommentBody(
   return { skip: false, body: attachmentsCommentBody(items, galleries, marker), count };
 }
 
+/**
+ * The only metadata keys the managed comment reads or renders (issue #365).
+ * Filtering at the query rather than the renderer keeps the D1 cost flat at
+ * ~3-5 rows read per attachment however many keys a file carries, and means
+ * EXIF-derived keys are never fetched for a surface that posts publicly.
+ */
+const COMMENT_META_KEYS = ["path", "state"];
+
 /** The workspace's own objects under the stable gh key prefix. */
 async function gatherAttachments(
   env: Env,
   ws: WorkspaceRecord,
+  workspaceName: string,
   target: GhTarget,
 ): Promise<AttachmentItem[]> {
   // Per-workspace choice (issue #304): default (undefined/true) links the
@@ -63,6 +73,7 @@ async function gatherAttachments(
   // behavior); `false` links to raw object bytes instead. Attachments only —
   // does not affect gallery `itemUrl` below, which is a separate feature.
   const linkToFilePage = ws.githubCommentLinkToFilePage !== false;
+  const showMetadata = ws.githubCommentShowMetadata !== false; // issue #365
   const items: AttachmentItem[] = [];
   let cursor: string | undefined;
   do {
@@ -80,6 +91,25 @@ async function gatherAttachments(
       });
     cursor = page.cursor ?? undefined;
   } while (cursor);
+
+  if (!showMetadata || items.length === 0) return items;
+
+  // D1 rows are tenant-scoped by `workspaceName` (the caller's own slug), not
+  // by anything derived from `ws` — same trust boundary as gatherGalleries.
+  const metaByKey = await getMetadataForKeys(
+    env.DB,
+    workspaceName,
+    items.map((item) => item.key),
+    { metaKeys: COMMENT_META_KEYS },
+  );
+  for (const item of items) {
+    const meta = metaByKey.get(item.key);
+    if (!meta) continue;
+    const { path, state } = meta;
+    if (path || state) {
+      item.meta = { ...(path ? { path } : {}), ...(state ? { state } : {}) };
+    }
+  }
   return items;
 }
 
