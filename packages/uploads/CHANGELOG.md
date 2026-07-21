@@ -1,5 +1,15 @@
 # @buildinternet/uploads
 
+## 0.19.0
+
+### Minor Changes
+
+- c674e0f: `uploads login` now mints a full-scope token by default (files:read, files:write, files:delete) so the CLI's own `delete` command works out of the box; pass `--scopes` to narrow it. `uploads doctor` now shows the token's scopes and hints when files:delete is missing.
+
+### Patch Changes
+
+- 9210e1c: Scope failures are now actionable: an `insufficient_scope` API error surfaces as "token lacks the files:delete scope" with a hint to re-run `uploads login` (or mint with `--scopes`), instead of a bare "forbidden".
+
 ## 0.18.0
 
 ### Minor Changes
