@@ -500,12 +500,24 @@ from the admin panel instead). On an older/self-hosted server without these
 routes they fail with a clear "server does not support repo bindings/GitHub
 App health check yet" message.
 
-**`not_authorized` on `comment`/`attach --comment`** means the repo is bound
-to a different workspace. This is a hard decline, not a
-degrade — the CLI does **not** fall back to posting via local `gh` in this
-case, unlike other bot-post failures. Run `uploads github link --status` to
-see who owns it, switch to that workspace, or ask an operator to reassign the
-binding.
+Claiming an _unbound_ repo is authorized, not just first-come (issue #297):
+the server only lets a workspace make that first claim when its linked
+GitHub account has push (or higher) access to the repo, checked live against
+GitHub via the App's installation token. A token with no linked GitHub
+identity — a legacy/enrollment/shared token, including `default`'s — can
+never claim a new repo, though it keeps working normally on any repo already
+bound to it. Claiming reports `claimed: false, reason: "not_authorized"` when
+this check fails; link a GitHub account with push access to the repo, or ask
+an operator to bind it explicitly from the admin panel.
+
+**`not_authorized` on `comment`/`attach --comment`** means either the repo is
+bound to a different workspace, or it's unbound and this workspace couldn't
+be verified as entitled to claim it (see above). Either way it's a hard
+decline, not a degrade — the CLI does **not** fall back to posting via local
+`gh` in this case, unlike other bot-post failures. Run `uploads github link
+--status` to see the current binding (if any), switch to a workspace with a
+linked GitHub account that has access, or ask an operator to bind the repo
+explicitly.
 
 `uploads github doctor` checks the App's own configuration and webhook event
 subscriptions (needs `issues` + `pull_request`; `issue_comment` is

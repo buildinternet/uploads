@@ -9,6 +9,7 @@ import { ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
 import { gatherCommentBody, upsertBotComment } from "../github-comment";
 import { githubAppConfig, installationForRepo } from "../github-app";
+import { isEntitledToClaimRepo } from "../github-claim-authz";
 import { findRepoLinkStrict, recordRepoLink } from "../github-repo-links";
 import type { GhTargetKind } from "../github-comment-render";
 import { writeRateLimit } from "../guards";
@@ -39,25 +40,35 @@ function parseTarget(body: Record<string, unknown>): {
 }
 
 /**
- * Cross-tenant authorization gate (issue #297 baseline control). The App is
- * installed org-wide, so every workspace's token can resolve an installation
- * for *any* org's repo — without this check, workspace A could post/deface
- * `uploads-sh[bot]` comments on workspace B's bound repo using A's own
- * uploaded images under a crafted `gh/<B's org>/...` key prefix.
+ * Cross-tenant authorization gate (issue #297). The App is installed
+ * org-wide, so every workspace's token can resolve an installation for *any*
+ * org's repo — without this check, workspace A could post/deface
+ * `uploads-sh[bot]` comments on workspace B's repo using A's own uploaded
+ * images under a crafted `gh/<B's org>/...` key prefix, simply by being the
+ * first to call this endpoint for that repo (the implicit-claim call below
+ * has no entitlement check of its own).
  *
  * Uses the strict lookup (`findRepoLinkStrict`) deliberately: a D1 failure
  * here must propagate (5xx via the app's error handler) rather than degrade
  * to "unbound", which would silently allow posting during an outage.
  *
- * - Bound to this workspace, or unbound and this workspace may claim it →
- *   `null` (allowed; the existing implicit-claim call below handles the
- *   unbound case).
- * - Bound to a different workspace → decline.
+ * - Bound to this workspace → `null` (allowed).
+ * - Bound to a different workspace → decline; never re-checked against
+ *   entitlement (grandfathered — a legitimately-bound repo keeps working even
+ *   if the binder's GitHub link later changes or lapses).
+ * - Unbound → gated by `isEntitledToClaimRepo` (github-claim-authz.ts): only a
+ *   caller whose linked GitHub identity has push/maintain/admin access to
+ *   `repo` may make the first claim. This is also what closes the communal
+ *   `default` workspace's exposure — its tokens have no minting user, so they
+ *   can never claim a new repo (though they can still act on repos already
+ *   bound to `default`).
  */
 async function checkRepoAuthorization(
   env: Env,
   repo: string,
   workspaceName: string,
+  mintingUserId: string | null,
+  installId: number,
 ): Promise<{ posted: false; reason: "not_authorized"; message: string } | null> {
   const link = await findRepoLinkStrict(env.DB, repo);
   if (link) {
@@ -68,6 +79,17 @@ async function checkRepoAuthorization(
       message:
         `${repo} is bound to a different workspace ("${link.workspaceName}") — this ` +
         `workspace is not authorized to post the uploads-sh[bot] comment there.`,
+    };
+  }
+  const entitled = await isEntitledToClaimRepo(env, repo, mintingUserId, fetch, installId);
+  if (!entitled) {
+    return {
+      posted: false,
+      reason: "not_authorized",
+      message:
+        `${repo} isn't linked to any workspace yet, and this workspace couldn't be ` +
+        `verified as entitled to claim it. Link a GitHub account with push access ` +
+        `to ${repo}, or ask an operator to bind the repo explicitly.`,
     };
   }
   return null;
@@ -100,13 +122,26 @@ export const githubComment = new Hono<WorkspaceVars>().post(
   async (c) => {
     const target = parseTarget(await jsonBody(c));
     const workspaceName = c.get("workspaceName");
-    const decline = await checkRepoAuthorization(c.env, target.repo, workspaceName);
-    if (decline) return c.json(decline);
 
+    // App-configuration/installation checks come before the cross-tenant
+    // gate: they're unconditionally true facts about `target.repo` (not
+    // gated on who's asking), and surfacing them first keeps the more
+    // specific `not_installed`/`app_unconfigured` reasons from being masked
+    // by a generic `not_authorized` when a repo is simply not reachable yet
+    // by any workspace.
     const cfg = githubAppConfig(c.env);
     if (!cfg) return c.json({ posted: false, reason: "app_unconfigured" });
     const installId = await installationForRepo(c.env, cfg, target.repo);
     if (installId === null) return c.json({ posted: false, reason: "not_installed" });
+
+    const decline = await checkRepoAuthorization(
+      c.env,
+      target.repo,
+      workspaceName,
+      c.get("mintingUserId"),
+      installId,
+    );
+    if (decline) return c.json(decline);
 
     const gathered = await gatherCommentBody(
       c.env,

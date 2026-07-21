@@ -158,6 +158,51 @@ export async function installationForRepo(
   }
 }
 
+/** Login-shaped guard before interpolating into a GitHub API path segment. */
+const LOGIN_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
+
+/**
+ * Repo-shaped guard before interpolating into a GitHub API path segment —
+ * same grammar the route handlers validate on the way in (e.g.
+ * `routes/github-comment.ts`'s `REPO_RE`), repeated here as defense in depth
+ * since this function is a shared library call, not just reachable from
+ * already-validated route bodies.
+ */
+const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+
+/**
+ * `login`'s collaborator permission on `repo` ("admin" | "write" | "maintain"
+ * | "read" | "triage" | "none"), or `null` when it can't be determined (App
+ * not installed, no installation token, non-collaborator lookup failure, a
+ * malformed login, or a malformed repo). Used only for the claim-authorization
+ * gate (issue #297, `github-claim-authz.ts`) — this is GitHub's own
+ * authorization data, not anything self-reported by the calling workspace.
+ */
+export async function collaboratorPermission(
+  env: Env,
+  cfg: GithubAppConfig,
+  installationId: number,
+  repo: string,
+  login: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
+  if (!REPO_RE.test(repo) || !LOGIN_RE.test(login)) return null;
+  const token = await installationToken(env, cfg, installationId, fetchImpl);
+  if (!token) return null;
+  try {
+    const res = await githubFetch(
+      fetchImpl,
+      `https://api.github.com/repos/${repo}/collaborators/${login}/permission`,
+      { headers: githubHeaders(token) },
+    );
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as { permission?: unknown } | null;
+    return typeof body?.permission === "string" ? body.permission : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Short-lived installation token, KV-cached below its 60-minute life. Tokens
  * are read-only (App permissions) and expire server-side, so KV storage is an

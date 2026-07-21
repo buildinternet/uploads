@@ -2281,6 +2281,7 @@ async function runGithubLink(ctx: CliContext, repo: string, statusOnly: boolean)
     workspace: string | null;
     source: string | null;
     claimed?: boolean;
+    reason?: "not_authorized";
   };
   try {
     result = statusOnly
@@ -2300,9 +2301,22 @@ async function runGithubLink(ctx: CliContext, repo: string, statusOnly: boolean)
     return 0;
   }
   if (!statusOnly && result.claimed === false) {
-    process.stderr.write(
-      `note: ${repo} is already bound to a different workspace ("${result.workspace}") — first-claim-wins, not overwritten. Run "uploads github unlink --repo ${repo}" from that workspace, or ask an operator to reassign it.\n`,
-    );
+    // Cross-tenant authorization (issue #297): `reason: "not_authorized"`
+    // means the repo is unbound but this workspace couldn't be verified as
+    // entitled to claim it (no linked GitHub account, or that account lacks
+    // push access) — distinct from the older "someone else already owns it"
+    // case, which still reports `result.workspace`.
+    if (result.reason === "not_authorized") {
+      process.stderr.write(
+        `note: ${repo} isn't linked to any workspace yet, and this workspace couldn't be ` +
+          `verified as entitled to claim it. Link a GitHub account with push access to ` +
+          `${repo}, or ask an operator to bind it explicitly.\n`,
+      );
+    } else {
+      process.stderr.write(
+        `note: ${repo} is already bound to a different workspace ("${result.workspace}") — first-claim-wins, not overwritten. Run "uploads github unlink --repo ${repo}" from that workspace, or ask an operator to reassign it.\n`,
+      );
+    }
   }
   await writeStdout(formatGithubLink(repo, result));
   return 0;

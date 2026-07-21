@@ -10,6 +10,7 @@
  */
 import { ValidationError, ForbiddenError } from "@uploads/errors";
 import { Hono } from "hono";
+import { isEntitledToClaimRepo } from "../github-claim-authz";
 import {
   deleteRepoLinkForWorkspace,
   findRepoLink,
@@ -66,6 +67,24 @@ export const githubLink = new Hono<WorkspaceVars>()
       return c.json({
         claimed: before.workspaceName === workspaceName,
         ...linkResponse(repo, before),
+      });
+    }
+
+    // Cross-tenant authorization (issue #297): this is the explicit-claim
+    // counterpart to the implicit claims in routes/github-comment.ts and
+    // routes/github-promote.ts — same gate, because this endpoint has even
+    // less friction (no upload, no GitHub API call of its own) than either
+    // of those. An unbound repo can only be claimed when this workspace's
+    // linked GitHub identity is verified (via the App's installation token)
+    // to have push/maintain/admin access to it. Soft-decline, not an error —
+    // `uploads github link` reports this the same way it reports "someone
+    // else owns it".
+    const entitled = await isEntitledToClaimRepo(c.env, repo, c.get("mintingUserId"));
+    if (!entitled) {
+      return c.json({
+        claimed: false,
+        reason: "not_authorized" as const,
+        ...linkResponse(repo, null),
       });
     }
 
