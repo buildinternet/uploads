@@ -67,7 +67,12 @@ describe("GET /v1/:workspace/github/health", () => {
     const env = await seededEnv();
     const res = await getHealth(env);
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ configured: false, ok: false });
+    expect(await res.json()).toMatchObject({
+      configured: false,
+      ok: false,
+      recommendedEvents: ["issue_comment"],
+      missingRecommendedEvents: ["issue_comment"],
+    });
   });
 
   it("reports ok when subscribed to all required events", async () => {
@@ -89,6 +94,30 @@ describe("GET /v1/:workspace/github/health", () => {
       ok: true,
       missingEvents: [],
       requiredEvents: ["issues", "pull_request"],
+      recommendedEvents: ["issue_comment"],
+      missingRecommendedEvents: ["issue_comment"],
+    });
+  });
+
+  it("reports ok=true and no missing recommended events when subscribed to issue_comment too", async () => {
+    const pem = await testKeyPem();
+    const env = await seededEnv({ ...GITHUB_APP_CFG_ENV, GITHUB_APP_PRIVATE_KEY: pem });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ events: ["ping", "issues", "pull_request", "issue_comment"] }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const res = await getHealth(env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      missingEvents: [],
+      missingRecommendedEvents: [],
     });
   });
 
@@ -107,6 +136,18 @@ describe("GET /v1/:workspace/github/health", () => {
     expect(body.hint).toContain("issues, pull_request");
   });
 
+  it("stays ok=false based only on required events even when recommended events are also missing", async () => {
+    const pem = await testKeyPem();
+    const env = await seededEnv({ ...GITHUB_APP_CFG_ENV, GITHUB_APP_PRIVATE_KEY: pem });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ events: ["ping"] }), { status: 200 })),
+    );
+    const res = await getHealth(env);
+    const body = await res.json();
+    expect(body).toMatchObject({ ok: false, missingRecommendedEvents: ["issue_comment"] });
+  });
+
   it("reports the check as failed when GET /app fails", async () => {
     const pem = await testKeyPem();
     const env = await seededEnv({ ...GITHUB_APP_CFG_ENV, GITHUB_APP_PRIVATE_KEY: pem });
@@ -116,7 +157,13 @@ describe("GET /v1/:workspace/github/health", () => {
     );
     const res = await getHealth(env);
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ configured: true, ok: false, events: null });
+    expect(await res.json()).toMatchObject({
+      configured: true,
+      ok: false,
+      events: null,
+      recommendedEvents: ["issue_comment"],
+      missingRecommendedEvents: ["issue_comment"],
+    });
   });
 
   it("401s with no bearer token", async () => {

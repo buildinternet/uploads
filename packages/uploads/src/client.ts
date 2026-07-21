@@ -290,6 +290,13 @@ export interface GithubHealthResult {
   events: string[] | null;
   missingEvents: string[];
   requiredEvents: string[];
+  /**
+   * Recommended-but-non-gating events, e.g. `issue_comment` (issue #333).
+   * Optional: older servers' health payload predates this field — treat a
+   * missing field as "no recommendations", not an error.
+   */
+  recommendedEvents?: string[];
+  missingRecommendedEvents?: string[];
   hint?: string;
 }
 
