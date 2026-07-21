@@ -145,7 +145,7 @@ export function AccountFileBrowser({
               disabled={busy}
               onClick={() => void toggleVisibility(file.key, next, applyLocally)}
             >
-              {busy ? "…" : isPrivate ? "Make public" : "Make private"}
+              {busy ? "…" : isPrivate ? "Make public" : "Unlist"}
             </Button>
           );
         }}

@@ -395,6 +395,16 @@ export const me = new Hono<SessionVars>()
   // (head/size-cap/download/re-upload) live in files-core's
   // `setObjectVisibility`; this route keeps auth, key validation, body
   // validation, and error mapping.
+  //
+  // Wire value stays "public" | "private" (issue #166: renaming the field
+  // would be a breaking API change), but the semantics are "unlisted," not
+  // byte-private: `visibility: "private"` hides an object from the public
+  // file listing and 401-gates `/public/files/...` + the `/f/…` page
+  // (public-files.ts). On a workspace with `publicBaseUrl` the raw object URL
+  // still serves bytes unsigned to anyone who has it — this endpoint never
+  // controlled that. Document that distinction anywhere this field is
+  // surfaced to API consumers; don't call it "private" in a byte-privacy
+  // sense.
   .patch("/workspaces/:name/files/visibility", async (c) => {
     const name = c.req.param("name");
     await memberWorkspaceOr404(c.env, requireUserId(c), name);

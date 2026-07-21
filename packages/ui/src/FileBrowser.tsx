@@ -178,7 +178,7 @@ export function FileBrowser({
                       {formatBytes(item.size)} · {item.type || "unknown"}
                     </small>
                   </span>
-                  {isPrivate?.(item) ? <Badge tone="neutral">Private</Badge> : null}
+                  {isPrivate?.(item) ? <Badge tone="neutral">Unlisted</Badge> : null}
                 </button>
                 {itemActions?.(item, {
                   refresh: () => void load(),

@@ -683,13 +683,20 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
                   {typeof file.size === "number" ? formatBytes(file.size) : "—"}
                 </span>
                 <span className="wft-type">{type}</span>
-                <span className={`wft-vis ${priv ? "wft-vis--private" : "wft-vis--public"}`}>
+                <span
+                  className={`wft-vis ${priv ? "wft-vis--private" : "wft-vis--public"}`}
+                  title={
+                    priv
+                      ? "Unlisted: hidden from listings and the /f/ page unless signed in. The raw file URL still works for anyone who has it."
+                      : "Public: listed and reachable by anyone with the URL."
+                  }
+                >
                   {priv ? (
                     <LockIcon className="wft-vis__icon" />
                   ) : (
                     <span className="wft-vis__dot" aria-hidden="true" />
                   )}
-                  {priv ? "private" : "public"}
+                  {priv ? "unlisted" : "public"}
                 </span>
                 <div className="wft-menu">
                   <button
@@ -718,7 +725,7 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
                         disabled={busy}
                         onClick={() => void toggleVisibility(file)}
                       >
-                        {priv ? "make public" : "make private"}
+                        {priv ? "make public" : "unlist"}
                       </button>
                     </div>
                   )}
