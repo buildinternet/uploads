@@ -109,17 +109,28 @@ uploads put ./demo.gif --format url
 Always embed the returned **markdown** (or `embedUrl`) in GitHub — it uses the
 no-cache host so overwrites propagate. Don't hand-build storage URLs.
 
-**Bot comment not showing up?** The managed comment needs a repo↔workspace
-binding (normally created implicitly by the first comment/promote call, or by
-installing the GitHub App). If a comment you expected doesn't appear, check
-the binding first:
+**Comment briefly disappeared? Don't panic-repost.** If the App is installed
+and subscribed to the `issue_comment` event, a deleted or edited-out managed
+comment self-heals automatically on the next webhook delivery — no need to
+run `comment`/`attach` again just to bring it back.
+
+**Bot comment not showing up at all?** The managed comment needs a
+repo↔workspace binding (normally created implicitly by the first
+comment/promote call, or by installing the GitHub App). If a comment you
+expected doesn't appear, check the binding first:
 
 ```bash
 uploads github link --status
 ```
 
 That's read-only and shows the current binding (or that the repo is
-unbound) without claiming anything.
+unbound) without claiming anything. If the CLI reports `not_authorized`
+instead, the repo is already bound to a _different_ workspace (or unbound
+under the communal `default` workspace, which can't claim new repos) — it
+won't fall back to posting via your own `gh` auth in that case. The fix is
+`uploads github unlink --repo owner/name` from the owning workspace, or
+asking an operator to reassign the binding; switching to the workspace that
+already owns it also works.
 
 **Curate, don't dump.** The comment inlines up to **16 images**; anything past
 that collapses into a `<details>` overflow list. Name and pick shots

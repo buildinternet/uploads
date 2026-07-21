@@ -64,9 +64,11 @@ once a PR exists for that branch:
 Promotion only applies to PRs, never issues, and both paths degrade silently
 (no error) if the workspace's server doesn't support promotion yet.
 
-**Comment missing?** Check the repo↔workspace binding first —
-`uploads github link --status` (read-only, shows the binding without
-claiming it). See "Repo binding" below.
+**Comment missing?** First, give it a moment — if the App is installed and
+subscribed to `issue_comment`, a deleted or mangled bot comment self-heals on
+the next webhook delivery; don't panic-repost. If it's still missing, check
+the repo↔workspace binding — `uploads github link --status` (read-only, shows
+the binding without claiming it). See "Repo binding" below.
 
 The killer feature for GitHub: `--pr`/`--issue` produce **hash-free, stable keys**
 (`gh/<owner>/<repo>/pull/<num>/<name>`), so re-uploading the same filename overwrites
@@ -457,21 +459,40 @@ managed comment on a shared repo (namespaced under the hood) instead of
 clobbering another workspace's — use `uploads github link` (below) to see or
 set which workspace a repo is bound to.
 
-### Repo binding (`uploads github link`)
+### Repo binding (`uploads github link` / `unlink` / `doctor`)
 
 The managed comment and webhook auto-promotion use a first-claim-wins binding
 between a repo and a workspace, normally created implicitly by your first
-`comment`/`put --comment`/promote call. Inspect or explicitly claim it:
+`comment`/`put --comment`/promote call. Inspect, claim, or release it:
 
 ```bash
 uploads github link                       # claim the current repo for this workspace
 uploads github link --repo owner/name     # claim a specific repo
 uploads github link --status              # read-only: show the current binding, don't claim
+uploads github unlink --repo owner/name   # release a binding this workspace owns
+uploads github doctor                     # check the App itself (config + webhook events)
 ```
 
 Claiming an already-bound repo never steals it — the command reports the
-existing owner instead. On an older/self-hosted server without this route it
-fails with a clear "server does not support repo bindings yet" message.
+existing owner instead. `unlink` only releases a binding this workspace owns;
+it 403s if another workspace owns it (an operator can reassign or remove it
+from the admin panel instead). On an older/self-hosted server without these
+routes they fail with a clear "server does not support repo bindings/GitHub
+App health check yet" message.
+
+**`not_authorized` on `comment`/`attach --comment`** means the repo is bound
+to a different workspace (or unbound and you're on the communal `default`
+workspace, which can never claim a fresh repo). This is a hard decline, not a
+degrade — the CLI does **not** fall back to posting via local `gh` in this
+case, unlike other bot-post failures. Run `uploads github link --status` to
+see who owns it, switch to that workspace, or ask an operator to reassign the
+binding.
+
+`uploads github doctor` checks the App's own configuration and webhook event
+subscriptions (needs `issues` + `pull_request`; `issue_comment` is
+recommended so a deleted/mangled bot comment self-heals instead of waiting
+for the next PR push) — useful when webhook-driven behavior (auto-promotion,
+title updates, self-healing) seems to be silently doing nothing.
 
 ### Embedding best practices
 
