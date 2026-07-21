@@ -952,7 +952,7 @@ function promotionNote(
 ): string {
   const n = promotion.promoted.length;
   const branchSuffix = branch ? ` from branch ${branch}` : "";
-  return `>> promoted ${n} staged screenshot${n === 1 ? "" : "s"}${branchSuffix}\n`;
+  return `>> promoted ${n} staged attachment${n === 1 ? "" : "s"}${branchSuffix}\n`;
 }
 
 export async function runAttach(

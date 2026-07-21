@@ -640,7 +640,7 @@ describe("runAttach auto-promote (default PR path)", () => {
     } finally {
       vi.restoreAllMocks();
     }
-    expect(stderr.join("")).toContain(">> promoted 1 staged screenshot from branch feature-x\n");
+    expect(stderr.join("")).toContain(">> promoted 1 staged attachment from branch feature-x\n");
   });
 
   it("stays quiet when promotion runs but promotes nothing", async () => {
