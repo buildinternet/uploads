@@ -659,10 +659,21 @@ function galleriesBase(config: UploadsClientConfig): string {
   return `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/galleries`;
 }
 
-function mapApiError(status: number, error: string, code?: string): UploadsError {
+function mapApiError(
+  status: number,
+  error: string,
+  code?: string,
+  requiredScope?: string,
+): UploadsError {
   const normalized = error.toLowerCase();
   if (status === 401 || code === "unauthorized" || normalized === "unauthorized") {
     return new UploadsError(error, "UNAUTHORIZED", status);
+  }
+  if (code === "insufficient_scope") {
+    // The server's message is a bare "forbidden" — name the missing scope so
+    // the failure is actionable without a doctor run.
+    const message = requiredScope ? `token lacks the ${requiredScope} scope` : error;
+    return new UploadsError(message, "INSUFFICIENT_SCOPE", status);
   }
   if (status === 404 || code === "not_found" || normalized === "not found") {
     return new UploadsError(error, "NOT_FOUND", status);
@@ -696,14 +707,18 @@ function mapApiError(status: number, error: string, code?: string): UploadsError
 export function extractErrorFields(
   body: unknown,
   fallback = "request failed",
-): { message: string; code?: string } {
+): { message: string; code?: string; requiredScope?: string } {
   if (typeof body === "object" && body && "error" in body) {
     const err = (body as { error: unknown }).error;
     if (typeof err === "object" && err && "message" in err) {
-      const nested = err as { message?: unknown; code?: unknown };
+      const nested = err as { message?: unknown; code?: unknown; details?: unknown };
+      const details = nested.details as { required_scope?: unknown } | undefined;
       return {
         message: typeof nested.message === "string" ? nested.message : fallback,
         code: typeof nested.code === "string" ? nested.code : undefined,
+        ...(typeof details?.required_scope === "string"
+          ? { requiredScope: details.required_scope }
+          : {}),
       };
     }
     if (typeof err === "string") {
@@ -721,14 +736,17 @@ export function extractErrorFields(
 export async function parseErrorEnvelope(
   res: Response,
   fallback = "request failed",
-): Promise<{ message: string; code?: string }> {
+): Promise<{ message: string; code?: string; requiredScope?: string }> {
   const body = await res.json().catch(() => ({}));
   return extractErrorFields(body, fallback);
 }
 
 async function parseErrorResponse(res: Response): Promise<UploadsError> {
-  const { message, code } = await parseErrorEnvelope(res, res.statusText || "request failed");
-  return mapApiError(res.status, message, code);
+  const { message, code, requiredScope } = await parseErrorEnvelope(
+    res,
+    res.statusText || "request failed",
+  );
+  return mapApiError(res.status, message, code, requiredScope);
 }
 
 export function createUploadsClient(config: UploadsClientConfig) {

@@ -4,6 +4,7 @@ export type UploadsErrorCode =
   | "FILE_NOT_FOUND"
   | "NOT_FOUND"
   | "UNAUTHORIZED"
+  | "INSUFFICIENT_SCOPE"
   | "INVALID_KEY"
   | "KEY_POLICY"
   | "STORAGE_QUOTA"
