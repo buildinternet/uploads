@@ -4,6 +4,7 @@ import { mapBounded } from "./async.js";
 import {
   createUploadsClient,
   type GalleryItem,
+  type GithubCommentResult,
   type GithubHealthResult,
   type PromoteBranchAttachmentsResult,
   type PutResult,
@@ -515,19 +516,45 @@ export function commentViaSuffix(via: AttachmentsCommentResult["via"]): string {
   return via === "bot" ? " (uploads-sh[bot])" : " (via gh)";
 }
 
+/**
+ * Thrown by `syncAttachmentsComment` when the server declines with
+ * `not_authorized` (issue #297 baseline control) — this repo is bound to a
+ * different workspace, or unbound and unclaimable by the communal `default`
+ * workspace. Deliberately not caught by the generic "bot endpoint
+ * unreachable" fallback below: falling back to gh here would let the
+ * human's own credentials post anyway, defeating the point of the
+ * server-side gate.
+ */
+export class GithubCommentAuthorizationError extends Error {}
+
 export async function syncAttachmentsComment(
   client: UploadsClient,
   target: GhTarget,
   run: CommandRunner,
   workspace?: string,
 ): Promise<AttachmentsCommentResult> {
+  let bot: GithubCommentResult | undefined;
   try {
-    const bot = await client.upsertGithubComment({
+    bot = await client.upsertGithubComment({
       repo: target.repo,
       num: target.num,
       kind: target.kind,
     });
+  } catch {
+    // Endpoint absent/unreachable (self-hosted, network, older worker) — fall
+    // through to the gh path below.
+    bot = undefined;
+  }
+
+  if (bot) {
     if (bot.posted) return { action: bot.action, count: bot.count, via: "bot" };
+    if (bot.reason === "not_authorized") {
+      throw new GithubCommentAuthorizationError(
+        `${bot.message ?? `${target.repo} is not authorized for this workspace.`}\n` +
+          `Run \`uploads github link --status --repo ${target.repo}\` to see who owns the ` +
+          `binding, use that workspace instead, or post the comment manually with gh.`,
+      );
+    }
     // Installed-but-unapproved is a fixable misconfiguration, not a silent
     // degrade: tell the user (and how to fix it) before falling back to gh.
     if (bot.reason === "forbidden" && bot.message) {
@@ -536,9 +563,6 @@ export async function syncAttachmentsComment(
           `Posting via local gh in the meantime.\n`,
       );
     }
-  } catch {
-    // Endpoint absent/unreachable (self-hosted, network, older worker) — fall
-    // through to the gh path below.
   }
 
   // gh fallback: gather from this workspace's own data and post via local `gh`.
@@ -2081,6 +2105,11 @@ listing everything uploaded for it. Posts as uploads-sh[bot] when the GitHub
 App is installed on the repo; otherwise via your local gh auth. Finds its own
 prior comment via a hidden marker and edits it in place; never touches other
 comments or the description.
+
+If this repo is bound to a different workspace (or unbound and you're on the
+communal "default" workspace), the bot post is declined and this command
+fails rather than silently falling back to gh — see \`uploads github link
+--status\`.
 
 Examples:
   uploads --env-file .env comment --pr 123

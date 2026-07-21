@@ -9,10 +9,11 @@ import { ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
 import { gatherCommentBody, upsertBotComment } from "../github-comment";
 import { githubAppConfig, installationForRepo } from "../github-app";
-import { recordRepoLink } from "../github-repo-links";
+import { findRepoLinkStrict, recordRepoLink } from "../github-repo-links";
 import type { GhTargetKind } from "../github-comment-render";
 import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
+import { isCommunal } from "./me";
 import { jsonBody } from "./json-body";
 
 // Same owner/name grammar as public-files.ts's deriveGithubContext, plus a guard
@@ -36,6 +37,54 @@ function parseTarget(body: Record<string, unknown>): {
   if (kind !== "pull" && kind !== "issues")
     throw new ValidationError('kind must be "pull" or "issues".');
   return { repo, num, kind };
+}
+
+/**
+ * Cross-tenant authorization gate (issue #297 baseline control). The App is
+ * installed org-wide, so every workspace's token can resolve an installation
+ * for *any* org's repo — without this check, workspace A could post/deface
+ * `uploads-sh[bot]` comments on workspace B's bound repo using A's own
+ * uploaded images under a crafted `gh/<B's org>/...` key prefix.
+ *
+ * Uses the strict lookup (`findRepoLinkStrict`) deliberately: a D1 failure
+ * here must propagate (5xx via the app's error handler) rather than degrade
+ * to "unbound", which would silently allow posting during an outage.
+ *
+ * - Bound to this workspace, or unbound and this workspace may claim it →
+ *   `null` (allowed; the existing implicit-claim call below handles the
+ *   unbound case).
+ * - Bound to a different workspace → decline.
+ * - Unbound and the caller is the communal `default` workspace → decline;
+ *   `default` may only post to repos already bound to `default` — it can
+ *   never claim a fresh repo (the widest cross-tenant exposure named in the
+ *   issue).
+ */
+async function checkRepoAuthorization(
+  env: Env,
+  repo: string,
+  workspaceName: string,
+): Promise<{ posted: false; reason: "not_authorized"; message: string } | null> {
+  const link = await findRepoLinkStrict(env.DB, repo);
+  if (link) {
+    if (link.workspaceName === workspaceName) return null;
+    return {
+      posted: false,
+      reason: "not_authorized",
+      message:
+        `${repo} is bound to a different workspace ("${link.workspaceName}") — this ` +
+        `workspace is not authorized to post the uploads-sh[bot] comment there.`,
+    };
+  }
+  if (isCommunal(env, workspaceName)) {
+    return {
+      posted: false,
+      reason: "not_authorized",
+      message:
+        `${repo} isn't bound to a workspace yet, and the communal "default" workspace ` +
+        `can't claim new repos. Use a dedicated workspace to post there for the first time.`,
+    };
+  }
+  return null;
 }
 
 /**
@@ -64,6 +113,10 @@ export const githubComment = new Hono<WorkspaceVars>().post(
   requireScope("files:read"),
   async (c) => {
     const target = parseTarget(await jsonBody(c));
+    const workspaceName = c.get("workspaceName");
+    const decline = await checkRepoAuthorization(c.env, target.repo, workspaceName);
+    if (decline) return c.json(decline);
+
     const cfg = githubAppConfig(c.env);
     if (!cfg) return c.json({ posted: false, reason: "app_unconfigured" });
     const installId = await installationForRepo(c.env, cfg, target.repo);

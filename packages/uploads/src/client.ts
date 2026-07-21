@@ -213,11 +213,20 @@ export interface FindGalleriesByReferenceOptions {
   cursor?: string;
 }
 
-/** Reasons the bot did not post; the CLI treats any of them as "fall back to gh". */
+/**
+ * Reasons the bot did not post. The CLI falls back to the local `gh` path
+ * for all of these except `not_authorized` (issue #297 baseline control):
+ * the target repo is bound to a different workspace (or is unbound and the
+ * caller is the communal `default` workspace, which can't claim new repos).
+ * Falling back to `gh` there would let the human's own credentials post
+ * anyway, defeating the point of the server-side gate, so the CLI surfaces
+ * the decline instead.
+ */
 export type GithubCommentDeclineReason =
   | "app_unconfigured"
   | "not_installed"
   | "forbidden"
+  | "not_authorized"
   | "unavailable";
 
 export type GithubCommentResult =

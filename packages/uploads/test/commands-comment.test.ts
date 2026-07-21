@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import type { UploadsClient } from "../src/client.js";
-import { runComment, syncAttachmentsComment, type CliContext } from "../src/commands.js";
+import {
+  GithubCommentAuthorizationError,
+  runComment,
+  syncAttachmentsComment,
+  type CliContext,
+} from "../src/commands.js";
 import { attachmentsMarker } from "../src/github.js";
 import type { CommandRunner } from "../src/github-gh.js";
 
@@ -214,6 +219,24 @@ describe("syncAttachmentsComment", () => {
     } finally {
       stderr.mockRestore();
     }
+  });
+
+  it("does not fall back to gh on not_authorized (issue #297) — throws with a hint instead", async () => {
+    const client = fakeClient({
+      upsertGithubComment: async () => ({
+        posted: false,
+        reason: "not_authorized",
+        message: 'acme/web is bound to a different workspace ("other-ws").',
+      }),
+    });
+    const run = vi.fn(); // gh runner must NOT be called
+    await expect(
+      syncAttachmentsComment(client, { repo: "acme/web", num: 12, kind: "pull" }, run),
+    ).rejects.toThrow(GithubCommentAuthorizationError);
+    await expect(
+      syncAttachmentsComment(client, { repo: "acme/web", num: 12, kind: "pull" }, run),
+    ).rejects.toThrow(/uploads github link --status/);
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("falls back to the gh path when the endpoint throws (self-hosted 404)", async () => {
