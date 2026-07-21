@@ -267,6 +267,16 @@ export interface HealthResult {
   ok: boolean;
 }
 
+/** `GET /v1/:workspace/github/health` result (issue #293 follow-up). */
+export interface GithubHealthResult {
+  configured: boolean;
+  ok: boolean;
+  events: string[] | null;
+  missingEvents: string[];
+  requiredEvents: string[];
+  hint?: string;
+}
+
 export interface UsageResult {
   workspace: string;
   bytes: number;
@@ -1042,6 +1052,18 @@ export function createUploadsClient(config: UploadsClientConfig) {
           body: new TextEncoder().encode(JSON.stringify({ repo })),
           headers: { "Content-Type": "application/json" },
         },
+      );
+    },
+
+    /**
+     * GitHub App configuration + webhook event subscription check. Throws
+     * `UploadsError` (status 404) on an older/self-hosted server without
+     * this route — callers treat that as "unknown", not "broken".
+     */
+    async githubHealth(): Promise<GithubHealthResult> {
+      return request<GithubHealthResult>(
+        "GET",
+        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/health`,
       );
     },
 

@@ -135,6 +135,15 @@ const TOC = [
       until an org admin approves it. The CLI tells you when that's the case — it prints the
       exact approval link and falls back to posting via <code>gh</code> in the meantime.
     </p>
+    <p>
+      The App also needs to be <strong>subscribed to the <code>issues</code> and
+      <code>pull_request</code> webhook events</strong> (Settings → your App →
+      <em>Permissions &amp; events</em> → <em>Subscribe to events</em>). Without them the App's
+      ping still shows green — GitHub always sends <code>ping</code> and installation events
+      regardless of subscription — but webhook-driven title cache invalidation and branch-staged
+      attachment auto-promotion silently do nothing. Run <code>uploads github doctor</code> to
+      check: it calls the App API directly and reports any missing subscription.
+    </p>
   </section>
 
   <section id="without-it">

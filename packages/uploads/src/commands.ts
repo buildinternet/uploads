@@ -4,6 +4,7 @@ import { mapBounded } from "./async.js";
 import {
   createUploadsClient,
   type GalleryItem,
+  type GithubHealthResult,
   type PromoteBranchAttachmentsResult,
   type PutResult,
   type UploadsClient,
@@ -2061,6 +2062,7 @@ export async function runComment(
 // --- github link ---
 
 const GITHUB_HELP = `uploads github link [--repo <owner/name>] [--status] [--workspace <name>]
+uploads github doctor [--workspace <name>]
 
 Claim or inspect this workspace's binding to a GitHub repo (see the managed
 attachments comment / webhook auto-promotion, which use this binding).
@@ -2072,11 +2074,35 @@ instead.
 the git remote). --status only inspects the current binding (files:read);
 without it, the command claims the repo (files:write).
 
+\`doctor\` checks the GitHub App itself: whether it's configured on the
+server, and whether it's subscribed to the webhook events uploads.sh's
+handler needs (issues, pull_request — see docs/github-app). A missing
+subscription is the classic silent failure: the App's ping stays green
+while webhook auto-promotion and title-cache invalidation quietly do
+nothing.
+
 Examples:
   uploads github link
   uploads github link --repo buildinternet/uploads
   uploads github link --status
+  uploads github doctor
 `;
+
+function formatGithubDoctor(result: GithubHealthResult): string {
+  if (!result.configured) {
+    return `github app: not configured on this server${result.hint ? ` — ${result.hint}` : ""}\n`;
+  }
+  if (result.events === null) {
+    return `github app: configured, but health check failed${result.hint ? ` — ${result.hint}` : ""}\n`;
+  }
+  if (result.ok) {
+    return `github app: ok — subscribed to ${result.requiredEvents.join(", ")}\n`;
+  }
+  return (
+    `github app: missing webhook event subscription(s): ${result.missingEvents.join(", ")}\n` +
+    (result.hint ? `  ${result.hint}\n` : "")
+  );
+}
 
 function formatGithubLink(
   repo: string,
@@ -2099,7 +2125,29 @@ export async function runGithub(
     writeCommandHelp(GITHUB_HELP);
     return help || parsed.help ? 0 : 2;
   }
-  if (action !== "link") throw new UsageError(`unknown github subcommand: ${action}`);
+  if (action !== "link" && action !== "doctor") {
+    throw new UsageError(`unknown github subcommand: ${action}`);
+  }
+
+  if (action === "doctor") {
+    let result: GithubHealthResult;
+    try {
+      result = await ctx.client.githubHealth();
+    } catch (err) {
+      if (err instanceof UploadsError && err.status === 404) {
+        throw new UsageError(
+          "server does not support the GitHub App health check yet (404) — upgrade the uploads.sh API/self-hosted worker",
+        );
+      }
+      throw err;
+    }
+    if (ctx.json) {
+      await writeJson(result);
+    } else {
+      await writeStdout(formatGithubDoctor(result));
+    }
+    return result.ok ? 0 : 1;
+  }
 
   const repo = resolveRepo(flagString(parsed.flags, "--repo"), run);
   const statusOnly = flagBool(parsed.flags, "--status");

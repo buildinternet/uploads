@@ -152,7 +152,10 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
   {
     name: "github",
     summary: "Claim/inspect this workspace's binding to a GitHub repo",
-    subcommands: [{ name: "link", summary: "Claim or inspect the repo binding" }],
+    subcommands: [
+      { name: "link", summary: "Claim or inspect the repo binding" },
+      { name: "doctor", summary: "Check the GitHub App's webhook event subscriptions" },
+    ],
   },
   {
     name: "list",

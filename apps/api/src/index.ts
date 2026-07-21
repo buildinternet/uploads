@@ -23,6 +23,7 @@ import { githubWebhook } from "./routes/github-webhook";
 import { githubComment } from "./routes/github-comment";
 import { githubPromote } from "./routes/github-promote";
 import { githubLink } from "./routes/github-link";
+import { githubHealth } from "./routes/github-health";
 import { protectedResourceMetadata, requestOrigin } from "./well-known";
 
 // Lets the browser console on the web origin (and local dev) call the token-
@@ -137,6 +138,9 @@ export const app = new Hono<WorkspaceVars>()
   // Phase 4b: explicit claim/inspect for the workspace<->repo binding (see
   // github-repo-links.ts) — same base path, distinct sub-route "/link".
   .route("/v1/:workspace/github", githubLink)
+  // Issue #293 follow-up: App-level webhook event subscription check, same
+  // base path, distinct sub-route "/health".
+  .route("/v1/:workspace/github", githubHealth)
   .onError((err, c) => respondError(c, err))
   .notFound((c) => respondError(c, new NotFoundError()));
 
