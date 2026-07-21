@@ -164,15 +164,32 @@ node --env-file=.env apps/api/scripts/backfill-gh-metadata.mjs
 for one run. Test against a local `wrangler dev` stack first — never point
 this at production while testing.
 
-## Invitations
+## Invitations and people
+
+Workspace org roles are **owner**, **admin**, and **member** (Better Auth
+`member.role`, not the global site-admin `user.role`). The account UI people
+tab is `/account/workspaces/<name>/people` (legacy `/invite` redirects there).
+
+### Who can manage people
+
+| Action                                               | Owner | Admin |
+| ---------------------------------------------------- | ----- | ----- |
+| Invite teammates; revoke pending invites             | ✅    | ✅    |
+| Remove a `member`; promote/demote `member` ↔ `admin` | ✅    | ✅    |
+| Remove or demote another `admin`                     | ✅    | ❌    |
+| Change the `owner` role, or act on yourself          | ❌    | ❌    |
+
+Enforced in the auth worker (`memberManageDenied`); full detail in
+[people-tab design](superpowers/specs/2026-07-19-people-tab-member-management-design.md).
 
 ### Workspace admins (normal path)
 
 People with org role **admin** or **owner** on a workspace invite teammates
 without `ADMIN_TOKEN` or a global site-admin role:
 
-- **Web:** `/account/workspaces/<name>/invite` → “Invite a teammate” (session
-  cookie → `POST /me/workspaces/:name/invites`)
+- **Web:** `/account/workspaces/<name>/people` → Invite section (session
+  cookie → `POST /me/workspaces/:name/invites`). Same page for pending invites,
+  role changes, and remove.
 - **CLI:** `uploads invite create --email teammate@example.com --workspace <name>`
   (device login as the inviter, then the same `/me/…/invites` API)
 
