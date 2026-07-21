@@ -144,6 +144,12 @@ const TOC = [
       attachment auto-promotion silently do nothing. Run <code>uploads github doctor</code> to
       check: it calls the App API directly and reports any missing subscription.
     </p>
+    <p>
+      We also recommend subscribing to the <code>issue_comment</code> event. It's optional — the
+      App works fully without it — but it lets the managed attachments comment self-heal if it's
+      ever deleted or edited out from under the bot, instead of waiting for the next PR push to
+      re-render it.
+    </p>
   </section>
 
   <section id="without-it">
