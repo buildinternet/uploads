@@ -14,7 +14,7 @@ import {
   ValidationError,
 } from "@uploads/errors";
 import { Hono, type MiddlewareHandler } from "hono";
-import { adminWorkspaceOr403, isCommunal, isWorkspaceOwner } from "./me";
+import { adminWorkspaceOr403, isWorkspaceOwner } from "./me";
 import {
   isFileScope,
   isOperatorScope,
@@ -237,16 +237,10 @@ export const workspaces = new Hono<SessionVars>().post(
  *
  * 404 for unknown/purged-tombstone names (uniform with every other
  * not-found path); 403 for a workspace that exists but isn't a self-serve
- * workspace this user is authorized for — including the communal workspace,
- * which is excluded outright regardless of its record shape, and non-self-serve
- * (BYO) workspaces, which stay undeletable via this surface regardless of role.
+ * workspace this user is authorized for, and non-self-serve (BYO)
+ * workspaces, which stay undeletable via this surface regardless of role.
  */
 async function loadOwnedSelfServeRecord(c: { env: Env }, name: string, userId: string) {
-  if (isCommunal(c.env, name)) {
-    throw new ForbiddenError("cannot delete the communal workspace", {
-      code: "protected_workspace",
-    });
-  }
   const raw = await loadWorkspaceRecordRaw(c.env, name);
   if (!raw || isPurgedTombstone(raw)) {
     throw new NotFoundError("workspace not found", { code: "workspace_not_found" });

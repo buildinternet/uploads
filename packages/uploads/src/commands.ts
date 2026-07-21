@@ -118,10 +118,15 @@ Uploads are public. --pr/--issue keys include the repo, number, and filename and
 remain public even for private/internal GitHub repositories. Upload only media
 that is safe at a predictable public URL.
 
-Re-uploading the same key overwrites in place (no prompt) so embeds hot-swap;
-human mode prints ">> replaced existing object (same URL)" after a real put,
-or ">> would replace existing object (same URL)" on --dry-run when the key
-already exists.
+Overwrite semantics depend on the key (issue #174): --pr/--issue always
+hot-swap in place (no prompt) so embeds stay stable — human mode prints
+">> replaced existing object (same URL)" after a real put, or ">> would
+replace existing object (same URL)" on --dry-run. Every other key (--key, or
+the default put path) is strict: re-uploading to an existing key REFUSES with
+a "key_exists" error (JSON includes the existing object's url) unless you
+pass --replace, or set UPLOADS_OVERWRITE=1 to restore old always-overwrite
+behavior for those paths. --dry-run reports ">> would refuse: key already
+exists" instead of writing.
 
 Human/json output includes durable url and (when dual-host applies) embedUrl.
 MARKDOWN prefers embedUrl for GitHub. Override: UPLOADS_EMBED_PUBLIC_BASE_URL.
@@ -158,7 +163,10 @@ Options:
                         Re-uploading to an existing key WITH --meta replaces that file's
                         entire metadata set; without --meta the existing metadata is
                         preserved. Use "uploads meta set" to edit individual keys.
-  --dry-run             Print key + public URL without uploading; reports if the key would replace an existing object. Not with --comment/--gallery
+  --replace             Allow overwriting an existing object on a strict (--key/default) key
+                        (or UPLOADS_OVERWRITE=1). No effect on --pr/--issue, which always overwrite.
+  --dry-run             Print key + public URL without uploading; reports if the key would replace
+                        (or, on a strict key, be refused). Not with --comment/--gallery
 
 Exit codes: 0 ok · 2 usage/token/file · 3 auth/policy · 4 network · 1 other (incl. partial multi-file failure).
 Scripted formats (json|url|markdown) also print failures on stdout.
@@ -337,8 +345,20 @@ function formatOptimizeNote(opt: {
   return undefined;
 }
 
-function writeReplacedNote(replaced: boolean | undefined, quiet: boolean, dryRun = false): void {
-  if (!quiet && replaced) {
+function writeReplacedNote(
+  replaced: boolean | undefined,
+  quiet: boolean,
+  dryRun = false,
+  wouldRefuse = false,
+): void {
+  if (quiet) return;
+  if (dryRun && wouldRefuse) {
+    process.stderr.write(
+      `>> would refuse: key already exists (pass --replace to overwrite; or set UPLOADS_OVERWRITE=1)\n`,
+    );
+    return;
+  }
+  if (replaced) {
     process.stderr.write(
       dryRun
         ? `>> would replace existing object (same URL)\n`
@@ -403,6 +423,12 @@ export interface UploadPreparedImageOptions {
   deriveRepoFromGit?: boolean;
   contentType?: string;
   dryRun?: boolean;
+  /**
+   * Opt in to overwriting an existing object on a strict (non-`gh/`) key —
+   * see issue #174. Ignored server-side on managed `gh/` paths (`ghTarget`
+   * set), which always hot-swap.
+   */
+  replace?: boolean;
   metadata?: Record<string, string>;
   provenanceClient?: string;
   /**
@@ -453,6 +479,7 @@ export async function uploadPreparedImage(
     contentType: prepared.optimized ? prepared.contentType : opts.contentType,
     deriveRepoFromGit: opts.deriveRepoFromGit,
     dryRun: opts.dryRun,
+    replace: opts.replace,
     provenance: buildCliProvenance({
       sourceName,
       client: opts.provenanceClient,
@@ -519,8 +546,7 @@ export function commentViaSuffix(via: AttachmentsCommentResult["via"]): string {
 /**
  * Thrown by `syncAttachmentsComment` when the server declines with
  * `not_authorized` (issue #297 baseline control) — this repo is bound to a
- * different workspace, or unbound and unclaimable by the communal `default`
- * workspace. Deliberately not caught by the generic "bot endpoint
+ * different workspace. Deliberately not caught by the generic "bot endpoint
  * unreachable" fallback below: falling back to gh here would let the
  * human's own credentials post anyway, defeating the point of the
  * server-side gate.
@@ -912,6 +938,12 @@ export async function uploadPuts(opts: {
   deriveRepoFromGit?: boolean;
   contentType?: string;
   dryRun?: boolean;
+  /**
+   * Opt in to overwriting an existing object on a strict (non-`gh/`) key —
+   * see issue #174. Ignored server-side when `ghTarget` targets a managed
+   * `gh/` path, which always hot-swaps.
+   */
+  replace?: boolean;
   optimize: OptimizeImageOptions;
   frame: {
     frameId?: string;
@@ -964,6 +996,7 @@ export async function uploadPuts(opts: {
             deriveRepoFromGit: opts.deriveRepoFromGit,
             contentType: opts.contentType,
             dryRun: opts.dryRun,
+            replace: opts.replace,
             metadata: opts.metadata,
             provenanceClient: opts.provenanceClient,
             alt: () => opts.alt ?? basename(sourceName),
@@ -1368,6 +1401,10 @@ export async function runPut(
   const galleryId = flagString(parsed.flags, "--gallery");
   const nameFlag = flagString(parsed.flags, "--name");
   const dryRun = flagBool(parsed.flags, "--dry-run");
+  // Strict-overwrite escape hatch (issue #174): only matters on non-gh/ keys
+  // (--key or the default put path) — the server ignores `replace` on
+  // managed gh/ paths (--pr/--issue), which always hot-swap regardless.
+  const replaceFlag = flagBool(parsed.flags, "--replace") || process.env.UPLOADS_OVERWRITE === "1";
   // Validate --meta up front (fail fast, before reading/optimizing the file).
   const userMeta = ((): Record<string, string> | undefined => {
     const pairs = flagValues(parsed.flags, "--meta");
@@ -1512,6 +1549,7 @@ export async function runPut(
     deriveRepoFromGit: !noGit,
     contentType: contentTypeOverride,
     dryRun,
+    replace: replaceFlag,
     optimize: optimizeOpts,
     frame: frameOpts,
     metadata,
@@ -1590,7 +1628,7 @@ export async function runPut(
           }
           const note = formatOptimizeNote(result.optimize);
           if (note) process.stderr.write(`>> ${basename(result.file)}: ${note}\n`);
-          writeReplacedNote(result.replaced, false, dryRun);
+          writeReplacedNote(result.replaced, false, dryRun, result.wouldRefuse);
           process.stderr.write(
             `>> key: ${result.key}${dryRun ? " (dry run — not uploaded)" : ""}\n`,
           );
@@ -1628,7 +1666,7 @@ export async function runPut(
     }
     const note = formatOptimizeNote(result.optimize);
     if (note) process.stderr.write(`>> ${note}\n`);
-    writeReplacedNote(result.replaced, ctx.quiet, dryRun);
+    writeReplacedNote(result.replaced, ctx.quiet, dryRun, result.wouldRefuse);
     process.stderr.write(`>> key: ${result.key}${dryRun ? " (dry run — not uploaded)" : ""}\n\n`);
   }
 
@@ -2106,10 +2144,9 @@ App is installed on the repo; otherwise via your local gh auth. Finds its own
 prior comment via a hidden marker and edits it in place; never touches other
 comments or the description.
 
-If this repo is bound to a different workspace (or unbound and you're on the
-communal "default" workspace), the bot post is declined and this command
-fails rather than silently falling back to gh — see \`uploads github link
---status\`.
+If this repo is bound to a different workspace, the bot post is declined and
+this command fails rather than silently falling back to gh — see
+\`uploads github link --status\`.
 
 Examples:
   uploads --env-file .env comment --pr 123

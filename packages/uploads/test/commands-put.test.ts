@@ -15,6 +15,7 @@ function fakeClient() {
     filename: string;
     prefix?: string;
     dryRun?: boolean;
+    replace?: boolean;
     body: Uint8Array;
     metadata?: Record<string, string>;
   }[] = [];
@@ -26,6 +27,7 @@ function fakeClient() {
         key?: string;
         prefix?: string;
         dryRun?: boolean;
+        replace?: boolean;
         metadata?: Record<string, string>;
       },
     ) => {
@@ -34,6 +36,7 @@ function fakeClient() {
         filename: opts.filename,
         prefix: opts.prefix,
         dryRun: opts.dryRun,
+        replace: opts.replace,
         body,
         metadata: opts.metadata,
       });
@@ -353,6 +356,92 @@ describe("runPut --dry-run", () => {
     await expect(
       runPut(ctxWith(client), [tmpFile(), "--dry-run", "--gallery", "gal_x"], false, noRun),
     ).rejects.toThrow(UsageError);
+  });
+
+  it("prints would-refuse note when dry-run reports wouldRefuse on a strict key", async () => {
+    const client = {
+      put: async (body: Uint8Array, opts: { key?: string }) => ({
+        workspace: "test",
+        key: opts.key ?? "k",
+        url: "https://x.test/k",
+        embedUrl: null,
+        size: body.byteLength,
+        contentType: "image/png",
+        replaced: true,
+        wouldRefuse: true,
+      }),
+    } as unknown as UploadsClient;
+    const stderr: string[] = [];
+    const write = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr.push(typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const ctx = { ...ctxWith(client), quiet: false };
+      const code = await runPut(
+        ctx,
+        [tmpFile(), "--key", "screenshots/existing.png", "--dry-run", "--no-optimize"],
+        false,
+        noRun,
+      );
+      expect(code).toBe(0);
+      expect(stderr.join("")).toContain(">> would refuse: key already exists");
+      expect(stderr.join("")).not.toContain(">> would replace existing object");
+    } finally {
+      process.stderr.write = write;
+    }
+  });
+});
+
+describe("runPut --replace / UPLOADS_OVERWRITE (issue #174)", () => {
+  it("does not pass replace to the client by default", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [tmpFile(), "--key", "screenshots/x.png"], false, noRun);
+    expect(puts[0].replace).toBeFalsy();
+  });
+
+  it("--replace passes replace: true to the client", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--key", "screenshots/x.png", "--replace"],
+      false,
+      noRun,
+    );
+    expect(puts[0].replace).toBe(true);
+  });
+
+  it("UPLOADS_OVERWRITE=1 defaults replace to true without --replace", async () => {
+    const { client, puts } = fakeClient();
+    const prev = process.env.UPLOADS_OVERWRITE;
+    process.env.UPLOADS_OVERWRITE = "1";
+    try {
+      await runPut(ctxWith(client), [tmpFile(), "--key", "screenshots/x.png"], false, noRun);
+      expect(puts[0].replace).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.UPLOADS_OVERWRITE;
+      else process.env.UPLOADS_OVERWRITE = prev;
+    }
+  });
+
+  it("propagates a key_exists refusal from the client as an actionable error", async () => {
+    const client = {
+      put: async () => {
+        throw new UploadsError(
+          'An object already exists at "screenshots/x.png". Pass --replace (or replace: true) to overwrite it.',
+          "KEY_EXISTS",
+          409,
+          { existingUrl: "https://x.test/screenshots/x.png" },
+        );
+      },
+    } as unknown as UploadsClient;
+    await expect(
+      runPut(ctxWith(client), [tmpFile(), "--key", "screenshots/x.png"], false, noRun),
+    ).rejects.toMatchObject({
+      code: "KEY_EXISTS",
+      existingUrl: "https://x.test/screenshots/x.png",
+    });
   });
 });
 

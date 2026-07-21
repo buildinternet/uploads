@@ -17,8 +17,6 @@ export interface MyWorkspace {
   workspace: string;
   organization: { id: string; slug: string; name: string };
   role: string;
-  /** True for the communal, world-readable workspace (no personal browser). */
-  communal: boolean;
   /**
    * True when the workspace has a stable public custom domain configured.
    * Lets the account file browser (issue #123) decide whether to open a
@@ -30,12 +28,10 @@ export interface MyWorkspace {
   publicBaseUrl?: string;
 }
 
-// `communal` and `hasPublicUrl` are intentionally NOT required here: web and
+// `hasPublicUrl` is intentionally NOT required here: web and
 // api deploy independently, so an older api may omit them. We accept the
 // entry and coerce a missing/other value to `false` in the mapper below.
-function isMyWorkspaceCore(
-  value: unknown,
-): value is Omit<MyWorkspace, "communal" | "hasPublicUrl"> {
+function isMyWorkspaceCore(value: unknown): value is Omit<MyWorkspace, "hasPublicUrl"> {
   if (!value || typeof value !== "object") return false;
   const ws = value as Record<string, unknown>;
   const org = ws.organization as Record<string, unknown> | null | undefined;
@@ -50,9 +46,8 @@ function isMyWorkspaceCore(
 }
 
 /** Coerce optional/legacy fields; shared by list + summary mappers. */
-function mapMyWorkspace(ws: Omit<MyWorkspace, "communal" | "hasPublicUrl">): MyWorkspace {
-  const raw = ws as Omit<MyWorkspace, "communal" | "hasPublicUrl"> & {
-    communal?: unknown;
+function mapMyWorkspace(ws: Omit<MyWorkspace, "hasPublicUrl">): MyWorkspace {
+  const raw = ws as Omit<MyWorkspace, "hasPublicUrl"> & {
     hasPublicUrl?: unknown;
     publicBaseUrl?: unknown;
   };
@@ -60,7 +55,6 @@ function mapMyWorkspace(ws: Omit<MyWorkspace, "communal" | "hasPublicUrl">): MyW
     workspace: raw.workspace,
     organization: raw.organization,
     role: raw.role,
-    communal: raw.communal === true,
     hasPublicUrl: raw.hasPublicUrl === true,
     publicBaseUrl: typeof raw.publicBaseUrl === "string" ? raw.publicBaseUrl : undefined,
   };
@@ -165,8 +159,7 @@ export async function getWorkspaceSummary(
 /**
  * Shared GET for the array-returning `/me/workspaces/:name/<segment>` endpoints
  * (galleries, files). Reads `body[key]`, drops malformed entries via `isValid`,
- * and returns [] on any non-2xx, malformed body, or communal workspace (which
- * the API returns with an empty list).
+ * and returns [] on any non-2xx or malformed body.
  */
 async function fetchWorkspaceList<T>(
   apiOrigin: string,
@@ -290,7 +283,7 @@ export interface WorkspaceMember {
 }
 
 export type WorkspaceMembersResult =
-  | { kind: "ok"; communal: boolean; members: WorkspaceMember[] }
+  | { kind: "ok"; members: WorkspaceMember[] }
   | { kind: "unavailable" };
 
 function isMemberCandidate(
@@ -321,14 +314,10 @@ export async function getWorkspaceMembers(
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable" || !result.response.ok) return { kind: "unavailable" };
-  const body = (await result.response.json().catch(() => null)) as {
-    communal?: unknown;
-    members?: unknown;
-  } | null;
+  const body = (await result.response.json().catch(() => null)) as { members?: unknown } | null;
   if (!body || !Array.isArray(body.members)) return { kind: "unavailable" };
   return {
     kind: "ok",
-    communal: body.communal === true,
     members: mapWorkspaceMembers(body.members),
   };
 }
@@ -336,7 +325,6 @@ export async function getWorkspaceMembers(
 export type WorkspacePeopleResult =
   | {
       kind: "ok";
-      communal: boolean;
       role: string;
       canManage: boolean;
       organization: { id: string; slug: string; name: string };
@@ -368,7 +356,6 @@ export async function getWorkspacePeople(
   const org = body.organization as Record<string, unknown> | undefined;
   return {
     kind: "ok",
-    communal: body.communal === true,
     role: body.role,
     canManage: body.canManage === true,
     organization: {
@@ -433,7 +420,7 @@ export interface WorkspaceInvite {
 }
 
 export type WorkspaceInvitesResult =
-  | { kind: "ok"; communal: boolean; invites: WorkspaceInvite[] }
+  | { kind: "ok"; invites: WorkspaceInvite[] }
   | { kind: "unavailable" };
 
 export type ManageResult =
@@ -461,14 +448,10 @@ export async function getWorkspaceInvites(
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable" || !result.response.ok) return { kind: "unavailable" };
-  const body = (await result.response.json().catch(() => null)) as {
-    communal?: unknown;
-    invites?: unknown;
-  } | null;
+  const body = (await result.response.json().catch(() => null)) as { invites?: unknown } | null;
   if (!body || !Array.isArray(body.invites)) return { kind: "unavailable" };
   return {
     kind: "ok",
-    communal: body.communal === true,
     invites: body.invites.filter(
       (v): v is WorkspaceInvite =>
         !!v && typeof v === "object" && typeof (v as { id?: unknown }).id === "string",
@@ -679,12 +662,11 @@ export interface WorkspaceFolderListing {
   files: WorkspaceFolderFile[];
   prefixes: string[];
   cursor?: string;
-  communal: boolean;
 }
 
 /** A fresh empty listing per call — never a shared object, so a caller mutating `files`/`prefixes` can't corrupt later degraded returns. */
 function emptyFolderListing(): WorkspaceFolderListing {
-  return { files: [], prefixes: [], cursor: undefined, communal: false };
+  return { files: [], prefixes: [], cursor: undefined };
 }
 
 /** A folder listing row only needs a `key` — every other field is coerced defensively below. */
@@ -743,7 +725,6 @@ export async function listWorkspaceFolder(
   if (result.kind === "unavailable" || !result.response.ok) return emptyFolderListing();
 
   const body = (await result.response.json().catch(() => null)) as {
-    communal?: unknown;
     files?: unknown;
     prefixes?: unknown;
     cursor?: unknown;
@@ -751,7 +732,6 @@ export async function listWorkspaceFolder(
   if (!body) return emptyFolderListing();
 
   return {
-    communal: body.communal === true,
     files: Array.isArray(body.files)
       ? body.files.filter(isWorkspaceFolderFileCandidate).map(toWorkspaceFolderFile)
       : [],

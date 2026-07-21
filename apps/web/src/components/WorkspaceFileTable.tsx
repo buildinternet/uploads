@@ -224,7 +224,7 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
   const filtersKey = filters.map((f) => `${f.key}=${f.value}`).join("&");
   const filtered = filters.length > 0;
 
-  // Resolve workspace-level facts once (communal / public-domain-configured),
+  // Resolve workspace-level facts once (public-domain-configured),
   // gated behind the layout's session resolution like the rail (workspace-rail.ts).
   useEffect(() => {
     let cancelled = false;
@@ -240,11 +240,10 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
     };
   }, [apiOrigin, workspace, infoRetryNonce]);
 
-  // Folder/search listing — only once we know this isn't the communal
-  // workspace, and only once workspace-info actually resolved (an outage or
+  // Folder/search listing starts once workspace-info resolves (an outage or
   // lost-access status renders in place of the table instead — see below).
   useEffect(() => {
-    if (info.status !== "ready" || info.communal) return;
+    if (info.status !== "ready") return;
     let cancelled = false;
     githubTitlesGeneration.current += 1;
     setGithubTitles(null);
@@ -465,18 +464,6 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
       <p className="wft-error" role="alert">
         You don’t have access to this workspace.
       </p>
-    );
-  }
-
-  if (info.communal) {
-    return (
-      <div className="wft-communal">
-        <h2 className="ws-section-head">Shared space</h2>
-        <p className="ws-note">
-          Shared, public space — world-readable at <code>storage.uploads.sh</code>. Browse and
-          upload with the CLI.
-        </p>
-      </div>
     );
   }
 

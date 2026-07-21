@@ -422,7 +422,7 @@ describe("POST /v1/:workspace/github/comment cross-tenant authorization (issue #
     }
   });
 
-  it("implicitly claims an unbound repo for a non-communal workspace", async () => {
+  it("implicitly claims an unbound repo for a workspace", async () => {
     const { db, links } = claimTestDb();
     const env = await envWithBucketAndLinks(db);
 
@@ -471,44 +471,6 @@ describe("POST /v1/:workspace/github/comment cross-tenant authorization (issue #
     });
     // The decline must fire before any GitHub API call or implicit claim.
     expect(links.rows.get("orgb/repo")?.workspace_name).toBe("other-ws");
-  });
-
-  it("soft-declines an unbound repo for the communal default workspace", async () => {
-    const { db, links } = claimTestDb();
-    const hash = await sha256Hex("up_default_testtoken");
-    const record: WorkspaceRecord = {
-      provider: "r2",
-      bucket: "b",
-      binding: "UPLOADS_DEFAULT",
-      prefix: "default/",
-      publicBaseUrl: "https://storage.uploads.sh",
-      tokens: [{ hash, createdAt: new Date().toISOString() }],
-    };
-    const registry = {
-      get: (async (key: string) =>
-        key === "ws:default" ? record : null) as unknown as KVNamespace["get"],
-    };
-    const githubCache = new FakeKv();
-    githubCache.store.set("ghinst:orgB/repo", { value: "42" });
-    const env = {
-      REGISTRY: registry,
-      DB: db,
-      GITHUB_CACHE: githubCache,
-      UPLOADS_DEFAULT: new FakeR2Bucket(),
-      ...GITHUB_APP_CFG_ENV,
-    } as unknown as Env;
-
-    const res = await postAs(env, "default", "up_default_testtoken", {
-      repo: "orgB/repo",
-      num: 12,
-      kind: "pull",
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { posted: boolean; reason: string; message: string };
-    expect(body.posted).toBe(false);
-    expect(body.reason).toBe("not_authorized");
-    expect(body.message).toContain("communal");
-    expect(links.rows.has("orgb/repo")).toBe(false);
   });
 
   it("never allows posting when the strict repo-link lookup hits a D1 outage", async () => {

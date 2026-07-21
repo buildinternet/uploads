@@ -1,10 +1,11 @@
-import { NotFoundError, ValidationError } from "@uploads/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
 import {
   badKey,
   deleteObject,
   finalizeUploadKey,
   headObjectJson,
+  isManagedGithubKey,
   listObjects,
   putObject,
 } from "../files-core";
@@ -32,6 +33,7 @@ export const files = new Hono<WorkspaceVars>()
         contentType?: string;
         maxSize?: number;
         expiresIn?: number;
+        replace?: boolean;
       }>()
       .catch(
         () =>
@@ -40,6 +42,7 @@ export const files = new Hono<WorkspaceVars>()
             contentType?: string;
             maxSize?: number;
             expiresIn?: number;
+            replace?: boolean;
           },
       );
 
@@ -62,6 +65,28 @@ export const files = new Hono<WorkspaceVars>()
 
     try {
       const store = await storage(c.env, ws);
+
+      // Strict-overwrite gate (issue #174), best-effort here: /sign mints a
+      // presigned URL for a direct-to-bucket PUT that happens later (up to
+      // `expiresIn`, max 24h) and entirely outside this worker, so there is
+      // no atomic check-then-write available the way there is in the
+      // regular PUT route (files-core.ts `putObject`) — the client may sign
+      // now and write minutes or hours after this check, or never. This
+      // still rejects the common case (an existing strict key, checked at
+      // mint time) and mirrors the PUT route's `replace` opt-in / gh/
+      // hot-swap exemption, but it is NOT a security boundary: a signed URL
+      // for a free key can still land on an object created after signing.
+      // Treat this as UX guardrail parity with PUT, not a guarantee.
+      const replaced = await store.exists(key);
+      if (replaced && !body.replace && !isManagedGithubKey(key)) {
+        const cfg = await storageConfig(c.env, ws);
+        const urls = objectPublicUrls(c.env, cfg, key);
+        throw new ConflictError(
+          `An object already exists at "${key}". Pass replace: true to sign an overwrite.`,
+          { code: "key_exists", details: { key, url: urls.url, embedUrl: urls.embedUrl } },
+        );
+      }
+
       const upload = await store.signedUploadUrl(key, {
         expiresIn,
         contentType: body.contentType,
@@ -79,6 +104,7 @@ export const files = new Hono<WorkspaceVars>()
         upload,
       });
     } catch (err) {
+      if (err instanceof ConflictError) throw err;
       const message = err instanceof Error ? err.message : String(err);
       console.error(JSON.stringify({ message: "presign failed", error: message }));
       throw new ValidationError(
@@ -95,15 +121,24 @@ export const files = new Hono<WorkspaceVars>()
     const key = c.req.param("key");
     if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
 
+    // ?replace=1 (or header X-Uploads-Replace: 1) — opt in to overwriting an
+    // existing object on a "strict" (non-`gh/`) key; see files-core.ts
+    // `putObject`'s `replace` option / issue #174. Ignored on managed `gh/`
+    // paths, which always hot-swap.
+    const replaceParam = c.req.query("replace") ?? c.req.header("x-uploads-replace");
+    const wantReplace = replaceParam === "1" || replaceParam === "true";
+
     // ?dryRun=1 — validate key + resolve public URL; no R2 write, no usage/budget check.
     // Prefixed keys match a real put; bare keys may re-govern to a new f/<id>/… on upload.
-    // `replaced` is whether an object already lives at the final key (would overwrite).
+    // `replaced` is whether an object already lives at the final key (would overwrite);
+    // `wouldRefuse` mirrors the real-put strict-overwrite gate so dry-run previews it too.
     const dryRun = c.req.query("dryRun");
     if (dryRun === "1" || dryRun === "true") {
       const ws = c.get("workspace");
       const finalKey = finalizeUploadKey(key, ws);
       const store = await storage(c.env, ws);
       const replaced = await store.exists(finalKey);
+      const wouldRefuse = replaced && !wantReplace && !isManagedGithubKey(finalKey);
       const urls = objectPublicUrls(c.env, await storageConfig(c.env, ws), finalKey);
       return c.json({
         workspace: c.get("workspaceName"),
@@ -111,6 +146,7 @@ export const files = new Hono<WorkspaceVars>()
         url: urls.url,
         embedUrl: urls.embedUrl,
         replaced,
+        wouldRefuse,
         dryRun: true,
       });
     }
@@ -152,7 +188,7 @@ export const files = new Hono<WorkspaceVars>()
       key,
       new Uint8Array(body),
       c.get("workspaceName"),
-      { provenance, visibility, metadata },
+      { provenance, visibility, metadata, replace: wantReplace },
     );
     return c.json({ workspace: c.get("workspaceName"), ...result }, 201);
   })

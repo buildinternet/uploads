@@ -110,7 +110,7 @@ export function isPrivateFile(file: { visibility?: "public" | "private" }): bool
 export type WorkspaceInfoStatus =
   | { status: "unavailable" }
   | { status: "no-access" }
-  | { status: "ready"; communal: boolean; hasPublicUrl: boolean };
+  | { status: "ready"; hasPublicUrl: boolean };
 
 /**
  * Maps a `getMyWorkspaces` result to the files tab's workspace-info status —
@@ -121,7 +121,7 @@ export type WorkspaceInfoStatus =
  *    body) → "unavailable" — an outage; retryable.
  *  - success, but `workspace` isn't in the list (access revoked, stale slug)
  *    → "no-access" — not an outage; not retryable.
- *  - success and present → "ready", passing through `communal`/`hasPublicUrl`.
+ *  - success and present → "ready", passing through `hasPublicUrl`.
  */
 export function resolveWorkspaceInfo(
   result: WorkspacesResult,
@@ -130,5 +130,5 @@ export function resolveWorkspaceInfo(
   if (result.kind !== "success") return { status: "unavailable" };
   const ws = result.workspaces.find((w) => w.workspace === workspace);
   if (!ws) return { status: "no-access" };
-  return { status: "ready", communal: ws.communal, hasPublicUrl: ws.hasPublicUrl };
+  return { status: "ready", hasPublicUrl: ws.hasPublicUrl };
 }

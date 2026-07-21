@@ -370,11 +370,36 @@ function buildAuth(
     // just another resolved secret pair, no code change here.
     socialProviders: github ? { github } : {},
     // Magic-link first, then Connect GitHub on /account/profile (link-social).
-    // trustedProviders + allowDifferentEmails: signed-in explicit link; GitHub
-    // email often differs from the magic-link address.
+    // Issue #233: a GitHub sign-in (or explicit /account/profile "Connect")
+    // whose GitHub-reported email is verified attaches to an existing user
+    // with that email — including one that only ever signed in via magic
+    // link — instead of silently minting a second, org-less user. Completing
+    // a magic-link sign-in is itself proof of email ownership (see
+    // magicLink's `emailVerified: true` on verify), so that side needs no
+    // extra flag here.
+    //
+    // `enabled: true` is the default; stated explicitly since this policy is
+    // the point of the config. `allowDifferentEmails: true` covers the
+    // common case where the GitHub email differs from the magic-link
+    // address (both the implicit sign-in link and the explicit
+    // /account/profile "Connect" flow go through the same check).
+    //
+    // Deliberately NOT setting `trustedProviders: ["github"]`: verified
+    // against better-auth 1.6.23's actual implementation
+    // (oauth2/link-account.mjs `handleOAuthUserInfo` and
+    // api/routes/account.mjs `linkSocialAccount`), `trustedProviders`
+    // bypasses the provider-email-verified check entirely — an
+    // unverified-GitHub-email sign-in would still auto-link if github were
+    // listed there. That's exactly the account-takeover vector the issue
+    // calls out, so github is left off this list; the real (unverified vs.
+    // verified) `emailVerified` flag GitHub returns per-address is what
+    // gates linking instead. `requireLocalEmailVerified` (default true)
+    // additionally requires the existing local user's email is already
+    // verified before an implicit sign-in can attach to it.
     account: {
       accountLinking: {
-        trustedProviders: github ? ["github"] : [],
+        enabled: true,
+        trustedProviders: [],
         allowDifferentEmails: true,
       },
     },

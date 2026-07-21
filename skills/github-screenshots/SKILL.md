@@ -125,8 +125,7 @@ uploads github link --status
 
 That's read-only and shows the current binding (or that the repo is
 unbound) without claiming anything. If the CLI reports `not_authorized`
-instead, the repo is already bound to a _different_ workspace (or unbound
-under the communal `default` workspace, which can't claim new repos) — it
+instead, the repo is already bound to a _different_ workspace — it
 won't fall back to posting via your own `gh` auth in that case. The fix is
 `uploads github unlink --repo owner/name` from the owning workspace, or
 asking an operator to reassign the binding; switching to the workspace that

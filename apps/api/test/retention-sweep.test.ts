@@ -274,21 +274,6 @@ describe("runRetentionSweep — orphan-org sweep (#250)", () => {
     }
   });
 
-  it("skips the communal/default workspace slug defensively", async () => {
-    const sqlite = new SqliteD1(MIGRATIONS);
-    try {
-      const auth = fakeAuth([{ id: "o1", slug: "default" }]);
-      const { env } = makeEnv({ kvRecords: {}, db: sqlite, auth });
-
-      const result = await runRetentionSweep(env);
-
-      expect(result.orgsSwept).toEqual([]);
-      expect(auth.deletedSlugs).toEqual([]);
-    } finally {
-      sqlite.close();
-    }
-  });
-
   it("isolates an AUTH fetch failure — the sweep still completes", async () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     try {

@@ -27,14 +27,12 @@ const sample: MyWorkspace[] = [
     workspace: "buildinternet",
     organization: { id: "1", slug: "buildinternet", name: "buildinternet" },
     role: "admin",
-    communal: false,
     hasPublicUrl: true,
   },
   {
     workspace: "side",
     organization: { id: "2", slug: "side", name: "Side Project" },
     role: "member",
-    communal: false,
     hasPublicUrl: false,
   },
 ];

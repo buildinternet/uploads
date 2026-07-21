@@ -5,7 +5,7 @@
  * from `@uploads/errors`; REST serializes via `respondError`, MCP surfaces
  * `message` in the tool error.
  */
-import { NotFoundError, ValidationError } from "@uploads/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@uploads/errors";
 import type { Files } from "@uploads/storage";
 import {
   budgetDenialError,
@@ -40,6 +40,18 @@ export const UPLOAD_CACHE_CONTROL = "public, max-age=60";
 export const UPLOADED_AT_META_KEY = "uploaded-at";
 
 const KEY_RE = /^[\w!*'()./-]+$/;
+
+/**
+ * Managed GitHub-attachment paths (`attach`, `put --pr`/`--issue`, and the
+ * branch-staging fallback) always live under the `gh/` root and re-upload the
+ * same key on purpose so PR/issue embeds hot-swap — see issue #174. Every
+ * other key (explicit `--key`, bare `put`) is a "strict" path: overwriting an
+ * existing object there requires an explicit opt-in (see `putObject`'s
+ * `replace` option).
+ */
+export function isManagedGithubKey(key: string): boolean {
+  return key === "gh" || key.startsWith("gh/");
+}
 
 export function badKey(key: string): boolean {
   return (
@@ -153,6 +165,17 @@ export async function putObject(
     provenance?: Record<string, string>;
     visibility?: Visibility;
     /**
+     * Allow overwriting an existing object on a "strict" (non-`gh/`) key —
+     * see `isManagedGithubKey`. Ignored (always allowed) on managed `gh/`
+     * paths, which stay silent hot-swap. Defaults to false: a strict-path put
+     * that would overwrite an existing object throws `ConflictError`
+     * (`code: "key_exists"`, `details.url`/`details.embedUrl` naming the
+     * existing object) instead of writing. Callers opt in per-request
+     * (CLI `--replace`, or `UPLOADS_OVERWRITE=1` as a CLI-side default) —
+     * there is no server-side global escape hatch.
+     */
+    replace?: boolean;
+    /**
      * Custom queryable metadata (D1 `file_metadata`), distinct from the R2
      * `provenance` bag above. When present (even `{}`), this call fully
      * replaces any metadata already stored for the key — delete-then-set —
@@ -192,6 +215,41 @@ export async function putObject(
   // files-sdk upload() has no replaced/exists flag, so we derive it here.
   const prior = await existingHead(store, finalKey);
   const replaced = prior !== null;
+
+  // Strict-overwrite gate (issue #174): managed `gh/` paths always hot-swap;
+  // every other key refuses an overwrite unless the caller opted in via
+  // `opts.replace`. Checked before any budget reservation or write so a
+  // refusal never touches usage accounting.
+  //
+  // Known TOCTOU, accepted deliberately: `existingHead` above and the R2
+  // write below are two separate calls, not one atomic operation, so two
+  // concurrent first-puts to the same never-before-seen `finalKey` can both
+  // observe `replaced === false` and both proceed as "creates" — each gets
+  // its own upload-count reservation (see `reserveUploads` below), and
+  // whichever R2 write lands last silently wins, same as the other's bytes
+  // being clobbered. True cross-request atomicity per key would need a
+  // Durable Object (or a D1-backed claim table with its own cleanup/TTL
+  // story for crashed claims) serializing every put — disproportionate
+  // infrastructure for a race that only bites two truly simultaneous first
+  // writes to the *same* key, and whose worst case is exactly the
+  // pre-#174 behavior (silent overwrite, last-write-wins) for that narrow
+  // window — not a new failure mode, not a security regression, and not
+  // reachable at all once the key exists (the second writer's read then
+  // correctly observes `replaced === true`). Usage accounting can double-count
+  // the upload delta for that one race (two reservations for one surviving
+  // object); left unmitigated as the same order-of-magnitude inaccuracy
+  // budget checks already tolerate at their cap boundary (see the comment
+  // on `reserveUploads` below). Revisit only if this key-collision race is
+  // ever observed in practice, not preemptively.
+  if (replaced && !opts?.replace && !isManagedGithubKey(finalKey)) {
+    const cfg = await storageConfig(env, ws);
+    const urls = objectPublicUrls(env, cfg, finalKey);
+    throw new ConflictError(
+      `An object already exists at "${finalKey}". Pass --replace (or replace: true) to overwrite it.`,
+      { code: "key_exists", details: { key: finalKey, url: urls.url, embedUrl: urls.embedUrl } },
+    );
+  }
+
   const newSize = bytes.byteLength;
   const deltaBytes = newSize - (prior?.size ?? 0);
   const uploadedAt = resolveUploadedAtMeta(prior);

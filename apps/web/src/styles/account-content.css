@@ -800,10 +800,6 @@ section.card .ws-messages .command {
   gap: 8px;
   justify-items: start;
 }
-.wft-communal {
-  display: grid;
-  gap: 8px;
-}
 .wft-filterbar {
   max-width: 460px;
 }

@@ -47,25 +47,9 @@ interface MyWorkspace {
   workspace: string;
   organization: { id: string; slug: string; name: string };
   role: string;
-  /** True for the communal, world-readable workspace (see isCommunal). */
-  communal: boolean;
 }
 
-/**
- * The communal workspace — the shared public dumping ground — is identified by
- * name (the shared bucket hosts many prefixed workspaces, so the bucket can't
- * mark it). Configurable via the `DEFAULT_WORKSPACE` var; defaults to
- * "default". Member surfaces skip the personal galleries/files browser for it.
- */
-export function isCommunal(env: Env, name: string): boolean {
-  return name === (env.DEFAULT_WORKSPACE || "default");
-}
-
-function myWorkspaceFromMembership(
-  env: Env,
-  membership: Membership,
-  workspace: string,
-): MyWorkspace {
+function myWorkspaceFromMembership(membership: Membership, workspace: string): MyWorkspace {
   return {
     workspace,
     organization: {
@@ -74,7 +58,6 @@ function myWorkspaceFromMembership(
       name: membership.organizationName || membership.organizationSlug,
     },
     role: membership.role,
-    communal: isCommunal(env, workspace),
   };
 }
 
@@ -112,7 +95,7 @@ async function myWorkspaces(env: Env, userId: string): Promise<MyWorkspace[]> {
   const out: MyWorkspace[] = [];
   for (const membership of memberships) {
     for (const workspace of workspacesFromMembership(membership)) {
-      out.push(myWorkspaceFromMembership(env, membership, workspace));
+      out.push(myWorkspaceFromMembership(membership, workspace));
     }
   }
   return out;
@@ -129,7 +112,7 @@ async function memberWorkspaceOr404(env: Env, userId: string, name: string): Pro
   if (!membership || !workspacesFromMembership(membership).includes(name)) {
     throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
   }
-  return myWorkspaceFromMembership(env, membership, name);
+  return myWorkspaceFromMembership(membership, name);
 }
 
 function requireUserId(c: Context<SessionVars>): string {
@@ -194,9 +177,7 @@ export const me = new Hono<SessionVars>()
     const workspaces = await myWorkspaces(c.env, userId);
     const withPublicUrl = await Promise.all(
       workspaces.map(async (ws) => {
-        const publicBaseUrl = ws.communal
-          ? undefined
-          : (await loadWorkspaceRecord(c.env, ws.workspace))?.publicBaseUrl;
+        const publicBaseUrl = (await loadWorkspaceRecord(c.env, ws.workspace))?.publicBaseUrl;
         // `hasPublicUrl` kept alongside the URL itself for existing consumers.
         return Object.assign({}, ws, { hasPublicUrl: Boolean(publicBaseUrl), publicBaseUrl });
       }),
@@ -224,11 +205,11 @@ export const me = new Hono<SessionVars>()
     const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
 
     const record = await loadWorkspaceRecord(c.env, name);
-    if (!record && !ws.communal) {
+    if (!record) {
       throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
     }
 
-    const publicBaseUrl = ws.communal ? undefined : record?.publicBaseUrl;
+    const publicBaseUrl = record.publicBaseUrl;
     let usage: ReturnType<typeof usageWithLimits> | null = null;
     if (record) {
       try {
@@ -242,24 +223,19 @@ export const me = new Hono<SessionVars>()
       workspace: ws.workspace,
       organization: ws.organization,
       role: ws.role,
-      communal: ws.communal,
       hasPublicUrl: Boolean(publicBaseUrl),
       publicBaseUrl,
       usage,
     });
   })
 
-  // People in one workspace — member-gated (teammate fields only, not admin raw
-  // rows). Communal: shared public space, empty list (same shape as galleries).
+  // People in one workspace — member-gated (teammate fields only, not admin raw rows).
   .get("/workspaces/:name/members", async (c) => {
     const name = c.req.param("name");
     const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    if (ws.communal) return c.json({ communal: true, members: [] });
-
     const canManage = canManageRole(ws.role);
     const members = await membersForOrg(c.env, ws.organization.slug);
     return c.json({
-      communal: false,
       members: projectMembers(members, canManage),
     });
   })
@@ -268,16 +244,6 @@ export const me = new Hono<SessionVars>()
   .get("/workspaces/:name/people", async (c) => {
     const name = c.req.param("name");
     const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    if (ws.communal) {
-      return c.json({
-        communal: true,
-        role: ws.role,
-        canManage: false,
-        members: [],
-        invites: [],
-      });
-    }
-
     const canManage = canManageRole(ws.role);
     const [members, invites] = await Promise.all([
       membersForOrg(c.env, ws.organization.slug),
@@ -285,7 +251,6 @@ export const me = new Hono<SessionVars>()
     ]);
 
     return c.json({
-      communal: false,
       role: ws.role,
       canManage,
       organization: ws.organization,
@@ -294,25 +259,18 @@ export const me = new Hono<SessionVars>()
     });
   })
 
-  // Galleries in one workspace — member-gated. The communal workspace is a
-  // shared public dumping ground, so we don't enumerate it here; the response
-  // stays branch-free for clients with `communal: true` and an empty list.
+  // Galleries in one workspace — member-gated.
   .get("/workspaces/:name/galleries", async (c) => {
     const name = c.req.param("name");
-    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    if (ws.communal) return c.json({ communal: true, galleries: [] });
-
+    await memberWorkspaceOr404(c.env, requireUserId(c), name);
     const page = await listGalleries(c.env.DB, name, { limit: 50 });
     return c.json({
-      communal: false,
       galleries: page.galleries.map((gallery) => gallerySummary(c.env, gallery)),
     });
   })
 
   // A page of a workspace's files (public URLs), folder-aware and hydrated
-  // with D1 `gh.*` metadata — member-gated. Skipped for the communal
-  // workspace for the same reason as galleries; returns `communal: true` with
-  // an empty list rather than listing the shared bucket to a member. Query
+  // with D1 `gh.*` metadata — member-gated. Query
   // params mirror the token-scoped `GET /v1/:workspace/files` (files.ts):
   // `prefix`/`cursor` pass straight through, `limit` defaults to 100 (clamped
   // inside `listObjects`), and `delimiter` (new here) enables S3-style
@@ -320,9 +278,7 @@ export const me = new Hono<SessionVars>()
   // prefixes as `prefixes` for the settings-page file browser.
   .get("/workspaces/:name/files", async (c) => {
     const name = c.req.param("name");
-    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    if (ws.communal) return c.json({ communal: true, files: [] });
-
+    await memberWorkspaceOr404(c.env, requireUserId(c), name);
     const record = await loadWorkspaceRecord(c.env, name);
     if (!record) {
       throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
@@ -348,7 +304,7 @@ export const me = new Hono<SessionVars>()
     );
     const files = items.map((item) => ({ ...item, metadata: metaByKey.get(item.key) }));
 
-    return c.json({ communal: false, files, prefixes, cursor: nextCursor });
+    return c.json({ files, prefixes, cursor: nextCursor });
   })
 
   // Metadata search — the session-authed twin of the token route's
@@ -357,8 +313,7 @@ export const me = new Hono<SessionVars>()
   // Results carry no `visibility` (it isn't in the D1 index — accepted caveat).
   .get("/workspaces/:name/files/search", async (c) => {
     const name = c.req.param("name");
-    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    if (ws.communal) return c.json({ items: [], truncated: false });
+    await memberWorkspaceOr404(c.env, requireUserId(c), name);
 
     const record = await loadWorkspaceRecord(c.env, name);
     if (!record) {
@@ -413,9 +368,9 @@ export const me = new Hono<SessionVars>()
   // disposition requires signing, while binding-mode R2 uses publicBaseUrl.
   .get("/workspaces/:name/file-url", async (c) => {
     const name = c.req.param("name");
-    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
+    await memberWorkspaceOr404(c.env, requireUserId(c), name);
     const key = c.req.query("key") ?? "";
-    if (ws.communal || badKey(key)) throw new NotFoundError();
+    if (badKey(key)) throw new NotFoundError();
     const record = await loadWorkspaceRecord(c.env, name);
     if (!record) throw new NotFoundError();
     const store = await storage(c.env, record);
@@ -442,9 +397,9 @@ export const me = new Hono<SessionVars>()
   // validation, and error mapping.
   .patch("/workspaces/:name/files/visibility", async (c) => {
     const name = c.req.param("name");
-    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
+    await memberWorkspaceOr404(c.env, requireUserId(c), name);
     const key = c.req.query("key") ?? "";
-    if (ws.communal || badKey(key)) throw new NotFoundError();
+    if (badKey(key)) throw new NotFoundError();
 
     // Throttle rewrites per workspace — checked only after the membership
     // gate, so a non-member can't burn a workspace's write budget. Same
@@ -478,10 +433,7 @@ export const me = new Hono<SessionVars>()
   // independently prevent member UI requests from mutating storage.
   .all("/workspaces/:name/file-browser", async (c) => {
     const name = c.req.param("name");
-    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    if (ws.communal) {
-      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-    }
+    await memberWorkspaceOr404(c.env, requireUserId(c), name);
     const record = await loadWorkspaceRecord(c.env, name);
     if (!record) {
       throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
@@ -568,9 +520,8 @@ export const me = new Hono<SessionVars>()
   .get("/workspaces/:name/invites", async (c) => {
     const name = c.req.param("name");
     const ws = await adminWorkspaceOr403(c.env, requireUserId(c), name);
-    if (ws.communal) return c.json({ communal: true, invites: [] });
     const invites = await invitesForOrg(c.env, ws.organization.slug);
-    return c.json({ communal: false, invites });
+    return c.json({ invites });
   })
 
   // Revoke a pending invite — admin/owner only.
