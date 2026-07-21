@@ -11,6 +11,12 @@ export interface PublicGalleryItem {
   /** Embed-host URL when the dual-host policy applies; null otherwise. Always present (see gallery-service.ts). */
   embedUrl: string | null;
   contentType: string | null;
+  /** Byte size when available; null for missing/tombstone items. */
+  size: number | null;
+  /** First-upload ISO when known; omitted when unavailable. */
+  uploaded?: string | null;
+  /** Distinct last-modified ISO when it differs from uploaded. */
+  modified?: string | null;
 }
 
 export interface PublicGalleryReference {
@@ -18,6 +24,10 @@ export interface PublicGalleryReference {
   resourceType: string;
   coordinate: string;
   canonicalUrl: string | null;
+  /** Live-resolved GitHub title when the API enriched the reference. */
+  title?: string;
+  /** pull vs issue when known (title resolve or URL path). */
+  kind?: "pull" | "issue";
 }
 
 export interface PublicGallery {
@@ -128,6 +138,12 @@ function safeUrl(value: unknown): value is string | null {
   }
 }
 
+/** Optional public date field: omitted, null, or a parseable ISO string. */
+function optionalIsoDate(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  return text(value, 64) && Number.isFinite(Date.parse(value));
+}
+
 export function isPublicGallery(value: unknown): value is PublicGallery {
   if (typeof value !== "object" || value === null) return false;
   const gallery = value as Record<string, unknown>;
@@ -154,11 +170,18 @@ export function isPublicGallery(value: unknown): value is PublicGallery {
     const referencesValid = gallery.references.every((entry) => {
       if (typeof entry !== "object" || entry === null) return false;
       const reference = entry as Record<string, unknown>;
+      const titleOk =
+        reference.title === undefined ||
+        (text(reference.title, 512) && (reference.title as string).length > 0);
+      const kindOk =
+        reference.kind === undefined || reference.kind === "pull" || reference.kind === "issue";
       return (
         text(reference.provider, 40) &&
         text(reference.resourceType, 40) &&
         text(reference.coordinate, 200) &&
-        safeUrl(reference.canonicalUrl)
+        safeUrl(reference.canonicalUrl) &&
+        titleOk &&
+        kindOk
       );
     });
     if (!referencesValid) return false;
@@ -167,6 +190,11 @@ export function isPublicGallery(value: unknown): value is PublicGallery {
   return gallery.items.every((entry) => {
     if (typeof entry !== "object" || entry === null) return false;
     const item = entry as Record<string, unknown>;
+    // Older API deploys omit size/uploaded/modified — accept either shape.
+    const sizeOk =
+      item.size === undefined ||
+      item.size === null ||
+      (Number.isSafeInteger(item.size) && (item.size as number) >= 0);
     return (
       text(item.id, 64) &&
       text(item.filename, 1024) &&
@@ -178,6 +206,9 @@ export function isPublicGallery(value: unknown): value is PublicGallery {
       safeUrl(item.url) &&
       safeUrl(item.embedUrl) &&
       nullableText(item.contentType, 128) &&
+      sizeOk &&
+      optionalIsoDate(item.uploaded) &&
+      optionalIsoDate(item.modified) &&
       (item.status === "missing" ? item.url === null : item.url !== null)
     );
   });

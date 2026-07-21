@@ -119,6 +119,31 @@ async function resolveOne(
   return null;
 }
 
+/**
+ * Cap live GitHub title resolve on public share/gallery JSON paths only.
+ * `resolveTitles` can spend up to ~8s per hop; apps/web aborts at 4s.
+ * Member-rail `/me` keeps the full resolve budget.
+ */
+export const PUBLIC_TITLE_RESOLVE_BUDGET_MS = 1400;
+
+/** Race work against the public title budget; null on timeout (errors propagate). */
+export async function withPublicTitleBudget<T>(
+  work: Promise<T>,
+  budgetMs: number = PUBLIC_TITLE_RESOLVE_BUDGET_MS,
+): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), budgetMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 /** Batch resolve; misses fetch concurrently; a per-ref failure is that ref's `null`. */
 export async function resolveTitles(
   env: Env,
