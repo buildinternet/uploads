@@ -43,14 +43,16 @@ pnpm dev                 # API on :8787 (local R2 + KV + D1 simulation)
 pnpm dev:web             # Astro site
 pnpm typecheck           # wrangler types + tsc across workspaces
 pnpm test                # whole suite in one vitest process (all packages); CI's Test job runs this
-pnpm --filter @uploads/api test   # single package still works (uses vitest defaults, not the root config)
+pnpm test:api            # single package (also test:mcp / test:auth / test:web / test:cli;
+                         # uses vitest defaults, not the root config)
+pnpm build:cli           # build @buildinternet/uploads without the --filter incantation
 pnpm run deploy          # all workers; or deploy:api / deploy:web / deploy:mcp
 pnpm workspace:add <name> [--bucket <bucket>] [--binding X] [--local] \
   [--no-default-limits] [--max-storage …]   # shared/agent limit template by default
 pnpm workspace:limits <name> [--max-storage …] [--max-video-bytes …] \
   [--allowed-prefixes default|f,screenshots,gh] [--max-key-depth 8] \
   [--clear-max-storage] [--clear-allowed-prefixes] […]
-pnpm --filter @uploads/api run migrate:d1:local   # apply apps/api/migrations to local D1
+pnpm migrate:d1:local    # apply apps/api/migrations to local D1 (migrate:d1 = remote)
 pnpm uploads put <file> --env-file .env   # monorepo only: builds package first
 pnpm uploads put <file> --pr <num> --comment
 ```
