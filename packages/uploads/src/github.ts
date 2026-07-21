@@ -129,6 +129,11 @@ export function ghMetadataForBranch(
     "gh.kind": "branch",
     "gh.branch": branchLower,
     "gh.staged-at": now.toISOString().replace(/\.\d{3}Z$/, "Z"),
+    // Lifecycle tag (issue #339): flipped to "promoted" by server-side
+    // promotion, so "in-flight staged media" is a plain equality query
+    // (`meta.gh.status=staged`) — the metadata filter API can't express
+    // "gh.promoted-at absent".
+    "gh.status": "staged",
   };
 }
 

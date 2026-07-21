@@ -232,6 +232,9 @@ describe("POST /v1/:workspace/github/promote", () => {
     expect(originalMeta["gh.branch"]).toBe(BRANCH);
     expect(originalMeta["gh.promoted-to"]).toBe("acme/web#12");
     expect(typeof originalMeta["gh.promoted-at"]).toBe("string");
+    // Lifecycle flip (issue #339): the staged original is no longer
+    // "in flight" once promoted.
+    expect(originalMeta["gh.status"]).toBe("promoted");
 
     // Promotion also upserts the PR activity rollup (issue #338) via
     // putObject's gh.kind=pull metadata hook.

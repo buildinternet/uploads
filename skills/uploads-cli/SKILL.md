@@ -46,7 +46,10 @@ naming and output control.
 instead of a PR/issue number — same upload path, no target flags, no comment
 (there's nothing to comment on yet). With no value, `--branch` resolves the
 current git branch; `/` in the name sanitizes to `-`. Attach this way at every
-visual milestone during the work, not just once at the end.
+visual milestone during the work, not just once at the end. Staged files carry
+`gh.status=staged` until promotion flips them to `promoted`, so
+`uploads find gh.status=staged` (add `gh.branch=<name>` to narrow) lists what's
+still in flight.
 
 Getting those files into the PR's attachments comment needs no extra step
 once a PR exists for that branch:

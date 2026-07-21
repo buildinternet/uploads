@@ -112,12 +112,13 @@ describe("ghBranchKeyPrefix / ghBranchAttachmentKey", () => {
 describe("ghMetadataForBranch", () => {
   const now = new Date("2026-07-20T18:00:00.123Z");
 
-  it("writes gh.repo/gh.kind=branch/gh.branch/gh.staged-at (no gh.number/gh.ref/gh.title)", () => {
+  it("writes gh.repo/gh.kind=branch/gh.branch/gh.staged-at/gh.status (no gh.number/gh.ref/gh.title)", () => {
     expect(ghMetadataForBranch("BuildInternet/Uploads", "main", now)).toEqual({
       "gh.repo": "buildinternet/uploads",
       "gh.kind": "branch",
       "gh.branch": "main",
       "gh.staged-at": "2026-07-20T18:00:00Z",
+      "gh.status": "staged",
     });
   });
 

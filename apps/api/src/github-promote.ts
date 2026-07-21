@@ -180,10 +180,13 @@ export async function promoteBranchAttachments(
     promoted.push(destKey);
     try {
       // Merge (not replace) onto the staged original: mark it promoted
-      // without disturbing its own gh.repo/gh.kind/gh.branch/gh.staged-at tags.
+      // without disturbing its own gh.repo/gh.kind/gh.branch/gh.staged-at
+      // tags. `gh.status` (issue #339) flips so in-flight staged media is a
+      // plain equality query (`meta.gh.status=staged`).
       await setFileMetadata(env.DB, workspaceName, key, {
         "gh.promoted-to": ref,
         "gh.promoted-at": nowIso,
+        "gh.status": "promoted",
       });
     } catch (err) {
       console.error(
