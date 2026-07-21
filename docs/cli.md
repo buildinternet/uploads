@@ -18,10 +18,19 @@ uploads install        # install the agent skills + register the hosted MCP serv
 uploads put ./shot.png # stdout: public URL + ready-to-paste markdown; stderr: human summary
 ```
 
-An uploads.sh administrator invites your email to a workspace first; `login`
-trades that invite for a saved workspace token (GitHub or a magic link) and
-`logout` removes it. `uploads doctor` checks health, auth, and workspace access
-when something's off. Routine agents never receive or need `ADMIN_TOKEN`. See
+`login` opens a browser to authorize this device. The approval page asks which
+workspace to sign in to — pick one, or name a new one if the account has none —
+so `uploads login` needs no flags even when you belong to several workspaces.
+The workspace is settled there, before approval: a workspace your account can't
+reach is refused on the page rather than reported as a success that then fails
+in your terminal.
+
+Pass `--workspace <name>` to preselect a workspace and skip the picker, and
+`--workspace <name> --create` to provision one by name (the one thing the picker
+can't express). An invitation from a workspace admin also works — `login` trades
+an enrollment code for a saved workspace token, and `logout` removes it.
+`uploads doctor` checks health, auth, and workspace access when something's off.
+Routine agents never receive or need `ADMIN_TOKEN`. See
 [enrollment](enrollment.md).
 
 For local development, `pnpm workspace:add` prints a bearer token once — save it
