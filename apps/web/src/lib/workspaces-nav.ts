@@ -3,16 +3,21 @@
  *
  * Section heading = current workspace (dropdown of memberships + "+ new
  * workspace"). When a workspace is active, files / galleries / people /
- * settings sit as flat rows underneath. Membership list is cached in
- * sessionStorage for instant paint, then revalidated after session.
+ * settings sit as flat rows underneath.
+ *
+ * Memberships and last-used workspace are cached in sessionStorage for
+ * instant paint (revalidated after session). Last-used keeps personal
+ * routes (`/account/profile`, `/account/developers`) from collapsing the
+ * workspace section nav.
  */
 import { getMyWorkspaces, type MyWorkspace } from "./api-client";
 import { onSession } from "./account-shell";
-import { resolveActiveWorkspace } from "./workspace-browse-url";
+import { isBrowseWorkspace, workspaceFromPathname } from "./workspace-browse-url";
 import { escapeHtml } from "./workspace-ui";
 
-/** sessionStorage key — UX only; membership is still enforced server-side. */
+/** sessionStorage keys — UX only; membership is still enforced server-side. */
 export const WORKSPACES_CACHE_KEY = "uploads:myWorkspaces";
+export const ACTIVE_WORKSPACE_CACHE_KEY = "uploads:activeWorkspace";
 
 export type WorkspaceNavTab = "files" | "galleries" | "people" | "settings";
 
@@ -35,10 +40,34 @@ export type WorkspacesNavOptions = {
 
 type CachePayload = { workspaces: MyWorkspace[] };
 
-export function readCachedWorkspaces(): MyWorkspace[] | null {
+function storageGet(key: string): string | null {
   try {
-    const raw = sessionStorage.getItem(WORKSPACES_CACHE_KEY);
-    if (!raw) return null;
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function storageSet(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    // Private mode / quota — nav still works without the cache.
+  }
+}
+
+function storageRemove(key: string): void {
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+}
+
+export function readCachedWorkspaces(): MyWorkspace[] | null {
+  const raw = storageGet(WORKSPACES_CACHE_KEY);
+  if (!raw) return null;
+  try {
     const parsed = JSON.parse(raw) as CachePayload;
     if (!parsed || !Array.isArray(parsed.workspaces)) return null;
     return parsed.workspaces.filter(
@@ -55,19 +84,39 @@ export function readCachedWorkspaces(): MyWorkspace[] | null {
 }
 
 export function writeCachedWorkspaces(workspaces: MyWorkspace[]): void {
-  try {
-    sessionStorage.setItem(WORKSPACES_CACHE_KEY, JSON.stringify({ workspaces }));
-  } catch {
-    // Private mode / quota — nav still works without the cache.
-  }
+  storageSet(WORKSPACES_CACHE_KEY, JSON.stringify({ workspaces }));
 }
 
 export function clearCachedWorkspaces(): void {
-  try {
-    sessionStorage.removeItem(WORKSPACES_CACHE_KEY);
-  } catch {
-    // ignore
+  storageRemove(WORKSPACES_CACHE_KEY);
+}
+
+export function readCachedActiveWorkspace(): string {
+  const raw = storageGet(ACTIVE_WORKSPACE_CACHE_KEY);
+  return raw && isBrowseWorkspace(raw) ? raw : "";
+}
+
+export function writeCachedActiveWorkspace(workspace: string): void {
+  if (isBrowseWorkspace(workspace)) storageSet(ACTIVE_WORKSPACE_CACHE_KEY, workspace);
+}
+
+export function clearCachedActiveWorkspace(): void {
+  storageRemove(ACTIVE_WORKSPACE_CACHE_KEY);
+}
+
+/**
+ * Workspace slug for the account sidebar.
+ * URL → layout boot global → last-used cache. Visiting a workspace route
+ * refreshes the last-used cache.
+ */
+export function resolveSidebarWorkspace(pathname: string, bootGlobal = ""): string {
+  const fromPath = workspaceFromPathname(pathname);
+  if (fromPath) {
+    writeCachedActiveWorkspace(fromPath);
+    return fromPath;
   }
+  const fallback = bootGlobal || readCachedActiveWorkspace();
+  return isBrowseWorkspace(fallback) ? fallback : "";
 }
 
 function displayName(ws: MyWorkspace): string {
@@ -148,8 +197,14 @@ function closeMenu(els: SwitcherEls): void {
 }
 
 function paint(els: SwitcherEls, workspaces: MyWorkspace[], opts: WorkspacesNavOptions): void {
-  const active = opts.active ?? "";
-  const activeTab = opts.activeTab || "files";
+  let active = opts.active ?? "";
+  // Drop a stale last-used slug if the user is no longer a member.
+  if (active && workspaces.length > 0 && !workspaces.some((ws) => ws.workspace === active)) {
+    clearCachedActiveWorkspace();
+    active = "";
+  }
+  // Empty on personal routes so no workspace tab is falsely current.
+  const activeTab = opts.activeTab || "";
 
   els.label.textContent = switcherLabel(workspaces, active);
   els.menu.innerHTML = renderSwitcherMenuHtml(workspaces, { active });
@@ -214,14 +269,12 @@ export function initWorkspacesNav(apiOrigin: string, options: WorkspacesNavOptio
   const els: SwitcherEls = { trigger, label, menu, section };
   bindSwitcher(els);
 
-  // Pathname wins after ClientRouter body swaps (boot global can lag).
   const opts: WorkspacesNavOptions = {
-    active: resolveActiveWorkspace(location.pathname, options.active ?? ""),
+    active: resolveSidebarWorkspace(location.pathname, options.active ?? ""),
     activeTab: options.activeTab || workspaceTabFromPathname(location.pathname),
   };
 
-  const cached = readCachedWorkspaces();
-  paint(els, cached ?? [], opts);
+  paint(els, readCachedWorkspaces() ?? [], opts);
 
   onSession(() => {
     void getMyWorkspaces(apiOrigin).then((result) => {

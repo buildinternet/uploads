@@ -1,21 +1,17 @@
 ---
 /**
- * Shared shell for /account and /account/* — flat sidebar nav with real
- * paths (file-based routing), session gate chrome, sign-out, and an
- * optional right-rail column (`<AccountLayout><Fragment slot="rail">…`).
+ * Shared shell for /account/* — flat sidebar, session gate, optional rail.
  *
- * Workspace navigation uses a switcher model: the section heading is the
- * current workspace name (dropdown of memberships + "+ new workspace").
- * When a workspace is active, files / galleries / people / settings live
- * as flat rows under that heading. Tab state is derived from the URL.
+ * Sidebar: workspace switcher + section tabs (from URL or last-used cache,
+ * so personal routes keep the same nav) + Personal (account / developers).
+ * Admin + sign-out live only in the header avatar menu.
  *
- * ClientRouter holds the current view while the next account route loads
- * (no blank-page flicker). Scripts re-boot on `astro:page-load`.
+ * Layout is always nav · content · rail (empty rail reserves width). Scripts
+ * re-boot on `astro:page-load` (ClientRouter).
  */
 import { env } from "cloudflare:workers";
 import {
   applyAuthSecurityHeaders,
-  resolveShowConsoleLinks,
   resolveSignedInOrigins,
   signedInCsp,
 } from "../lib/signed-in-page";
@@ -63,7 +59,6 @@ const workspaceBase = workspace
   : "";
 const switcherHeading = workspace || "workspaces";
 
-const showConsoleLinks = await resolveShowConsoleLinks(env);
 const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
 // Header (not meta): frame-ancestors is ignored on meta CSP.
 applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrigin));
@@ -93,11 +88,11 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
     <button class="button" type="button" id="session-retry">Try again</button>
   </div>
 
-  <div id="app" class:list={["account-shell", { "account-shell--rail": hasRail }]} hidden>
+  <div id="app" class="account-shell" hidden>
     <SiteHeader authOrigin={authOrigin} />
 
     <div class="shell">
-      <div class="layout" data-rail={hasRail ? "true" : "false"}>
+      <div class="layout">
         <nav class="side" aria-label="Account sections">
           <div class="ws-switcher" id="ws-switcher">
             <button
@@ -147,7 +142,7 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
             }
           </div>
 
-          <div class="side-label">you</div>
+          <div class="side-label">Personal</div>
           <a
             href="/account/profile"
             class="side-link"
@@ -162,34 +157,29 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
           >
             developers
           </a>
-
-          <div class="side-foot">
-            {showConsoleLinks ? <a href="/console">console →</a> : null}
-            <a href="/admin" id="admin-link" hidden>admin →</a>
-            <button type="button" id="sign-out-btn">sign out</button>
-          </div>
         </nav>
 
         <div class="content">
           <slot />
         </div>
 
-        {hasRail ? (
-          <aside class="rail" aria-label="Workspace summary">
-            <slot name="rail" />
-          </aside>
-        ) : null}
+        <aside
+          class="rail"
+          aria-label="Workspace summary"
+          aria-hidden={hasRail ? undefined : "true"}
+          data-empty={hasRail ? undefined : ""}
+        >
+          {hasRail ? <slot name="rail" /> : null}
+        </aside>
       </div>
 
       <Footer />
     </div>
   </div>
 
-{/* Sync optimistic paint: show the shell before deferred modules run so
-    /account → /account/workspaces does not flash "Checking your session…".
-    Key must match SESSION_CACHE_KEY in account-shell.ts. Not a security
-    boundary — revalidated by resolveSessionGate immediately after.
-    data-astro-rerun: ClientRouter must re-apply this after every body swap. */}
+{/* Optimistic shell + workspace section nav before deferred modules run.
+    Keys match SESSION_CACHE_KEY / ACTIVE_WORKSPACE_CACHE_KEY. Not a security
+    boundary — revalidated after. data-astro-rerun: re-apply after body swap. */}
 <script is:inline data-astro-rerun>
   (function () {
     try {
@@ -199,11 +189,31 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
       if (!user || !user.email) return;
       var checking = document.getElementById("checking");
       var app = document.getElementById("app");
-      var adminLink = document.getElementById("admin-link");
       if (checking) checking.hidden = true;
       if (app) app.hidden = false;
-      if (adminLink && user.role === "admin") adminLink.hidden = false;
       window.__uploadsSessionUser = user;
+
+      // Remember workspace from URL; on personal routes restore last-used section nav.
+      var m = location.pathname.match(/^\/account\/workspaces\/([^/]+)/);
+      var pathWs = m && m[1] !== "new" ? decodeURIComponent(m[1]) : "";
+      if (pathWs) {
+        try { sessionStorage.setItem("uploads:activeWorkspace", pathWs); } catch (e) {}
+      }
+      var activeWs = pathWs || sessionStorage.getItem("uploads:activeWorkspace") || "";
+      if (!activeWs || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(activeWs)) return;
+      var section = document.getElementById("workspace-section-nav");
+      if (!section || !section.hidden) return;
+      var label = document.getElementById("ws-switcher-label");
+      if (label && !pathWs) label.textContent = activeWs;
+      var base = "/account/workspaces/" + encodeURIComponent(activeWs);
+      var paths = ["", "/galleries", "/people", "/settings"];
+      var names = ["files", "galleries", "people", "settings"];
+      var html = "";
+      for (var i = 0; i < paths.length; i++) {
+        html += '<a href="' + base + paths[i] + '" class="side-link">' + names[i] + "</a>";
+      }
+      section.innerHTML = html;
+      section.hidden = false;
     } catch (e) {}
   })();
 </script>
@@ -218,13 +228,11 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
 ></script>
 <script>
   import {
-    initSignOut,
     onAstroPageLoad,
     requireElement,
     resolveSessionGate,
   } from "../lib/account-shell";
-  import { resolveActiveWorkspace } from "../lib/workspace-browse-url";
-  import { initWorkspacesNav, workspaceTabFromPathname } from "../lib/workspaces-nav";
+  import { initWorkspacesNav } from "../lib/workspaces-nav";
 
   onAstroPageLoad(() => {
     if (!document.getElementById("app")) return;
@@ -234,30 +242,18 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
       __UPLOADS_API_ORIGIN__: string;
       __UPLOADS_ACTIVE_WORKSPACE__: string;
     };
-    const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
-    const apiOrigin = w.__UPLOADS_API_ORIGIN__;
 
-    // Pathname wins when the boot global is empty/stale after ClientRouter nav.
-    const activeWorkspace = resolveActiveWorkspace(
-      location.pathname,
-      w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
-    );
-
-    initSignOut(authOrigin);
-    initWorkspacesNav(apiOrigin, {
-      active: activeWorkspace,
-      activeTab: workspaceTabFromPathname(location.pathname),
+    // Boot global is a hint; init resolves URL → boot → last-used cache.
+    initWorkspacesNav(w.__UPLOADS_API_ORIGIN__, {
+      active: w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
     });
 
     void resolveSessionGate({
-      authOrigin,
+      authOrigin: w.__UPLOADS_AUTH_ORIGIN__,
       checking: requireElement<HTMLElement>("#checking", "account"),
       denied: requireElement<HTMLElement>("#signed-out", "account"),
       unavailable: requireElement<HTMLElement>("#auth-unavailable", "account"),
       app: requireElement<HTMLElement>("#app", "account"),
-    }).then((result) => {
-      requireElement<HTMLElement>("#admin-link", "account").hidden =
-        result?.user.role !== "admin";
     });
 
     const retry = document.querySelector<HTMLButtonElement>("#session-retry");
