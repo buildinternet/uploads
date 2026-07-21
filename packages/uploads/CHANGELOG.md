@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.18.0
+
+### Minor Changes
+
+- 088a5bd: Branch-staged attaches now stamp `gh.status=staged`, and server-side promotion flips the staged original to `gh.status=promoted`. In-flight staged media becomes a plain equality query: `uploads find gh.status=staged` (narrow with `gh.branch=<name>` or `gh.repo=<owner/name>`).
+
 ## 0.17.0
 
 ### Minor Changes
