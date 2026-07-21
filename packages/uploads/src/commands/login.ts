@@ -21,16 +21,18 @@ import {
 import { flagBool, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
 import { parseScopes } from "./admin-enrollment.js";
 import { writeCommandHelp } from "../cli-style.js";
+import { UploadsError } from "../errors.js";
 
 const HELP = `uploads login [options]
 
 Sign in and save workspace credentials. With no flags, opens a browser to
-authorize this device — the recommended way to sign in. Pass an enrollment
-code only if you were given one from before device login (fallback path).
+authorize this device — the recommended way to sign in. The browser asks which
+workspace to sign in to, so --workspace is optional. Pass an enrollment code
+only if you were given one from before device login (fallback path).
 
 Options:
-  --workspace <name>  Workspace to mint a token for (device flow; required if
-                      your account can access more than one)
+  --workspace <name>  Preselect the workspace in the browser and skip its
+                      picker (device flow)
   --create            With --workspace: create the workspace first if your
                       account doesn't have it yet (device flow only) — lets
                       scripted/agent logins provision without a prompt
@@ -286,6 +288,33 @@ interface LoginResult {
 }
 
 /**
+ * Turn the API's deliberately opaque 403 (`no access to this workspace` — it
+ * refuses to distinguish "doesn't exist" from "you're not a member", see
+ * apps/api/src/routes/tokens.ts) into something the user can act on, by
+ * listing the workspaces their own account CAN reach. Backstop only: since
+ * #362 the approval page catches this before approving.
+ */
+async function describeMintFailure(
+  apiUrl: string,
+  accessToken: string,
+  workspace: string,
+  err: unknown,
+): Promise<never> {
+  if (!(err instanceof UploadsError) || err.status !== 403) throw err;
+  let names: string[] = [];
+  try {
+    names = (await listMintWorkspaces(apiUrl, accessToken)).workspaces.map((w) => w.workspace);
+  } catch {
+    // Listing is best-effort — fall through to the generic hint below.
+  }
+  throw new UsageError(
+    names.length
+      ? `no access to workspace "${workspace}" — this account can use: ${names.join(", ")}`
+      : `no access to workspace "${workspace}" — this account has no workspaces yet; pass --workspace <name> --create to provision one`,
+  );
+}
+
+/**
  * Device-authorization login (RFC 8628): request a code, have the user approve
  * it in a browser, poll for the session token, then mint a workspace token.
  */
@@ -339,7 +368,7 @@ async function runDeviceLogin(
     workspace,
     scopes,
     label,
-  });
+  }).catch((err) => describeMintFailure(opts.apiUrl, session.accessToken, workspace, err));
   return { workspace: minted.workspace, token: minted.token, apiUrl: opts.apiUrl };
 }
 

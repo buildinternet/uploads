@@ -944,3 +944,83 @@ describe("credential config writes", () => {
     expect(readFileSync(path, "utf8")).toBe(before);
   });
 });
+
+describe("runLogin device flow — mint failure backstop", () => {
+  const silentIo: DeviceLoginIo = {
+    sleep: async () => {},
+    now: () => Date.now(),
+    openUrl: () => {},
+    write: () => {},
+    isTTY: false,
+    promptWorkspaceName: async () => "",
+  };
+
+  it("names the accessible workspaces when the mint is forbidden", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        response({
+          device_code: "dev-123",
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://uploads.sh/device",
+          expires_in: 900,
+          interval: 5,
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      )
+      .mockResolvedValueOnce(
+        response({ error: "no access to this workspace", code: "workspace_forbidden" }, 403),
+      ) // POST /v1/tokens
+      .mockResolvedValueOnce(
+        response({
+          workspaces: [
+            { workspace: "acme", role: "member" },
+            { workspace: "beta", role: "owner" },
+          ],
+        }),
+      ); // GET /v1/tokens, fetched only to build the error
+    captureOutput();
+
+    await expect(
+      runLogin(
+        ["--path", path, "--workspace", "default", "--no-check"],
+        { json: true },
+        false,
+        silentIo,
+      ),
+    ).rejects.toThrow(/no access to workspace "default".*acme, beta/s);
+  });
+
+  it("still fails clearly when the account has no workspaces at all", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        response({
+          device_code: "dev-123",
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://uploads.sh/device",
+          expires_in: 900,
+          interval: 5,
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      )
+      .mockResolvedValueOnce(
+        response({ error: "no access to this workspace", code: "workspace_forbidden" }, 403),
+      )
+      .mockResolvedValueOnce(response({ workspaces: [] }));
+    captureOutput();
+
+    await expect(
+      runLogin(
+        ["--path", path, "--workspace", "default", "--no-check"],
+        { json: true },
+        false,
+        silentIo,
+      ),
+    ).rejects.toThrow(/no access to workspace "default".*--create/s);
+  });
+});
