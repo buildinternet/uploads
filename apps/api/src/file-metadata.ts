@@ -260,6 +260,32 @@ export async function replaceFileMetadata(
   await db.batch(statements);
 }
 
+/**
+ * Cross-workspace lookup of objects carrying a given `(meta_key, meta_value)`
+ * pair — unlike `findObjectsByMetadata`, not scoped to a single workspace.
+ * Used by the staging reaper (branch-staged attachment cleanup) to discover
+ * `gh.kind=branch` rows across every workspace in one query. Bounded by
+ * `limit`; ordering is stable (workspace, object_key) so repeated calls with
+ * the same limit see the same head of the set.
+ */
+export async function findObjectsByMetadataAcrossWorkspaces(
+  db: D1Database,
+  metaKey: string,
+  metaValue: string,
+  limit: number,
+): Promise<Array<{ workspace: string; key: string }>> {
+  const result = await db
+    .prepare(
+      `SELECT workspace, object_key FROM file_metadata
+       WHERE meta_key = ? AND meta_value = ?
+       ORDER BY workspace, object_key
+       LIMIT ?`,
+    )
+    .bind(metaKey, metaValue, limit)
+    .all<{ workspace: string; object_key: string }>();
+  return result.results.map((row) => ({ workspace: row.workspace, key: row.object_key }));
+}
+
 const FIND_DEFAULT_LIMIT = 50;
 const FIND_MAX_LIMIT = 500;
 
