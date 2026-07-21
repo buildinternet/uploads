@@ -271,6 +271,31 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
     expect(metadataQueries).toBe(0);
     expect((result as { body: string }).body).not.toContain("<sub>/settings");
   });
+
+  it("does not leak another workspace's metadata for the same object key", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    await seed(env, bucket, { path: "/settings", state: "before" });
+
+    // A different workspace's metadata on the SAME object key — must not leak
+    // into acme's rendered comment. The D1 row is scoped by the `workspace`
+    // column, not by anything derived from the object key.
+    await replaceFileMetadata(env.DB, "other-ws", "gh/acme/web/pull/12/before.webp", {
+      path: "/intruder-path",
+      state: "compromised",
+    });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+
+    expect(result.skip).toBe(false);
+    const body = (result as { body: string }).body;
+    expect(body).toContain("<sub>/settings · before</sub>");
+    expect(body).not.toContain("/intruder-path");
+    expect(body).not.toContain("compromised");
+  });
 });
 
 describe("upsertBotComment", () => {

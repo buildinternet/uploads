@@ -484,14 +484,18 @@ export const adminUi = new Hono<SessionVars>()
     return c.json(await limitsResponse(c.env, name, record));
   })
 
-  // Read the per-workspace managed-comment file-page linking toggle (#304).
+  // Read the per-workspace managed-comment settings: whether attachments
+  // link to their `/f/` file page or raw object bytes (issue #304), and
+  // whether the comment shows an upload's `path`/`state` metadata (issue
+  // #365).
   .get("/workspaces/:name/settings", async (c) => {
     const name = c.req.param("name");
     const record = await loadEditableWorkspace(c.env, name);
     return c.json(githubCommentSettingsResponse(name, record));
   })
 
-  // Patch the managed-comment file-page linking toggle. Omitted leaves it
+  // Patch the managed-comment settings above (file-page linking, #304; the
+  // path/state metadata toggle, #365). Either key may be omitted to leave it
   // unchanged; the whole record is read-modify-written so other fields
   // (limits, tokens, etc.) survive untouched.
   .patch("/workspaces/:name/settings", async (c) => {
