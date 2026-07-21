@@ -1,5 +1,23 @@
 # @buildinternet/uploads
 
+## 0.16.0
+
+### Minor Changes
+
+- 87f5626: Add `uploads github doctor` to check whether the GitHub App is subscribed to the webhook events uploads.sh needs (`issues`, `pull_request`). A missing subscription previously failed silently — the App's ping stayed green while webhook auto-promotion and title-cache invalidation quietly did nothing.
+- 65cb8b9: Add `uploads github unlink` to release a workspace's GitHub repo binding (self-serve counterpart to `uploads github link`), and point `github link`'s already-bound-elsewhere output at the remedy.
+
+### Patch Changes
+
+- bb149da: `uploads attach --branch <name>` now rejects a value that looks like a file
+  (an existing path on disk, or a name with a media/document extension like
+  `.png`/`.pdf`) instead of silently swallowing it as the branch name. Fixes
+  `uploads attach --branch shot.png` staging under a branch literally named
+  "shot.png" — use `uploads attach shot.png --branch` (auto-detect the current
+  branch) or `uploads attach --branch <name> shot.png` instead. Ordinary dotted
+  branch names like `v1.2` or `release/1.2` are unaffected.
+- 9baf580: Stop falling back to the local `gh` path when the server declines a comment post with `not_authorized` (cross-tenant repo binding) — surface the decline with a hint to `uploads github link --status` instead, since a silent gh fallback would just work around the server-side gate with the human's own credentials.
+
 ## 0.15.0
 
 ### Minor Changes
