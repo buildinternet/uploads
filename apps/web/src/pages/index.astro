@@ -619,9 +619,11 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           <span class="cta-note">free to start in the cloud · open source to self-host</span>
         </div>
       </section>
-
-      <Footer />
     </main>
+
+    {/* Sibling of main (not nested) so the full-bleed footer centers on the
+        viewport at shell width — same contract as releases.sh. */}
+    <Footer />
 
     <script>
       // Replay the terminal session; content below the fold-line is static.

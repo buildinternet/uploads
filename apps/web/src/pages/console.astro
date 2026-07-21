@@ -43,9 +43,19 @@ const authOrigin =
         font: 14px/1.5 var(--mono);
         font-variant-ligatures: none;
         font-feature-settings: "calt" 0, "liga" 0;
-        padding: 40px 24px 64px;
+        display: flex;
+        flex-direction: column;
+        padding: 0;
       }
-      main { width: min(var(--width-content, 720px), 100%); margin: 0 auto; display: grid; gap: 16px; }
+      main {
+        width: min(var(--width-content, 720px), 100%);
+        margin: 0 auto;
+        padding: 40px 24px 64px;
+        display: grid;
+        gap: 16px;
+        flex: 1 0 auto;
+        box-sizing: border-box;
+      }
       h1 { font-size: 1.15rem; font-weight: 600; margin: 0; }
       p.muted { color: var(--muted); margin: 0; font-size: 0.9rem; }
       label {
@@ -207,8 +217,8 @@ const authOrigin =
         </div>
       </section>
 
-      <Footer />
     </main>
+    <Footer />
     <script define:vars={{ authOrigin }}>
       window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
     </script>

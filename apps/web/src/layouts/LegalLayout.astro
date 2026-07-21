@@ -86,7 +86,8 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
       <article>
         <slot />
       </article>
-      <Footer />
     </main>
+    {/* Sibling of main so the full-bleed footer centers on the viewport. */}
+    <Footer />
   </body>
 </html>

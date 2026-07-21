@@ -90,12 +90,16 @@ const fullTitle = `${title} · uploads.sh`;
       }
 
       /* ---------- shell + three-column grid ----------
-         SiteHeader is full-bleed above; content column is constrained. */
+         SiteHeader is full-bleed above; content column is constrained.
+         Footer is a *sibling* of .docs-shell (body flex child), not nested
+         here — nesting would shrink the footer to the 1120px shell and leave
+         no gap between article end and the footer border. */
       .docs-shell {
         width: min(1120px, 100%);
         margin: 0 auto;
         padding: 32px 24px 64px;
-        flex: 1;
+        flex: 1 0 auto;
+        box-sizing: border-box;
       }
       .docs-grid {
         display: flex;
@@ -557,9 +561,9 @@ const fullTitle = `${title} · uploads.sh`;
           )
         }
       </div>
-
-      <Footer />
     </div>
+
+    <Footer />
 
     <script>
       // Module scripts run once per session; re-wire after every ClientRouter swap.
