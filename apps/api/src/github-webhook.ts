@@ -24,6 +24,17 @@
  * still carrying the attachments marker proceeds to the (binding-gated)
  * gather+upsert. Same `ctx.waitUntil`/degrade-safe doctrine as above; never
  * creates a repo binding, only consumes `findRepoLink`.
+ *
+ * Queue ingestion (issue #287): payload parsing is split into a pure
+ * `extractWebhookEvent` (delivery → compact `WebhookEvent` or null) and an
+ * effectful `processWebhookEvent` (KV deletes + promote/reconcile). When the
+ * `GITHUB_WEBHOOK_QUEUE` producer binding is present, `handleWebhook`
+ * enqueues the compact event — never the raw payload, which can exceed the
+ * 128 KB queue message cap — and the `queue()` consumer (index.ts →
+ * github-webhook-queue.ts) processes it with retries + a DLQ. Without the
+ * binding (tests, local dev without queues, or a send failure) it falls back
+ * to the previous inline waitUntil path, so the endpoint keeps working
+ * degraded rather than dropping deliveries.
  */
 
 import { githubAppConfig, installationForRepo } from "./github-app";
@@ -31,7 +42,9 @@ import { commentCacheKey, gatherCommentBody, upsertBotComment } from "./github-c
 import { ATTACHMENTS_MARKER } from "./github-comment-render";
 import type { GhTarget } from "./github-comment-render";
 import { promoteBranchAttachments } from "./github-promote";
-import { deleteRepoLink, findRepoLink, type RepoLink } from "./github-repo-links";
+// Strict lookup on purpose (#287): a D1 outage must THROW so the queue
+// consumer retries the event, not read as "repo not linked" and ack-drop it.
+import { deleteRepoLink, findRepoLinkStrict, type RepoLink } from "./github-repo-links";
 import { loadWorkspaceRecord } from "./workspace";
 
 const enc = new TextEncoder();
@@ -149,63 +162,36 @@ async function gatherAndUpsert(env: Env, link: RepoLink, target: GhTarget): Prom
 }
 
 /**
- * Best-effort webhook-driven auto-promotion for one `pull_request` delivery.
- * No-ops (never throws) on: a cross-repo PR (fork head), no repo link, a
- * missing/tombstoned linked workspace, or any downstream promote/gather/
- * comment failure. Reuses `promoteBranchAttachments` and `gatherAndUpsert`
- * (which itself reuses `gatherCommentBody`/`upsertBotComment` verbatim) — no
- * duplicated copy/render/post logic.
+ * Webhook-driven auto-promotion for one bound repo/PR. No-ops on: no repo
+ * link or a missing/tombstoned linked workspace. Downstream promote/gather/
+ * comment failures THROW — the caller decides whether that means a queue
+ * retry (consumer) or a swallow-and-log (inline fallback). Reuses
+ * `promoteBranchAttachments` and `gatherAndUpsert` (which itself reuses
+ * `gatherCommentBody`/`upsertBotComment` verbatim) — no duplicated
+ * copy/render/post logic.
  */
-async function autoPromoteAndComment(env: Env, p: PullRequestPayload): Promise<void> {
-  const repo = p.repository?.full_name;
-  const pr = p.pull_request;
-  const num = pr?.number;
-  const headRef = pr?.head?.ref;
-  const headRepo = pr?.head?.repo?.full_name;
-  if (
-    typeof repo !== "string" ||
-    typeof num !== "number" ||
-    typeof headRef !== "string" ||
-    typeof headRepo !== "string"
-  ) {
+async function autoPromoteAndComment(
+  env: Env,
+  repo: string,
+  num: number,
+  branch: string,
+): Promise<void> {
+  const link = await findRepoLinkStrict(env.DB, repo);
+  if (!link) return;
+
+  const ws = await loadWorkspaceRecord(env, link.workspaceName);
+  if (!ws) {
+    await deleteRepoLink(env.DB, repo);
     return;
   }
-  // Fork PRs stage attachments under the fork's own workspace context (if
-  // any) — never promote a base repo's binding against a head branch that
-  // lives in a different repo.
-  if (headRepo.toLowerCase() !== repo.toLowerCase()) return;
 
-  try {
-    const link = await findRepoLink(env.DB, repo);
-    if (!link) return;
+  await promoteBranchAttachments(env, ws, link.workspaceName, { repo, num, branch });
 
-    const ws = await loadWorkspaceRecord(env, link.workspaceName);
-    if (!ws) {
-      await deleteRepoLink(env.DB, repo);
-      return;
-    }
-
-    await promoteBranchAttachments(env, ws, link.workspaceName, {
-      repo,
-      num,
-      branch: headRef,
-    });
-
-    // Gather AFTER promoting: the just-promoted copies are now real objects
-    // under the PR's attachment prefix, so this single gather call already
-    // reflects them — no separate "promoted > 0" branch needed.
-    const target: GhTarget = { repo, kind: "pull", num };
-    await gatherAndUpsert(env, link, target);
-  } catch (err) {
-    console.error(
-      JSON.stringify({
-        message: "webhook auto-promote failed",
-        repo,
-        num,
-        error: err instanceof Error ? err.message : String(err),
-      }),
-    );
-  }
+  // Gather AFTER promoting: the just-promoted copies are now real objects
+  // under the PR's attachment prefix, so this single gather call already
+  // reflects them — no separate "promoted > 0" branch needed.
+  const target: GhTarget = { repo, kind: "pull", num };
+  await gatherAndUpsert(env, link, target);
 }
 
 /** Substring shared by every managed-comment marker variant (legacy + the
@@ -255,36 +241,137 @@ function isReconcilableCommentEvent(p: IssueCommentPayload): boolean {
 }
 
 /**
- * Best-effort reconcile for one `issue_comment` delivery: when the managed
- * comment was deleted or mangled out from under us, drop the (now stale)
- * cached comment id and re-run gather+upsert so it's recreated/repaired from
- * the bound workspace's own data. Same degrade-safe doctrine as
- * `autoPromoteAndComment`: swallow every failure, never 5xx, never create a
- * repo binding (read/delete-only via `findRepoLink`/`deleteRepoLink`).
+ * Reconcile for one gated `issue_comment` delivery: when the managed comment
+ * was deleted or mangled out from under us, drop the (now stale) cached
+ * comment id and re-run gather+upsert so it's recreated/repaired from the
+ * bound workspace's own data. No-ops on a missing repo binding; downstream
+ * failures THROW (see `autoPromoteAndComment` for the caller contract).
+ * Never creates a repo binding (read/delete-only via
+ * `findRepoLink`/`deleteRepoLink`).
  */
-async function reconcileBotComment(env: Env, p: IssueCommentPayload): Promise<void> {
-  if (!isReconcilableCommentEvent(p)) return;
+async function reconcileBotComment(
+  env: Env,
+  repo: string,
+  num: number,
+  kind: GhTarget["kind"],
+): Promise<void> {
+  const link = await findRepoLinkStrict(env.DB, repo);
+  if (!link) return;
 
-  const repo = p.repository?.full_name;
-  const num = p.issue?.number;
-  if (typeof repo !== "string" || typeof num !== "number") return;
+  const target: GhTarget = { repo, kind, num };
+  // Force a fresh marker hunt + write rather than trusting a cached id that
+  // may point at the very comment that was just deleted/mangled.
+  await env.GITHUB_CACHE.delete(commentCacheKey(link.workspaceName, target));
 
+  await gatherAndUpsert(env, link, target);
+}
+
+/**
+ * Compact, queue-safe description of the work one webhook delivery implies.
+ * Field-extracted at ingestion (never the raw GitHub payload — those can
+ * exceed the 128 KB queue message cap) and consumed by
+ * `processWebhookEvent` on either side of the queue boundary.
+ */
+export interface WebhookEvent {
+  /** GITHUB_CACHE keys to delete (targeted; possibly empty). */
+  keys: string[];
+  /** Same-repo PR opened/reopened/synchronize → promote + comment. */
+  promote?: { repo: string; num: number; branch: string };
+  /** Gated issue_comment edited/deleted → heal the managed comment. */
+  reconcile?: { repo: string; num: number; kind: GhTarget["kind"] };
+}
+
+/**
+ * Pure payload → `WebhookEvent` extraction for one delivery. Returns null
+ * when the delivery implies no work (`ping`, unknown events, partial
+ * payloads, ungated `issue_comment`s). Never throws on malformed payloads —
+ * missing fields mean "nothing to do here".
+ */
+export function extractWebhookEvent(eventType: string, payload: unknown): WebhookEvent | null {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const ev: WebhookEvent = { keys: [] };
+
+  if (eventType === "installation") {
+    const id = (p.installation as { id?: unknown } | undefined)?.id;
+    if (typeof id === "number") ev.keys.push(`ghtok:${id}`);
+    for (const repo of repoFullNames(p.repositories)) ev.keys.push(`ghinst:${repo}`);
+  } else if (eventType === "installation_repositories") {
+    for (const repo of repoFullNames(p.repositories_added)) ev.keys.push(`ghinst:${repo}`);
+    for (const repo of repoFullNames(p.repositories_removed)) ev.keys.push(`ghinst:${repo}`);
+  } else if (eventType === "issues" || eventType === "pull_request") {
+    const fullName = (p.repository as { full_name?: unknown } | undefined)?.full_name;
+    const item = (eventType === "issues" ? p.issue : p.pull_request) as
+      | { number?: unknown }
+      | undefined;
+    if (typeof fullName === "string" && typeof item?.number === "number") {
+      ev.keys.push(`ghref:${fullName.toLowerCase()}#${item.number}`);
+    }
+  }
+
+  if (eventType === "pull_request") {
+    const pp = p as PullRequestPayload;
+    const action = pp.action;
+    const repo = pp.repository?.full_name;
+    const pr = pp.pull_request;
+    if (
+      typeof action === "string" &&
+      PROMOTE_ACTIONS.has(action) &&
+      typeof repo === "string" &&
+      typeof pr?.number === "number" &&
+      typeof pr.head?.ref === "string" &&
+      typeof pr.head.repo?.full_name === "string" &&
+      // Fork PRs stage attachments under the fork's own workspace context (if
+      // any) — never promote a base repo's binding against a head branch that
+      // lives in a different repo.
+      pr.head.repo.full_name.toLowerCase() === repo.toLowerCase()
+    ) {
+      ev.promote = { repo, num: pr.number, branch: pr.head.ref };
+    }
+  } else if (eventType === "issue_comment") {
+    // isReconcilableCommentEvent's cheap payload-only check runs here, before
+    // any I/O or enqueue, so the common case (an ordinary human comment on
+    // any installed repo — this event fires on every one) costs nothing.
+    const ip = p as IssueCommentPayload;
+    const repo = ip.repository?.full_name;
+    const num = ip.issue?.number;
+    if (isReconcilableCommentEvent(ip) && typeof repo === "string" && typeof num === "number") {
+      ev.reconcile = { repo, num, kind: ip.issue?.pull_request ? "pull" : "issues" };
+    }
+  }
+  // ping and unknown events fall through with no work.
+
+  return ev.keys.length || ev.promote || ev.reconcile ? ev : null;
+}
+
+/**
+ * Run the work one `WebhookEvent` implies. KV deletes are allSettled — a
+ * failed delete is harmless (the entry self-heals on its phase-1 TTL) and
+ * must never fail the event. Promote/reconcile failures DO throw: in the
+ * queue consumer that drives `msg.retry()` toward the DLQ; inline callers
+ * (`handleWebhook`'s no-queue fallback) catch and log instead.
+ */
+export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<void> {
+  await Promise.allSettled(ev.keys.map((key) => env.GITHUB_CACHE.delete(key)));
+
+  if (ev.promote) {
+    await autoPromoteAndComment(env, ev.promote.repo, ev.promote.num, ev.promote.branch);
+  }
+  if (ev.reconcile) {
+    await reconcileBotComment(env, ev.reconcile.repo, ev.reconcile.num, ev.reconcile.kind);
+  }
+}
+
+/** `processWebhookEvent` with every failure caught and logged — the inline
+ * (queueless) path's degrade-safe doctrine: a webhook must never 5xx. */
+async function processInline(env: Env, ev: WebhookEvent): Promise<void> {
   try {
-    const link = await findRepoLink(env.DB, repo);
-    if (!link) return;
-
-    const target: GhTarget = { repo, kind: p.issue?.pull_request ? "pull" : "issues", num };
-    // Force a fresh marker hunt + write rather than trusting a cached id that
-    // may point at the very comment that was just deleted/mangled.
-    await env.GITHUB_CACHE.delete(commentCacheKey(link.workspaceName, target));
-
-    await gatherAndUpsert(env, link, target);
+    await processWebhookEvent(env, ev);
   } catch (err) {
     console.error(
       JSON.stringify({
-        message: "webhook comment reconcile failed",
-        repo,
-        num,
+        message: "webhook inline processing failed",
+        promote: ev.promote ?? null,
+        reconcile: ev.reconcile ?? null,
         error: err instanceof Error ? err.message : String(err),
       }),
     );
@@ -292,11 +379,11 @@ async function reconcileBotComment(env: Env, p: IssueCommentPayload): Promise<vo
 }
 
 /**
- * Invalidate the phase-1 cache entries implied by one webhook delivery, and
- * (for a same-repo `pull_request` opened/reopened/synchronize) kick off
- * best-effort auto-promotion via `ctx.waitUntil` so the response isn't
- * delayed by it. `ping` and unknown events are no-ops. Never throws on
- * partial payloads.
+ * Ingest one verified webhook delivery: extract the compact event, then
+ * either enqueue it (GITHUB_WEBHOOK_QUEUE bound — the durable path, issue
+ * #287) or run it inline via `ctx.waitUntil` (tests/local dev without
+ * queues, or a failed send). Never throws on partial payloads; the inline
+ * fallback swallows processing failures so the route still returns 204.
  */
 export async function handleWebhook(
   env: Env,
@@ -304,46 +391,31 @@ export async function handleWebhook(
   payload: unknown,
   ctx?: Pick<ExecutionContext, "waitUntil">,
 ): Promise<void> {
-  const p = (payload ?? {}) as Record<string, unknown>;
-  const keys: string[] = [];
+  const ev = extractWebhookEvent(eventType, payload);
+  if (!ev) return;
 
-  if (eventType === "installation") {
-    const id = (p.installation as { id?: unknown } | undefined)?.id;
-    if (typeof id === "number") keys.push(`ghtok:${id}`);
-    for (const repo of repoFullNames(p.repositories)) keys.push(`ghinst:${repo}`);
-  } else if (eventType === "installation_repositories") {
-    for (const repo of repoFullNames(p.repositories_added)) keys.push(`ghinst:${repo}`);
-    for (const repo of repoFullNames(p.repositories_removed)) keys.push(`ghinst:${repo}`);
-  } else if (eventType === "issues" || eventType === "pull_request") {
-    const fullName = (p.repository as { full_name?: unknown } | undefined)?.full_name;
-    const item = (eventType === "issues" ? p.issue : p.pull_request) as
-      | { number?: unknown }
-      | undefined;
-    if (typeof fullName === "string" && typeof item?.number === "number") {
-      keys.push(`ghref:${fullName.toLowerCase()}#${item.number}`);
+  // Local cast rather than an env.d.ts augmentation: the generated
+  // worker-configuration.d.ts declares the binding non-optional once it's in
+  // wrangler.jsonc, and an optional re-declaration would conflict — while
+  // environments regenerating types without the queue (tests, older local
+  // checkouts) must still typecheck.
+  const queue = (env as { GITHUB_WEBHOOK_QUEUE?: Queue<WebhookEvent> }).GITHUB_WEBHOOK_QUEUE;
+  if (queue) {
+    try {
+      await queue.send(ev);
+      return;
+    } catch (err) {
+      // Queue outage must not drop the delivery — degrade to the inline path.
+      console.error(
+        JSON.stringify({
+          message: "webhook queue send failed; processing inline",
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
     }
   }
-  // ping and unknown events fall through with no keys.
 
-  // Use allSettled, not all: a rejecting delete must never propagate out of
-  // handleWebhook and become a 500 on the webhook route. A failed delete is
-  // harmless — the entry self-heals on its phase-1 TTL — so a webhook outage
-  // must never break anything.
-  await Promise.allSettled(keys.map((key) => env.GITHUB_CACHE.delete(key)));
-
-  if (eventType === "pull_request") {
-    const action = (p as PullRequestPayload).action;
-    if (typeof action === "string" && PROMOTE_ACTIONS.has(action)) {
-      const work = autoPromoteAndComment(env, p as PullRequestPayload);
-      if (ctx) ctx.waitUntil(work);
-      else await work; // no executionCtx (e.g. some test/call sites) — run inline.
-    }
-  } else if (eventType === "issue_comment") {
-    // isReconcilableCommentEvent's cheap payload-only check runs before any
-    // I/O, so the common case (an ordinary human comment on any installed
-    // repo — this event fires on every one) returns near-instantly.
-    const work = reconcileBotComment(env, p as IssueCommentPayload);
-    if (ctx) ctx.waitUntil(work);
-    else await work;
-  }
+  const work = processInline(env, ev);
+  if (ctx) ctx.waitUntil(work);
+  else await work; // no executionCtx (e.g. some test/call sites) — run inline.
 }

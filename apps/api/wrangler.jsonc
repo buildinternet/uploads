@@ -51,6 +51,37 @@
       "id": "8076084dae50495ab883ec79c1c5968f",
     },
   ],
+  // GitHub webhook ingestion queue + DLQ (issue #287), matching the
+  // releases/workers/webhooks shape. Create once per account before deploy:
+  //   wrangler queues create uploads-github-webhook
+  //   wrangler queues create uploads-github-webhook-dlq
+  // Producer: routes/github-webhook.ts enqueues compact WebhookEvents (never
+  // raw GitHub payloads — 128 KB message cap). Consumer: the `queue()` export
+  // in src/index.ts → github-webhook-queue.ts. Missing binding degrades to
+  // the pre-#287 inline waitUntil path, never a dropped delivery.
+  "queues": {
+    "producers": [
+      {
+        "binding": "GITHUB_WEBHOOK_QUEUE",
+        "queue": "uploads-github-webhook",
+      },
+    ],
+    "consumers": [
+      {
+        "queue": "uploads-github-webhook",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 6,
+        "dead_letter_queue": "uploads-github-webhook-dlq",
+      },
+      {
+        "queue": "uploads-github-webhook-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 0,
+      },
+    ],
+  },
   // Browser Run binding (POST /v1/render, phase 1). "remote": true is
   // required — quickAction has no Miniflare/local simulation and always
   // proxies to the real metered service, even under `wrangler dev`. Unit
