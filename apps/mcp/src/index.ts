@@ -95,6 +95,13 @@ async function oauthAuth(
   c.set("workspace", record);
   c.set("workspaceName", workspaceName);
   c.set("authScopes", verified.scopes);
+  // Uploader attribution (issue #345, parity with #340/#344): the AS signs
+  // `sub` as the Better Auth user id (see @better-auth/oauth-provider's
+  // customAccessTokenClaims call site — `sub: user?.id`, no pairwise-subject
+  // config on this AS), the same id `uploaderTags()` resolves against the
+  // internal `/users/:id/github-account` route. `tokenWorkspaceAuth`/
+  // `workspaceAuth` set the same var from `up_` tokens' `minting_user_id`.
+  c.set("mintingUserId", typeof verified.raw.sub === "string" ? verified.raw.sub : null);
   return null;
 }
 
@@ -132,6 +139,7 @@ async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
       workspace: c.get("workspace"),
       workspaceName: c.get("workspaceName"),
       authScopes: c.get("authScopes"),
+      mintingUserId: c.get("mintingUserId") ?? null,
     }),
   });
   const result = await server.handleLine(body);

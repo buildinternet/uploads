@@ -35,6 +35,13 @@
       "binding": "REGISTRY",
       "id": "808bc1c3a86a4675b134e11b6dca303d",
     },
+    // Uploader attribution (issue #345, parity with #340/#344): same
+    // `ghlogin:<userId>` login cache uploads-api reads/writes via
+    // uploaderTags() — same namespace id, shared cache across both workers.
+    {
+      "binding": "GITHUB_CACHE",
+      "id": "8076084dae50495ab883ec79c1c5968f",
+    },
   ],
   // Shared with uploads-api; migrations are managed from apps/api.
   "d1_databases": [
@@ -42,6 +49,18 @@
       "binding": "DB",
       "database_name": "uploads-production",
       "database_id": "5f73946b-edd5-414c-856c-8f9bd3c644ba",
+    },
+  ],
+  // Service binding to apps/auth (issue #345): uploaderTags() calls
+  // env.AUTH.fetch('/internal/users/:id/github-account') to resolve the
+  // linked GitHub account for OAuth-JWT-authenticated uploads — same
+  // internal route and binding style as uploads-api (see
+  // apps/api/wrangler.jsonc `services`). This worker's own JWT verification
+  // (src/oauth.ts) stays a plain JWKS fetch and does NOT use this binding.
+  "services": [
+    {
+      "binding": "AUTH",
+      "service": "uploads-auth",
     },
   ],
   // Per-workspace write rate limit for the put/delete tools — this worker's

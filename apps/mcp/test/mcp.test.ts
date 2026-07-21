@@ -248,6 +248,16 @@ async function makeEnv(
             limit: async () => ({ success: options.rateLimitOk }),
           },
         }),
+    // Uploader attribution (issue #345) defaults: empty login cache, no
+    // linked GitHub account — mirrors apps/api/test/routes-files.test.ts's
+    // makeEnv. Individual tests override `env.AUTH`/`env.GITHUB_CACHE`.
+    GITHUB_CACHE: { get: async () => null, put: async () => undefined },
+    AUTH: {
+      fetch: async () =>
+        new Response(JSON.stringify({ githubAccountId: null }), {
+          headers: { "content-type": "application/json" },
+        }),
+    },
   } as unknown as Env;
   return { env, bucket, metadata };
 }
@@ -1398,5 +1408,158 @@ describe("OAuth JWT bearer (issue #224)", () => {
     );
     expect(result.isError).toBe(false);
     expect(bucket.store.has("shots/legacy.png")).toBe(true);
+  });
+});
+
+/**
+ * Uploader attribution parity for hosted MCP uploads (issue #345, parity with
+ * #340/#344's REST-path hook): the `put` tool threads the OAuth JWT's `sub`
+ * (the same Better Auth user id apps/api's `mintingUserId` context var
+ * carries — see src/index.ts's `oauthAuth`) into `uploaderTags()` and merges
+ * the result into gh.*-tagged metadata, server tags last. The resolver
+ * itself (KV cache, AUTH round-trip, degrade semantics) has its own unit
+ * suite in apps/api/test/uploader-identity.test.ts — these tests only cover
+ * the MCP wiring: does the tool call it, with the right user id, at the
+ * right moment.
+ */
+describe("uploader attribution (issue #345)", () => {
+  function withGithubAccount(env: Env, accountId: string) {
+    (env as unknown as { AUTH: { fetch: () => Promise<Response> } }).AUTH = {
+      fetch: async () =>
+        new Response(JSON.stringify({ githubAccountId: accountId }), {
+          headers: { "content-type": "application/json" },
+        }),
+    };
+  }
+
+  /** Stubs the GitHub `GET /user/:id` call uploaderTags() makes on a cache miss. */
+  function githubUserStub(login: string): () => void {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url === `${OAUTH_ISSUER}/jwks`) {
+        return new Response(JSON.stringify(oauthJwks), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.startsWith("https://api.github.com/user/")) {
+        return new Response(JSON.stringify({ login }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch in test: ${url}`);
+    }) as typeof fetch;
+    return () => {
+      globalThis.fetch = realFetch;
+    };
+  }
+
+  async function putGhTagged(
+    env: Env,
+    jwt: string,
+    metadata: Record<string, string>,
+    key = "shots/attributed.png",
+  ) {
+    return callTool(
+      env,
+      "put",
+      { contentBase64: PNG_B64, filename: "shot.png", key, metadata },
+      jwt,
+      "/mcp",
+    );
+  }
+
+  it("stamps gh.uploader-id (and gh.uploader when the login resolves) on a gh.*-tagged upload from a JWT user", async () => {
+    const { env } = await makeEnv();
+    withGithubAccount(env, "583231");
+    const restore = githubUserStub("octocat");
+    try {
+      const jwt = await signOAuthToken({
+        sub: "user-1",
+        workspace: "test-ws",
+        workspaces: ["test-ws"],
+        scope: "files:write files:read",
+      });
+      const result = await putGhTagged(env, jwt, {
+        "gh.repo": "acme/web",
+        "gh.kind": "branch",
+        // A spoofed uploader loses to the server-derived identity.
+        "gh.uploader": "someone-else",
+      });
+      expect(result.isError).toBe(false);
+      const meta = (
+        await callTool(env, "get_metadata", { key: "shots/attributed.png" }, jwt, "/mcp")
+      ).structuredContent as { metadata: Record<string, string> };
+      expect(meta.metadata["gh.uploader"]).toBe("octocat");
+      expect(meta.metadata["gh.uploader-id"]).toBe("user-1");
+      expect(meta.metadata["gh.repo"]).toBe("acme/web");
+    } finally {
+      restore();
+    }
+  });
+
+  it("leaves non-gh metadata untouched", async () => {
+    const { env } = await makeEnv();
+    const jwt = await signOAuthToken({
+      sub: "user-1",
+      workspace: "test-ws",
+      workspaces: ["test-ws"],
+      scope: "files:write files:read",
+    });
+    const result = await putGhTagged(env, jwt, { page: "onboarding" }, "shots/plain.png");
+    expect(result.isError).toBe(false);
+    const meta = (await callTool(env, "get_metadata", { key: "shots/plain.png" }, jwt, "/mcp"))
+      .structuredContent as { metadata: Record<string, string> };
+    expect(meta.metadata).toEqual({ page: "onboarding" });
+    expect(meta.metadata["gh.uploader-id"]).toBeUndefined();
+  });
+
+  it("degrades to no tags when the JWT carries no `sub` claim", async () => {
+    const { env } = await makeEnv();
+    // No sub at all — extractWorkspaceClaims/verifyOAuthJwt still succeed
+    // (only iss/aud/exp are enforced), but the tool has no user id to attribute to.
+    const jwt = await signOAuthToken({
+      workspace: "test-ws",
+      workspaces: ["test-ws"],
+      scope: "files:write files:read",
+    });
+    const result = await putGhTagged(env, jwt, { "gh.repo": "acme/web" }, "shots/nosub.png");
+    expect(result.isError).toBe(false);
+    const meta = (await callTool(env, "get_metadata", { key: "shots/nosub.png" }, jwt, "/mcp"))
+      .structuredContent as { metadata: Record<string, string> };
+    expect(meta.metadata["gh.uploader-id"]).toBeUndefined();
+    expect(meta.metadata["gh.uploader"]).toBeUndefined();
+    expect(meta.metadata["gh.repo"]).toBe("acme/web");
+  });
+
+  it("drops attribution rather than exceeding the metadata key cap", async () => {
+    const { env } = await makeEnv();
+    withGithubAccount(env, "583231");
+    const restore = githubUserStub("octocat");
+    try {
+      const jwt = await signOAuthToken({
+        sub: "user-1",
+        workspace: "test-ws",
+        workspaces: ["test-ws"],
+        scope: "files:write files:read",
+      });
+      // 24 client keys (including one gh.* key to trigger attribution) is
+      // already at META_MAX_KEYS; the +2 uploader tags would exceed it, so
+      // the merge must be dropped, keeping the client's pairs untouched.
+      const metadata: Record<string, string> = { "gh.repo": "acme/web" };
+      for (let i = 0; i < 23; i++) metadata[`k${i}`] = "v";
+      expect(Object.keys(metadata)).toHaveLength(24);
+      const result = await putGhTagged(env, jwt, metadata, "shots/capped.png");
+      expect(result.isError).toBe(false);
+      const meta = (await callTool(env, "get_metadata", { key: "shots/capped.png" }, jwt, "/mcp"))
+        .structuredContent as { metadata: Record<string, string> };
+      expect(Object.keys(meta.metadata)).toHaveLength(24);
+      expect(meta.metadata["gh.uploader-id"]).toBeUndefined();
+      expect(meta.metadata["gh.uploader"]).toBeUndefined();
+      expect(meta.metadata["gh.repo"]).toBe("acme/web");
+    } finally {
+      restore();
+    }
   });
 });
