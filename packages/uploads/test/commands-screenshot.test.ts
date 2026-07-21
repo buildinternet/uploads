@@ -421,3 +421,67 @@ describe("runScreenshot gh.title metadata (issue #267)", () => {
     expect(puts[0]?.metadata!["gh.ref"]).toBe("o/r#9");
   });
 });
+
+describe("screenshot canonical metadata", () => {
+  /** Run a capture with --no-git (no repo resolution) and return the put options. */
+  async function metaFor(args: string[]): Promise<Record<string, string> | undefined> {
+    const { client, puts } = fakeClient();
+    await runScreenshot(ctxWith(client), [...args, "--no-git"], false, noRun, fakeCapture());
+    return puts[0]?.metadata;
+  }
+
+  it("stamps path, url and viewport from the capture target", async () => {
+    const meta = await metaFor([
+      "https://app.example/settings?tab=billing",
+      "--viewport",
+      "1280x800@2x",
+    ]);
+    expect(meta?.path).toBe("/settings");
+    expect(meta?.url).toBe("https://app.example/settings?tab=billing");
+    expect(meta?.viewport).toBe("1280x800@2x");
+  });
+
+  it("omits env for a public host rather than guessing prod", async () => {
+    const meta = await metaFor(["https://app.example/settings"]);
+    expect(meta?.env).toBeUndefined();
+  });
+
+  it("stamps env=local for a localhost target", async () => {
+    const meta = await metaFor(["http://localhost:4321/docs"]);
+    expect(meta?.env).toBe("local");
+    expect(meta?.path).toBe("/docs");
+  });
+
+  it("stamps theme only when a scheme was forced", async () => {
+    expect((await metaFor(["https://app.example/a"]))?.theme).toBeUndefined();
+    expect((await metaFor(["https://app.example/a", "--dark"]))?.theme).toBe("dark");
+  });
+
+  it("lets an explicit --meta override a derived value", async () => {
+    const meta = await metaFor(["https://app.example/settings", "--meta", "path=/custom"]);
+    expect(meta?.path).toBe("/custom");
+  });
+
+  it("carries --state through to metadata", async () => {
+    const meta = await metaFor(["https://app.example/settings", "--state", "after"]);
+    expect(meta?.state).toBe("after");
+  });
+
+  it("derives nothing when --no-auto opts out of the derived tier", async () => {
+    const meta = await metaFor(["https://app.example/settings", "--no-auto"]);
+    expect(meta?.path).toBeUndefined();
+    expect(meta?.viewport).toBeUndefined();
+    expect(meta?.url).toBeUndefined();
+  });
+
+  it("still honours explicit --meta when the derived tier is off", async () => {
+    const meta = await metaFor([
+      "https://app.example/settings",
+      "--no-auto",
+      "--meta",
+      "ticket=RAL-1",
+    ]);
+    expect(meta?.ticket).toBe("RAL-1");
+    expect(meta?.path).toBeUndefined();
+  });
+});

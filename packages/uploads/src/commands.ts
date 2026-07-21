@@ -334,6 +334,25 @@ export function optimizeOptionsFromFlags(
 }
 
 /**
+ * Whether the derived-metadata tier is on — screenshot capture facts and EXIF
+ * promotion. `--no-auto` and `UPLOADS_NO_AUTO_META=1` turn it off; `--auto`
+ * forces past the config default.
+ *
+ * Deliberately *not* gated on `--no-git`. That flag means "don't shell out to
+ * git", which says nothing about a viewport or a URL path — a capture of a
+ * local .html file outside any repo should still record what it captured.
+ * `--no-git` still disables gh.* below, which genuinely needs a repo.
+ */
+export function derivedMetaEnabled(
+  flags: CommandFlags["flags"],
+  defaults: Pick<PutDefaults, "noAutoMeta">,
+): boolean {
+  return (
+    !flagBool(flags, "--no-auto") && (flagBool(flags, "--auto") || defaults.noAutoMeta !== true)
+  );
+}
+
+/**
  * Canonical `state`/`app` pairs from their dedicated flags. Shared by put,
  * attach and screenshot. These are sugar for the matching `--meta` keys; the
  * point is `--help` discoverability and `--state` validation.
@@ -1530,11 +1549,8 @@ export async function runPut(
     metadata = merged;
     attachedRef = merged["gh.ref"];
   } else {
-    const autoEnabled =
-      !noGit &&
-      !flagBool(parsed.flags, "--no-auto") &&
-      (flagBool(parsed.flags, "--auto") || defaults.noAutoMeta !== true);
-    if (autoEnabled) {
+    // gh.* additionally needs git, which the shared derived gate ignores.
+    if (!noGit && derivedMetaEnabled(parsed.flags, defaults)) {
       const autoTarget = resolveAutoGhTarget(
         flagString(parsed.flags, "--repo") ?? defaults.repo,
         flagString(parsed.flags, "--ref") ?? defaults.ref,
