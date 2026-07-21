@@ -127,6 +127,8 @@ export type WorkspaceVars = {
     workspaceName: string;
     authScopes: FileScope[];
     authSource: "d1" | "legacy";
+    /** Better Auth user behind the bearer token (issue #340), or null. */
+    mintingUserId: string | null;
   };
   Bindings: Env;
 };
@@ -251,6 +253,8 @@ function workspaceAuthWith(
     c.set("workspaceName", name);
     c.set("authScopes", d1Token ? parseScopes(d1Token.scopes) : [...FILE_SCOPES]);
     c.set("authSource", d1Token ? "d1" : "legacy");
+    // Uploader attribution (issue #340) — null for legacy/enrollment tokens.
+    c.set("mintingUserId", d1Token?.minting_user_id ?? null);
     await next();
   };
 }

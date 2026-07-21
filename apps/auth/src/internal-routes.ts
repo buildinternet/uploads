@@ -785,6 +785,20 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     await db.delete(schema.organization).where(eq(schema.organization.id, org.id));
     return c.json({ ok: true });
   })
+  // Uploader attribution (issue #340): the user's linked GitHub account id
+  // (numeric, as a string — Better Auth stores provider account ids as TEXT),
+  // or null when no GitHub account is linked. The api worker resolves this to
+  // a login via the GitHub API and caches it.
+  .get("/users/:id/github-account", async (c) => {
+    const userId = c.req.param("id");
+    const db = drizzle(c.env.DB, { schema });
+    const [row] = await db
+      .select({ accountId: schema.account.accountId })
+      .from(schema.account)
+      .where(and(eq(schema.account.userId, userId), eq(schema.account.providerId, "github")))
+      .limit(1);
+    return c.json({ githubAccountId: row?.accountId ?? null });
+  })
   // Self-serve gate: does this user have a linked GitHub account?
   .get("/users/:id/github-linked", async (c) => {
     const userId = c.req.param("id");

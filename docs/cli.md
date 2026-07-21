@@ -153,7 +153,10 @@ pairs alone. `uploads attach` and `put --pr`/`--issue` also stamp `gh.repo` /
 PR/issue title is resolvable via local `gh` (best-effort — never blocks the
 upload). Branch staging (`attach --branch`) stamps `gh.status=staged`, flipped
 to `promoted` on promotion — query in-flight files with
-`uploads find gh.status=staged`.
+`uploads find gh.status=staged`. On gh.\*-tagged uploads the server also
+stamps `gh.uploader` (GitHub login) and `gh.uploader-id` from the user who
+minted the bearer token — attribution only, not access control; a
+client-supplied value of those keys is overridden.
 
 Non-`gh.*` metadata may appear on the public `/f/…` file page — don't store
 secrets or private notes.
