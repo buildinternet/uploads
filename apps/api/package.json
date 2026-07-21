@@ -17,7 +17,8 @@
     "./retention": "./src/retention.ts",
     "./galleries": "./src/galleries.ts",
     "./gallery-service": "./src/gallery-service.ts",
-    "./external-references": "./src/external-references.ts"
+    "./external-references": "./src/external-references.ts",
+    "./uploader-identity": "./src/uploader-identity.ts"
   },
   "scripts": {
     "dev": "wrangler dev",

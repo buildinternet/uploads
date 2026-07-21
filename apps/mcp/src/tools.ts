@@ -24,10 +24,12 @@ import { badKey } from "@uploads/api/files";
 import {
   findObjectsByMetadata,
   getFileMetadata,
+  META_MAX_KEYS,
   setFileMetadata,
   validateMetadataEntries,
   validateMetadataFilters,
 } from "@uploads/api/file-metadata";
+import { hasGithubTags, uploaderTags } from "@uploads/api/uploader-identity";
 import {
   addExternalReference,
   addGalleryItem,
@@ -58,6 +60,14 @@ export interface RemoteToolContext {
   workspace: WorkspaceRecord;
   workspaceName: string;
   authScopes: readonly FileScope[];
+  /**
+   * Better Auth user id behind the presented credential (OAuth JWT's `sub`,
+   * or an `up_` token's `minting_user_id`) — same id the REST API's
+   * `mintingUserId` context var carries. `null` for legacy/enrollment tokens
+   * or JWTs with no `sub`. Threaded into `uploaderTags()` for uploader
+   * attribution parity with the REST path (#340/#344, #345).
+   */
+  mintingUserId: string | null;
 }
 
 function decodeBase64(value: string, maxBytes: number): Uint8Array {
@@ -457,12 +467,27 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           if (!filename) usage("filename is required");
         }
 
-        const metadata = optStringRecord(args, "metadata");
+        let metadata = optStringRecord(args, "metadata");
         if (metadata) {
           try {
             validateMetadataEntries(metadata);
           } catch (err) {
             usage(err instanceof Error ? err.message : String(err));
+          }
+        }
+        // Uploader attribution (issue #345, parity with the REST PUT hook in
+        // apps/api/src/routes/files.ts): gh.*-tagged uploads get server-derived
+        // `gh.uploader`/`gh.uploader-id` stamped from the OAuth JWT's (or
+        // up_ token's) minting user, spread AFTER the tool-supplied pairs so
+        // a caller can't spoof those keys. Applied once for the whole call —
+        // metadata (like prefix/repo/ref) applies to every item in a batch.
+        if (metadata && hasGithubTags(metadata)) {
+          const uploader = await uploaderTags(env, ctx.mintingUserId);
+          if (uploader) {
+            // Never let attribution break an upload that was valid without
+            // it: drop the server tags if the merge would exceed the cap.
+            const merged = { ...metadata, ...uploader };
+            if (Object.keys(merged).length <= META_MAX_KEYS) metadata = merged;
           }
         }
 
