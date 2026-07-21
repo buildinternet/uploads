@@ -126,7 +126,8 @@ export async function promoteBranchAttachments(
   const ref = `${owner}/${name}#${target.num}`.toLowerCase();
 
   for (const key of toProcess) {
-    const stagedAt = metaByKey.get(key)?.["gh.staged-at"];
+    const stagedMeta = metaByKey.get(key);
+    const stagedAt = stagedMeta?.["gh.staged-at"];
     if (!isFresh(stagedAt, nowMs)) {
       skipped.push({ key, reason: "stale" });
       continue;
@@ -150,6 +151,13 @@ export async function promoteBranchAttachments(
         provenance: source.metadata,
         visibility,
         metadata: {
+          // Uploader attribution (issue #340) survives promotion: the copy is
+          // written by the server, so the staged original's tags are the only
+          // source of "who staged this".
+          ...(stagedMeta?.["gh.uploader"] ? { "gh.uploader": stagedMeta["gh.uploader"] } : {}),
+          ...(stagedMeta?.["gh.uploader-id"]
+            ? { "gh.uploader-id": stagedMeta["gh.uploader-id"] }
+            : {}),
           "gh.repo": `${owner}/${name}`.toLowerCase(),
           "gh.kind": "pull",
           "gh.number": String(target.num),

@@ -49,7 +49,10 @@ current git branch; `/` in the name sanitizes to `-`. Attach this way at every
 visual milestone during the work, not just once at the end. Staged files carry
 `gh.status=staged` until promotion flips them to `promoted`, so
 `uploads find gh.status=staged` (add `gh.branch=<name>` to narrow) lists what's
-still in flight.
+still in flight. The server also stamps `gh.uploader`/`gh.uploader-id` (from
+the token's minting user) on gh.\*-tagged uploads, so
+`uploads find gh.status=staged gh.uploader=<login>` narrows to one
+contributor's in-flight files.
 
 Getting those files into the PR's attachments comment needs no extra step
 once a PR exists for that branch:

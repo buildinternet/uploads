@@ -11,6 +11,7 @@ import {
 import {
   findObjectsByMetadata,
   getFileMetadata,
+  META_MAX_KEYS,
   setFileMetadata,
   validateMetadataFilters,
 } from "../file-metadata";
@@ -18,6 +19,7 @@ import { splitUploadMetaHeaders } from "../provenance";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { checkDeclaredLength, resolveUploadPolicy, writeRateLimit } from "../guards";
+import { hasGithubTags, uploaderTags } from "../uploader-identity";
 import { sanitizeVisibility } from "../visibility";
 
 export const files = new Hono<WorkspaceVars>()
@@ -127,13 +129,30 @@ export const files = new Hono<WorkspaceVars>()
     // even when that header's value alone ends up empty/invalid (putObject
     // still validates and rejects before any write).
     const hasCustomMeta = Object.keys(custom).length > 0;
+    // Uploader attribution (issue #340): gh.*-tagged uploads get server-derived
+    // `gh.uploader`/`gh.uploader-id` stamped from the bearer token's minting
+    // user — spread AFTER the client's pairs so a client-supplied value of
+    // those keys can't impersonate someone else. Attribution only (a shared
+    // token attributes to its minter); non-gh uploads and legacy tokens are
+    // untouched.
+    let metadata = hasCustomMeta ? custom : undefined;
+    if (metadata && hasGithubTags(metadata)) {
+      const uploader = await uploaderTags(c.env, c.get("mintingUserId"));
+      if (uploader) {
+        // Attribution must never break an upload that was valid without it:
+        // if the merged set would blow the per-object key cap (validated
+        // inside putObject), keep the client's pairs and drop the server tags.
+        const merged = { ...metadata, ...uploader };
+        if (Object.keys(merged).length <= META_MAX_KEYS) metadata = merged;
+      }
+    }
     const result = await putObject(
       c.env,
       c.get("workspace"),
       key,
       new Uint8Array(body),
       c.get("workspaceName"),
-      { provenance, visibility, metadata: hasCustomMeta ? custom : undefined },
+      { provenance, visibility, metadata },
     );
     return c.json({ workspace: c.get("workspaceName"), ...result }, 201);
   })

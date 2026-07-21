@@ -115,6 +115,7 @@ async function seedStaged(
     visibility?: "private";
     provenance?: Record<string, string>;
     bytes?: Uint8Array;
+    uploader?: string; // gh.uploader login; also sets gh.uploader-id=user-1
   } = {},
 ) {
   const bytes = opts.bytes ?? PNG;
@@ -131,6 +132,7 @@ async function seedStaged(
     "gh.kind": "branch",
     "gh.branch": BRANCH,
     ...(stagedAt ? { "gh.staged-at": stagedAt } : {}),
+    ...(opts.uploader ? { "gh.uploader": opts.uploader, "gh.uploader-id": "user-1" } : {}),
   });
 }
 
@@ -414,5 +416,34 @@ describe("POST /v1/:workspace/github/promote", () => {
     const res = await post(seeded.env, { repo: "not-a-repo", num: 0, branch: "" });
     expect(res.status).toBe(400);
     expect(seeded.db.repoLinks.has("acme/web")).toBe(false);
+  });
+});
+
+describe("uploader attribution through promotion (issue #340)", () => {
+  it("the promoted copy inherits gh.uploader/gh.uploader-id from the staged original", async () => {
+    const seeded = await seededEnv();
+    await seedStaged(seeded, "hero.png", { uploader: "octocat" });
+
+    const res = await post(seeded.env, { repo: REPO, num: NUM, branch: BRANCH });
+    expect(res.status).toBe(200);
+
+    const copyMeta = await getFileMetadata(seeded.env.DB, WS, destKey("hero.png"));
+    expect(copyMeta["gh.uploader"]).toBe("octocat");
+    expect(copyMeta["gh.uploader-id"]).toBe("user-1");
+    // The rest of the copy's tag set is unchanged by inheritance.
+    expect(copyMeta["gh.kind"]).toBe("pull");
+    expect(copyMeta["gh.ref"]).toBe("acme/web#12");
+  });
+
+  it("a staged original without uploader tags promotes with none (no empty values)", async () => {
+    const seeded = await seededEnv();
+    await seedStaged(seeded, "hero.png");
+
+    const res = await post(seeded.env, { repo: REPO, num: NUM, branch: BRANCH });
+    expect(res.status).toBe(200);
+
+    const copyMeta = await getFileMetadata(seeded.env.DB, WS, destKey("hero.png"));
+    expect(copyMeta["gh.uploader"]).toBeUndefined();
+    expect(copyMeta["gh.uploader-id"]).toBeUndefined();
   });
 });

@@ -35,6 +35,7 @@ const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2
 interface FakeAuthToken {
   tokenHash: string;
   scopes: string;
+  mintingUserId?: string;
 }
 
 function makeFakeDB(authToken?: FakeAuthToken) {
@@ -63,7 +64,7 @@ function makeFakeDB(authToken?: FakeAuthToken) {
                 created_at: "2026-07-13T00:00:00.000Z",
                 expires_at: null,
                 revoked_at: null,
-                minting_user_id: null,
+                minting_user_id: authToken.mintingUserId ?? null,
               };
             }
           }
@@ -89,7 +90,10 @@ function makeFakeDB(authToken?: FakeAuthToken) {
 
 async function makeEnv(
   overrides: Partial<WorkspaceRecord> = {},
-  opts: { rateLimitOk?: boolean; scopedToken?: { rawToken: string; scopes: string[] } } = {},
+  opts: {
+    rateLimitOk?: boolean;
+    scopedToken?: { rawToken: string; scopes: string[]; mintingUserId?: string };
+  } = {},
 ) {
   const record: WorkspaceRecord = {
     provider: "r2",
@@ -110,6 +114,7 @@ async function makeEnv(
       ? {
           tokenHash: await sha256Hex(opts.scopedToken.rawToken),
           scopes: JSON.stringify(opts.scopedToken.scopes),
+          mintingUserId: opts.scopedToken.mintingUserId,
         }
       : undefined,
   );
@@ -121,6 +126,15 @@ async function makeEnv(
     UPLOADS_DEFAULT: bucket,
     WRITE_LIMITER: { limit: async () => ({ success: opts.rateLimitOk ?? true }) },
     WEB_ORIGIN: "https://uploads.sh",
+    // Uploader attribution (issue #340) defaults: empty login cache, no
+    // linked GitHub account. Individual tests override these.
+    GITHUB_CACHE: { get: async () => null, put: async () => undefined },
+    AUTH: {
+      fetch: async () =>
+        new Response(JSON.stringify({ githubAccountId: null }), {
+          headers: { "content-type": "application/json" },
+        }),
+    },
   };
   return { env, bucket, db };
 }
@@ -931,5 +945,138 @@ describe("GET /v1/:workspace/files list + meta.* filter", () => {
     expect(json.error.type).toBe("validation");
     expect(json.error.code).toBe("file_metadata_too_many_filters");
     expect(json.error.details).toEqual({ limit: 24, count: 25 });
+  });
+});
+
+describe("PUT /v1/:workspace/files uploader attribution (issue #340)", () => {
+  const SCOPED = "up_default_minted";
+
+  function githubUserStub(login = "octocat") {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://api.github.com/user/")) {
+        return new Response(JSON.stringify({ login }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as typeof fetch;
+    return () => {
+      globalThis.fetch = realFetch;
+    };
+  }
+
+  function withGithubAccount(env: Record<string, unknown>, accountId: string) {
+    env.AUTH = {
+      fetch: async () =>
+        new Response(JSON.stringify({ githubAccountId: accountId }), {
+          headers: { "content-type": "application/json" },
+        }),
+    };
+  }
+
+  it("stamps gh.uploader/gh.uploader-id from the token's minting user on gh.*-tagged uploads", async () => {
+    const { env, db } = await makeEnv(
+      {},
+      { scopedToken: { rawToken: SCOPED, scopes: ["files:write"], mintingUserId: "user-1" } },
+    );
+    withGithubAccount(env as unknown as Record<string, unknown>, "583231");
+    const restore = githubUserStub("octocat");
+    try {
+      const res = await putShot(env, {
+        headers: {
+          Authorization: `Bearer ${SCOPED}`,
+          "X-Uploads-Meta-gh.repo": "acme/web",
+          "X-Uploads-Meta-gh.kind": "branch",
+          "X-Uploads-Meta-gh.branch": "feat/x",
+          // A spoofed uploader loses to the server-derived identity.
+          "X-Uploads-Meta-gh.uploader": "someone-else",
+        },
+      });
+      expect(res.status).toBe(201);
+      const meta = await getFileMetadata(
+        db as unknown as D1Database,
+        "default",
+        "screenshots/shot.png",
+      );
+      expect(meta["gh.uploader"]).toBe("octocat");
+      expect(meta["gh.uploader-id"]).toBe("user-1");
+      expect(meta["gh.repo"]).toBe("acme/web");
+    } finally {
+      restore();
+    }
+  });
+
+  it("degrades to the id-only tag when the user has no linked GitHub account", async () => {
+    const { env, db } = await makeEnv(
+      {},
+      { scopedToken: { rawToken: SCOPED, scopes: ["files:write"], mintingUserId: "user-1" } },
+    );
+    const res = await putShot(env, {
+      headers: { Authorization: `Bearer ${SCOPED}`, "X-Uploads-Meta-gh.repo": "acme/web" },
+    });
+    expect(res.status).toBe(201);
+    const meta = await getFileMetadata(
+      db as unknown as D1Database,
+      "default",
+      "screenshots/shot.png",
+    );
+    expect(meta["gh.uploader-id"]).toBe("user-1");
+    expect(meta["gh.uploader"]).toBeUndefined();
+  });
+
+  it("leaves non-gh uploads untouched", async () => {
+    const { env, db } = await makeEnv(
+      {},
+      { scopedToken: { rawToken: SCOPED, scopes: ["files:write"], mintingUserId: "user-1" } },
+    );
+    const res = await putShot(env, {
+      headers: { Authorization: `Bearer ${SCOPED}`, "X-Uploads-Meta-page": "onboarding" },
+    });
+    expect(res.status).toBe(201);
+    const meta = await getFileMetadata(
+      db as unknown as D1Database,
+      "default",
+      "screenshots/shot.png",
+    );
+    expect(meta).toEqual({ page: "onboarding" });
+  });
+
+  it("legacy tokens (no minting user) get no uploader tags", async () => {
+    const { env, db } = await makeEnv();
+    const res = await putShot(env, { headers: { "X-Uploads-Meta-gh.repo": "acme/web" } });
+    expect(res.status).toBe(201);
+    const meta = await getFileMetadata(
+      db as unknown as D1Database,
+      "default",
+      "screenshots/shot.png",
+    );
+    expect(meta).toEqual({ "gh.repo": "acme/web" });
+  });
+});
+
+describe("uploader attribution never breaks a cap-limit upload (issue #340 review)", () => {
+  it("drops the server tags instead of failing when the merge would exceed 24 keys", async () => {
+    const SCOPED = "up_default_minted2";
+    const { env, db } = await makeEnv(
+      {},
+      { scopedToken: { rawToken: SCOPED, scopes: ["files:write"], mintingUserId: "user-1" } },
+    );
+    // 24 client pairs (the cap), one of them gh.* so attribution triggers.
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${SCOPED}`,
+      "X-Uploads-Meta-gh.repo": "acme/web",
+    };
+    for (let i = 1; i <= 23; i++) headers[`X-Uploads-Meta-extra${i}`] = "v";
+    const res = await putShot(env, { headers });
+    expect(res.status).toBe(201);
+    const meta = await getFileMetadata(
+      db as unknown as D1Database,
+      "default",
+      "screenshots/shot.png",
+    );
+    expect(Object.keys(meta)).toHaveLength(24);
+    expect(meta["gh.uploader-id"]).toBeUndefined();
   });
 });
