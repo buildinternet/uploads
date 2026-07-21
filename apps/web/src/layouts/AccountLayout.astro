@@ -104,7 +104,7 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
               aria-controls="ws-switcher-menu"
             >
               <span class="ws-switcher__label" id="ws-switcher-label">{switcherHeading}</span>
-              <span class="ws-switcher__chevron" aria-hidden="true">▾</span>
+              <span class="ws-switcher__chevron" aria-hidden="true" title="Switch workspace">▾</span>
             </button>
             <div class="ws-switcher__menu" id="ws-switcher-menu" hidden>
               {/* Filled client-side after session + /me/workspaces (cached for paint). */}
@@ -172,9 +172,10 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
           {hasRail ? <slot name="rail" /> : null}
         </aside>
       </div>
-
-      <Footer />
     </div>
+
+    {/* Sibling of .shell so the footer centers on the viewport. */}
+    <Footer />
   </div>
 
 {/* Optimistic shell + workspace section nav before deferred modules run.

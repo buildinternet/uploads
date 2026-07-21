@@ -103,9 +103,10 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
           <slot />
         </div>
       </div>
-
-      <Footer />
     </div>
+
+    {/* Sibling of .shell so the footer centers on the viewport. */}
+    <Footer />
   </div>
 
 {/* Sync optimistic paint for admins only — same cache key as account-shell.

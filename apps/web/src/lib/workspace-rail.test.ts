@@ -85,13 +85,11 @@ describe("renderDetailsHtml", () => {
   it("renders the public url as a host-labeled link when the URL is known", () => {
     const html = renderDetailsHtml({
       organization: { slug: "buildinternet" },
-      role: "admin",
       hasPublicUrl: true,
       publicBaseUrl: "https://storage.uploads.sh/",
     });
     expect(html).toContain(">buildinternet<");
-    expect(html).toContain(">admin<");
-    expect(html).toContain('class="ws-rail__dd ws-rail__dd--accent"');
+    expect(html).not.toContain("your role");
     expect(html).toContain('href="https://storage.uploads.sh/"');
     expect(html).toContain(">storage.uploads.sh</a>");
     expect(html).not.toContain(">configured<");
@@ -100,7 +98,6 @@ describe("renderDetailsHtml", () => {
   it("falls back to 'configured' when an older API sends only the boolean", () => {
     const html = renderDetailsHtml({
       organization: { slug: "buildinternet" },
-      role: "admin",
       hasPublicUrl: true,
     });
     expect(html).toContain(">configured<");
@@ -110,7 +107,6 @@ describe("renderDetailsHtml", () => {
   it("escapes an interpolated public url", () => {
     const html = renderDetailsHtml({
       organization: { slug: "acme" },
-      role: "member",
       hasPublicUrl: true,
       publicBaseUrl: 'https://x.example/"><script>alert(1)</script>',
     });
@@ -121,21 +117,18 @@ describe("renderDetailsHtml", () => {
   it("renders an em-dash for public url when hasPublicUrl is false", () => {
     const html = renderDetailsHtml({
       organization: { slug: "side-project" },
-      role: "member",
       hasPublicUrl: false,
     });
     expect(html).toContain(">—<");
     expect(html).not.toContain(">configured<");
   });
 
-  it("escapes interpolated slug/role", () => {
+  it("escapes interpolated slug", () => {
     const html = renderDetailsHtml({
       organization: { slug: '<img src=x onerror="alert(1)">' },
-      role: "<b>admin</b>",
       hasPublicUrl: false,
     });
     expect(html).not.toContain("<img");
-    expect(html).not.toContain("<b>admin</b>");
     expect(html).toContain("&lt;img");
   });
 });

@@ -64,10 +64,12 @@ code {
 
 /* Sticky footer (signed-in shells only): body is a flex column; #app /
    #dashboard grow as full-width columns. SiteHeader is full-bleed at the
-   top; .shell is the constrained content column below it. .layout takes
-   free space so content stays top-aligned and the footer sits at the
-   viewport bottom when the page is short. When content is taller than the
-   viewport, the footer scrolls after it. */
+   top; .shell is the constrained content column below it. Footer is a
+   *sibling* of .shell (not nested inside it) so its max-width column can
+   center on the viewport — same pattern as releases.sh. .layout takes free
+   space so content stays top-aligned and the footer sits at the viewport
+   bottom when the page is short. When content is taller than the viewport,
+   the footer scrolls after it. */
 #app,
 #dashboard {
   flex: 1;
@@ -77,7 +79,7 @@ code {
   min-width: 0;
 }
 .shell {
-  flex: 1;
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
   width: 100%;

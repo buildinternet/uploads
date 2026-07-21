@@ -1,7 +1,8 @@
 ---
 /**
- * Workspace people tab — session-authed teammate invites, plus the
- * operator-only ADMIN_TOKEN enrollment command for site admins.
+ * Workspace people tab — session-authed teammate list + invites.
+ * Pending invites render in the same people list (not a separate section).
+ * Operator ADMIN_TOKEN enrollment lives under /admin, not here.
  */
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
@@ -32,13 +33,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         </div>
       </div>
 
-      <div class="settings-section" id="ws-invites-section" hidden>
-        <h2>Pending invites</h2>
-        <div id="ws-invites" class="invite-list">
-          <p class="muted" id="ws-invites-status" role="status">Loading invites…</p>
-        </div>
-      </div>
-
       <div class="settings-section" id="ws-invite-section">
         <h2>Invite</h2>
         <p class="settings-note muted">Accept link, then <code>uploads login</code>.</p>
@@ -62,15 +56,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           <p class="muted cli-note" id="ws-invite-link" hidden></p>
         </div>
       </div>
-
-      <div class="settings-section" id="ws-operator-card" hidden>
-        <h2>Operator enrollment</h2>
-        <p class="settings-note muted"><code>ADMIN_TOKEN</code> only.</p>
-        <div class="command">
-          <code id="ws-operator-cmd"></code>
-          <button type="button" id="ws-operator-copy" aria-live="polite">copy</button>
-        </div>
-      </div>
     </section>
   </div>
 
@@ -88,15 +73,15 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       revokeWorkspaceInvite,
       removeWorkspaceMember,
       updateWorkspaceMemberRole,
+      type ManageResult,
     } from "../../../../lib/api-client";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
     import {
-      bindCopyButtons,
       escapeHtml,
       isWorkspaceAdminRole,
-      operatorInviteCommand,
       renderInvitesHtml,
       renderMembersHtml,
+      type MemberRow,
     } from "../../../../lib/workspace-ui";
 
     onAstroPageLoad(() => {
@@ -120,18 +105,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const retryBtn = requireElement<HTMLButtonElement>("#ws-retry", page);
       const appEl = requireElement<HTMLElement>("#ws-app", page);
       const slugEl = requireElement<HTMLElement>("#ws-slug", page);
-      const operatorCard = requireElement<HTMLElement>("#ws-operator-card", page);
       const inviteStatus = requireElement<HTMLElement>("#ws-invite-status", page);
       const inviteLink = requireElement<HTMLElement>("#ws-invite-link", page);
-      const operatorCmd = requireElement<HTMLElement>("#ws-operator-cmd", page);
-      const operatorCopy = requireElement<HTMLButtonElement>("#ws-operator-copy", page);
       const inviteForm = requireElement<HTMLFormElement>("#ws-invite-form", page);
       const inviteSection = requireElement<HTMLElement>("#ws-invite-section", page);
       const membersEl = requireElement<HTMLElement>("#ws-members", page);
-      const invitesSection = requireElement<HTMLElement>("#ws-invites-section", page);
-      const invitesEl = requireElement<HTMLElement>("#ws-invites", page);
 
-      let sessionRole: string | null | undefined;
       let sessionEmail: string | undefined;
       /** People-list controls: canManage + viewerRole feed renderMembersHtml. */
       let memberOpts: { canManage: boolean; viewerRole: string; selfEmail?: string } = {
@@ -148,6 +127,28 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         retryBtn.hidden = !retry;
       }
 
+      function paintPeopleList(
+        members: MemberRow[],
+        invites: { id: string; email: string; status: string }[],
+      ): void {
+        const memberHtml = members.length ? renderMembersHtml(members, memberOpts) : "";
+        const inviteHtml =
+          memberOpts.canManage && invites.length ? renderInvitesHtml(invites) : "";
+        const html = memberHtml + inviteHtml;
+        membersEl.innerHTML = html || '<p class="muted">Just you so far.</p>';
+      }
+
+      function applyMemberOpts(result: {
+        canManage: boolean;
+        role: string;
+      }): void {
+        memberOpts = {
+          canManage: result.canManage,
+          viewerRole: result.role,
+          selfEmail: sessionEmail,
+        };
+      }
+
       async function loadInvitePage(): Promise<void> {
         if (!stillHere()) return;
         statusEl.hidden = false;
@@ -156,8 +157,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         retryBtn.hidden = true;
         appEl.hidden = true;
 
-        // One combined people payload (authz + members + invites) instead of
-        // full workspace list + members + invites round-trips.
+        // One combined people payload (authz + members + invites).
         const result = await getWorkspacePeople(apiOrigin, workspaceName);
         if (!stillHere()) return;
         if (result.kind === "unavailable") {
@@ -169,60 +169,27 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           return;
         }
 
-        // Every member sees the people list; inviting stays admin-only (site
-        // operators may still open the page for the ADMIN_TOKEN command).
-        inviteSection.hidden = !isWorkspaceAdminRole(result.role) && sessionRole !== "admin";
-        inviteForm.hidden = !isWorkspaceAdminRole(result.role);
-
-        memberOpts = {
-          canManage: result.canManage,
-          viewerRole: result.role,
-          selfEmail: sessionEmail,
-        };
-        invitesSection.hidden = !memberOpts.canManage;
+        // Every member sees the people list; inviting stays workspace-admin-only.
+        const canInvite = isWorkspaceAdminRole(result.role);
+        inviteSection.hidden = !canInvite;
+        inviteForm.hidden = !canInvite;
+        applyMemberOpts(result);
 
         statusEl.hidden = true;
         appEl.hidden = false;
-
-        membersEl.innerHTML = result.members.length
-          ? renderMembersHtml(result.members, memberOpts)
-          : '<p class="muted">Just you so far.</p>';
-        if (memberOpts.canManage) {
-          invitesEl.innerHTML = result.invites.length
-            ? renderInvitesHtml(result.invites)
-            : '<p class="muted">No pending invites.</p>';
-        }
+        paintPeopleList(result.members, result.invites);
 
         const displayName = result.organization.name || workspaceName;
         slugEl.textContent =
           displayName === workspaceName ? workspaceName : `${displayName} · ${workspaceName}`;
         document.title = `People · ${displayName} · uploads.sh`;
-
-        const isOperator = sessionRole === "admin";
-        operatorCard.hidden = !isOperator;
-        if (isOperator) {
-          const cmd = operatorInviteCommand(workspaceName);
-          operatorCmd.textContent = cmd;
-          operatorCopy.dataset.copy = cmd;
-        }
       }
 
       async function refreshPeopleLists(): Promise<void> {
         const result = await getWorkspacePeople(apiOrigin, workspaceName);
         if (!stillHere() || result.kind !== "ok") return;
-        memberOpts = {
-          canManage: result.canManage,
-          viewerRole: result.role,
-          selfEmail: sessionEmail,
-        };
-        membersEl.innerHTML = result.members.length
-          ? renderMembersHtml(result.members, memberOpts)
-          : '<p class="muted">Just you so far.</p>';
-        if (memberOpts.canManage) {
-          invitesEl.innerHTML = result.invites.length
-            ? renderInvitesHtml(result.invites)
-            : '<p class="muted">No pending invites.</p>';
-        }
+        applyMemberOpts(result);
+        paintPeopleList(result.members, result.invites);
       }
 
       function manageErrorText(reason: string, action: string): string {
@@ -232,7 +199,25 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         return `Couldn’t ${action}. Try again.`;
       }
 
-      bindCopyButtons(document);
+      /** Confirm → disable → API → refresh; shared by remove/revoke. */
+      function runManageAction(
+        btn: HTMLButtonElement,
+        confirmMessage: string,
+        actionLabel: string,
+        request: () => Promise<ManageResult>,
+      ): void {
+        if (!confirm(confirmMessage)) return;
+        void (async () => {
+          btn.disabled = true;
+          const res = await request();
+          if (!stillHere()) return;
+          if (res.kind === "ok") void refreshPeopleLists();
+          else {
+            btn.disabled = false;
+            alert(manageErrorText(res.reason, actionLabel));
+          }
+        })();
+      }
 
       inviteForm.addEventListener("submit", (event) => {
         void (async () => {
@@ -280,23 +265,32 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       });
 
       membersEl.addEventListener("click", (event) => {
-        const btn = (event.target as HTMLElement).closest<HTMLButtonElement>(
-          ".member-row__remove",
+        const target = event.target as HTMLElement;
+        const removeBtn = target.closest<HTMLButtonElement>(".member-row__remove");
+        if (removeBtn) {
+          const memberId = removeBtn.dataset.memberId ?? "";
+          const email = removeBtn.dataset.memberEmail ?? "this member";
+          if (!memberId) return;
+          runManageAction(
+            removeBtn,
+            `Remove ${email} from this workspace?`,
+            "remove this member",
+            () => removeWorkspaceMember(apiOrigin, workspaceName, memberId),
+          );
+          return;
+        }
+
+        const revokeBtn = target.closest<HTMLButtonElement>(".invite-row__revoke");
+        if (!revokeBtn) return;
+        const inviteId = revokeBtn.dataset.inviteId ?? "";
+        const email = revokeBtn.dataset.inviteEmail ?? "this invite";
+        if (!inviteId) return;
+        runManageAction(
+          revokeBtn,
+          `Revoke the pending invite for ${email}?`,
+          "revoke this invite",
+          () => revokeWorkspaceInvite(apiOrigin, workspaceName, inviteId),
         );
-        if (!btn) return;
-        void (async () => {
-          const memberId = btn.dataset.memberId ?? "";
-          const email = btn.dataset.memberEmail ?? "this member";
-          if (!memberId || !confirm(`Remove ${email} from this workspace?`)) return;
-          btn.disabled = true;
-          const res = await removeWorkspaceMember(apiOrigin, workspaceName, memberId);
-          if (!stillHere()) return;
-          if (res.kind === "ok") void refreshPeopleLists();
-          else {
-            btn.disabled = false;
-            alert(manageErrorText(res.reason, "remove this member"));
-          }
-        })();
       });
 
       membersEl.addEventListener("change", (event) => {
@@ -321,32 +315,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         })();
       });
 
-      invitesEl.addEventListener("click", (event) => {
-        const btn = (event.target as HTMLElement).closest<HTMLButtonElement>(
-          ".invite-row__revoke",
-        );
-        if (!btn) return;
-        void (async () => {
-          const inviteId = btn.dataset.inviteId ?? "";
-          const email = btn.dataset.inviteEmail ?? "this invite";
-          if (!inviteId || !confirm(`Revoke the pending invite for ${email}?`)) return;
-          btn.disabled = true;
-          const res = await revokeWorkspaceInvite(apiOrigin, workspaceName, inviteId);
-          if (!stillHere()) return;
-          if (res.kind === "ok") void refreshPeopleLists();
-          else {
-            btn.disabled = false;
-            alert(manageErrorText(res.reason, "revoke this invite"));
-          }
-        })();
-      });
-
       retryBtn.addEventListener("click", () => {
         void loadInvitePage();
       });
 
       onSession((user) => {
-        sessionRole = user.role;
         sessionEmail = user.email;
         void loadInvitePage();
       });

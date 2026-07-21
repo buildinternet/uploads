@@ -51,17 +51,6 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
         </div>
         <div class="ws-rail__actions">
           <a class="ws-rail__invite" href={invitePath}>invite teammate</a>
-          <div class="ws-rail__copyrow">
-            <code><span class="ws-rail__prompt">$ </span>uploads put ./file.png</code>
-            <button
-              type="button"
-              class="ws-rail__copy"
-              data-copy="uploads put ./file.png"
-              aria-live="polite"
-            >
-              copy
-            </button>
-          </div>
         </div>
       </section>
     </div>
@@ -69,50 +58,14 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
 </AccountLayout>
 
 <style>
-  /* Rail wrapper — `display: contents` so the section children participate
-     directly in AccountLayout's `aside.rail` grid (which already supplies
-     `display:grid; gap:22px`); see account-shell.css. Do not add spacing
-     rules here — that's the shared container's job. */
-  .ws-rail {
-    display: contents;
-  }
-
-  /* Section scaffolding (heading row) is server-rendered — plain scoped
-     selectors. Section *bodies* are filled via innerHTML by workspace-rail.ts,
-     so anything reaching into them below wraps the injected class in
-     :global() — Astro's scope attribute only ever lands on elements this
-     component itself renders, so a dynamically-injected node needs :global()
-     to be matched at all. `.account-shell` is likewise wrapped in :global()
-     (it's AccountLayout's element, not this component's), kept only as a
-     belt-and-suspenders ancestor gate. */
-  .ws-rail__section {
-    font-size: 12.5px;
-  }
-  .ws-rail__head {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 0 0 12px;
-  }
-  .ws-rail__label {
-    color: var(--muted);
-    font-size: 10.5px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
-  .ws-rail__rule {
-    flex: 1;
-    height: 1px;
-    background: var(--line);
-  }
-
-  /* Connected work — rows are innerHTML-injected by renderConnectedWorkHtml. */
+  /* Section *bodies* are filled via innerHTML by workspace-rail.ts, so
+     injected classes need :global() — Astro scope only lands on elements
+     this component renders. Shared section chrome (`.ws-rail`, head/label/
+     rule) lives in account-shell.css for profile + workspace rails. */
   .ws-rail__connected-list {
     display: grid;
     gap: 10px;
   }
-  /* "show N more" toggle — innerHTML-injected by bindConnectedWorkSetter. */
   :global(.account-shell) .ws-rail :global(.ws-rail__more) {
     justify-self: start;
     padding: 2px 0;
@@ -155,17 +108,8 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
     color: var(--accent);
     outline: none;
   }
-  :global(.account-shell) .ws-rail :global(.ws-rail__connected-sub) {
-    color: var(--muted);
-    font-size: 11.5px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
 
-  /* Usage — renderUsageHtml() output uses @uploads/ui's globally-styled
-     `.ul-progress*` classes (no CSS needed here); style only its plain-text
-     fallback (`.usage-text`/`.usage-meta`, from workspace-ui.ts). */
+  /* Usage — meters use global `.ul-progress*`; style plain-text fallback only. */
   :global(.account-shell) .ws-rail :global(.usage-text) {
     color: var(--muted);
   }
@@ -191,10 +135,6 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  :global(.account-shell) .ws-rail :global(.ws-rail__dd--accent) {
-    color: var(--accent);
-  }
-  /* Public-url link — innerHTML-injected by renderDetailsHtml. */
   :global(.account-shell) .ws-rail :global(.ws-rail__link) {
     color: var(--fg);
     text-decoration: none;
@@ -205,7 +145,7 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
     outline: none;
   }
 
-  /* Quick actions — server-rendered, static (no session data needed). */
+  /* Quick actions — server-rendered, static. */
   .ws-rail__actions {
     display: grid;
     gap: 8px;
@@ -219,45 +159,6 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
   .ws-rail__invite:focus-visible {
     color: var(--accent);
     outline: none;
-  }
-  .ws-rail__copyrow {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding: 8px 10px;
-    border: 1px solid var(--line);
-    border-radius: 2px;
-    background: var(--panel);
-  }
-  .ws-rail__copyrow code {
-    flex: 1;
-    min-width: 0;
-    white-space: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    font: 11.5px var(--mono);
-  }
-  .ws-rail__prompt {
-    color: var(--accent);
-  }
-  .ws-rail__copy {
-    flex: none;
-    font: 11px var(--mono);
-    color: var(--accent);
-    background: none;
-    border: 1px solid var(--line);
-    border-radius: 2px;
-    padding: 4px 8px;
-    cursor: pointer;
-  }
-  .ws-rail__copy:hover,
-  .ws-rail__copy:focus-visible {
-    border-color: var(--accent);
-    outline: none;
-  }
-  .ws-rail__copy.done {
-    color: var(--green);
-    border-color: var(--green);
   }
 </style>
 

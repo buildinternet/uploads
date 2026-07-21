@@ -8,7 +8,7 @@
  *    synchronously, before any network round trip, so a files-tab script that
  *    races ahead of this module's session-gated fetches never calls a
  *    not-yet-defined function;
- *  - fetches `getWorkspaceSummary` → details and usage (role is in details).
+ *  - fetches `getWorkspaceSummary` → details and usage.
  *
  * Connected-work hook contract (Task 8's files tab is the only caller):
  *   `window.__uploadsSetConnectedWork(items: GhWorkItem[], titles?: GithubTitleMap): void`
@@ -19,7 +19,7 @@
  */
 import { getWorkspaceSummary, type GithubTitleMap, type MyWorkspace } from "./api-client";
 import { onSession } from "./account-shell";
-import { bindCopyButtons, escapeHtml, renderUsageHtml } from "./workspace-ui";
+import { escapeHtml, renderUsageHtml } from "./workspace-ui";
 import { githubKindSvg } from "./brand-icons";
 import { applyGhTitles, type GhKind, type GhWorkItem } from "./gh-context";
 
@@ -52,17 +52,16 @@ export function renderConnectedWorkHtml(items: GhWorkItem[]): string {
 /** Minimal shape `renderDetailsHtml` needs — `MyWorkspace` is a structural superset. */
 export interface WorkspaceRailDetails {
   organization: { slug: string };
-  role: string;
   hasPublicUrl: boolean;
   publicBaseUrl?: string;
 }
 
 /**
- * Pure builder for the rail's "details" `<dt>/<dd>` pairs. The public-URL cell
- * links to the workspace's `publicBaseUrl`, labeled by its host (the scheme is
- * always https and only pads the narrow rail). `hasPublicUrl` without a URL
- * string means an older API that predates `publicBaseUrl` in the listing —
- * fall back to the old "configured" label rather than fabricating a URL.
+ * Pure builder for the rail/settings "details" `<dt>/<dd>` pairs (slug +
+ * public URL only — role lives on People / Account). The public-URL cell
+ * links to `publicBaseUrl`, labeled by host. `hasPublicUrl` without a URL
+ * string means an older API that predates `publicBaseUrl` — fall back to
+ * "configured" rather than fabricating a URL.
  */
 export function renderDetailsHtml(ws: WorkspaceRailDetails): string {
   const host = ws.publicBaseUrl?.replace(/^https?:\/\//, "").replace(/\/$/, "");
@@ -71,7 +70,6 @@ export function renderDetailsHtml(ws: WorkspaceRailDetails): string {
     : escapeHtml(ws.hasPublicUrl ? "configured" : "—");
   return (
     `<dt class="ws-rail__dt">slug</dt><dd class="ws-rail__dd">${escapeHtml(ws.organization.slug)}</dd>` +
-    `<dt class="ws-rail__dt">your role</dt><dd class="ws-rail__dd ws-rail__dd--accent">${escapeHtml(ws.role)}</dd>` +
     `<dt class="ws-rail__dt">public url</dt><dd class="ws-rail__dd">${publicUrlHtml}</dd>`
   );
 }
@@ -174,9 +172,6 @@ export function initWorkspaceRail(
 
   const setConnectedWork = bindConnectedWorkSetter(root);
   setConnectedWork([]);
-
-  const railRoot = root.querySelector<HTMLElement>("[data-workspace-rail]");
-  if (railRoot) bindCopyButtons(railRoot);
 
   const detailsEl = root.querySelector<HTMLElement>("[data-rail-details]");
   const usageEl = root.querySelector<HTMLElement>("[data-rail-usage]");

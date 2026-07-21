@@ -1,8 +1,8 @@
 ---
 /**
  * Workspace settings tab — thin stub (design 3A §5.3). The rail already
- * surfaces slug/role/public-url live; this repeats the same summary in the
- * main column (visible without the rail, e.g. on narrow viewports) via a
+ * surfaces slug/public-url live; this repeats the same summary in the main
+ * column (visible without the rail, e.g. on narrow viewports) via a
  * `<details>` disclosure. No new endpoints — reuses `getMyWorkspaces` +
  * `renderDetailsHtml` from the rail module.
  */
@@ -23,7 +23,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         <summary>Workspace details</summary>
         <dl class="kv" data-ws-settings-details></dl>
       </details>
-      <p class="muted settings-note">More workspace settings coming soon.</p>
     </div>
   </section>
 
