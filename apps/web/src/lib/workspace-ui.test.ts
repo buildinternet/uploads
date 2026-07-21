@@ -68,10 +68,13 @@ describe("renderMembersHtml controls", () => {
 });
 
 describe("renderInvitesHtml", () => {
-  it("renders a revoke control per invite", () => {
+  it("renders a people-list row with pending status and revoke", () => {
     const html = renderInvitesHtml([{ id: "i1", email: "a@x.com", status: "pending" }]);
     expect(html).toContain('data-invite-id="i1"');
     expect(html).toContain("a@x.com");
+    expect(html).toContain("member-row--pending");
+    expect(html).toContain("pending");
+    expect(html).toContain("invite-row__revoke");
   });
   it("returns empty string for no invites", () => {
     expect(renderInvitesHtml([])).toBe("");

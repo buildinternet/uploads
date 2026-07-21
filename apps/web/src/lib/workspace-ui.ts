@@ -165,26 +165,30 @@ export function renderMembersHtml(members: MemberRow[], opts: MemberRowOptions =
     .join("");
 }
 
-/** Pure row builder for the pending-invites list. `[]` → `""` (caller shows empty state). */
+/**
+ * Pending invites as people-list rows (same `.member-row` surface as members).
+ * Status badge + revoke. `[]` → `""` (caller omits the block).
+ */
 export function renderInvitesHtml(
   invites: { id: string; email: string; status: string }[],
 ): string {
   return invites
-    .map(
-      (inv) =>
-        `<div class="invite-row"><span class="invite-row__email">${escapeHtml(inv.email)}</span>` +
-        `<span class="invite-row__status">${escapeHtml(inv.status)}</span>` +
-        `<button type="button" class="text-btn invite-row__revoke" data-invite-id="${escapeHtml(inv.id)}" data-invite-email="${escapeHtml(inv.email)}">Revoke</button></div>`,
-    )
+    .map((inv) => {
+      const status = inv.status || "pending";
+      return (
+        `<div class="member-row member-row--pending">` +
+        `<span class="member-row__who"><span class="member-row__name">${escapeHtml(inv.email)}</span></span>` +
+        `<span class="member-row__actions">` +
+        `<span class="member-row__role member-row__role--pending">${escapeHtml(status)}</span>` +
+        `<button type="button" class="text-btn invite-row__revoke" data-invite-id="${escapeHtml(inv.id)}" data-invite-email="${escapeHtml(inv.email)}">Revoke</button>` +
+        `</span></div>`
+      );
+    })
     .join("");
 }
 
 export function isWorkspaceAdminRole(role: string): boolean {
   return role === "admin" || role === "owner";
-}
-
-export function operatorInviteCommand(workspace: string): string {
-  return `uploads admin invite create --workspace ${workspace} --email teammate@example.com`;
 }
 
 const WORKSPACE_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;

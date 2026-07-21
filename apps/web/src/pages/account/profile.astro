@@ -22,16 +22,6 @@ export const prerender = false;
       <div id="accounts-status" class="muted detail-status">Loading…</div>
       <ul class="detail-list" id="accounts-list" hidden></ul>
       <p id="accounts-error" class="detail-error" role="alert" hidden></p>
-      <p class="muted settings-note">
-        Have a workspace under another email? Connect GitHub here (or sign in
-        with that email via magic link, then connect) to link the two.
-      </p>
-    </div>
-
-    <div class="settings-section">
-      <h2>Workspaces</h2>
-      <div id="access-status" class="muted detail-status">Loading…</div>
-      <ul class="detail-list" id="access-list" hidden></ul>
     </div>
 
     <div class="settings-section">
@@ -46,6 +36,32 @@ export const prerender = false;
     </div>
   </section>
 
+  <Fragment slot="rail">
+    <div class="ws-rail" data-account-rail>
+      <section class="ws-rail__section">
+        <div class="ws-rail__head">
+          <span class="ws-rail__label">tip</span>
+          <span class="ws-rail__rule"></span>
+        </div>
+        <p class="account-rail-tip">
+          Have a workspace under another email? Connect GitHub here (or sign in
+          with that email via magic link, then connect) to link the two.
+        </p>
+      </section>
+    </div>
+  </Fragment>
+
+  <style>
+    /* Section chrome is shared via account-shell.css; tip body is profile-only. */
+    .account-rail-tip {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12.5px;
+      line-height: 1.55;
+      text-wrap: pretty;
+    }
+  </style>
+
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
     import {
@@ -58,19 +74,14 @@ export const prerender = false;
       type LinkedAccount,
       type ProviderAccountInfo,
     } from "../../lib/auth-client";
-    import { getMyWorkspaces } from "../../lib/api-client";
     import { githubMarkSvg } from "../../lib/brand-icons";
     import { deviceLabel, formatSessionTime, isCliUserAgent } from "../../lib/session-device";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("acct-email")) return;
 
-    const w = window as unknown as {
-      __UPLOADS_AUTH_ORIGIN__: string;
-      __UPLOADS_API_ORIGIN__: string;
-    };
-    const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
-    const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+    const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
+      .__UPLOADS_AUTH_ORIGIN__;
 
     const escapeHtml = (value: string) =>
       value.replace(/[&<>"']/g, (ch) =>
@@ -196,54 +207,6 @@ export const prerender = false;
               <div class="detail-meta">${escapeHtml(row.detail)}</div>
             </div>
             ${action}
-          </li>`;
-        })
-        .join("");
-    }
-
-    async function loadWorkspaceAccess(): Promise<void> {
-      const status = requireElement<HTMLElement>("#access-status", "account profile");
-      const list = requireElement<HTMLUListElement>("#access-list", "account profile");
-      list.hidden = true;
-      showStatus(status, "Loading…");
-
-      const result = await getMyWorkspaces(apiOrigin);
-      if (result.kind === "unavailable") {
-        showStatus(status, "Couldn’t load workspace access.");
-        return;
-      }
-      const { workspaces } = result;
-      if (!workspaces.length) {
-        showStatus(
-          status,
-          'No workspaces yet — <a href="/account/workspaces/new">create one</a> or accept an invite.',
-          { html: true },
-        );
-        return;
-      }
-
-      status.hidden = true;
-      list.hidden = false;
-      list.innerHTML = workspaces
-        .map((ws) => {
-          const name = ws.organization.name || ws.workspace;
-          const href = `/account/workspaces/${encodeURIComponent(ws.workspace)}`;
-          const meta = [
-            ws.workspace !== name ? ws.workspace : null,
-            ws.role,
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          return `<li>
-            <div class="detail-main">
-              <div class="detail-title">
-                <a href="${escapeHtml(href)}">${escapeHtml(name)}</a>
-              </div>
-              <div class="detail-meta">${escapeHtml(meta)}</div>
-            </div>
-            <div class="detail-action">
-              <a class="text-btn" href="${escapeHtml(href)}">Open</a>
-            </div>
           </li>`;
         })
         .join("");
@@ -389,7 +352,6 @@ export const prerender = false;
       requireElement<HTMLElement>("#acct-role", "account profile").textContent =
         user.role || "member";
       void loadAccounts();
-      void loadWorkspaceAccess();
       void loadSessions();
     });
     });

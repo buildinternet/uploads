@@ -25,29 +25,42 @@
   min-width: 0;
 }
 
-/* Flat nav rows ---------------------------------------------------------- */
+/* Flat nav rows ----------------------------------------------------------
+   Beat signed-in-shell's pill treatment (`border-radius` + panel border on
+   `nav.side a[aria-current]`). Account nav is flush type with a quiet
+   rectangular active wash — no rounded chip, consistent horizontal inset. */
 .account-shell nav.side {
+  --side-inset: 8px;
   gap: 2px;
   font-size: 13px;
 }
 .account-shell nav.side .side-link {
   display: block;
-  padding: 5px 0;
+  padding: 5px var(--side-inset);
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--muted);
   text-decoration: none;
 }
 .account-shell nav.side .side-link:hover,
 .account-shell nav.side .side-link:focus-visible {
   color: var(--fg);
+  background: transparent;
   outline: none;
 }
 .account-shell nav.side .side-link[aria-current] {
   color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 0;
+  border-radius: 0;
 }
 
-/* Section labels (PERSONAL). Workspace heading is the switcher trigger. */
+/* Section labels (PERSONAL). Same horizontal inset as side-links. */
 .account-shell nav.side .side-label {
   margin: 14px 0 4px;
+  padding: 0 var(--side-inset);
   color: var(--muted);
   font-size: 10.5px;
   letter-spacing: 0.14em;
@@ -63,10 +76,10 @@
 .account-shell nav.side .ws-switcher .ws-switcher__trigger {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
   max-width: 100%;
-  padding: 0;
+  padding: 0 var(--side-inset);
   margin: 0;
   border: 0;
   border-radius: 0;
@@ -91,11 +104,38 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Visible switcher affordance — boxed chevron, not tiny label-tracking text. */
 .account-shell nav.side .ws-switcher__chevron {
   flex: none;
-  font-size: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, var(--muted));
+  border-radius: 3px;
+  color: var(--fg);
+  font-size: 10px;
+  line-height: 1;
   letter-spacing: 0;
-  opacity: 0.7;
+}
+.account-shell nav.side .ws-switcher .ws-switcher__trigger:hover .ws-switcher__chevron,
+.account-shell nav.side .ws-switcher .ws-switcher__trigger:focus-visible .ws-switcher__chevron,
+.account-shell
+  nav.side
+  .ws-switcher
+  .ws-switcher__trigger[aria-expanded="true"]
+  .ws-switcher__chevron {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.account-shell
+  nav.side
+  .ws-switcher
+  .ws-switcher__trigger[aria-expanded="true"]
+  .ws-switcher__chevron {
+  transform: rotate(180deg);
 }
 .account-shell nav.side .ws-switcher__menu {
   position: absolute;
@@ -161,6 +201,34 @@
   position: sticky;
   top: 28px;
   min-width: 0;
+}
+
+/* Shared rail section chrome (workspace rail + profile tip). Wrapper is
+   `display: contents` so section children sit directly in `aside.rail`'s
+   grid (gap already set above). */
+.account-shell .ws-rail {
+  display: contents;
+}
+.account-shell .ws-rail__section {
+  font-size: 12.5px;
+}
+.account-shell .ws-rail__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+.account-shell .ws-rail__label {
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.account-shell .ws-rail__rule {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
 }
 
 /* Mid-width (--bp-stack+1 … --bp-rail): drop rail beside content, restack

@@ -1212,29 +1212,7 @@ button.wft-name--btn {
   }
 }
 
-/* People tab: pending-invite rows + member-row management controls (#275). */
-.invite-list {
-  display: grid;
-  gap: 6px;
-}
-.invite-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.invite-row__email {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.invite-row__status {
-  font-size: 12px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
+/* People tab: pending invites share the member-row surface + revoke control. */
 .member-row__actions {
   display: flex;
   align-items: center;
@@ -1243,4 +1221,11 @@ button.wft-name--btn {
 .member-row__role-select {
   font: inherit;
   padding: 2px 6px;
+}
+.member-row__role--pending {
+  color: var(--accent);
+}
+.member-row--pending .member-row__name {
+  font-weight: 500;
+  color: var(--muted);
 }
