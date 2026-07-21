@@ -90,6 +90,21 @@ const TOC = [
       <span class="text">uploads attach ./shot.png --no-comment <span class="cm"># print URLs, post nothing</span></span>
       <button type="button" data-copy="uploads attach ./shot.png --no-comment" aria-live="polite">copy</button>
     </div>
+    <p>
+      No PR yet? <code>--branch</code> stages files against your current branch instead, so
+      you can attach screenshots while you work:
+    </p>
+    <div class="cmd">
+      <span class="text">uploads attach --branch ./shot.png</span>
+      <button type="button" data-copy="uploads attach --branch ./shot.png" aria-live="polite">copy</button>
+    </div>
+    <p>
+      Once the PR opens, the next <code>attach</code> promotes those staged files onto it
+      automatically — or run <code>uploads attach --promote</code> with no files to do it
+      explicitly (<code>--no-promote</code> opts out). See&#32;
+      <a href="/docs/github-app#staging">GitHub App: staging before a PR exists</a> for how
+      this works with zero CLI involvement.
+    </p>
   </section>
 
   <section id="put">

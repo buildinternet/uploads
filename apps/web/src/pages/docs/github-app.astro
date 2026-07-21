@@ -9,6 +9,7 @@ const APP_URL = "https://github.com/apps/uploads-sh";
 const TOC = [
   { id: "what-it-adds", label: "What it adds" },
   { id: "install", label: "Install it" },
+  { id: "staging", label: "Staging before a PR exists" },
   { id: "permissions", label: "Permissions" },
   { id: "without-it", label: "Without the App" },
 ];
@@ -54,6 +55,10 @@ const TOC = [
         <strong>Titles stay current.</strong> The App's webhooks tell uploads.sh when a PR or
         issue is renamed, closed, or merged, so file pages don't show stale titles.
       </li>
+      <li>
+        <strong>Screenshots staged before the PR exists get promoted automatically.</strong>
+        See <a href="#staging">Staging before a PR exists</a> below.
+      </li>
     </ul>
   </section>
 
@@ -76,6 +81,43 @@ const TOC = [
       <pre>&gt;&gt; uploading ./after.png
 <span class="ok">&gt;&gt; attachments comment updated (uploads-sh[bot])</span></pre>
     </div>
+  </section>
+
+  <section id="staging">
+    <h2>Staging before a PR exists <a class="anchor" href="#staging" aria-label="Link to this section">#</a></h2>
+    <p>
+      Working on a branch with no PR open yet? <code>--branch</code> stages screenshots
+      against the branch instead of a PR — no comment to post yet, nothing to target:
+    </p>
+    <div class="cmd">
+      <span class="text">uploads attach --branch ./progress.png</span>
+      <button type="button" data-copy="uploads attach --branch ./progress.png" aria-live="polite">copy</button>
+    </div>
+    <p>
+      It defaults to your current git branch (or pass <code>--branch some-name</code>
+      explicitly). Staged files are hosted and public immediately, same as any attachment —
+      there's just no PR to comment on yet.
+    </p>
+    <p>Once a pull request opens for that branch, staged files land on it one of two ways:</p>
+    <ul>
+      <li>
+        <strong>With the App installed</strong> (and this workspace linked to the repo — that
+        linking happens automatically the first time the workspace posts a comment or
+        promotes for it), the webhook promotes staged files onto the PR and posts or updates
+        the bot comment the moment the PR opens, reopens, or gets new commits. No CLI
+        involvement at all — this is on by default for fresh installs.
+      </li>
+      <li>
+        <strong>Without the App</strong>, the next <code>uploads attach</code> you run against
+        that PR promotes them automatically, or run <code>uploads attach --promote</code> with
+        no files to do it explicitly (<code>--no-promote</code> skips promotion).
+      </li>
+    </ul>
+    <p>
+      Staged files that never make it into a PR are cleaned up on their own — promoted files
+      drop out of the staging area after about 7 days, and anything abandoned is removed after
+      about 30.
+    </p>
   </section>
 
   <section id="permissions">

@@ -9,7 +9,7 @@ Access is by invitation. Hosted files are public (including media attached to pr
 - [Home](https://uploads.sh/): product overview and copyable install commands
 - [Docs](https://uploads.sh/docs): overview, one-time install, and links to the focused guides below
 - [Docs: attach & share](https://uploads.sh/docs/attach-pull-request-images): attach media to PRs/issues, get a URL for any file, capture a screenshot
-- [Docs: GitHub App](https://uploads.sh/docs/github-app): optional install for bot-posted attachment comments and private-repo PR/issue titles
+- [Docs: GitHub App](https://uploads.sh/docs/github-app): optional install for bot-posted attachment comments, private-repo PR/issue titles, and zero-CLI promotion of branch-staged screenshots when a PR opens
 - [Docs: agents](https://uploads.sh/docs/agents): install the agent skill and MCP server, or the all-in-one Claude Code plugin
 - [Docs: reference](https://uploads.sh/docs/reference): manage uploads (list/delete/usage) and what to know before relying on it
 - [Agent guide](https://uploads.sh/github-screenshots): how to get coding agents to upload screenshots & video to GitHub PRs and issues
