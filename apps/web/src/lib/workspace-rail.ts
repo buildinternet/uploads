@@ -58,19 +58,20 @@ export interface WorkspaceRailDetails {
 
 /**
  * Pure builder for the rail/settings "details" `<dt>/<dd>` pairs (slug +
- * public URL only — role lives on People / Account). The public-URL cell
- * links to `publicBaseUrl`, labeled by host. `hasPublicUrl` without a URL
- * string means an older API that predates `publicBaseUrl` — fall back to
- * "configured" rather than fabricating a URL.
+ * base URL only — role lives on People / Account). The base-URL cell is
+ * plain text (host of the stable public origin, e.g. `storage.uploads.sh`)
+ * — it is a bucket root, not a useful page to open. `hasPublicUrl` without
+ * a URL string means an older API that predates `publicBaseUrl` — fall back
+ * to "configured" rather than fabricating a URL.
  */
 export function renderDetailsHtml(ws: WorkspaceRailDetails): string {
   const host = ws.publicBaseUrl?.replace(/^https?:\/\//, "").replace(/\/$/, "");
-  const publicUrlHtml = ws.publicBaseUrl
-    ? `<a class="ws-rail__link" href="${escapeHtml(ws.publicBaseUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(host ?? "")}</a>`
+  const baseUrlHtml = ws.publicBaseUrl
+    ? escapeHtml(host ?? "")
     : escapeHtml(ws.hasPublicUrl ? "configured" : "—");
   return (
     `<dt class="ws-rail__dt">slug</dt><dd class="ws-rail__dd">${escapeHtml(ws.organization.slug)}</dd>` +
-    `<dt class="ws-rail__dt">public url</dt><dd class="ws-rail__dd">${publicUrlHtml}</dd>`
+    `<dt class="ws-rail__dt">base url</dt><dd class="ws-rail__dd">${baseUrlHtml}</dd>`
   );
 }
 
