@@ -337,6 +337,65 @@ export async function denyDevice(origin: string, userCode: string): Promise<bool
   }
 }
 
+export interface DeviceWorkspaceLookup {
+  requested: string | null;
+  create: boolean;
+  workspaces: { slug: string; name: string }[];
+}
+
+/**
+ * GET /api/auth/device/workspace — what the terminal asked for plus the
+ * workspaces this account can pick (issue #362). Returns `{ ok: false }` for
+ * an unusable code or an outage so the caller can fall back to approving
+ * without a workspace decision.
+ */
+export async function getDeviceWorkspace(
+  origin: string,
+  userCode: string,
+): Promise<{ ok: true; value: DeviceWorkspaceLookup } | { ok: false }> {
+  try {
+    const res = await fetch(
+      `${authOrigin(origin)}/api/auth/device/workspace?user_code=${encodeURIComponent(userCode)}`,
+      { credentials: "include", cache: "no-store" },
+    );
+    if (!res.ok) return { ok: false };
+    const body = (await res.json().catch(() => null)) as Partial<DeviceWorkspaceLookup> | null;
+    if (!body || !Array.isArray(body.workspaces)) return { ok: false };
+    return {
+      ok: true,
+      value: {
+        requested: typeof body.requested === "string" ? body.requested : null,
+        create: body.create === true,
+        workspaces: body.workspaces.filter(
+          (w): w is { slug: string; name: string } =>
+            Boolean(w) && typeof w.slug === "string" && typeof w.name === "string",
+        ),
+      },
+    };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** POST /api/auth/device/workspace — record which workspace this login mints for. */
+export async function setDeviceWorkspace(
+  origin: string,
+  userCode: string,
+  workspace: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}/api/auth/device/workspace`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userCode, workspace }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export interface OrganizationSummary {
   id: string;
   name: string;
