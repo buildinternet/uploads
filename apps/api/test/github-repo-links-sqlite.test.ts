@@ -131,11 +131,37 @@ describe("listRepoLinksForWorkspace (admin visibility, issue #318)", () => {
   it("returns only the calling workspace's bindings, newest first", async () => {
     const sqlite = new SqliteD1(MIGRATION);
     try {
-      await recordRepoLink(database(sqlite), "acme/web", "acme", "comment");
-      await recordRepoLink(database(sqlite), "acme/api", "acme", "cli");
-      await recordRepoLink(database(sqlite), "other/repo", "someone-else", "comment");
+      // Distinct explicit timestamps (not insertion order) so the assertion
+      // below actually exercises `ORDER BY created_at DESC` rather than
+      // passing regardless of ordering (CodeRabbit, issue #318).
+      await recordRepoLink(
+        database(sqlite),
+        "acme/web",
+        "acme",
+        "comment",
+        null,
+        new Date("2026-01-01T00:00:00.000Z"),
+      );
+      await recordRepoLink(
+        database(sqlite),
+        "acme/api",
+        "acme",
+        "cli",
+        null,
+        new Date("2026-02-01T00:00:00.000Z"),
+      );
+      await recordRepoLink(
+        database(sqlite),
+        "other/repo",
+        "someone-else",
+        "comment",
+        null,
+        new Date("2026-03-01T00:00:00.000Z"),
+      );
       const links = await listRepoLinksForWorkspace(database(sqlite), "acme");
-      expect(links.map((l) => l.repo).sort()).toEqual(["acme/api", "acme/web"]);
+      // Newest (acme/api, Feb) first, oldest (acme/web, Jan) last —
+      // "someone-else"'s later (Mar) binding is excluded entirely.
+      expect(links.map((l) => l.repo)).toEqual(["acme/api", "acme/web"]);
       expect(links.every((l) => l.workspaceName === "acme")).toBe(true);
     } finally {
       sqlite.close();

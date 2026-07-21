@@ -219,4 +219,19 @@ describe("DELETE /v1/:workspace/github/link", () => {
     const res = await app.request(`/v1/${WS}/github/link?repo=${REPO}`, { method: "DELETE" }, env);
     expect(res.status).toBe(401);
   });
+
+  it("propagates a D1 read failure instead of reporting not_linked", async () => {
+    const { env } = await seededEnv();
+    const failingDb = {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => {
+            throw new Error("d1 unavailable");
+          },
+        }),
+      }),
+    };
+    const res = await del({ ...env, DB: failingDb } as unknown as Env, WS, REPO, TOKEN);
+    expect(res.status).toBeGreaterThanOrEqual(500);
+  });
 });

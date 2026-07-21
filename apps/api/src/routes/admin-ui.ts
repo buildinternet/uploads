@@ -22,7 +22,8 @@ import {
   validateScopes,
 } from "../auth-db";
 import {
-  deleteRepoLink,
+  deleteRepoLinkStrict,
+  findRepoLinkStrict,
   listRepoLinksForWorkspace,
   setRepoLink,
   type RepoLink,
@@ -518,7 +519,9 @@ export const adminUi = new Hono<SessionVars>()
   // Operator override (issue #318): forcibly reassign a repo's binding to
   // `workspace`, overwriting whichever workspace claimed it first. Unlike the
   // self-serve `/v1/:workspace/github/link` POST (first-claim-wins), this
-  // never reports `claimed: false` — an admin's call always wins.
+  // never reports `claimed: false` — an admin's call always wins. Rate
+  // limited (and workspace-existence checked) against the destination
+  // workspace, same as the other admin-ui writes below.
   .put("/github-links", async (c) => {
     let body: unknown;
     try {
@@ -535,6 +538,15 @@ export const adminUi = new Hono<SessionVars>()
       throw new ValidationError("workspace is required", { code: "invalid_workspace" });
     }
     const workspace = rawWorkspace.trim();
+    // A typo'd destination would otherwise silently create a binding owned
+    // by a workspace that doesn't exist (CodeRabbit, issue #318).
+    const existing = await c.env.REGISTRY.get(`ws:${workspace}`);
+    if (!existing) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
+    if (!(await allowWrite(c.env, workspace))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
     await setRepoLink(c.env.DB, repo, workspace, "admin");
     return c.json({ repo, workspace, reassigned: true });
   })
@@ -542,11 +554,21 @@ export const adminUi = new Hono<SessionVars>()
   // Operator override (issue #318): remove any repo's binding outright
   // (stuck/abandoned claim, no replacement owner). Unlike the self-serve
   // DELETE (workspace-scoped, refuses non-owners), this always succeeds
-  // regardless of who owns the binding.
+  // regardless of who owns the binding. Uses the strict lookup/delete so a
+  // D1 failure surfaces as an error rather than a false `unlinked: true`
+  // (CodeRabbit, issue #318); rate limited against the current owner
+  // (there's no destination workspace to key on, unlike PUT above).
   .delete("/github-links", async (c) => {
     const repo = parseRepoParam(c.req.query("repo"));
-    await deleteRepoLink(c.env.DB, repo);
-    return c.json({ repo, unlinked: true });
+    const before = await findRepoLinkStrict(c.env.DB, repo);
+    if (!before) {
+      return c.json({ repo, unlinked: false, reason: "not_linked" as const });
+    }
+    if (!(await allowWrite(c.env, before.workspaceName))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+    const removed = await deleteRepoLinkStrict(c.env.DB, repo);
+    return c.json({ repo, unlinked: removed });
   })
 
   // Ban / unban (abuse). Proxies Better Auth admin ban/unban; ban also

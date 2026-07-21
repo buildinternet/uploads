@@ -920,10 +920,19 @@ describe("POST /admin-ui/users/:userId/ban", () => {
 });
 
 describe("github repo link admin routes (issue #318)", () => {
-  function githubLinksEnv(user: typeof ADMIN_USER | null) {
+  /** `existingWorkspaces` seeds `ws:<name>` KV records so PUT's
+   * destination-workspace-exists check can pass. */
+  function githubLinksEnv(user: typeof ADMIN_USER | null, existingWorkspaces: string[] = []) {
     const db = new UsageFakeD1();
     const base = stubEnv(user, () => new Response(null, { status: 404 }));
-    const env = { ...base, DB: db } as unknown as Env;
+    const registry = {
+      ...(base.REGISTRY as object),
+      get: (async (key: string) =>
+        existingWorkspaces.some((ws) => key === `ws:${ws}`)
+          ? "{}"
+          : null) as unknown as KVNamespace["get"],
+    };
+    const env = { ...base, DB: db, REGISTRY: registry } as unknown as Env;
     return { env, db };
   }
 
@@ -960,7 +969,7 @@ describe("github repo link admin routes (issue #318)", () => {
 
   describe("PUT /admin-ui/github-links", () => {
     it("reassigns a repo to a different workspace, overwriting the prior owner", async () => {
-      const { env, db } = githubLinksEnv(ADMIN_USER);
+      const { env, db } = githubLinksEnv(ADMIN_USER, ["acme", "new-owner"]);
       db.repoLinks.set("acme/web", {
         repo_full_name: "acme/web",
         workspace_name: "acme",
@@ -988,7 +997,7 @@ describe("github repo link admin routes (issue #318)", () => {
     });
 
     it("400s on a malformed repo", async () => {
-      const { env } = githubLinksEnv(ADMIN_USER);
+      const { env } = githubLinksEnv(ADMIN_USER, ["acme"]);
       const res = await app().request(
         "/admin-ui/github-links",
         {
@@ -1001,8 +1010,24 @@ describe("github repo link admin routes (issue #318)", () => {
       expect(res.status).toBe(400);
     });
 
+    it("404s when the destination workspace doesn't exist (typo guard)", async () => {
+      const { env, db } = githubLinksEnv(ADMIN_USER, []);
+      const res = await app().request(
+        "/admin-ui/github-links",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: "acme/web", workspace: "nonexistent-typo" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(404);
+      // Never created a binding to a workspace that doesn't exist.
+      expect(db.repoLinks.has("acme/web")).toBe(false);
+    });
+
     it("403s for a non-admin session", async () => {
-      const { env } = githubLinksEnv(NON_ADMIN_USER);
+      const { env } = githubLinksEnv(NON_ADMIN_USER, ["acme"]);
       const res = await app().request(
         "/admin-ui/github-links",
         {
@@ -1013,6 +1038,24 @@ describe("github repo link admin routes (issue #318)", () => {
         env,
       );
       expect(res.status).toBe(403);
+    });
+
+    it("429s when the destination workspace's write rate limit is exhausted", async () => {
+      const { env } = githubLinksEnv(ADMIN_USER, ["acme"]);
+      const limited = {
+        ...env,
+        WRITE_LIMITER: { limit: async () => ({ success: false }) },
+      } as unknown as Env;
+      const res = await app().request(
+        "/admin-ui/github-links",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: "acme/web", workspace: "acme" }),
+        },
+        limited,
+      );
+      expect(res.status).toBe(429);
     });
   });
 
@@ -1034,6 +1077,66 @@ describe("github repo link admin routes (issue #318)", () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({ repo: "acme/web", unlinked: true });
       expect(db.repoLinks.has("acme/web")).toBe(false);
+    });
+
+    it("reports not_linked for an unclaimed repo instead of erroring", async () => {
+      const { env } = githubLinksEnv(ADMIN_USER);
+      const res = await app().request(
+        "/admin-ui/github-links?repo=acme%2Fweb",
+        { method: "DELETE" },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        repo: "acme/web",
+        unlinked: false,
+        reason: "not_linked",
+      });
+    });
+
+    it("propagates a D1 read failure instead of reporting unlinked: true", async () => {
+      const { env } = githubLinksEnv(ADMIN_USER);
+      const failing = {
+        ...env,
+        DB: {
+          prepare: () => ({
+            bind: () => ({
+              first: async () => {
+                throw new Error("d1 unavailable");
+              },
+            }),
+          }),
+        },
+      } as unknown as Env;
+      const res = await app().request(
+        "/admin-ui/github-links?repo=acme%2Fweb",
+        { method: "DELETE" },
+        failing,
+      );
+      expect(res.status).toBeGreaterThanOrEqual(500);
+    });
+
+    it("429s when the owning workspace's write rate limit is exhausted", async () => {
+      const { env, db } = githubLinksEnv(ADMIN_USER);
+      db.repoLinks.set("acme/web", {
+        repo_full_name: "acme/web",
+        workspace_name: "acme",
+        installation_id: null,
+        source: "comment",
+        created_at: "2026-01-01T00:00:00.000Z",
+      });
+      const limited = {
+        ...env,
+        WRITE_LIMITER: { limit: async () => ({ success: false }) },
+      } as unknown as Env;
+      const res = await app().request(
+        "/admin-ui/github-links?repo=acme%2Fweb",
+        { method: "DELETE" },
+        limited,
+      );
+      expect(res.status).toBe(429);
+      // Rate-limited before the delete ran.
+      expect(db.repoLinks.has("acme/web")).toBe(true);
     });
 
     it("403s for a non-admin session", async () => {

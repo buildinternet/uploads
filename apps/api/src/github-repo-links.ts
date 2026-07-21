@@ -103,6 +103,20 @@ export async function findRepoLink(db: D1Database, repo: string): Promise<RepoLi
 }
 
 /**
+ * Strict counterpart to `findRepoLink` for callers that must distinguish
+ * "no binding" from "D1 is unavailable" (self-serve/admin lookups, issue
+ * #318 CodeRabbit review) — a lookup failure here throws instead of being
+ * reported as an honest-looking `{unlinked: false, reason: "not_linked"}`.
+ */
+export async function findRepoLinkStrict(db: D1Database, repo: string): Promise<RepoLink | null> {
+  const row = await db
+    .prepare(`SELECT * FROM github_repo_links WHERE repo_full_name = ?`)
+    .bind(normalizeRepo(repo))
+    .first<RepoLinkRow>();
+  return row ? rowToLink(row) : null;
+}
+
+/**
  * Removes a stale link (e.g. its workspace was deleted/tombstoned). Never
  * throws — cleanup is best-effort; a failed delete just means the next
  * webhook delivery re-discovers the same stale state and retries the cleanup.
@@ -122,6 +136,21 @@ export async function deleteRepoLink(db: D1Database, repo: string): Promise<void
       }),
     );
   }
+}
+
+/**
+ * Strict counterpart to `deleteRepoLink` for the admin operator-override
+ * DELETE route (issue #318 CodeRabbit review) — that route must not report
+ * `unlinked: true` when the D1 delete actually failed, so this propagates
+ * failures instead of catching/logging them. Returns whether a row existed
+ * to delete (not just whether the statement ran).
+ */
+export async function deleteRepoLinkStrict(db: D1Database, repo: string): Promise<boolean> {
+  const result = await db
+    .prepare(`DELETE FROM github_repo_links WHERE repo_full_name = ?`)
+    .bind(normalizeRepo(repo))
+    .run();
+  return (result.meta.changes ?? 0) > 0;
 }
 
 /**

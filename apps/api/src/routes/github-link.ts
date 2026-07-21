@@ -13,6 +13,7 @@ import { Hono } from "hono";
 import {
   deleteRepoLinkForWorkspace,
   findRepoLink,
+  findRepoLinkStrict,
   recordRepoLink,
   type RepoLink,
 } from "../github-repo-links";
@@ -83,7 +84,11 @@ export const githubLink = new Hono<WorkspaceVars>()
     const repo = parseRepo(c.req.query("repo"));
     const workspaceName = c.get("workspaceName");
 
-    const before = await findRepoLink(c.env.DB, repo);
+    // Strict lookup: unlike the GET/POST handlers above (where a D1 blip
+    // degrading to "unclaimed" is an acceptable inspect-only fallback), a
+    // D1 read failure here must surface as a 5xx, not silently report
+    // `{unlinked: false, reason: "not_linked"}` (CodeRabbit, issue #318).
+    const before = await findRepoLinkStrict(c.env.DB, repo);
     if (!before) {
       return c.json({ repo, unlinked: false, reason: "not_linked" as const });
     }
