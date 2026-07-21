@@ -675,14 +675,29 @@ export async function syncAttachmentsComment(
   }
 
   // gh fallback: gather from this workspace's own data and post via local `gh`.
-  // Note (issue #304): this CLI process has no server-side WorkspaceRecord in
-  // scope, so it cannot honor a workspace's githubCommentLinkToFilePage=false
-  // — it always links to the file page here, matching the default. This only
-  // diverges from the bot-posted comment for a workspace that both sets the
-  // flag false and falls through to this gh-fallback path.
-  const items: AttachmentItem[] = (await client.listAll({ prefix: ghKeyPrefix(target) })).map(
-    ({ key, url, embedUrl, pageUrl }) => ({ key, url, embedUrl, pageUrl }),
-  );
+  // Note (issues #304, #365): this CLI process has no server-side
+  // WorkspaceRecord in scope, so it cannot honor a workspace's
+  // githubCommentLinkToFilePage=false or githubCommentShowMetadata=false — it
+  // always links to the file page and always shows metadata here, matching the
+  // defaults. This only diverges from the bot-posted comment for a workspace
+  // that both sets one of those flags false and falls through to this path.
+  const items: AttachmentItem[] = (
+    await client.listAll({ prefix: ghKeyPrefix(target), metadata: true })
+  ).map(({ key, url, embedUrl, pageUrl, metadata }) => {
+    // The list endpoint returns every metadata key; the comment renders only
+    // these two. Narrowing here keeps both render paths byte-identical.
+    const path = metadata?.path;
+    const state = metadata?.state;
+    return {
+      key,
+      url,
+      embedUrl,
+      pageUrl,
+      ...(path || state
+        ? { meta: { ...(path ? { path } : {}), ...(state ? { state } : {}) } }
+        : {}),
+    };
+  });
 
   const galleries: (GalleryCommentItem & { id: string })[] = [];
   let cursor: string | undefined;
