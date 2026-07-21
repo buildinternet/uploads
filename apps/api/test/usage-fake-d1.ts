@@ -52,6 +52,8 @@ export class UsageFakeD1 {
       all: async <T>() => {
         const result = this.fileMetadataTable.tryAll<T>(normalized, values);
         if (result) return result;
+        const linkResult = this.repoLinksTable.tryAll<T>(normalized, values);
+        if (linkResult) return linkResult;
         // Galleries aren't modeled by this fake (route/gallery-specific tests
         // bring their own D1 stand-in) — an empty page is a safe, honest
         // default for callers (e.g. the webhook auto-promote gather) that

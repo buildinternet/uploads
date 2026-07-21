@@ -1,7 +1,14 @@
 /// <reference types="node" />
 
 import { describe, expect, it } from "vitest";
-import { deleteRepoLink, findRepoLink, recordRepoLink } from "../src/github-repo-links";
+import {
+  deleteRepoLink,
+  deleteRepoLinkForWorkspace,
+  findRepoLink,
+  listRepoLinksForWorkspace,
+  recordRepoLink,
+  setRepoLink,
+} from "../src/github-repo-links";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
 
 const MIGRATION = "migrations/20260720120000_github_repo_links.sql";
@@ -74,6 +81,100 @@ describe("github repo links persistence against SQLite", () => {
     const sqlite = new SqliteD1(MIGRATION);
     try {
       await expect(deleteRepoLink(database(sqlite), "acme/nope")).resolves.toBeUndefined();
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("deleteRepoLinkForWorkspace (self-serve unlink, issue #318)", () => {
+  it("deletes when the caller owns the binding", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      await recordRepoLink(database(sqlite), "acme/web", "acme", "comment");
+      await expect(deleteRepoLinkForWorkspace(database(sqlite), "acme/web", "acme")).resolves.toBe(
+        true,
+      );
+      await expect(findRepoLink(database(sqlite), "acme/web")).resolves.toBeNull();
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("refuses (no-op) when the caller does not own the binding", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      await recordRepoLink(database(sqlite), "acme/web", "acme", "comment");
+      await expect(
+        deleteRepoLinkForWorkspace(database(sqlite), "acme/web", "someone-else"),
+      ).resolves.toBe(false);
+      const link = await findRepoLink(database(sqlite), "acme/web");
+      expect(link?.workspaceName).toBe("acme");
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("is a harmless no-op on an unclaimed repo", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      await expect(deleteRepoLinkForWorkspace(database(sqlite), "acme/nope", "acme")).resolves.toBe(
+        false,
+      );
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("listRepoLinksForWorkspace (admin visibility, issue #318)", () => {
+  it("returns only the calling workspace's bindings, newest first", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      await recordRepoLink(database(sqlite), "acme/web", "acme", "comment");
+      await recordRepoLink(database(sqlite), "acme/api", "acme", "cli");
+      await recordRepoLink(database(sqlite), "other/repo", "someone-else", "comment");
+      const links = await listRepoLinksForWorkspace(database(sqlite), "acme");
+      expect(links.map((l) => l.repo).sort()).toEqual(["acme/api", "acme/web"]);
+      expect(links.every((l) => l.workspaceName === "acme")).toBe(true);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("returns an empty list for a workspace with no bindings", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      await expect(listRepoLinksForWorkspace(database(sqlite), "acme")).resolves.toEqual([]);
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("setRepoLink (operator override, issue #318)", () => {
+  it("creates a binding for an unclaimed repo", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      await setRepoLink(database(sqlite), "acme/web", "acme", "admin");
+      const link = await findRepoLink(database(sqlite), "acme/web");
+      expect(link).toMatchObject({ workspaceName: "acme", source: "admin" });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("reassigns an existing binding, overwriting the prior owner", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      await recordRepoLink(database(sqlite), "acme/web", "acme", "comment");
+      await setRepoLink(database(sqlite), "acme/web", "someone-else", "admin", 7);
+      const link = await findRepoLink(database(sqlite), "acme/web");
+      expect(link).toMatchObject({
+        workspaceName: "someone-else",
+        source: "admin",
+        installationId: 7,
+      });
     } finally {
       sqlite.close();
     }
