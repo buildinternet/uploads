@@ -83,6 +83,17 @@ infers the pull request for the current branch via `gh`, uploads stable URLs, an
 or updates one marker-owned GitHub comment. It keeps loose `gh/...` attachments and linked public galleries in distinct sections, shows up to three available gallery images inline, and updates that same comment in place on every sync. Use `--pr`, `--issue`, and `--repo` to select
 the target explicitly, or `--no-comment` to upload without changing GitHub comments.
 
+**Branch staging (pre-PR):** `attach <files> --branch [name]` (also on
+`screenshot`) stages files against a git branch before any PR exists — the
+working mode for coding agents capturing as they go. Staged files live under
+`gh/<owner>/<repo>/branch/<branch>/…` and are promoted into the PR's
+attachments when one opens: automatically via the
+[GitHub App](https://uploads.sh/docs/github-app) webhook, or on the first
+`attach` after the PR exists (`--promote` forces it with no new files,
+`--no-promote` opts out). `uploads github link` inspects or claims the
+workspace↔repo binding the webhook path uses. Promoted staging is cleaned up
+server-side after ~7 days (~30 for branches that never got a PR).
+
 **Screenshot capture:** `uploads screenshot <url|file.html>` renders a page to a
 hosted image in one step — no separate browser tooling needed. `--via auto`
 (default) drives a Chrome/Chromium already on the machine (`playwright-core`
