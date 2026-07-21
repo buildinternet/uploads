@@ -153,6 +153,8 @@ const ERROR_HINTS: Partial<Record<UploadsError["code"], string>> = {
     "hint: use a typed destination (`--destination screenshots|gh`) or an allowed prefix; operators set allowlists with `pnpm workspace:limits --allowed-prefixes`\n",
   UNAUTHORIZED:
     "hint: token rejected — run `uploads login` to sign in again, or check UPLOADS_TOKEN / --token\n",
+  INSUFFICIENT_SCOPE:
+    "hint: re-run `uploads login` for a full-scope token (or mint one with --scopes)\n",
   BROWSER_NOT_FOUND:
     "hint: no local browser found; try --via remote, or install Chrome / npx playwright install chromium\n",
   RATE_LIMITED: "hint: transient rate limit — wait ~60s and retry\n",
