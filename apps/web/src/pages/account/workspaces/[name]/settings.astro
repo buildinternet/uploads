@@ -16,7 +16,7 @@ const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
 ---
 
-<WorkspaceLayout workspace={workspace} activeTab="settings">
+<WorkspaceLayout workspace={workspace}>
   <section class="card settings-page">
     <div class="settings-section">
       <details class="ws-settings-summary" open>

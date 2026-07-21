@@ -4,9 +4,10 @@
  * paths (file-based routing), session gate chrome, sign-out, and an
  * optional right-rail column (`<AccountLayout><Fragment slot="rail">…`).
  *
- * Workspaces is a section label (not a link); each membership is its own
- * flat row underneath. Workspace tab state (files/galleries/people/settings)
- * is owned by WorkspaceLayout, not this shell.
+ * Workspace navigation uses a switcher model: the section heading is the
+ * current workspace name (dropdown of memberships + "+ new workspace").
+ * When a workspace is active, files / galleries / people / settings live
+ * as flat rows under that heading. Tab state is derived from the URL.
  *
  * ClientRouter holds the current view while the next account route loads
  * (no blank-page flicker). Scripts re-boot on `astro:page-load`.
@@ -18,6 +19,11 @@ import {
   resolveSignedInOrigins,
   signedInCsp,
 } from "../lib/signed-in-page";
+import {
+  WORKSPACE_NAV_TABS,
+  workspaceTabFromPathname,
+  type WorkspaceNavTab,
+} from "../lib/workspaces-nav";
 import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
 import SiteHeader from "../components/SiteHeader.astro";
@@ -26,7 +32,7 @@ import "../styles/signed-in-shell.css";
 import "../styles/account-content.css";
 import "../styles/account-shell.css";
 
-export type AccountSection = "overview" | "workspaces" | "profile" | "developers";
+export type AccountSection = "workspaces" | "profile" | "developers";
 
 interface Props {
   section: AccountSection;
@@ -42,13 +48,20 @@ const { section, workspace = "", creating = false, title } = Astro.props;
 const hasRail = Astro.slots.has("rail");
 
 const titles: Record<AccountSection, string> = {
-  overview: "Account",
   workspaces: "Workspaces",
   profile: "Account",
   developers: "Developers",
 };
 const pageHeading = title ?? (workspace || titles[section]);
 const docTitle = `${pageHeading} · uploads.sh`;
+
+const activeTab: WorkspaceNavTab | "" = workspace
+  ? workspaceTabFromPathname(Astro.url.pathname) || "files"
+  : "";
+const workspaceBase = workspace
+  ? `/account/workspaces/${encodeURIComponent(workspace)}`
+  : "";
+const switcherHeading = workspace || "workspaces";
 
 const showConsoleLinks = await resolveShowConsoleLinks(env);
 const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
@@ -86,25 +99,53 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
     <div class="shell">
       <div class="layout" data-rail={hasRail ? "true" : "false"}>
         <nav class="side" aria-label="Account sections">
-          <a
-            href="/account"
-            class="side-link"
-            aria-current={section === "overview" ? "page" : undefined}
-          >
-            overview
-          </a>
-
-          <div class="side-label" id="workspaces-nav-label">workspaces</div>
-          <div id="workspaces-nav-list" role="group" aria-labelledby="workspaces-nav-label">
-            {/* Filled client-side after session + /me/workspaces (cached for paint). */}
+          <div class="ws-switcher" id="ws-switcher">
+            <button
+              type="button"
+              class="ws-switcher__trigger"
+              id="ws-switcher-trigger"
+              aria-expanded="false"
+              aria-haspopup="true"
+              aria-controls="ws-switcher-menu"
+            >
+              <span class="ws-switcher__label" id="ws-switcher-label">{switcherHeading}</span>
+              <span class="ws-switcher__chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="ws-switcher__menu" id="ws-switcher-menu" hidden>
+              {/* Filled client-side after session + /me/workspaces (cached for paint). */}
+              {creating ? (
+                <a
+                  href="/account/workspaces/new"
+                  class="ws-switcher__item ws-switcher__item--new"
+                  aria-current="true"
+                >
+                  + new workspace
+                </a>
+              ) : null}
+            </div>
           </div>
-          <a
-            href="/account/workspaces/new"
-            class="side-link side-new"
-            aria-current={creating ? "page" : undefined}
+
+          <div
+            id="workspace-section-nav"
+            class="ws-section-nav"
+            role="group"
+            aria-label="Workspace sections"
+            hidden={!workspace}
           >
-            + new workspace
-          </a>
+            {
+              workspace
+                ? WORKSPACE_NAV_TABS.map((tab) => (
+                    <a
+                      href={`${workspaceBase}${tab.path}`}
+                      class="side-link"
+                      aria-current={activeTab === tab.id ? "page" : undefined}
+                    >
+                      {tab.label}
+                    </a>
+                  ))
+                : null
+            }
+          </div>
 
           <div class="side-label">you</div>
           <a
@@ -183,7 +224,7 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
     resolveSessionGate,
   } from "../lib/account-shell";
   import { resolveActiveWorkspace } from "../lib/workspace-browse-url";
-  import { initWorkspacesNav } from "../lib/workspaces-nav";
+  import { initWorkspacesNav, workspaceTabFromPathname } from "../lib/workspaces-nav";
 
   onAstroPageLoad(() => {
     if (!document.getElementById("app")) return;
@@ -203,8 +244,9 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
     );
 
     initSignOut(authOrigin);
-    initWorkspacesNav(apiOrigin, requireElement<HTMLElement>("#workspaces-nav-list", "account"), {
+    initWorkspacesNav(apiOrigin, {
       active: activeWorkspace,
+      activeTab: workspaceTabFromPathname(location.pathname),
     });
 
     void resolveSessionGate({

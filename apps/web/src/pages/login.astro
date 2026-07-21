@@ -125,7 +125,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   }
   const defaultCallback = params.has("sig")
     ? `${location.origin}/oauth/consent${location.search}`
-    : `${location.origin}/account#cli-setup`;
+    : `${location.origin}/account`;
   let callbackURL = defaultCallback;
   const rawCallback = params.get("callbackURL");
   if (rawCallback) {

@@ -185,8 +185,8 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     acceptBtn.disabled = true;
     const result = await acceptInvitation(authOrigin, invitationId);
     if (result.ok) {
-      // Native fragment scroll to the CLI setup card on the account overview.
-      location.assign(`${location.origin}/account#cli-setup`);
+      // Land in the workspaces shell (auto-opens a single membership).
+      location.assign(`${location.origin}/account/workspaces`);
       return;
     }
     acceptBtn.disabled = false;

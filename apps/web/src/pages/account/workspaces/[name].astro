@@ -1,10 +1,7 @@
 ---
 /**
- * Workspace files tab (3A) — composes `WorkspaceLayout` (header · tabs ·
- * summary rail) with the `WorkspaceFileTable` island as the `files` tab
- * body. Galleries / people / settings are separate sibling routes under
- * this same `[name]/` directory, each wrapping `WorkspaceLayout` with its
- * own `activeTab`.
+ * Workspace files — `WorkspaceLayout` + file table. Sibling routes under
+ * `[name]/` cover galleries / people / settings.
  */
 import WorkspaceLayout from "../../../layouts/WorkspaceLayout.astro";
 import { isBrowseWorkspace } from "../../../lib/workspace-browse-url";
@@ -16,7 +13,7 @@ const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
 ---
 
-<WorkspaceLayout workspace={workspace} activeTab="files">
+<WorkspaceLayout workspace={workspace}>
   <div id="ws-files-table"></div>
 
   <script>

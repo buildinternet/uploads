@@ -22,21 +22,12 @@
   font-size: 13px;
 }
 
-/* `.side-link` is the flat-row nav item (Overview, each workspace, + new
-   workspace, Account, Developers). A prompt-style `> `/`  ` prefix (not the
-   old chip background) marks the active row — see ::before below. */
+/* Flat rows — active = accent color only. */
 .account-shell nav.side .side-link {
   display: block;
   padding: 5px 0;
-  border-radius: 0;
-  border: 0;
-  background: none;
   color: var(--muted);
   text-decoration: none;
-  white-space: pre;
-}
-.account-shell nav.side .side-link::before {
-  content: "  ";
 }
 .account-shell nav.side .side-link:hover,
 .account-shell nav.side .side-link:focus-visible {
@@ -45,44 +36,117 @@
 }
 .account-shell nav.side .side-link[aria-current] {
   color: var(--accent);
-  background: none;
-  border: 0;
-}
-.account-shell nav.side .side-link[aria-current]::before {
-  content: "> ";
 }
 
-/* Section labels — WORKSPACES / YOU. */
+/* Section labels (YOU). Workspace heading is the switcher trigger. */
 .account-shell nav.side .side-label {
   margin: 14px 0 4px;
-  padding: 0;
   color: var(--muted);
   font-size: 10.5px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
-/* Workspace membership rows fill this container client-side; let its
-   children participate directly in the nav's own grid gap rhythm. */
-.account-shell #workspaces-nav-list {
-  display: contents;
+/* Workspace switcher — first nav item. */
+.account-shell nav.side .ws-switcher {
+  position: relative;
+  margin: 0 0 4px;
 }
-
-/* "+ new workspace" — same flat row, dimmer resting color. */
-.account-shell nav.side .side-link.side-new {
-  color: color-mix(in srgb, var(--muted) 85%, var(--accent));
-  font-size: 12px;
+/* Beat signed-in-shell's `nav.side button` (red hover / mono foot). */
+.account-shell nav.side .ws-switcher .ws-switcher__trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
 }
-.account-shell nav.side .side-link.side-new:hover,
-.account-shell nav.side .side-link.side-new:focus-visible {
+.account-shell nav.side .ws-switcher .ws-switcher__trigger:hover,
+.account-shell nav.side .ws-switcher .ws-switcher__trigger:focus-visible,
+.account-shell nav.side .ws-switcher .ws-switcher__trigger[aria-expanded="true"] {
+  color: var(--fg);
+  outline: none;
+}
+.account-shell nav.side .ws-switcher__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-shell nav.side .ws-switcher__chevron {
+  flex: none;
+  font-size: 9px;
+  letter-spacing: 0;
+  opacity: 0.7;
+}
+.account-shell nav.side .ws-switcher__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: min(220px, 70vw);
+  max-width: 280px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+.account-shell nav.side .ws-switcher__item {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: var(--fg);
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-shell nav.side .ws-switcher__item:hover,
+.account-shell nav.side .ws-switcher__item:focus-visible {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
   outline: none;
 }
-.account-shell nav.side .side-link.side-new[aria-current] {
+.account-shell nav.side .ws-switcher__item.is-current {
   color: var(--accent);
 }
+.account-shell nav.side .ws-switcher__item--new {
+  color: color-mix(in srgb, var(--muted) 70%, var(--accent));
+  font-size: 12px;
+}
+.account-shell nav.side .ws-switcher__sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
 
-/* Foot — console / admin / sign out. Plain rows, no prompt prefix. */
+/* Section links participate in nav gap via display:contents. */
+.account-shell nav.side .ws-section-nav {
+  display: contents;
+}
+.account-shell nav.side .ws-section-nav[hidden] {
+  display: none;
+}
+
+/* Foot — console / admin / sign out. */
 .account-shell nav.side .side-foot {
   margin-top: 16px;
   padding-top: 14px;
@@ -91,24 +155,27 @@
 }
 .account-shell nav.side .side-foot a {
   display: block;
-  padding: 0;
-  border-radius: 0;
-  border: 0;
   font-size: 12px;
   color: var(--muted);
+  text-decoration: none;
 }
 .account-shell nav.side .side-foot a:hover,
 .account-shell nav.side .side-foot a:focus-visible {
   color: var(--accent);
   outline: none;
 }
-.account-shell nav.side button {
+.account-shell nav.side .side-foot button {
   padding: 5px 0;
   border: 0;
   border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
 }
-.account-shell nav.side button:hover,
-.account-shell nav.side button:focus-visible {
+.account-shell nav.side .side-foot button:hover,
+.account-shell nav.side .side-foot button:focus-visible {
   color: var(--red);
   outline: none;
 }
@@ -153,7 +220,8 @@
     grid-template-columns: 1fr;
     gap: 24px;
   }
-  .account-shell nav.side .side-label {
+  .account-shell nav.side .side-label,
+  .account-shell nav.side .ws-switcher {
     grid-column: 1 / -1;
   }
   .account-shell nav.side .side-foot {

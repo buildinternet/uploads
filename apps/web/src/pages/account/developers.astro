@@ -9,12 +9,49 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
 ---
 
 <AccountLayout section="developers">
+  <!--
+    CLI setup card. Script toggles status from list-sessions + sticky
+    user.cliOnboardedAt. Deep link: /account/developers#cli-setup.
+  -->
+  <section class="card is-pending" id="cli-setup" data-setup="checking">
+    <h2>Set up the CLI</h2>
+    <p class="settings-note">
+      Install once, then <code>uploads login</code> and
+      <code>uploads put</code> / <code>uploads attach</code>.
+    </p>
+    <div id="cli-setup-status" class="ul-callout" data-state="muted" role="status">
+      Checking for a CLI sign-in…
+    </div>
+    <div class="cli-steps" id="cli-steps">
+      <div class="command" id="cli-install-cmd">
+        <code>npm install -g @buildinternet/uploads</code>
+        <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite">copy</button>
+      </div>
+      <div class="command">
+        <code>uploads login</code>
+        <button type="button" data-copy="uploads login" aria-live="polite">copy</button>
+      </div>
+    </div>
+    <p class="muted cli-note" id="cli-setup-note">
+      Or <code>npx @buildinternet/uploads login</code> —
+      <a href="/docs#install">docs</a>.
+    </p>
+    <div id="cli-agents">
+      <p class="muted cli-note">Agents (skill + MCP for Claude Code):</p>
+      <div class="cli-steps cli-steps--solo">
+        <div class="command">
+          <code>uploads install</code>
+          <button type="button" data-copy="uploads install" aria-live="polite">copy</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section class="card settings-page dev-page">
     <div class="settings-section">
       <h2>Developers</h2>
       <p class="settings-note muted">
-        API and CI. Day to day: <code>uploads login</code> from the{" "}
-        <a href="/account#cli-setup">overview</a>.
+        API and CI. Day to day starts with the CLI setup above.
       </p>
       <ul class="dev-links">
         {showConsoleLinks ? (
@@ -34,4 +71,74 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
       </ul>
     </div>
   </section>
+
+  <script>
+    import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
+    import { listSessions } from "../../lib/auth-client";
+    import { resolveCliSetupState } from "../../lib/cli-setup-state";
+
+    onAstroPageLoad(() => {
+      if (!document.getElementById("cli-setup")) return;
+
+      const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
+        .__UPLOADS_AUTH_ORIGIN__;
+
+      requireElement<HTMLElement>("#cli-setup", "developers").addEventListener(
+        "click",
+        (event) => {
+          void (async () => {
+            const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+              "button[data-copy]",
+            );
+            if (!button) return;
+            try {
+              await navigator.clipboard.writeText(button.dataset.copy ?? "");
+              const previous = button.textContent;
+              button.textContent = "copied ✓";
+              setTimeout(() => {
+                button.textContent = previous;
+              }, 1500);
+            } catch {
+              // Clipboard blocked — leave the label.
+            }
+          })();
+        },
+      );
+
+      function applyCliSetup(
+        sessions: Awaited<ReturnType<typeof listSessions>>,
+        cliOnboardedAt: string | Date | null | undefined,
+        loaded: boolean,
+      ): void {
+        const { kind, statusText, statusState } = resolveCliSetupState({
+          sessions,
+          cliOnboardedAt,
+          loaded,
+        });
+        const status = requireElement<HTMLElement>("#cli-setup-status", "developers");
+        const card = requireElement<HTMLElement>("#cli-setup", "developers");
+        const steps = requireElement<HTMLElement>("#cli-steps", "developers");
+        const installCmd = requireElement<HTMLElement>("#cli-install-cmd", "developers");
+        const note = requireElement<HTMLElement>("#cli-setup-note", "developers");
+
+        card.dataset.setup = kind;
+        card.classList.toggle("is-pending", kind === "checking" || kind === "setup");
+        if (statusState) status.dataset.state = statusState;
+        else delete status.dataset.state;
+        status.textContent = statusText;
+
+        // ready: hide commands; reconnect: login only; setup/checking: full install.
+        steps.hidden = kind === "ready";
+        installCmd.hidden = kind === "reconnect";
+        note.hidden = kind === "ready" || kind === "reconnect";
+      }
+
+      onSession((user) => {
+        applyCliSetup(null, user.cliOnboardedAt, false);
+        void listSessions(authOrigin).then((sessions) => {
+          applyCliSetup(sessions, user.cliOnboardedAt, true);
+        });
+      });
+    });
+  </script>
 </AccountLayout>

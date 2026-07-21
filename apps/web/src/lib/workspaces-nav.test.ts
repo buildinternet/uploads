@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   clearCachedWorkspaces,
   readCachedWorkspaces,
-  renderWorkspacesNavHtml,
+  renderSwitcherMenuHtml,
+  renderWorkspaceSectionNavHtml,
+  switcherLabel,
+  workspaceTabFromPathname,
   writeCachedWorkspaces,
   WORKSPACES_CACHE_KEY,
 } from "./workspaces-nav";
@@ -56,22 +59,69 @@ describe("workspaces cache", () => {
   });
 });
 
-describe("renderWorkspacesNavHtml", () => {
-  it("renders one flat row per membership and marks the active one", () => {
-    const html = renderWorkspacesNavHtml(sample, { active: "buildinternet" });
-    expect(html).toContain('href="/account/workspaces/buildinternet"');
-    expect(html).toContain('class="side-link"');
-    expect(html).toMatch(/href="\/account\/workspaces\/buildinternet"[^>]*aria-current="page"/);
-    expect(html).toContain('href="/account/workspaces/side"');
-    // Non-active memberships get no aria-current.
-    expect(html).not.toMatch(/href="\/account\/workspaces\/side"[^>]*aria-current/);
-    // No nested/Invite sub-items in the flat nav.
-    expect(html).not.toContain("side-nested");
-    expect(html).not.toContain("/invite");
+describe("workspaceTabFromPathname", () => {
+  it("maps workspace shell paths to tab ids", () => {
+    expect(workspaceTabFromPathname("/account/workspaces/buildinternet")).toBe("files");
+    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/")).toBe("files");
+    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/galleries")).toBe(
+      "galleries",
+    );
+    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/people")).toBe("people");
+    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/invite")).toBe("people");
+    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/settings")).toBe("settings");
   });
 
-  it("marks no row current when there is no active workspace", () => {
-    const html = renderWorkspacesNavHtml(sample);
-    expect(html).not.toContain("aria-current");
+  it("returns empty outside the workspace shell", () => {
+    expect(workspaceTabFromPathname("/account")).toBe("");
+    expect(workspaceTabFromPathname("/account/workspaces")).toBe("");
+    expect(workspaceTabFromPathname("/account/workspaces/new")).toBe("");
+    expect(workspaceTabFromPathname("/account/profile")).toBe("");
+  });
+});
+
+describe("switcherLabel", () => {
+  it("prefers the membership display name, falls back to slug or workspaces", () => {
+    expect(switcherLabel(sample, "side")).toBe("Side Project");
+    expect(switcherLabel(sample, "buildinternet")).toBe("buildinternet");
+    expect(switcherLabel(sample, "unknown")).toBe("unknown");
+    expect(switcherLabel(sample, "")).toBe("workspaces");
+  });
+});
+
+describe("renderSwitcherMenuHtml", () => {
+  it("lists memberships, marks the active one, and includes new workspace", () => {
+    const html = renderSwitcherMenuHtml(sample, { active: "buildinternet" });
+    expect(html).toContain('href="/account/workspaces/buildinternet"');
+    expect(html).toContain('href="/account/workspaces/side"');
+    expect(html).toMatch(/href="\/account\/workspaces\/buildinternet"[^>]*aria-current="true"/);
+    expect(html).not.toMatch(/href="\/account\/workspaces\/side"[^>]*aria-current/);
+    expect(html).toContain('href="/account/workspaces/new"');
+    expect(html).toContain("+ new workspace");
+    expect(html).toContain("ws-switcher__sep");
+  });
+
+  it("still shows + new workspace with an empty membership list", () => {
+    const html = renderSwitcherMenuHtml([]);
+    expect(html).toContain('href="/account/workspaces/new"');
+    expect(html).toContain("+ new workspace");
+    expect(html).not.toContain("ws-switcher__sep");
+  });
+});
+
+describe("renderWorkspaceSectionNavHtml", () => {
+  it("renders section links for an active workspace and marks the tab", () => {
+    const html = renderWorkspaceSectionNavHtml("buildinternet", "galleries");
+    expect(html).toContain('href="/account/workspaces/buildinternet"');
+    expect(html).toContain('href="/account/workspaces/buildinternet/galleries"');
+    expect(html).toContain('href="/account/workspaces/buildinternet/people"');
+    expect(html).toContain('href="/account/workspaces/buildinternet/settings"');
+    expect(html).toMatch(
+      /href="\/account\/workspaces\/buildinternet\/galleries"[^>]*aria-current="page"/,
+    );
+    expect(html).toContain('class="side-link"');
+  });
+
+  it("returns empty when no workspace is active", () => {
+    expect(renderWorkspaceSectionNavHtml("")).toBe("");
   });
 });
