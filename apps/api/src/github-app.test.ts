@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { appJwt, githubAppConfig, installationForRepo, installationToken } from "./github-app";
+import {
+  appEventSubscriptions,
+  appJwt,
+  githubAppConfig,
+  installationForRepo,
+  installationToken,
+} from "./github-app";
 import { FakeKv } from "../test/fake-kv";
 
 /** Generate a throwaway RSA key and return its PKCS#8 PEM + public CryptoKey. */
@@ -66,6 +72,36 @@ describe("appJwt", () => {
       new TextEncoder().encode(`${h}.${p}`),
     );
     expect(ok).toBe(true);
+  });
+});
+
+describe("appEventSubscriptions", () => {
+  it("returns the App's subscribed events from GET /app", async () => {
+    const { pem } = await testKeyPair();
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("https://api.github.com/app");
+      return new Response(JSON.stringify({ events: ["ping", "issues", "pull_request"] }), {
+        status: 200,
+      });
+    }) as typeof fetch;
+    expect(await appEventSubscriptions(cfgWith(pem), fetchImpl)).toEqual([
+      "ping",
+      "issues",
+      "pull_request",
+    ]);
+  });
+
+  it("returns null on a non-ok response", async () => {
+    const { pem } = await testKeyPair();
+    const fetchImpl = (async () => new Response("", { status: 401 })) as typeof fetch;
+    expect(await appEventSubscriptions(cfgWith(pem), fetchImpl)).toBeNull();
+  });
+
+  it("returns null when events is missing or malformed", async () => {
+    const { pem } = await testKeyPair();
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({}), { status: 200 })) as typeof fetch;
+    expect(await appEventSubscriptions(cfgWith(pem), fetchImpl)).toBeNull();
   });
 });
 

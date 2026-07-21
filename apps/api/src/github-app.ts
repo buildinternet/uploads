@@ -82,6 +82,41 @@ export function githubFetch(
 }
 
 /**
+ * Webhook event types this worker's handler actually reads (see
+ * `handleWebhook` in ./github-webhook.ts): `issues`/`pull_request` drive
+ * auto-promotion and title-cache invalidation. These are NOT sent unless the
+ * App owner ticks them under Settings → Permissions & events → Subscribe to
+ * events — unlike `installation`/`installation_repositories`/`ping`, which
+ * GitHub always sends regardless of subscription. Issue #293's follow-up:
+ * the App shipped with ping green but these two unsubscribed, silently
+ * breaking both features.
+ */
+export const REQUIRED_WEBHOOK_EVENTS = ["issues", "pull_request"] as const;
+
+/**
+ * The App's subscribed webhook events, straight from `GET /app` (App-JWT
+ * auth, not installation-token — this is app-level metadata, no installation
+ * needed). Returns null on any failure so callers degrade the same way the
+ * rest of this module does: "unknown" is never reported as "broken".
+ */
+export async function appEventSubscriptions(
+  cfg: GithubAppConfig,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string[] | null> {
+  try {
+    const res = await githubFetch(fetchImpl, "https://api.github.com/app", {
+      headers: githubHeaders(await appJwt(cfg)),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { events?: unknown };
+    if (!Array.isArray(body.events)) return null;
+    return body.events.filter((e): e is string => typeof e === "string");
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Installation id for `repo` ("owner/name"), or null when the App is not
  * installed there. 404 (not installed) is cached as "none"; transient
  * failures are not cached.
