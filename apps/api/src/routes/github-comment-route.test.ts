@@ -5,6 +5,34 @@ import { FakeKv } from "../../test/fake-kv";
 import { FakeR2Bucket } from "../../test/fake-r2";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
 import { GITHUB_APP_CFG_ENV } from "../../test/github-app-env";
+import { RepoLinksTable } from "../../test/helpers/fake-repo-links-table";
+
+/**
+ * A minimal D1 stand-in (auth-token lookup + galleries read both no-op) with
+ * a real `RepoLinksTable` wired in, for the implicit-claim tests below —
+ * mirrors the inline `db` object the "posts as the bot" test above already
+ * uses, extended so `github_repo_links` statements actually persist.
+ */
+function claimTestDb(): { db: D1Database; links: RepoLinksTable } {
+  const links = new RepoLinksTable();
+  const db = {
+    prepare: (sql: string) => {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      let values: unknown[] = [];
+      const stmt = {
+        bind: (...v: unknown[]) => {
+          values = v;
+          return stmt;
+        },
+        first: async () => links.tryFirst(normalized, values) ?? null,
+        all: async () => ({ results: [] }),
+        run: async () => links.tryRun(normalized, values) ?? {},
+      };
+      return stmt;
+    },
+  } as unknown as D1Database;
+  return { db, links };
+}
 
 // `crypto.subtle.timingSafeEqual` is a Workers-runtime extension to Web
 // Crypto (used by workspaceAuth, see ../workspace.ts) that plain Node's
@@ -202,5 +230,112 @@ describe("POST /v1/:workspace/github/comment", () => {
     } finally {
       globalThis.fetch = realFetch;
     }
+  });
+});
+
+describe("POST /v1/:workspace/github/comment implicit repo-link claim", () => {
+  async function envWithBucket(db: D1Database): Promise<Env> {
+    const hash = await sha256Hex(TOKEN);
+    const record: WorkspaceRecord = {
+      provider: "r2",
+      bucket: "b",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "acme/",
+      publicBaseUrl: "https://storage.uploads.sh",
+      tokens: [{ hash, createdAt: new Date().toISOString() }],
+    };
+    const registry = {
+      get: (async (key: string) =>
+        key === `ws:${WS}` ? record : null) as unknown as KVNamespace["get"],
+    };
+    const githubCache = new FakeKv();
+    githubCache.store.set("ghinst:acme/web", { value: "42" });
+    githubCache.store.set("ghtok:42", { value: "cached-token" });
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", new Uint8Array([0x89, 0x50]), {
+      httpMetadata: { contentType: "image/png" },
+    });
+    return {
+      REGISTRY: registry,
+      DB: db,
+      GITHUB_CACHE: githubCache,
+      UPLOADS_DEFAULT: bucket,
+      ...GITHUB_APP_CFG_ENV,
+    } as unknown as Env;
+  }
+
+  it("records a link when the comment actually posts", async () => {
+    const { db, links } = claimTestDb();
+    const env = await envWithBucket(db);
+
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
+      if (String(url).includes("/issues/12/comments")) {
+        return init.method === "POST"
+          ? new Response(
+              JSON.stringify({ id: 5, html_url: "https://github.com/acme/web/pull/12#c5" }),
+              { status: 201 },
+            )
+          : new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+    try {
+      const res = await post(env, { repo: "acme/web", num: 12, kind: "pull" });
+      expect(res.status).toBe(200);
+      const link = links.rows.get("acme/web");
+      expect(link).toMatchObject({ workspace_name: WS, source: "comment", installation_id: 42 });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("does not record a link when nothing was posted (degrade)", async () => {
+    const { db, links } = claimTestDb();
+    const env = await envWithBucket(db);
+
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string) =>
+      String(url).includes("/issues/12/comments")
+        ? new Response("no", { status: 403 })
+        : new Response("nf", { status: 404 })) as unknown as typeof fetch;
+    try {
+      const res = await post(env, { repo: "acme/web", num: 12, kind: "pull" });
+      expect(res.status).toBe(200);
+      expect(links.rows.has("acme/web")).toBe(false);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("does not record a link when gathering skips (nothing to post)", async () => {
+    const { db, links } = claimTestDb();
+    const hash = await sha256Hex(TOKEN);
+    const record: WorkspaceRecord = {
+      provider: "r2",
+      bucket: "b",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "acme/",
+      publicBaseUrl: "https://storage.uploads.sh",
+      tokens: [{ hash, createdAt: new Date().toISOString() }],
+    };
+    const registry = {
+      get: (async (key: string) =>
+        key === `ws:${WS}` ? record : null) as unknown as KVNamespace["get"],
+    };
+    const githubCache = new FakeKv();
+    githubCache.store.set("ghinst:acme/web", { value: "42" });
+    const env = {
+      REGISTRY: registry,
+      DB: db,
+      GITHUB_CACHE: githubCache,
+      UPLOADS_DEFAULT: new FakeR2Bucket(),
+      ...GITHUB_APP_CFG_ENV,
+    } as unknown as Env;
+
+    const res = await post(env, { repo: "acme/web", num: 12, kind: "pull" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ posted: true, action: "skipped", count: 0 });
+    expect(links.rows.has("acme/web")).toBe(false);
   });
 });

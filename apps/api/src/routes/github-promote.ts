@@ -10,6 +10,7 @@
 import { ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
 import { promoteBranchAttachments } from "../github-promote";
+import { recordRepoLink } from "../github-repo-links";
 import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
@@ -63,6 +64,13 @@ export const githubPromote = new Hono<WorkspaceVars>().post(
       c.get("workspaceName"),
       target,
     );
+
+    // Implicit claim (phase 3): reaching a 2xx response means this workspace
+    // has proven authenticated write access to this repo's branch-staged
+    // attachments — best-effort record it as the repo's bound workspace.
+    // First-claim-wins (recordRepoLink) and never affects this response.
+    await recordRepoLink(c.env.DB, target.repo, c.get("workspaceName"), "promote");
+
     return c.json(result);
   },
 );

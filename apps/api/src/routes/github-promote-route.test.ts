@@ -373,4 +373,33 @@ describe("POST /v1/:workspace/github/promote", () => {
     // Destination object is real.
     expect(seeded.bucket.store.has(`${PREFIX}${destKey("hero.png")}`)).toBe(true);
   });
+
+  it("records an implicit repo-link claim on a successful (2xx) promote", async () => {
+    const seeded = await seededEnv();
+    const res = await post(seeded.env, { repo: REPO, num: NUM, branch: BRANCH });
+    expect(res.status).toBe(200);
+    const link = seeded.db.repoLinks.get("acme/web");
+    expect(link).toMatchObject({ workspace_name: WS, source: "promote" });
+  });
+
+  it("first-claim-wins: a second workspace's promote never overwrites an existing link", async () => {
+    const seeded = await seededEnv();
+    seeded.db.repoLinks.set("acme/web", {
+      repo_full_name: "acme/web",
+      workspace_name: "someone-else",
+      installation_id: null,
+      source: "comment",
+      created_at: "2026-01-01T00:00:00.000Z",
+    });
+    const res = await post(seeded.env, { repo: REPO, num: NUM, branch: BRANCH });
+    expect(res.status).toBe(200);
+    expect(seeded.db.repoLinks.get("acme/web")?.workspace_name).toBe("someone-else");
+  });
+
+  it("does not record a link on a validation failure", async () => {
+    const seeded = await seededEnv();
+    const res = await post(seeded.env, { repo: "not-a-repo", num: 0, branch: "" });
+    expect(res.status).toBe(400);
+    expect(seeded.db.repoLinks.has("acme/web")).toBe(false);
+  });
 });
