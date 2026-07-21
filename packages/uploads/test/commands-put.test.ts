@@ -941,3 +941,87 @@ describe("runPut canonical metadata flags", () => {
     expect(puts[0]?.metadata?.path).toBeUndefined();
   });
 });
+
+describe("put promotes EXIF facts", () => {
+  async function retinaPng(): Promise<Buffer> {
+    const sharp = (await import("sharp")).default;
+    return sharp({
+      create: { width: 1624, height: 1154, channels: 3, background: { r: 5, g: 5, b: 5 } },
+    })
+      .withMetadata({ density: 144 })
+      .png()
+      .toBuffer();
+  }
+
+  function fileWith(bytes: Buffer): string {
+    const dir = mkdtempSync(join(tmpdir(), "uploads-exif-"));
+    const file = join(dir, "shot.png");
+    writeFileSync(file, bytes);
+    return file;
+  }
+
+  it("stamps viewport from a retina PNG's density", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [fileWith(await retinaPng()), "--no-git"], false, noRun);
+    expect(puts[0]?.metadata?.viewport).toBe("812x577@2x");
+  });
+
+  it("lets an explicit --meta viewport win", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [fileWith(await retinaPng()), "--no-git", "--meta", "viewport=1x1@1x"],
+      false,
+      noRun,
+    );
+    expect(puts[0]?.metadata?.viewport).toBe("1x1@1x");
+  });
+
+  it("derives nothing when --no-auto opts out", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [fileWith(await retinaPng()), "--no-git", "--no-auto"],
+      false,
+      noRun,
+    );
+    expect(puts[0]?.metadata).toBeUndefined();
+  });
+
+  it("does not leak one file's facts onto another's upload", async () => {
+    const { client, puts } = fakeClient();
+    const sharp = (await import("sharp")).default;
+    const plain = await sharp({
+      create: { width: 40, height: 40, channels: 3, background: { r: 1, g: 1, b: 1 } },
+    })
+      .withMetadata({ density: 72 })
+      .png()
+      .toBuffer();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-exif-multi-"));
+    const retinaFile = join(dir, "retina.png");
+    const plainFile = join(dir, "plain.png");
+    writeFileSync(retinaFile, await retinaPng());
+    writeFileSync(plainFile, plain);
+    await runPut(ctxWith(client), [retinaFile, plainFile, "--no-git"], false, noRun);
+    // The optimizer rewrites PNG → WebP, so uploads land under .webp names.
+    const byName = new Map(puts.map((p) => [p.filename, p.metadata]));
+    expect(byName.get("retina.webp")?.viewport).toBe("812x577@2x");
+    expect(byName.get("plain.webp")?.viewport).toBeUndefined();
+  });
+
+  // Documents a real consequence, resolved against apps/api/src/files-core.ts:313:
+  // any metadata sent on a put fully replaces the stored set (delete-then-insert).
+  // Derived facts therefore make a previously metadata-free re-upload start
+  // replacing stored metadata — matching how the existing gh.* derived tier
+  // already behaves. --no-auto is the opt-out for callers who curate metadata
+  // with `uploads meta set` and re-upload the same key.
+  it("sends a metadata map once facts are derived, which the server treats as a full replace", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [fileWith(await retinaPng()), "--no-git"], false, noRun);
+    expect(puts[0]?.metadata).toBeDefined();
+
+    const { client: c2, puts: p2 } = fakeClient();
+    await runPut(ctxWith(c2), [fileWith(await retinaPng()), "--no-git", "--no-auto"], false, noRun);
+    expect(p2[0]?.metadata).toBeUndefined();
+  });
+});

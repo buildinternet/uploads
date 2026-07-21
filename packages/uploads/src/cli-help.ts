@@ -130,10 +130,10 @@ ${section(style, "Examples:")}
   ${style.command("uploads put")} ./shot.png --pr 123 --name hero.png
   ${style.command("uploads put")} ./after.png --pr 123 --comment
   ${style.command("uploads put")} ./bug.png --issue 45
-  ${style.command("uploads put")} ./shot.png --meta app=myapp --meta page=settings
+  ${style.command("uploads put")} ./shot.png --meta path=/settings --state after
   ${style.command("uploads attach")} ./before.png ./after.png
   ${style.command("uploads attach")} ./shot.png --pr 123 --repo myorg/myapp
-  ${style.command("uploads attach")} ./shot.png --meta app=myapp --meta page=settings
+  ${style.command("uploads attach")} ./shot.png --meta path=/settings --state after
   ${style.command("uploads doctor")}
   ${style.command("uploads install")}
   ${style.command("uploads logout")}
@@ -181,11 +181,11 @@ ${section(style, "Examples:")}
   ${style.command("uploads put")} ./after.png --pr 123 --comment
   ${style.command("uploads put")} ./bug.png --issue 45 --repo myorg/myapp
   ${style.command("uploads put")} ./shot.png --dry-run --format url
-  ${style.command("uploads put")} ./shot.png --meta app=myapp --meta page=settings
+  ${style.command("uploads put")} ./shot.png --meta path=/settings --state after
   ${style.command("uploads attach")} ./before.png ./after.png
   ${style.command("uploads attach")} ./shot.png --pr 123 --repo myorg/myapp
   ${style.command("uploads attach")} ./artifact.zip --issue 45 --no-comment
-  ${style.command("uploads attach")} ./shot.png --meta app=myapp --meta page=settings
+  ${style.command("uploads attach")} ./shot.png --meta path=/settings --state after
   ${style.command("uploads gallery")} create --title "Release screenshots"
   ${style.command("uploads doctor")}
   ${style.command("uploads logout")}

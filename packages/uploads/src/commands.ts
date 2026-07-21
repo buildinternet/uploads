@@ -184,7 +184,7 @@ Examples:
   uploads put ./capture-….webp --pr 128 --name hero.webp
   uploads put ./shot.png --pr 128 --name hero.webp --dry-run --format url
   uploads put ./after.png --gallery gal_example
-  uploads put ./shot.png --meta app=myapp --meta page=settings
+  uploads put ./shot.png --meta path=/settings --state after --app web
 `;
 
 /**
@@ -772,7 +772,7 @@ Examples:
   uploads attach ./mobile.png --frame phone
   uploads attach ./shot.png --pr 123 --repo myorg/myapp
   uploads attach ./artifact.zip --issue 45 --no-comment
-  uploads attach ./shot.png --meta app=myapp --meta page=settings
+  uploads attach ./shot.png --meta path=/settings --state after
   uploads attach ./shot.png --branch
   uploads attach ./shot.png --branch feature/new-settings
   uploads attach --promote
@@ -994,6 +994,12 @@ export async function uploadPuts(opts: {
     frameFit?: "cover" | "contain";
   };
   metadata?: Record<string, string>;
+  /**
+   * Promote each file's own EXIF allowlist into its metadata (see
+   * image-facts.ts). Per-file by nature, so it happens here rather than once
+   * for the command — one file's camera must never label another's upload.
+   */
+  deriveImageFacts?: boolean;
   provenanceClient?: string;
   /** When set, used as alt for every file; else each file's basename. */
   alt?: string;
@@ -1024,9 +1030,20 @@ export async function uploadPuts(opts: {
               ? basename(opts.explicitKey)
               : "stdin.bin"
             : basename(file));
+        const bytes = readFileArg(file);
+        // Read EXIF before the optimizer strips it from the bytes. Best-effort:
+        // imageFactsFromBytes never rejects, and a full key budget drops the
+        // derived pairs rather than failing the upload.
+        let metadataForFile = opts.metadata;
+        if (opts.deriveImageFacts) {
+          const facts = await imageFactsFromBytes(bytes);
+          if (Object.keys(facts).length > 0) {
+            metadataForFile = mergeDerivedMeta(opts.metadata ?? {}, facts);
+          }
+        }
         const { result, prepared, markdown } = await uploadPreparedImage(
           opts.client,
-          readFileArg(file),
+          bytes,
           sourceName,
           {
             frame: opts.frame,
@@ -1040,7 +1057,7 @@ export async function uploadPuts(opts: {
             contentType: opts.contentType,
             dryRun: opts.dryRun,
             replace: opts.replace,
-            metadata: opts.metadata,
+            metadata: metadataForFile,
             provenanceClient: opts.provenanceClient,
             alt: () => opts.alt ?? basename(sourceName),
             width: opts.width,
@@ -1601,6 +1618,7 @@ export async function runPut(
     optimize: optimizeOpts,
     frame: frameOpts,
     metadata,
+    deriveImageFacts: derivedMetaEnabled(parsed.flags, defaults),
     alt: altFlag,
     width,
   });
@@ -2071,7 +2089,7 @@ Human-friendly alias for \`uploads list --meta k=v...\` — same metadata filter
 
 Examples:
   uploads find gh.repo=buildinternet/uploads gh.number=123
-  uploads find app=myapp page=settings --prefix screenshots/
+  uploads find path=/settings state=after --prefix screenshots/
 `;
 
 export async function runFind(ctx: CliContext, args: string[], help = false): Promise<number> {
@@ -2101,8 +2119,8 @@ Commands:
 
 Examples:
   uploads meta get screenshots/myapp/42/shot.png
-  uploads meta set screenshots/myapp/42/shot.png app=myapp page=settings
-  uploads meta set screenshots/myapp/42/shot.png --delete app --delete page
+  uploads meta set screenshots/myapp/42/shot.png path=/settings state=after
+  uploads meta set screenshots/myapp/42/shot.png --delete path --delete state
 `;
 
 export async function runMeta(ctx: CliContext, args: string[], help = false): Promise<number> {
