@@ -5,6 +5,7 @@ import { FakeKv } from "../../test/fake-kv";
 import { FakeR2Bucket } from "../../test/fake-r2";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
 import { GITHUB_APP_CFG_ENV } from "../../test/github-app-env";
+import { mintingUserTokenRow } from "../../test/helpers/fake-minting-user-token";
 import { RepoLinksTable } from "../../test/helpers/fake-repo-links-table";
 
 /**
@@ -30,17 +31,11 @@ function claimTestDb(mintingUserId?: string): { db: D1Database; links: RepoLinks
         },
         first: async () => {
           if (mintingUserId && normalized.startsWith("SELECT id, workspace, token_hash")) {
-            return {
-              id: "token-id",
+            return mintingUserTokenRow({
               workspace: WS,
-              token_hash: values[1] as string,
-              label: null,
-              scopes: JSON.stringify(["files:read", "files:write", "files:delete"]),
-              created_at: "2026-07-13T00:00:00.000Z",
-              expires_at: null,
-              revoked_at: null,
-              minting_user_id: mintingUserId,
-            };
+              tokenHash: values[1] as string,
+              mintingUserId,
+            });
           }
           return links.tryFirst(normalized, values) ?? null;
         },

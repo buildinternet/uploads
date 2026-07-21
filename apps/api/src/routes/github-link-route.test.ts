@@ -4,6 +4,7 @@ import { sha256Hex, type WorkspaceRecord } from "../workspace";
 import { FakeKv } from "../../test/fake-kv";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
 import { GITHUB_APP_CFG_ENV } from "../../test/github-app-env";
+import { withMintingUserToken } from "../../test/helpers/fake-minting-user-token";
 
 // Same node-vs-workerd Web Crypto gap as github-promote-route.test.ts — this
 // suite exercises the real workspaceAuth middleware end to end.
@@ -53,40 +54,11 @@ async function seededEnv(
     // Layer a D1-backed token carrying a minting user id (issue #297's
     // claim-authorization gate reads it via `c.get("mintingUserId")`) — same
     // shape `workspaceAuth` reads via `findActiveToken` (workspace.ts).
-    const hash = await sha256Hex(token);
-    const mintingUserId = opts.mintingUserId;
-    const originalPrepare = db.prepare.bind(db);
-    db.prepare = ((sql: string) => {
-      const normalized = sql.replace(/\s+/g, " ").trim();
-      if (normalized.startsWith("SELECT id, workspace, token_hash")) {
-        let args: unknown[] = [];
-        return {
-          bind: (...v: unknown[]) => {
-            args = v;
-            return {
-              first: async () => {
-                const tokHash = args[1] as string;
-                if (tokHash !== hash) return null;
-                return {
-                  id: "token-id",
-                  workspace,
-                  token_hash: hash,
-                  label: null,
-                  scopes: JSON.stringify(["files:read", "files:write", "files:delete"]),
-                  created_at: "2026-07-13T00:00:00.000Z",
-                  expires_at: null,
-                  revoked_at: null,
-                  minting_user_id: mintingUserId,
-                };
-              },
-              all: async () => ({ results: [] }),
-              run: async () => ({}),
-            };
-          },
-        };
-      }
-      return originalPrepare(sql);
-    }) as typeof db.prepare;
+    withMintingUserToken(db, {
+      workspace,
+      tokenHash: await sha256Hex(token),
+      mintingUserId: opts.mintingUserId,
+    });
   }
 
   return { env, db };
