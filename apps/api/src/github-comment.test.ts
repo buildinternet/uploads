@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import { gatherCommentBody, upsertBotComment } from "./github-comment";
-import { ATTACHMENTS_MARKER } from "./github-comment-render";
+import { ATTACHMENTS_MARKER, attachmentsMarker } from "./github-comment-render";
 import { addExternalReference, addGalleryItem, createGallery } from "./galleries";
 import type { WorkspaceRecord } from "./workspace";
 import { FakeR2Bucket } from "../test/fake-r2";
@@ -83,7 +83,7 @@ describe("gatherCommentBody", () => {
     });
     expect(result.skip).toBe(false);
     if (result.skip) return;
-    expect(result.body.startsWith(ATTACHMENTS_MARKER)).toBe(true);
+    expect(result.body.startsWith(attachmentsMarker(workspaceName))).toBe(true);
     expect(result.body).toContain("hero.png");
     expect(result.count).toBe(1);
   });
@@ -182,7 +182,7 @@ describe("gatherCommentBody", () => {
     });
     expect(result.skip).toBe(false);
     if (result.skip) return;
-    expect(result.body.startsWith(ATTACHMENTS_MARKER)).toBe(true);
+    expect(result.body.startsWith(attachmentsMarker(workspaceName))).toBe(true);
     expect(result.body).toContain("Launch media");
     expect(result.body).not.toContain("Not ours");
     expect(result.count).toBe(1);
@@ -208,6 +208,7 @@ describe("upsertBotComment", () => {
       42,
       { repo: "acme/web", num: 12 },
       "BODY",
+      "acme",
       fetchImpl,
     );
     expect(res).toEqual({
@@ -239,6 +240,7 @@ describe("upsertBotComment", () => {
       42,
       { repo: "acme/web", num: 12 },
       "BODY",
+      "acme",
       fetchImpl,
     );
     expect(res).toEqual({
@@ -271,6 +273,7 @@ describe("upsertBotComment", () => {
       42,
       { repo: "acme/web", num: 12 },
       "BODY",
+      "acme",
       fetchImpl,
     );
     expect(res).toEqual({
@@ -295,6 +298,7 @@ describe("upsertBotComment", () => {
       42,
       { repo: "acme/web", num: 12 },
       "BODY",
+      "acme",
       fetchImpl,
     );
     expect(res).toEqual({ degrade: "forbidden" });
@@ -313,6 +317,7 @@ describe("upsertBotComment", () => {
       42,
       { repo: "acme/web", num: 12 },
       "BODY",
+      "acme",
       fetchImpl,
     );
     expect(res).toEqual({ degrade: "forbidden" });
@@ -330,6 +335,7 @@ describe("upsertBotComment", () => {
       42,
       { repo: "acme/web", num: 12 },
       "BODY",
+      "acme",
       fetchImpl,
     );
     expect(res).toEqual({ degrade: "unavailable" });
@@ -352,6 +358,7 @@ describe("upsertBotComment", () => {
       42,
       { repo: "acme/web", num: 12 },
       "BODY",
+      "acme",
       fetchImpl,
     );
     expect(res).toEqual({ degrade: "unavailable" });
@@ -360,7 +367,7 @@ describe("upsertBotComment", () => {
   it("uses a cached comment id to PATCH directly, without listing", async () => {
     const { env, kv } = makeTestEnv();
     const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
-    await kv.put("ghcomment:acme/web#12", "55");
+    await kv.put("ghcomment:acme:acme/web#12", "55");
     const fetchImpl = (async (url: string, init: RequestInit = {}) => {
       if (url.includes("/access_tokens")) {
         return new Response(JSON.stringify({ token: "t" }), { status: 201 });
@@ -381,6 +388,7 @@ describe("upsertBotComment", () => {
       42,
       { repo: "acme/web", num: 12 },
       "BODY",
+      "acme",
       fetchImpl,
     );
     expect(res).toEqual({
@@ -392,7 +400,7 @@ describe("upsertBotComment", () => {
   it("re-hunts and recreates when the cached comment was deleted (404), refreshing the cache", async () => {
     const { env, kv } = makeTestEnv();
     const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
-    await kv.put("ghcomment:acme/web#12", "55");
+    await kv.put("ghcomment:acme:acme/web#12", "55");
     const fetchImpl = (async (url: string, init: RequestInit = {}) => {
       if (url.includes("/access_tokens")) {
         return new Response(JSON.stringify({ token: "t" }), { status: 201 });
@@ -414,13 +422,14 @@ describe("upsertBotComment", () => {
       42,
       { repo: "acme/web", num: 12 },
       "BODY",
+      "acme",
       fetchImpl,
     );
     expect(res).toEqual({
       action: "created",
       commentUrl: "https://github.com/acme/web/pull/12#c88",
     });
-    expect(await kv.get("ghcomment:acme/web#12")).toBe("88");
+    expect(await kv.get("ghcomment:acme:acme/web#12")).toBe("88");
   });
 
   it("finds the marker comment beyond the first page and caches its id", async () => {
@@ -451,13 +460,14 @@ describe("upsertBotComment", () => {
       42,
       { repo: "acme/web", num: 12 },
       "BODY",
+      "acme",
       fetchImpl,
     );
     expect(res).toEqual({
       action: "updated",
       commentUrl: "https://github.com/acme/web/pull/12#c777",
     });
-    expect(await kv.get("ghcomment:acme/web#12")).toBe("777");
+    expect(await kv.get("ghcomment:acme:acme/web#12")).toBe("777");
   });
 
   it("caches the id of a freshly created comment", async () => {
@@ -479,12 +489,120 @@ describe("upsertBotComment", () => {
       42,
       { repo: "acme/web", num: 12 },
       "BODY",
+      "acme",
       fetchImpl,
     );
     expect(res).toEqual({
       action: "created",
       commentUrl: "https://github.com/acme/web/pull/12#c99",
     });
-    expect(await kv.get("ghcomment:acme/web#12")).toBe("99");
+    expect(await kv.get("ghcomment:acme:acme/web#12")).toBe("99");
+  });
+
+  it("finds a namespaced marker comment first, even when a legacy marker comment also exists", async () => {
+    const { env } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    const fetchImpl = fakeFetch({
+      "/access_tokens": () => new Response(JSON.stringify({ token: "t" }), { status: 201 }),
+      "/issues/12/comments": () =>
+        new Response(
+          JSON.stringify([
+            { id: 1, body: `${ATTACHMENTS_MARKER}\nother workspace's legacy comment` },
+            { id: 2, body: `${attachmentsMarker("acme")}\nours` },
+          ]),
+          { status: 200 },
+        ),
+      "/issues/comments/2": () =>
+        new Response(
+          JSON.stringify({ id: 2, html_url: "https://github.com/acme/web/pull/12#c2" }),
+          {
+            status: 200,
+          },
+        ),
+    });
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "BODY",
+      "acme",
+      fetchImpl,
+    );
+    expect(res).toEqual({
+      action: "updated",
+      commentUrl: "https://github.com/acme/web/pull/12#c2",
+    });
+  });
+
+  it("adopts a legacy (unnamespaced) marker comment when no namespaced one exists yet", async () => {
+    const { env } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    const fetchImpl = fakeFetch({
+      "/access_tokens": () => new Response(JSON.stringify({ token: "t" }), { status: 201 }),
+      "/issues/12/comments": () =>
+        new Response(JSON.stringify([{ id: 5, body: `${ATTACHMENTS_MARKER}\nold body` }]), {
+          status: 200,
+        }),
+      "/issues/comments/5": () =>
+        new Response(
+          JSON.stringify({ id: 5, html_url: "https://github.com/acme/web/pull/12#c5" }),
+          {
+            status: 200,
+          },
+        ),
+    });
+    // The namespaced marker is already the first line of `body` — patching the
+    // legacy comment with it migrates the comment in place.
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      `${attachmentsMarker("acme")}\nnew body`,
+      "acme",
+      fetchImpl,
+    );
+    expect(res).toEqual({
+      action: "updated",
+      commentUrl: "https://github.com/acme/web/pull/12#c5",
+    });
+  });
+
+  it("uses a distinct cache key per workspace so two workspaces on one repo never collide", async () => {
+    const { env, kv } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    await kv.put("ghcomment:acme:acme/web#12", "55");
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (url.includes("/access_tokens")) {
+        return new Response(JSON.stringify({ token: "t" }), { status: 201 });
+      }
+      // A cache hit for "acme" must never be used by a different workspace.
+      if (url.includes("/issues/comments/55"))
+        throw new Error("wrong workspace's cache entry used");
+      if (url.includes("/issues/12/comments")) {
+        return init.method === "POST"
+          ? new Response(
+              JSON.stringify({ id: 66, html_url: "https://github.com/other-ws/web/pull/12#c66" }),
+              { status: 201 },
+            )
+          : new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "BODY",
+      "other-ws",
+      fetchImpl,
+    );
+    expect(res).toEqual({
+      action: "created",
+      commentUrl: "https://github.com/other-ws/web/pull/12#c66",
+    });
+    expect(await kv.get("ghcomment:other-ws:acme/web#12")).toBe("66");
   });
 });

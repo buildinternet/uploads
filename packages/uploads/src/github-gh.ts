@@ -182,14 +182,28 @@ interface GhComment {
  * PR comments live on the issues endpoint, so one path covers PRs and issues.
  * `--paginate` follows Link headers and merges every page into one array, so the
  * marker comment is found even on threads past 100 comments.
+ *
+ * Hunts for `marker` (the namespaced, per-workspace marker) first; when none
+ * is found, falls back to a comment carrying the shared legacy
+ * `ATTACHMENTS_MARKER` (pre-4b, unnamespaced) so it can be adopted and
+ * migrated in place. When `marker` IS the legacy marker (no workspace to
+ * namespace with) this collapses to a single hunt, unchanged from pre-4b
+ * behavior.
  */
-function findManagedComment(target: GhTarget, run: CommandRunner): GhComment | undefined {
+function findManagedComment(
+  target: GhTarget,
+  run: CommandRunner,
+  marker: string,
+): GhComment | undefined {
   const raw = run("gh", [
     "api",
     `repos/${target.repo}/issues/${target.num}/comments?per_page=100`,
     "--paginate",
   ]);
   const comments = JSON.parse(raw) as GhComment[];
+  const namespacedHit = comments.find((c) => typeof c.body === "string" && c.body.includes(marker));
+  if (namespacedHit) return namespacedHit;
+  if (marker === ATTACHMENTS_MARKER) return undefined;
   return comments.find((c) => typeof c.body === "string" && c.body.includes(ATTACHMENTS_MARKER));
 }
 
@@ -197,13 +211,20 @@ function findManagedComment(target: GhTarget, run: CommandRunner): GhComment | u
  * Create the managed attachments comment, or edit it in place if it already
  * exists. Never touches any other comment. Body is passed via stdin
  * (`-F body=@-`) so it is never shell-interpolated.
+ *
+ * `marker` identifies which comment to hunt for (see `findManagedComment`);
+ * `body` is expected to already carry that same marker as its first line
+ * (built via `attachmentsCommentBody(items, galleries, marker)`), so patching
+ * an adopted legacy comment migrates it to the namespaced marker in place.
+ * Defaults to the shared legacy marker for backward compatibility.
  */
 export function upsertAttachmentsComment(
   target: GhTarget,
   body: string,
   run: CommandRunner = execRunner,
+  marker: string = ATTACHMENTS_MARKER,
 ): { created: boolean } {
-  const existing = findManagedComment(target, run);
+  const existing = findManagedComment(target, run, marker);
   if (existing) {
     run(
       "gh",

@@ -368,7 +368,7 @@ export async function runScreenshot(
   let commentError: string | undefined;
   if (wantComment && ghTarget) {
     try {
-      comment = await syncAttachmentsComment(ctx.client, ghTarget, run);
+      comment = await syncAttachmentsComment(ctx.client, ghTarget, run, ctx.config.workspace);
       if (logHuman)
         process.stderr.write(
           `>> attachments comment ${comment.action}${commentViaSuffix(comment.via)}\n`,

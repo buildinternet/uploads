@@ -249,6 +249,20 @@ export interface PromoteBranchAttachmentsResult {
   skipped: PromoteSkip[];
 }
 
+/** `GET`/`POST /v1/:workspace/github/link` result (server contract, phase 4b). */
+export interface GithubLinkResult {
+  repo: string;
+  linked: boolean;
+  workspace: string | null;
+  source: string | null;
+  createdAt: string | null;
+}
+
+/** POST-only: whether THIS call's workspace ended up owning the binding. */
+export interface GithubLinkClaimResult extends GithubLinkResult {
+  claimed: boolean;
+}
+
 export interface HealthResult {
   ok: boolean;
 }
@@ -998,6 +1012,34 @@ export function createUploadsClient(config: UploadsClientConfig) {
         `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/promote`,
         {
           body: new TextEncoder().encode(JSON.stringify(opts)),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    },
+
+    /** Current binding for `repo`, or `{ linked: false }` if unclaimed. Throws
+     * `UploadsError` (status 404) on an older/self-hosted server without this
+     * route — callers treat that as "bindings unsupported". */
+    async githubLinkStatus(repo: string): Promise<GithubLinkResult> {
+      return request<GithubLinkResult>(
+        "GET",
+        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/link?repo=${encodeURIComponent(repo)}`,
+      );
+    },
+
+    /**
+     * Explicitly claim `repo` for this workspace (first-claim-wins — see
+     * github-repo-links.ts server-side). `claimed: false` in the result means
+     * the repo is already bound to a DIFFERENT workspace; this call never
+     * steals it. Throws `UploadsError` (status 404) on an older/self-hosted
+     * server without this route.
+     */
+    async githubLinkClaim(repo: string): Promise<GithubLinkClaimResult> {
+      return request<GithubLinkClaimResult>(
+        "POST",
+        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/link`,
+        {
+          body: new TextEncoder().encode(JSON.stringify({ repo })),
           headers: { "Content-Type": "application/json" },
         },
       );

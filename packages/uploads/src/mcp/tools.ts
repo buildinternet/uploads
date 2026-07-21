@@ -188,11 +188,11 @@ export function createUploadsMcpTools(opts: {
     return { config, client: clientFactory(config) };
   }
 
-  const syncComment = async (client: UploadsClient, target: GhTarget) => {
+  const syncComment = async (client: UploadsClient, target: GhTarget, workspace?: string) => {
     let comment: AttachmentsCommentResult | undefined;
     let commentError: string | undefined;
     try {
-      comment = await syncAttachmentsComment(client, target, run);
+      comment = await syncAttachmentsComment(client, target, run, workspace);
     } catch (err) {
       // Uploads already succeeded; the comment is best-effort by design.
       commentError = err instanceof Error ? err.message : String(err);
@@ -476,7 +476,7 @@ export function createUploadsMcpTools(opts: {
           usage(err instanceof Error ? err.message : String(err));
         }
 
-        const { client } = clientFor(args);
+        const { config, client } = clientFor(args);
         const defaults = resolvePutDefaults({ envFile: globals.envFile });
         const frameOpts = mcpFrameOptions(args);
         const optimizeOpts = mcpOptimizeOptions(args, defaults);
@@ -511,7 +511,7 @@ export function createUploadsMcpTools(opts: {
             throw new ToolBatchError(batchFailureMessage(failures), { uploads, failures });
           }
           if (wantComment && target && uploads.length > 0) {
-            const { comment, commentError } = await syncComment(client, target);
+            const { comment, commentError } = await syncComment(client, target, config.workspace);
             return { uploads, failures, comment, commentError };
           }
           return { uploads, failures };
@@ -550,7 +550,7 @@ export function createUploadsMcpTools(opts: {
             filename: prepared.filename,
           };
           if (wantComment && target) {
-            const { comment, commentError } = await syncComment(client, target);
+            const { comment, commentError } = await syncComment(client, target, config.workspace);
             return { ...result, markdown, optimize, frame: prepared.frame, comment, commentError };
           }
           return {
@@ -586,7 +586,7 @@ export function createUploadsMcpTools(opts: {
           ...(dryRun ? { dryRun: true } : {}),
         };
         if (wantComment && target) {
-          const { comment, commentError } = await syncComment(client, target);
+          const { comment, commentError } = await syncComment(client, target, config.workspace);
           return { ...flat, comment, commentError };
         }
         return flat;
@@ -860,7 +860,7 @@ export function createUploadsMcpTools(opts: {
           ...(dryRun ? { dryRun: true } : {}),
         };
         if (wantComment && target) {
-          const { comment, commentError } = await syncComment(client, target);
+          const { comment, commentError } = await syncComment(client, target, config.workspace);
           return { ...flat, comment, commentError };
         }
         return flat;
@@ -926,7 +926,7 @@ export function createUploadsMcpTools(opts: {
         const target =
           explicitTarget ??
           resolveCurrentPullRequest(resolveRepo(optString(args, "repo"), run), run);
-        const { client } = clientFor(args);
+        const { config, client } = clientFor(args);
         const contentType = optString(args, "contentType");
         const defaults = resolvePutDefaults({ envFile: globals.envFile });
         const frameOpts = mcpFrameOptions(args);
@@ -962,7 +962,7 @@ export function createUploadsMcpTools(opts: {
         }
 
         if (optBool(args, "noComment")) return { target, uploads, failures };
-        const { comment, commentError } = await syncComment(client, target);
+        const { comment, commentError } = await syncComment(client, target, config.workspace);
         return { target, uploads, failures, comment, commentError };
       },
     },
@@ -1171,8 +1171,8 @@ export function createUploadsMcpTools(opts: {
       async handler(args) {
         const target = ghTargetFromArgs(args, run);
         if (!target) usage("comment requires pr or issue");
-        const { client } = clientFor(args);
-        const result = await syncAttachmentsComment(client, target, run);
+        const { config, client } = clientFor(args);
+        const result = await syncAttachmentsComment(client, target, run, config.workspace);
         return { ...target, ...result };
       },
     },
