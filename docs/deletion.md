@@ -72,3 +72,21 @@ restore must bring the org back intact, so it's left alone. An AUTH-fetch
 failure or a per-org delete failure is isolated (logged, sweep continues) rather than
 failing the whole run. Results land in the sweep's `orgsSwept` array and log
 line.
+
+## Name-reclaim policy (#252)
+
+Purged slugs are tombstoned forever by default; the admin break-glass hard
+delete is the only release path. The criteria for using it are npm-style:
+
+- A slug that **never served a public object** may be released by an operator
+  on request (safe: no external links or embeds can point at it).
+- A slug that **served public traffic is never reused** — old
+  `storage.uploads.sh/<name>/…` URLs embedded in merged PRs would silently
+  point at a new owner's content (link-rot plus impersonation risk).
+- Until per-workspace serve stats exist to prove the "never served" condition,
+  the operator answer to a reclaim request is **no**.
+
+Deferred mechanics, with explicit triggers (see issue #252): migrate
+tombstones to a separate `wsgrave:` prefix once they exceed roughly 1k keys or
+sweep latency shows in logs; add a distinct `slug_retired` registration error
+(vs `slug_taken`) once self-serve volume warrants it.
