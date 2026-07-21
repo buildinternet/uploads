@@ -306,5 +306,8 @@ export function attachmentsCommentBody(
   lines.push(
     '<sub>Maintained by <a href="https://uploads.sh">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>',
   );
+  lines.push(
+    '<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href="https://uploads.sh/docs/github-app">docs</a></sub>',
+  );
   return lines.join("\n");
 }
