@@ -9,12 +9,6 @@
     // Origin of the invite page that magic links point at. Defaults to the API
     // host without the `api.` prefix; set explicitly for other deployments.
     "WEB_ORIGIN": "https://uploads.sh",
-    // Name of the communal workspace — the shared, world-readable dumping
-    // ground. It's the workspace *name* (not the shared bucket, which hosts
-    // many prefixed workspaces) that marks it communal. Member-facing surfaces
-    // (see routes/me.ts) skip the personal galleries/files browser for it.
-    // Defaults to "default" in code, so this only needs setting to rename it.
-    "DEFAULT_WORKSPACE": "default",
     // GitHub App identity for server-side PR/issue title resolution (#267).
     // Both ids are public (visible in GitHub URLs); the private key is the
     // only true secret (GITHUB_APP_PRIVATE_KEY, via wrangler secret).

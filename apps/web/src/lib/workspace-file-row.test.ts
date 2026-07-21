@@ -169,7 +169,6 @@ function mkWorkspace(workspace: string, overrides: Partial<MyWorkspace> = {}): M
     workspace,
     organization: { id: "1", slug: workspace, name: workspace },
     role: "member",
-    communal: false,
     hasPublicUrl: false,
     ...overrides,
   };
@@ -186,26 +185,24 @@ describe("resolveWorkspaceInfo", () => {
     expect(resolveWorkspaceInfo(result, "acme")).toEqual({ status: "no-access" });
   });
 
-  it("maps a success result containing the workspace to 'ready', passing through communal/hasPublicUrl", () => {
+  it("maps a success result containing the workspace to 'ready', passing through hasPublicUrl", () => {
     const result: WorkspacesResult = {
       kind: "success",
       workspaces: [mkWorkspace("acme", { role: "admin", hasPublicUrl: true })],
     };
     expect(resolveWorkspaceInfo(result, "acme")).toEqual({
       status: "ready",
-      communal: false,
       hasPublicUrl: true,
     });
   });
 
-  it("passes through communal:true for the communal workspace", () => {
+  it("resolves a workspace named 'default' to 'ready' just like any other workspace", () => {
     const result: WorkspacesResult = {
       kind: "success",
-      workspaces: [mkWorkspace("default", { communal: true })],
+      workspaces: [mkWorkspace("default")],
     };
     expect(resolveWorkspaceInfo(result, "default")).toEqual({
       status: "ready",
-      communal: true,
       hasPublicUrl: false,
     });
   });

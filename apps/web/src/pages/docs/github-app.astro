@@ -203,10 +203,9 @@ const TOC = [
       workspace, a different workspace's <code>comment</code>/<code>attach</code> call against it
       is declined outright (<code>not_authorized</code>) — it does not fall back to posting
       under that person's own <code>gh</code> credentials, so there's no way for someone else's
-      workspace to deface or duplicate the bot comment on your repo. The one exception runs the
-      other way: the shared, communal <code>default</code> workspace can post to repos it
-      already owns, but it can never claim a fresh, unbound repo — that keeps the widest-shared
-      workspace from silently annexing other people's repos.
+      workspace to deface or duplicate the bot comment on your repo. <code>default</code> is a
+      tenant like any other here — it claims and posts to repos under the exact same rules as
+      every other workspace.
     </p>
   </section>
 

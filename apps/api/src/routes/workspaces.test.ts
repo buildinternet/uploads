@@ -378,15 +378,6 @@ describe("DELETE /v1/workspaces/:name (self-serve, #249)", () => {
       error: { code: "already_deleted" },
     });
   });
-
-  it("blocks deleting the communal workspace", async () => {
-    const env = stubEnv({ kvRecords: { default: OWNED_RECORD } });
-    const res = await del(env, "default");
-    expect(res.status).toBe(403);
-    expect((await res.json()) as { error: { code: string } }).toMatchObject({
-      error: { code: "protected_workspace" },
-    });
-  });
 });
 
 describe("POST /v1/workspaces/:name/restore (self-serve, #249)", () => {

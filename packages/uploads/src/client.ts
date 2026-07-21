@@ -44,6 +44,14 @@ export interface PutOptions {
   metadata?: Record<string, string>;
   /** Validate key + resolve public URL without writing. `size` is local bytes only. */
   dryRun?: boolean;
+  /**
+   * Opt in to overwriting an existing object on a "strict" (non-`gh/`) key —
+   * see issue #174. Ignored (always allowed) on managed `gh/` paths
+   * (`attach`, `put --pr`/`--issue`), which stay silent hot-swap. Omit/false
+   * on a strict path with an existing key throws `UploadsError` with code
+   * `KEY_EXISTS`.
+   */
+  replace?: boolean;
 }
 
 export interface ListOptions {
@@ -90,6 +98,11 @@ export interface PutResult {
    * at this key would overwrite. Always set by the API for put/dry-run.
    */
   replaced?: boolean;
+  /**
+   * dryRun only: true when a real put at this key would be refused (strict
+   * non-`gh/` key, existing object, no `replace`) instead of overwriting.
+   */
+  wouldRefuse?: boolean;
   metadata?: Record<string, string>;
 }
 
@@ -216,8 +229,7 @@ export interface FindGalleriesByReferenceOptions {
 /**
  * Reasons the bot did not post. The CLI falls back to the local `gh` path
  * for all of these except `not_authorized` (issue #297 baseline control):
- * the target repo is bound to a different workspace (or is unbound and the
- * caller is the communal `default` workspace, which can't claim new repos).
+ * the target repo is bound to a different workspace.
  * Falling back to `gh` there would let the human's own credentials post
  * anyway, defeating the point of the server-side gate, so the CLI surfaces
  * the decline instead.
@@ -664,6 +676,7 @@ function mapApiError(
   error: string,
   code?: string,
   requiredScope?: string,
+  existingUrl?: string,
 ): UploadsError {
   const normalized = error.toLowerCase();
   if (status === 401 || code === "unauthorized" || normalized === "unauthorized") {
@@ -694,6 +707,9 @@ function mapApiError(
   if (code === "github_required") {
     return new UploadsError(error, "GITHUB_REQUIRED", status);
   }
+  if (code === "key_exists") {
+    return new UploadsError(error, "KEY_EXISTS", status, { existingUrl });
+  }
   return new UploadsError(error, "API_ERROR", status);
 }
 
@@ -707,18 +723,19 @@ function mapApiError(
 export function extractErrorFields(
   body: unknown,
   fallback = "request failed",
-): { message: string; code?: string; requiredScope?: string } {
+): { message: string; code?: string; requiredScope?: string; existingUrl?: string } {
   if (typeof body === "object" && body && "error" in body) {
     const err = (body as { error: unknown }).error;
     if (typeof err === "object" && err && "message" in err) {
       const nested = err as { message?: unknown; code?: unknown; details?: unknown };
-      const details = nested.details as { required_scope?: unknown } | undefined;
+      const details = nested.details as { required_scope?: unknown; url?: unknown } | undefined;
       return {
         message: typeof nested.message === "string" ? nested.message : fallback,
         code: typeof nested.code === "string" ? nested.code : undefined,
         ...(typeof details?.required_scope === "string"
           ? { requiredScope: details.required_scope }
           : {}),
+        ...(typeof details?.url === "string" ? { existingUrl: details.url } : {}),
       };
     }
     if (typeof err === "string") {
@@ -736,17 +753,17 @@ export function extractErrorFields(
 export async function parseErrorEnvelope(
   res: Response,
   fallback = "request failed",
-): Promise<{ message: string; code?: string; requiredScope?: string }> {
+): Promise<{ message: string; code?: string; requiredScope?: string; existingUrl?: string }> {
   const body = await res.json().catch(() => ({}));
   return extractErrorFields(body, fallback);
 }
 
 async function parseErrorResponse(res: Response): Promise<UploadsError> {
-  const { message, code, requiredScope } = await parseErrorEnvelope(
+  const { message, code, requiredScope, existingUrl } = await parseErrorEnvelope(
     res,
     res.statusText || "request failed",
   );
-  return mapApiError(res.status, message, code, requiredScope);
+  return mapApiError(res.status, message, code, requiredScope, existingUrl);
 }
 
 export function createUploadsClient(config: UploadsClientConfig) {
@@ -815,13 +832,15 @@ export function createUploadsClient(config: UploadsClientConfig) {
       const contentType = opts.contentType ?? inferContentType(opts.filename);
 
       if (opts.dryRun) {
+        const qs = opts.replace ? "dryRun=1&replace=1" : "dryRun=1";
         const preview = await request<{
           workspace: string;
           key: string;
           url: string | null;
           embedUrl?: string | null;
           replaced?: boolean;
-        }>("PUT", `${filesBase(config)}/${encodeKeyPath(key)}?dryRun=1`);
+          wouldRefuse?: boolean;
+        }>("PUT", `${filesBase(config)}/${encodeKeyPath(key)}?${qs}`);
         if (preview.url == null) {
           throw new UploadsError(
             "workspace has no publicBaseUrl (cannot resolve a public URL)",
@@ -836,10 +855,12 @@ export function createUploadsClient(config: UploadsClientConfig) {
           size: body.byteLength,
           contentType,
           replaced: preview.replaced === true,
+          wouldRefuse: preview.wouldRefuse === true,
         };
       }
 
       const headers: Record<string, string> = { "Content-Type": contentType };
+      if (opts.replace) headers["X-Uploads-Replace"] = "1";
       if (opts.provenance) {
         for (const [k, v] of Object.entries(opts.provenance)) {
           if (v !== undefined && v !== "") headers[`X-Uploads-Meta-${k}`] = v;

@@ -74,7 +74,6 @@ describe("getMyWorkspaces", () => {
               workspace: "acme",
               organization: { id: "org1", slug: "acme", name: "Acme Inc" },
               role: "owner",
-              communal: false,
               hasPublicUrl: true,
             },
             {
@@ -82,7 +81,6 @@ describe("getMyWorkspaces", () => {
               workspace: "byo",
               organization: { id: "org2", slug: "byo", name: "BYO Inc" },
               role: "member",
-              communal: false,
             },
           ],
         }),
@@ -209,7 +207,7 @@ describe("listWorkspaceFolder", () => {
         "http://127.0.0.1:8787/me/workspaces/acme/files?delimiter=%2F&prefix=f%2F&cursor=abc&limit=50",
       );
       expect(init?.credentials).toBe("include");
-      return Response.json({ communal: false, files: [], prefixes: [], cursor: null });
+      return Response.json({ files: [], prefixes: [], cursor: null });
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -228,7 +226,7 @@ describe("listWorkspaceFolder", () => {
       expect(url).toContain("delimiter=%2F");
       expect(url).not.toContain("cursor=");
       expect(url).not.toContain("limit=");
-      return Response.json({ communal: false, files: [], prefixes: [], cursor: null });
+      return Response.json({ files: [], prefixes: [], cursor: null });
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -239,7 +237,7 @@ describe("listWorkspaceFolder", () => {
   it("still sends the folder delimiter when no opts are given", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/files?delimiter=%2F");
-      return Response.json({ communal: false, files: [], prefixes: [], cursor: null });
+      return Response.json({ files: [], prefixes: [], cursor: null });
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -252,7 +250,6 @@ describe("listWorkspaceFolder", () => {
       "fetch",
       vi.fn(async () =>
         Response.json({
-          communal: false,
           files: [
             {
               key: "f/x.png",
@@ -272,7 +269,6 @@ describe("listWorkspaceFolder", () => {
     );
 
     await expect(listWorkspaceFolder("http://127.0.0.1:8787", "acme")).resolves.toEqual({
-      communal: false,
       files: [
         {
           key: "f/x.png",
@@ -293,7 +289,7 @@ describe("listWorkspaceFolder", () => {
   it("normalizes a null cursor to undefined", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ communal: false, files: [], prefixes: [], cursor: null })),
+      vi.fn(async () => Response.json({ files: [], prefixes: [], cursor: null })),
     );
 
     const result = await listWorkspaceFolder("http://127.0.0.1:8787", "acme");
@@ -305,7 +301,6 @@ describe("listWorkspaceFolder", () => {
       "fetch",
       vi.fn(async () =>
         Response.json({
-          communal: false,
           files: [{ key: "f/x.png", url: null, embedUrl: null }],
           prefixes: [],
           cursor: null,
@@ -322,11 +317,10 @@ describe("listWorkspaceFolder", () => {
   it("defaults prefixes to [] when the API omits it", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ communal: true, files: [], cursor: null })),
+      vi.fn(async () => Response.json({ files: [], cursor: null })),
     );
 
     await expect(listWorkspaceFolder("http://127.0.0.1:8787", "acme")).resolves.toEqual({
-      communal: true,
       files: [],
       prefixes: [],
       cursor: undefined,
@@ -340,7 +334,6 @@ describe("listWorkspaceFolder", () => {
     );
 
     await expect(listWorkspaceFolder("http://127.0.0.1:8787", "acme")).resolves.toEqual({
-      communal: false,
       files: [],
       prefixes: [],
       cursor: undefined,
@@ -354,7 +347,6 @@ describe("listWorkspaceFolder", () => {
     );
 
     await expect(listWorkspaceFolder("http://127.0.0.1:8787", "acme")).resolves.toEqual({
-      communal: false,
       files: [],
       prefixes: [],
       cursor: undefined,
@@ -368,7 +360,6 @@ describe("getWorkspaceMembers", () => {
       "fetch",
       vi.fn(async () =>
         Response.json({
-          communal: false,
           members: [{ id: "m1", email: "a@x.com", name: "A", role: "member" }],
         }),
       ),
@@ -377,7 +368,6 @@ describe("getWorkspaceMembers", () => {
     const result = await getWorkspaceMembers("http://127.0.0.1:8787", "acme");
     expect(result).toEqual({
       kind: "ok",
-      communal: false,
       members: [{ id: "m1", email: "a@x.com", name: "A", role: "member", createdAt: undefined }],
     });
   });
@@ -387,7 +377,6 @@ describe("getWorkspaceMembers", () => {
       "fetch",
       vi.fn(async () =>
         Response.json({
-          communal: false,
           members: [{ email: "a@x.com", name: "A", role: "member" }],
         }),
       ),
@@ -405,7 +394,6 @@ describe("getWorkspaceInvites", () => {
       "fetch",
       vi.fn(async () =>
         Response.json({
-          communal: false,
           invites: [
             { id: "i1", email: "a@x.com", role: "member", status: "pending", expiresAt: 1 },
           ],
@@ -414,7 +402,7 @@ describe("getWorkspaceInvites", () => {
     );
 
     const res = await getWorkspaceInvites("https://api.test", "acme");
-    expect(res).toMatchObject({ kind: "ok", communal: false });
+    expect(res).toMatchObject({ kind: "ok" });
     if (res.kind === "ok") expect(res.invites[0]?.id).toBe("i1");
   });
 

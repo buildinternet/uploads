@@ -21,15 +21,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
   <div id="ws-app" hidden>
     <section class="card ws-page-card">
-      <div class="ws-block" id="ws-communal" hidden>
-        <h2 class="ws-section-head">Shared space</h2>
-        <p class="ws-note">
-          Shared, public space — world-readable at <code>storage.uploads.sh</code>.
-          Browse and upload with the CLI.
-        </p>
-      </div>
-
-      <div class="ws-block" id="ws-galleries-card" hidden>
+      <div class="ws-block" id="ws-galleries-card">
         <h2 class="ws-section-head">Galleries</h2>
         <div id="ws-galleries"><p class="ws-empty">Loading…</p></div>
       </div>
@@ -74,7 +66,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const statusEl = requireElement<HTMLElement>("#ws-status", page);
       const retryBtn = requireElement<HTMLButtonElement>("#ws-retry", page);
       const appEl = requireElement<HTMLElement>("#ws-app", page);
-      const communalCard = requireElement<HTMLElement>("#ws-communal", page);
       const galleriesCard = requireElement<HTMLElement>("#ws-galleries-card", page);
       const galleriesEl = requireElement<HTMLElement>("#ws-galleries", page);
 
@@ -128,12 +119,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         appEl.hidden = false;
         document.title = `Galleries · ${ws.organization.name || ws.workspace} · uploads.sh`;
 
-        communalCard.hidden = !ws.communal;
-        galleriesCard.hidden = ws.communal;
-
-        if (!ws.communal) {
-          void getMyWorkspaceGalleries(apiOrigin, ws.workspace).then(renderGalleries);
-        }
+        galleriesCard.hidden = false;
+        void getMyWorkspaceGalleries(apiOrigin, ws.workspace).then(renderGalleries);
       }
 
       retryBtn.addEventListener("click", () => {

@@ -88,8 +88,7 @@ force-deletes any whose slug has no `ws:<slug>` KV key at all, or only a
 purged tombstone — the multi-member orgs left behind by hard/finalized
 workspace teardown (see "Auth org deletion" in `docs/deletion.md`). A
 soft-deleted workspace still inside its grace window is never treated as an
-orphan. The communal workspace slug is skipped defensively, and an AUTH
-outage or a single org's delete failure is isolated (logged, sweep
+orphan. An AUTH outage or a single org's delete failure is isolated (logged, sweep
 continues) rather than failing the run. Results roll up into the sweep's
 `orgsSwept` field.
 
@@ -128,8 +127,7 @@ best-effort auth-org delete, then the KV key removed outright). Non-empty
 workspaces still need `?force=1` on top, same as before. This is the only
 path that frees a slug for reuse — every other path (soft delete → grace
 period → sweep finalization) leaves a permanent `{ status: "purged" }`
-tombstone under `ws:<name>` so the name can never be re-registered. The
-communal/protected-workspace guard applies to both modes.
+tombstone under `ws:<name>` so the name can never be re-registered.
 
 See [docs/deletion.md](deletion.md) for the full cross-surface deletion
 policy and rationale.
@@ -139,10 +137,11 @@ policy and rationale.
 `DELETE /v1/workspaces/:name` and `POST /v1/workspaces/:name/restore` give a
 signed-in owner the same soft-delete/restore surface as the admin path
 above, session-authed (browser cookie) instead of `ADMIN_TOKEN`. Ownership
-gate: the record must have `selfServe === true` and `createdByUserId`
-matching the caller's session user id — a workspace that exists but isn't
-owned self-serve (or isn't this user's) 403s `not_owner`; the communal
-workspace is excluded outright. Semantics are otherwise identical to the
+gate: the record must have `selfServe === true`, and the caller must be
+either the record creator (`createdByUserId` match) or hold org role
+`owner` (not `admin`) in that workspace's org (#265, via `isWorkspaceOwner`
+— same membership lookup the #262 governance gates use) — anything else
+403s `not_owner`. Semantics are otherwise identical to the
 admin soft-delete/restore path (409 `already_deleted` / `not_deleted`, 410
 `grace_expired`, never hard, never frees the slug) via a shared stamp helper
 so the two paths can't drift. No web console UI yet — API only.
@@ -163,6 +162,42 @@ node --env-file=.env apps/api/scripts/backfill-gh-metadata.mjs
 (same names as `.env.example`); `--workspace <name>` overrides the workspace
 for one run. Test against a local `wrangler dev` stack first — never point
 this at production while testing.
+
+## Account linking (issue #233)
+
+A person can end up with two Better Auth users for one identity: a
+magic-link user (created the first time they signed in by email) and a
+separate GitHub-originated user, if their GitHub email differs from — or was
+entered before — the magic-link address. Unlinked, the GitHub user looks
+"brand new" to OAuth/consent flows and gets routed into workspace creation
+even though a workspace already exists under the other user.
+
+Policy (`apps/auth/src/auth.ts`, `account.accountLinking`):
+
+- Linking is **enabled**, and only ever happens on a **verified** email.
+  Completing a magic-link sign-in counts as verifying that address (`better-auth`'s
+  `magicLink` plugin sets `emailVerified: true` on verify); a GitHub sign-in
+  or explicit "Connect" whose GitHub-reported email is verified and matches
+  an existing user's email attaches to that user instead of creating a
+  second one.
+- An **unverified** GitHub email never links, full stop — this is
+  deliberately not bypassed by `trustedProviders`. Verified against
+  better-auth 1.6.23's actual implementation:
+  `trustedProviders` skips the provider-email-verified check entirely, so
+  listing `"github"` there would let an unverified GitHub email auto-link —
+  the exact account-takeover vector the issue calls out. `trustedProviders`
+  is left empty on purpose; see the comment in `auth.ts` for detail.
+- `allowDifferentEmails: true` covers the common case where the GitHub email
+  differs from the magic-link address, for both the implicit (sign-in) and
+  explicit (`/account/profile` "Connect") linking paths.
+
+For someone who already ended up split across two users: sign in as either
+identity, go to `/account/profile` → "Sign-in methods" → **Connect** GitHub
+(or magic-link, if the other side already has GitHub). The OAuth consent
+page's "you don't have a workspace yet" panel and the profile page both hint
+at this so it's discoverable without operator intervention. There is no
+backfill/merge tool for users who linked before this policy shipped — that
+would need a one-off migration script if it comes up.
 
 ## Invitations
 
@@ -252,8 +287,8 @@ pnpm dev:stack:smoke
 Both prove `dev session → get-session → /me/workspaces → dev-demo file listing`
 with a cookie jar. They exercise the real Better Auth cookie, API service binding,
 membership lookup, workspace prefix, and local R2—not a mock API. `dev-demo` is
-the only workspace overwritten by the stack; `default` stays communal and is never
-used for browser enumeration. Fixture object previews intentionally remain out of
+the only workspace overwritten by the stack; `default` has no local Better Auth
+membership in this stack, so it isn't used for browser enumeration here. Fixture object previews intentionally remain out of
 scope because simulated R2 objects do not exist at `storage.uploads.sh`.
 
 The zero-input `POST /api/auth/dev-session` route is absent unless `dev:stack`

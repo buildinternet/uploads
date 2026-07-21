@@ -13,7 +13,6 @@ import { findRepoLinkStrict, recordRepoLink } from "../github-repo-links";
 import type { GhTargetKind } from "../github-comment-render";
 import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
-import { isCommunal } from "./me";
 import { jsonBody } from "./json-body";
 
 // Same owner/name grammar as public-files.ts's deriveGithubContext, plus a guard
@@ -54,10 +53,6 @@ function parseTarget(body: Record<string, unknown>): {
  *   `null` (allowed; the existing implicit-claim call below handles the
  *   unbound case).
  * - Bound to a different workspace → decline.
- * - Unbound and the caller is the communal `default` workspace → decline;
- *   `default` may only post to repos already bound to `default` — it can
- *   never claim a fresh repo (the widest cross-tenant exposure named in the
- *   issue).
  */
 async function checkRepoAuthorization(
   env: Env,
@@ -73,15 +68,6 @@ async function checkRepoAuthorization(
       message:
         `${repo} is bound to a different workspace ("${link.workspaceName}") — this ` +
         `workspace is not authorized to post the uploads-sh[bot] comment there.`,
-    };
-  }
-  if (isCommunal(env, workspaceName)) {
-    return {
-      posted: false,
-      reason: "not_authorized",
-      message:
-        `${repo} isn't bound to a workspace yet, and the communal "default" workspace ` +
-        `can't claim new repos. Use a dedicated workspace to post there for the first time.`,
     };
   }
   return null;

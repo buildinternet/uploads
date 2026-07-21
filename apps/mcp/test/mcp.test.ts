@@ -357,6 +357,12 @@ async function callTool(
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 const PNG_B64 = btoa(String.fromCharCode(...PNG_BYTES));
 
+// Same PNG signature (so it still sniffs as image/png) but distinct filler
+// bytes, so a test can tell "still holds the first payload" apart from "got
+// silently overwritten with the second payload".
+const PNG_BYTES_2 = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 8, 7, 6]);
+const PNG_B64_2 = btoa(String.fromCharCode(...PNG_BYTES_2));
+
 describe("hosted gallery tenant isolation", () => {
   it("keeps gallery get and reference lookup tenant-scoped while returning alpha canonical URLs", async () => {
     const { env } = await makeGalleryEnv();
@@ -570,6 +576,74 @@ describe("mcp worker", () => {
     expect(bucket.store.get("shots/shot.png")?.contentType).toBe("image/png");
   });
 
+  it("refuses to overwrite an existing strict (non-gh/) key without replace (issue #174)", async () => {
+    const { env, bucket } = await makeEnv();
+    const first = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/shot.png",
+    });
+    expect(first.isError).toBe(false);
+
+    // Deliberately a different payload from the first put — if the refusal
+    // were a no-op that let the write through anyway, asserting on identical
+    // bytes wouldn't catch it. This way a silent overwrite is detectable.
+    const second = await callTool(env, "put", {
+      contentBase64: PNG_B64_2,
+      filename: "shot.png",
+      key: "shots/shot.png",
+    });
+    expect(second.isError).toBe(true);
+    expect(second.content).toEqual([
+      {
+        type: "text",
+        text: expect.stringContaining("shots/shot.png"),
+      },
+    ]);
+    // The bucket still holds the FIRST payload's bytes, not the second's.
+    expect(bucket.store.get("shots/shot.png")?.data).toEqual(PNG_BYTES);
+    expect(bucket.store.get("shots/shot.png")?.data).not.toEqual(PNG_BYTES_2);
+  });
+
+  it("allows overwriting a strict key when replace: true is passed", async () => {
+    const { env } = await makeEnv();
+    const first = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/shot.png",
+    });
+    expect(first.isError).toBe(false);
+    expect(first.structuredContent).toMatchObject({ replaced: false });
+
+    const second = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/shot.png",
+      replace: true,
+    });
+    expect(second.isError).toBe(false);
+    expect(second.structuredContent).toMatchObject({ replaced: true });
+  });
+
+  it("always overwrites a gh/-prefixed key without replace (attach/pr/issue hot-swap)", async () => {
+    const { env } = await makeEnv();
+    const first = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "gh/acme/widgets/pull/1/shot.png",
+    });
+    expect(first.isError).toBe(false);
+    expect(first.structuredContent).toMatchObject({ replaced: false });
+
+    const second = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "gh/acme/widgets/pull/1/shot.png",
+    });
+    expect(second.isError).toBe(false);
+    expect(second.structuredContent).toMatchObject({ replaced: true });
+  });
+
   it("writes custom metadata alongside the upload", async () => {
     const { env, metadata } = await makeEnv();
     const result = await callTool(env, "put", {
@@ -597,6 +671,9 @@ describe("mcp worker", () => {
       contentBase64: PNG_B64,
       filename: "shot.png",
       key: "shots/tagged.png",
+      // Strict-key overwrite gate (issue #174): opt in — this test is about
+      // metadata preservation on overwrite, not the refusal itself.
+      replace: true,
     });
     expect(result.isError).toBe(false);
     expect(Object.fromEntries(metadata.get("test-ws shots/tagged.png") ?? [])).toEqual({

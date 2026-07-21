@@ -57,9 +57,8 @@ function appWith(opts: {
   onDeleteOrg?: (slug: string) => void;
   bucket?: FakeR2Bucket;
   db?: SqliteD1;
-  defaultWorkspace?: string;
 }) {
-  const { kvRecords = {}, onDeleteOrg, bucket = new FakeR2Bucket(), db, defaultWorkspace } = opts;
+  const { kvRecords = {}, onDeleteOrg, bucket = new FakeR2Bucket(), db } = opts;
   const auth = stubAuth((req) => {
     const url = new URL(req.url);
     if (req.method === "DELETE" && url.pathname.startsWith("/internal/orgs/")) {
@@ -78,7 +77,6 @@ function appWith(opts: {
     REGISTRY: registry,
     UPLOADS_DEFAULT: bucket,
     DB: db ? database(db) : undefined,
-    ...(defaultWorkspace ? { DEFAULT_WORKSPACE: defaultWorkspace } : {}),
   } as unknown as Env;
   return { app, env, registry, bucket };
 }
@@ -114,17 +112,6 @@ describe("DELETE /admin/workspaces/:name", () => {
     expect(res.status).toBe(404);
   });
 
-  it("refuses to delete the communal/protected workspace", async () => {
-    const { app, env } = appWith({
-      kvRecords: { "ws:default": RECORD },
-      defaultWorkspace: "default",
-    });
-    const res = await app.request(deleteRequest("default"), {}, env);
-    expect(res.status).toBe(403);
-    const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("protected_workspace");
-  });
-
   it("409s a non-empty workspace on ?hard=1 without ?force=1, reporting the object count", async () => {
     const bucket = new FakeR2Bucket();
     await bucket.put("acme/f/one.png", new Uint8Array([1, 2, 3]));
@@ -138,17 +125,6 @@ describe("DELETE /admin/workspaces/:name", () => {
     expect(body.error.details?.objectCount).toBe(1);
     // Nothing was touched.
     expect(bucket.store.has("acme/f/one.png")).toBe(true);
-  });
-
-  it("refuses to delete the communal/protected workspace on ?hard=1 too", async () => {
-    const { app, env } = appWith({
-      kvRecords: { "ws:default": RECORD },
-      defaultWorkspace: "default",
-    });
-    const res = await app.request(deleteRequest("default", { hard: true }), {}, env);
-    expect(res.status).toBe(403);
-    const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("protected_workspace");
   });
 
   it("cascades a forced hard delete: R2 objects, D1 rows, auth org, then the KV record (slug freed)", async () => {

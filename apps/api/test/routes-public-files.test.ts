@@ -122,7 +122,15 @@ async function seedShot(
     "/v1/default/files/screenshots/shot.png",
     {
       method: "PUT",
-      headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png", ...headers },
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": "image/png",
+        // Strict-key overwrite gate (issue #174): several tests re-seed the
+        // same key deliberately (uploaded-at stamping, metadata cascade) —
+        // opt in so this fixture keeps its old always-overwrite behavior.
+        "X-Uploads-Replace": "1",
+        ...headers,
+      },
       body: PNG,
     },
     env,

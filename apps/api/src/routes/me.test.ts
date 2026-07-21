@@ -77,7 +77,6 @@ describe("GET /me/workspaces", () => {
           workspace: "acme",
           organization: { id: "org1", slug: "acme", name: "Acme Inc" },
           role: "owner",
-          communal: false,
           hasPublicUrl: false,
         },
       ],
@@ -118,7 +117,7 @@ describe("GET /me/workspaces", () => {
     ]);
   });
 
-  it("never checks hasPublicUrl for the communal workspace", async () => {
+  it("treats a workspace named 'default' as an ordinary workspace", async () => {
     const env = stubEnv(USER, (path) => {
       if (path === "/internal/memberships") {
         return Response.json([
@@ -132,8 +131,9 @@ describe("GET /me/workspaces", () => {
       }
       return new Response(null, { status: 404 });
     });
-    // No REGISTRY record for "default" at all — a lookup would 404/throw were
-    // one attempted; the communal short-circuit means it never happens.
+    // No REGISTRY record for "default" — same as any workspace with no
+    // publicBaseUrl configured; the lookup just resolves to undefined rather
+    // than being skipped by a name-based short-circuit.
     const res = await app().request("/me/workspaces", {}, env);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
@@ -142,37 +142,10 @@ describe("GET /me/workspaces", () => {
           workspace: "default",
           organization: { id: "org2", slug: "default", name: "Default" },
           role: "member",
-          communal: true,
           hasPublicUrl: false,
         },
       ],
     });
-  });
-
-  it("flags the default workspace as communal", async () => {
-    const env = stubEnv(USER, (path) => {
-      if (path === "/internal/memberships") {
-        return Response.json([
-          {
-            organizationId: "org1",
-            organizationSlug: "acme",
-            organizationName: "Acme Inc",
-            role: "admin",
-          },
-          {
-            organizationId: "org2",
-            organizationSlug: "default",
-            organizationName: "Default",
-            role: "member",
-          },
-        ]);
-      }
-      return new Response(null, { status: 404 });
-    });
-    const res = await app().request("/me/workspaces", {}, env);
-    const body = (await res.json()) as { workspaces: { workspace: string; communal: boolean }[] };
-    const byName = Object.fromEntries(body.workspaces.map((w) => [w.workspace, w.communal]));
-    expect(byName).toEqual({ acme: false, default: true });
   });
 
   it("503s when the memberships lookup fails (AUTH outage is not zero memberships)", async () => {
@@ -290,7 +263,7 @@ function galleriesDb(): DatabaseSync {
   return db;
 }
 
-/** AUTH + a single membership → one non-communal (or communal) workspace. */
+/** AUTH + a single membership → one workspace. */
 function memberEnv(opts: {
   workspace: string;
   role?: string;
@@ -376,7 +349,6 @@ describe("GET /me/workspaces/:name/summary", () => {
     expect(await res.json()).toMatchObject({
       workspace: "acme",
       role: "owner",
-      communal: false,
       hasPublicUrl: true,
       publicBaseUrl: "https://storage.uploads.sh",
       usage: { workspace: "acme", bytes: 1024, objects: 2, uploadsInPeriod: 3 },
@@ -424,7 +396,6 @@ describe("GET /me/workspaces/:name/people", () => {
     const res = await app().request("/me/workspaces/acme/people", {}, env);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      communal: false,
       role: "admin",
       canManage: true,
       organization: { id: "org1", slug: "acme", name: "Acme Inc" },
@@ -475,11 +446,28 @@ describe("GET /me/workspaces/:name/members", () => {
     expect(res.status).toBe(404);
   });
 
-  it("short-circuits the communal workspace with an empty list", async () => {
-    const env = memberEnv({ workspace: "default", db: new UsageFakeD1() });
+  it("returns sanitized member rows for a workspace named 'default' just like any other", async () => {
+    const env = stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") {
+        return Response.json([
+          { organizationId: "org1", organizationSlug: "default", role: "member" },
+        ]);
+      }
+      if (path === "/internal/orgs/default") {
+        return Response.json({ organization: { id: "org1", slug: "default", name: "Default" } });
+      }
+      if (path === "/internal/orgs/default/members") {
+        return Response.json({
+          members: [{ id: "m1", userId: "u1", email: "a@b.com", name: "Ada", role: "owner" }],
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
     const res = await app().request("/me/workspaces/default/members", {}, env);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ communal: true, members: [] });
+    expect(await res.json()).toEqual({
+      members: [{ email: "a@b.com", name: "Ada", role: "owner" }],
+    });
   });
 
   it("returns sanitized member rows for a member's workspace", async () => {
@@ -513,7 +501,6 @@ describe("GET /me/workspaces/:name/members", () => {
     expect(res.status).toBe(200);
     // Internal `id`/`userId` never reach the member-facing payload.
     expect(await res.json()).toEqual({
-      communal: false,
       members: [
         { email: "a@b.com", name: "Ada", role: "owner", createdAt: "2026-01-01T00:00:00.000Z" },
         { email: "c@d.com", name: "", role: "member" },
@@ -630,7 +617,7 @@ describe("member management routes", () => {
     const env = manageEnv({ role: "admin" });
     const res = await app().request("/me/workspaces/acme/invites", {}, env);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { communal: boolean; invites: unknown[] };
+    const body = (await res.json()) as { invites: unknown[] };
     expect(body.invites).toBeInstanceOf(Array);
   });
 
@@ -707,11 +694,11 @@ describe("member management routes", () => {
     expect(res.status).toBe(403);
   });
 
-  it("communal workspace short-circuits invites for an admin/owner caller", async () => {
+  it("returns invites for a workspace named 'default' just like any other", async () => {
     const env = manageEnv({ workspace: "default", role: "owner" });
     const res = await app().request("/me/workspaces/default/invites", {}, env);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ communal: true, invites: [] });
+    expect(await res.json()).toEqual({ invites: [] });
   });
 });
 
@@ -728,13 +715,12 @@ describe("GET /me/workspaces/:name/galleries", () => {
     });
   });
 
-  it("short-circuits the communal workspace with an empty list", async () => {
-    // The default workspace is communal; the endpoint returns before touching
-    // the DB, so UsageFakeD1 (which can't run the galleries query) is fine here.
-    const env = memberEnv({ workspace: "default", db: new UsageFakeD1() });
+  it("returns an empty gallery list for a workspace named 'default' just like any other", async () => {
+    const db = galleriesDb();
+    const env = memberEnv({ workspace: "default", db: new SQLiteD1(db) });
     const res = await app().request("/me/workspaces/default/galleries", {}, env);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ communal: true, galleries: [] });
+    expect(await res.json()).toEqual({ galleries: [] });
   });
 
   it("returns gallery summaries for a member's workspace", async () => {
@@ -750,7 +736,6 @@ describe("GET /me/workspaces/:name/galleries", () => {
     const res = await app().request("/me/workspaces/acme/galleries", {}, env);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      communal: false,
       galleries: [
         {
           id: "gal_aaaaaaaaaaaaaaaaaaaaaa",
@@ -770,13 +755,6 @@ describe("GET /me/workspaces/:name/galleries", () => {
 });
 
 describe("GET /me/workspaces/:name/files", () => {
-  it("short-circuits the communal workspace with an empty list", async () => {
-    const env = memberEnv({ workspace: "default", db: new UsageFakeD1() });
-    const res = await app().request("/me/workspaces/default/files", {}, env);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ communal: true, files: [] });
-  });
-
   it("returns a page of files with public URLs for a member's workspace", async () => {
     const bucket = new FakeR2Bucket();
     await bucket.put("acme/f/x/shot.png", new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
@@ -795,10 +773,8 @@ describe("GET /me/workspaces/:name/files", () => {
     const res = await app().request("/me/workspaces/acme/files", {}, env);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      communal: boolean;
       files: { key: string; url: string; pageUrl?: string }[];
     };
-    expect(body.communal).toBe(false);
     expect(body.files).toHaveLength(1);
     expect(body.files[0]).toMatchObject({
       key: "f/x/shot.png",
@@ -909,12 +885,6 @@ describe("GET /me/workspaces/:name/file-url", () => {
     expect((await res.json()) as { error: { code: string } }).toMatchObject({
       error: { code: "workspace_not_found" },
     });
-  });
-
-  it("404s for the communal workspace", async () => {
-    const env = memberEnv({ workspace: "default", db: new UsageFakeD1() });
-    const res = await app().request("/me/workspaces/default/file-url?key=a.png", {}, env);
-    expect(res.status).toBe(404);
   });
 
   it("404s for an invalid key", async () => {
@@ -1114,12 +1084,6 @@ describe("PATCH /me/workspaces/:name/files/visibility", () => {
     });
   });
 
-  it("404s for the communal workspace", async () => {
-    const env = memberEnv({ workspace: "default", db: new UsageFakeD1() });
-    const res = await patchVisibility("default", "a.png", "private", env);
-    expect(res.status).toBe(404);
-  });
-
   it("404s for a bad key", async () => {
     const env = acmeEnv(new FakeR2Bucket());
     const res = await patchVisibility("acme", "../etc/passwd", "private", env);
@@ -1209,20 +1173,6 @@ describe("/me/workspaces/:name/file-browser", () => {
       env,
     );
     expect(res.status).toBe(403);
-  });
-
-  it("does not mount a browser for the communal workspace", async () => {
-    const { env } = browserEnv("default");
-    const res = await app().request(
-      "/me/workspaces/default/file-browser",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ op: "list", delimiter: "/" }),
-      },
-      env,
-    );
-    expect(res.status).toBe(404);
   });
 });
 
@@ -1398,13 +1348,6 @@ describe("GET /me/workspaces/:name/files/search", () => {
     const env = memberEnv({ workspace: "acme", db: metadataDb([]), record: R2_RECORD });
     const res = await app().request("/me/workspaces/acme/files/search", {}, env);
     expect(res.status).toBe(400);
-  });
-
-  it("short-circuits the communal workspace with an empty result", async () => {
-    const env = memberEnv({ workspace: "default", db: metadataDb([]) });
-    const res = await app().request("/me/workspaces/default/files/search?meta.app=web", {}, env);
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ items: [], truncated: false });
   });
 
   it("404s for a workspace the caller is not a member of", async () => {

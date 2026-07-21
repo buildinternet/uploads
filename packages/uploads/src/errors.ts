@@ -10,6 +10,7 @@ export type UploadsErrorCode =
   | "STORAGE_QUOTA"
   | "UPLOAD_BUDGET"
   | "GITHUB_REQUIRED"
+  | "KEY_EXISTS"
   | "API_ERROR"
   | "NETWORK"
   | "USAGE"
@@ -20,11 +21,23 @@ export type UploadsErrorCode =
 export class UploadsError extends Error {
   readonly code: UploadsErrorCode;
   readonly status?: number;
+  /**
+   * The existing object's public URL, set only for `KEY_EXISTS` (strict
+   * overwrite refusal, issue #174) — lets a catch site point the caller at
+   * what's already there without a follow-up lookup.
+   */
+  readonly existingUrl?: string;
 
-  constructor(message: string, code: UploadsErrorCode, status?: number) {
+  constructor(
+    message: string,
+    code: UploadsErrorCode,
+    status?: number,
+    opts?: { existingUrl?: string },
+  ) {
     super(message);
     this.name = "UploadsError";
     this.code = code;
     this.status = status;
+    this.existingUrl = opts?.existingUrl;
   }
 }

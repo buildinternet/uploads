@@ -22,6 +22,10 @@ export const prerender = false;
       <div id="accounts-status" class="muted detail-status">Loading…</div>
       <ul class="detail-list" id="accounts-list" hidden></ul>
       <p id="accounts-error" class="detail-error" role="alert" hidden></p>
+      <p class="muted settings-note">
+        Have a workspace under another email? Connect GitHub here (or sign in
+        with that email via magic link, then connect) to link the two.
+      </p>
     </div>
 
     <div class="settings-section">
@@ -227,7 +231,6 @@ export const prerender = false;
           const meta = [
             ws.workspace !== name ? ws.workspace : null,
             ws.role,
-            ws.communal ? "communal" : null,
           ]
             .filter(Boolean)
             .join(" · ");
