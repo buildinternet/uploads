@@ -29,7 +29,9 @@ import { buildMarkdown } from "./embed.js";
 import { urlForGithubEmbed } from "./public-urls.js";
 import { UploadsError } from "./errors.js";
 import { writeJson, writeStdout } from "./io.js";
+import { imageFactsFromBytes } from "./image-facts.js";
 import { parseMetaFlags, validateMetaMap } from "./metadata.js";
+import { mergeDerivedMeta, nearMissMetaWarnings, validateStateValue } from "./metadata-vocab.js";
 import {
   ghAttachmentKey,
   ghBranchAttachmentKey,
@@ -160,6 +162,8 @@ Options:
                         when the GitHub App is installed; otherwise via local gh.
   --gallery <id>         Add the uploaded object(s) to this public gallery
   --meta <k=v>          Queryable custom metadata (repeatable; value may contain "="): key ^[a-z][a-z0-9._-]{0,63}$, value 1-512 printable ASCII, max 24 pairs
+  --state <s>           before|after|empty|error|loading — the UI state shown (sets meta state=)
+  --app <name>          Surface shown: web, ios, android, cli (sets meta app=)
                         Re-uploading to an existing key WITH --meta replaces that file's
                         entire metadata set; without --meta the existing metadata is
                         preserved. Use "uploads meta set" to edit individual keys.
@@ -327,6 +331,24 @@ export function optimizeOptionsFromFlags(
     quality,
     keepExif: flagBool(flags, "--keep-exif") || defaults.keepExif === true,
   };
+}
+
+/**
+ * Canonical `state`/`app` pairs from their dedicated flags. Shared by put,
+ * attach and screenshot. These are sugar for the matching `--meta` keys; the
+ * point is `--help` discoverability and `--state` validation.
+ */
+export function stateAppMetaFromFlags(flags: CommandFlags["flags"]): Record<string, string> {
+  const meta: Record<string, string> = {};
+  const state = flagString(flags, "--state");
+  if (state !== undefined) meta.state = validateStateValue(state);
+  const app = flagString(flags, "--app");
+  if (app !== undefined) {
+    const normalized = app.trim().toLowerCase();
+    if (normalized.length === 0) throw new UsageError("--app requires a value");
+    meta.app = normalized;
+  }
+  return meta;
 }
 
 function formatOptimizeNote(opt: {
@@ -717,6 +739,8 @@ Options:
   --keep-exif           Keep EXIF/XMP/ICC when optimizing (default: strip for privacy)
   --workspace, -w <name>  Override workspace
   --meta <k=v>          Extra queryable metadata (repeatable; value may contain "=").
+  --state <s>           before|after|empty|error|loading — the UI state shown (sets meta state=)
+  --app <name>          Surface shown: web, ios, android, cli (sets meta app=)
                         gh.repo/gh.kind/gh.number/gh.ref are always set from the resolved
                         target (or gh.repo/gh.kind/gh.branch/gh.staged-at with --branch) —
                         a --meta pair with the same key is overridden by it.
@@ -1408,7 +1432,15 @@ export async function runPut(
   // Validate --meta up front (fail fast, before reading/optimizing the file).
   const userMeta = ((): Record<string, string> | undefined => {
     const pairs = flagValues(parsed.flags, "--meta");
-    return pairs.length > 0 ? parseMetaFlags(pairs) : undefined;
+    const fromMeta = pairs.length > 0 ? parseMetaFlags(pairs) : {};
+    for (const warning of nearMissMetaWarnings(Object.keys(fromMeta))) {
+      if (!ctx.quiet) process.stderr.write(`!! ${warning}\n`);
+    }
+    // Dedicated flags are explicit input and win over a same-named --meta pair.
+    const merged = { ...fromMeta, ...stateAppMetaFromFlags(parsed.flags) };
+    if (Object.keys(merged).length === 0) return undefined;
+    validateMetaMap(merged);
+    return merged;
   })();
   if (wantComment && typeof parsed.flags.get("--comment") === "string") {
     throw new UsageError("--comment takes no value — place it after the file argument");

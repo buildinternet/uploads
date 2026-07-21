@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import { UploadsError } from "../src/errors.js";
 import type { UploadsClient } from "../src/client.js";
-import { runPut, type CliContext } from "../src/commands.js";
+import { runPut, stateAppMetaFromFlags, type CliContext } from "../src/commands.js";
 import type { CommandRunner } from "../src/github-gh.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -864,5 +864,80 @@ describe("runPut gh.* attach success note", () => {
       ),
     );
     expect(output).not.toContain("attached to");
+  });
+});
+
+describe("stateAppMetaFromFlags", () => {
+  it("maps --state and --app onto canonical keys", () => {
+    const flags = new Map<string, string | boolean>([
+      ["--state", "after"],
+      ["--app", "web"],
+    ]);
+    expect(stateAppMetaFromFlags(flags)).toEqual({ state: "after", app: "web" });
+  });
+
+  it("rejects an invalid --state with a suggestion", () => {
+    const flags = new Map<string, string | boolean>([["--state", "post"]]);
+    expect(() => stateAppMetaFromFlags(flags)).toThrow(/did you mean "after"/);
+  });
+
+  it("returns an empty map when neither flag is present", () => {
+    expect(stateAppMetaFromFlags(new Map())).toEqual({});
+  });
+});
+
+describe("runPut canonical metadata flags", () => {
+  it("stamps state and app as metadata", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--no-git", "--no-auto", "--state", "after", "--app", "web"],
+      false,
+      noRun,
+    );
+    expect(puts[0]?.metadata?.state).toBe("after");
+    expect(puts[0]?.metadata?.app).toBe("web");
+  });
+
+  it("lets --state win over a --meta state pair", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--no-git", "--no-auto", "--meta", "state=before", "--state", "after"],
+      false,
+      noRun,
+    );
+    expect(puts[0]?.metadata?.state).toBe("after");
+  });
+
+  it("rejects an invalid --state before uploading anything", async () => {
+    const { client, puts } = fakeClient();
+    await expect(
+      runPut(ctxWith(client), [tmpFile(), "--no-git", "--state", "nope"], false, noRun),
+    ).rejects.toThrow(UsageError);
+    expect(puts).toHaveLength(0);
+  });
+
+  it("warns about a near-miss metadata key without rewriting it", async () => {
+    const { client, puts } = fakeClient();
+    const warnings: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+      warnings.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+    try {
+      await runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--no-git", "--no-auto", "--meta", "route=/settings"],
+        false,
+        noRun,
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(warnings.join("")).toContain('did you mean "path"');
+    // The caller's key is preserved verbatim — we nag, we never rewrite.
+    expect(puts[0]?.metadata?.route).toBe("/settings");
+    expect(puts[0]?.metadata?.path).toBeUndefined();
   });
 });
