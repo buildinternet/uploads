@@ -2,7 +2,8 @@
 /**
  * Workspaces index.
  * Legacy `?ws=` deep links redirect to `/account/workspaces/<name>`.
- * Single membership auto-opens that workspace; otherwise pick from the list/sidebar.
+ * Single membership auto-opens that workspace; otherwise pick from the list
+ * or the sidebar workspace switcher.
  */
 import AccountLayout from "../../layouts/AccountLayout.astro";
 import { isBrowseWorkspace } from "../../lib/workspace-browse-url";
@@ -25,7 +26,7 @@ if (isBrowseWorkspace(legacyWs)) {
     <div class="settings-section">
       <h2>Workspaces</h2>
       <p class="settings-note muted">
-        Pick one in the sidebar, or
+        Pick one below, use the workspace switcher in the sidebar, or
         <a href="/account/workspaces/new">create one</a>.
       </p>
       <div id="orgs-status" class="ws-status muted">Loading…</div>

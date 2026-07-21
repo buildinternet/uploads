@@ -15,7 +15,7 @@ const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
 ---
 
-<WorkspaceLayout workspace={workspace} activeTab="galleries">
+<WorkspaceLayout workspace={workspace}>
   <div id="ws-status" class="ul-callout status" role="status">Loading…</div>
   <button id="ws-retry" type="button" hidden>Try again</button>
 

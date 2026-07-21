@@ -1,60 +1,21 @@
 ---
 /**
- * Workspace tab shell: composes `AccountLayout` (`section="workspaces"`) with
- * the workspace header (name + `[role]` badge), the `files / galleries /
- * people / settings` tab row, and the right-rail summary (connected work /
- * usage / details / quick actions) — see design doc §5.2/§5.5 and
- * `.context/2026-07-19-settings-overhaul-3a-reference.html`.
- *
- * Tab bodies are the default `<slot />`; each tab route wraps its content in
- * this layout with its own `activeTab`. The rail's static scaffolding lives
- * here; its live data (role badge, details, usage, connected work) is filled
- * client-side by `initWorkspaceRail` (`../lib/workspace-rail.ts`), mounted
- * below via `onAstroPageLoad`.
- *
- * Connected-work hook: the files tab (Task 8) pushes GitHub work items into
- * the rail via the documented global `window.__uploadsSetConnectedWork(items)`
- * — see `workspace-rail.ts` for the full contract. Non-files tabs never call
- * it, so the section stays hidden.
+ * Workspace shell: `AccountLayout` + content slot + right-rail summary.
+ * Section links live in the sidebar switcher; tab routes only wrap content.
+ * Rail data is filled by `initWorkspaceRail` (connected work / usage / details).
  */
 import AccountLayout from "./AccountLayout.astro";
 
-export type WorkspaceTab = "files" | "galleries" | "people" | "settings";
-
 interface Props {
   workspace: string;
-  activeTab: WorkspaceTab;
 }
 
-const { workspace, activeTab } = Astro.props;
+const { workspace } = Astro.props;
 
-const base = `/account/workspaces/${encodeURIComponent(workspace)}`;
-const TABS: { id: WorkspaceTab; label: string; href: string }[] = [
-  { id: "files", label: "files", href: base },
-  { id: "galleries", label: "galleries", href: `${base}/galleries` },
-  { id: "people", label: "people", href: `${base}/people` },
-  { id: "settings", label: "settings", href: `${base}/settings` },
-];
-
-const invitePath = `${base}/people`;
+const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`;
 ---
 
 <AccountLayout section="workspaces" workspace={workspace} title={workspace}>
-  <div class="ws-head">
-    <h2 class="ws-head__name">{workspace}</h2>
-    <span class="ws-head__role" data-role-badge hidden></span>
-  </div>
-
-  <nav class="ws-tabs" data-tabrow aria-label="Workspace sections">
-    {
-      TABS.map((tab) => (
-        <a href={tab.href} aria-current={tab.id === activeTab ? "page" : undefined}>
-          {tab.label}
-        </a>
-      ))
-    }
-  </nav>
-
   <slot />
 
   <Fragment slot="rail">
@@ -108,57 +69,10 @@ const invitePath = `${base}/people`;
 </AccountLayout>
 
 <style>
-  /* Header: workspace name + role badge — server-rendered, JS only toggles
-     the badge's text/hidden state (no innerHTML replace), so plain scoped
-     selectors are fine here. */
-  .ws-head {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .ws-head__name {
-    margin: 0;
-    font: 600 16px var(--mono);
-  }
-  .ws-head__role {
-    font-size: 10.5px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--accent);
-  }
-
-  /* Tab row — server-rendered links, `aria-current` marks the active tab. */
-  .ws-tabs {
-    display: flex;
-    gap: 22px;
-    margin-top: 14px;
-    border-bottom: 1px solid var(--line);
-    font-size: 13px;
-  }
-  .ws-tabs a {
-    display: block;
-    padding: 7px 2px 9px;
-    color: var(--muted);
-    text-decoration: none;
-    border-bottom: 1px solid transparent;
-    margin-bottom: -1px;
-  }
-  .ws-tabs a:hover,
-  .ws-tabs a:focus-visible {
-    color: var(--fg);
-    outline: none;
-  }
-  .ws-tabs a[aria-current="page"] {
-    color: var(--fg);
-    border-bottom-color: var(--accent);
-  }
-
   /* Rail wrapper — `display: contents` so the section children participate
      directly in AccountLayout's `aside.rail` grid (which already supplies
-     `display:grid; gap:22px`); see account-shell.css and the same technique
-     on `#workspaces-nav-list`. Do not add spacing rules here — that's the
-     shared container's job. */
+     `display:grid; gap:22px`); see account-shell.css. Do not add spacing
+     rules here — that's the shared container's job. */
   .ws-rail {
     display: contents;
   }
@@ -170,10 +84,7 @@ const invitePath = `${base}/people`;
      component itself renders, so a dynamically-injected node needs :global()
      to be matched at all. `.account-shell` is likewise wrapped in :global()
      (it's AccountLayout's element, not this component's), kept only as a
-     belt-and-suspenders ancestor gate: `.ws-rail` between them IS this
-     component's own scoped element, and it only ever renders inside
-     AccountLayout's `.account-shell` tree, so these rules structurally can
-     never match on /admin/* even without the explicit ancestor check. */
+     belt-and-suspenders ancestor gate. */
   .ws-rail__section {
     font-size: 12.5px;
   }
@@ -254,9 +165,7 @@ const invitePath = `${base}/people`;
 
   /* Usage — renderUsageHtml() output uses @uploads/ui's globally-styled
      `.ul-progress*` classes (no CSS needed here); style only its plain-text
-     fallback (`.usage-text`/`.usage-meta`, from workspace-ui.ts) since that
-     fallback has no styling of its own outside the legacy account-content.css
-     page this layout does not use. */
+     fallback (`.usage-text`/`.usage-meta`, from workspace-ui.ts). */
   :global(.account-shell) .ws-rail :global(.usage-text) {
     color: var(--muted);
   }
@@ -377,8 +286,7 @@ const invitePath = `${base}/people`;
       w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
     );
 
-    // `initWorkspaceRail` queries `document` itself (it also needs
-    // `[data-role-badge]` in the header, outside this rail root) — `root`
+    // `initWorkspaceRail` queries `document` for rail hooks — `root`
     // here is only this function's own re-entrancy guard.
     initWorkspaceRail(apiOrigin, workspace);
   }

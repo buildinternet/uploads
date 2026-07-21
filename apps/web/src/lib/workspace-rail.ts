@@ -8,7 +8,7 @@
  *    synchronously, before any network round trip, so a files-tab script that
  *    races ahead of this module's session-gated fetches never calls a
  *    not-yet-defined function;
- *  - fetches `getWorkspaceSummary` → role badge, details, and usage.
+ *  - fetches `getWorkspaceSummary` → details and usage (role is in details).
  *
  * Connected-work hook contract (Task 8's files tab is the only caller):
  *   `window.__uploadsSetConnectedWork(items: GhWorkItem[], titles?: GithubTitleMap): void`
@@ -152,7 +152,7 @@ function bindConnectedWorkSetter(root: Document | Element): ConnectedWorkSetter 
 }
 
 export interface InitWorkspaceRailOptions {
-  /** Query root for the rail's `data-rail-*` hooks and the header's `[data-role-badge]`. Defaults to `document`. */
+  /** Query root for the rail's `data-rail-*` hooks. Defaults to `document`. */
   root?: Document | Element;
 }
 
@@ -178,7 +178,6 @@ export function initWorkspaceRail(
   const railRoot = root.querySelector<HTMLElement>("[data-workspace-rail]");
   if (railRoot) bindCopyButtons(railRoot);
 
-  const roleBadge = root.querySelector<HTMLElement>("[data-role-badge]");
   const detailsEl = root.querySelector<HTMLElement>("[data-rail-details]");
   const usageEl = root.querySelector<HTMLElement>("[data-rail-usage]");
 
@@ -190,10 +189,6 @@ export function initWorkspaceRail(
         return;
       }
       const ws: MyWorkspace = result.workspace;
-      if (roleBadge) {
-        roleBadge.textContent = ws.role;
-        roleBadge.hidden = false;
-      }
       if (detailsEl) detailsEl.innerHTML = renderDetailsHtml(ws);
       if (usageEl) {
         usageEl.innerHTML = result.usage ? renderUsageHtml(result.usage) : "Usage unavailable.";

@@ -1,5 +1,5 @@
 /**
- * Account overview CLI setup card: list-sessions + sticky `cliOnboardedAt`.
+ * Developers CLI setup card: list-sessions + sticky `cliOnboardedAt`.
  */
 
 import { isCliUserAgent } from "./session-device";
