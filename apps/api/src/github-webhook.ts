@@ -15,13 +15,23 @@
  * involvement. This runs off the request's fast path via `ctx.waitUntil` so
  * the webhook still responds 204 promptly; every failure inside is caught
  * and logged, never surfaced as a 5xx.
+ *
+ * Reconcile (`issue_comment` `edited`/`deleted`, issue #291): heals the
+ * managed comment when it's deleted or mangled out from under the bot (the
+ * cached `ghcomment:` id going stale). Gated by a cheap, I/O-free payload
+ * check (`isReconcilableCommentEvent`) since this event fires on every
+ * comment in every installed repo — only a bot-authored deletion or an edit
+ * still carrying the attachments marker proceeds to the (binding-gated)
+ * gather+upsert. Same `ctx.waitUntil`/degrade-safe doctrine as above; never
+ * creates a repo binding, only consumes `findRepoLink`.
  */
 
 import { githubAppConfig, installationForRepo } from "./github-app";
-import { gatherCommentBody, upsertBotComment } from "./github-comment";
+import { commentCacheKey, gatherCommentBody, upsertBotComment } from "./github-comment";
+import { ATTACHMENTS_MARKER } from "./github-comment-render";
 import type { GhTarget } from "./github-comment-render";
 import { promoteBranchAttachments } from "./github-promote";
-import { deleteRepoLink, findRepoLink } from "./github-repo-links";
+import { deleteRepoLink, findRepoLink, type RepoLink } from "./github-repo-links";
 import { loadWorkspaceRecord } from "./workspace";
 
 const enc = new TextEncoder();
@@ -93,12 +103,58 @@ interface PullRequestPayload {
 }
 
 /**
+ * Look up the repo's bound workspace, gather its own current attachments for
+ * `target`, and upsert the managed comment from that render. Shared by both
+ * auto-promotion (after a fresh promote) and reconcile (after an
+ * invalidation) — read/delete-only against `github_repo_links` per the #326
+ * gate: a missing/tombstoned linked workspace cleans up the stale link and
+ * no-ops, never creates a new one. Caller is responsible for catching.
+ */
+async function gatherAndUpsert(env: Env, link: RepoLink, target: GhTarget): Promise<void> {
+  const ws = await loadWorkspaceRecord(env, link.workspaceName);
+  if (!ws) {
+    // The bound workspace is gone or tombstoned — the link is stale;
+    // clean it up so a future claim (e.g. from another workspace) isn't
+    // blocked by first-claim-wins forever.
+    await deleteRepoLink(env.DB, target.repo);
+    return;
+  }
+
+  const gathered = await gatherCommentBody(env, ws, link.workspaceName, target);
+  if (gathered.skip) return; // nothing staged and nothing pre-existing — no empty comment.
+
+  const cfg = githubAppConfig(env);
+  if (!cfg) return;
+  const installId = link.installationId ?? (await installationForRepo(env, cfg, target.repo));
+  if (installId === null) return;
+
+  const result = await upsertBotComment(
+    env,
+    cfg,
+    installId,
+    target,
+    gathered.body,
+    link.workspaceName,
+  );
+  if ("degrade" in result) {
+    console.error(
+      JSON.stringify({
+        message: "webhook bot-comment degraded",
+        repo: target.repo,
+        num: target.num,
+        reason: result.degrade,
+      }),
+    );
+  }
+}
+
+/**
  * Best-effort webhook-driven auto-promotion for one `pull_request` delivery.
  * No-ops (never throws) on: a cross-repo PR (fork head), no repo link, a
- * missing/tombstoned linked workspace (also cleans up the stale link), or
- * any downstream promote/gather/comment failure. Reuses
- * `promoteBranchAttachments` and `gatherCommentBody`/`upsertBotComment`
- * verbatim — no duplicated copy/render/post logic.
+ * missing/tombstoned linked workspace, or any downstream promote/gather/
+ * comment failure. Reuses `promoteBranchAttachments` and `gatherAndUpsert`
+ * (which itself reuses `gatherCommentBody`/`upsertBotComment` verbatim) — no
+ * duplicated copy/render/post logic.
  */
 async function autoPromoteAndComment(env: Env, p: PullRequestPayload): Promise<void> {
   const repo = p.repository?.full_name;
@@ -125,9 +181,6 @@ async function autoPromoteAndComment(env: Env, p: PullRequestPayload): Promise<v
 
     const ws = await loadWorkspaceRecord(env, link.workspaceName);
     if (!ws) {
-      // The bound workspace is gone or tombstoned — the link is stale;
-      // clean it up so a future claim (e.g. from another workspace) isn't
-      // blocked by first-claim-wins forever.
       await deleteRepoLink(env.DB, repo);
       return;
     }
@@ -139,40 +192,97 @@ async function autoPromoteAndComment(env: Env, p: PullRequestPayload): Promise<v
     });
 
     // Gather AFTER promoting: the just-promoted copies are now real objects
-    // under the PR's attachment prefix, so this single gather call (reused
-    // verbatim from the comment route) already reflects them — no separate
-    // "promoted > 0" branch needed.
+    // under the PR's attachment prefix, so this single gather call already
+    // reflects them — no separate "promoted > 0" branch needed.
     const target: GhTarget = { repo, kind: "pull", num };
-    const gathered = await gatherCommentBody(env, ws, link.workspaceName, target);
-    if (gathered.skip) return; // nothing staged and nothing pre-existing — no empty comment.
-
-    const cfg = githubAppConfig(env);
-    if (!cfg) return;
-    const installId = link.installationId ?? (await installationForRepo(env, cfg, repo));
-    if (installId === null) return;
-
-    const result = await upsertBotComment(
-      env,
-      cfg,
-      installId,
-      target,
-      gathered.body,
-      link.workspaceName,
-    );
-    if ("degrade" in result) {
-      console.error(
-        JSON.stringify({
-          message: "webhook auto-comment degraded",
-          repo,
-          num,
-          reason: result.degrade,
-        }),
-      );
-    }
+    await gatherAndUpsert(env, link, target);
   } catch (err) {
     console.error(
       JSON.stringify({
         message: "webhook auto-promote failed",
+        repo,
+        num,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
+}
+
+/** Substring shared by every managed-comment marker variant (legacy + the
+ * per-workspace `ws=<slug>` namespaced form) — cheap to test for without
+ * parsing which marker it is. Derived from `ATTACHMENTS_MARKER` so there is
+ * one source of truth for the literal. */
+const MARKER_SUBSTRING = ATTACHMENTS_MARKER.replace(/^<!--\s*|\s*-->$/g, "");
+
+interface IssueCommentPayload {
+  action?: unknown;
+  repository?: { full_name?: unknown };
+  issue?: { number?: unknown; pull_request?: unknown };
+  comment?: { body?: unknown; user?: { login?: unknown; type?: unknown } };
+  sender?: { login?: unknown; type?: unknown };
+}
+
+/**
+ * True iff this `issue_comment` delivery plausibly concerns the managed
+ * attachments comment and is worth the (DB + GitHub API) cost of reconciling.
+ * This event class fires on EVERY comment in every installed repo, so the
+ * check here must stay a pure, allocation-free read of the payload already
+ * in hand — no I/O.
+ *
+ * - `created`: never relevant (a fresh human/bot comment is not the managed
+ *   one going stale) — cheap reject on `action` alone.
+ * - `deleted`: relevant only when the deleted comment was authored by a bot
+ *   AND its (still-included, pre-deletion) body carries the marker —
+ *   otherwise it's someone's unrelated comment.
+ * - `edited`: relevant only when the current body still carries the marker.
+ *   Loop guard lives here too: an edit whose `sender` is itself a bot is
+ *   assumed to be our own `upsertBotComment` PATCH (GitHub attributes App-
+ *   token writes to the App's bot user) and is skipped, so reconcile never
+ *   re-triggers off its own write.
+ */
+function isReconcilableCommentEvent(p: IssueCommentPayload): boolean {
+  const body = p.comment?.body;
+  if (typeof body !== "string" || !body.includes(MARKER_SUBSTRING)) return false;
+
+  if (p.action === "deleted") {
+    return p.comment?.user?.type === "Bot";
+  }
+  if (p.action === "edited") {
+    if (p.sender?.type === "Bot") return false; // our own write — no loop.
+    return true;
+  }
+  return false; // "created" and anything else.
+}
+
+/**
+ * Best-effort reconcile for one `issue_comment` delivery: when the managed
+ * comment was deleted or mangled out from under us, drop the (now stale)
+ * cached comment id and re-run gather+upsert so it's recreated/repaired from
+ * the bound workspace's own data. Same degrade-safe doctrine as
+ * `autoPromoteAndComment`: swallow every failure, never 5xx, never create a
+ * repo binding (read/delete-only via `findRepoLink`/`deleteRepoLink`).
+ */
+async function reconcileBotComment(env: Env, p: IssueCommentPayload): Promise<void> {
+  if (!isReconcilableCommentEvent(p)) return;
+
+  const repo = p.repository?.full_name;
+  const num = p.issue?.number;
+  if (typeof repo !== "string" || typeof num !== "number") return;
+
+  try {
+    const link = await findRepoLink(env.DB, repo);
+    if (!link) return;
+
+    const target: GhTarget = { repo, kind: p.issue?.pull_request ? "pull" : "issues", num };
+    // Force a fresh marker hunt + write rather than trusting a cached id that
+    // may point at the very comment that was just deleted/mangled.
+    await env.GITHUB_CACHE.delete(commentCacheKey(link.workspaceName, target));
+
+    await gatherAndUpsert(env, link, target);
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message: "webhook comment reconcile failed",
         repo,
         num,
         error: err instanceof Error ? err.message : String(err),
@@ -228,5 +338,12 @@ export async function handleWebhook(
       if (ctx) ctx.waitUntil(work);
       else await work; // no executionCtx (e.g. some test/call sites) — run inline.
     }
+  } else if (eventType === "issue_comment") {
+    // isReconcilableCommentEvent's cheap payload-only check runs before any
+    // I/O, so the common case (an ordinary human comment on any installed
+    // repo — this event fires on every one) returns near-instantly.
+    const work = reconcileBotComment(env, p as IssueCommentPayload);
+    if (ctx) ctx.waitUntil(work);
+    else await work;
   }
 }

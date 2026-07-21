@@ -144,7 +144,10 @@ const COMMENT_ID_TTL = 60 * 60 * 24 * 30; // 30 days.
  * workspace, phase 4b). A cache entry written under the pre-4b key format
  * (`ghcomment:<repo>#<num>`, no workspace dimension) simply misses under this
  * key and falls through to a fresh marker hunt — no migration needed. */
-function commentCacheKey(workspaceName: string, target: Pick<GhTarget, "repo" | "num">): string {
+export function commentCacheKey(
+  workspaceName: string,
+  target: Pick<GhTarget, "repo" | "num">,
+): string {
   return `ghcomment:${workspaceName}:${target.repo.toLowerCase()}#${target.num}`;
 }
 
