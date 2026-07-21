@@ -147,6 +147,38 @@ export function resolveUploadedAtMeta(
   return now.toISOString();
 }
 
+/** Same-second tolerance so storage noise does not force dual public date fields. */
+const PUBLIC_DATE_EQUAL_MS = 1000;
+
+/**
+ * Public share/gallery date fields from a Files SDK head.
+ * Prefer `uploaded-at` stamp; fall back to provider `lastModified`.
+ * Emit `modified` only when mtime meaningfully differs (fresh put → single field).
+ */
+export function publicObjectDateFields(meta: {
+  lastModified?: number;
+  metadata?: Record<string, string>;
+}): { uploaded?: string; modified?: string } {
+  const modifiedIso =
+    meta.lastModified != null && Number.isFinite(meta.lastModified)
+      ? new Date(meta.lastModified).toISOString()
+      : undefined;
+  const stamped = meta.metadata?.[UPLOADED_AT_META_KEY];
+  const uploadedIso =
+    typeof stamped === "string" && Number.isFinite(Date.parse(stamped))
+      ? new Date(stamped).toISOString()
+      : modifiedIso;
+
+  if (!uploadedIso) return {};
+  if (
+    !modifiedIso ||
+    Math.abs(Date.parse(modifiedIso) - Date.parse(uploadedIso)) < PUBLIC_DATE_EQUAL_MS
+  ) {
+    return { uploaded: uploadedIso };
+  }
+  return { uploaded: uploadedIso, modified: modifiedIso };
+}
+
 /**
  * Upload with the workspace's guardrails applied: size cap and content-type
  * allowlist, the stored content type sniffed from the bytes rather than taken

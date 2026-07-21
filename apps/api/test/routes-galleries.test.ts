@@ -453,24 +453,35 @@ describe("gallery routes with SQLite D1", () => {
     expect(publicBody).not.toHaveProperty("workspace");
     expect(publicBody).not.toHaveProperty("deletedAt");
     const publicItem = (publicBody.items as Record<string, unknown>[])[0];
-    expect(Object.keys(publicItem)).toEqual([
-      "id",
-      "filename",
-      "position",
-      "caption",
-      "altText",
-      "status",
-      "url",
-      "embedUrl",
-      "contentType",
-    ]);
+    // size + uploaded are always present for available objects; modified only
+    // when it meaningfully differs from uploaded (publicObjectDateFields).
+    expect(Object.keys(publicItem).sort()).toEqual(
+      [
+        "id",
+        "filename",
+        "position",
+        "caption",
+        "altText",
+        "status",
+        "url",
+        "embedUrl",
+        "contentType",
+        "size",
+        "uploaded",
+        ...(publicItem.modified !== undefined ? ["modified"] : []),
+      ].sort(),
+    );
     expect(publicItem).toMatchObject({
       filename: "one.png",
       contentType: "application/octet-stream",
       status: "available",
       caption: "Launch",
       altText: "Screenshot",
+      size: expect.any(Number),
+      uploaded: expect.any(String),
     });
+    expect(publicItem.size).toBeGreaterThan(0);
+    expect(Number.isFinite(Date.parse(publicItem.uploaded as string))).toBe(true);
     const removed = await request(`/v1/alpha/galleries/${gallery.id}`, {
       method: "DELETE",
       body: JSON.stringify({ expectedVersion: 2 }),
@@ -548,22 +559,27 @@ describe("gallery routes with SQLite D1", () => {
     expect(publicView.status).toBe(200);
     const publicBody = (await publicView.json()) as { references: Record<string, unknown>[] };
     expect(publicBody.references).toHaveLength(2);
+    // Without GitHub App/cache in the test env, titles/kind stay omitted.
     expect(publicBody.references).toEqual(
       expect.arrayContaining([
-        {
+        expect.objectContaining({
           provider: "github",
           resourceType: "item",
           coordinate: "buildinternet/uploads#123",
           canonicalUrl: "https://github.com/buildinternet/uploads/issues/123",
-        },
-        {
+        }),
+        expect.objectContaining({
           provider: "github",
           resourceType: "item",
           coordinate: "buildinternet/new-uploads#123",
           canonicalUrl: "https://github.com/buildinternet/new-uploads/issues/123",
-        },
+        }),
       ]),
     );
+    for (const ref of publicBody.references) {
+      expect(ref).not.toHaveProperty("title");
+      expect(ref).not.toHaveProperty("kind");
+    }
 
     const secondGallery = await create();
     expect(

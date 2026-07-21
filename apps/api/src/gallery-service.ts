@@ -4,6 +4,8 @@ import {
   ServiceUnavailableError,
   ValidationError,
 } from "@uploads/errors";
+import { publicObjectDateFields } from "./files-core";
+import { displayTitle } from "./file-metadata";
 import {
   type GalleryCursor,
   type GalleryItemRecord,
@@ -13,9 +15,18 @@ import {
   type PublicGallery,
   projectPublicGallery,
 } from "./galleries";
+import { resolveTitles, withPublicTitleBudget, type TitleInfo } from "./github-titles";
 import { objectPublicUrls, storage, storageConfig } from "./storage";
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
+
+/** Fields we read from a Files SDK head when hydrating gallery items. */
+type GalleryObjectHead = {
+  type?: string;
+  size?: number;
+  lastModified?: number;
+  metadata?: Record<string, string>;
+};
 
 export interface GalleryItemDto {
   id: string;
@@ -31,6 +42,10 @@ export interface GalleryItemDto {
   pageUrl: string;
   contentType: string | null;
   size: number | null;
+  /** First-upload ISO when known from object head; null for missing items. */
+  uploaded: string | null;
+  /** Last-modified ISO when it meaningfully differs from uploaded; else null. */
+  modified: string | null;
 }
 export interface PublicGalleryItemDto {
   id: string;
@@ -42,6 +57,12 @@ export interface PublicGalleryItemDto {
   url: string | null;
   embedUrl: string | null;
   contentType: string | null;
+  /** Byte size when available; null for missing/tombstone items. */
+  size: number | null;
+  /** First-upload time when known; omitted when unavailable. */
+  uploaded?: string;
+  /** Distinct last-modified when it differs from uploaded. */
+  modified?: string;
 }
 export interface GalleryDto {
   id: string;
@@ -77,6 +98,10 @@ export interface PublicGalleryReferenceDto {
   resourceType: string;
   coordinate: string;
   canonicalUrl: string | null;
+  /** Live-resolved (or cached) GitHub title when available. */
+  title?: string;
+  /** pull vs issue when title resolve (or URL path) knows; drives the chip glyph. */
+  kind?: "pull" | "issue";
 }
 export interface ExternalReferenceDto {
   id: string;
@@ -236,10 +261,10 @@ export async function hydrateGalleryItems(
     });
   }
   return mapBounded(items, 8, async (item) => {
-    let meta: { type?: string; size?: number } | null;
+    let meta: GalleryObjectHead | null;
     try {
       meta = (await store.exists(item.object_key))
-        ? ((await store.head(item.object_key)) as { type?: string; size?: number })
+        ? ((await store.head(item.object_key)) as GalleryObjectHead)
         : null;
     } catch (cause) {
       throw new ServiceUnavailableError("Gallery storage unavailable.", {
@@ -254,6 +279,7 @@ export async function hydrateGalleryItems(
       throw new ServiceUnavailableError("Gallery object is not publicly served.", {
         code: "gallery_object_not_public",
       });
+    const dates = meta ? publicObjectDateFields(meta) : {};
     return {
       id: item.id,
       objectKey: item.object_key,
@@ -266,6 +292,8 @@ export async function hydrateGalleryItems(
       embedUrl: urls.embedUrl,
       contentType: meta?.type ?? null,
       size: meta?.size ?? null,
+      uploaded: dates.uploaded ?? null,
+      modified: dates.modified ?? null,
     };
   });
 }
@@ -317,6 +345,51 @@ export async function hydrateOwnerGallery(
   };
 }
 
+/** Rewrite `owner/repo#N` to a pull URL when title resolve says it's a PR. */
+function githubPullUrl(coordinate: string): string | null {
+  const match = /^([^/]+)\/([^#]+)#([1-9][0-9]*)$/.exec(coordinate);
+  if (!match) return null;
+  return `https://github.com/${match[1]}/${match[2]}/pull/${match[3]}`;
+}
+
+/**
+ * Overlay live/cached GitHub titles onto public gallery references.
+ * Failures and budget timeouts never fail the public gallery response.
+ */
+export async function enrichPublicReferences(
+  env: Env,
+  references: GalleryExternalReferenceRecord[],
+): Promise<PublicGalleryReferenceDto[]> {
+  const base = references.map(publicReferenceDto);
+  const githubRefs = [
+    ...new Set(
+      base
+        .filter((ref) => ref.provider.toLowerCase() === "github")
+        .map((ref) => ref.coordinate.toLowerCase()),
+    ),
+  ];
+  if (githubRefs.length === 0) return base;
+
+  // Missing GITHUB_CACHE / App misconfig / transient / budget — keep bare refs.
+  const titles: Record<string, TitleInfo | null> =
+    (await withPublicTitleBudget(resolveTitles(env, githubRefs)).catch(() => null)) ?? {};
+
+  return base.map((ref) => {
+    if (ref.provider.toLowerCase() !== "github") return ref;
+    const info = titles[ref.coordinate.toLowerCase()];
+    if (!info) return ref;
+    const title = displayTitle(info.title);
+    // Prefer pull URL when resolve knows it's a PR (API always stamps /issues/).
+    const pullUrl = info.kind === "pull" ? githubPullUrl(ref.coordinate) : null;
+    return {
+      ...ref,
+      ...(title ? { title } : {}),
+      kind: info.kind,
+      canonicalUrl: pullUrl ?? ref.canonicalUrl,
+    };
+  });
+}
+
 export async function hydratePublicGallery(
   env: Env,
   workspace: WorkspaceRecord,
@@ -324,7 +397,10 @@ export async function hydratePublicGallery(
   items: GalleryItemRecord[],
   references: GalleryExternalReferenceRecord[] = [],
 ): Promise<PublicGalleryDto> {
-  const hydrated = await hydrateGalleryItems(env, workspace, items);
+  const [hydrated, publicReferences] = await Promise.all([
+    hydrateGalleryItems(env, workspace, items),
+    enrichPublicReferences(env, references),
+  ]);
   return {
     ...projectPublicGallery(record),
     items: hydrated.map((item) => ({
@@ -337,7 +413,10 @@ export async function hydratePublicGallery(
       url: item.url,
       embedUrl: item.embedUrl,
       contentType: item.contentType,
+      size: item.size,
+      ...(item.uploaded ? { uploaded: item.uploaded } : {}),
+      ...(item.modified ? { modified: item.modified } : {}),
     })),
-    references: references.map(publicReferenceDto),
+    references: publicReferences,
   };
 }

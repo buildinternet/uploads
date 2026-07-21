@@ -1,32 +1,177 @@
 ---
+/**
+ * Connected work items for public gallery pages.
+ *
+ * Renders GitHub refs as the same chip shape the public file share page uses
+ * for `file.github` (kind icon + optional title + `owner/repo#N`). Non-github
+ * providers stay as provider + coordinate.
+ *
+ * `variant`:
+ *   - `panel` (default) — bordered block under the gallery index / full page
+ *   - `inline` — chips inside the item-page details rail (no outer card)
+ */
+import { GH_KIND_PATH, GITHUB_MARK_PATH } from "../lib/brand-icons";
+import { galleryReferenceChip } from "../lib/gallery-reference-chip";
 import type { PublicGalleryReference } from "../lib/public-gallery";
 
 interface Props {
   references: PublicGalleryReference[];
+  variant?: "panel" | "inline";
 }
 
-const { references } = Astro.props;
+const { references, variant = "panel" } = Astro.props;
+const chips = references.map(galleryReferenceChip);
+const refsClass = variant === "inline" ? "refs refs--inline" : "refs";
 ---
 
-{references.length > 0 && (
-  <aside class="refs">
-    <h2>Connected work items</h2>
-    <ul>
-      {references.map((reference) => (
-        <li>
-          <span class="provider">{reference.provider}</span>
-          {reference.canonicalUrl ? <a href={reference.canonicalUrl} rel="noopener noreferrer">{reference.coordinate}</a> : reference.coordinate}
-        </li>
-      ))}
-    </ul>
-  </aside>
-)}
+{
+  chips.length > 0 && (
+    <aside class={refsClass}>
+      <h2>Connected work items</h2>
+      <ul>
+        {chips.map((chip) => (
+          <li>
+            {chip.href ? (
+              <a
+                class="gh-chip"
+                href={chip.href}
+                rel="noopener noreferrer"
+                aria-label={chip.ariaLabel}
+              >
+                {chip.glyph === "kind" && chip.kind && (
+                  <svg
+                    class="gh-chip-icon"
+                    viewBox="0 0 16 16"
+                    width="14"
+                    height="14"
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    <title>{chip.kindLabel}</title>
+                    <path fill="currentColor" d={GH_KIND_PATH[chip.kind]} />
+                  </svg>
+                )}
+                {chip.glyph === "github-mark" && (
+                  <svg
+                    class="gh-chip-icon"
+                    viewBox="0 0 24 24"
+                    width="14"
+                    height="14"
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    <path fill="currentColor" d={GITHUB_MARK_PATH} />
+                  </svg>
+                )}
+                {chip.glyph === "provider" && <span class="provider">{chip.provider}</span>}
+                <span class="gh-chip-text">
+                  {chip.title ? (
+                    <>
+                      <span class="gh-chip-title">{chip.title}</span>
+                      <span class="gh-chip-ref">{chip.coordinate}</span>
+                    </>
+                  ) : (
+                    <span class="gh-chip-name">{chip.coordinate}</span>
+                  )}
+                </span>
+              </a>
+            ) : (
+              <span class="gh-chip gh-chip--static">
+                <span class="provider">{chip.provider}</span>
+                <span class="gh-chip-name">{chip.coordinate}</span>
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </aside>
+  )
+}
 
 <style>
-  .refs { margin:30px 0 0; padding:16px 18px; border:1px solid var(--line); border-radius:10px; background:var(--panel); }
-  .refs h2 { margin:0 0 10px; color:var(--muted); font:11px var(--mono); letter-spacing:.14em; text-transform:uppercase; font-weight:600; }
-  .refs ul { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:8px; }
-  .refs li { font:13px var(--mono); color:var(--body); overflow-wrap:anywhere; }
-  .refs .provider { color:var(--muted); margin-right:8px; }
-  a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
+  .refs {
+    margin: 30px 0 0;
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg, 10px);
+    background: var(--panel);
+  }
+  /* Nested inside the item-page rail — drop the outer card so chips sit like
+     the file share page's gh-chip under the filename. */
+  .refs--inline {
+    margin: 0 0 12px;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+  }
+  .refs h2 {
+    margin: 0 0 10px;
+    color: var(--muted);
+    font: 11px var(--mono);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .refs--inline h2 {
+    margin: 0 0 8px;
+    letter-spacing: 0.08em;
+  }
+  .refs ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .gh-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--panel);
+    color: var(--fg);
+    font: 12px var(--mono);
+    text-decoration: none;
+    max-width: 100%;
+  }
+  a.gh-chip:hover,
+  a.gh-chip:focus-visible {
+    border-color: var(--accent);
+    color: var(--accent);
+    outline: none;
+  }
+  .gh-chip--static {
+    color: var(--body);
+  }
+  .gh-chip-icon {
+    flex: none;
+  }
+  .gh-chip-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .gh-chip-title {
+    overflow-wrap: anywhere;
+    font-weight: 600;
+  }
+  .gh-chip-ref {
+    color: var(--muted);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
+  .gh-chip-name {
+    overflow-wrap: anywhere;
+  }
+  .provider {
+    color: var(--muted);
+    font: 11px var(--mono);
+    text-transform: lowercase;
+  }
 </style>

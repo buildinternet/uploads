@@ -6,6 +6,12 @@ import Footer from "../../../components/Footer.astro";
 import GalleryReferences from "../../../components/GalleryReferences.astro";
 import { buildEmbedFormats, type EmbedFormatOption } from "../../../lib/embed-formats";
 import {
+  formatBytes,
+  formatFileDate,
+  sameUtcDay,
+  shouldShowModified,
+} from "../../../lib/public-file";
+import {
   applyPublicGalleryHeaders,
   fetchPublicGallery,
   galleryItemDownloadUrl,
@@ -59,6 +65,17 @@ const downloadUrl =
   item && item.status === "available" ? galleryItemDownloadUrl(origin, id, item.id) : null;
 const oembedHref =
   gallery && item ? oembedDiscoveryHref(canonical, Astro.url.origin) : null;
+const uploadedIso = item?.uploaded ?? null;
+const modifiedIso = item?.modified ?? null;
+const showModified = shouldShowModified(uploadedIso, modifiedIso);
+const withTime = Boolean(
+  showModified && uploadedIso && modifiedIso && sameUtcDay(uploadedIso, modifiedIso),
+);
+const uploadedLabel = uploadedIso ? formatFileDate(uploadedIso, { withTime }) : null;
+const modifiedLabel =
+  showModified && modifiedIso ? formatFileDate(modifiedIso, { withTime }) : null;
+const sizeLabel =
+  item && item.size != null && Number.isSafeInteger(item.size) ? formatBytes(item.size) : null;
 ---
 
 <!doctype html>
@@ -86,39 +103,57 @@ const oembedHref =
       * { box-sizing:border-box; }
       body { margin:0; min-height:100vh; color:var(--fg); background:var(--bg); font-family:var(--sans); }
       .shell { width:min(var(--width-viewer, 1080px),calc(100% - 48px)); margin:auto; padding:36px 0 64px; }
-      nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:32px; font:13px var(--mono); letter-spacing:.02em; }
+      nav.top { display:flex; align-items:center; justify-content:space-between; margin-bottom:32px; font:13px var(--mono); letter-spacing:.02em; }
       .public { color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:6px 11px; background:var(--panel); }
-      .crumbs { margin-bottom:20px; color:var(--muted); font:13px var(--mono); overflow-wrap:anywhere; }
+      .crumbs { margin-bottom:12px; color:var(--muted); font:13px var(--mono); overflow-wrap:anywhere; }
+      .crumbs .count { color:var(--muted); }
+      .filetitle { margin:0 0 16px; color:var(--fg); font:600 17px var(--mono); letter-spacing:-.01em; overflow-wrap:anywhere; }
       .stage { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-lg); overflow:hidden; }
       .media { min-height:320px; max-height:78vh; background:var(--bg); display:grid; place-items:center; overflow:hidden; }
       img,video { max-width:100%; max-height:78vh; width:auto; height:auto; object-fit:contain; display:block; }
       .fallback { padding:60px 30px; text-align:center; color:var(--muted); font:13px/1.6 var(--mono); }
-      .fallback strong { display:block; color:var(--red); margin-bottom:8px; }
+      .fallback strong { display:block; color:var(--fg); margin-bottom:8px; }
       .fallback a { color:var(--fg); overflow-wrap:anywhere; }
-      .details { padding:18px 20px 20px; border-top:1px solid var(--line); }
-      .filename { color:var(--fg); font:600 14px var(--mono); overflow-wrap:anywhere; }
-      .caption { margin-top:10px; color:var(--body); font-size:15px; line-height:1.6; white-space:pre-wrap; }
-      .original { display:inline-block; margin-top:12px; color:var(--muted); font:12px var(--mono); }
-      .original:hover, .original:focus-visible { color:var(--accent); outline:none; }
+      .details { padding:18px 20px 22px; border-top:1px solid var(--line); }
+      .caption { margin:0 0 12px; color:var(--body); font-size:15px; line-height:1.6; white-space:pre-wrap; }
+      dl.meta { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; margin:0 0 4px; font:12px var(--mono); }
+      dl.meta dt { color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-size:11px; }
+      dl.meta dd { margin:0; color:var(--body); overflow-wrap:anywhere; }
       .pager { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:22px 0 0; font:13px var(--mono); }
       .pager a, .pager span.disabled { display:inline-block; padding:10px 16px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel); color:var(--fg); text-decoration:none; }
       .pager a:hover, .pager a:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
       .pager span.disabled { color:var(--muted); }
-      .count { color:var(--muted); }
       .error { padding:70px 24px; border:1px solid var(--line); border-radius:var(--radius-lg); text-align:center; background:var(--panel); color:var(--body); }
       .error code { color:var(--accent); font-family:var(--mono); }
       a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
-      @media (max-width:760px) { .shell{width:min(100% - 32px,1080px);padding-top:24px} .media{min-height:220px} .pager a,.pager span.disabled{padding:8px 12px} }
-      .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); clip-path:inset(50%); white-space:nowrap; border:0; }
+      @media (min-width: 1080px) {
+        /* align with signed-in --bp-rail (1080px); media queries can't read custom props */
+        .shell { width: min(1200px, calc(100% - 48px)); }
+        .stage {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+        }
+        .details {
+          border-top: none;
+          border-left: 1px solid var(--line);
+          max-height: 78vh;
+          overflow: auto;
+        }
+      }
+      @media (max-width: 760px) {
+        .shell { width: min(100% - 32px, 1080px); padding-top: 24px; }
+        .media { min-height: 220px; }
+        .pager a, .pager span.disabled { padding: 8px 12px; }
+      }
     </style>
   </head>
   <body>
     <main class="shell">
-      <nav><Brand /><span class="public">public gallery</span></nav>
+      <nav class="top"><Brand /><span class="public">public gallery</span></nav>
       {gallery && item ? (
         <>
-          <h1 class="sr-only">{item.filename}</h1>
           <div class="crumbs"><a href={listPath}>{gallery.title}</a> · <span class="count">{index + 1} of {items.length}</span></div>
+          <h1 class="filetitle">{item.filename}</h1>
           <figure class="stage" style="margin:0">
             <div class="media">
               {kind(item) === "image" && <img src={item.url!} alt={item.altText ?? item.caption ?? item.filename} decoding="async" />}
@@ -128,13 +163,21 @@ const oembedHref =
               {kind(item) === "missing" && <div class="fallback"><strong>Removed or expired</strong><span>This item remains in the gallery to preserve its place.</span></div>}
             </div>
             <figcaption class="details" id="item-caption">
-              <div class="filename">{item.filename}</div>
+              <GalleryReferences references={gallery.references} variant="inline" />
               {item.caption && <div class="caption">{item.caption}</div>}
-              {item.status === "available" && kind(item) !== "unsupported" && (
-                <a class="original" href={item.url!} rel="noopener noreferrer">Open original</a>
+              {(sizeLabel || uploadedLabel || modifiedLabel) && (
+                <dl class="meta">
+                  {sizeLabel && (<><dt>Size</dt><dd>{sizeLabel}</dd></>)}
+                  {uploadedLabel && (<><dt>Uploaded</dt><dd>{uploadedLabel}</dd></>)}
+                  {modifiedLabel && (<><dt>Modified</dt><dd>{modifiedLabel}</dd></>)}
+                </dl>
               )}
               {item.status === "available" && (
-                <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl} />
+                <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
+                  {kind(item) !== "unsupported" && item.url && (
+                    <a class="original" href={item.url} rel="noopener noreferrer">Open original ↗</a>
+                  )}
+                </CopyAsControls>
               )}
             </figcaption>
           </figure>
@@ -143,7 +186,6 @@ const oembedHref =
             <a href={listPath}>All items</a>
             {next ? <a href={itemPath(next)} rel="next">{next.filename} →</a> : <span class="disabled">End →</span>}
           </nav>
-          <GalleryReferences references={gallery.references} />
           <Footer />
         </>
       ) : (

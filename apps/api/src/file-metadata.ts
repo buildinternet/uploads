@@ -36,6 +36,16 @@ export const META_MAX_TOTAL_BYTES = 8192;
 /** Max value length in characters. */
 export const META_VALUE_MAX = 512;
 
+/**
+ * Trim and cap a display string to META_VALUE_MAX.
+ * Used for public GitHub titles (stamped or live-resolved).
+ */
+export function displayTitle(raw: string | undefined): string | undefined {
+  const t = raw?.trim();
+  if (!t) return undefined;
+  return t.length > META_VALUE_MAX ? t.slice(0, META_VALUE_MAX) : t;
+}
+
 // Printable ASCII only — same rule as provenance.ts's VALUE_SAFE_RE.
 const VALUE_SAFE_RE = /^[\x20-\x7E]+$/;
 

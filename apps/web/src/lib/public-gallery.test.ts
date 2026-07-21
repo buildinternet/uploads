@@ -28,6 +28,8 @@ const gallery = {
       url: "https://storage.uploads.sh/screen.png",
       embedUrl: "https://embed.uploads.sh/screen.png" as string | null,
       contentType: "image/png",
+      size: 20480,
+      uploaded: "2026-07-13T12:00:00.000Z",
     },
   ],
   references: [
@@ -36,6 +38,8 @@ const gallery = {
       resourceType: "item",
       coordinate: "buildinternet/uploads#123",
       canonicalUrl: "https://github.com/buildinternet/uploads/issues/123",
+      kind: "issue" as const,
+      title: "Gallery smoke",
     },
   ],
 } as const;
@@ -129,6 +133,42 @@ describe("public gallery API", () => {
       isPublicGallery({
         ...gallery,
         references: Array.from({ length: 21 }, () => gallery.references[0]),
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts size/date fields and optional reference title/kind; rejects bad values", () => {
+    expect(
+      isPublicGallery({
+        ...gallery,
+        items: [{ ...gallery.items[0], size: null, uploaded: null, modified: null }],
+      }),
+    ).toBe(true);
+    // Older deploys omit size/uploaded entirely.
+    const { size: _s, uploaded: _u, ...legacyItem } = gallery.items[0];
+    expect(isPublicGallery({ ...gallery, items: [legacyItem] })).toBe(true);
+    expect(
+      isPublicGallery({
+        ...gallery,
+        items: [{ ...gallery.items[0], size: -1 }],
+      }),
+    ).toBe(false);
+    expect(
+      isPublicGallery({
+        ...gallery,
+        items: [{ ...gallery.items[0], uploaded: "not-a-date" }],
+      }),
+    ).toBe(false);
+    expect(
+      isPublicGallery({
+        ...gallery,
+        references: [{ ...gallery.references[0], kind: "wiki" }],
+      }),
+    ).toBe(false);
+    expect(
+      isPublicGallery({
+        ...gallery,
+        references: [{ ...gallery.references[0], title: "" }],
       }),
     ).toBe(false);
   });
