@@ -225,6 +225,7 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
       embedUrl: string | null;
       dryRun: boolean;
       replaced: boolean;
+      wouldRefuse: boolean;
     };
     expect(json).toEqual({
       workspace: "default",
@@ -232,12 +233,13 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
       url: "https://storage.uploads.sh/default/screenshots/shot.png",
       embedUrl: "https://embed.uploads.sh/default/screenshots/shot.png",
       replaced: false,
+      wouldRefuse: false,
       dryRun: true,
     });
     expect(bucket.store.has("default/screenshots/shot.png")).toBe(false);
   });
 
-  it("dry run reports replaced=true when the key already exists", async () => {
+  it("dry run reports replaced=true and wouldRefuse=true on a strict (non-gh/) key that already exists", async () => {
     const { env } = await makeEnv();
     expect((await putShot(env)).status).toBe(201);
     const res = await app.request(
@@ -246,7 +248,45 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
       env,
     );
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { replaced: boolean; dryRun: boolean }).replaced).toBe(true);
+    const json = (await res.json()) as { replaced: boolean; wouldRefuse: boolean };
+    expect(json.replaced).toBe(true);
+    expect(json.wouldRefuse).toBe(true);
+  });
+
+  it("dry run reports wouldRefuse=false when ?replace=1 is set on an existing strict key", async () => {
+    const { env } = await makeEnv();
+    expect((await putShot(env)).status).toBe(201);
+    const res = await app.request(
+      "/v1/default/files/screenshots/shot.png?dryRun=1&replace=1",
+      { method: "PUT", headers: { Authorization: `Bearer ${TOKEN}` }, body: new Uint8Array(0) },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { replaced: boolean; wouldRefuse: boolean };
+    expect(json.replaced).toBe(true);
+    expect(json.wouldRefuse).toBe(false);
+  });
+
+  it("dry run never reports wouldRefuse on a gh/-prefixed key", async () => {
+    const { env } = await makeEnv();
+    const first = await app.request(
+      "/v1/default/files/gh/acme/widgets/pull/1/shot.png",
+      {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png" },
+        body: PNG,
+      },
+      env,
+    );
+    expect(first.status).toBe(201);
+    const res = await app.request(
+      "/v1/default/files/gh/acme/widgets/pull/1/shot.png?dryRun=1",
+      { method: "PUT", headers: { Authorization: `Bearer ${TOKEN}` }, body: new Uint8Array(0) },
+      env,
+    );
+    const json = (await res.json()) as { replaced: boolean; wouldRefuse: boolean };
+    expect(json.replaced).toBe(true);
+    expect(json.wouldRefuse).toBe(false);
   });
 
   it("dry run rejects a key the workspace policy disallows", async () => {
@@ -461,13 +501,67 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
     ).resolves.toEqual({});
   });
 
-  it("sets replaced=false on first put and replaced=true on overwrite", async () => {
-    const { env } = await makeEnv();
+  it("sets replaced=false on first put; a second put to the same strict key without --replace refuses", async () => {
+    const { env, bucket } = await makeEnv();
     const first = await putShot(env);
     expect(first.status).toBe(201);
     expect(((await first.json()) as { replaced: boolean }).replaced).toBe(false);
 
     const second = await putShot(env);
+    expect(second.status).toBe(409);
+    const json = (await second.json()) as {
+      error: { code: string; message: string; details?: { key?: string; url?: string } };
+    };
+    expect(json.error.code).toBe("key_exists");
+    expect(json.error.details?.key).toBe("screenshots/shot.png");
+    expect(json.error.details?.url).toBe("https://storage.uploads.sh/default/screenshots/shot.png");
+    // The refused write never happened — the original bytes are untouched.
+    expect(bucket.store.get("default/screenshots/shot.png")?.data).toEqual(PNG);
+  });
+
+  it("a strict-key overwrite with ?replace=1 succeeds and reports replaced=true", async () => {
+    const { env } = await makeEnv();
+    expect((await putShot(env)).status).toBe(201);
+
+    const res = await app.request(
+      "/v1/default/files/screenshots/shot.png?replace=1",
+      {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png" },
+        body: PNG,
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { replaced: boolean }).replaced).toBe(true);
+  });
+
+  it("a strict-key overwrite with X-Uploads-Replace: 1 header succeeds", async () => {
+    const { env } = await makeEnv();
+    expect((await putShot(env)).status).toBe(201);
+
+    const res = await putShot(env, { headers: { "X-Uploads-Replace": "1" } });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { replaced: boolean }).replaced).toBe(true);
+  });
+
+  it("a gh/-prefixed key always overwrites without --replace (attach/pr/issue hot-swap)", async () => {
+    const { env } = await makeEnv();
+    const ghPut = () =>
+      app.request(
+        "/v1/default/files/gh/acme/widgets/pull/1/shot.png",
+        {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png" },
+          body: PNG,
+        },
+        env,
+      );
+    const first = await ghPut();
+    expect(first.status).toBe(201);
+    expect(((await first.json()) as { replaced: boolean }).replaced).toBe(false);
+
+    const second = await ghPut();
     expect(second.status).toBe(201);
     expect(((await second.json()) as { replaced: boolean }).replaced).toBe(true);
   });
@@ -482,7 +576,9 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
       getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
     ).resolves.toEqual({ app: "web", page: "/checkout" });
 
-    const second = await putShot(env, { headers: { "X-Uploads-Meta-Page": "/cart" } });
+    const second = await putShot(env, {
+      headers: { "X-Uploads-Meta-Page": "/cart", "X-Uploads-Replace": "1" },
+    });
     expect(second.status).toBe(201);
     await expect(
       getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
@@ -500,7 +596,8 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
     ).resolves.toEqual({ app: "web", page: "/checkout" });
 
     // No X-Uploads-Meta-* headers at all — not even a provenance-only one.
-    const second = await putShot(env);
+    // Strict key (issue #174): needs the replace opt-in to overwrite.
+    const second = await putShot(env, { headers: { "X-Uploads-Replace": "1" } });
     expect(second.status).toBe(201);
     await expect(
       getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),
@@ -513,7 +610,9 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
     expect(first.status).toBe(201);
 
     // "client" is an allowlisted provenance key, not custom metadata.
-    const second = await putShot(env, { headers: { "X-Uploads-Meta-Client": "cli" } });
+    const second = await putShot(env, {
+      headers: { "X-Uploads-Meta-Client": "cli", "X-Uploads-Replace": "1" },
+    });
     expect(second.status).toBe(201);
     await expect(
       getFileMetadata(db as unknown as D1Database, "default", "screenshots/shot.png"),

@@ -570,6 +570,70 @@ describe("mcp worker", () => {
     expect(bucket.store.get("shots/shot.png")?.contentType).toBe("image/png");
   });
 
+  it("refuses to overwrite an existing strict (non-gh/) key without replace (issue #174)", async () => {
+    const { env, bucket } = await makeEnv();
+    const first = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/shot.png",
+    });
+    expect(first.isError).toBe(false);
+
+    const second = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/shot.png",
+    });
+    expect(second.isError).toBe(true);
+    expect(second.content).toEqual([
+      {
+        type: "text",
+        text: expect.stringContaining("shots/shot.png"),
+      },
+    ]);
+    // Bytes from the first (refused-overwrite) put are untouched.
+    expect(bucket.store.get("shots/shot.png")?.data).toEqual(PNG_BYTES);
+  });
+
+  it("allows overwriting a strict key when replace: true is passed", async () => {
+    const { env } = await makeEnv();
+    const first = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/shot.png",
+    });
+    expect(first.isError).toBe(false);
+    expect(first.structuredContent).toMatchObject({ replaced: false });
+
+    const second = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "shots/shot.png",
+      replace: true,
+    });
+    expect(second.isError).toBe(false);
+    expect(second.structuredContent).toMatchObject({ replaced: true });
+  });
+
+  it("always overwrites a gh/-prefixed key without replace (attach/pr/issue hot-swap)", async () => {
+    const { env } = await makeEnv();
+    const first = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "gh/acme/widgets/pull/1/shot.png",
+    });
+    expect(first.isError).toBe(false);
+    expect(first.structuredContent).toMatchObject({ replaced: false });
+
+    const second = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "shot.png",
+      key: "gh/acme/widgets/pull/1/shot.png",
+    });
+    expect(second.isError).toBe(false);
+    expect(second.structuredContent).toMatchObject({ replaced: true });
+  });
+
   it("writes custom metadata alongside the upload", async () => {
     const { env, metadata } = await makeEnv();
     const result = await callTool(env, "put", {
@@ -597,6 +661,9 @@ describe("mcp worker", () => {
       contentBase64: PNG_B64,
       filename: "shot.png",
       key: "shots/tagged.png",
+      // Strict-key overwrite gate (issue #174): opt in — this test is about
+      // metadata preservation on overwrite, not the refusal itself.
+      replace: true,
     });
     expect(result.isError).toBe(false);
     expect(Object.fromEntries(metadata.get("test-ws shots/tagged.png") ?? [])).toEqual({

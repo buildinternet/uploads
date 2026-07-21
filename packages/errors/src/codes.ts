@@ -30,6 +30,7 @@ export const ERROR_CODES = [
   "invalid_key",
   "empty_body",
   "upload_too_large",
+  "key_exists",
   "key_prefix_not_allowed",
   "key_too_deep",
   "presign_unavailable",

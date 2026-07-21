@@ -14,6 +14,7 @@ import { ToolBatchError } from "./batch-error.js";
 export {
   METADATA_DESCRIPTION,
   metadataProp,
+  optBool,
   optPosInt,
   optString,
   optStringArray,

@@ -98,14 +98,22 @@ attachments comment. Use `--pr <number>` or `--issue <number>` when inference
 is not possible, and `--no-comment` when only the public URLs and Markdown are
 wanted.
 
-**Re-upload / hot-swap:** putting again to the same key overwrites the object
-in place. There is no confirmation prompt (agents and re-runs need this). The
-public URL stays the same so every embed updates after cache revalidation.
-Human mode prints `>> replaced existing object (same URL)` after a real put;
-JSON includes `"replaced": true|false`. Preview first with
-`uploads put … --dry-run` — if the key already exists it reports
-`>> would replace existing object (same URL)` (and `"replaced": true` in JSON)
-without writing.
+**Re-upload / hot-swap:** overwrite semantics depend on the key (issue #174).
+`attach`, `put --pr`, and `put --issue` always overwrite the object in place
+with no confirmation prompt (agents and re-runs need this) — the public URL
+stays the same so every embed updates after cache revalidation. Human mode
+prints `>> replaced existing object (same URL)` after a real put; JSON
+includes `"replaced": true|false`. Preview first with `uploads put … --dry-run`
+— if the key already exists it reports `>> would replace existing object
+(same URL)` (and `"replaced": true` in JSON) without writing.
+
+Every other key — an explicit `--key`, or the default put path with no
+`--pr`/`--issue` — is **strict**: re-uploading to an existing key refuses with
+a `key_exists` error (the JSON error's `details.url` names the existing
+object) instead of overwriting. Pass `--replace` to opt in for that one call,
+or set `UPLOADS_OVERWRITE=1` to restore always-overwrite behavior for every
+strict-path put. `--dry-run` previews the refusal too, printing `>> would
+refuse: key already exists` instead of writing.
 
 > **Privacy:** Hosted files are served from a public CDN with no link to GitHub
 > repo visibility. A screenshot on a private PR is still reachable by anyone who

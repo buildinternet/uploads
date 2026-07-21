@@ -37,6 +37,7 @@ import {
 import {
   METADATA_DESCRIPTION,
   metadataProp,
+  optBool,
   optPosInt,
   optString,
   optStringArray,
@@ -54,13 +55,6 @@ import {
   validateReportMessage,
 } from "../report.js";
 import { resolveApiUrl } from "../config.js";
-
-function optBool(args: ToolArgs, name: string): boolean {
-  const v = args[name];
-  if (v === undefined || v === null) return false;
-  if (typeof v !== "boolean") usage(`${name} must be a boolean`);
-  return v;
-}
 
 function mcpOptimizeOptions(
   args: ToolArgs,
@@ -418,7 +412,13 @@ export function createUploadsMcpTools(opts: {
           },
           dryRun: {
             type: "boolean",
-            description: "Resolve key + public URL without uploading. Not with comment.",
+            description:
+              "Resolve key + public URL without uploading (also previews a strict-key refusal via wouldRefuse). Not with comment.",
+          },
+          replace: {
+            type: "boolean",
+            description:
+              "Allow overwriting an existing object on a strict (non-gh/) key: explicit key, or the default put path. Default false — an existing object there is refused (key_exists) unless this is true or UPLOADS_OVERWRITE=1 is set in the server's environment. No effect on pr/issue keys, which always overwrite.",
           },
           metadata: metadataProp,
           workspace: workspaceProp,
@@ -452,6 +452,11 @@ export function createUploadsMcpTools(opts: {
         const destArg = optString(args, "destination");
         const prefixArg = optString(args, "prefix");
         const refArg = optString(args, "ref");
+        // Strict-overwrite gate (issue #174): defaults false; a strict-path
+        // put (explicit key or the default path) refuses an existing object
+        // unless this is true or UPLOADS_OVERWRITE=1 is set for this process.
+        // No effect on pr/issue keys — the server always overwrites those.
+        const replaceArg = optBool(args, "replace") ?? process.env.UPLOADS_OVERWRITE === "1";
         if (wantComment && !target) usage("comment requires pr or issue");
         if (dryRun && wantComment) usage("dryRun cannot be combined with comment");
         if (target) {
@@ -493,6 +498,7 @@ export function createUploadsMcpTools(opts: {
           deriveRepoFromGit: !noGit,
           contentType,
           dryRun,
+          replace: replaceArg,
           optimize: optimizeOpts,
           frame: frameOpts,
           metadata,
@@ -536,6 +542,7 @@ export function createUploadsMcpTools(opts: {
               contentType,
               deriveRepoFromGit: !noGit,
               dryRun,
+              replace: replaceArg,
               metadata,
               provenanceClient: "uploads-mcp",
               alt: () => alt ?? sourceName,
@@ -580,6 +587,7 @@ export function createUploadsMcpTools(opts: {
           size: u.size,
           contentType: u.contentType,
           replaced: u.replaced,
+          wouldRefuse: u.wouldRefuse,
           markdown: u.markdown,
           optimize: u.optimize,
           frame: u.frame,

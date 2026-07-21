@@ -18,6 +18,14 @@ export function optString(args: ToolArgs, name: string): string | undefined {
   return v;
 }
 
+/** A boolean flag argument; missing/null reads as `false`. */
+export function optBool(args: ToolArgs, name: string): boolean {
+  const v = args[name];
+  if (v === undefined || v === null) return false;
+  if (typeof v !== "boolean") usage(`${name} must be a boolean`);
+  return v;
+}
+
 export function optPosInt(args: ToolArgs, name: string): number | undefined {
   const v = args[name];
   if (v === undefined || v === null) return undefined;

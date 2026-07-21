@@ -12,6 +12,7 @@ import {
   batchFailureMessage,
   mapBounded,
   metadataProp,
+  optBool,
   optPosInt,
   optString,
   optStringArray,
@@ -277,7 +278,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           ) {
             throw err;
           }
-          throw new Error("gallery storage unavailable");
+          throw new Error("gallery storage unavailable", { cause: err });
         }
         const result = unwrapMutation(
           await addGalleryItem(env.DB, workspaceName, id, {
@@ -441,6 +442,11 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             description:
               "Queryable custom metadata (key→value), separate from provenance. Omit to leave any metadata already stored for this key untouched; pass an object (even {}) to fully replace it. Keys: lowercase, ^[a-z][a-z0-9._-]{0,63}$. Values: 1-512 printable ASCII characters. Caps: at most 24 keys, at most 8192 total key+value bytes. Suggested keys: app, url, page, device, resolution, commit, branch. `gh.*` is reserved by convention for GitHub PR/issue attachment context (repo/kind/number/ref), normally system-managed by the attach flow.",
           },
+          replace: {
+            type: "boolean",
+            description:
+              "Allow overwriting an existing object on a strict (non-gh/) key: an explicit `key`, or the default prefix/repo/ref layout. Default false — an existing object there is refused (error code key_exists, with the existing object's url) unless this is true. No effect on gh/-prefixed keys, which always overwrite. Applies to every item in a `files` batch.",
+          },
         },
         additionalProperties: false,
       },
@@ -506,7 +512,12 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         const maxBytes = Math.max(policy.maxBytes, policy.maxVideoBytes);
         const alt = optString(args, "alt");
         const width = optPosInt(args, "width");
-        const putOpts = metadata !== undefined ? { metadata } : undefined;
+        // Strict-overwrite gate (issue #174): defaults false; only matters on
+        // non-gh/ keys (explicit `key`, or the default prefix/repo/ref
+        // layout) — putObject always allows overwrite on gh/-prefixed keys.
+        const replaceArg = optBool(args, "replace") === true;
+        const putOpts =
+          metadata !== undefined || replaceArg ? { metadata, replace: replaceArg } : undefined;
 
         if (multi) {
           // Decode (and size-gate) every item before any write, so a

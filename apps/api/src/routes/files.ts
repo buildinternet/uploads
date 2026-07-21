@@ -5,6 +5,7 @@ import {
   deleteObject,
   finalizeUploadKey,
   headObjectJson,
+  isManagedGithubKey,
   listObjects,
   putObject,
 } from "../files-core";
@@ -95,15 +96,24 @@ export const files = new Hono<WorkspaceVars>()
     const key = c.req.param("key");
     if (badKey(key)) throw new ValidationError("invalid key", { code: "invalid_key" });
 
+    // ?replace=1 (or header X-Uploads-Replace: 1) — opt in to overwriting an
+    // existing object on a "strict" (non-`gh/`) key; see files-core.ts
+    // `putObject`'s `replace` option / issue #174. Ignored on managed `gh/`
+    // paths, which always hot-swap.
+    const replaceParam = c.req.query("replace") ?? c.req.header("x-uploads-replace");
+    const wantReplace = replaceParam === "1" || replaceParam === "true";
+
     // ?dryRun=1 — validate key + resolve public URL; no R2 write, no usage/budget check.
     // Prefixed keys match a real put; bare keys may re-govern to a new f/<id>/… on upload.
-    // `replaced` is whether an object already lives at the final key (would overwrite).
+    // `replaced` is whether an object already lives at the final key (would overwrite);
+    // `wouldRefuse` mirrors the real-put strict-overwrite gate so dry-run previews it too.
     const dryRun = c.req.query("dryRun");
     if (dryRun === "1" || dryRun === "true") {
       const ws = c.get("workspace");
       const finalKey = finalizeUploadKey(key, ws);
       const store = await storage(c.env, ws);
       const replaced = await store.exists(finalKey);
+      const wouldRefuse = replaced && !wantReplace && !isManagedGithubKey(finalKey);
       const urls = objectPublicUrls(c.env, await storageConfig(c.env, ws), finalKey);
       return c.json({
         workspace: c.get("workspaceName"),
@@ -111,6 +121,7 @@ export const files = new Hono<WorkspaceVars>()
         url: urls.url,
         embedUrl: urls.embedUrl,
         replaced,
+        wouldRefuse,
         dryRun: true,
       });
     }
@@ -152,7 +163,7 @@ export const files = new Hono<WorkspaceVars>()
       key,
       new Uint8Array(body),
       c.get("workspaceName"),
-      { provenance, visibility, metadata },
+      { provenance, visibility, metadata, replace: wantReplace },
     );
     return c.json({ workspace: c.get("workspaceName"), ...result }, 201);
   })
