@@ -217,6 +217,30 @@ describe("handleWebhook pull_request auto-promotion", () => {
     expect(bucket.store.has(`${PREFIX}${destKey("hero.png")}`)).toBe(false);
   });
 
+  // Issue #326: bindings must never be mintable off an unauthenticated (HMAC-only)
+  // path. The webhook consumes an existing binding (findRepoLink) and only ever
+  // deletes a stale one (deleteRepoLink) — it must never create one, even for a
+  // same-repo, promote-eligible PR event on a previously unbound repo.
+  it("never creates a binding for an unbound repo, even on a promotable same-repo PR event", async () => {
+    const { env, db } = await baseEnv();
+    await seedStaged(env, "hero.png");
+
+    await withMockPost(() => handleWebhook(env, "pull_request", prPayload({ action: "opened" })));
+
+    expect(db.repoLinks.has(REPO)).toBe(false);
+  });
+
+  it("does not import any binding-write helper (recordRepoLink/setRepoLink) — read/delete only", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath, URL: NodeURL } = await import("node:url");
+    const src = readFileSync(
+      fileURLToPath(new NodeURL("./github-webhook.ts", import.meta.url)),
+      "utf8",
+    );
+    expect(src).not.toMatch(/recordRepoLink/);
+    expect(src).not.toMatch(/setRepoLink/);
+  });
+
   it("never throws / never lets a downstream error escape", async () => {
     const { env } = await baseEnv();
     await recordRepoLink(env.DB, REPO, WS, "promote");
