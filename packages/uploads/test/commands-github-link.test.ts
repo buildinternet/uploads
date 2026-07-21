@@ -117,3 +117,52 @@ describe("runGithub (link)", () => {
     );
   });
 });
+
+describe("runGithub (unlink, issue #318)", () => {
+  it("unlinks a binding owned by this workspace", async () => {
+    const calls: string[] = [];
+    const client = {
+      githubLinkUnlink: async (repo: string) => {
+        calls.push(repo);
+        return { repo, unlinked: true };
+      },
+    } as unknown as UploadsClient;
+    const code = await runGithub(ctxWith(client), ["unlink"], false, runnerWithRepo());
+    expect(code).toBe(0);
+    expect(calls).toEqual(["acme/web"]);
+  });
+
+  it("reports a no-op when the repo was never bound", async () => {
+    const client = {
+      githubLinkUnlink: async (repo: string) => ({
+        repo,
+        unlinked: false,
+        reason: "not_linked" as const,
+      }),
+    } as unknown as UploadsClient;
+    const code = await runGithub(ctxWith(client), ["unlink"], false, runnerWithRepo());
+    expect(code).toBe(0);
+  });
+
+  it("surfaces a clear error when another workspace owns the binding (403)", async () => {
+    const client = {
+      githubLinkUnlink: async () => {
+        throw new UploadsError("bound to a different workspace", "API_ERROR", 403);
+      },
+    } as unknown as UploadsClient;
+    await expect(runGithub(ctxWith(client), ["unlink"], false, runnerWithRepo())).rejects.toThrow(
+      UsageError,
+    );
+  });
+
+  it("degrades clearly on a 404 (older server without bindings)", async () => {
+    const client = {
+      githubLinkUnlink: async () => {
+        throw new UploadsError("not found", "NOT_FOUND", 404);
+      },
+    } as unknown as UploadsClient;
+    await expect(runGithub(ctxWith(client), ["unlink"], false, runnerWithRepo())).rejects.toThrow(
+      UsageError,
+    );
+  });
+});
