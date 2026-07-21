@@ -290,9 +290,9 @@ describe("POST /v1/:workspace/github/promote", () => {
     expect(seeded.bucket.store.has(`${PREFIX}${destKey("hero.png")}`)).toBe(true);
   });
 
-  it("caps at 100 staged files, reporting the overflow as skipped", async () => {
+  it("caps at 50 staged files, reporting the overflow as skipped", async () => {
     const seeded = await seededEnv();
-    for (let i = 0; i < 101; i++) {
+    for (let i = 0; i < 51; i++) {
       await seedStaged(seeded, `f${String(i).padStart(3, "0")}.png`);
     }
 
@@ -302,7 +302,7 @@ describe("POST /v1/:workspace/github/promote", () => {
       promoted: string[];
       skipped: { key: string; reason: string }[];
     };
-    expect(body.promoted.length).toBe(100);
+    expect(body.promoted.length).toBe(50);
     const overflow = body.skipped.filter((s) => s.reason === "cap_exceeded");
     expect(overflow.length).toBe(1);
   });
@@ -337,6 +337,40 @@ describe("POST /v1/:workspace/github/promote", () => {
       skipped: { key: string; reason: string }[];
     };
     expect(body.promoted).toEqual([destKey("good.png")]);
-    expect(body.skipped.some((s) => s.key === stagedKey("ghost.png"))).toBe(true);
+    // Generic reason only — no internal error detail ("boom") leaks to the caller.
+    expect(body.skipped).toEqual([{ key: stagedKey("ghost.png"), reason: "copy_failed" }]);
+  });
+
+  it("still counts a file as promoted when tagging the staged original fails", async () => {
+    const seeded = await seededEnv();
+    await seedStaged(seeded, "hero.png");
+    const originalKey = stagedKey("hero.png");
+
+    // Make the D1 write that tags the *staged original* (gh.promoted-to /
+    // gh.promoted-at, keyed by originalKey) fail, while everything targeting
+    // the destination copy (destKey) succeeds normally.
+    const originalPrepare = seeded.db.prepare.bind(seeded.db);
+    seeded.db.prepare = ((sql: string) => {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      if (!normalized.startsWith("INSERT INTO file_metadata")) return originalPrepare(sql);
+      return {
+        bind: (...args: unknown[]) => {
+          if (args[1] === originalKey) {
+            return { run: async () => Promise.reject(new Error("boom")) };
+          }
+          return originalPrepare(sql).bind(...args);
+        },
+      };
+    }) as typeof seeded.db.prepare;
+
+    const res = await post(seeded.env, { repo: REPO, num: NUM, branch: BRANCH });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { promoted: string[]; skipped: unknown[] };
+    // The copy landed — it must count as promoted, not be dropped into skipped.
+    expect(body.promoted).toEqual([destKey("hero.png")]);
+    expect(body.skipped).toEqual([]);
+
+    // Destination object is real.
+    expect(seeded.bucket.store.has(`${PREFIX}${destKey("hero.png")}`)).toBe(true);
   });
 });

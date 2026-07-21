@@ -19,8 +19,21 @@ import { storage } from "./storage";
 import { objectVisibility } from "./visibility";
 import type { WorkspaceRecord } from "./workspace";
 
-/** Max staged files processed per call — bounds the work a pathological branch prefix can trigger. */
-export const PROMOTE_STAGED_CAP = 100;
+/**
+ * Max staged files processed per call — bounds the work a pathological branch
+ * prefix can trigger, and keeps the request's subrequest count well inside
+ * the Workers paid-plan ceiling (1000/request; this worker runs on paid).
+ * Each promoted file costs ~9 subrequests: R2 get (download) + R2 head +
+ * R2 put, each inside `putObject`, plus that call's D1 usage-read,
+ * reservation batch, usage-record batch, and metadata-replace batch, plus
+ * this module's own D1 read + write batch to tag the staged original. Fixed
+ * per-request overhead (auth's KV + D1 lookups, the rate limiter, the R2
+ * list page, the batched D1 metadata read) adds ~5 more. At the old cap of
+ * 100 that's ~905 subrequests worst case — over 90% of the ceiling, too
+ * little margin against list pagination or a workspace with extra budget
+ * checks. At 50 it's ~455 (well under half), so this is set to 50.
+ */
+export const PROMOTE_STAGED_CAP = 50;
 
 /** Staged files older than this (by their `gh.staged-at` D1 tag) are skipped, not promoted. */
 const FRESHNESS_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -145,8 +158,27 @@ export async function promoteBranchAttachments(
           "gh.promoted-at": nowIso,
         },
       });
-      promoted.push(destKey);
+    } catch (err) {
+      // Never leak internal error detail (D1/R2 messages, key policy
+      // internals) to API callers — log the detail server-side and report a
+      // generic reason.
+      console.error(
+        JSON.stringify({
+          message: "promote copy failed",
+          key,
+          destKey,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+      skipped.push({ key, reason: "copy_failed" });
+      continue;
+    }
 
+    // The copy succeeded — destKey is promoted regardless of what happens
+    // below. Tagging the staged original is best-effort bookkeeping: a
+    // failure here must not un-promote the file or land it in `skipped`.
+    promoted.push(destKey);
+    try {
       // Merge (not replace) onto the staged original: mark it promoted
       // without disturbing its own gh.repo/gh.kind/gh.branch/gh.staged-at tags.
       await setFileMetadata(env.DB, workspaceName, key, {
@@ -154,7 +186,14 @@ export async function promoteBranchAttachments(
         "gh.promoted-at": nowIso,
       });
     } catch (err) {
-      skipped.push({ key, reason: err instanceof Error ? err.message : "copy_failed" });
+      console.error(
+        JSON.stringify({
+          message: "promote: failed to tag staged original",
+          key,
+          destKey,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
     }
   }
 
