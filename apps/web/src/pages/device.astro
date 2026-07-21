@@ -265,6 +265,8 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
   const naName = requireElement<HTMLElement>("#na-name");
   const naHave = requireElement<HTMLElement>("#na-have");
   const naList = requireElement<HTMLElement>("#na-list");
+  const naChoose = requireElement<HTMLButtonElement>("#na-choose");
+  const naDeny = requireElement<HTMLButtonElement>("#na-deny");
   const approvedWorkspace = requireElement<HTMLElement>("#approved-ws");
   const approvedWorkspaceWrap = requireElement<HTMLElement>("#approved-ws-wrap");
 
@@ -336,10 +338,14 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
     const wsLookup = await getDeviceWorkspace(authOrigin, userCode);
     wsState = wsLookup.ok ? resolveDeviceWorkspaceState(wsLookup.value) : null;
     renderWorkspace(wsState);
-    confirmBox.hidden = false;
   }
 
-  /** Paint the workspace block for a state, or route to the blocking no-access panel. */
+  /**
+   * Paint the workspace block for a state, and decide which of #confirm /
+   * #no-access is visible. This is the sole authority on that visibility —
+   * callers must not toggle confirmBox themselves, or a denied lookup can
+   * leave a live Approve button showing on top of the blocking panel.
+   */
   function renderWorkspace(state: DeviceWorkspaceState | null) {
     wsBlock.hidden = true;
     wsSelect.hidden = true;
@@ -347,11 +353,8 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
     wsNote.hidden = true;
     wsNew.hidden = true;
     wsGithub.hidden = true;
-    // An older auth worker (or a transient failure) leaves state null: approve
-    // exactly as before and let the CLI resolve the workspace.
-    if (!state) return;
 
-    if (state.kind === "denied") {
+    if (state?.kind === "denied") {
       hideAll();
       naName.textContent = state.requested;
       naList.textContent = state.options.map((w) => w.slug).join(", ");
@@ -359,6 +362,11 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
       noAccess.hidden = false;
       return;
     }
+
+    // An older auth worker (or a transient failure) leaves state null: approve
+    // exactly as before and let the CLI resolve the workspace.
+    confirmBox.hidden = false;
+    if (!state) return;
 
     wsBlock.hidden = false;
     if (state.kind === "provision") {
@@ -458,21 +466,27 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
   // The blocking panel's escape hatch: fall back to picking from what this
   // account actually has (or creating one), rather than approving a login the
   // terminal asked to point somewhere unreachable.
-  requireElement<HTMLButtonElement>("#na-choose").addEventListener("click", () => {
+  naChoose.addEventListener("click", () => {
     const options = wsState?.kind === "denied" ? wsState.options : [];
     wsState = options.length
       ? { kind: "choose", options, selected: options[0]!.slug }
       : { kind: "first_run" };
     hideAll();
     renderWorkspace(wsState);
-    confirmBox.hidden = false;
   });
 
-  requireElement<HTMLButtonElement>("#na-deny").addEventListener("click", () => {
-    void denyDevice(authOrigin, userCode).then(() => {
-      hideAll();
-      denied.hidden = false;
-    });
+  naDeny.addEventListener("click", () => {
+    void (async () => {
+      naChoose.disabled = true;
+      naDeny.disabled = true;
+      if (await denyDevice(authOrigin, userCode)) {
+        hideAll();
+        denied.hidden = false;
+        return;
+      }
+      naChoose.disabled = false;
+      naDeny.disabled = false;
+    })();
   });
 
   /**
