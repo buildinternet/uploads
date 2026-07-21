@@ -12,8 +12,12 @@ import { errorCodeFromUnknown, recordEvent } from "../telemetry.js";
 import { ToolBatchError } from "./batch-error.js";
 
 export {
+  appProp,
+  canonicalMetaFromArgs,
   METADATA_DESCRIPTION,
+  metadataArgWithCanonical,
   metadataProp,
+  stateProp,
   optBool,
   optPosInt,
   optString,

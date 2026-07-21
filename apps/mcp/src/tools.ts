@@ -7,7 +7,10 @@
  */
 import { buildMarkdown, buildScreenshotKey } from "@buildinternet/uploads";
 import {
+  appProp,
   METADATA_DESCRIPTION,
+  metadataArgWithCanonical,
+  stateProp,
   ToolBatchError,
   batchFailureMessage,
   mapBounded,
@@ -440,8 +443,11 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             type: "object",
             additionalProperties: { type: "string" },
             description:
-              "Queryable custom metadata (key→value), separate from provenance. Omit to leave any metadata already stored for this key untouched; pass an object (even {}) to fully replace it. Keys: lowercase, ^[a-z][a-z0-9._-]{0,63}$. Values: 1-512 printable ASCII characters. Caps: at most 24 keys, at most 8192 total key+value bytes. Suggested keys: app, url, page, device, resolution, commit, branch. `gh.*` is reserved by convention for GitHub PR/issue attachment context (repo/kind/number/ref), normally system-managed by the attach flow.",
+              METADATA_DESCRIPTION +
+              " On this hosted server the gh.* pairs are normally system-managed by the attach flow.",
           },
+          state: stateProp,
+          app: appProp,
           replace: {
             type: "boolean",
             description:
@@ -473,7 +479,10 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           if (!filename) usage("filename is required");
         }
 
-        let metadata = optStringRecord(args, "metadata");
+        // state/app are explicit input and win over a same-named metadata key.
+        // This server cannot derive the EXIF-sourced keys (no image decoding in
+        // the Workers runtime), so these two are the whole canonical surface here.
+        let metadata = metadataArgWithCanonical(args);
         if (metadata) {
           try {
             validateMetadataEntries(metadata);

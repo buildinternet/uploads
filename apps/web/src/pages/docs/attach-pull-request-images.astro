@@ -138,13 +138,20 @@ MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot
     </div>
     <p>
       By default, images are re-encoded to WebP (capped size, high quality) so GitHub embeds
-      stay fast, and <strong>EXIF metadata is stripped</strong>. Use <code>--keep-exif</code>&#32;
-      to keep metadata, or <code>--no-optimize</code> to skip all processing.
+      stay fast, and <strong>EXIF is stripped from the uploaded bytes</strong>. Use&#32;
+      <code>--keep-exif</code> to keep it, or <code>--no-optimize</code> to skip all processing.
+    </p>
+    <p>
+      Before stripping, a small allowlist is read off the image and stored as searchable
+      metadata: <code>viewport</code>, <code>device</code>, <code>software</code>, and&#32;
+      <code>captured</code>. Those values are <strong>publicly visible</strong> on the file's
+      page. GPS coordinates, serial numbers, and personal-name tags are never kept. Pass&#32;
+      <code>--no-auto</code> to store none of it.
     </p>
     <p>
       Each file also gets a shareable page on uploads.sh (under <code>/f/…</code>) that
       supports <a href="https://oembed.com/">oEmbed</a> — so chat apps, notes tools, and
-      other unfurlers can embed the image when you paste the page link. Details are in
+      other unfurlers can embed the image when you paste the page link. Details are in&#32;
       <a href="/docs/reference#good-to-know">Reference</a>.
     </p>
   </section>
