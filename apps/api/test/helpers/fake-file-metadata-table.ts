@@ -73,7 +73,7 @@ export class FileMetadataTable {
       return { success: true, results: results as T[], meta: {} };
     }
     // findObjectsByMetadata: single equality, or multi-filter INTERSECT legs.
-    // Args: (workspace, key, value)×N, optional escaped prefix, limit.
+    // Args: (workspace, key, value)×N, optional LIKE-escaped prefix, limit.
     if (
       normalizedSql.startsWith("SELECT object_key FROM file_metadata WHERE workspace") ||
       normalizedSql.startsWith("SELECT object_key FROM (SELECT object_key FROM file_metadata")
@@ -90,7 +90,8 @@ export class FileMetadataTable {
         });
       }
       let idx = filterCount * 3;
-      const prefix = hasPrefix ? (args[idx++] as string) : undefined;
+      // Bound prefix is ESCAPE-quoted for SQL LIKE; strip escapes for startsWith.
+      const prefix = hasPrefix ? String(args[idx++]).replace(/\\([\\%_])/g, "$1") : undefined;
       const limit = args[idx] as number;
       const workspace = filters[0]?.workspace;
       if (!workspace || filters.some((f) => f.workspace !== workspace)) {

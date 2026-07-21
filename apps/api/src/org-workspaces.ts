@@ -72,14 +72,8 @@ function parseMembershipRows(body: unknown): Membership[] | null {
 
 /**
  * A user's org memberships via `GET /internal/memberships?userId=` over the
- * AUTH binding. Like `orgForWorkspace`, a non-ok (or malformed) response is an
- * auth-worker outage/bug — surfaced as a 5xx — NOT "this user has no
- * memberships", so an outage can never masquerade as lost access. A user with
- * genuinely no memberships gets a 200 with `[]`. Shared by the session-auth
- * surfaces that need it (src/routes/me.ts, src/routes/tokens.ts).
- *
- * Pass `slug` to resolve a single org membership (member-gated routes) in one
- * indexed join instead of listing every membership and scanning.
+ * AUTH binding. Non-ok/malformed → 5xx (outage ≠ empty memberships). Pass
+ * `slug` for a single-org lookup (member-gated routes: one indexed join).
  */
 export async function membershipsForUser(
   env: Env,

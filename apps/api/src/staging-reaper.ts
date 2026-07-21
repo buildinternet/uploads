@@ -65,7 +65,7 @@ export async function runStagingReaper(env: Env): Promise<StagingReapResult> {
   let skipped = 0;
   const workspaceCache = new Map<string, Awaited<ReturnType<typeof loadWorkspaceRecord>>>();
 
-  // One getMetadataForKeys IN-list query per workspace (not per candidate).
+  // Group valid keys by workspace so hydrate is one IN-list query per workspace.
   const keysByWorkspace = new Map<string, string[]>();
   for (const { workspace, key } of candidates) {
     if (!looksLikeBranchStagingKey(key)) {
@@ -89,44 +89,48 @@ export async function runStagingReaper(env: Env): Promise<StagingReapResult> {
     }
   }
 
-  for (const { workspace, key } of candidates) {
-    if (!looksLikeBranchStagingKey(key) || hydrateFailed.has(workspace)) continue;
+  // Candidates arrive ordered by (workspace, key); Map insertion order preserves that.
+  for (const [workspace, keys] of keysByWorkspace) {
+    if (hydrateFailed.has(workspace)) continue;
+    const metaMap = metaByWorkspace.get(workspace);
 
-    const meta = metaByWorkspace.get(workspace)?.get(key);
-    // Missing: row raced away between candidate scan and hydrate.
-    if (!meta || meta["gh.kind"] !== "branch") {
-      skipped += 1;
-      continue;
-    }
-
-    let reason: "promoted" | "abandoned" | undefined;
-    if (meta["gh.promoted-at"]) {
-      if (isOlderThan(meta["gh.promoted-at"], PROMOTED_MAX_AGE_DAYS * MS_PER_DAY, now)) {
-        reason = "promoted";
+    for (const key of keys) {
+      const meta = metaMap?.get(key);
+      // Missing: row raced away between candidate scan and hydrate.
+      if (!meta || meta["gh.kind"] !== "branch") {
+        skipped += 1;
+        continue;
       }
-    } else if (isOlderThan(meta["gh.staged-at"], ABANDONED_MAX_AGE_DAYS * MS_PER_DAY, now)) {
-      reason = "abandoned";
-    }
-    if (!reason) {
-      skipped += 1;
-      continue;
-    }
 
-    let ws = workspaceCache.get(workspace);
-    if (ws === undefined) {
-      ws = await loadWorkspaceRecord(env, workspace);
-      workspaceCache.set(workspace, ws);
-    }
-    if (!ws) {
-      errors.push({ workspace, key, error: "workspace not found" });
-      continue;
-    }
+      let reason: "promoted" | "abandoned" | undefined;
+      if (meta["gh.promoted-at"]) {
+        if (isOlderThan(meta["gh.promoted-at"], PROMOTED_MAX_AGE_DAYS * MS_PER_DAY, now)) {
+          reason = "promoted";
+        }
+      } else if (isOlderThan(meta["gh.staged-at"], ABANDONED_MAX_AGE_DAYS * MS_PER_DAY, now)) {
+        reason = "abandoned";
+      }
+      if (!reason) {
+        skipped += 1;
+        continue;
+      }
 
-    try {
-      await deleteObject(env, ws, key, workspace);
-      deleted.push({ workspace, key, reason });
-    } catch (err) {
-      errors.push({ workspace, key, error: err instanceof Error ? err.message : String(err) });
+      let ws = workspaceCache.get(workspace);
+      if (ws === undefined) {
+        ws = await loadWorkspaceRecord(env, workspace);
+        workspaceCache.set(workspace, ws);
+      }
+      if (!ws) {
+        errors.push({ workspace, key, error: "workspace not found" });
+        continue;
+      }
+
+      try {
+        await deleteObject(env, ws, key, workspace);
+        deleted.push({ workspace, key, reason });
+      } catch (err) {
+        errors.push({ workspace, key, error: err instanceof Error ? err.message : String(err) });
+      }
     }
   }
 

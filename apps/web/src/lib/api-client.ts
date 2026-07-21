@@ -49,6 +49,23 @@ function isMyWorkspaceCore(
   );
 }
 
+/** Coerce optional/legacy fields; shared by list + summary mappers. */
+function mapMyWorkspace(ws: Omit<MyWorkspace, "communal" | "hasPublicUrl">): MyWorkspace {
+  const raw = ws as Omit<MyWorkspace, "communal" | "hasPublicUrl"> & {
+    communal?: unknown;
+    hasPublicUrl?: unknown;
+    publicBaseUrl?: unknown;
+  };
+  return {
+    workspace: raw.workspace,
+    organization: raw.organization,
+    role: raw.role,
+    communal: raw.communal === true,
+    hasPublicUrl: raw.hasPublicUrl === true,
+    publicBaseUrl: typeof raw.publicBaseUrl === "string" ? raw.publicBaseUrl : undefined,
+  };
+}
+
 export type WorkspacesResult =
   | { kind: "success"; workspaces: MyWorkspace[] }
   | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
@@ -68,19 +85,7 @@ export async function getMyWorkspaces(apiOrigin: string): Promise<WorkspacesResu
   if (!body || !Array.isArray(body.workspaces)) return { kind: "unavailable", reason: "malformed" };
   return {
     kind: "success",
-    workspaces: body.workspaces.filter(isMyWorkspaceCore).map(
-      (ws): MyWorkspace => ({
-        workspace: ws.workspace,
-        organization: ws.organization,
-        role: ws.role,
-        communal: (ws as { communal?: unknown }).communal === true,
-        hasPublicUrl: (ws as { hasPublicUrl?: unknown }).hasPublicUrl === true,
-        publicBaseUrl:
-          typeof (ws as { publicBaseUrl?: unknown }).publicBaseUrl === "string"
-            ? (ws as { publicBaseUrl: string }).publicBaseUrl
-            : undefined,
-      }),
-    ),
+    workspaces: body.workspaces.filter(isMyWorkspaceCore).map(mapMyWorkspace),
   };
 }
 
@@ -149,18 +154,11 @@ export async function getWorkspaceSummary(
   if (!response.ok) return { kind: "unavailable", reason: "server" };
   const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body || !isMyWorkspaceCore(body)) return { kind: "unavailable", reason: "malformed" };
-  const raw = body as Record<string, unknown>;
   return {
     kind: "success",
-    workspace: {
-      workspace: body.workspace,
-      organization: body.organization,
-      role: body.role,
-      communal: raw.communal === true,
-      hasPublicUrl: raw.hasPublicUrl === true,
-      publicBaseUrl: typeof raw.publicBaseUrl === "string" ? raw.publicBaseUrl : undefined,
-    },
-    usage: parseWorkspaceUsage(raw.usage),
+    workspace: mapMyWorkspace(body),
+    // `usage` is summary-only; not part of the workspace core shape.
+    usage: parseWorkspaceUsage((body as Record<string, unknown>).usage),
   };
 }
 

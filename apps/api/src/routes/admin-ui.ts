@@ -30,7 +30,7 @@ import {
 } from "../github-repo-links";
 import { allowWrite } from "../guards";
 import { deriveWebOrigin, inviteLinkUrl } from "../invite-links";
-import { membersForOrg, orgForWorkspace } from "../org-workspaces";
+import { invitesForOrg, membersForOrg, orgForWorkspace } from "../org-workspaces";
 import {
   requireAdminUser,
   requireSessionUser,
@@ -340,16 +340,7 @@ export const adminUi = new Hono<SessionVars>()
     if (!org)
       throw new NotFoundError("no organization for this workspace", { code: "org_not_found" });
 
-    const response = await c.env.AUTH.fetch(
-      `https://auth.internal/internal/orgs/${encodeURIComponent(org.slug)}/invites`,
-      { headers: { "x-uploads-internal": "1" } },
-    );
-    if (!response.ok) {
-      throw new ValidationError("failed to list invites", {
-        details: await response.json().catch(() => null),
-      });
-    }
-    return c.json(await response.json());
+    return c.json({ invites: await invitesForOrg(c.env, org.slug) });
   })
 
   // Invite an email to the org backing this workspace.

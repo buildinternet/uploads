@@ -261,12 +261,9 @@ export async function replaceFileMetadata(
 }
 
 /**
- * Cross-workspace `(meta_key, meta_value)` lookup — not workspace-scoped like
- * `findObjectsByMetadata`. Staging reaper uses this for `gh.kind=branch`.
+ * Cross-workspace `(meta_key, meta_value)` lookup (staging reaper: `gh.kind=branch`).
  * Bounded by `limit`; ordered by (workspace, object_key).
- *
- * Needs `file_metadata_value_lookup_idx (meta_key, meta_value)`; the
- * workspace-leading lookup index cannot serve this predicate.
+ * Needs `file_metadata_value_lookup_idx` — workspace-leading index cannot serve this.
  */
 export async function findObjectsByMetadataAcrossWorkspaces(
   db: D1Database,

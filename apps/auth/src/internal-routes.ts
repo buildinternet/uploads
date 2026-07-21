@@ -196,11 +196,8 @@ function validateOptionalUrl(value: unknown): { ok: true; value: string | null }
 }
 
 export const internal = new Hono<{ Bindings: AuthEnv }>()
-  // Phase 3 (plan scope A): memberships for a user, used by
-  // apps/api/src/org-workspaces.ts and the admin-ui endpoints to resolve
-  // "what orgs/workspaces can this user act on".
-  // Optional `slug` filters to one org (member-gated route authz: one D1
-  // join instead of loading every membership then scanning).
+  // Memberships for a user (org-workspaces + member-gated /me routes).
+  // Optional `slug` → one-org authz lookup (LIMIT 1; bills one match).
   .get("/memberships", async (c) => {
     const userId = c.req.query("userId")?.trim();
     if (!userId) {
@@ -223,7 +220,6 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       .innerJoin(schema.organization, eq(schema.member.organizationId, schema.organization.id))
       .where(and(...conditions));
 
-    // Single-org lookups only need one row (LIMIT 1 still bills one match).
     const rows = slug ? await query.limit(1) : await query;
     return c.json(rows);
   })
@@ -304,9 +300,8 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       .from(schema.organization);
     return c.json({ organizations: rows });
   })
-  // Admin workspace list: every org's member/invite counts in three D1 queries
-  // (orgs + grouped member COUNT + grouped pending-invite COUNT), not N×3.
-  // Registered before `/orgs/:slug` so "summaries" is not treated as a slug.
+  // Admin list: all org member/pending-invite counts in 3 queries (not N×3).
+  // Registered before `/orgs/:slug` so "summaries" is not parsed as a slug.
   .get("/orgs/summaries", async (c) => {
     const db = drizzle(c.env.DB, { schema });
     const [orgs, memberRows, inviteRows] = await Promise.all([
@@ -912,31 +907,31 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     // orderBy asc by default; contract wants createdAt desc.
     rows.reverse();
 
-    // Two grouped aggregate queries instead of one statsForClient() call per
-    // row — avoids an N+1 (2N) query fan-out on the list endpoint.
-    const consentRows = await db
-      .select({
-        clientId: schema.oauthConsent.clientId,
-        consentCount: countDistinct(schema.oauthConsent.userId),
-        lastConsentAt: max(schema.oauthConsent.createdAt),
-      })
-      .from(schema.oauthConsent)
-      .groupBy(schema.oauthConsent.clientId);
+    // Grouped aggregates instead of statsForClient() per row (avoids N+1).
+    const [consentRows, tokenRows] = await Promise.all([
+      db
+        .select({
+          clientId: schema.oauthConsent.clientId,
+          consentCount: countDistinct(schema.oauthConsent.userId),
+          lastConsentAt: max(schema.oauthConsent.createdAt),
+        })
+        .from(schema.oauthConsent)
+        .groupBy(schema.oauthConsent.clientId),
+      db
+        .select({
+          clientId: schema.oauthRefreshToken.clientId,
+          activeTokenCount: count(),
+        })
+        .from(schema.oauthRefreshToken)
+        .where(
+          and(
+            isNull(schema.oauthRefreshToken.revoked),
+            gt(schema.oauthRefreshToken.expiresAt, new Date()),
+          ),
+        )
+        .groupBy(schema.oauthRefreshToken.clientId),
+    ]);
     const consentByClient = new Map(consentRows.map((row) => [row.clientId, row]));
-
-    const tokenRows = await db
-      .select({
-        clientId: schema.oauthRefreshToken.clientId,
-        activeTokenCount: count(),
-      })
-      .from(schema.oauthRefreshToken)
-      .where(
-        and(
-          isNull(schema.oauthRefreshToken.revoked),
-          gt(schema.oauthRefreshToken.expiresAt, new Date()),
-        ),
-      )
-      .groupBy(schema.oauthRefreshToken.clientId);
     const tokensByClient = new Map(tokenRows.map((row) => [row.clientId, row.activeTokenCount]));
 
     const clients = rows.map((row) => {

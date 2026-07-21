@@ -247,12 +247,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           submit.disabled = false;
 
           if (result.kind === "ok") {
-            inviteStatus.textContent =
-              result.emailConfigured === true
-                ? `Invitation emailed to ${email}.`
-                : result.emailConfigured === false
-                  ? `Invite created for ${email} — share the accept link below.`
-                  : `Invite created for ${email}.`;
+            if (result.emailConfigured === true) {
+              inviteStatus.textContent = `Invitation emailed to ${email}.`;
+            } else if (result.emailConfigured === false) {
+              inviteStatus.textContent = `Invite created for ${email} — share the accept link below.`;
+            } else {
+              inviteStatus.textContent = `Invite created for ${email}.`;
+            }
             if (emailInput) emailInput.value = "";
             if (result.acceptUrl) {
               inviteLink.hidden = false;
@@ -261,12 +262,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             if (canManage) void refreshPeopleLists();
             return;
           }
-          inviteStatus.textContent =
-            result.reason === "forbidden"
-              ? "You need workspace admin access to invite."
-              : result.reason === "invalid"
-                ? "That email doesn’t look valid."
-                : "Couldn’t create the invite. Try again.";
+          if (result.reason === "forbidden") {
+            inviteStatus.textContent = "You need workspace admin access to invite.";
+          } else if (result.reason === "invalid") {
+            inviteStatus.textContent = "That email doesn’t look valid.";
+          } else {
+            inviteStatus.textContent = "Couldn’t create the invite. Try again.";
+          }
         })();
       });
 

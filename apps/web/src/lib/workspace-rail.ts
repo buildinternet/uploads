@@ -8,8 +8,7 @@
  *    synchronously, before any network round trip, so a files-tab script that
  *    races ahead of this module's session-gated fetches never calls a
  *    not-yet-defined function;
- *  - fetches `getWorkspaceSummary` → role badge, details, and usage in one call
- *    (membership + usage, not the full workspace list).
+ *  - fetches `getWorkspaceSummary` → role badge, details, and usage.
  *
  * Connected-work hook contract (Task 8's files tab is the only caller):
  *   `window.__uploadsSetConnectedWork(items: GhWorkItem[], titles?: GithubTitleMap): void`
