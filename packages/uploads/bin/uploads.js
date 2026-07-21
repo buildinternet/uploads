@@ -1,5 +1,12 @@
 #!/usr/bin/env node
-import { runCli } from "../dist/cli.js";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { warnIfDistStale } from "./dist-staleness.mjs";
+
+const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+warnIfDistStale(packageRoot);
+
+const { runCli } = await import("../dist/cli.js");
 
 runCli(process.argv)
   .then((code) => process.exit(code ?? 0))
