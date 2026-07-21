@@ -35,6 +35,8 @@ import {
   type CommandRunner,
 } from "../github-gh.js";
 import {
+  appProp,
+  canonicalMetaFromArgs,
   METADATA_DESCRIPTION,
   metadataProp,
   optBool,
@@ -42,6 +44,7 @@ import {
   optString,
   optStringArray,
   optStringRecord,
+  stateProp,
   usage,
   type ToolArgs,
 } from "./args.js";
@@ -421,6 +424,8 @@ export function createUploadsMcpTools(opts: {
               "Allow overwriting an existing object on a strict (non-gh/) key: explicit key, or the default put path. Default false — an existing object there is refused (key_exists) unless this is true or UPLOADS_OVERWRITE=1 is set in the server's environment. No effect on pr/issue keys, which always overwrite.",
           },
           metadata: metadataProp,
+          state: stateProp,
+          app: appProp,
           workspace: workspaceProp,
         },
         additionalProperties: false,
@@ -467,7 +472,14 @@ export function createUploadsMcpTools(opts: {
         // Validate up front (fail fast, before reading/optimizing the file).
         // undefined leaves existing metadata untouched; an object (even {})
         // fully replaces it — see metadataProp's description.
-        const metadata = optStringRecord(args, "metadata");
+        const canonical = canonicalMetaFromArgs(args);
+        const metadataArg = optStringRecord(args, "metadata");
+        // state/app are explicit input and win over a same-named metadata key.
+        // Either one alone is enough to make this a metadata-replacing call.
+        const metadata =
+          metadataArg === undefined && Object.keys(canonical).length === 0
+            ? undefined
+            : { ...metadataArg, ...canonical };
         if (metadata) validateMetaMap(metadata);
         let resolvedPrefix: string | undefined;
         try {
@@ -714,6 +726,8 @@ export function createUploadsMcpTools(opts: {
               "Capture + resolve key/URL without uploading. Not with comment or galleryId.",
           },
           metadata: metadataProp,
+          state: stateProp,
+          app: appProp,
           workspace: workspaceProp,
         },
         required: ["target"],
@@ -747,7 +761,14 @@ export function createUploadsMcpTools(opts: {
           if (refArg) usage("ref cannot be combined with pr/issue");
           if (prefixArg) usage("prefix cannot be combined with pr/issue");
         }
-        const metadata = optStringRecord(args, "metadata");
+        const canonical = canonicalMetaFromArgs(args);
+        const metadataArg = optStringRecord(args, "metadata");
+        // state/app are explicit input and win over a same-named metadata key.
+        // Either one alone is enough to make this a metadata-replacing call.
+        const metadata =
+          metadataArg === undefined && Object.keys(canonical).length === 0
+            ? undefined
+            : { ...metadataArg, ...canonical };
         if (metadata) validateMetaMap(metadata);
         let resolvedPrefix: string | undefined;
         try {
@@ -921,6 +942,8 @@ export function createUploadsMcpTools(opts: {
               "Extra queryable metadata (key→value), merged with the automatic gh.repo/gh.kind/gh.number/gh.ref pairs — a gh.* pair here loses to the resolved target's own gh.* value. " +
               METADATA_DESCRIPTION,
           },
+          state: stateProp,
+          app: appProp,
           workspace: workspaceProp,
         },
         required: ["files"],
@@ -945,7 +968,10 @@ export function createUploadsMcpTools(opts: {
         // just the extras) so the 24-key/8KB caps are enforced client-side —
         // extras alone might pass while extras + the gh.* pairs exceed the
         // cap, which would otherwise only be caught server-side after upload.
-        const metaExtras = optStringRecord(args, "metadata") ?? {};
+        const metaExtras = {
+          ...optStringRecord(args, "metadata"),
+          ...canonicalMetaFromArgs(args),
+        };
         const metadata = { ...metaExtras, ...ghMetadataFromTargetWithTitle(target, run) };
         if (Object.keys(metadata).length > 0) validateMetaMap(metadata);
 

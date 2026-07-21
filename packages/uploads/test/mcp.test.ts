@@ -1040,3 +1040,79 @@ describe("config resolution", () => {
     expect(configs[0].apiUrl).toBe("https://x.test");
   });
 });
+
+describe("canonical metadata vocabulary in tool schemas", () => {
+  function toolList() {
+    return createUploadsMcpTools({
+      globals: { apiUrl: "https://x.test", token: "up_test_x" },
+      runner: noRun,
+    });
+  }
+
+  it("exposes state and app on put, screenshot and attach", () => {
+    const tools = toolList();
+    for (const name of ["put", "screenshot", "attach"]) {
+      const tool = tools.find((t) => t.name === name);
+      expect(tool, `${name} tool missing`).toBeDefined();
+      const props = tool!.inputSchema.properties as Record<string, unknown>;
+      expect(props.state, `${name}.state missing`).toBeDefined();
+      expect(props.app, `${name}.app missing`).toBeDefined();
+    }
+  });
+
+  it("constrains state to the canonical enum", () => {
+    const put = toolList().find((t) => t.name === "put")!;
+    const state = (put.inputSchema.properties as Record<string, { enum?: string[] }>).state;
+    expect(state.enum).toEqual(["before", "after", "empty", "error", "loading"]);
+  });
+
+  it("no longer suggests non-canonical keys", () => {
+    const put = toolList().find((t) => t.name === "put")!;
+    const metadata = (put.inputSchema.properties as Record<string, { description: string }>)
+      .metadata;
+    // `page` and `resolution` were suggested here and are exactly the
+    // near-miss spellings the CLI now warns about.
+    expect(metadata.description).not.toMatch(/Suggested keys/);
+    expect(metadata.description).not.toMatch(/resolution/);
+    expect(metadata.description).toMatch(/\bpath\b/);
+  });
+});
+
+describe("canonical metadata params reach the upload", () => {
+  it("put stamps state and app", async () => {
+    const { server, puts } = serverWith();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-mcp-canon-"));
+    const file = join(dir, "shot.png");
+    writeFileSync(file, "png");
+    await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { file, state: "after", app: "web" },
+    });
+    expect(puts[0]?.metadata?.state).toBe("after");
+    expect(puts[0]?.metadata?.app).toBe("web");
+  });
+
+  it("put rejects a state outside the enum", async () => {
+    const { server } = serverWith();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-mcp-canon-bad-"));
+    const file = join(dir, "shot.png");
+    writeFileSync(file, "png");
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { file, state: "post" },
+    });
+    expect(JSON.stringify(res)).toMatch(/state must be one of/);
+  });
+
+  it("state wins over a same-named metadata key", async () => {
+    const { server, puts } = serverWith();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-mcp-canon-win-"));
+    const file = join(dir, "shot.png");
+    writeFileSync(file, "png");
+    await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { file, metadata: { state: "before" }, state: "after" },
+    });
+    expect(puts[0]?.metadata?.state).toBe("after");
+  });
+});
