@@ -458,6 +458,13 @@ export interface DeviceCodeResponse {
 export function requestDeviceCode(
   authUrl: string,
   clientId = DEVICE_CLIENT_ID,
+  /**
+   * RFC 8628 `scope`. Carries the requested workspace (`workspace:<slug>`,
+   * plus `create`) so the approval page can validate it before approving —
+   * issue #362. Stored on the device-code row and echoed back at token
+   * exchange, possibly rewritten by the page.
+   */
+  scope?: string,
 ): Promise<DeviceCodeResponse> {
   return jsonRequest(`${authUrl.replace(/\/$/, "")}/api/auth/device/code`, {
     method: "POST",
@@ -465,7 +472,7 @@ export function requestDeviceCode(
       "Content-Type": "application/json",
       "User-Agent": cliUserAgent("device-code"),
     },
-    body: JSON.stringify({ client_id: clientId }),
+    body: JSON.stringify({ client_id: clientId, ...(scope ? { scope } : {}) }),
   });
 }
 
