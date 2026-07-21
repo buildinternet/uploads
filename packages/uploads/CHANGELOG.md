@@ -1,5 +1,22 @@
 # @buildinternet/uploads
 
+## 0.15.0
+
+### Minor Changes
+
+- 3983c46: `uploads attach --branch [name]` and `uploads screenshot --branch [name]` stage files against a git branch before a pull request exists — for coding agents working a branch that hasn't opened a PR yet. Keys land under `gh/<owner>/<repo>/branch/<branch>/<filename>` with `gh.repo`/`gh.kind=branch`/`gh.branch`/`gh.staged-at` metadata; no managed comment is created since there's no PR/issue to comment on yet.
+- 906c54d: `uploads attach` now auto-promotes branch-staged attachments (`attach --branch`) into a PR's attachment prefix the first time you attach to that PR, before refreshing the managed comment — no extra step needed once a PR opens for a branch you staged files against. Use `uploads attach --promote` (no file arguments) to promote and refresh the comment without uploading anything new, or `--no-promote` to opt out of the automatic behavior. Promotion talks to a new server endpoint and degrades silently (never fails the attach) when that endpoint isn't available yet.
+- 3d13d34: Managed GitHub comments now cap inline images at 16 (the rest collapse into a `<details>` list) and use a per-workspace marker so two workspaces sharing a repo no longer clobber each other's comment (legacy comments are adopted and migrated automatically). Adds `uploads github link` to inspect or explicitly claim a workspace's binding to a repo.
+
+### Patch Changes
+
+- 01e2a5a: Managed GitHub comment attachments now link to their uploads.sh file page (metadata, dates, video player) instead of raw file bytes.
+- 235eabe: When the uploads.sh GitHub App is installed but hasn't been granted Issues /
+  Pull requests write yet, `uploads comment` (and `--comment`) now prints a short
+  note explaining that an admin must approve the added permissions — with a link
+  to do it — before falling back to the local `gh` path, instead of falling back
+  silently.
+
 ## 0.14.0
 
 ### Minor Changes
