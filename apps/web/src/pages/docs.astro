@@ -35,7 +35,10 @@ const REPO = "https://github.com/buildinternet/uploads";
     </div>
     <p>
       That's it. The CLI figures out which repo and pull request you're on, uploads the files,
-      and keeps one tidy "📎 Attachments" comment on the PR up to date.
+      and keeps one tidy "📎 Attachments" comment on the PR up to date. Tag a pair with&#32;
+      <code>--state before</code> and <code>--state after</code> and they render side by side
+      in that comment — see&#32;
+      <a href="/docs/attach-pull-request-images#before-after">pair a before and after</a>.
     </p>
   </section>
 
@@ -72,7 +75,7 @@ it opens (or run: uploads attach --promote once it exists)</pre>
     <p>
       <code>uploads login</code> opens a browser so you can approve the sign-in (GitHub or a
       magic link). You'll need a workspace first — create your own with a linked GitHub account,
-      or get invited to an existing one by an admin. Once approved, the CLI mints a workspace
+      or get invited to an existing one by an admin. Once you're in, the CLI mints a workspace
       token and saves it, so you only do this once per machine.
     </p>
     <p>Prefer not to install anything? Every command works as a one-off with <code>npx</code>:</p>

@@ -88,14 +88,20 @@ const TOC = [
   <section id="staging">
     <h2>Staging before a PR exists <a class="anchor" href="#staging" aria-label="Link to this section">#</a></h2>
     <p>
-      No PR open yet? <code>--branch</code> stages screenshots against the branch instead
-      (defaults to your current git branch). Staged files are hosted and public immediately —
-      there's just no PR to comment on yet.
+      No PR open yet? On a branch, a bare <code>put</code> stages against it by default — no
+      flag needed. Staged files are hosted and public immediately; there's just no PR to
+      comment on yet.
     </p>
     <div class="cmd">
-      <span class="text">uploads attach --branch ./progress.png</span>
-      <button type="button" data-copy="uploads attach --branch ./progress.png" aria-live="polite">copy</button>
+      <span class="text">uploads put ./progress.png</span>
+      <button type="button" data-copy="uploads put ./progress.png" aria-live="polite">copy</button>
     </div>
+    <p>
+      <code>uploads attach --branch ./a.png ./b.png</code> is the explicit multi-file form of
+      the same thing. See&#32;
+      <a href="/docs/attach-pull-request-images#staging">Attach &amp; share: stage before a PR
+      exists</a> for <code>uploads staged</code> and the binding states.
+    </p>
     <p>
       The moment a PR opens for that branch (or reopens, or gets new commits), the App
       promotes the staged files onto it and posts or updates the bot comment — no CLI

@@ -7,6 +7,7 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
 const TOC = [
   { id: "attach", label: "Attach files to a PR" },
   { id: "staging", label: "Stage before a PR exists" },
+  { id: "before-after", label: "Pair a before and after" },
   { id: "put", label: "Get a URL for any file" },
   { id: "screenshot", label: "Capture a screenshot" },
 ];
@@ -157,6 +158,52 @@ once the PR exists: uploads attach --promote</pre>
       explicitly (<code>--no-promote</code> opts out). Promotion is copy-and-keep: the staged
       original is never deleted, so a URL you already embedded (in the PR body, say, before it
       was even opened) keeps serving.
+    </p>
+  </section>
+
+  <section id="before-after">
+    <h2>
+      Pair a before and after <a class="anchor" href="#before-after" aria-label="Link to this section">#</a>
+    </h2>
+    <p>
+      Tag a capture with <code>--state before</code> or <code>--state after</code> and the two
+      render side by side in the comment, under <b>Before</b> and <b>After</b> headings,
+      instead of stacking:
+    </p>
+    <div class="cmd">
+      <span class="text">uploads put ./hero-before.webp --state before</span>
+      <button type="button" data-copy="uploads put ./hero-before.webp --state before" aria-live="polite">copy</button>
+    </div>
+    <div class="cmd">
+      <span class="text">uploads put ./hero-after.webp --state after</span>
+      <button type="button" data-copy="uploads put ./hero-after.webp --state after" aria-live="polite">copy</button>
+    </div>
+    <p>
+      Two files pair when they share a <code>--meta path</code> value and one is&#32;
+      <code>before</code> while the other is <code>after</code>. That's the form to use when a
+      single comment carries several pairs — the <code>path</code> is what keeps them from
+      crossing:
+    </p>
+    <div class="cmd">
+      <span class="text">uploads put ./settings-old.webp --meta path=/settings --state before</span>
+      <button
+        type="button"
+        data-copy="uploads put ./settings-old.webp --meta path=/settings --state before"
+        aria-live="polite">copy</button
+      >
+    </div>
+    <p>
+      With no usable <code>path</code>, filenames are the fallback: stems that differ only by a&#32;
+      <code>before</code> or <code>after</code> token pair up, so <code>hero-before.webp</code>&#32;
+      goes with <code>hero-after.webp</code>. The token has to be its own word —&#32;
+      <code>beforehand.webp</code> doesn't match. A group with two befores and one after is
+      ambiguous and won't pair; it falls back to the normal stacked list. Only images pair.
+    </p>
+    <p>
+      Pairing isn't only a comment thing — a file's public page shows its counterpart next to
+      it, with a link either way. <code>--state</code> also takes <code>empty</code>,&#32;
+      <code>error</code>, and <code>loading</code> for the other states worth capturing; those
+      are searchable with <code>uploads find</code> but don't pair.
     </p>
   </section>
 
