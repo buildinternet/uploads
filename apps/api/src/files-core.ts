@@ -611,6 +611,9 @@ export interface ListedObject {
  * #135/#139). Sibling to `galleryUrl`. Callers must not synthesize this;
  * the API returns it on the listing DTO.
  */
+/** Server-owned namespace — derived posters, CLI report uploads. Never listed. */
+const INTERNAL_KEY_PREFIX = "_internal/";
+
 export function filePageUrl(env: Env, workspace: string, key: string): string {
   const encodedKey = key.split("/").map(encodeURIComponent).join("/");
   return `${webOrigin(env)}/f/${encodeURIComponent(workspace)}/${encodedKey}`;
@@ -639,18 +642,25 @@ export async function listObjects(
   // each to the shared HEAD/list subset (`storedMetaJson`) rather than spreading
   // the StoredFile, which carries reader methods and a raw epoch timestamp.
   return {
-    items: result.items.map((item) => {
-      const visibility = objectVisibility(item.metadata ?? undefined);
-      const urls = objectPublicUrls(env, cfg, item.key);
-      return {
-        key: item.key,
-        url: urls.url,
-        embedUrl: urls.embedUrl,
-        ...storedMetaJson(item),
-        ...(visibility ? { visibility } : {}),
-        ...(urls.url && ws.name ? { pageUrl: filePageUrl(env, ws.name, item.key) } : {}),
-      };
-    }),
+    // Server-owned derived artifacts (issue #299 posters, CLI report uploads)
+    // are not user objects and must never appear as rows. Caveat: `limit`
+    // applies to the underlying page *before* this filter, so a page can come
+    // back shorter than `limit` while `cursor` is still non-null — callers
+    // that paginate must follow the cursor, not stop on a short page.
+    items: result.items
+      .filter((item) => !item.key.startsWith(INTERNAL_KEY_PREFIX))
+      .map((item) => {
+        const visibility = objectVisibility(item.metadata ?? undefined);
+        const urls = objectPublicUrls(env, cfg, item.key);
+        return {
+          key: item.key,
+          url: urls.url,
+          embedUrl: urls.embedUrl,
+          ...storedMetaJson(item),
+          ...(visibility ? { visibility } : {}),
+          ...(urls.url && ws.name ? { pageUrl: filePageUrl(env, ws.name, item.key) } : {}),
+        };
+      }),
     cursor: result.cursor ?? null,
     ...(result.prefixes ? { prefixes: result.prefixes } : {}),
   };
