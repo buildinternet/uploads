@@ -3,9 +3,16 @@ import {
   escapeHtml,
   renderEmailCard,
   renderEnrollmentInvitationEmail,
+  renderMagicLinkEmail,
   renderMemberJoinedEmail,
   renderOrgInvitationEmail,
 } from "../src/index";
+
+function parseJsonLd(html: string): Record<string, unknown> | null {
+  const match = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+  if (!match?.[1]) return null;
+  return JSON.parse(match[1]) as Record<string, unknown>;
+}
 
 describe("escapeHtml", () => {
   it("escapes angle brackets and quotes", () => {
@@ -15,7 +22,7 @@ describe("escapeHtml", () => {
 });
 
 describe("renderEmailCard", () => {
-  it("builds a full HTML document with CTA", () => {
+  it("builds a full HTML document with CTA and inferred ViewAction", () => {
     const out = renderEmailCard({
       subject: "Test",
       preheader: "Preview line",
@@ -32,9 +39,77 @@ describe("renderEmailCard", () => {
     expect(out.html).toContain("Go →");
     expect(out.html).toContain("/terms");
     expect(out.html).toContain("/privacy");
+
+    const ld = parseJsonLd(out.html);
+    expect(ld?.["@type"]).toBe("EmailMessage");
+    expect(ld?.potentialAction).toEqual({
+      "@type": "ViewAction",
+      name: "Go",
+      url: "https://uploads.sh/x",
+    });
+    expect(ld?.description).toBe("Preview line");
+    expect(ld?.publisher).toEqual({
+      "@type": "Organization",
+      name: "uploads.sh",
+      url: "https://uploads.sh",
+    });
   });
 
-  it("omits the CTA block when not provided", () => {
+  it("embeds an explicit one-click ConfirmAction", () => {
+    const out = renderEmailCard({
+      subject: "Approve",
+      preheader: "Needs your approval",
+      eyebrow: "Approval",
+      title: "Approve request",
+      bodyHtml: "Please approve.",
+      text: "Please approve.",
+      cta: { url: "https://uploads.sh/approve/1", label: "Review →" },
+      gmailAction: {
+        type: "ConfirmAction",
+        name: "Approve",
+        handlerUrl: "https://api.uploads.sh/v1/actions/approve?id=1",
+        description: "Approve this request",
+      },
+    });
+    expect(parseJsonLd(out.html)?.potentialAction).toEqual({
+      "@type": "ConfirmAction",
+      name: "Approve",
+      handler: {
+        "@type": "HttpActionHandler",
+        url: "https://api.uploads.sh/v1/actions/approve?id=1",
+      },
+    });
+  });
+
+  it("suppresses Gmail markup when gmailAction is false", () => {
+    const out = renderEmailCard({
+      subject: "Test",
+      preheader: "p",
+      eyebrow: "x",
+      title: "t",
+      bodyHtml: "b",
+      text: "b",
+      cta: { url: "https://uploads.sh/x", label: "Go →" },
+      gmailAction: false,
+    });
+    expect(out.html).not.toContain("application/ld+json");
+  });
+
+  it("escapes </ in JSON-LD so script tags cannot break out", () => {
+    const out = renderEmailCard({
+      subject: "Test",
+      preheader: "p",
+      eyebrow: "x",
+      title: "t",
+      bodyHtml: "b",
+      text: "b",
+      cta: { url: "https://uploads.sh/</script>alert(1)", label: "Go" },
+    });
+    expect(out.html).toContain("\\u003c/script>");
+    expect(out.html).not.toMatch(/ld\+json">[\s\S]*<\/script>alert/);
+  });
+
+  it("omits the CTA block and Gmail markup when not provided", () => {
     const out = renderEmailCard({
       subject: "Notify",
       preheader: "p",
@@ -45,13 +120,27 @@ describe("renderEmailCard", () => {
     });
     expect(out.html).not.toContain("background-color:#c27eff");
     expect(out.html).not.toContain("Or paste this link");
+    expect(out.html).not.toContain("application/ld+json");
+  });
+});
+
+describe("renderMagicLinkEmail", () => {
+  it("embeds a Sign in ViewAction for the magic-link URL", () => {
+    const url = "https://uploads.sh/api/auth/magic-link/verify?token=abc";
+    const ld = parseJsonLd(renderMagicLinkEmail({ url }).html);
+    expect(ld?.potentialAction).toEqual({
+      "@type": "ViewAction",
+      name: "Sign in",
+      url,
+    });
   });
 });
 
 describe("renderOrgInvitationEmail", () => {
-  it("escapes org name and inviter in HTML", () => {
+  it("escapes org name and inviter, and embeds Accept invitation ViewAction", () => {
+    const url = "https://uploads.sh/accept-invitation/abc";
     const out = renderOrgInvitationEmail({
-      url: "https://uploads.sh/accept-invitation/abc",
+      url,
       organizationName: `<img src=x onerror=alert(1)>`,
       inviterEmail: `"><script>alert(2)</script>`,
     });
@@ -60,21 +149,32 @@ describe("renderOrgInvitationEmail", () => {
     expect(out.html).toContain("&lt;img src=x onerror=alert(1)&gt;");
     expect(out.subject).toContain("<img");
     expect(out.html).toContain("Accept invitation");
-    expect(out.text).toContain("https://uploads.sh/accept-invitation/abc");
+    expect(out.text).toContain(url);
+    expect(parseJsonLd(out.html)?.potentialAction).toEqual({
+      "@type": "ViewAction",
+      name: "Accept invitation",
+      url,
+    });
   });
 });
 
 describe("renderEnrollmentInvitationEmail", () => {
   it("special-cases the default workspace subject and body", () => {
+    const link = "https://uploads.sh/invite?id=upi_x#code=secret";
     const out = renderEnrollmentInvitationEmail({
       workspaceName: "default",
-      link: "https://uploads.sh/invite?id=upi_x#code=secret",
+      link,
       expiresAt: "2030-01-15T12:00:00.000Z",
     });
     expect(out.subject).toBe("You've been given access to uploads.sh");
     expect(out.text).toContain("#code=secret");
     expect(out.html).toContain("You've been given access");
     expect(out.html).toContain("laptop");
+    expect(parseJsonLd(out.html)?.potentialAction).toEqual({
+      "@type": "ViewAction",
+      name: "Accept invitation",
+      url: link,
+    });
   });
 
   it("names a non-default workspace in the subject", () => {
@@ -99,7 +199,7 @@ describe("renderEnrollmentInvitationEmail", () => {
 });
 
 describe("renderMemberJoinedEmail", () => {
-  it("names the joiner and workspace", () => {
+  it("names the joiner and workspace without Gmail action markup", () => {
     const out = renderMemberJoinedEmail({
       organizationName: "buildinternet",
       memberEmail: "new@example.com",
@@ -109,5 +209,6 @@ describe("renderMemberJoinedEmail", () => {
     expect(out.html).toContain("new@example.com");
     expect(out.html).toContain("buildinternet");
     expect(out.text).toContain("accepted your invitation");
+    expect(out.html).not.toContain("application/ld+json");
   });
 });

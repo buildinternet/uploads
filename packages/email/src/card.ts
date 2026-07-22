@@ -5,6 +5,12 @@
  * move it here too. Type follows the site's split: sans for headline and body,
  * mono reserved for the wordmark, eyebrow, button label, and metadata. Geist
  * itself can't load in a mail client, so the fallback stacks are the design.
+ *
+ * CTA emails embed Gmail action JSON-LD (ViewAction by default). One-click
+ * ConfirmAction/SaveAction is opt-in via `gmailAction` when a handler URL
+ * exists. Production inbox buttons need a registered sender.
+ * https://developers.google.com/workspace/gmail/markup/reference/go-to-action
+ * https://developers.google.com/workspace/gmail/markup/reference/one-click-action
  */
 
 export type RenderedEmail = {
@@ -12,6 +18,19 @@ export type RenderedEmail = {
   text: string;
   html: string;
 };
+
+/**
+ * Gmail inbox action. Prefer ViewAction (go-to) for page CTAs; use
+ * ConfirmAction/SaveAction only when Google can hit a dedicated handler URL.
+ */
+export type GmailAction =
+  | { type: "ViewAction"; name: string; url: string; description?: string }
+  | {
+      type: "ConfirmAction" | "SaveAction";
+      name: string;
+      handlerUrl: string;
+      description?: string;
+    };
 
 export type EmailCardInput = {
   subject: string;
@@ -26,6 +45,8 @@ export type EmailCardInput = {
   noteHtml?: string;
   footNoteHtml?: string;
   webOrigin?: string;
+  /** Defaults to a ViewAction from `cta`. Pass `false` to suppress. */
+  gmailAction?: GmailAction | false;
 };
 
 const SANS =
@@ -82,12 +103,54 @@ function webOriginOf(input: EmailCardInput): string {
   return DEFAULT_WEB_ORIGIN;
 }
 
+/** Gmail button label: drop trailing CTA arrows ("Sign in →" → "Sign in"). */
+function actionName(label: string): string {
+  return label.replace(/\s*[→›»]\s*$/u, "").trim();
+}
+
+function resolveGmailAction(input: EmailCardInput): GmailAction | null {
+  if (input.gmailAction === false) return null;
+  if (input.gmailAction) return input.gmailAction;
+  if (!input.cta) return null;
+  return {
+    type: "ViewAction",
+    name: actionName(input.cta.label),
+    url: input.cta.url,
+    description: input.preheader || input.title,
+  };
+}
+
+function gmailJsonLd(action: GmailAction, publisherUrl: string): string {
+  const description = action.description;
+  const potentialAction =
+    action.type === "ViewAction"
+      ? { "@type": "ViewAction", name: action.name, url: action.url }
+      : {
+          "@type": action.type,
+          name: action.name,
+          handler: { "@type": "HttpActionHandler", url: action.handlerUrl },
+        };
+  const data = {
+    "@context": "http://schema.org",
+    "@type": "EmailMessage",
+    potentialAction,
+    ...(description ? { description } : {}),
+    publisher: { "@type": "Organization", name: "uploads.sh", url: publisherUrl },
+  };
+  // Escape `<` so a hostile URL cannot break out of the script element.
+  const json = JSON.stringify(data).replace(/</g, "\\u003c");
+  return `<script type="application/ld+json">${json}</script>`;
+}
+
 /** Dark-card shell shared by every uploads.sh email. */
 export function renderEmailCard(input: EmailCardInput): RenderedEmail {
   const webOrigin = webOriginOf(input);
   const title = escapeHtml(input.title);
   const eyebrow = escapeHtml(input.eyebrow);
   const preheader = escapeHtml(input.preheader);
+
+  const action = resolveGmailAction(input);
+  const gmailMarkup = action ? gmailJsonLd(action, webOrigin) : "";
 
   const cta = input.cta
     ? `<tr><td style="padding-bottom:16px;">
@@ -122,6 +185,7 @@ export function renderEmailCard(input: EmailCardInput): RenderedEmail {
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="color-scheme" content="dark"><meta name="supported-color-schemes" content="dark"></head>
 <body style="margin:0;padding:0;background-color:${BG};">
+${gmailMarkup}
 <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">${preheader}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:${BG};">
 <tr><td align="center" style="padding:40px 16px;">
