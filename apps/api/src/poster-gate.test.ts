@@ -42,6 +42,21 @@ describe("posterGenerationAllowed", () => {
     expect(await posterGenerationAllowed(env({ FLAGS: undefined }), {}, "acme")).toBe(false);
   });
 
+  it("fails closed when the POSTER_LIMITER binding is absent entirely", async () => {
+    expect(await posterGenerationAllowed(env({ POSTER_LIMITER: undefined }), {}, "acme")).toBe(
+      false,
+    );
+  });
+
+  it("fails closed when Flagship evaluation throws", async () => {
+    const flagsThrows = {
+      getBooleanValue: async () => {
+        throw new Error("flagship unreachable");
+      },
+    };
+    expect(await posterGenerationAllowed(env({ FLAGS: flagsThrows }), {}, "acme")).toBe(false);
+  });
+
   it("checks cheap local gates before spending a limiter token", async () => {
     let called = false;
     const counting = {

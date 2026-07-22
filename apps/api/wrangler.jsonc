@@ -174,6 +174,10 @@
         // is unbilled during its beta and per-operation after; this is the
         // automatic ceiling so a bulk upload can't run up a bill unattended.
         // The manual switches are the Flagship flag and the MEDIA binding.
+        // Unlike WRITE_LIMITER/RENDER_LIMITER, posterGenerationAllowed treats
+        // this binding as required: if it's ever deleted (e.g. self-hoster
+        // trimming bindings), poster generation fails closed rather than
+        // falling back to the shared guard's fail-open default.
         "name": "POSTER_LIMITER",
         "type": "ratelimit",
         "namespace_id": "1005",

@@ -228,9 +228,17 @@ export const POSTER_FLAG = "video-poster-generation";
  *
  * Flagship **fails closed** — the default handed to `getBooleanValue` is
  * `false`, and that default is what's returned when evaluation fails or the
- * flag is missing. Losing posters degrades to today's bullet link and harms
- * nothing; failing open would risk the switch not taking effect during exactly
- * the incident it exists for.
+ * flag is missing. A thrown evaluation error (network/config) is also caught
+ * and treated as `false`. Losing posters degrades to today's bullet link and
+ * harms nothing; failing open would risk the switch not taking effect during
+ * exactly the incident it exists for.
+ *
+ * The rate limiter is the one exception to `allowPoster`'s own shared
+ * behavior: `makeRateLimitGuard` fails *open* when its binding is absent, by
+ * design, for the pre-existing WRITE_LIMITER/RENDER_LIMITER guards. Poster
+ * generation does not inherit that laxness — a missing `POSTER_LIMITER`
+ * binding is treated as a hard kill switch here, checked explicitly before
+ * ever delegating to `allowPoster`.
  */
 export async function posterGenerationAllowed(
   env: Env,
@@ -242,6 +250,15 @@ export async function posterGenerationAllowed(
   // Typed as always-present, but a self-hoster may have deleted the binding
   // from wrangler.jsonc — absent means off, same as every other switch here.
   if (!env.FLAGS) return false;
-  if (!(await env.FLAGS.getBooleanValue(POSTER_FLAG, false))) return false;
+  // Unlike allowPoster's own fail-open default for a missing binding (shared
+  // with WRITE_LIMITER/RENDER_LIMITER), poster generation fails closed here.
+  if (!env.POSTER_LIMITER) return false;
+  try {
+    if (!(await env.FLAGS.getBooleanValue(POSTER_FLAG, false))) return false;
+  } catch {
+    // Flagship evaluation errors fail closed, same as a missing binding or a
+    // disabled flag.
+    return false;
+  }
   return await allowPoster(env, workspaceName);
 }
