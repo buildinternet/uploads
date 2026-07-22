@@ -108,7 +108,8 @@ const sizeLabel =
       .public { color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:6px 11px; background:var(--panel); }
       .crumbs { margin-bottom:12px; color:var(--muted); font:13px var(--mono); overflow-wrap:anywhere; }
       .crumbs .count { color:var(--muted); }
-      .filetitle { margin:0 0 16px; color:var(--fg); font:600 17px var(--mono); letter-spacing:-.01em; overflow-wrap:anywhere; }
+      .filehead { margin:0 0 16px; min-width:0; }
+      .filetitle { margin:0; color:var(--fg); font:600 17px var(--mono); letter-spacing:-.01em; overflow-wrap:anywhere; }
       .stage { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-lg); overflow:hidden; }
       /* Video / non-image fallbacks only — images use ImagePreview. */
       .media { min-height:320px; max-height:78vh; background:var(--bg); display:grid; place-items:center; overflow:hidden; }
@@ -116,11 +117,14 @@ const sizeLabel =
       .fallback { padding:60px 30px; text-align:center; color:var(--muted); font:13px/1.6 var(--mono); }
       .fallback strong { display:block; color:var(--fg); margin-bottom:8px; }
       .fallback a { color:var(--fg); overflow-wrap:anywhere; }
-      .details { padding:18px 20px 22px; border-top:1px solid var(--line); }
-      .caption { margin:0 0 12px; color:var(--body); font-size:15px; line-height:1.6; white-space:pre-wrap; }
-      dl.meta { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; margin:0 0 4px; font:12px var(--mono); }
+      /* Right rail: same section gap as the public file page. */
+      .details { display:flex; flex-direction:column; gap:22px; padding:18px 20px 22px; border-top:1px solid var(--line); }
+      .details > * { min-width:0; }
+      .caption { margin:0; color:var(--body); font-size:15px; line-height:1.6; white-space:pre-wrap; }
+      dl.meta { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; margin:0; font:12px var(--mono); }
       dl.meta dt { color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-size:11px; }
       dl.meta dd { margin:0; color:var(--body); overflow-wrap:anywhere; }
+      .details :global(.actions) { margin-top:0; }
       .pager { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:22px 0 0; font:13px var(--mono); }
       .pager a, .pager span.disabled { display:inline-block; padding:10px 16px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel); color:var(--fg); text-decoration:none; }
       .pager a:hover, .pager a:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
@@ -155,7 +159,10 @@ const sizeLabel =
       {gallery && item ? (
         <>
           <div class="crumbs"><a href={listPath}>{gallery.title}</a> · <span class="count">{index + 1} of {items.length}</span></div>
-          <h1 class="filetitle">{item.filename}</h1>
+          <header class="filehead">
+            <h1 class="filetitle">{item.filename}</h1>
+            <GalleryReferences references={gallery.references} variant="header" />
+          </header>
           <figure class="stage" style="margin:0">
             {kind(item) === "image" && item.url ? (
               <ImagePreview src={item.url} alt={item.altText ?? item.caption ?? item.filename} />
@@ -168,7 +175,6 @@ const sizeLabel =
               </div>
             )}
             <figcaption class="details" id="item-caption">
-              <GalleryReferences references={gallery.references} variant="inline" />
               {item.caption && <div class="caption">{item.caption}</div>}
               {(sizeLabel || uploadedLabel || modifiedLabel) && (
                 <dl class="meta">
