@@ -36,10 +36,14 @@ Details: [enrollment docs](https://github.com/buildinternet/uploads/blob/main/do
 
 ## Getting workspace access
 
-An uploads.sh administrator invites your email address to the workspace's
-organization from the session-authenticated `/admin` UI. Accept the
-invitation (GitHub or magic-link sign-in), then run `uploads login` as above.
-There is no self-serve signup.
+Two paths, no `ADMIN_TOKEN` for either:
+
+- **Create your own.** Sign in (GitHub or magic-link) and link a GitHub
+  account, then create a workspace from `/account/workspaces` — or
+  `uploads login --workspace <name> --create`. Capped at three self-serve
+  workspaces per account.
+- **Accept an invitation.** A workspace owner/admin (or a site operator from
+  `/admin`) invites your email; accept it, then run `uploads login` as above.
 
 ## Using the credential
 

@@ -6,16 +6,18 @@
 
 **The missing upload command for coding agents.**
 
-A lightweight file-hosting service on Cloudflare Workers. One command —
-`uploads attach` — hosts a file at a stable public URL and keeps one tidy
-attachments comment on the PR. Built on [files-sdk](https://files-sdk.dev) so
-the storage layer is provider-agnostic (R2 today; any files-sdk adapter later).
+A lightweight file-hosting service on Cloudflare Workers. Agents capture
+screenshots as they work — each one staged to the branch automatically — so by
+the time the PR opens it is already furnished with one tidy attachments
+comment. Built on [files-sdk](https://files-sdk.dev) so the storage layer is
+provider-agnostic (R2 today; any files-sdk adapter later).
 
 <p>
   <a href="https://uploads.sh"><b>uploads.sh</b></a> &nbsp;·&nbsp;
   <a href="docs/"><b>Docs</b></a> &nbsp;·&nbsp;
   <a href="https://www.npmjs.com/package/@buildinternet/uploads"><b>npm →</b></a> &nbsp;·&nbsp;
   <a href="#use-it">Use it</a> &nbsp;·&nbsp;
+  <a href="#what-it-looks-like">What it looks like</a> &nbsp;·&nbsp;
   <a href="#whats-in-this-repo">What's in this repo</a> &nbsp;·&nbsp;
   <a href="#local-development">Develop</a>
 </p>
@@ -29,9 +31,8 @@ the storage layer is provider-agnostic (R2 today; any files-sdk adapter later).
 </p>
 
 <p><sub>
-  <b>Active development — not production-ready.</b> uploads.sh is being built in
-  the open and its APIs (including auth) will change without notice. Don't rely
-  on it for anything you can't afford to lose or re-key.
+  <b>Under active development.</b> uploads.sh is being built in the open, so
+  APIs (including auth) can still change. Feedback is welcome — open an issue.
 </sub></p>
 
 </div>
@@ -44,53 +45,81 @@ You add a screenshot to GitHub by dragging it into the comment box. Agents
 can't — GitHub's native image hosting only works through a browser session, so
 an agent that just captured a before/after has nowhere to put it.
 
-**uploads** gives agents that missing step: a CLI and REST API that host files
-at stable, public URLs and return ready-to-paste Markdown. `--pr`/`--issue`
-keys are hash-free, so re-uploading the same filename overwrites in place and
-the URL never changes, and a managed attachments comment keeps every file for
-a PR in one tidy place. Workspaces keep tenants (and their budgets and key
-policies) apart.
+**uploads** gives agents that missing step, and it works while the branch is
+still in progress. An agent runs `uploads put ./after.png` the moment a change
+is visible; on a branch that stages the file automatically — no PR required, no
+flag to remember. Capture at every milestone and there is nothing to reassemble
+at the end: when the PR opens, everything staged is promoted into a single
+managed attachments comment.
+
+Keys are hash-free, so re-uploading the same filename overwrites in place and
+the URL never changes — every embed of it updates at once. Workspaces keep
+tenants (and their budgets and key policies) apart.
 
 This repo is the source of the canonical deployment at
 [uploads.sh](https://uploads.sh): the API worker, auth worker, MCP server, the
 Astro web app, and the `@buildinternet/uploads` CLI (published to npm from
 [`packages/uploads`](packages/uploads)).
 
+## What it looks like
+
+One comment per PR, rewritten in place on every sync. Files tagged
+`--state before` and `--state after` pair into a side-by-side table; anything
+else lands below it.
+
+<div align="center">
+  <a href="https://github.com/buildinternet/uploads/pull/425#issuecomment-5051281079"><img src="docs/assets/readme-comment.png" alt="The managed attachments comment on a pull request, with a before/after pair rendered side by side under Before and After headings" width="760"></a>
+</div>
+
+<sub>The real comment on
+[#425](https://github.com/buildinternet/uploads/pull/425#issuecomment-5051281079).</sub>
+
+Pairing is by `--meta path=…` when several pairs share a comment (one `before`
+and one `after` per path), and falls back to filenames that differ only by a
+`before`/`after` token — `hero-before.webp` with `hero-after.webp`.
+
 ## Use it
 
-Install the CLI, sign in once, then attach media from a checked-out PR branch:
+Install the CLI and sign in once:
 
 ```bash
 npm install --global @buildinternet/uploads
 uploads login
+```
+
+Then capture as you work. On a branch, a bare `put` stages the file against
+that branch — no PR needed yet, and no flag to remember:
+
+```bash
+uploads put ./before.png --state before
+uploads put ./after.png --state after
+uploads staged                 # what's queued, and whether it will auto-attach
+```
+
+Open the PR however you normally would (`gh pr create`, the GitHub UI) and the
+staged files promote themselves into one managed attachments comment —
+instantly if the [GitHub App](https://uploads.sh/docs/github-app) is installed,
+otherwise on your next `uploads attach` (or `uploads attach --promote`).
+
+Already have a PR or issue open? Target it directly, no staging step:
+
+```bash
 uploads attach ./before.png ./after.png
 ```
 
-For a one-off run without a global install:
+`attach` detects the repository and current PR through `gh`, uploads all files,
+and creates or updates that same one comment. Both commands run under `npx
+@buildinternet/uploads …` without a global install.
 
-```bash
-npx @buildinternet/uploads login
-npx @buildinternet/uploads attach ./before.png ./after.png
-```
+Sign in with GitHub or a magic link, then create your own workspace or accept
+an invite into one — see [enrollment](docs/enrollment.md). Hosted files are
+public, including media attached to private repositories. Do not upload secrets
+or sensitive UI.
 
-`attach` detects the GitHub repository and current PR through `gh`, uploads
-all files, and creates or updates one managed attachments comment.
-
-No PR yet? Stage files against the branch while you work — `uploads attach
-./shot.png --branch` — and they are promoted into the PR's attachments
-automatically when one opens: instantly if the
-[GitHub App](https://uploads.sh/docs/github-app) is installed, otherwise on
-your first `uploads attach` (or `uploads attach --promote`) after the PR
-exists.
-
-An uploads.sh administrator invites your email to a workspace; `uploads login`
-opens a browser to sign in (GitHub or a magic link) and saves the resulting
-workspace token — see [enrollment](docs/enrollment.md). Hosted files are
-public, including media attached to private repositories. Do not upload
-secrets or sensitive UI.
-
-**Agent skills** — auto-triggering playbooks, installable into any agent
-runtime without checking out anything (`uploads install` runs these for you):
+**Teach your agent the loop.** `uploads install` wires in the agent skills and
+the MCP server, so future sessions capture at each visual milestone on their
+own instead of being asked. The skills also install standalone, into any agent
+runtime, without checking anything out:
 
 ```bash
 npx skills add buildinternet/uploads
@@ -114,8 +143,12 @@ routes are in [docs/api.md](docs/api.md).
 | `packages/storage/`          | `@uploads/storage` — files-sdk adapter factory            |
 | `packages/uploads/`          | `@buildinternet/uploads` — CLI + client, publishes to npm |
 | `packages/ui/`               | `@uploads/ui` — shared design system                      |
+| `packages/billing/`          | `@uploads/billing` — plans and limit resolution           |
+| `packages/email/`            | `@uploads/email` — transactional email templates          |
+| `packages/errors/`           | `@uploads/errors` — shared error codes and wire format    |
 | `skills/github-screenshots/` | Workflow skill — visuals into PRs/issues/share links      |
 | `skills/uploads-cli/`        | Agent skill for driving the CLI                           |
+| `plugins/claude/`            | Claude Code plugin — skills, MCP, pre-PR screenshot hook  |
 
 The workers and web app are separate deployables. All storage access goes
 through `createStorage()` in `packages/storage` — adding a provider is one new
@@ -131,8 +164,10 @@ case plus peer deps, no API changes.
 | [workspaces](docs/workspaces.md)             | Multi-tenant model, budgets, key policy, BYO-bucket |
 | [enrollment](docs/enrollment.md)             | Agent login, scopes, expiry, and migration          |
 | [admin-tokens](docs/admin-tokens.md)         | Minting, listing, and revoking upload tokens        |
+| [deletion](docs/deletion.md)                 | Workspace soft delete, grace period, and restore    |
 | [ops](docs/ops.md)                           | Operator runbook (limits, retention, secrets)       |
 | [deploy](docs/deploy.md)                     | Cloudflare setup and production deploy              |
+| [releasing](docs/releasing.md)               | Changesets and publishing the CLI to npm            |
 | [contract testing](docs/contract-testing.md) | Deployed smoke checks and release gate              |
 | [roadmap](docs/roadmap.md)                   | Planned features                                    |
 
@@ -149,7 +184,7 @@ pnpm bootstrap        # one-command setup: tooling, deps, env vars, local D1, de
 pnpm doctor           # diagnose the setup — reports what's missing and how to fix it
 
 pnpm dev              # API on :8787 (local R2 + KV + D1)
-pnpm dev:stack        # authenticated Auth + API + Web stack at 127.0.0.1:4321
+pnpm dev:stack        # authenticated Auth + API + Web stack at https://uploads.localhost
 pnpm check            # lint + format (the CI gate)
 pnpm typecheck        # wrangler types + tsc across workspaces
 ```

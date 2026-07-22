@@ -2,18 +2,18 @@
 
 > File hosting for agents and humans — hosted CLI, agent skill, and MCP server. Open source for self-hosting.
 
-Access is by invitation. Hosted files are public (including media attached to private repositories). Do not upload secrets or sensitive UI. APIs may change without notice while the project is in active development.
+Sign in with GitHub or a magic link, then create your own workspace (GitHub-linked account, up to three self-serve) or accept an invite into one. Hosted files are public (including media attached to private repositories). Do not upload secrets or sensitive UI. APIs may change without notice while the project is in active development.
 
 ## Start here
 
 - [Home](https://uploads.sh/): product overview and copyable install commands
 - [Docs](https://uploads.sh/docs): overview, one-time install, and links to the focused guides below
-- [Docs: attach & share](https://uploads.sh/docs/attach-pull-request-images): attach media to PRs/issues, stage screenshots before a PR exists, get a URL for any file, capture a screenshot
+- [Docs: attach & share](https://uploads.sh/docs/attach-pull-request-images): attach media to PRs/issues, stage screenshots before a PR exists, pair a before/after with --state, get a URL for any file, capture a screenshot
 - [Docs: GitHub App](https://uploads.sh/docs/github-app): optional install for bot-posted attachment comments, private-repo PR/issue titles, and zero-CLI promotion of branch-staged screenshots when a PR opens
 - [Docs: agents](https://uploads.sh/docs/agents): install the agent skill and MCP server, or the all-in-one Claude Code plugin
 - [Docs: reference](https://uploads.sh/docs/reference): manage uploads (list/delete/usage) and what to know before relying on it
 - [Agent guide](https://uploads.sh/github-screenshots): how to get coding agents to upload screenshots & video to GitHub PRs and issues
-- [Auth for agents](https://uploads.sh/auth.md): invitation enrollment, bearer tokens, and the hosted-MCP OAuth authorization server
+- [Auth for agents](https://uploads.sh/auth.md): self-serve and invitation enrollment, bearer tokens, and the hosted-MCP OAuth authorization server
 - [Source & docs](https://github.com/buildinternet/uploads): repository, roadmap, and operator docs
 - [Enrollment](https://github.com/buildinternet/uploads/blob/main/docs/enrollment.md): how `uploads login` works
 - [API](https://github.com/buildinternet/uploads/blob/main/docs/api.md): REST surface for workspace-scoped files
