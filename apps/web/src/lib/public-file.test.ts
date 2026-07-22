@@ -385,4 +385,33 @@ describe("fetchPublicFile", () => {
     const { videoDimensions: _omit, ...noDims } = withDims;
     expect(isPublicFile(noDims)).toBe(true);
   });
+
+  it("accepts a well-formed before/after counterpart (issue #420)", () => {
+    const withCounterpart = {
+      ...file,
+      counterpart: {
+        key: "gh/acme/web/pull/12/hero-after.webp",
+        url: "https://storage.uploads.sh/acme/gh/acme/web/pull/12/hero-after.webp",
+        state: "after",
+      },
+    };
+    expect(isPublicFile(withCounterpart)).toBe(true);
+    const { counterpart: _omit, ...noCounterpart } = withCounterpart;
+    expect(isPublicFile(noCounterpart)).toBe(true);
+  });
+
+  it("rejects a malformed counterpart", () => {
+    expect(
+      isPublicFile({ ...file, counterpart: { key: "x", url: "https://x", state: "sideways" } }),
+    ).toBe(false);
+    expect(
+      isPublicFile({
+        ...file,
+        counterpart: { key: "x", url: "javascript:alert(1)", state: "before" },
+      }),
+    ).toBe(false);
+    expect(isPublicFile({ ...file, counterpart: { url: "https://x", state: "before" } })).toBe(
+      false,
+    );
+  });
 });

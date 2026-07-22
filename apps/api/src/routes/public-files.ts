@@ -1,6 +1,7 @@
 import { NotFoundError, UnauthorizedError } from "@uploads/errors";
 import { Hono } from "hono";
 import type { Files } from "@uploads/storage";
+import { findCounterpartCandidate, type BeforeAfterState } from "../before-after";
 import { badKey, downloadResponse, publicObjectDateFields } from "../files-core";
 import { displayTitle, getFileMetadata, isServerMetaKey } from "../file-metadata";
 import { githubAvatarProxyUrl, ownerFromRepo } from "../github-avatars";
@@ -191,6 +192,26 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
     Object.entries(metadata).filter(([metaKey]) => !isServerMetaKey(metaKey)),
   );
 
+  // Before/after counterpart (issue #420). findCounterpartCandidate only
+  // proposes a key from D1 metadata / filename convention — it has no
+  // storage binding, so this route must independently verify the candidate
+  // exists AND is public before ever mentioning it in the response. Skipping
+  // either check would let a public page leak the existence of a private
+  // counterpart object.
+  let counterpart: { key: string; url: string; state: BeforeAfterState } | undefined;
+  const candidate = await findCounterpartCandidate(c.env.DB, workspace, key, metadata);
+  if (candidate && candidate.key !== key) {
+    if (await store.exists(candidate.key)) {
+      const counterpartMeta = await store.head(candidate.key);
+      if (!objectVisibility(counterpartMeta.metadata ?? undefined)) {
+        const counterpartUrls = objectPublicUrls(env, cfg, candidate.key);
+        if (counterpartUrls.url) {
+          counterpart = { key: candidate.key, url: counterpartUrls.url, state: candidate.state };
+        }
+      }
+    }
+  }
+
   let posterUrl: string | undefined;
   if (metadata["video.poster"] === "1") {
     const posterUrls = objectPublicUrls(env, cfg, posterKeyFor(key));
@@ -234,5 +255,6 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
     ...(github ? { github } : {}),
     ...(posterUrl ? { posterUrl } : {}),
     ...(videoDimensions ? { videoDimensions } : {}),
+    ...(counterpart ? { counterpart } : {}),
   });
 });

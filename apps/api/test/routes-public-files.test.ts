@@ -665,3 +665,173 @@ describe("putObject uploaded-at stamp", () => {
     expect(bucket.store.get(key)?.customMetadata?.["uploaded-at"]).toBe(priorLm.toISOString());
   });
 });
+
+/** PUT an arbitrary key with optional headers, returning the stored key (unprefixed). */
+async function seedFile(
+  env: Parameters<typeof app.request>[2],
+  key: string,
+  headers: Record<string, string> = {},
+) {
+  const res = await app.request(
+    `/v1/default/files/${key}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": "image/png",
+        "X-Uploads-Replace": "1",
+        ...headers,
+      },
+      body: PNG,
+    },
+    env,
+  );
+  if (res.status !== 201) throw new Error(`seed failed: ${res.status} ${await res.text()}`);
+  return key;
+}
+
+describe("GET /public/files/:workspace/:key — before/after counterpart (issue #420)", () => {
+  it("pairs same-path opposite-state metadata within the same prefix", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "before",
+    });
+    await seedFile(env, "gh/acme/web/pull/12/hero-after.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "after",
+    });
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.webp",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      counterpart?: { key: string; url: string; state: string };
+    };
+    expect(json.counterpart).toEqual({
+      key: "gh/acme/web/pull/12/hero-after.webp",
+      url: "https://storage.uploads.sh/default/gh/acme/web/pull/12/hero-after.webp",
+      state: "after",
+    });
+  });
+
+  it("does not pair same-path/state metadata across different prefixes (different PR)", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "before",
+    });
+    await seedFile(env, "gh/acme/web/pull/13/hero-after.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "after",
+    });
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.webp",
+      {},
+      env,
+    );
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.counterpart).toBeUndefined();
+  });
+
+  it("falls back to filename-stem pairing when no path/state metadata is set", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp");
+    await seedFile(env, "gh/acme/web/pull/12/hero-after.webp");
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-after.webp",
+      {},
+      env,
+    );
+    const json = (await res.json()) as { counterpart?: { key: string; state: string } };
+    expect(json.counterpart).toEqual({
+      key: "gh/acme/web/pull/12/hero-before.webp",
+      state: "before",
+      url: "https://storage.uploads.sh/default/gh/acme/web/pull/12/hero-before.webp",
+    });
+  });
+
+  it("omits counterpart when the paired-looking file doesn't actually exist", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp");
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.webp",
+      {},
+      env,
+    );
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.counterpart).toBeUndefined();
+  });
+
+  it("omits counterpart entirely (no leak) when it exists but is private — public page", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "before",
+    });
+    await seedFile(env, "gh/acme/web/pull/12/hero-after.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "after",
+      "X-Uploads-Visibility": "private",
+    });
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.webp",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as Record<string, unknown>;
+    // The public before file's own page must not reveal that a private
+    // after counterpart exists at all.
+    expect(json.counterpart).toBeUndefined();
+  });
+
+  it("the private counterpart's own page still 401s (no bypass via the pairing lookup)", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "before",
+    });
+    await seedFile(env, "gh/acme/web/pull/12/hero-after.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "after",
+      "X-Uploads-Visibility": "private",
+    });
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-after.webp",
+      {},
+      env,
+    );
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json).not.toHaveProperty("counterpart");
+  });
+
+  it("does not pair unrelated files that merely share a state value", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "before",
+    });
+    await seedFile(env, "gh/acme/web/pull/12/other.webp", {
+      "X-Uploads-Meta-path": "other.webp",
+      "X-Uploads-Meta-state": "after",
+    });
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.webp",
+      {},
+      env,
+    );
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.counterpart).toBeUndefined();
+  });
+});
