@@ -1,0 +1,112 @@
+/* Operator email previews on /admin/email */
+
+.email-recipient {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  margin-top: 14px;
+  max-width: 480px;
+}
+.email-recipient label {
+  font: 11px var(--mono);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.email-recipient input[type="email"] {
+  flex: 1 1 220px;
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--fg);
+  padding: 7px 9px;
+  font: 12px var(--mono);
+}
+.email-recipient input[type="email"]:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+#email-action-status {
+  margin-top: 12px;
+  font: 12px var(--mono);
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+#email-action-status[data-state="ok"] {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+#email-action-status[data-state="error"] {
+  color: #f0a8a8;
+  border-color: color-mix(in srgb, #c44 45%, var(--line));
+}
+
+#email-list {
+  margin-top: 18px;
+  display: grid;
+  gap: 22px;
+}
+
+.email-category h3 {
+  margin: 0 0 10px;
+  font: 600 12px var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.email-type-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.email-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.email-row-label {
+  margin: 0;
+  font: 600 14px var(--sans);
+  color: var(--fg);
+}
+.email-row-id {
+  margin: 3px 0 0;
+  font: 11px var(--mono);
+  color: var(--muted);
+}
+
+.email-send {
+  font: 11px var(--mono);
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.email-send:hover:not(:disabled),
+.email-send:focus-visible:not(:disabled) {
+  border-color: var(--accent);
+  outline: none;
+}
+.email-send:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

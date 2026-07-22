@@ -15,6 +15,12 @@ import {
 } from "@uploads/errors";
 import { Hono } from "hono";
 import {
+  EMAIL_PREVIEW_TYPES,
+  isEmailPreviewType,
+  resolvePreviewRecipient,
+  sendEmailPreview,
+} from "../admin-email-preview";
+import {
   DEFAULT_ENROLLMENT_SECONDS,
   DEFAULT_TOKEN_SECONDS,
   createEnrollment,
@@ -648,4 +654,21 @@ export const adminUi = new Hono<SessionVars>()
     return proxyOauthClients(c.env, `/internal/oauth-clients/${encodeURIComponent(clientId)}`, {
       method: "DELETE",
     });
+  })
+
+  // Transactional email previews — operator self-send with placeholder tokens.
+  .get("/dev/emails", (c) => c.json({ types: EMAIL_PREVIEW_TYPES }))
+
+  .post("/dev/emails/:type", async (c) => {
+    const typeParam = c.req.param("type");
+    if (!isEmailPreviewType(typeParam)) {
+      throw new ValidationError("unknown email preview type", {
+        code: "unknown_email_preview_type",
+        details: { type: typeParam },
+      });
+    }
+    const body = (await c.req.json().catch(() => ({}))) as { to?: unknown };
+    const to = resolvePreviewRecipient(c.get("sessionUser")?.email, body.to);
+    const { subject, from } = await sendEmailPreview(c.env, typeParam, to);
+    return c.json({ ok: true, type: typeParam, to, subject, from });
   });

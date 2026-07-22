@@ -1,0 +1,183 @@
+---
+/**
+ * Operator transactional email previews — send sample templates to yourself
+ * (or an override address) to check HTML, deliverability, and Gmail markup.
+ * Backed by POST /admin-ui/dev/emails/:type on apps/api.
+ */
+import AdminLayout from "../../layouts/AdminLayout.astro";
+import "../../styles/admin-email.css";
+
+export const prerender = false;
+---
+
+<AdminLayout section="email">
+  <section class="card">
+    <h2>Email previews</h2>
+    <p>
+      Send a sample of each product email through Cloudflare Email Sending.
+      Links use placeholder tokens and will not complete a real sign-in or invite.
+      Defaults to your signed-in address; override when testing Gmail markup or
+      another inbox.
+    </p>
+
+    <form id="email-recipient" class="email-recipient" autocomplete="off">
+      <label for="email-to">Send to</label>
+      <input
+        type="email"
+        id="email-to"
+        name="to"
+        placeholder="you@example.com"
+        maxlength="320"
+      />
+    </form>
+
+    <div id="email-status" class="muted" style="margin-top:12px;font-size:13px">Loading…</div>
+    <div id="email-action-status" role="status" hidden></div>
+    <div id="email-list"></div>
+  </section>
+
+  <script>
+    import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
+
+    type PreviewType = { id: string; label: string; category: string };
+
+    function escapeHtml(value: string): string {
+      return value.replace(
+        /[&<>"']/g,
+        (ch) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
+      );
+    }
+
+    onAstroPageLoad(() => {
+      if (!document.getElementById("email-list")) return;
+
+      const w = window as unknown as { __UPLOADS_API_ORIGIN__: string };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__.replace(/\/$/, "");
+
+      const statusEl = requireElement<HTMLElement>("#email-status", "admin email");
+      const actionStatus = requireElement<HTMLElement>("#email-action-status", "admin email");
+      const listEl = requireElement<HTMLElement>("#email-list", "admin email");
+      const toInput = requireElement<HTMLInputElement>("#email-to", "admin email");
+
+      let sendingId: string | null = null;
+
+      function setAction(message: string, state: "ok" | "error" | "idle" = "idle") {
+        if (state === "idle" || !message) {
+          actionStatus.hidden = true;
+          actionStatus.textContent = "";
+          actionStatus.removeAttribute("data-state");
+          return;
+        }
+        actionStatus.hidden = false;
+        actionStatus.textContent = message;
+        actionStatus.dataset.state = state;
+      }
+
+      function renderList(types: PreviewType[]) {
+        const categories = [...new Set(types.map((t) => t.category))];
+        listEl.innerHTML = categories
+          .map((category) => {
+            const rows = types
+              .filter((t) => t.category === category)
+              .map(
+                (t) => `
+              <li class="email-row" data-type="${escapeHtml(t.id)}">
+                <div class="email-row-copy">
+                  <p class="email-row-label">${escapeHtml(t.label)}</p>
+                  <p class="email-row-id mono">${escapeHtml(t.id)}</p>
+                </div>
+                <button type="button" class="email-send" data-type="${escapeHtml(t.id)}">
+                  Send preview
+                </button>
+              </li>`,
+              )
+              .join("");
+            return `
+              <section class="email-category">
+                <h3>${escapeHtml(category)}</h3>
+                <ul class="email-type-list">${rows}</ul>
+              </section>`;
+          })
+          .join("");
+
+        listEl.querySelectorAll<HTMLButtonElement>("button.email-send").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            void sendPreview(btn.dataset.type ?? "");
+          });
+        });
+      }
+
+      function setBusy(typeId: string | null) {
+        sendingId = typeId;
+        listEl.querySelectorAll<HTMLButtonElement>("button.email-send").forEach((btn) => {
+          const active = btn.dataset.type === typeId;
+          btn.disabled = typeId != null;
+          btn.textContent = active ? "Sending…" : "Send preview";
+        });
+      }
+
+      async function sendPreview(typeId: string) {
+        if (!typeId || sendingId) return;
+        setBusy(typeId);
+        setAction("");
+        try {
+          const body: { to?: string } = {};
+          const override = toInput.value.trim();
+          if (override) body.to = override;
+
+          const res = await fetch(`${apiOrigin}/admin-ui/dev/emails/${encodeURIComponent(typeId)}`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const payload = (await res.json().catch(() => null)) as {
+            ok?: boolean;
+            to?: string;
+            subject?: string;
+            error?: { message?: string; code?: string };
+          } | null;
+
+          if (!res.ok || !payload?.ok || !payload.to) {
+            const msg =
+              payload?.error?.message ||
+              (res.status === 503
+                ? "Email Sending is not configured on this environment."
+                : `Could not send (${res.status}).`);
+            setAction(msg, "error");
+            return;
+          }
+
+          setAction(`Sent “${payload.subject ?? typeId}” to ${payload.to}`, "ok");
+        } catch {
+          setAction("Could not send the preview email.", "error");
+        } finally {
+          setBusy(null);
+        }
+      }
+
+      onSession((user) => {
+        if (user?.email && !toInput.value) {
+          toInput.placeholder = user.email;
+          toInput.value = user.email;
+        }
+      });
+
+      void (async () => {
+        try {
+          const res = await fetch(`${apiOrigin}/admin-ui/dev/emails`, {
+            credentials: "include",
+            cache: "no-store",
+          });
+          if (!res.ok) throw new Error(`list failed: ${res.status}`);
+          const body = (await res.json()) as { types: PreviewType[] };
+          statusEl.textContent = "";
+          renderList(body.types ?? []);
+        } catch {
+          statusEl.textContent = "Could not load email templates.";
+        }
+      })();
+    });
+  </script>
+</AdminLayout>

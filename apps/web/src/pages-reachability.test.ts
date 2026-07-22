@@ -34,6 +34,7 @@ describe.each([
   { path: "/login", title: "Sign in · uploads.sh" },
   { path: "/admin", title: "Admin · uploads.sh" },
   { path: "/admin/users", title: "Users · Admin · uploads.sh" },
+  { path: "/admin/email", title: "Email · Admin · uploads.sh" },
   { path: "/accept-invitation/upi_abc123", title: "Accept invitation · uploads.sh" },
   { path: "/account", title: "Account · uploads.sh" },
   { path: "/account/workspaces", title: "Workspaces · uploads.sh" },
