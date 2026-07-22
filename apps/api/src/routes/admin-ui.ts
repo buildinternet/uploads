@@ -45,6 +45,7 @@ import {
 } from "../session-auth";
 import { getWorkspaceUsage } from "../usage";
 import { isPurgedTombstone, loadWorkspaceRecordRaw, type WorkspaceRecord } from "../workspace";
+import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { LIMIT_FIELDS, validateLimitsPatch } from "../workspace-limits";
 import { planResponse, validatePlanPatch } from "../workspace-plan";
 
@@ -470,7 +471,6 @@ export const adminUi = new Hono<SessionVars>()
     if (!(await allowWrite(c.env, name))) {
       throw new RateLimitedError("rate limit exceeded");
     }
-    const record = await loadEditableWorkspace(c.env, name);
     // Distinguish malformed JSON (400) from an intentionally empty object
     // (a no-op patch): swallowing a parse failure into `{}` would silently
     // 200 on a broken request and rewrite the record unchanged.
@@ -481,13 +481,23 @@ export const adminUi = new Hono<SessionVars>()
       throw new ValidationError("request body must be valid JSON", { code: "invalid_limit" });
     }
     const patch = validateLimitsPatch(body);
-    for (const field of LIMIT_FIELDS) {
-      if (!(field in patch)) continue;
-      const value = patch[field];
-      if (value === null) delete record[field];
-      else record[field] = value;
-    }
-    await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(record));
+    // Body parsing and validation happen before the mutation so the
+    // read-modify-write window stays as short as possible (issue #387).
+    const record = await mutateWorkspaceRecord(
+      c.env,
+      name,
+      (current) => {
+        const next = { ...current };
+        for (const field of LIMIT_FIELDS) {
+          if (!(field in patch)) continue;
+          const value = patch[field];
+          if (value === null) delete next[field];
+          else next[field] = value;
+        }
+        return next;
+      },
+      { requireServing: true },
+    );
     return c.json(await limitsResponse(c.env, name, record));
   })
 
@@ -508,7 +518,6 @@ export const adminUi = new Hono<SessionVars>()
     if (!(await allowWrite(c.env, name))) {
       throw new RateLimitedError("rate limit exceeded");
     }
-    const record = await loadEditableWorkspace(c.env, name);
     let body: unknown;
     try {
       body = await c.req.json();
@@ -516,8 +525,9 @@ export const adminUi = new Hono<SessionVars>()
       throw new ValidationError("request body must be valid JSON", { code: "invalid_plan" });
     }
     const { plan } = validatePlanPatch(body);
-    record.plan = plan;
-    await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(record));
+    const record = await mutateWorkspaceRecord(c.env, name, (current) => ({ ...current, plan }), {
+      requireServing: true,
+    });
     return c.json(planResponse(name, record));
   })
 
@@ -540,7 +550,6 @@ export const adminUi = new Hono<SessionVars>()
     if (!(await allowWrite(c.env, name))) {
       throw new RateLimitedError("rate limit exceeded");
     }
-    const record = await loadEditableWorkspace(c.env, name);
     let body: unknown;
     try {
       body = await c.req.json();
@@ -548,10 +557,18 @@ export const adminUi = new Hono<SessionVars>()
       throw new ValidationError("request body must be valid JSON", { code: "invalid_settings" });
     }
     const patch = validateGithubCommentSettingsPatch(body);
-    for (const key of GITHUB_COMMENT_SETTING_KEYS) {
-      if (key in patch) record[key] = patch[key];
-    }
-    await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(record));
+    const record = await mutateWorkspaceRecord(
+      c.env,
+      name,
+      (current) => {
+        const next = { ...current };
+        for (const key of GITHUB_COMMENT_SETTING_KEYS) {
+          if (key in patch) next[key] = patch[key];
+        }
+        return next;
+      },
+      { requireServing: true },
+    );
     return c.json(githubCommentSettingsResponse(name, record));
   })
 

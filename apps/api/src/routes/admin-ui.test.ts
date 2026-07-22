@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
+import { fakeRegistry } from "../../test/fake-kv";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
 import { respondError } from "../error-response";
 import { adminUi } from "./admin-ui";
@@ -443,8 +444,8 @@ describe("workspace limits editing", () => {
     record: Record<string, unknown> | null,
     usage: { bytes: number; uploadsInPeriod: number } | null = { bytes: 0, uploadsInPeriod: 0 },
   ) {
-    const store = new Map<string, string>();
-    if (record) store.set("ws:acme", JSON.stringify(record));
+    const registry = fakeRegistry(record ? { acme: record } : {});
+    const store = registry.store;
     const base = stubEnv(user, () => new Response(null, { status: 404 }));
     const db = {
       prepare: () => ({
@@ -466,15 +467,7 @@ describe("workspace limits editing", () => {
     const env = {
       ...base,
       DB: db,
-      REGISTRY: {
-        get: (async (key: string) => {
-          const raw = store.get(key);
-          return raw ? JSON.parse(raw) : null;
-        }) as unknown as KVNamespace["get"],
-        put: (async (key: string, value: string) => {
-          store.set(key, value);
-        }) as unknown as KVNamespace["put"],
-      },
+      REGISTRY: registry,
     } as unknown as Env;
     return { env, store };
   }
@@ -520,6 +513,38 @@ describe("workspace limits editing", () => {
     const saved = JSON.parse(store.get("ws:acme")!);
     expect(saved.maxStorageBytes).toBe(500_000_000);
     expect(saved.maxUploadBytes).toBe(10_000_000);
+    // Written through mutateWorkspaceRecord (issue #387), not a bare put.
+    expect(saved.version).toBe(1);
+  });
+
+  it("PATCH re-applies the edit when a competing write clobbers it", async () => {
+    const { env, store } = limitsEnv(ADMIN_USER, REC);
+    // A competing admin's plan change lands between this request's put and its
+    // verification read. The retry re-applies the limit edit on top of the
+    // competitor's record, so neither change is lost (issue #387).
+    const registry = (env as unknown as { REGISTRY: { get: KVNamespace["get"] } }).REGISTRY;
+    const get = registry.get;
+    let gets = 0;
+    registry.get = (async (key: string, type?: unknown) => {
+      gets += 1;
+      if (gets === 2) store.set("ws:acme", JSON.stringify({ ...REC, plan: "pro", version: 5 }));
+      return get(key as never, type as never);
+    }) as KVNamespace["get"];
+
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/limits",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ maxUploadBytes: 10_000_000 }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const saved = JSON.parse(store.get("ws:acme")!);
+    expect(saved.plan).toBe("pro");
+    expect(saved.maxUploadBytes).toBe(10_000_000);
+    expect(saved.version).toBe(6);
   });
 
   it("PATCH with null clears a limit to unlimited", async () => {
@@ -651,20 +676,12 @@ describe("workspace plan editing", () => {
   };
 
   function planEnv(user: typeof ADMIN_USER | null, record: Record<string, unknown> | null) {
-    const store = new Map<string, string>();
-    if (record) store.set("ws:acme", JSON.stringify(record));
+    const registry = fakeRegistry(record ? { acme: record } : {});
+    const store = registry.store;
     const base = stubEnv(user, () => new Response(null, { status: 404 }));
     const env = {
       ...base,
-      REGISTRY: {
-        get: (async (key: string) => {
-          const raw = store.get(key);
-          return raw ? JSON.parse(raw) : null;
-        }) as unknown as KVNamespace["get"],
-        put: (async (key: string, value: string) => {
-          store.set(key, value);
-        }) as unknown as KVNamespace["put"],
-      },
+      REGISTRY: registry,
     } as unknown as Env;
     return { env, store };
   }
@@ -772,20 +789,12 @@ describe("workspace plan editing", () => {
 describe("workspace github-comment settings editing", () => {
   /** Env with a mutable ws:acme record and a session user (no usage needed). */
   function settingsEnv(user: typeof ADMIN_USER | null, record: Record<string, unknown> | null) {
-    const store = new Map<string, string>();
-    if (record) store.set("ws:acme", JSON.stringify(record));
+    const registry = fakeRegistry(record ? { acme: record } : {});
+    const store = registry.store;
     const base = stubEnv(user, () => new Response(null, { status: 404 }));
     const env = {
       ...base,
-      REGISTRY: {
-        get: (async (key: string) => {
-          const raw = store.get(key);
-          return raw ? JSON.parse(raw) : null;
-        }) as unknown as KVNamespace["get"],
-        put: (async (key: string, value: string) => {
-          store.set(key, value);
-        }) as unknown as KVNamespace["put"],
-      },
+      REGISTRY: registry,
     } as unknown as Env;
     return { env, store };
   }

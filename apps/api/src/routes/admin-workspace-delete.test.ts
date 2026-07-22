@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { beforeAll, describe, expect, it } from "vitest";
+import { fakeRegistry } from "../../test/fake-kv";
 import { FakeR2Bucket } from "../../test/fake-r2";
 import { SqliteD1, database } from "../../test/helpers/sqlite-d1";
 import { respondError } from "../error-response";
@@ -38,20 +39,6 @@ const RECORD = {
   publicBaseUrl: "https://storage.uploads.sh",
 };
 
-function fakeKv(records: Record<string, unknown>) {
-  const store = new Map(Object.entries(records));
-  return {
-    get: (async (key: string) => store.get(key) ?? null) as unknown as KVNamespace["get"],
-    put: (async (key: string, value: string) => {
-      store.set(key, JSON.parse(value));
-    }) as unknown as KVNamespace["put"],
-    delete: (async (key: string) => {
-      store.delete(key);
-    }) as unknown as KVNamespace["delete"],
-    __store: store,
-  };
-}
-
 function appWith(opts: {
   kvRecords?: Record<string, unknown>;
   onDeleteOrg?: (slug: string) => void;
@@ -67,7 +54,7 @@ function appWith(opts: {
     }
     return new Response("not found", { status: 404 });
   });
-  const registry = fakeKv(kvRecords);
+  const registry = fakeRegistry(kvRecords);
   const app = new Hono<{ Bindings: Env }>()
     .route("/admin", admin)
     .onError((err, c) => respondError(c, err));
@@ -184,7 +171,7 @@ describe("DELETE /admin/workspaces/:name", () => {
       // Auth-side org delete was invoked for the right slug.
       expect(deletedOrgSlug).toBe("acme");
       // KV record removed outright — the slug is freed.
-      expect(registry.__store.has("ws:acme")).toBe(false);
+      expect(registry.store.has("ws:acme")).toBe(false);
     } finally {
       sqlite.close();
     }
@@ -210,7 +197,7 @@ describe("DELETE /admin/workspaces/:name", () => {
         14 * 24 * 60 * 60 * 1000,
       );
 
-      const stored = registry.__store.get("ws:acme") as { deletedAt?: string; purgeAt?: string };
+      const stored = registry.record<{ deletedAt?: string; purgeAt?: string }>("acme")!;
       expect(stored.deletedAt).toBe(body.deletedAt);
       expect(stored.purgeAt).toBe(body.purgeAt);
       // Data untouched.
@@ -255,7 +242,7 @@ describe("DELETE /admin/workspaces/:name", () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({ ok: true, workspace: "acme" });
 
-      const stored = registry.__store.get("ws:acme") as { deletedAt?: string; purgeAt?: string };
+      const stored = registry.record<{ deletedAt?: string; purgeAt?: string }>("acme")!;
       expect(stored.deletedAt).toBeUndefined();
       expect(stored.purgeAt).toBeUndefined();
     });

@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import { fakeRegistry } from "../../test/fake-kv";
 import { SqliteD1 } from "../../test/helpers/sqlite-d1";
 import { createToken } from "../auth-db";
 import { respondError } from "../error-response";
@@ -98,17 +99,13 @@ function stubEnv(opts: EnvOpts = {}): Env {
     return new Response("not found", { status: 404 });
   });
 
-  const puts: [string, string][] = [];
-  const registry = {
-    get: (async (key: string) => {
-      const name = key.startsWith("ws:") ? key.slice(3) : key;
-      return kvRecords[name] ?? null;
-    }) as unknown as KVNamespace["get"],
-    put: (async (key: string, value: string) => {
-      if (putThrows) throw new Error("kv put failed");
-      puts.push([key, value]);
-    }) as unknown as KVNamespace["put"],
-  };
+  const registry = fakeRegistry(kvRecords);
+  const puts = registry.puts;
+  if (putThrows) {
+    registry.put = (async () => {
+      throw new Error("kv put failed");
+    }) as unknown as KVNamespace["put"];
+  }
 
   const wsCreateLimiter =
     wsCreateLimiterAllows === undefined

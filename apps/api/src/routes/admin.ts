@@ -23,6 +23,7 @@ import {
 import { deriveWebOrigin, inviteLinkUrl as inviteMagicLink } from "../invite-links";
 import { reencryptRegistryCredentials } from "../reencrypt-registry";
 import { storage } from "../storage";
+import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { teardownWorkspace } from "../workspace-teardown";
 import {
   isPastGrace,
@@ -414,9 +415,16 @@ export const admin = new Hono<{ Bindings: Env }>()
     }
 
     const revoked = kvMatches[0];
-    const remaining = kv.filter((token) => token !== revoked);
-    const { tokenHash: _drop, ...rest } = record;
-    await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify({ ...rest, tokens: remaining }));
+    // Re-derive the surviving list from the freshest record inside the
+    // mutation (issue #387) — filtering the snapshot read above would restore
+    // a token another request revoked in the meantime.
+    await mutateWorkspaceRecord(c.env, name, (current) => {
+      const { tokenHash: _drop, ...rest } = current;
+      return {
+        ...rest,
+        tokens: legacyTokens(current).filter((token) => token.hash !== revoked.hash),
+      };
+    });
     return c.json({
       workspace: name,
       revoked: { label: revoked.label ?? null, hashPrefix: revoked.hash.slice(0, HASH_PREFIX_LEN) },
@@ -476,15 +484,17 @@ export const admin = new Hono<{ Bindings: Env }>()
     const force = c.req.query("force") === "1" || c.req.query("force") === "true";
 
     if (!hard) {
-      if (record.deletedAt) {
-        throw new ConflictError("workspace is already soft-deleted", {
-          code: "already_deleted",
-          details: { deletedAt: record.deletedAt, purgeAt: record.purgeAt },
-        });
-      }
-
-      const updated = stampSoftDelete(record);
-      await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(updated));
+      // The already-deleted guard lives inside the mutation so it sees the
+      // record actually being overwritten, not the snapshot above (#387).
+      const updated = await mutateWorkspaceRecord(c.env, name, (current) => {
+        if (current.deletedAt) {
+          throw new ConflictError("workspace is already soft-deleted", {
+            code: "already_deleted",
+            details: { deletedAt: current.deletedAt, purgeAt: current.purgeAt },
+          });
+        }
+        return stampSoftDelete(current);
+      });
 
       console.log(
         JSON.stringify({
@@ -524,9 +534,8 @@ export const admin = new Hono<{ Bindings: Env }>()
     // already past) on its next run. Skip if already soft-deleted.
     if (!record.deletedAt) {
       const now = new Date().toISOString();
-      await c.env.REGISTRY.put(
-        `ws:${name}`,
-        JSON.stringify({ ...record, deletedAt: now, purgeAt: now }),
+      await mutateWorkspaceRecord(c.env, name, (current) =>
+        current.deletedAt ? null : { ...current, deletedAt: now, purgeAt: now },
       );
     }
 
@@ -562,20 +571,23 @@ export const admin = new Hono<{ Bindings: Env }>()
     if (!raw || isPurgedTombstone(raw)) {
       throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
     }
-    if (!raw.deletedAt) {
-      throw new ConflictError("workspace is not deleted", { code: "not_deleted" });
-    }
-    if (isPastGrace(raw.purgeAt)) {
-      throw new AppError({
-        type: "conflict",
-        code: "grace_expired",
-        message: "grace period has expired",
-        status: 410,
-      });
-    }
-
-    const rest = stampRestore(raw);
-    await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(rest));
+    // Both guards run against the freshest record inside the mutation (#387):
+    // a restore must not resurrect a workspace whose grace window expired
+    // between this handler's read and its write.
+    await mutateWorkspaceRecord(c.env, name, (current) => {
+      if (!current.deletedAt) {
+        throw new ConflictError("workspace is not deleted", { code: "not_deleted" });
+      }
+      if (isPastGrace(current.purgeAt)) {
+        throw new AppError({
+          type: "conflict",
+          code: "grace_expired",
+          message: "grace period has expired",
+          status: 410,
+        });
+      }
+      return stampRestore(current);
+    });
 
     console.log(JSON.stringify({ event: "workspace_restored", workspace: name }));
 

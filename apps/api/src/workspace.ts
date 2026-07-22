@@ -24,6 +24,14 @@ export interface WorkspaceRecord {
    * records built outside the loaders.
    */
   name?: string;
+  /**
+   * Optimistic-concurrency counter, bumped on every write through
+   * `mutateWorkspaceRecord` (issue #387). Absent on records last written
+   * before versioning — treated as 0, never backfilled. Nothing reads it for
+   * behavior; it exists so a write can tell whether the blob it just stored is
+   * still the one in KV. See `workspace-mutate.ts`.
+   */
+  version?: number;
   provider: StorageProvider;
   bucket: string;
   /** Name of an R2 binding declared in wrangler.jsonc (e.g. "UPLOADS"). When set, I/O uses the binding. */

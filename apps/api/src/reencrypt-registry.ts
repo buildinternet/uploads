@@ -6,6 +6,7 @@
  */
 import { resealCredentialFields, secretsKeyRingFromEnv, type SecretsKeyRing } from "./secrets";
 import type { WorkspaceRecord } from "./workspace";
+import { mutateWorkspaceRecord } from "./workspace-mutate";
 
 export interface ReencryptResult {
   dryRun: boolean;
@@ -76,12 +77,22 @@ export async function reencryptRegistryCredentials(
           continue;
         }
         if (!dryRun) {
-          const next: WorkspaceRecord = {
-            ...record,
-            accessKeyId: resealed.accessKeyId,
-            secretAccessKey: resealed.secretAccessKey,
-          };
-          await env.REGISTRY.put(entry.name, JSON.stringify(next));
+          // Re-seal against the freshest record rather than the one read
+          // above (issue #387): this sweep walks every workspace, so an admin
+          // edit landing mid-sweep would otherwise be reverted. The reseal is
+          // recomputed inside the mutation for the same reason.
+          await mutateWorkspaceRecord(env, name, async (current) => {
+            const fresh = await resealCredentialFields(ring, {
+              accessKeyId: current.accessKeyId,
+              secretAccessKey: current.secretAccessKey,
+            });
+            if (!fresh.changed) return null;
+            return {
+              ...current,
+              accessKeyId: fresh.accessKeyId,
+              secretAccessKey: fresh.secretAccessKey,
+            };
+          });
         }
         updated += 1;
         workspaces.push({

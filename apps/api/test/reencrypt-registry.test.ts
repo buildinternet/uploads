@@ -39,9 +39,13 @@ describe("reencryptRegistryCredentials", () => {
           list_complete: true as const,
           cursor: undefined,
         }),
-        get: async (key: string) => {
+        // Honors the read type the way Workers KV does — mutateWorkspaceRecord
+        // verifies its write by reading the key back as text (issue #387).
+        get: async (key: string, type?: "text" | "json" | { type?: string }) => {
           const raw = store.get(key);
-          return raw ? (JSON.parse(raw) as WorkspaceRecord) : null;
+          if (raw === undefined) return null;
+          const json = typeof type === "string" ? type === "json" : type?.type === "json";
+          return json ? (JSON.parse(raw) as WorkspaceRecord) : raw;
         },
         put: async (key: string, value: string) => {
           store.set(key, value);

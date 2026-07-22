@@ -8,6 +8,25 @@ SHA-256 hashes and metadata for the workspace's tokens (raw tokens are never sto
 
 Nothing in the code treats any workspace as special.
 
+## Mutating a workspace record
+
+The record is one KV blob holding unrelated field groups (limits, plan,
+GitHub-comment settings, tokens, soft-delete stamps), so every writer is a
+read-modify-write of the whole snapshot. **Never `REGISTRY.put("ws:<name>", …)`
+directly** — go through `mutateWorkspaceRecord` in
+`apps/api/src/workspace-mutate.ts`, which reads the freshest record immediately
+before writing, stamps a monotonic `version`, and re-applies the mutation if
+another writer's `put` landed in between (issue #387). Guards that depend on
+mutable state (already-deleted, grace-expired) belong inside the mutation
+callback, not in the handler above it, so they judge the record actually being
+overwritten.
+
+Workers KV has no compare-and-swap, so this narrows the lost-update window
+rather than eliminating it — acceptable for these admin/owner-initiated,
+low-concurrency edits. The exceptions are writes that replace the record
+outright rather than mutating it: self-serve creation (`selfServeWorkspaceRecord`,
+which stamps `version: 1`) and the purged tombstone written by teardown.
+
 ## Usage accounting and budgets
 
 D1 table `workspace_usage` tracks net `bytes` / `objects` and monthly
