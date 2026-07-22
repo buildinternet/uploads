@@ -4,7 +4,7 @@ import { downloadResponse } from "../files-core";
 import { listExternalReferences, listGalleryItems, resolvePublicGallery } from "../galleries";
 import { galleryItemFilename, hydratePublicGallery } from "../gallery-service";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
-import { type WorkspaceRecord, type WorkspaceVars } from "../workspace";
+import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
 
 /** Runs `action`, mapping any thrown error to the 503 the gallery storage routes commit to. */
 async function withGalleryStorageErrors<T>(action: () => Promise<T>): Promise<T> {
@@ -29,11 +29,12 @@ export const publicGalleries = new Hono<WorkspaceVars>()
       throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
     }
 
-    const workspace = await c.env.REGISTRY.get<WorkspaceRecord>(`ws:${record.workspace}`, {
-      type: "json",
-      cacheTtl: 60,
-    });
-    if (!workspace) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
+    // Soft-deleted / purged workspaces collapse to null — same uniform 404 as
+    // missing tenants (matches public-files + authenticated paths).
+    const workspace = await loadWorkspaceRecord(c.env, record.workspace);
+    if (!workspace) {
+      throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
+    }
 
     const store = await withGalleryStorageErrors(() => storage(c.env, workspace));
     const exists = await withGalleryStorageErrors(() => store.exists(item.object_key));
@@ -59,11 +60,10 @@ export const publicGalleries = new Hono<WorkspaceVars>()
   .get("/:id", async (c) => {
     const record = await resolvePublicGallery(c.env.DB, c.req.param("id"));
     if (!record) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
-    const workspace = await c.env.REGISTRY.get<WorkspaceRecord>(`ws:${record.workspace}`, {
-      type: "json",
-      cacheTtl: 60,
-    });
-    if (!workspace) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
+    const workspace = await loadWorkspaceRecord(c.env, record.workspace);
+    if (!workspace) {
+      throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
+    }
     const [items, references] = await Promise.all([
       listGalleryItems(c.env.DB, record.workspace, record.id),
       listExternalReferences(c.env.DB, record.workspace, record.id),

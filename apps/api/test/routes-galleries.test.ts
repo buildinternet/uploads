@@ -4,7 +4,7 @@ import { fileURLToPath, URL as NodeURL } from "node:url";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { MAX_GALLERY_ITEMS, MAX_GALLERY_REFERENCES } from "../src/galleries";
 import { app } from "../src/index";
-import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
+import { sha256Hex, stampSoftDelete, type WorkspaceRecord } from "../src/workspace";
 import { FakeR2Bucket } from "./fake-r2";
 
 const TOKEN = "gallery-token";
@@ -806,5 +806,35 @@ describe("GET /public/galleries/:id/items/:item/download", () => {
       env,
     );
     expect(res.status).toBe(404);
+  });
+
+  it("404s public gallery JSON and item download for a soft-deleted workspace", async () => {
+    const gallery = await create();
+    const added = await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+      method: "POST",
+      body: JSON.stringify({ expectedVersion: 1, objectKey: "screenshots/one.png" }),
+    });
+    expect(added.status).toBe(201);
+    const item = (await added.json()) as { id: string };
+
+    // Soft-delete collapses loadWorkspaceRecord to null — same uniform 404 as
+    // a missing workspace (no deleted-vs-missing signal).
+    records.alpha = stampSoftDelete(records.alpha);
+
+    const publicView = await app.request(`/public/galleries/${gallery.id}`, {}, env);
+    expect(publicView.status).toBe(404);
+    expect(await publicView.json()).toMatchObject({
+      error: { code: "gallery_not_found", type: "not_found" },
+    });
+
+    const download = await app.request(
+      `/public/galleries/${gallery.id}/items/${item.id}/download`,
+      {},
+      env,
+    );
+    expect(download.status).toBe(404);
+    expect(await download.json()).toMatchObject({
+      error: { code: "gallery_not_found", type: "not_found" },
+    });
   });
 });

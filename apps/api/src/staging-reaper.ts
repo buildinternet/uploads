@@ -13,12 +13,23 @@
  * Deletion goes through `deleteObject` (files-core.ts) so R2, D1 metadata,
  * and the workspace usage ledger stay consistent — the same path the
  * `/v1/:workspace/files` DELETE route uses.
+ *
+ * Progress: a durable keyset cursor in REGISTRY (`cron:staging-reaper:cursor`)
+ * walks the full candidate set across cron runs so alphabetical head rows
+ * cannot starve later keys. Cursor write failures are best-effort (log only).
  */
 import { deleteObject } from "./files-core";
-import { findObjectsByMetadataAcrossWorkspaces, getMetadataForKeys } from "./file-metadata";
+import {
+  findObjectsByMetadataAcrossWorkspaces,
+  getMetadataForKeys,
+  type MetadataCrossWorkspaceCursor,
+} from "./file-metadata";
 import { loadWorkspaceRecord } from "./workspace";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** REGISTRY KV key for the reaper's keyset progress (not under `ws:`). */
+export const STAGING_REAPER_CURSOR_KEY = "cron:staging-reaper:cursor";
 
 /** `gh.promoted-at` older than this is reaped. */
 export const PROMOTED_MAX_AGE_DAYS = 7;
@@ -37,6 +48,10 @@ export interface StagingReapResult {
   deleted: Array<{ workspace: string; key: string; reason: "promoted" | "abandoned" }>;
   skipped: number;
   errors: Array<{ workspace: string; key: string; error: string }>;
+  /** Cursor used for this scan (null = start of set). */
+  cursor: MetadataCrossWorkspaceCursor | null;
+  /** Cursor to resume from next run (null = end of set, reset). */
+  nextAfter: MetadataCrossWorkspaceCursor | null;
 }
 
 function isOlderThan(iso: string | undefined, maxAgeMs: number, now: number): boolean {
@@ -51,13 +66,59 @@ function looksLikeBranchStagingKey(key: string): boolean {
   return key.startsWith("gh/") && key.includes("/branch/");
 }
 
+function parseCursor(raw: unknown): MetadataCrossWorkspaceCursor | null {
+  if (!raw || typeof raw !== "object") return null;
+  const workspace = (raw as { workspace?: unknown }).workspace;
+  const key = (raw as { key?: unknown }).key;
+  if (typeof workspace !== "string" || typeof key !== "string") return null;
+  if (workspace.length === 0 || key.length === 0) return null;
+  return { workspace, key };
+}
+
+async function loadCursor(env: Env): Promise<MetadataCrossWorkspaceCursor | null> {
+  try {
+    const raw = await env.REGISTRY.get(STAGING_REAPER_CURSOR_KEY, "json");
+    return parseCursor(raw);
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message: "staging_reap_cursor_load_failed",
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return null;
+  }
+}
+
+async function storeCursor(
+  env: Env,
+  nextAfter: MetadataCrossWorkspaceCursor | null,
+): Promise<void> {
+  try {
+    if (nextAfter) {
+      await env.REGISTRY.put(STAGING_REAPER_CURSOR_KEY, JSON.stringify(nextAfter));
+    } else {
+      await env.REGISTRY.delete(STAGING_REAPER_CURSOR_KEY);
+    }
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message: "staging_reap_cursor_store_failed",
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
+}
+
 export async function runStagingReaper(env: Env): Promise<StagingReapResult> {
   const now = Date.now();
-  const candidates = await findObjectsByMetadataAcrossWorkspaces(
+  const cursor = await loadCursor(env);
+  const { rows: candidates, nextAfter } = await findObjectsByMetadataAcrossWorkspaces(
     env.DB,
     "gh.kind",
     "branch",
     STAGING_REAP_SCAN_LIMIT,
+    { after: cursor },
   );
 
   const deleted: StagingReapResult["deleted"] = [];
@@ -134,7 +195,18 @@ export async function runStagingReaper(env: Env): Promise<StagingReapResult> {
     }
   }
 
-  const result: StagingReapResult = { scanned: candidates.length, deleted, skipped, errors };
+  // Persist progress after the pass (even if zero deletes). Best-effort — a
+  // failed put/delete must not undo deletions already done.
+  await storeCursor(env, nextAfter);
+
+  const result: StagingReapResult = {
+    scanned: candidates.length,
+    deleted,
+    skipped,
+    errors,
+    cursor,
+    nextAfter,
+  };
   console.log(
     JSON.stringify({
       message: "staging_reap",
@@ -142,6 +214,8 @@ export async function runStagingReaper(env: Env): Promise<StagingReapResult> {
       deleted: result.deleted.length,
       skipped: result.skipped,
       errors: result.errors.length,
+      cursor: result.cursor,
+      nextAfter: result.nextAfter,
     }),
   );
   return result;

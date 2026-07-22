@@ -4,6 +4,7 @@ import {
   PROMOTED_MAX_AGE_DAYS,
   runStagingReaper,
   STAGING_REAP_SCAN_LIMIT,
+  STAGING_REAPER_CURSOR_KEY,
 } from "../src/staging-reaper";
 import { getFileMetadata, replaceFileMetadata } from "../src/file-metadata";
 import type { WorkspaceRecord } from "../src/workspace";
@@ -14,6 +15,9 @@ const MIGRATIONS = [
   "migrations/20260711180000_galleries.sql",
   "migrations/20260713210559_file_metadata.sql",
   "migrations/20260710140000_workspace_usage.sql",
+  // Covering (meta_key, meta_value, workspace, object_key) index for the reaper
+  // scan. DROP IF EXISTS is a no-op when the short lookup index was never applied.
+  "migrations/20260722180000_file_metadata_value_covering_idx.sql",
 ];
 
 const WS = "acme";
@@ -27,10 +31,18 @@ const RECORD: WorkspaceRecord = {
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+/** Fake REGISTRY: get/put/delete over an in-memory Map (workspace records + reaper cursor). */
 function fakeRegistry(records: Record<string, unknown>) {
   const store = new Map(Object.entries(records));
   return {
+    store,
     get: (async (key: string) => store.get(key) ?? null) as unknown as KVNamespace["get"],
+    put: (async (key: string, value: string) => {
+      store.set(key, JSON.parse(value));
+    }) as unknown as KVNamespace["put"],
+    delete: (async (key: string) => {
+      store.delete(key);
+    }) as unknown as KVNamespace["delete"],
   };
 }
 
@@ -43,7 +55,7 @@ function makeEnv(opts: { db: SqliteD1; bucket?: FakeR2Bucket; workspaces?: strin
     BUCKET: bucket,
     DB: database(db),
   } as unknown as Env;
-  return { env, bucket };
+  return { env, bucket, registry };
 }
 
 function branchKey(workspace: string, branch: string, filename: string): string {
@@ -291,6 +303,79 @@ describe("runStagingReaper", () => {
 
       const meta = await getFileMetadata(database(sqlite), WS, key);
       expect(meta).toEqual({});
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("advances a keyset cursor so later pages can reap past a young alphabetical head", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const bucket = new FakeR2Bucket();
+      // Young (non-reapable) keys that sort *before* one old abandoned object.
+      // A single run without a cursor only sees the young head; the second run
+      // must resume via the stored cursor to reach the old key.
+      for (let i = 0; i < STAGING_REAP_SCAN_LIMIT; i++) {
+        const key = branchKey(WS, "aaa", `shot-${String(i).padStart(3, "0")}.png`);
+        await seed(sqlite, bucket, WS, key, {
+          "gh.kind": "branch",
+          "gh.staged-at": daysAgo(1),
+        });
+      }
+      const oldKey = branchKey(WS, "zzz", "old.png");
+      await seed(sqlite, bucket, WS, oldKey, {
+        "gh.kind": "branch",
+        "gh.staged-at": daysAgo(ABANDONED_MAX_AGE_DAYS + 1),
+      });
+      const { env, registry } = makeEnv({ db: sqlite, bucket });
+
+      const first = await runStagingReaper(env);
+      expect(first.scanned).toBe(STAGING_REAP_SCAN_LIMIT);
+      expect(first.deleted).toEqual([]);
+      expect(first.nextAfter).toEqual({
+        workspace: WS,
+        key: branchKey(
+          WS,
+          "aaa",
+          `shot-${String(STAGING_REAP_SCAN_LIMIT - 1).padStart(3, "0")}.png`,
+        ),
+      });
+      expect(registry.store.get(STAGING_REAPER_CURSOR_KEY)).toEqual(first.nextAfter);
+      expect(bucket.store.has(oldKey)).toBe(true);
+
+      const second = await runStagingReaper(env);
+      expect(second.cursor).toEqual(first.nextAfter);
+      expect(second.deleted).toEqual([{ workspace: WS, key: oldKey, reason: "abandoned" }]);
+      expect(bucket.store.has(oldKey)).toBe(false);
+      // Short final page → cursor cleared so the next run restarts from the head.
+      expect(second.nextAfter).toBeNull();
+      expect(registry.store.has(STAGING_REAPER_CURSOR_KEY)).toBe(false);
+
+      const third = await runStagingReaper(env);
+      expect(third.cursor).toBeNull();
+      expect(third.scanned).toBe(STAGING_REAP_SCAN_LIMIT);
+      expect(third.deleted).toEqual([]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("treats a corrupt cursor in KV as start-of-set", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const { env, bucket, registry } = makeEnv({ db: sqlite });
+      const key = branchKey(WS, "feat-y", "shot.png");
+      await seed(sqlite, bucket, WS, key, {
+        "gh.kind": "branch",
+        "gh.staged-at": daysAgo(ABANDONED_MAX_AGE_DAYS + 1),
+      });
+      // Corrupt blob — not { workspace, key } strings.
+      registry.store.set(STAGING_REAPER_CURSOR_KEY, { workspace: 1, key: null });
+
+      const result = await runStagingReaper(env);
+
+      expect(result.cursor).toBeNull();
+      expect(result.deleted).toEqual([{ workspace: WS, key, reason: "abandoned" }]);
     } finally {
       sqlite.close();
     }
