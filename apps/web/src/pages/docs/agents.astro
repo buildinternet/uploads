@@ -75,6 +75,95 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
     </div>
   </section>
 
+  <section id="any-agent">
+    <h2>Any coding agent <a class="anchor" href="#any-agent" aria-label="Link to this section">#</a></h2>
+    <p>
+      None of this is Claude-Code-specific. Any agent that can run a shell command can
+      stage screenshots as it works: capture at each visual milestone, run
+      <code>uploads attach --branch --state before|after</code>, and the PR comment
+      assembles itself once a PR opens — via the GitHub App webhook, or the next
+      <code>uploads attach</code> (or <code>uploads attach --promote</code>) if you're not
+      running the App. See the <a href="/github-screenshots">stage-as-you-go walkthrough</a>
+      for the full loop.
+    </p>
+  </section>
+
+  <section id="instructions-file">
+    <h2>Drop this in your instructions file <a class="anchor" href="#instructions-file" aria-label="Link to this section">#</a></h2>
+    <p>
+      Every agent runtime reads some project instructions file — <code>AGENTS.md</code> for
+      Codex, Cursor, and others, <code>CLAUDE.md</code> for Claude Code, <code>.cursor/rules</code>
+      for Cursor rules. Add a block like this to whichever one your agent reads (or all of
+      them — the CLI doesn't care which agent calls it):
+    </p>
+    <div class="block" aria-label="AGENTS.md snippet">
+      <pre>## Screenshots
+When a change is visually observable (UI, layout, styling), capture it as you
+go — don't wait until the PR is open. After each meaningful visual change:
+
+  uploads attach ./shot.png --branch --state before   # or --state after
+
+Stage before/after pairs where it makes sense. No need to open the PR first —
+staged files are promoted into the PR's attachments comment automatically.</pre>
+    </div>
+    <p>
+      Requires the <code>uploads</code> CLI on <code>PATH</code> and <code>uploads login</code>
+      already run once — see <a href="#install">One command</a> above.
+    </p>
+  </section>
+
+  <section id="claude-code-hook">
+    <h2>Claude Code: the plugin's pre-PR reminder <a class="anchor" href="#claude-code-hook" aria-label="Link to this section">#</a></h2>
+    <p>
+      If you're on Claude Code, the <a href="#plugin">uploads plugin</a> bundles the skills
+      above plus a pre-PR hook: the uploads plugin's pre-PR hook reminds the agent when a
+      UI-touching branch has no staged screenshots, so it doesn't open a PR that's about to
+      need a follow-up comment. Nothing else to configure once the plugin is installed.
+    </p>
+  </section>
+
+  <section id="other-hooks">
+    <h2>Other agents with hook systems <a class="anchor" href="#other-hooks" aria-label="Link to this section">#</a></h2>
+    <p>
+      If your agent supports pre-command hooks (or you're willing to wrap <code>gh pr
+      create</code> yourself), the same reminder is a few lines of POSIX shell: check
+      whether anything is staged for the current branch, and print a nudge if not.
+      <strong>Keep it fail-open</strong> — a broken check should never block a PR from being
+      created.
+    </p>
+    <div class="block" aria-label="Generic pre-PR reminder script">
+      <pre>#!/bin/sh
+# Run before `gh pr create` (wrapper, or your agent's pre-command hook).
+# Fails open: any error here just skips the reminder, never blocks the PR.
+set -u
+branch=$(git branch --show-current 2>/dev/null) || exit 0
+[ -n "$branch" ] || exit 0
+# gh.branch metadata is stored lowercased
+branch_key=$(printf '%s' "$branch" | tr '[:upper:]' '[:lower:]')
+
+staged=$(uploads find "gh.branch=$branch_key" 2>/dev/null) || exit 0
+if [ -z "$staged" ]; then
+  echo "note: no screenshots staged for branch '$branch' — if this PR" >&2
+  echo "touches UI, consider 'uploads attach ./shot.png --branch' first" >&2
+fi
+exit 0</pre>
+    </div>
+    <p>
+      <code>uploads find gh.branch=&lt;name&gt;</code> lists what's staged for a branch — see the
+      <strong>uploads-cli</strong> skill for the full query vocabulary.
+    </p>
+  </section>
+
+  <section id="no-hook-fallback">
+    <h2>No hooks at all <a class="anchor" href="#no-hook-fallback" aria-label="Link to this section">#</a></h2>
+    <p>
+      None of the above is required. Even with zero setup, running <code>uploads attach
+      --promote</code> (no file arguments) right after opening a PR picks up everything
+      staged against that branch and posts or refreshes the attachments comment — it exits
+      <code>0</code> even if nothing was staged.
+    </p>
+  </section>
+
   <nav class="page-nav" aria-label="More docs">
     <a class="prev" href="/docs/github-app"><span class="dir">← Back</span>GitHub App</a>
     <a class="next" href="/docs/reference"><span class="dir">Next →</span>Reference</a>

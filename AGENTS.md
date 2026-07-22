@@ -28,6 +28,19 @@ successor to the external `github-screenshots` skill's bundled R2 scripts),
 and `skills/uploads-cli` is the full CLI reference it defers to. Keep both in
 sync when the CLI's commands or flags change.
 
+**Screenshots: stage as you go.** If your change is visually observable (web
+UI, email templates, rendered output), capture and stage screenshots at each
+milestone while you work — don't wait for a PR to exist:
+
+```bash
+uploads attach ./after.png --branch --state after   # before|after|empty|error|loading
+```
+
+Opening a PR automatically promotes everything staged for the branch into the
+managed "📎 Attachments" comment (via the GitHub App webhook, or the next
+`uploads attach` / `uploads attach --promote` without it). See
+`skills/github-screenshots` for the full workflow.
+
 Keep API and web separate deployables. All storage access goes through
 `createStorage()` in `packages/storage` — never import files-sdk adapters or
 touch the R2 binding directly from route code. Adding a provider = a new case

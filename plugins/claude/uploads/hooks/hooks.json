@@ -1,0 +1,17 @@
+{
+  "description": "Advisory reminder to stage screenshots on uploads.sh before opening a PR that touches UI files.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/pr-screenshot-reminder.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
