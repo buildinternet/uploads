@@ -297,12 +297,26 @@ export async function exchangeEnrollment(
   };
 }
 
-export async function listTokens(db: D1Database, workspace: string): Promise<AuthTokenRecord[]> {
+/**
+ * List tokens for a workspace. Active-only by default so list/revoke paths
+ * don't pay D1 rows-read for the full revoke history. Pass
+ * `includeRevoked: true` for admin audit listing.
+ */
+export async function listTokens(
+  db: D1Database,
+  workspace: string,
+  opts?: { includeRevoked?: boolean },
+): Promise<AuthTokenRecord[]> {
+  const includeRevoked = opts?.includeRevoked === true;
   const result = await db
     .prepare(
-      `SELECT id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
-              minting_user_id
-       FROM auth_tokens WHERE workspace = ? ORDER BY created_at ASC`,
+      includeRevoked
+        ? `SELECT id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
+                  minting_user_id
+           FROM auth_tokens WHERE workspace = ? ORDER BY created_at ASC`
+        : `SELECT id, workspace, token_hash, label, scopes, created_at, expires_at, revoked_at,
+                  minting_user_id
+           FROM auth_tokens WHERE workspace = ? AND revoked_at IS NULL ORDER BY created_at ASC`,
     )
     .bind(workspace)
     .all<AuthTokenRecord>();
@@ -315,7 +329,8 @@ export async function revokeToken(
   selector: { hashPrefix?: string; label?: string },
   now = new Date(),
 ): Promise<{ match: AuthTokenRecord | null; ambiguous: boolean }> {
-  const tokens = (await listTokens(db, workspace)).filter((token) => token.revoked_at === null);
+  // Active tokens only (listTokens default) — revoked history is irrelevant for revoke.
+  const tokens = await listTokens(db, workspace);
   const matches = tokens.filter((token) =>
     selector.hashPrefix
       ? token.token_hash.startsWith(selector.hashPrefix)

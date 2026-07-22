@@ -2,8 +2,10 @@
  * Plan catalog for workspace subscription plans (free-plan era, spec
  * 2026-07-22). `free` is available in perpetuity today; `pro` is defined for
  * display purposes only (`available: false`) — no checkout path exists yet.
- * `defaultLimits.free` mirrors `apps/api/src/self-serve-defaults.ts`'s
- * `SELF_SERVE_LIMITS`; keep the two in sync if either changes.
+ *
+ * Free `defaultLimits` are the single source of truth for self-serve
+ * provisioning: `apps/api/src/self-serve-defaults.ts` imports
+ * `PLANS.free.defaultLimits` into `SELF_SERVE_LIMITS` (do not re-hardcode).
  */
 
 export type PlanId = "free" | "pro";
