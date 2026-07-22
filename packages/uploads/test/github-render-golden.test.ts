@@ -38,16 +38,18 @@ describe("attachmentsCommentBody (CLI copy)", () => {
       url: `https://uploads.sh/f/shot-${i}.png`,
       embedUrl: `https://embed.uploads.sh/f/shot-${i}.png`,
       pageUrl: `https://uploads.sh/f/acme/shot-${i}.png`,
-      meta: { path: "/a_b[c]*d", state: "after" },
+      // Tildes included: GitHub strikes through text wrapped in a matching pair
+      // of one or two tildes, so `~e~` would render struck through unescaped.
+      meta: { path: "/a_b[c]*d~e~", state: "after" },
     }));
 
     const body = attachmentsCommentBody(items);
 
     // Markdown context: the metacharacters are backslash-escaped.
     expect(body).toContain(
-      "- [shot-17.png](https://uploads.sh/f/acme/shot-17.png) · /a\\_b\\[c\\]\\*d · after",
+      "- [shot-17.png](https://uploads.sh/f/acme/shot-17.png) · /a\\_b\\[c\\]\\*d\\~e\\~ · after",
     );
     // HTML context: <sub> needs no markdown escaping, so the value is verbatim.
-    expect(body).toContain("<sub>/a_b[c]*d · after</sub>");
+    expect(body).toContain("<sub>/a_b[c]*d~e~ · after</sub>");
   });
 });

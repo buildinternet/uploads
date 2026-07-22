@@ -245,9 +245,14 @@ function escapeHtmlText(s: string): string {
   return escapeHtmlAttr(s).replace(/'/g, "&#39;").replace(/>/g, "&gt;");
 }
 
-/** Backslash-escape the markdown metacharacters that can appear in a metadata value. */
+/**
+ * Backslash-escape the markdown metacharacters that can appear in a metadata
+ * value. `~` is in the set because GitHub's strikethrough extension treats a
+ * matching pair of ONE or two tildes as markup, so an unescaped `/a~b~c` would
+ * render with `b` struck through.
+ */
 function escapeMarkdownText(s: string): string {
-  return s.replace(/([\\`*_[\]])/g, "\\$1");
+  return s.replace(/([\\`*_[\]~])/g, "\\$1");
 }
 
 /**
