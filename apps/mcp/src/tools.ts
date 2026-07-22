@@ -800,6 +800,39 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       },
     },
     {
+      name: "comment",
+      description:
+        "Create or update the managed attachments comment on a GitHub PR or issue, listing everything this workspace has uploaded for it. Refreshes the comment WITHOUT re-uploading — use after deleting media to re-sync (e.g. it will show a neutral empty state once the last attachment is removed). Posts as uploads-sh[bot] via the uploads.sh GitHub App — bot-only on this hosted server, no local gh fallback; if the App isn't installed/authorized the decline is returned honestly. Requires repo (owner/name — no git context on this server) and exactly one of pr/issue.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          repo: {
+            type: "string",
+            description:
+              "owner/name repo segment. REQUIRED (owner/name) — there is no git context on this server to infer it from.",
+          },
+          pr: {
+            type: "number",
+            description: "Pull request number. Mutually exclusive with issue.",
+          },
+          issue: { type: "number", description: "Issue number. Mutually exclusive with pr." },
+        },
+        required: ["repo"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        // Reading the workspace's own objects/metadata/galleries to render the
+        // body is a files:read operation (mirrors the REST route + put
+        // --comment); no workspace bytes are written, but the App write it
+        // triggers is still rate-limited like the other mutating tools.
+        requireScope("files:read");
+        await requireWriteBudget();
+        const target = ghTargetFromArgs(args);
+        if (!target) usage("comment requires pr or issue");
+        return postManagedComment(env, workspace, workspaceName, ctx.mintingUserId, target);
+      },
+    },
+    {
       name: "get_metadata",
       description:
         "Read an object's queryable custom metadata (D1 key-value pairs, not R2 provenance). Returns `{ metadata }` (empty when none). Object must exist. Same as `uploads meta get`.",

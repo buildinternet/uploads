@@ -529,3 +529,154 @@ describe("hosted put: comment sync (issue #392)", () => {
     expect(bucket.store.has("gh/acme/widgets/pull/12/hero.png")).toBe(true);
   });
 });
+
+/**
+ * Standalone hosted `comment` tool (issue #392 stretch) — refreshes the
+ * managed comment without re-uploading, e.g. after a hosted `delete`. Bot-only
+ * (delegates to the same `postManagedComment` service as `put --comment` and
+ * the REST route), so it reuses this file's fake-D1 + stubbed api.github.com
+ * harness rather than inventing a new one.
+ */
+describe("hosted comment tool (issue #392 stretch)", () => {
+  it("posts the managed comment via the bot for an already-attached file", async () => {
+    const { env, links, githubCache } = await makeEnv({ boundTo: WS });
+    // Seed one attachment first (no comment requested) — the standalone
+    // `comment` tool only refreshes, it never uploads.
+    const seeded = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "hero.png",
+      pr: 12,
+      repo: "acme/widgets",
+    });
+    expect(seeded.isError).toBe(false);
+
+    githubCache.store.set("ghinst:acme/widgets", { value: "42" });
+    githubCache.store.set("ghtok:42", { value: "cached-token" });
+    const restore = stubGithubFetch((url, init) => {
+      if (url.includes("/issues/12/comments")) {
+        return init.method === "POST"
+          ? new Response(
+              JSON.stringify({ id: 5, html_url: "https://github.com/acme/widgets/pull/12#c5" }),
+              { status: 201 },
+            )
+          : new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response("nf", { status: 404 });
+    });
+    try {
+      const result = await callTool(env, "comment", { repo: "acme/widgets", pr: 12 });
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent).toEqual({
+        posted: true,
+        action: "created",
+        count: 1,
+        commentUrl: "https://github.com/acme/widgets/pull/12#c5",
+      });
+      expect(links.rows.get("acme/widgets")).toMatchObject({
+        workspace_name: WS,
+        source: "comment",
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it("surfaces not_installed as an honest decline, never a tool error", async () => {
+    const { env, githubCache } = await makeEnv({ boundTo: WS });
+    githubCache.store.set("ghinst:acme/widgets", { value: "none" });
+    const result = await callTool(env, "comment", { repo: "acme/widgets", pr: 12 });
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent).toEqual({ posted: false, reason: "not_installed" });
+  });
+
+  it("declines not_authorized for a repo bound to a different workspace, without a GitHub write", async () => {
+    const { env, githubCache } = await makeEnv({ boundTo: "other-ws" });
+    githubCache.store.set("ghinst:acme/widgets", { value: "42" });
+    githubCache.store.set("ghtok:42", { value: "cached-token" });
+    let sawGithubCall = false;
+    const restore = stubGithubFetch(() => {
+      sawGithubCall = true;
+      return new Response("nf", { status: 404 });
+    });
+    try {
+      const result = await callTool(env, "comment", { repo: "acme/widgets", pr: 12 });
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent).toMatchObject({
+        posted: false,
+        reason: "not_authorized",
+      });
+      expect(sawGithubCall).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  it("returns a forbidden decline with fixUrl + required when the App lacks write", async () => {
+    const { env, githubCache } = await makeEnv({ boundTo: WS });
+    const seeded = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "hero.png",
+      pr: 12,
+      repo: "acme/widgets",
+    });
+    expect(seeded.isError).toBe(false);
+
+    githubCache.store.set("ghinst:acme/widgets", { value: "42" });
+    githubCache.store.set("ghtok:42", { value: "cached-token" });
+    const restore = stubGithubFetch((url) =>
+      url.includes("/issues/12/comments")
+        ? new Response("no", { status: 403 })
+        : new Response("nf", { status: 404 }),
+    );
+    try {
+      const result = await callTool(env, "comment", { repo: "acme/widgets", pr: 12 });
+      expect(result.isError).toBe(false);
+      const comment = result.structuredContent as {
+        posted: boolean;
+        reason: string;
+        fixUrl: string;
+        required: string[];
+      };
+      expect(comment.posted).toBe(false);
+      expect(comment.reason).toBe("forbidden");
+      expect(comment.fixUrl).toBe(
+        "https://github.com/organizations/acme/settings/installations/42/permissions/update",
+      );
+      expect(comment.required).toEqual(["issues:write", "pull_requests:write"]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("requires a pr or issue target", async () => {
+    const { env } = await makeEnv({ boundTo: WS });
+    const result = await callTool(env, "comment", { repo: "acme/widgets" });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([
+      { type: "text", text: expect.stringContaining("pr or issue") },
+    ]);
+  });
+
+  it("requires repo", async () => {
+    const { env } = await makeEnv({ boundTo: WS });
+    const result = await callTool(env, "comment", { pr: 12 });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([{ type: "text", text: expect.stringContaining("repo") }]);
+  });
+
+  it("rejects pr and issue together", async () => {
+    const { env } = await makeEnv({ boundTo: WS });
+    const result = await callTool(env, "comment", { repo: "acme/widgets", pr: 12, issue: 5 });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([
+      { type: "text", text: expect.stringContaining("mutually exclusive") },
+    ]);
+  });
+
+  it("requires files:read scope", async () => {
+    const { env } = await makeEnv({ boundTo: WS, scopes: ["files:write"] });
+    const result = await callTool(env, "comment", { repo: "acme/widgets", pr: 12 });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([{ type: "text", text: expect.stringContaining("files:read") }]);
+  });
+});
