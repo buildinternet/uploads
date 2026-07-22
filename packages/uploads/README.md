@@ -91,8 +91,12 @@ attachments when one opens: automatically via the
 [GitHub App](https://uploads.sh/docs/github-app) webhook, or on the first
 `attach` after the PR exists (`--promote` forces it with no new files,
 `--no-promote` opts out). `uploads github link` inspects or claims the
-workspace↔repo binding the webhook path uses. Promoted staging is cleaned up
-server-side after ~7 days (~30 for branches that never got a PR).
+workspace↔repo binding the webhook path uses. Promotion is copy-and-keep —
+the staged original is never deleted, so any URL already embedded keeps
+serving — and staged objects follow only normal per-workspace retention and
+explicit deletes. Promotion (auto or `--promote`) does skip files staged
+more than 30 days before the PR opens, though; they're still there, just no
+longer auto-promoted.
 
 **Bare `put` stages too, by default (issue #403):** on a non-default git
 branch, a `put` with none of
