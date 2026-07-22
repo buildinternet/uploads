@@ -1,54 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { FakeMedia } from "./fake-media";
-import { UsageFakeD1 } from "./usage-fake-d1";
-import { FakeR2Bucket } from "./fake-r2";
+import { MP4, makePosterEnv, PNG, WORKSPACE } from "./poster-fixtures";
 import { putObject, deleteObject, setObjectVisibility } from "../src/files-core";
 import { posterKeyFor } from "../src/poster";
 import { objectVisibility } from "../src/visibility";
 import { storage } from "../src/storage";
-import type { WorkspaceRecord } from "../src/workspace";
-
-function ftyp(brand: string): Uint8Array {
-  return new Uint8Array([
-    0,
-    0,
-    0,
-    0x18,
-    0x66,
-    0x74,
-    0x79,
-    0x70,
-    ...[...brand].map((ch) => ch.charCodeAt(0)),
-  ]);
-}
-const MP4 = ftyp("mp42");
-const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
-const WORKSPACE = "default";
-
-// Same shape as Task 8's fixture — real ledger + file_metadata, gate wide open.
-function makeEnv() {
-  const bucket = new FakeR2Bucket();
-  const db = new UsageFakeD1();
-  const env = {
-    DB: db,
-    UPLOADS_DEFAULT: bucket,
-    MEDIA: FakeMedia.jpeg(new Uint8Array([1, 2, 3])),
-    FLAGS: { getBooleanValue: async () => true },
-    POSTER_LIMITER: { limit: async () => ({ success: true }) },
-  } as unknown as Env;
-  const ws: WorkspaceRecord = {
-    provider: "r2",
-    bucket: "uploads-default",
-    binding: "UPLOADS_DEFAULT",
-    prefix: "default/",
-    publicBaseUrl: "https://storage.uploads.sh",
-  };
-  return { env, bucket, db, ws };
-}
 
 describe("poster lifecycle", () => {
   it("deletes the poster when the video is deleted", async () => {
-    const { env, bucket, db, ws } = makeEnv();
+    const { env, bucket, db, ws } = makePosterEnv();
     const put = await putObject(env, ws, "videos/clip.mp4", MP4, WORKSPACE);
     const posterKey = posterKeyFor(put.key);
     expect(bucket.store.has(`default/${posterKey}`)).toBe(true);
@@ -64,7 +23,7 @@ describe("poster lifecycle", () => {
   });
 
   it("tolerates a missing poster on delete", async () => {
-    const { env, ws } = makeEnv();
+    const { env, ws } = makePosterEnv();
     const put = await putObject(env, ws, "images/pic.png", PNG, WORKSPACE);
     await expect(deleteObject(env, ws, put.key, WORKSPACE)).resolves.toEqual({
       key: put.key,
@@ -73,7 +32,7 @@ describe("poster lifecycle", () => {
   });
 
   it("does not delete a poster when an unrelated image is deleted", async () => {
-    const { env, bucket, ws } = makeEnv();
+    const { env, bucket, ws } = makePosterEnv();
     const video = await putObject(env, ws, "videos/clip.mp4", MP4, WORKSPACE);
     const posterKey = posterKeyFor(video.key);
     const image = await putObject(env, ws, "images/pic.png", PNG, WORKSPACE);
@@ -86,7 +45,7 @@ describe("poster lifecycle", () => {
   it("flips the poster to private when the video is made private", async () => {
     // THE security case: otherwise a private video keeps a publicly
     // fetchable frame.
-    const { env, ws } = makeEnv();
+    const { env, ws } = makePosterEnv();
     const put = await putObject(env, ws, "videos/clip.mp4", MP4, WORKSPACE);
     const posterKey = posterKeyFor(put.key);
     const store = await storage(env, ws);
@@ -97,7 +56,7 @@ describe("poster lifecycle", () => {
   });
 
   it("flips the poster back to public when the video is made public", async () => {
-    const { env, ws } = makeEnv();
+    const { env, ws } = makePosterEnv();
     const put = await putObject(env, ws, "videos/clip.mp4", MP4, WORKSPACE);
     const posterKey = posterKeyFor(put.key);
     const store = await storage(env, ws);
