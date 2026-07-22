@@ -232,6 +232,96 @@ export async function releaseUploadsSafe(
   }
 }
 
+export type StorageReservation =
+  | { ok: true; reservedBytes: number }
+  | { ok: false; usage: WorkspaceUsage; maxStorageBytes: number; deltaBytes: number };
+
+/**
+ * Atomically reserve a positive net-byte delta against `maxStorageBytes`
+ * BEFORE the R2 put. Mirrors `reserveUploads` for the storage cap so
+ * concurrent puts near the quota cannot all pass a read-then-check and
+ * overshoot. No-ops (ok, reservedBytes 0) when `deltaBytes <= 0` or the
+ * workspace is unlimited. Callers must `releaseStorageBytesSafe` on failed
+ * work and must NOT re-count reserved bytes in `recordUsageSafe`.
+ */
+export async function reserveStorageBytes(
+  db: D1Database,
+  workspace: string,
+  deltaBytes: number,
+  maxStorageBytes: number | undefined,
+  now = new Date(),
+): Promise<StorageReservation> {
+  if (deltaBytes <= 0) return { ok: true, reservedBytes: 0 };
+  if (maxStorageBytes === undefined) return { ok: true, reservedBytes: 0 };
+
+  const period = usagePeriodStart(now);
+  const updatedAt = now.toISOString();
+
+  const results = await db.batch([
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO workspace_usage
+           (workspace, bytes, objects, uploads_in_period, period_start, updated_at)
+         VALUES (?, 0, 0, 0, ?, ?)`,
+      )
+      .bind(workspace, period, updatedAt),
+    // Distinct predicate fragment (`bytes + ? <= ?`) so fakes/tests can
+    // distinguish this from the upload-count reservation (`uploads… <= ?`).
+    db
+      .prepare(
+        `UPDATE workspace_usage SET
+           bytes = bytes + ?,
+           updated_at = ?
+         WHERE workspace = ?
+           AND bytes + ? <= ?`,
+      )
+      .bind(deltaBytes, updatedAt, workspace, deltaBytes, maxStorageBytes),
+  ]);
+
+  const changes = results[1]?.meta?.changes ?? 0;
+  if (changes > 0) return { ok: true, reservedBytes: deltaBytes };
+  return {
+    ok: false,
+    usage: await getWorkspaceUsage(db, workspace, now),
+    maxStorageBytes,
+    deltaBytes,
+  };
+}
+
+/**
+ * Undo a `reserveStorageBytes` reservation after the R2 write failed.
+ * Best-effort (same rationale as releaseUploadsSafe).
+ */
+export async function releaseStorageBytesSafe(
+  db: D1Database,
+  workspace: string,
+  reservedBytes: number,
+  now = new Date(),
+): Promise<void> {
+  if (reservedBytes <= 0) return;
+  try {
+    await db
+      .prepare(
+        `UPDATE workspace_usage SET
+           bytes = MAX(0, bytes - ?),
+           updated_at = ?
+         WHERE workspace = ?`,
+      )
+      .bind(reservedBytes, now.toISOString(), workspace)
+      .run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      JSON.stringify({
+        message: "storage reservation release failed",
+        workspace,
+        reservedBytes,
+        error: message,
+      }),
+    );
+  }
+}
+
 /** Best-effort metering: log and continue if D1 fails. */
 export async function recordUsageSafe(
   db: D1Database,

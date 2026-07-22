@@ -180,6 +180,14 @@ const REASONS = [
     border-radius: var(--radius-md);
     background: var(--bg);
   }
+  /* `display: flex` above would override the HTML `hidden` attribute's
+     UA `display: none` — keep the form collapsed until "Report a problem". */
+  .report-form[hidden],
+  .report-done[hidden],
+  .report-status[hidden],
+  .report-toggle[hidden] {
+    display: none;
+  }
   .report-lead {
     margin: 0;
     color: var(--muted);

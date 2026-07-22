@@ -3,7 +3,9 @@ import {
   applyUsageDelta,
   emptyUsage,
   getWorkspaceUsage,
+  releaseStorageBytesSafe,
   releaseUploadsSafe,
+  reserveStorageBytes,
   reserveUploads,
   usagePeriodStart,
 } from "../src/usage";
@@ -151,5 +153,61 @@ describe("upload reservations", () => {
     );
     expect(results.filter((r) => r.ok)).toHaveLength(2);
     expect((await getWorkspaceUsage(db, "acme", now)).uploadsInPeriod).toBe(2);
+  });
+});
+
+describe("storage byte reservations", () => {
+  const now = new Date("2026-07-10T00:00:00Z");
+
+  it("reserves positive deltas up to the storage cap, then denies", async () => {
+    const db = new UsageFakeD1() as unknown as D1Database;
+    const a = await reserveStorageBytes(db, "acme", 600, 1000, now);
+    expect(a).toEqual({ ok: true, reservedBytes: 600 });
+    const b = await reserveStorageBytes(db, "acme", 400, 1000, now);
+    expect(b).toEqual({ ok: true, reservedBytes: 400 });
+
+    const denied = await reserveStorageBytes(db, "acme", 1, 1000, now);
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) {
+      expect(denied.usage.bytes).toBe(1000);
+      expect(denied.maxStorageBytes).toBe(1000);
+      expect(denied.deltaBytes).toBe(1);
+    }
+    expect((await getWorkspaceUsage(db, "acme", now)).bytes).toBe(1000);
+  });
+
+  it("no-ops for non-positive deltas and unlimited workspaces", async () => {
+    const db = new UsageFakeD1() as unknown as D1Database;
+    expect(await reserveStorageBytes(db, "acme", 0, 1000, now)).toEqual({
+      ok: true,
+      reservedBytes: 0,
+    });
+    expect(await reserveStorageBytes(db, "acme", -50, 1000, now)).toEqual({
+      ok: true,
+      reservedBytes: 0,
+    });
+    expect(await reserveStorageBytes(db, "acme", 500, undefined, now)).toEqual({
+      ok: true,
+      reservedBytes: 0,
+    });
+    expect((await getWorkspaceUsage(db, "acme", now)).bytes).toBe(0);
+  });
+
+  it("release returns reserved bytes, clamped at zero", async () => {
+    const db = new UsageFakeD1() as unknown as D1Database;
+    await reserveStorageBytes(db, "acme", 200, 1000, now);
+    await releaseStorageBytesSafe(db, "acme", 200, now);
+    expect((await getWorkspaceUsage(db, "acme", now)).bytes).toBe(0);
+    await releaseStorageBytesSafe(db, "acme", 50, now);
+    expect((await getWorkspaceUsage(db, "acme", now)).bytes).toBe(0);
+  });
+
+  it("only admits the storage cap under concurrent reservations", async () => {
+    const db = new UsageFakeD1() as unknown as D1Database;
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => reserveStorageBytes(db, "acme", 400, 1000, now)),
+    );
+    expect(results.filter((r) => r.ok)).toHaveLength(2);
+    expect((await getWorkspaceUsage(db, "acme", now)).bytes).toBe(800);
   });
 });

@@ -116,6 +116,40 @@ export class UsageFakeD1 {
           return { success: true as const, meta: { changes: 1 }, results: [] };
         }
         if (normalized.startsWith("UPDATE workspace_usage SET")) {
+          // Guarded storage reservation from reserveStorageBytes (check before
+          // the upload-count path — both contain `<= ?`).
+          if (normalized.includes("bytes + ? <=")) {
+            const [deltaBytes, updatedAt, workspace, , max] = values as [
+              number,
+              string,
+              string,
+              number,
+              number,
+            ];
+            const row = this.usage.get(workspace);
+            if (!row) throw new Error(`update before insert for ${workspace}`);
+            if (row.bytes + deltaBytes > max) {
+              return { success: true as const, meta: { changes: 0 }, results: [] };
+            }
+            this.usage.set(workspace, {
+              ...row,
+              bytes: row.bytes + deltaBytes,
+              updated_at: updatedAt,
+            });
+            return { success: true as const, meta: { changes: 1 }, results: [] };
+          }
+          // Storage release from releaseStorageBytesSafe.
+          if (normalized.includes("MAX(0, bytes - ?)")) {
+            const [reservedBytes, updatedAt, workspace] = values as [number, string, string];
+            const row = this.usage.get(workspace);
+            if (!row) return { success: true as const, meta: { changes: 0 }, results: [] };
+            this.usage.set(workspace, {
+              ...row,
+              bytes: Math.max(0, row.bytes - reservedBytes),
+              updated_at: updatedAt,
+            });
+            return { success: true as const, meta: { changes: 1 }, results: [] };
+          }
           // Guarded reservation from reserveUploads: increments
           // uploads_in_period only while within the cap; changes: 0 signals
           // a spent budget. Atomic within a single run(), like D1's UPDATE.
