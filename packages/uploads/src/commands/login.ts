@@ -21,16 +21,18 @@ import {
 import { flagBool, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
 import { parseScopes } from "./admin-enrollment.js";
 import { writeCommandHelp } from "../cli-style.js";
+import { UploadsError } from "../errors.js";
 
 const HELP = `uploads login [options]
 
 Sign in and save workspace credentials. With no flags, opens a browser to
-authorize this device — the recommended way to sign in. Pass an enrollment
-code only if you were given one from before device login (fallback path).
+authorize this device — the recommended way to sign in. The browser asks which
+workspace to sign in to, so --workspace is optional. Pass an enrollment code
+only if you were given one from before device login (fallback path).
 
 Options:
-  --workspace <name>  Workspace to mint a token for (device flow; required if
-                      your account can access more than one)
+  --workspace <name>  Preselect this workspace in the browser (device flow);
+                      you can still change it there
   --create            With --workspace: create the workspace first if your
                       account doesn't have it yet (device flow only) — lets
                       scripted/agent logins provision without a prompt
@@ -60,6 +62,43 @@ export function validateEnrollmentCode(raw: string): string {
   const code = raw.trim();
   if (!/^upe_[A-Za-z0-9_-]{20,}$/.test(code)) throw new UsageError("invalid enrollment code");
   return code;
+}
+
+/**
+ * Device-code scope vocabulary (issue #362). Mirrors `parseDeviceScope` /
+ * `workspaceScopeValue` in apps/auth/src/device-workspace.ts — this package
+ * ships with no workspace dependencies, so the two copies are deliberately
+ * independent. Keep the vocabulary in sync.
+ */
+const WORKSPACE_SCOPE_PREFIX = "workspace:";
+const CREATE_SCOPE_TOKEN = "create";
+
+/** The scope the CLI sends with its device-code request. No workspace requested → no scope. */
+export function formatDeviceScope(
+  workspace: string | undefined,
+  create: boolean,
+): string | undefined {
+  if (!workspace) return undefined;
+  return create
+    ? `${WORKSPACE_SCOPE_PREFIX}${workspace} ${CREATE_SCOPE_TOKEN}`
+    : `${WORKSPACE_SCOPE_PREFIX}${workspace}`;
+}
+
+/**
+ * Read back what the approval page decided. A surviving `create` token means
+ * the page left the scope alone and deferred provisioning to the CLI; a bare
+ * `workspace:<slug>` means the browser recorded a choice and wins.
+ */
+export function parseDeviceScope(scope: string | undefined): {
+  workspace: string | undefined;
+  create: boolean;
+} {
+  const tokens = (scope ?? "").split(/\s+/).filter(Boolean);
+  const slug =
+    tokens
+      .find((t) => t.startsWith(WORKSPACE_SCOPE_PREFIX))
+      ?.slice(WORKSPACE_SCOPE_PREFIX.length) ?? "";
+  return { workspace: slug || undefined, create: tokens.includes(CREATE_SCOPE_TOKEN) };
 }
 
 async function readLine(): Promise<string> {
@@ -209,16 +248,22 @@ export const defaultDeviceIo: DeviceLoginIo = {
   promptWorkspaceName,
 };
 
+/** A completed device authorization: the session bearer plus the (possibly rewritten) scope. */
+export interface DeviceSession {
+  accessToken: string;
+  scope: string;
+}
+
 /**
  * Browser device-authorization session only (no workspace token mint).
  * Shared by `uploads login` and `uploads invite create`.
  */
-export async function obtainDeviceAccessToken(
+export async function obtainDeviceSession(
   authUrl: string,
-  opts: { noOpen?: boolean; prompt?: string } = {},
+  opts: { noOpen?: boolean; prompt?: string; scope?: string } = {},
   io: DeviceLoginIo = defaultDeviceIo,
-): Promise<string> {
-  const code = await requestDeviceCode(authUrl);
+): Promise<DeviceSession> {
+  const code = await requestDeviceCode(authUrl, undefined, opts.scope);
   const verifyUrl = code.verification_uri_complete ?? code.verification_uri;
   const prompt = opts.prompt ?? "To sign in, open:";
   io.write(`${prompt}\n\n  ${verifyUrl}\n\nand confirm this code:\n\n  ${code.user_code}\n\n`);
@@ -227,10 +272,46 @@ export async function obtainDeviceAccessToken(
   return pollForDeviceToken(authUrl, code, io);
 }
 
+/** Session bearer only — `invite create` has no workspace to resolve. */
+export async function obtainDeviceAccessToken(
+  authUrl: string,
+  opts: { noOpen?: boolean; prompt?: string } = {},
+  io: DeviceLoginIo = defaultDeviceIo,
+): Promise<string> {
+  return (await obtainDeviceSession(authUrl, opts, io)).accessToken;
+}
+
 interface LoginResult {
   workspace: string;
   token: string;
   apiUrl?: string;
+}
+
+/**
+ * Turn the API's deliberately opaque 403 (`no access to this workspace` — it
+ * refuses to distinguish "doesn't exist" from "you're not a member", see
+ * apps/api/src/routes/tokens.ts) into something the user can act on, by
+ * listing the workspaces their own account CAN reach. Backstop only: since
+ * #362 the approval page catches this before approving.
+ */
+async function describeMintFailure(
+  apiUrl: string,
+  accessToken: string,
+  workspace: string,
+  err: unknown,
+): Promise<never> {
+  if (!(err instanceof UploadsError) || err.status !== 403) throw err;
+  let names: string[] = [];
+  try {
+    names = (await listMintWorkspaces(apiUrl, accessToken)).workspaces.map((w) => w.workspace);
+  } catch {
+    // Listing is best-effort — fall through to the generic hint below.
+  }
+  throw new UsageError(
+    names.length
+      ? `no access to workspace "${workspace}" — this account can use: ${names.join(", ")}`
+      : `no access to workspace "${workspace}" — this account has no workspaces yet; pass --workspace <name> --create to provision one`,
+  );
 }
 
 /**
@@ -260,16 +341,34 @@ async function runDeviceLogin(
   io.write(
     `signing in to ${opts.authUrl} (self-hosted? pass --api-url or set UPLOADS_API_URL)\n\n`,
   );
-  const accessToken = await obtainDeviceAccessToken(opts.authUrl, { noOpen: opts.noOpen }, io);
-
-  const workspace = await resolveMintWorkspace(
-    opts.apiUrl,
-    accessToken,
-    requestedWorkspace,
+  const create = flagBool(parsed.flags, "--create");
+  const session = await obtainDeviceSession(
+    opts.authUrl,
+    { noOpen: opts.noOpen, scope: formatDeviceScope(requestedWorkspace, create) },
     io,
-    flagBool(parsed.flags, "--create"),
   );
-  const minted = await mintWorkspaceToken(opts.apiUrl, accessToken, { workspace, scopes, label });
+
+  // The approval page is authoritative: it validated the workspace against the
+  // signed-in account's memberships (and may have created a new one) before
+  // approving. A scope that still carries `create` means the page deferred to
+  // the CLI, and an empty one means an older server that doesn't echo a
+  // choice — both fall back to the local resolution below.
+  const chosen = parseDeviceScope(session.scope);
+  const workspace =
+    chosen.workspace && !chosen.create
+      ? chosen.workspace
+      : await resolveMintWorkspace(
+          opts.apiUrl,
+          session.accessToken,
+          requestedWorkspace,
+          io,
+          create,
+        );
+  const minted = await mintWorkspaceToken(opts.apiUrl, session.accessToken, {
+    workspace,
+    scopes,
+    label,
+  }).catch((err) => describeMintFailure(opts.apiUrl, session.accessToken, workspace, err));
   return { workspace: minted.workspace, token: minted.token, apiUrl: opts.apiUrl };
 }
 
@@ -286,7 +385,7 @@ export async function pollForDeviceToken(
   authUrl: string,
   code: { device_code: string; interval: number; expires_in: number },
   io: DeviceLoginIo,
-): Promise<string> {
+): Promise<DeviceSession> {
   let intervalMs = Math.max(1, code.interval) * 1000;
   const deadline = io.now() + Math.max(1, code.expires_in) * 1000;
   while (io.now() < deadline) {
@@ -301,7 +400,7 @@ export async function pollForDeviceToken(
     }
     switch (result.status) {
       case "ok":
-        return result.accessToken;
+        return { accessToken: result.accessToken, scope: result.scope };
       case "pending":
         continue;
       case "slow_down":

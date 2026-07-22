@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  formatDeviceScope,
+  parseDeviceScope,
   resolveAuthUrl,
   resolveEnrollmentCode,
   runLogin,
@@ -537,6 +539,204 @@ describe("runLogin device flow", () => {
   });
 });
 
+describe("device scope vocabulary", () => {
+  it("formats only when a workspace was requested", () => {
+    expect(formatDeviceScope(undefined, false)).toBeUndefined();
+    expect(formatDeviceScope(undefined, true)).toBeUndefined();
+    expect(formatDeviceScope("acme", false)).toBe("workspace:acme");
+    expect(formatDeviceScope("acme", true)).toBe("workspace:acme create");
+  });
+
+  it("round-trips through parse", () => {
+    expect(parseDeviceScope(formatDeviceScope("acme", true))).toEqual({
+      workspace: "acme",
+      create: true,
+    });
+    expect(parseDeviceScope("workspace:acme")).toEqual({ workspace: "acme", create: false });
+    expect(parseDeviceScope("")).toEqual({ workspace: undefined, create: false });
+    expect(parseDeviceScope(undefined)).toEqual({ workspace: undefined, create: false });
+  });
+});
+
+describe("runLogin device flow — browser workspace selection", () => {
+  const silentIo: DeviceLoginIo = {
+    sleep: async () => {},
+    now: () => Date.now(),
+    openUrl: () => {},
+    write: () => {},
+    isTTY: false,
+    promptWorkspaceName: async () => "",
+  };
+
+  const deviceCode = (over: Record<string, unknown> = {}) =>
+    response({
+      device_code: "dev-123",
+      user_code: "ABCD-EFGH",
+      verification_uri: "https://uploads.sh/device",
+      verification_uri_complete: "https://uploads.sh/device?user_code=ABCD-EFGH",
+      expires_in: 900,
+      interval: 5,
+      ...over,
+    });
+
+  it("sends the requested workspace as a device-code scope", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    const token = "up_acme_abcdefghijklmnopqrstuvwxyz";
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode())
+      .mockResolvedValueOnce(
+        response({
+          access_token: "sess-tok",
+          token_type: "Bearer",
+          expires_in: 3600,
+          scope: "workspace:acme",
+        }),
+      )
+      .mockResolvedValueOnce(
+        response(
+          { token, workspace: "acme", scopes: ["files:read"], label: "host", expiresAt: null },
+          201,
+        ),
+      );
+    captureOutput();
+
+    expect(
+      await runLogin(
+        ["--path", path, "--workspace", "acme", "--no-check"],
+        { json: true },
+        false,
+        silentIo,
+      ),
+    ).toBe(0);
+
+    const codeCall = fetchMock.mock.calls.find((c) => String(c[0]).endsWith("/device/code"));
+    expect(JSON.parse(String((codeCall![1] as RequestInit).body))).toMatchObject({
+      client_id: "uploads-cli",
+      scope: "workspace:acme",
+    });
+  });
+
+  it("mints for the workspace the browser chose, overriding --workspace", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    const token = "up_beta_abcdefghijklmnopqrstuvwxyz";
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode())
+      .mockResolvedValueOnce(
+        response({
+          access_token: "sess-tok",
+          token_type: "Bearer",
+          expires_in: 3600,
+          // The approval page rewrote the row: the user picked `beta`.
+          scope: "workspace:beta",
+        }),
+      )
+      .mockResolvedValueOnce(
+        response(
+          { token, workspace: "beta", scopes: ["files:read"], label: "host", expiresAt: null },
+          201,
+        ),
+      );
+    captureOutput();
+
+    expect(
+      await runLogin(
+        ["--path", path, "--workspace", "acme", "--no-check"],
+        { json: true },
+        false,
+        silentIo,
+      ),
+    ).toBe(0);
+
+    const mintCall = fetchMock.mock.calls.find(
+      (c) => String(c[0]).endsWith("/v1/tokens") && (c[1] as RequestInit)?.method === "POST",
+    );
+    expect(JSON.parse(String((mintCall![1] as RequestInit).body))).toMatchObject({
+      grants: [{ workspace: "beta" }],
+    });
+    expect(loadConfigFile(path).UPLOADS_WORKSPACE).toBe("beta");
+  });
+
+  it("mints for the browser's choice with no --workspace and several memberships", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    const token = "up_beta_abcdefghijklmnopqrstuvwxyz";
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode())
+      .mockResolvedValueOnce(
+        response({
+          access_token: "sess-tok",
+          token_type: "Bearer",
+          expires_in: 3600,
+          scope: "workspace:beta",
+        }),
+      )
+      .mockResolvedValueOnce(
+        response(
+          { token, workspace: "beta", scopes: ["files:read"], label: "host", expiresAt: null },
+          201,
+        ),
+      );
+    captureOutput();
+
+    // No --workspace: this used to hard-error for multi-workspace accounts.
+    expect(await runLogin(["--path", path, "--no-check"], { json: true }, false, silentIo)).toBe(0);
+    // The browser answered, so no GET /v1/tokens listing was needed.
+    expect(
+      fetchMock.mock.calls.some(
+        (c) => String(c[0]).endsWith("/v1/tokens") && (c[1] as RequestInit)?.method !== "POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps the CLI provisioning path when the echoed scope still carries create", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    const token = "up_fresh_abcdefghijklmnopqrstuvwxyz";
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode())
+      .mockResolvedValueOnce(
+        response({
+          access_token: "sess-tok",
+          token_type: "Bearer",
+          expires_in: 3600,
+          // Unchanged by the page: it deferred to the CLI (--create).
+          scope: "workspace:fresh create",
+        }),
+      )
+      .mockResolvedValueOnce(response({ workspaces: [] })) // GET /v1/tokens
+      .mockResolvedValueOnce(
+        response(
+          {
+            workspace: {
+              name: "fresh",
+              publicBaseUrl: "https://storage.uploads.sh/fresh",
+              selfServe: true,
+            },
+          },
+          201,
+        ),
+      ) // POST /v1/workspaces
+      .mockResolvedValueOnce(
+        response(
+          { token, workspace: "fresh", scopes: ["files:read"], label: "host", expiresAt: null },
+          201,
+        ),
+      );
+    captureOutput();
+
+    expect(
+      await runLogin(
+        ["--path", path, "--workspace", "fresh", "--create", "--no-check"],
+        { json: true },
+        false,
+        silentIo,
+      ),
+    ).toBe(0);
+    expect(loadConfigFile(path).UPLOADS_WORKSPACE).toBe("fresh");
+  });
+});
+
 describe("admin enrollment", () => {
   it("uses ADMIN_TOKEN and sends explicit lifetime and scopes", async () => {
     process.env.ADMIN_TOKEN = "admin-secret";
@@ -742,5 +942,85 @@ describe("credential config writes", () => {
       writeConfigKeys(path, { UPLOADS_TOKEN: "valid\nINJECTED=yes" }, { force: true }),
     ).toThrow("invalid newline");
     expect(readFileSync(path, "utf8")).toBe(before);
+  });
+});
+
+describe("runLogin device flow — mint failure backstop", () => {
+  const silentIo: DeviceLoginIo = {
+    sleep: async () => {},
+    now: () => Date.now(),
+    openUrl: () => {},
+    write: () => {},
+    isTTY: false,
+    promptWorkspaceName: async () => "",
+  };
+
+  it("names the accessible workspaces when the mint is forbidden", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        response({
+          device_code: "dev-123",
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://uploads.sh/device",
+          expires_in: 900,
+          interval: 5,
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      )
+      .mockResolvedValueOnce(
+        response({ error: "no access to this workspace", code: "workspace_forbidden" }, 403),
+      ) // POST /v1/tokens
+      .mockResolvedValueOnce(
+        response({
+          workspaces: [
+            { workspace: "acme", role: "member" },
+            { workspace: "beta", role: "owner" },
+          ],
+        }),
+      ); // GET /v1/tokens, fetched only to build the error
+    captureOutput();
+
+    await expect(
+      runLogin(
+        ["--path", path, "--workspace", "default", "--no-check"],
+        { json: true },
+        false,
+        silentIo,
+      ),
+    ).rejects.toThrow(/no access to workspace "default".*acme, beta/s);
+  });
+
+  it("still fails clearly when the account has no workspaces at all", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        response({
+          device_code: "dev-123",
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://uploads.sh/device",
+          expires_in: 900,
+          interval: 5,
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      )
+      .mockResolvedValueOnce(
+        response({ error: "no access to this workspace", code: "workspace_forbidden" }, 403),
+      )
+      .mockResolvedValueOnce(response({ workspaces: [] }));
+    captureOutput();
+
+    await expect(
+      runLogin(
+        ["--path", path, "--workspace", "default", "--no-check"],
+        { json: true },
+        false,
+        silentIo,
+      ),
+    ).rejects.toThrow(/no access to workspace "default".*--create/s);
   });
 });

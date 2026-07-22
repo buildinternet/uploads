@@ -1,6 +1,6 @@
 ---
 import { env } from "cloudflare:workers";
-import { applyAuthSecurityHeaders, authPageCsp } from "../lib/signed-in-page";
+import { applyAuthSecurityHeaders, devicePageCsp, resolveSignedInOrigins } from "../lib/signed-in-page";
 import BaseHead from "../components/BaseHead.astro";
 import Brand from "../components/Brand.astro";
 import Footer from "../components/Footer.astro";
@@ -8,13 +8,12 @@ import GitHubMark from "../components/GitHubMark.astro";
 
 export const prerender = false;
 
-const authOrigin =
-  env.UPLOADS_AUTH_ORIGIN ??
-  import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ??
-  "https://auth.uploads.sh";
+// The API origin is needed because a first-run account can create its
+// workspace inline here (issue #362).
+const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
 
 // Header (not meta): frame-ancestors is ignored on meta CSP.
-applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
+applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOrigin));
 ---
 
 <html lang="en">
@@ -39,6 +38,56 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     input{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-md);color:var(--fg);padding:10px 12px;font:14px var(--mono)}
     input:focus-visible{border-color:var(--accent);outline:none}
     .actions{display:flex;gap:10px}
+    .ws {
+      margin: 0 0 18px;
+    }
+    .ws label {
+      display: block;
+      color: var(--muted);
+      font-size: 10.5px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .ws select {
+      width: 100%;
+      font: 14px var(--mono);
+      color: var(--fg);
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      padding: 9px 11px;
+      appearance: none;
+    }
+    .ws select:focus-visible {
+      border-color: var(--accent);
+      outline: none;
+    }
+    .ws .fixed {
+      font: 14px var(--mono);
+      color: var(--fg);
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      padding: 9px 11px;
+    }
+    .ws .note {
+      color: var(--muted);
+      font-size: 12px;
+      margin: 6px 0 0;
+    }
+    .ws-new {
+      margin-top: 10px;
+    }
+    .text-btn {
+      background: none;
+      border: 0;
+      color: var(--accent);
+      font: inherit;
+      padding: 0;
+      cursor: pointer;
+      text-decoration: underline;
+    }
     button.primary,button.secondary,button[type=submit]{flex:1;font:12px var(--mono);letter-spacing:.04em;color:var(--accent);background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 13px;cursor:pointer}
     button.secondary{color:var(--muted)}
     button.primary:hover,button.primary:focus-visible,button[type=submit]:hover,button[type=submit]:focus-visible{border-color:var(--accent);outline:none}
@@ -100,6 +149,23 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   <div id="confirm" hidden>
     <p>Signed in as <span id="who"></span>. A device is requesting access to your account:</p>
     <div class="code" id="code-display" aria-label="device code"></div>
+
+    <div class="ws" id="ws-block" hidden>
+      <label for="ws-select">Workspace</label>
+      <select id="ws-select"></select>
+      <div class="fixed" id="ws-fixed" hidden></div>
+      <p class="note" id="ws-note" hidden></p>
+      <div class="ws-new" id="ws-new" hidden>
+        <label for="ws-name">New workspace name</label>
+        <input id="ws-name" type="text" pattern="[a-z0-9][a-z0-9-]{1,62}" autocomplete="off" spellcheck="false" placeholder="workspace-name" />
+        <p class="note">2–63 chars · lowercase letters, digits, hyphens</p>
+      </div>
+      <p class="note" id="ws-github" hidden>
+        Creating a workspace requires a linked GitHub account.
+        <button type="button" class="text-btn" id="ws-github-btn">Connect GitHub</button>
+      </p>
+    </div>
+
     <div class="actions">
       <button type="button" class="primary" id="approve-btn">Approve</button>
       <button type="button" class="secondary" id="deny-btn">Deny</button>
@@ -107,8 +173,22 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     <div class="ul-callout status" id="confirm-error" data-state="error" role="alert" hidden></div>
   </div>
 
+  <div id="no-access" hidden>
+    <div class="ul-callout status" data-state="error" role="alert">
+      Your account doesn't have access to a workspace named <strong id="na-name"></strong>.
+    </div>
+    <p id="na-have" hidden>This account can use: <span id="na-list"></span>.</p>
+    <div class="actions">
+      <button type="button" class="primary" id="na-choose">Choose a different workspace</button>
+      <button type="button" class="secondary" id="na-deny">Deny</button>
+    </div>
+  </div>
+
   <div id="approved" hidden>
-    <div class="ul-callout status" data-state="ready" role="status">Device approved. Return to your terminal — you're signed in. You can close this page.</div>
+    <div class="ul-callout status" data-state="ready" role="status">
+      Device approved<span id="approved-ws-wrap" hidden> — signed in to <strong id="approved-ws"></strong></span>.
+      Return to your terminal. You can close this page.
+    </div>
   </div>
 
   <div id="denied" hidden>
@@ -117,20 +197,30 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
 
   <Footer compact />
 </main>
-<script define:vars={{ authOrigin }}>
+<script define:vars={{ authOrigin, apiOrigin }}>
   window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
+  window.__UPLOADS_API_ORIGIN__ = apiOrigin;
 </script>
 <script>
   import {
     approveDevice,
     denyDevice,
     getDeviceStatus,
+    getDeviceWorkspace,
     getSession,
+    linkGitHub,
     sendMagicLink,
+    setDeviceWorkspace,
     signInWithGitHub,
   } from "../lib/auth-client";
+  import { createWorkspace } from "../lib/api-client";
+  import { resolveDeviceWorkspaceState, type DeviceWorkspaceState } from "../lib/device-workspace";
+  import { createErrorCopy } from "../lib/workspace-ui";
+  import { clearCachedWorkspaces } from "../lib/workspaces-nav";
 
-  const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string }).__UPLOADS_AUTH_ORIGIN__;
+  const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
+    .__UPLOADS_AUTH_ORIGIN__;
+  const apiOrigin = (window as unknown as { __UPLOADS_API_ORIGIN__: string }).__UPLOADS_API_ORIGIN__;
 
   function requireElement<T extends Element>(selector: string): T {
     const element = document.querySelector<T>(selector);
@@ -159,6 +249,43 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
   const approveBtn = requireElement<HTMLButtonElement>("#approve-btn");
   const denyBtn = requireElement<HTMLButtonElement>("#deny-btn");
   const confirmError = requireElement<HTMLElement>("#confirm-error");
+  const wsBlock = requireElement<HTMLElement>("#ws-block");
+  // Not requireElement<HTMLSelectElement>: worker-configuration.d.ts's
+  // HTMLRewriter ambient `Element` redeclares `remove()` too, which makes
+  // HTMLSelectElement fail the `T extends Element` constraint (same pattern
+  // as oauth/consent.astro's workspaceSelect). Fetch as HTMLElement and cast.
+  const wsSelect = requireElement<HTMLElement>("#ws-select") as unknown as HTMLSelectElement;
+  const wsFixed = requireElement<HTMLElement>("#ws-fixed");
+  const wsNote = requireElement<HTMLElement>("#ws-note");
+  const wsNew = requireElement<HTMLElement>("#ws-new");
+  const wsName = requireElement<HTMLInputElement>("#ws-name");
+  const wsGithub = requireElement<HTMLElement>("#ws-github");
+  const wsGithubBtn = requireElement<HTMLButtonElement>("#ws-github-btn");
+  const noAccess = requireElement<HTMLElement>("#no-access");
+  const naName = requireElement<HTMLElement>("#na-name");
+  const naHave = requireElement<HTMLElement>("#na-have");
+  const naList = requireElement<HTMLElement>("#na-list");
+  const naChoose = requireElement<HTMLButtonElement>("#na-choose");
+  const naDeny = requireElement<HTMLButtonElement>("#na-deny");
+  const approvedWorkspace = requireElement<HTMLElement>("#approved-ws");
+  const approvedWorkspaceWrap = requireElement<HTMLElement>("#approved-ws-wrap");
+
+  /** Sentinel option value meaning "create a new workspace instead of picking one". */
+  const NEW_WORKSPACE = "__new__";
+
+  /** Null until the lookup runs — approval then skips the choice write entirely. */
+  let wsState: DeviceWorkspaceState | null = null;
+
+  /**
+   * A workspace this page already created, so a retry doesn't try to create it
+   * twice. Approve is a three-step sequence and only the first step creates:
+   * if recording the choice or approving then fails, the user clicks Approve
+   * again — and without this, the second run would re-POST the same name and
+   * get a "name taken" conflict caused by its own first attempt, stranding
+   * them with no way to finish. Keyed by the name that was submitted so
+   * editing the field still creates the new one.
+   */
+  let createdWorkspace: { name: string; slug: string } | null = null;
 
   let userCode = new URLSearchParams(location.search).get("user_code")?.trim() ?? "";
 
@@ -181,6 +308,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       confirmBox,
       approved,
       denied,
+      noAccess,
     ]) {
       el.hidden = true;
     }
@@ -218,7 +346,67 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
       return;
     }
     codeDisplay.textContent = formatUserCode(userCode);
+    const wsLookup = await getDeviceWorkspace(authOrigin, userCode);
+    wsState = wsLookup.ok ? resolveDeviceWorkspaceState(wsLookup.value) : null;
+    renderWorkspace(wsState);
+  }
+
+  /**
+   * Paint the workspace block for a state, and decide which of #confirm /
+   * #no-access is visible. This is the sole authority on that visibility —
+   * callers must not toggle confirmBox themselves, or a denied lookup can
+   * leave a live Approve button showing on top of the blocking panel.
+   */
+  function renderWorkspace(state: DeviceWorkspaceState | null) {
+    wsBlock.hidden = true;
+    wsSelect.hidden = true;
+    wsFixed.hidden = true;
+    wsNote.hidden = true;
+    wsNew.hidden = true;
+    wsGithub.hidden = true;
+
+    if (state?.kind === "denied") {
+      hideAll();
+      naName.textContent = state.requested;
+      naList.textContent = state.options.map((w) => w.slug).join(", ");
+      naHave.hidden = state.options.length === 0;
+      noAccess.hidden = false;
+      return;
+    }
+
+    // An older auth worker (or a transient failure) leaves state null: approve
+    // exactly as before and let the CLI resolve the workspace.
     confirmBox.hidden = false;
+    if (!state) return;
+
+    wsBlock.hidden = false;
+    if (state.kind === "provision") {
+      wsFixed.textContent = state.requested;
+      wsFixed.hidden = false;
+      wsNote.textContent = "Will be created in your terminal if it doesn't exist yet.";
+      wsNote.hidden = false;
+      return;
+    }
+    if (state.kind === "first_run") {
+      wsNew.hidden = false;
+      wsNote.textContent = "Your account doesn't have a workspace yet — name one to create it.";
+      wsNote.hidden = false;
+      return;
+    }
+    wsSelect.replaceChildren();
+    for (const option of state.options) {
+      const el = document.createElement("option");
+      el.value = option.slug;
+      el.textContent = option.name === option.slug ? option.slug : `${option.name} (${option.slug})`;
+      wsSelect.appendChild(el);
+    }
+    const newOption = document.createElement("option");
+    newOption.value = NEW_WORKSPACE;
+    newOption.textContent = "New workspace…";
+    wsSelect.appendChild(newOption);
+    wsSelect.value = state.selected;
+    wsSelect.hidden = false;
+    wsNew.hidden = wsSelect.value !== NEW_WORKSPACE;
   }
 
   function init() {
@@ -274,31 +462,137 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     }
   });
 
-  // Approve and deny share everything but the action call, the verb in the
-  // error copy, and which final panel to reveal.
-  function decide(
-    action: (origin: string, code: string) => Promise<boolean>,
-    verb: string,
-    resultPanel: HTMLElement,
-  ) {
-    return async () => {
+  wsSelect.addEventListener("change", () => {
+    wsNew.hidden = wsSelect.value !== NEW_WORKSPACE;
+    wsGithub.hidden = true;
+  });
+
+  wsGithubBtn.addEventListener("click", () => {
+    wsGithubBtn.disabled = true;
+    void linkGitHub(authOrigin, location.href).then((ok) => {
+      if (!ok) wsGithubBtn.disabled = false;
+    });
+  });
+
+  // The blocking panel's escape hatch: fall back to picking from what this
+  // account actually has (or creating one), rather than approving a login the
+  // terminal asked to point somewhere unreachable.
+  naChoose.addEventListener("click", () => {
+    const options = wsState?.kind === "denied" ? wsState.options : [];
+    wsState = options.length
+      ? { kind: "choose", options, selected: options[0]!.slug }
+      : { kind: "first_run" };
+    hideAll();
+    renderWorkspace(wsState);
+  });
+
+  naDeny.addEventListener("click", () => {
+    void (async () => {
+      naChoose.disabled = true;
+      naDeny.disabled = true;
+      if (await denyDevice(authOrigin, userCode)) {
+        hideAll();
+        denied.hidden = false;
+        return;
+      }
+      naChoose.disabled = false;
+      naDeny.disabled = false;
+    })();
+  });
+
+  /**
+   * Resolve the workspace this approval should mint for, creating one first
+   * when the user asked for that. Returns the slug, `null` when there's
+   * nothing to record (provision / unknown state), or `false` when the step
+   * failed and approval must NOT proceed.
+   */
+  async function settleWorkspace(): Promise<string | null | false> {
+    if (!wsState || wsState.kind === "provision" || wsState.kind === "denied") return null;
+    const creating = wsState.kind === "first_run" || wsSelect.value === NEW_WORKSPACE;
+    if (!creating) return wsSelect.value;
+
+    const name = wsName.value.trim();
+    if (!name) {
+      confirmError.textContent = "Enter a name for the new workspace.";
+      confirmError.hidden = false;
+      return false;
+    }
+    // Already created on an earlier attempt that failed further down the
+    // sequence — reuse it rather than colliding with ourselves.
+    if (createdWorkspace?.name === name) return createdWorkspace.slug;
+
+    const created = await createWorkspace(apiOrigin, name);
+    if (created.kind === "created") {
+      // Drop the sidebar membership cache so /account reflects the new
+      // workspace on its next paint.
+      clearCachedWorkspaces();
+      createdWorkspace = { name, slug: created.workspace.name };
+      return created.workspace.name;
+    }
+    if (created.kind === "error" && created.code === "github_required") {
+      wsGithub.hidden = false;
+      return false;
+    }
+    confirmError.textContent =
+      created.kind === "unavailable"
+        ? "The API is unreachable right now — try again shortly."
+        : createErrorCopy(created.code);
+    confirmError.hidden = false;
+    return false;
+  }
+
+  approveBtn.addEventListener("click", () => {
+    void (async () => {
+      confirmError.hidden = true;
+      wsGithub.hidden = true;
+      approveBtn.disabled = true;
+      denyBtn.disabled = true;
+      const release = () => {
+        approveBtn.disabled = false;
+        denyBtn.disabled = false;
+      };
+
+      const workspace = await settleWorkspace();
+      if (workspace === false) return release();
+
+      // Record the choice BEFORE approving: once the row flips to approved the
+      // CLI can claim its token, and it must never read a stale workspace.
+      if (workspace && !(await setDeviceWorkspace(authOrigin, userCode, workspace))) {
+        release();
+        confirmError.textContent = "Couldn't save your workspace choice — try again.";
+        confirmError.hidden = false;
+        return;
+      }
+
+      if (!(await approveDevice(authOrigin, userCode))) {
+        release();
+        confirmError.textContent = "Couldn't approve the device. The code may have expired.";
+        confirmError.hidden = false;
+        return;
+      }
+      hideAll();
+      approvedWorkspace.textContent = workspace ?? "";
+      approvedWorkspaceWrap.hidden = !workspace;
+      approved.hidden = false;
+    })();
+  });
+
+  denyBtn.addEventListener("click", () => {
+    void (async () => {
       confirmError.hidden = true;
       approveBtn.disabled = true;
       denyBtn.disabled = true;
-      if (await action(authOrigin, userCode)) {
+      if (await denyDevice(authOrigin, userCode)) {
         hideAll();
-        resultPanel.hidden = false;
+        denied.hidden = false;
         return;
       }
       approveBtn.disabled = false;
       denyBtn.disabled = false;
-      confirmError.textContent = `Couldn't ${verb} the device. The code may have expired.`;
+      confirmError.textContent = "Couldn't deny the device. The code may have expired.";
       confirmError.hidden = false;
-    };
-  }
-
-  approveBtn.addEventListener("click", decide(approveDevice, "approve", approved));
-  denyBtn.addEventListener("click", decide(denyDevice, "deny", denied));
+    })();
+  });
 
   init();
 </script>

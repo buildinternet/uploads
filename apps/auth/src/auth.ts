@@ -20,6 +20,7 @@ import {
   magicLink,
   organization,
 } from "better-auth/plugins";
+import { deviceWorkspacePlugin } from "./device-workspace";
 import { sendAuthEmail } from "./email";
 import { localDemoEnabled, localDemoPlugin } from "./local-demo";
 import * as schema from "./schema";
@@ -548,6 +549,10 @@ function buildAuth(
       // signed-in multi-workspace user record which workspace an OAuth grant
       // should operate on (read back by postLogin.consentReferenceId above).
       workspaceChoicePlugin(db),
+      // Issue #362: GET/POST /device/workspace, letting the /device approval
+      // page resolve and rewrite the workspace a device login mints for
+      // before it approves.
+      deviceWorkspacePlugin(db),
       // Hosted dashboard (`@better-auth/infra`). Omit when the API key is unset.
       ...(dashApiKey ? [dash({ apiKey: dashApiKey })] : []),
       // This endpoint is omitted entirely unless the lifecycle runner supplies

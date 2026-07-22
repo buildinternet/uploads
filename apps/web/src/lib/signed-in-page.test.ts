@@ -2,7 +2,13 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { applyAuthSecurityHeaders, authPageCsp, INVITE_CSP, signedInCsp } from "./signed-in-page";
+import {
+  applyAuthSecurityHeaders,
+  authPageCsp,
+  devicePageCsp,
+  INVITE_CSP,
+  signedInCsp,
+} from "./signed-in-page";
 
 const AUTH = "https://auth.uploads.sh";
 const API = "https://api.uploads.sh";
@@ -34,6 +40,22 @@ describe("signed-in / auth CSP builders", () => {
     expect(csp).not.toContain("img-src data: https:");
     expect(csp).not.toContain(API);
     expect(csp).toContain("frame-ancestors 'none'");
+  });
+
+  it("devicePageCsp adds the API origin for inline workspace creation, nothing else", () => {
+    const csp = devicePageCsp(AUTH, API);
+    expect(csp).toContain(`connect-src ${AUTH} ${API}`);
+    // Still an auth page: data: images only, unlike signedInCsp.
+    expect(csp).toContain("img-src data:");
+    expect(csp).not.toContain("img-src data: https:");
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("form-action 'none'");
+
+    // Drift guard: ensure devicePageCsp is authPageCsp with API origin added to connect-src.
+    // This prevents silent directive drift that the spot-checks above wouldn't catch.
+    const authCsp = authPageCsp(AUTH);
+    const expectedDeviceCsp = authCsp.replace(`connect-src ${AUTH}`, `connect-src ${AUTH} ${API}`);
+    expect(devicePageCsp(AUTH, API)).toBe(expectedDeviceCsp);
   });
 
   it("INVITE_CSP targets prod API and keeps frame-ancestors", () => {

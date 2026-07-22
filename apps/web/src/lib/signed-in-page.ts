@@ -77,6 +77,27 @@ export function authPageCsp(authOrigin: string): string {
 }
 
 /**
+ * CSP for `/device`. `authPageCsp` plus the API origin in `connect-src`: since
+ * issue #362 the approval page can create a workspace inline (POST
+ * /v1/workspaces on the API worker) for an account that has none. Deliberately
+ * NOT `signedInCsp` — that one also relaxes `img-src` to `https:`, which this
+ * page has no need for.
+ */
+export function devicePageCsp(authOrigin: string, apiOrigin: string): string {
+  return [
+    "default-src 'none'",
+    `connect-src ${authOrigin} ${apiOrigin} ${CF_RUM_CONNECT_SRC}`,
+    `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
+    `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
+    "font-src 'self'",
+    "img-src data:",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+}
+
+/**
  * CSP for the CLI enroll invite page (`/invite`). Prod API origin is fixed
  * (page hard-codes api.uploads.sh). Delivered via `public/_headers` for the
  * static asset path — keep that file's Content-Security-Policy value identical
