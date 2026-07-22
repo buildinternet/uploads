@@ -84,6 +84,28 @@
     "binding": "BROWSER",
     "remote": true,
   },
+  // Media Transformations — video poster frames (issue #299). Like BROWSER,
+  // this has no local simulation and proxies to the real service, so
+  // "remote": true is required. Removing this binding is the hard kill
+  // switch: apps/api/src/poster.ts treats an absent env.MEDIA as a no-op.
+  "media": {
+    "binding": "MEDIA",
+    "remote": true,
+  },
+  // Flagship feature flags (app "uploads" — same app apps/web binds for
+  // console-mode). Carries `video-poster-generation`, the seconds-fast kill
+  // switch for issue #299 poster generation:
+  //   wrangler flagship flags disable <APP_ID> video-poster-generation
+  // Deliberately fails CLOSED — posterGenerationAllowed passes `false` as the
+  // evaluation default, so an unreachable Flagship or a missing flag disables
+  // generation rather than leaving it running. Self-hosters without Flagship
+  // can delete this block; posters simply stay off.
+  "flagship": [
+    {
+      "binding": "FLAGS",
+      "app_id": "8371bfe7-9767-4b4d-b75a-37b94d2724f7",
+    },
+  ],
   "d1_databases": [
     {
       "binding": "DB",
@@ -144,6 +166,19 @@
         "namespace_id": "1004",
         "simple": {
           "limit": 10,
+          "period": 60,
+        },
+      },
+      {
+        // Video poster generation, keyed by workspace. Media Transformations
+        // is unbilled during its beta and per-operation after; this is the
+        // automatic ceiling so a bulk upload can't run up a bill unattended.
+        // The manual switches are the Flagship flag and the MEDIA binding.
+        "name": "POSTER_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1005",
+        "simple": {
+          "limit": 30,
           "period": 60,
         },
       },
