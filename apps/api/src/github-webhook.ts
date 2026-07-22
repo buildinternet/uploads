@@ -134,13 +134,15 @@ async function gatherAndUpsert(env: Env, link: RepoLink, target: GhTarget): Prom
   }
 
   const gathered = await gatherCommentBody(env, ws, link.workspaceName, target);
-  if (gathered.skip) return; // nothing staged and nothing pre-existing — no empty comment.
 
   const cfg = githubAppConfig(env);
   if (!cfg) return;
   const installId = link.installationId ?? (await installationForRepo(env, cfg, target.repo));
   if (installId === null) return;
 
+  // Patch-only when empty: a fully-cleared PR keeps/updates an existing
+  // comment to the empty state, but we never create one just to say "empty"
+  // (this path fires on every pull_request event for a bound repo).
   const result = await upsertBotComment(
     env,
     cfg,
@@ -148,6 +150,8 @@ async function gatherAndUpsert(env: Env, link: RepoLink, target: GhTarget): Prom
     target,
     gathered.body,
     link.workspaceName,
+    fetch,
+    { createIfMissing: gathered.count > 0 },
   );
   if ("degrade" in result) {
     console.error(

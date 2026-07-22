@@ -134,9 +134,22 @@ export async function postManagedComment(
   if (decline) return decline;
 
   const gathered = await gatherCommentBody(env, ws, workspaceName, target);
-  if (gathered.skip) return { posted: true, action: "skipped", count: 0 };
 
-  const result = await upsertBotComment(env, cfg, installId, target, gathered.body, workspaceName);
+  // Patch-only when empty: never create a comment just to say "empty" (see
+  // upsertBotComment's createIfMissing). `gathered.body` already renders the
+  // neutral empty state when count is 0.
+  const result = await upsertBotComment(
+    env,
+    cfg,
+    installId,
+    target,
+    gathered.body,
+    workspaceName,
+    fetch,
+    {
+      createIfMissing: gathered.count > 0,
+    },
+  );
   if ("degrade" in result) {
     // A 403 means the App is installed but lacks Issues/PR write (pending org
     // approval). Enrich that one reason with actionable guidance so callers
@@ -146,6 +159,8 @@ export async function postManagedComment(
     if (result.degrade === "forbidden") return forbiddenDecline(target.repo, installId);
     return { posted: false, reason: result.degrade };
   }
+  // Empty + no existing comment: nothing posted, nothing to claim.
+  if (result.action === "skipped") return { posted: true, action: "skipped", count: 0 };
 
   // Implicit claim (phase 3): the comment actually posted, so this
   // workspace has proven authenticated write access to this repo's
