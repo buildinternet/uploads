@@ -809,10 +809,18 @@ uploads --api-url http://localhost:8787 doctor
   `find_files` returns each match's metadata inline, so `gh.staged-at` gives
   recency without a second call; add `"gh.repo": "<owner>/<repo>"` to the
   filters when branch names aren't unique across repos you're working in. For
-  the binding question ("will these auto-attach?"), there's no hosted-MCP
-  tool for the repo-link check either — fall back to the CLI's `uploads
-github link --status --repo <owner/name>`, or just try `attach --promote`
-  once the PR exists and read its result.
+  the binding question ("will these auto-attach?"), use the hosted `repo_link_status`
+  tool (issue #422):
+
+  ```text
+  repo_link_status  { repo: "<owner>/<repo>" }
+  ```
+
+  It returns `{ binding: "self" | "other" | "none" }`: `"self"` means this
+  repo is bound to this workspace and staged files will auto-attach,
+  `"other"` means it's bound to a different workspace and they won't —
+  deliberately without ever naming that workspace — and `"none"` means the
+  repo is unbound.
 
 - **Agents on the Worker side:** the package also exports
   `createUploadsWorkerFileTools()` from `@buildinternet/uploads/agent` for exposing

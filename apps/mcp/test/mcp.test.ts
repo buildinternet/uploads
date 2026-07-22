@@ -550,6 +550,7 @@ describe("mcp worker", () => {
       "purge_expired",
       "put",
       "reconcile",
+      "repo_link_status",
       "set_metadata",
       "usage",
     ]);

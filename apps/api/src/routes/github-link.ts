@@ -13,6 +13,7 @@ import { Hono } from "hono";
 import { isEntitledToClaimRepo } from "../github-claim-authz";
 import {
   deleteRepoLinkForWorkspace,
+  deriveRepoBinding,
   findRepoLink,
   findRepoLinkStrict,
   recordRepoLink,
@@ -71,9 +72,7 @@ export const githubLink = new Hono<WorkspaceVars>()
     const repo = parseRepo(c.req.query("repo"));
     const workspaceName = c.get("workspaceName");
     const link = await findRepoLink(c.env.DB, repo);
-    const binding =
-      link === null ? "none" : link.workspaceName === workspaceName ? "self" : "other";
-    return c.json({ binding });
+    return c.json({ binding: deriveRepoBinding(link, workspaceName) });
   })
   .post("/link", writeRateLimit, requireScope("files:write"), async (c) => {
     const repo = parseRepo((await jsonBody(c)).repo);
