@@ -41,7 +41,7 @@ export async function gatherCommentBody(
   ws: WorkspaceRecord,
   workspaceName: string,
   target: GhTarget,
-): Promise<{ skip: true } | { skip: false; body: string; count: number }> {
+): Promise<{ body: string; count: number }> {
   // Attachments (R2 list) and galleries (D1) are independent reads — overlap
   // them so the request only waits the longer of the two, not their sum.
   const [items, galleries] = await Promise.all([
@@ -50,9 +50,10 @@ export async function gatherCommentBody(
   ]);
 
   const count = items.length + galleries.length;
-  if (count === 0) return { skip: true };
   const marker = attachmentsMarker(workspaceName);
-  return { skip: false, body: attachmentsCommentBody(items, galleries, marker), count };
+  // count may be 0 — attachmentsCommentBody renders a neutral empty state.
+  // Callers gate create-vs-patch on count (see upsertBotComment createIfMissing).
+  return { body: attachmentsCommentBody(items, galleries, marker), count };
 }
 
 /**
@@ -232,9 +233,13 @@ export async function upsertBotComment(
   body: string,
   workspaceName: string,
   fetchImpl: typeof fetch = fetch,
+  opts: { createIfMissing?: boolean } = {},
 ): Promise<
-  { action: "created" | "updated"; commentUrl: string } | { degrade: "forbidden" | "unavailable" }
+  | { action: "created" | "updated"; commentUrl: string }
+  | { action: "skipped" }
+  | { degrade: "forbidden" | "unavailable" }
 > {
+  const createIfMissing = opts.createIfMissing ?? true;
   const token = await installationToken(env, cfg, installationId, fetchImpl);
   if (!token) return { degrade: "unavailable" };
   const base = `https://api.github.com/repos/${target.repo}`;
@@ -278,6 +283,7 @@ export async function upsertBotComment(
   if (found.degrade) return { degrade: found.degrade };
   const existing = found.comment;
 
+  if (!existing && !createIfMissing) return { action: "skipped" };
   const r = existing
     ? await write(`${base}/issues/comments/${existing.id}`, "PATCH")
     : await write(`${base}/issues/${target.num}/comments`, "POST");
