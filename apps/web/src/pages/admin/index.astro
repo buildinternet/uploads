@@ -71,6 +71,90 @@ export const prerender = false;
       usage: { bytes: number; uploads: number } | null;
     }
 
+    interface PlanResponse {
+      workspace: string;
+      plan: "free" | "pro";
+      available: boolean;
+      planApplied: boolean;
+      limits: Limits;
+      overrides: string[];
+    }
+
+    const PLAN_OPTIONS: { id: "free" | "pro"; label: string }[] = [
+      { id: "free", label: "Free" },
+      { id: "pro", label: "Pro (unavailable to self-serve)" },
+    ];
+
+    function renderPlanSelector(host: HTMLElement, workspace: string, data: PlanResponse): void {
+      const options = PLAN_OPTIONS.map(
+        (opt) =>
+          `<option value="${opt.id}"${opt.id === data.plan ? " selected" : ""}>${escapeHtml(opt.label)}</option>`,
+      ).join("");
+
+      const appliedNote = data.planApplied
+        ? ""
+        : `<p class="muted plan-unapplied">No plan applied (legacy) — limits shown are the enforcement truth (explicit-or-unlimited), not this plan's defaults.</p>`;
+
+      host.innerHTML = `
+        <h4 class="plan-heading">Plan</h4>
+        <p class="muted plan-availability">${data.available ? "Available" : "Not available for self-serve upgrade"}</p>
+        ${appliedNote}
+        <form class="plan-form">
+          <select class="plan-select" aria-label="Plan">${options}</select>
+          <button type="submit">Save plan</button>
+          <div class="plan-status" role="status" aria-live="polite" hidden></div>
+        </form>`;
+
+      const form = host.querySelector<HTMLFormElement>(".plan-form");
+      const statusEl = host.querySelector<HTMLElement>(".plan-status");
+      form?.addEventListener("submit", (event) => {
+        void (async () => {
+          event.preventDefault();
+          if (statusEl) statusEl.hidden = true;
+          const select = host.querySelector<HTMLElement>(
+            ".plan-select",
+          ) as unknown as HTMLSelectElement | null;
+          const plan = select?.value ?? "free";
+          const submitBtn = form.querySelector<HTMLButtonElement>("button[type=submit]");
+          if (submitBtn) submitBtn.disabled = true;
+          try {
+            const res = await fetch(
+              `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(workspace)}/plan`,
+              {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ plan }),
+              },
+            );
+            if (!res.ok) {
+              const payload = (await res.json().catch(() => null)) as {
+                error?: { message?: string };
+              } | null;
+              throw new Error(payload?.error?.message || `save failed: ${res.status}`);
+            }
+            const updated = (await res.json()) as PlanResponse;
+            renderPlanSelector(host, workspace, updated);
+            const freshStatus = host.querySelector<HTMLElement>(".plan-status");
+            if (freshStatus) {
+              freshStatus.dataset.state = "ready";
+              freshStatus.textContent = "Saved.";
+              freshStatus.hidden = false;
+            }
+          } catch (err) {
+            if (statusEl) {
+              statusEl.dataset.state = "error";
+              statusEl.textContent =
+                err instanceof Error && err.message ? err.message : "Couldn't save plan.";
+              statusEl.hidden = false;
+            }
+          } finally {
+            if (submitBtn) submitBtn.disabled = false;
+          }
+        })();
+      });
+    }
+
     const LIMIT_UNITS: { label: string; mult: number }[] = [
       { label: "MB", mult: 1_000_000 },
       { label: "GB", mult: 1_000_000_000 },
@@ -275,6 +359,7 @@ export const prerender = false;
       <div class="detail">
         <div class="members" data-state="unloaded">Members load when expanded.</div>
         <div class="invites"></div>
+        <div class="plan" data-state="unloaded"></div>
         <div class="limits" data-state="unloaded"></div>
         <div class="github-links" data-state="unloaded"></div>
         ${
@@ -302,6 +387,7 @@ export const prerender = false;
     `;
 
       let loaded = false;
+      let planLoaded = false;
       let limitsLoaded = false;
       let githubLinksLoaded = false;
       details.addEventListener("toggle", () => {
@@ -339,6 +425,22 @@ export const prerender = false;
             loaded = true;
           } catch {
             if (membersEl) membersEl.textContent = "Failed to load members.";
+          }
+        })();
+        // Plan selector — independent load, own retry flag, same pattern as
+        // limits below.
+        void (async () => {
+          if (!details.open || planLoaded) return;
+          const planEl = details.querySelector<HTMLElement>(".plan");
+          if (!planEl) return;
+          try {
+            const planData = await apiGet<PlanResponse>(
+              `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/plan`,
+            );
+            renderPlanSelector(planEl, ws.workspace, planData);
+            planLoaded = true;
+          } catch {
+            planEl.innerHTML = `<p class="muted">Failed to load plan.</p>`;
           }
         })();
         // Limits apply to every workspace regardless of org, and their load

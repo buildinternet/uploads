@@ -643,6 +643,132 @@ describe("workspace limits editing", () => {
   });
 });
 
+describe("workspace plan editing", () => {
+  const REC = {
+    provider: "r2",
+    bucket: "uploads-default",
+    prefix: "acme/",
+  };
+
+  function planEnv(user: typeof ADMIN_USER | null, record: Record<string, unknown> | null) {
+    const store = new Map<string, string>();
+    if (record) store.set("ws:acme", JSON.stringify(record));
+    const base = stubEnv(user, () => new Response(null, { status: 404 }));
+    const env = {
+      ...base,
+      REGISTRY: {
+        get: (async (key: string) => {
+          const raw = store.get(key);
+          return raw ? JSON.parse(raw) : null;
+        }) as unknown as KVNamespace["get"],
+        put: (async (key: string, value: string) => {
+          store.set(key, value);
+        }) as unknown as KVNamespace["put"],
+      },
+    } as unknown as Env;
+    return { env, store };
+  }
+
+  it("GET reports the free plan (display) but leaves a bare record unlimited — planApplied: false", async () => {
+    const { env } = planEnv(ADMIN_USER, REC);
+    const res = await app().request("/admin-ui/workspaces/acme/plan", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      workspace: "acme",
+      plan: "free",
+      available: true,
+      planApplied: false,
+      limits: {
+        maxStorageBytes: null,
+        maxUploadsPerPeriod: null,
+        maxUploadBytes: null,
+        maxVideoUploadBytes: null,
+      },
+      overrides: [],
+    });
+  });
+
+  it("GET resolves plan defaults once a plan is explicitly set — planApplied: true", async () => {
+    const { env } = planEnv(ADMIN_USER, { ...REC, plan: "free" });
+    const res = await app().request("/admin-ui/workspaces/acme/plan", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      workspace: "acme",
+      plan: "free",
+      available: true,
+      planApplied: true,
+      limits: {
+        maxStorageBytes: 250_000_000,
+        maxUploadsPerPeriod: 3000,
+        maxUploadBytes: 25_000_000,
+        maxVideoUploadBytes: 8_000_000,
+      },
+      overrides: [],
+    });
+  });
+
+  it("PATCH sets the plan on the record and persists it", async () => {
+    const { env, store } = planEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/plan",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plan: "pro" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { plan: string; available: boolean; planApplied: boolean };
+    expect(body.plan).toBe("pro");
+    expect(body.available).toBe(false);
+    expect(body.planApplied).toBe(true);
+    expect(JSON.parse(store.get("ws:acme") ?? "{}").plan).toBe("pro");
+  });
+
+  it("PATCH rejects an unknown plan id", async () => {
+    const { env } = planEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/plan",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plan: "enterprise" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH preserves existing limit overrides on the record", async () => {
+    const { env, store } = planEnv(ADMIN_USER, { ...REC, maxStorageBytes: 999 });
+    await app().request(
+      "/admin-ui/workspaces/acme/plan",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plan: "pro" }),
+      },
+      env,
+    );
+    const stored = JSON.parse(store.get("ws:acme") ?? "{}");
+    expect(stored.maxStorageBytes).toBe(999);
+    expect(stored.plan).toBe("pro");
+  });
+
+  it("GET 404s for an unknown workspace", async () => {
+    const { env } = planEnv(ADMIN_USER, null);
+    const res = await app().request("/admin-ui/workspaces/acme/plan", {}, env);
+    expect(res.status).toBe(404);
+  });
+
+  it("403s for a non-admin session", async () => {
+    const { env } = planEnv(NON_ADMIN_USER, REC);
+    const res = await app().request("/admin-ui/workspaces/acme/plan", {}, env);
+    expect(res.status).toBe(403);
+  });
+});
+
 describe("workspace github-comment settings editing", () => {
   /** Env with a mutable ws:acme record and a session user (no usage needed). */
   function settingsEnv(user: typeof ADMIN_USER | null, record: Record<string, unknown> | null) {

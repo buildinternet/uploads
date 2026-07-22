@@ -46,6 +46,7 @@ import {
 import { getWorkspaceUsage } from "../usage";
 import { isPurgedTombstone, loadWorkspaceRecordRaw, type WorkspaceRecord } from "../workspace";
 import { LIMIT_FIELDS, validateLimitsPatch } from "../workspace-limits";
+import { planResponse, validatePlanPatch } from "../workspace-plan";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BAN_REASON_MAX = 500;
@@ -488,6 +489,36 @@ export const adminUi = new Hono<SessionVars>()
     }
     await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(record));
     return c.json(await limitsResponse(c.env, name, record));
+  })
+
+  // Read the workspace's plan, its availability, and resolved effective
+  // limits (plan defaults backstopped by any explicit overrides).
+  .get("/workspaces/:name/plan", async (c) => {
+    const name = c.req.param("name");
+    const record = await loadEditableWorkspace(c.env, name);
+    return c.json(planResponse(name, record));
+  })
+
+  // Set the workspace's plan. Admins may set `pro` even though it's
+  // unavailable to self-serve users (operator override) — availability is
+  // informational in the response, not enforced here. Limit overrides on
+  // the record are untouched; only `plan` is written.
+  .patch("/workspaces/:name/plan", async (c) => {
+    const name = c.req.param("name");
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+    const record = await loadEditableWorkspace(c.env, name);
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      throw new ValidationError("request body must be valid JSON", { code: "invalid_plan" });
+    }
+    const { plan } = validatePlanPatch(body);
+    record.plan = plan;
+    await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(record));
+    return c.json(planResponse(name, record));
   })
 
   // Read the per-workspace managed-comment settings: whether attachments
