@@ -1417,8 +1417,19 @@ async function runAttachBranch(
     throw firstError instanceof Error ? firstError : new Error(String(firstError));
   }
 
+  // Stage-time binding warning (issue #398): only worth checking once staging
+  // actually produced something to warn about. Best-effort — see
+  // resolveStageBindingWarning; never affects exit code or the upload itself.
+  const bindingWarning =
+    uploads.length > 0 ? await resolveStageBindingWarning({ ctx, defaults, repo }) : undefined;
+
   if (ctx.json) {
-    await writeJson({ target, uploads, failures });
+    await writeJson({
+      target,
+      uploads,
+      failures,
+      ...(bindingWarning ? { hint: bindingWarning } : {}),
+    });
   } else {
     for (const result of uploads) {
       if (logHuman) {
@@ -1444,8 +1455,50 @@ async function runAttachBranch(
           `(or run \`uploads attach --promote\` after opening)\n`,
       );
     }
+    if (bindingWarning) process.stderr.write(`${bindingWarning}\n`);
   }
   return failures.length === 0 ? 0 : 1;
+}
+
+/**
+ * Best-effort stage-time binding warning (issue #398): after `attach
+ * --branch` stages files, checks whether `repo` is bound to THIS workspace —
+ * webhook auto-promotion at PR open only fires for a repo already bound
+ * (#297), and staging alone never binds one. Fires only for `binding: "none"`
+ * (unbound) or `"other"` (bound elsewhere); `"self"` and any failure
+ * (network, non-200, older server without the route, `binding: "unknown"`)
+ * are silent — this is advisory only and must never make staging look like
+ * it failed. Same suppression as the #393 put nudge: `--quiet`,
+ * `UPLOADS_NO_NUDGE=1` (env or config).
+ */
+async function resolveStageBindingWarning(opts: {
+  ctx: CliContext;
+  defaults: PutDefaults;
+  repo: string;
+}): Promise<string | undefined> {
+  const { ctx, defaults, repo } = opts;
+  if (ctx.quiet) return undefined;
+  if (defaults.noNudge) return undefined;
+  try {
+    const { binding } = await ctx.client.githubRepoLinkStatus(repo);
+    switch (binding) {
+      case "none":
+        return (
+          `note: staged, but ${repo} isn't linked to your workspace yet — staged files only ` +
+          `auto-attach on PR open for linked repos. Link it once with: uploads attach <file> ` +
+          `(on any PR) or uploads github link. After the PR opens: uploads attach --promote`
+        );
+      case "other":
+        return (
+          `note: staged, but ${repo} is linked to a different workspace — these files won't ` +
+          `auto-attach from here.`
+        );
+      default:
+        return undefined; // "self", or any unrecognized value — stay silent
+    }
+  } catch {
+    return undefined; // any failure (network, non-200, older server) — stay silent
+  }
 }
 
 /**
