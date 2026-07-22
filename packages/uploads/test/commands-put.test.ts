@@ -942,6 +942,332 @@ describe("runPut canonical metadata flags", () => {
   });
 });
 
+/**
+ * Fake gh/git runner for the bare-put nudge (issue #393). Each stage throws
+ * when its corresponding option is omitted, mirroring the real degrade path
+ * (not a git repo / detached HEAD / gh missing-unauthenticated-no PR).
+ */
+function nudgeRunner(opts: {
+  branch?: string;
+  defaultBranch?: string;
+  originUrl?: string;
+  repo?: string;
+  pr?: number;
+}): CommandRunner {
+  return (cmd, args) => {
+    if (cmd === "git" && args[0] === "config") {
+      if (opts.originUrl === undefined) throw new Error("not a git repo");
+      return `${opts.originUrl}\n`;
+    }
+    if (cmd === "git" && args[0] === "rev-parse") {
+      if (opts.branch === undefined) throw new Error("detached HEAD");
+      return `${opts.branch}\n`;
+    }
+    if (cmd === "git" && args[0] === "symbolic-ref") {
+      if (opts.defaultBranch === undefined) throw new Error("no origin/HEAD");
+      return `origin/${opts.defaultBranch}\n`;
+    }
+    if (cmd === "gh" && args[0] === "repo") {
+      if (opts.repo === undefined) throw new Error("gh unauthenticated");
+      return `${opts.repo}\n`;
+    }
+    if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+      if (opts.pr === undefined) throw new Error("no pull request found");
+      return `${opts.pr}\n`;
+    }
+    throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+  };
+}
+
+/** Run `fn` with process.stderr.write captured, returning the concatenated output. */
+async function captureStderr(fn: () => Promise<unknown>): Promise<string> {
+  const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  try {
+    await fn();
+    return writeSpy.mock.calls.map((c) => String(c[0])).join("");
+  } finally {
+    writeSpy.mockRestore();
+  }
+}
+
+/** Run `fn` with process.stdout.write captured, returning the concatenated output. */
+async function captureStdout(fn: () => Promise<unknown>): Promise<string> {
+  const chunks: string[] = [];
+  const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write);
+  try {
+    await fn();
+    return chunks.join("");
+  } finally {
+    writeSpy.mockRestore();
+  }
+}
+
+describe("runPut bare-put nudge (issue #393)", () => {
+  const allClear = {
+    branch: "feature/thing",
+    defaultBranch: "main",
+    originUrl: "git@github.com:o/r.git",
+    repo: "o/r",
+    pr: 123,
+  };
+
+  it("fires on stderr for a fully bare put with detectable branch/PR context", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        nudgeRunner(allClear),
+      ),
+    );
+    expect(stderr).toContain(
+      "note: on branch feature/thing (PR #123 open) — rerun with --pr 123 for a stable key",
+    );
+    expect(stderr).toContain("uploads attach <file> --branch");
+  });
+
+  it("never writes the nudge to stdout", async () => {
+    const { client } = fakeClient();
+    const stdout = await captureStdout(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        nudgeRunner(allClear),
+      ),
+    );
+    expect(stdout).not.toContain("note:");
+  });
+
+  it("includes an additive JSON hint field when it fires", async () => {
+    const { client } = fakeClient();
+    const stdout = await captureStdout(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false, json: true },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        nudgeRunner(allClear),
+      ),
+    );
+    const payload = JSON.parse(stdout) as { hint?: string; key: string; url: string };
+    expect(payload.hint).toContain("PR #123 open");
+    expect(payload.key).toBeDefined();
+    expect(payload.url).toBeDefined();
+  });
+
+  it("omits the JSON hint field entirely when the nudge doesn't fire (on the default branch)", async () => {
+    const { client } = fakeClient();
+    const stdout = await captureStdout(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false, json: true },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        nudgeRunner({ ...allClear, branch: "main" }),
+      ),
+    );
+    const payload = JSON.parse(stdout) as Record<string, unknown>;
+    expect("hint" in payload).toBe(false);
+  });
+
+  it("falls back to generic wording (no PR number) when the gh lookup fails", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        nudgeRunner({
+          branch: "feature/thing",
+          defaultBranch: "main",
+          originUrl: "git@github.com:o/r.git",
+        }), // no pr
+      ),
+    );
+    expect(stderr).toContain("note: on branch feature/thing — rerun with --pr <num>");
+    expect(stderr).not.toContain("PR #");
+  });
+
+  it("gh timeout falls back to generic wording without changing exit code or upload behavior", async () => {
+    const { client, puts } = fakeClient();
+    const run: CommandRunner = (cmd, args) => {
+      if (cmd === "git" && args[0] === "config") return "git@github.com:o/r.git\n";
+      if (cmd === "git" && args[0] === "rev-parse") return "feature/thing\n";
+      if (cmd === "git" && args[0] === "symbolic-ref") return "origin/main\n";
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+        const err = new Error("ETIMEDOUT");
+        (err as NodeJS.ErrnoException).code = "ETIMEDOUT";
+        throw err;
+      }
+      throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+    };
+    const stderr = await captureStderr(async () => {
+      const code = await runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        run,
+      );
+      expect(code).toBe(0);
+    });
+    expect(puts).toHaveLength(1);
+    expect(stderr).toContain("note: on branch feature/thing — rerun with --pr <num>");
+  });
+
+  it("does not nudge with --pr", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--pr", "9", "--repo", "o/r"],
+        false,
+        nudgeRunner(allClear),
+      ),
+    );
+    expect(stderr).not.toContain("note:");
+  });
+
+  it("does not nudge with --issue", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--issue", "9", "--repo", "o/r"],
+        false,
+        nudgeRunner(allClear),
+      ),
+    );
+    expect(stderr).not.toContain("note:");
+  });
+
+  it("does not nudge with an explicit --key", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--key", "screenshots/x.png"],
+        false,
+        nudgeRunner(allClear),
+      ),
+    );
+    expect(stderr).not.toContain("note:");
+  });
+
+  it("does not nudge with --no-git", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--repo", "o/r", "--no-git"],
+        false,
+        noRun,
+      ),
+    );
+    expect(stderr).not.toContain("note:");
+  });
+
+  it("does not nudge in quiet mode", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(ctxWith(client), [tmpFile(), "--repo", "o/r"], false, nudgeRunner(allClear)),
+    );
+    expect(stderr).not.toContain("note:");
+  });
+
+  it("does not nudge when UPLOADS_NO_NUDGE=1", async () => {
+    const prev = process.env.UPLOADS_NO_NUDGE;
+    process.env.UPLOADS_NO_NUDGE = "1";
+    try {
+      const { client } = fakeClient();
+      const stderr = await captureStderr(() =>
+        runPut(
+          { ...ctxWith(client), quiet: false },
+          [tmpFile(), "--repo", "o/r"],
+          false,
+          nudgeRunner(allClear),
+        ),
+      );
+      expect(stderr).not.toContain("note:");
+    } finally {
+      if (prev === undefined) delete process.env.UPLOADS_NO_NUDGE;
+      else process.env.UPLOADS_NO_NUDGE = prev;
+    }
+  });
+
+  it("does not nudge on the default branch (remote HEAD resolved)", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        nudgeRunner({ ...allClear, branch: "main" }),
+      ),
+    );
+    expect(stderr).not.toContain("note:");
+  });
+
+  it("does not nudge on main when the default branch can't be determined (errs toward not nudging)", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        nudgeRunner({ branch: "main", originUrl: "git@github.com:o/r.git", repo: "o/r", pr: 1 }),
+      ),
+    );
+    expect(stderr).not.toContain("note:");
+  });
+
+  it("still nudges on a non-main/master branch when the default branch can't be determined", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        nudgeRunner({
+          branch: "feature/thing",
+          originUrl: "git@github.com:o/r.git",
+          repo: "o/r",
+          pr: 7,
+        }),
+      ),
+    );
+    expect(stderr).toContain("note: on branch feature/thing (PR #7 open)");
+  });
+
+  it("does not nudge on detached HEAD", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        nudgeRunner({ defaultBranch: "main", repo: "o/r", pr: 1 }), // no branch → git rev-parse throws
+      ),
+    );
+    expect(stderr).not.toContain("note:");
+  });
+
+  it("does not nudge outside a git repo", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--repo", "o/r"],
+        false,
+        nudgeRunner({ branch: "feature/thing" }), // no originUrl → deriveRepoFromGit fails
+      ),
+    );
+    expect(stderr).not.toContain("note:");
+  });
+});
+
 describe("put promotes EXIF facts", () => {
   async function retinaPng(): Promise<Buffer> {
     const sharp = (await import("sharp")).default;

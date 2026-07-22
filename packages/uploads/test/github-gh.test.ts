@@ -6,8 +6,10 @@ import {
   ghMetadataFromTargetWithTitle,
   resolveCurrentBranch,
   resolveCurrentPullRequest,
+  resolveDefaultBranch,
   resolveGhTitle,
   resolveRepo,
+  timedExecRunner,
   upsertAttachmentsComment,
   type CommandRunner,
 } from "../src/github-gh.js";
@@ -334,5 +336,38 @@ describe("classifyGhNumber", () => {
   it("returns undefined on unexpected output", () => {
     const run: CommandRunner = () => "weird\n";
     expect(classifyGhNumber("o/r", 1, run)).toBeUndefined();
+  });
+});
+
+describe("resolveDefaultBranch (issue #393)", () => {
+  it("parses the short branch name from origin/HEAD", () => {
+    const { run } = fakeRunner({ git: () => "origin/main\n" });
+    expect(resolveDefaultBranch(run)).toBe("main");
+  });
+
+  it("handles a bare ref with no remote prefix", () => {
+    const { run } = fakeRunner({ git: () => "main\n" });
+    expect(resolveDefaultBranch(run)).toBe("main");
+  });
+
+  it("returns undefined when origin/HEAD isn't set (no remote, not a repo, etc.)", () => {
+    const { run } = fakeRunner({
+      git: () => {
+        throw new Error("fatal: ref refs/remotes/origin/HEAD is not a symbolic ref");
+      },
+    });
+    expect(resolveDefaultBranch(run)).toBeUndefined();
+  });
+});
+
+describe("timedExecRunner (issue #393)", () => {
+  it("runs a fast command and returns its stdout, like execRunner", () => {
+    const run = timedExecRunner(5000);
+    expect(run(process.execPath, ["-e", "process.stdout.write('ok')"])).toBe("ok");
+  });
+
+  it("kills and throws when the command outlives the timeout", () => {
+    const run = timedExecRunner(150);
+    expect(() => run(process.execPath, ["-e", "setTimeout(() => {}, 5000)"])).toThrow();
   });
 });

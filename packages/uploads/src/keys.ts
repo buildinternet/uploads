@@ -12,9 +12,20 @@ export async function sha256Short(bytes: Uint8Array): Promise<string> {
     .slice(0, 6);
 }
 
-export function deriveRepoFromGit(): string | undefined {
+/**
+ * `run` is optional and structurally matches `CommandRunner` (github-gh.ts)
+ * without importing it — callers that already have an injected runner (e.g.
+ * the put nudge, issue #393) can pass it through for testability; the
+ * default (no `run`) preserves the original direct-`execSync` behavior for
+ * every existing caller.
+ */
+export function deriveRepoFromGit(
+  run?: (cmd: string, args: string[], input?: string) => string,
+): string | undefined {
   try {
-    const url = execSync("git config --get remote.origin.url", { encoding: "utf8" }).trim();
+    const url = run
+      ? run("git", ["config", "--get", "remote.origin.url"]).trim()
+      : execSync("git config --get remote.origin.url", { encoding: "utf8" }).trim();
     const match = url.match(/[/:]([^/]+?)(?:\.git)?$/);
     return match?.[1];
   } catch {
