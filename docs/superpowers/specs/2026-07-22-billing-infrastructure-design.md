@@ -41,8 +41,18 @@ Not published; excluded from release versioning like other private packages.
 
 - `plan?: 'free' | 'pro'` added to the KV `WorkspaceRecord`
   (`apps/api/src/workspace.ts`). Absent ⇒ `free`; no migration or backfill.
-- `apps/api/src/budget.ts` and `self-serve-defaults.ts` route limit resolution
-  through `resolvePlanLimits`.
+- **Enforcement vs display (decided during implementation):** budget
+  *enforcement* applies plan defaults only when `record.plan` is explicitly
+  set. Records without `plan` keep today's enforcement byte-for-byte (explicit
+  limit fields only; absent field = unlimited) — legacy/admin workspaces are
+  unlimited today and this iteration must not change production enforcement.
+  Self-serve workspaces already carry explicit limit fields, so they are
+  unaffected too. *Display* (billing page, admin panel) still resolves absent
+  `plan` as `free`.
+- `apps/api/src/budget.ts` routes limit resolution through `resolvePlanLimits`
+  when a plan is set; `resolvePlanLimits` accepts `number | null | undefined`
+  overrides (`null` = explicitly cleared to unlimited, matching
+  `workspace-limits.ts` semantics).
 - No subscription persistence yet; plan state is the KV field.
 
 ## API (apps/api)
