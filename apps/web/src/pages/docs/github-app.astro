@@ -104,13 +104,10 @@ const TOC = [
       (<code>--no-promote</code> skips it).
     </p>
     <p>
-      Promotion is copy-and-keep: the staged original stays in place, so any URL you've
-      already embedded (in a PR body, a comment, wherever) keeps serving — promotion never
-      deletes it. Staged objects follow the same per-workspace retention as any other file,
-      plus explicit deletes; there's no separate staging cleanup. Promotion itself does have
-      a 30-day freshness window: files staged more than 30 days before a PR opens are skipped
-      by both the App's automatic promotion and <code>uploads attach --promote</code> — they
-      stay right where they are, just no longer auto-promoted.
+      Promotion copies — it never deletes the staged original, so URLs you've already
+      embedded keep working. Staged files stick around under the same rules as anything else
+      in your workspace. The one caveat: a file staged more than 30 days before its PR opens
+      won't auto-promote (it's still there, just not attached automatically).
     </p>
   </section>
 
