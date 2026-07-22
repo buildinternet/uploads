@@ -223,6 +223,115 @@ function metaCaptionMarkdown(meta: AttachmentItem["meta"]): string {
   return ` · ${parts.map((p) => escapeMarkdownText(escapeHtmlText(p))).join(" · ")}`;
 }
 
+/** Extract the filename stem's before/after token (issue #419 fallback pairing).
+ * `base` is the stem lowercased with the token removed; `null` when the stem
+ * carries no recognizable before/after token. Requires a separator (`-`, `_`,
+ * or `.`) between the token and the rest of the name — except when the token
+ * IS the whole stem (`before.png`) — so `beforehand.png` doesn't false-match. */
+function filenameStemToken(name: string): { base: string; state: "before" | "after" } | null {
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const lower = stem.toLowerCase();
+  if (lower === "before" || lower === "after") {
+    return { base: "", state: lower as "before" | "after" };
+  }
+  let m = /^(.+?)[-_.](before|after)$/i.exec(stem);
+  if (m) return { base: m[1].toLowerCase(), state: m[2].toLowerCase() as "before" | "after" };
+  m = /^(before|after)[-_.](.+)$/i.exec(stem);
+  if (m) return { base: m[2].toLowerCase(), state: m[1].toLowerCase() as "before" | "after" };
+  return null;
+}
+
+/**
+ * Pair up attachments for the before/after side-by-side row (issue #419).
+ * `isImageAt[i]` mirrors the renderer's own image test — only images pair;
+ * videos and non-image links render exactly as before.
+ *
+ * Priority order, checked independently per candidate item so rule 2 only
+ * ever claims items rule 1 left untouched:
+ *  1. Same `path` metadata (trimmed, not bare `/`), one item `state=before`
+ *     and one `state=after`. Ambiguous groups (more than one of a state)
+ *     don't pair — no way to know which side goes with which.
+ *  2. No usable `path` metadata: filename stems that differ only by a
+ *     before/after token, same extension. Same ambiguity rule.
+ */
+function pairAttachments(
+  items: AttachmentItem[],
+  isImageAt: boolean[],
+): { partnerOf: Map<number, number>; roleOf: Map<number, "before" | "after"> } {
+  const partnerOf = new Map<number, number>();
+  const roleOf = new Map<number, "before" | "after">();
+  const pair = (beforeIdx: number, afterIdx: number) => {
+    partnerOf.set(beforeIdx, afterIdx);
+    partnerOf.set(afterIdx, beforeIdx);
+    roleOf.set(beforeIdx, "before");
+    roleOf.set(afterIdx, "after");
+  };
+
+  // Priority 1: same path metadata, exactly one before + one after.
+  const pathGroups = new Map<string, { before: number[]; after: number[] }>();
+  items.forEach((item, i) => {
+    if (!isImageAt[i]) return;
+    const path = item.meta?.path?.trim();
+    if (!path || path === "/") return;
+    const state = item.meta?.state?.trim().toLowerCase();
+    if (state !== "before" && state !== "after") return;
+    const g = pathGroups.get(path) ?? { before: [], after: [] };
+    g[state].push(i);
+    pathGroups.set(path, g);
+  });
+  for (const g of pathGroups.values()) {
+    if (g.before.length === 1 && g.after.length === 1) pair(g.before[0], g.after[0]);
+  }
+
+  // Priority 2: no usable path metadata — filename stem token, same extension.
+  const stemGroups = new Map<string, { before: number[]; after: number[] }>();
+  items.forEach((item, i) => {
+    if (!isImageAt[i] || partnerOf.has(i)) return;
+    const path = item.meta?.path?.trim();
+    if (path && path !== "/") return; // usable path metadata — rule 1 owns this item
+    const name = item.key.slice(item.key.lastIndexOf("/") + 1);
+    const tok = filenameStemToken(name);
+    if (!tok) return;
+    const dot = name.lastIndexOf(".");
+    const ext = dot > 0 ? name.slice(dot).toLowerCase() : "";
+    const key = `${tok.base}${ext}`;
+    const g = stemGroups.get(key) ?? { before: [], after: [] };
+    g[tok.state].push(i);
+    stemGroups.set(key, g);
+  });
+  for (const g of stemGroups.values()) {
+    if (g.before.length === 1 && g.after.length === 1) pair(g.before[0], g.after[0]);
+  }
+
+  return { partnerOf, roleOf };
+}
+
+/** Max display width for one image inside a before/after pair row — smaller
+ * than a standalone image so two side by side stay under GitHub's comment
+ * column width (and don't overflow on mobile). */
+export const ATTACHMENT_IMAGE_WIDTH_PAIR = 320;
+
+function renderPairCell(item: AttachmentItem, label: "Before" | "After"): string {
+  const name = item.key.slice(item.key.lastIndexOf("/") + 1);
+  const src = item.embedUrl ?? item.url;
+  const link = item.pageUrl ?? item.url;
+  const w = Math.min(attachmentImageWidth(name), ATTACHMENT_IMAGE_WIDTH_PAIR);
+  const alt = escapeHtmlAttr(name);
+  const href = escapeHtmlAttr((link ?? src) as string);
+  const imgSrc = escapeHtmlAttr(src as string);
+  const caption = metaCaptionHtml(item.meta);
+  const captionHtml = caption ? `<br><sub>${caption}</sub>` : "";
+  return `<td align="center"><sub><strong>${label}</strong></sub><br><a href="${href}"><img width="${w}" alt="${alt}" src="${imgSrc}"></a>${captionHtml}</td>`;
+}
+
+/** One side-by-side before/after row (issue #419): a single HTML table so
+ * GitHub renders both images on one line, with `Before`/`After` labels and
+ * each side's usual path/state caption preserved underneath. */
+function renderPairRow(beforeItem: AttachmentItem, afterItem: AttachmentItem): string {
+  return `<table><tr>${renderPairCell(beforeItem, "Before")}${renderPairCell(afterItem, "After")}</tr></table>`;
+}
+
 /**
  * Render the one marker-owned GitHub comment. When there are no galleries this
  * intentionally preserves the legacy attachment-only body byte-for-byte.
@@ -257,9 +366,36 @@ export function attachmentsCommentBody(
     lines.push("");
   }
   if (sorted.length > 0 || sortedGalleries.length === 0) lines.push("### 📎 Attachments", "");
+  const isImageAt = sorted.map((item) => {
+    const name = item.key.slice(item.key.lastIndexOf("/") + 1);
+    const src = item.embedUrl ?? item.url;
+    return Boolean(src) && inferContentType(name).startsWith("image/");
+  });
+  const { partnerOf, roleOf } = pairAttachments(sorted, isImageAt);
+  const consumedByPair = new Set<number>();
+
   let inlinedImages = 0;
   const overflowImages: AttachmentItem[] = [];
-  for (const item of sorted) {
+  for (let idx = 0; idx < sorted.length; idx++) {
+    if (consumedByPair.has(idx)) continue;
+    const item = sorted[idx];
+    const partnerIdx = partnerOf.get(idx);
+    if (partnerIdx !== undefined) {
+      const partner = sorted[partnerIdx];
+      if (inlinedImages + 2 <= MAX_INLINE_ATTACHMENT_IMAGES) {
+        inlinedImages += 2;
+        consumedByPair.add(partnerIdx);
+        const beforeItem = roleOf.get(idx) === "before" ? item : partner;
+        const afterItem = roleOf.get(idx) === "before" ? partner : item;
+        lines.push(renderPairRow(beforeItem, afterItem), "");
+        continue;
+      }
+      // Cap already full for a two-image row — degrade this pair to two
+      // ordinary overflow entries rather than only half-rendering the row.
+      overflowImages.push(item, partner);
+      consumedByPair.add(partnerIdx);
+      continue;
+    }
     const name = item.key.slice(item.key.lastIndexOf("/") + 1);
     const stable = item.url;
     const src = item.embedUrl ?? item.url;
