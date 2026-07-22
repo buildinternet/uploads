@@ -1,5 +1,12 @@
 # @buildinternet/uploads
 
+## 0.22.1
+
+### Patch Changes
+
+- b3a0719: `uploads attach --branch` now reminds you that staged files auto-attach to the branch's PR when it opens (or via `uploads attach --promote`), reinforcing the stage-as-you-go loop for agents.
+- ce237d4: Omit a bare `/` path from managed attachment comment captions (still stored and searchable).
+
 ## 0.22.0
 
 ### Minor Changes

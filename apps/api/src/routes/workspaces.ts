@@ -33,6 +33,7 @@ import {
 import { selfServeWorkspaceRecord } from "../self-serve-defaults";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
 import { validateSlug } from "../slug-policy";
+import { sendWelcomeEmail } from "../welcome-email";
 import {
   isPastGrace,
   isPurgedTombstone,
@@ -173,6 +174,7 @@ export const workspaces = new Hono<SessionVars>().post(
     // Cap counts only self-serve workspaces the user OWNS — BYO/operator
     // workspaces (no selfServe flag) never burn the allowance.
     const memberships = await membershipsForUser(c.env, user.id);
+    const isFirstMembership = memberships.length === 0;
     const owned = memberships.filter((m) => m.role === "owner");
     const records = await Promise.all(
       owned.map((m) => loadWorkspaceRecord(c.env, m.organizationSlug)),
@@ -206,6 +208,17 @@ export const workspaces = new Hono<SessionVars>().post(
         console.error("self-serve rollback failed: org", name, "may be orphaned", rollbackErr),
       );
       throw err;
+    }
+
+    // First workspace ever → welcome email (never throws). waitUntil when
+    // available so the isolate outlives the 201; await in unit tests.
+    if (isFirstMembership && user.email) {
+      const welcome = sendWelcomeEmail(c.env, { to: user.email, workspaceName: name });
+      try {
+        c.executionCtx.waitUntil(welcome);
+      } catch {
+        await welcome;
+      }
     }
 
     return c.json(

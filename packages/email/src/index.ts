@@ -3,6 +3,7 @@ export {
   renderEmailCard,
   strong,
   type EmailCardInput,
+  type GmailAction,
   type RenderedEmail,
 } from "./card";
 export { renderMagicLinkEmail } from "./auth";
@@ -11,3 +12,4 @@ export {
   renderMemberJoinedEmail,
   renderOrgInvitationEmail,
 } from "./invites";
+export { renderWelcomeEmail } from "./welcome";

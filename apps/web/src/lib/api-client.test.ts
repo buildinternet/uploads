@@ -255,6 +255,7 @@ describe("listWorkspaceFolder", () => {
               key: "f/x.png",
               url: "https://s/acme/f/x.png",
               embedUrl: "https://s/acme/f/x.png?embed",
+              pageUrl: "https://uploads.sh/f/acme/f/x.png",
               size: 1024,
               contentType: "image/png",
               uploaded: "2026-07-19T00:00:00.000Z",
@@ -274,6 +275,7 @@ describe("listWorkspaceFolder", () => {
           key: "f/x.png",
           url: "https://s/acme/f/x.png",
           embedUrl: "https://s/acme/f/x.png?embed",
+          pageUrl: "https://uploads.sh/f/acme/f/x.png",
           size: 1024,
           contentType: "image/png",
           uploaded: "2026-07-19T00:00:00.000Z",
@@ -284,6 +286,22 @@ describe("listWorkspaceFolder", () => {
       prefixes: ["f/"],
       cursor: "next-cursor",
     });
+  });
+
+  it("omits pageUrl when the API leaves it off (BYO / no public base)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          files: [{ key: "f/x.png", url: null, embedUrl: null }],
+          prefixes: [],
+          cursor: null,
+        }),
+      ),
+    );
+
+    const result = await listWorkspaceFolder("http://127.0.0.1:8787", "acme");
+    expect(result.files[0]?.pageUrl).toBeUndefined();
   });
 
   it("normalizes a null cursor to undefined", async () => {

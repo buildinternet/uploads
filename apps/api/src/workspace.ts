@@ -63,6 +63,13 @@ export interface WorkspaceRecord {
    */
   retentionDays?: number;
   /**
+   * Subscription plan (spec 2026-07-22, billing infrastructure). Absent
+   * means `free`. Admin-only to change today (no self-serve upgrade path
+   * exists); an unrecognized string is treated as `free` at read time by
+   * `@uploads/billing`'s `getPlan` — never a lockout.
+   */
+  plan?: "free" | "pro";
+  /**
    * When true/undefined, bare keys (no `/`) become `f/<id>/<name>`. Set false
    * to allow root basenames (not recommended on shared buckets).
    */

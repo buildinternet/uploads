@@ -442,19 +442,36 @@ function buildAuth(
           });
         },
         organizationHooks: {
-          // Notify inviter; sendAuthEmail never throws so accept can't roll back.
+          // Inviter notify + first-membership welcome. sendAuthEmail never
+          // throws so accept can't roll back on mail failure.
           afterAcceptInvitation: async ({ invitation, user, organization: org }) => {
-            if (!invitation.inviterId) return;
-            const [inviter] = await db
-              .select({ email: schema.user.email })
-              .from(schema.user)
-              .where(eq(schema.user.id, invitation.inviterId))
-              .limit(1);
-            if (!inviter?.email || inviter.email.toLowerCase() === user.email.toLowerCase()) return;
+            if (invitation.inviterId) {
+              const [inviter] = await db
+                .select({ email: schema.user.email })
+                .from(schema.user)
+                .where(eq(schema.user.id, invitation.inviterId))
+                .limit(1);
+              if (inviter?.email && inviter.email.toLowerCase() !== user.email.toLowerCase()) {
+                await sendAuthEmail(env, {
+                  to: inviter.email,
+                  template: "member-joined",
+                  context: { organizationName: org.name, memberEmail: user.email },
+                });
+              }
+            }
+
+            // Welcome only on the invitee's first membership.
+            if (!user.email) return;
+            const memberships = await db
+              .select({ id: schema.member.id })
+              .from(schema.member)
+              .where(eq(schema.member.userId, user.id))
+              .limit(2);
+            if (memberships.length !== 1) return;
             await sendAuthEmail(env, {
-              to: inviter.email,
-              template: "member-joined",
-              context: { organizationName: org.name, memberEmail: user.email },
+              to: user.email,
+              template: "welcome",
+              context: { workspaceName: org.name },
             });
           },
         },

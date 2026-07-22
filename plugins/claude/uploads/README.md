@@ -10,15 +10,54 @@ with `source: "./"`, so the whole repo is a one-plugin marketplace.
 
 ## What it bundles
 
-| Component                | Invocation                    | Purpose                                                                           |
-| ------------------------ | ----------------------------- | --------------------------------------------------------------------------------- |
-| github-screenshots skill | `/uploads:github-screenshots` | Capture + host + embed a visual in a PR/issue with a stable per-target key        |
-| uploads-cli skill        | `/uploads:uploads-cli`        | Full `uploads` CLI reference — `put`, `attach`, `screenshot`, galleries, metadata |
-| attach command           | `/uploads:attach`             | Explicit entry point for hosting a file or attaching to a PR/issue                |
-| uploads MCP server       | (tools)                       | Hosted `https://agents.uploads.sh/mcp` — `put`, `list`, `attach`, galleries       |
+| Component                   | Invocation                    | Purpose                                                                           |
+| --------------------------- | ----------------------------- | --------------------------------------------------------------------------------- |
+| github-screenshots skill    | `/uploads:github-screenshots` | Capture + host + embed a visual in a PR/issue with a stable per-target key        |
+| uploads-cli skill           | `/uploads:uploads-cli`        | Full `uploads` CLI reference — `put`, `attach`, `screenshot`, galleries, metadata |
+| attach command              | `/uploads:attach`             | Explicit entry point for hosting a file or attaching to a PR/issue                |
+| uploads MCP server          | (tools)                       | Hosted `https://agents.uploads.sh/mcp` — `put`, `list`, `attach`, galleries       |
+| PR screenshot reminder hook | (automatic)                   | Advisory nudge to stage screenshots before `gh pr create` on a UI-touching branch |
 
 Plugin skills and commands are namespaced by the plugin name (`uploads`), so
 they appear as `/uploads:…`.
+
+## PR screenshot reminder hook
+
+A `PreToolUse` hook (matcher: `Bash`) watches for commands that run
+`gh pr create`. When the current branch's diff against the repo's default
+branch touches visually-observable files — `.astro`, `.tsx`, `.jsx`, `.vue`,
+`.svelte`, `.html`, `.css`, `.scss`, `.less`, or anything under an `/email/`
+path — and `uploads find gh.branch=<branch> --format json` comes back empty,
+the agent gets a short advisory message suggesting
+`uploads attach <shot.png> --branch --state after` before or after opening
+the PR. It never blocks PR creation.
+
+The hook fails open (silently does nothing) whenever it can't be sure:
+non-matching commands, no git repo, no visual files in the diff, the
+`uploads` CLI not installed/authenticated, or the `uploads find` call
+erroring or exceeding its 5-second timeout. On a fork checkout it also tries
+a best-effort `gh repo view --json isFork` check (3s timeout) and, if true,
+appends a note that staged screenshots don't yet auto-promote into the PR
+comment on fork branches ([issue #317](https://github.com/buildinternet/uploads/issues/317)).
+That fork check is inherently best-effort — cross-checking the PR's actual
+target repo, as opposed to just whether `origin` is a fork, isn't attempted.
+
+**Disable it:** the hook honors `UPLOADS_HOOK_DISABLE=1`. Set it wherever
+fits the scope you want — Claude Code's `env` settings block is the
+established way to make that durable:
+
+```jsonc
+// ~/.claude/settings.json        → off everywhere, for you
+// <repo>/.claude/settings.json   → off for everyone in one repo
+// <repo>/.claude/settings.local.json → off for just your checkout
+{
+  "env": { "UPLOADS_HOOK_DISABLE": "1" },
+}
+```
+
+Disabling the plugin itself also works but takes the skills and MCP server
+with it. Claude Code has no per-hook toggle today, so the env var is the
+supported per-hook switch.
 
 ## Install
 

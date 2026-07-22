@@ -1,0 +1,133 @@
+---
+/**
+ * Operator transactional email previews. POST /admin-ui/dev/emails/:type.
+ * Type list mirrors EMAIL_PREVIEW_TYPES in apps/api/src/admin-email-preview.ts.
+ */
+import AdminLayout from "../../layouts/AdminLayout.astro";
+import "../../styles/admin-email.css";
+
+export const prerender = false;
+
+// Keep in sync with apps/api/src/admin-email-preview.ts EMAIL_PREVIEW_TYPES.
+const PREVIEW_TYPES = [
+  { id: "magic-link", label: "Magic sign-in link", category: "Auth" },
+  { id: "org-invitation", label: "Workspace invitation", category: "Auth" },
+  { id: "member-joined", label: "Member joined notify", category: "Auth" },
+  { id: "welcome", label: "Welcome / next steps", category: "Auth" },
+  { id: "enrollment-invitation", label: "Enrollment invitation", category: "Invites" },
+] as const;
+
+const categories = [...new Set(PREVIEW_TYPES.map((t) => t.category))];
+---
+
+<AdminLayout section="email">
+  <section class="card">
+    <h2>Email previews</h2>
+    <p>
+      Send a sample of each product email through Cloudflare Email Sending.
+      Links use placeholder tokens and will not complete a real sign-in or invite.
+      Defaults to your signed-in address; override for another inbox (e.g. Gmail markup tests).
+    </p>
+
+    <div class="email-recipient">
+      <label for="email-to">Send to</label>
+      <input type="email" id="email-to" maxlength="320" placeholder="you@example.com" />
+    </div>
+
+    <div id="email-action-status" class="email-status" role="status" hidden></div>
+
+    {
+      categories.map((category) => (
+        <section class="email-category">
+          <h3>{category}</h3>
+          <ul class="email-type-list">
+            {PREVIEW_TYPES.filter((t) => t.category === category).map((t) => (
+              <li class="email-row">
+                <span class="email-row-label">{t.label}</span>
+                <button type="button" class="email-send" data-type={t.id}>
+                  Send preview
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))
+    }
+  </section>
+
+  <script>
+    import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
+
+    onAstroPageLoad(() => {
+      if (!document.getElementById("email-to")) return;
+
+      const w = window as unknown as { __UPLOADS_API_ORIGIN__: string };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__.replace(/\/$/, "");
+      const toInput = requireElement<HTMLInputElement>("#email-to", "admin email");
+      const statusEl = requireElement<HTMLElement>("#email-action-status", "admin email");
+      const buttons = [...document.querySelectorAll<HTMLButtonElement>("button.email-send")];
+
+      let busy = false;
+
+      function setStatus(message: string, state?: "ok" | "error") {
+        statusEl.hidden = !message;
+        statusEl.textContent = message;
+        if (state) statusEl.dataset.state = state;
+        else delete statusEl.dataset.state;
+      }
+
+      function setBusy(typeId: string | null) {
+        busy = typeId != null;
+        for (const btn of buttons) {
+          btn.disabled = busy;
+          btn.textContent = btn.dataset.type === typeId ? "Sending…" : "Send preview";
+        }
+      }
+
+      async function sendPreview(typeId: string) {
+        if (!typeId || busy) return;
+        setBusy(typeId);
+        setStatus("");
+        try {
+          const to = toInput.value.trim();
+          const res = await fetch(`${apiOrigin}/admin-ui/dev/emails/${encodeURIComponent(typeId)}`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(to ? { to } : {}),
+          });
+          const payload = (await res.json().catch(() => null)) as {
+            ok?: boolean;
+            to?: string;
+            subject?: string;
+            error?: { message?: string };
+          } | null;
+
+          if (!res.ok || !payload?.ok || !payload.to) {
+            setStatus(
+              payload?.error?.message ||
+                (res.status === 503
+                  ? "Email Sending is not configured on this environment."
+                  : `Could not send (${res.status}).`),
+              "error",
+            );
+            return;
+          }
+          setStatus(`Sent “${payload.subject ?? typeId}” to ${payload.to}`, "ok");
+        } catch {
+          setStatus("Could not send the preview email.", "error");
+        } finally {
+          setBusy(null);
+        }
+      }
+
+      onSession((user) => {
+        if (user?.email && !toInput.value) toInput.value = user.email;
+      });
+
+      for (const btn of buttons) {
+        btn.addEventListener("click", () => void sendPreview(btn.dataset.type ?? ""));
+      }
+    });
+  </script>
+</AdminLayout>

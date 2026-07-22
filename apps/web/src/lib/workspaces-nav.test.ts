@@ -73,6 +73,7 @@ describe("workspaceTabFromPathname", () => {
     );
     expect(workspaceTabFromPathname("/account/workspaces/buildinternet/people")).toBe("people");
     expect(workspaceTabFromPathname("/account/workspaces/buildinternet/invite")).toBe("people");
+    expect(workspaceTabFromPathname("/account/workspaces/buildinternet/billing")).toBe("billing");
     expect(workspaceTabFromPathname("/account/workspaces/buildinternet/settings")).toBe("settings");
   });
 
@@ -159,6 +160,7 @@ describe("renderWorkspaceSectionNavHtml", () => {
     expect(html).toContain('href="/account/workspaces/buildinternet"');
     expect(html).toContain('href="/account/workspaces/buildinternet/galleries"');
     expect(html).toContain('href="/account/workspaces/buildinternet/people"');
+    expect(html).toContain('href="/account/workspaces/buildinternet/billing"');
     expect(html).toContain('href="/account/workspaces/buildinternet/settings"');
     expect(html).toMatch(
       /href="\/account\/workspaces\/buildinternet\/galleries"[^>]*aria-current="page"/,

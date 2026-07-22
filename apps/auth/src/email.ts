@@ -8,6 +8,7 @@ import {
   renderMagicLinkEmail,
   renderMemberJoinedEmail,
   renderOrgInvitationEmail,
+  renderWelcomeEmail,
   type RenderedEmail,
 } from "@uploads/email";
 
@@ -40,6 +41,11 @@ export type SendAuthEmailArgs =
       to: string;
       template: "member-joined";
       context: { organizationName: string; memberEmail: string };
+    }
+  | {
+      to: string;
+      template: "welcome";
+      context: { workspaceName?: string };
     };
 
 function render(args: SendAuthEmailArgs, webOrigin: string): RenderedEmail {
@@ -50,6 +56,8 @@ function render(args: SendAuthEmailArgs, webOrigin: string): RenderedEmail {
       return renderOrgInvitationEmail({ ...args.context, webOrigin });
     case "member-joined":
       return renderMemberJoinedEmail({ ...args.context, webOrigin });
+    case "welcome":
+      return renderWelcomeEmail({ ...args.context, webOrigin });
   }
 }
 

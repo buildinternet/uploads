@@ -15,6 +15,12 @@ import {
 } from "@uploads/errors";
 import { Hono } from "hono";
 import {
+  EMAIL_PREVIEW_TYPES,
+  isEmailPreviewType,
+  resolvePreviewRecipient,
+  sendEmailPreview,
+} from "../admin-email-preview";
+import {
   DEFAULT_ENROLLMENT_SECONDS,
   DEFAULT_TOKEN_SECONDS,
   createEnrollment,
@@ -40,6 +46,7 @@ import {
 import { getWorkspaceUsage } from "../usage";
 import { isPurgedTombstone, loadWorkspaceRecordRaw, type WorkspaceRecord } from "../workspace";
 import { LIMIT_FIELDS, validateLimitsPatch } from "../workspace-limits";
+import { planResponse, validatePlanPatch } from "../workspace-plan";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BAN_REASON_MAX = 500;
@@ -484,6 +491,36 @@ export const adminUi = new Hono<SessionVars>()
     return c.json(await limitsResponse(c.env, name, record));
   })
 
+  // Read the workspace's plan, its availability, and resolved effective
+  // limits (plan defaults backstopped by any explicit overrides).
+  .get("/workspaces/:name/plan", async (c) => {
+    const name = c.req.param("name");
+    const record = await loadEditableWorkspace(c.env, name);
+    return c.json(planResponse(name, record));
+  })
+
+  // Set the workspace's plan. Admins may set `pro` even though it's
+  // unavailable to self-serve users (operator override) — availability is
+  // informational in the response, not enforced here. Limit overrides on
+  // the record are untouched; only `plan` is written.
+  .patch("/workspaces/:name/plan", async (c) => {
+    const name = c.req.param("name");
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+    const record = await loadEditableWorkspace(c.env, name);
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      throw new ValidationError("request body must be valid JSON", { code: "invalid_plan" });
+    }
+    const { plan } = validatePlanPatch(body);
+    record.plan = plan;
+    await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(record));
+    return c.json(planResponse(name, record));
+  })
+
   // Read the per-workspace managed-comment settings: whether attachments
   // link to their `/f/` file page or raw object bytes (issue #304), and
   // whether the comment shows an upload's `path`/`state` metadata (issue
@@ -648,4 +685,22 @@ export const adminUi = new Hono<SessionVars>()
     return proxyOauthClients(c.env, `/internal/oauth-clients/${encodeURIComponent(clientId)}`, {
       method: "DELETE",
     });
+  })
+
+  // Transactional email previews — operator self-send with placeholder tokens.
+  // Type list is also hard-coded in apps/web admin/email.astro (keep in sync).
+  .get("/dev/emails", (c) => c.json({ types: EMAIL_PREVIEW_TYPES }))
+
+  .post("/dev/emails/:type", async (c) => {
+    const type = c.req.param("type");
+    if (!isEmailPreviewType(type)) {
+      throw new ValidationError("unknown email preview type", {
+        code: "unknown_email_preview_type",
+        details: { type },
+      });
+    }
+    const body = (await c.req.json().catch(() => ({}))) as { to?: unknown };
+    const to = resolvePreviewRecipient(c.get("sessionUser")?.email, body.to);
+    const { subject } = await sendEmailPreview(c.env, type, to);
+    return c.json({ ok: true, type, to, subject });
   });

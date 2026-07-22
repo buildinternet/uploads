@@ -20,7 +20,7 @@ import SiteHeader from "../components/SiteHeader.astro";
 import ViewTransitions from "../components/ViewTransitions.astro";
 import "../styles/signed-in-shell.css";
 
-export type AdminSection = "workspaces" | "users" | "oauth";
+export type AdminSection = "workspaces" | "users" | "oauth" | "email";
 
 interface Props {
   section: AdminSection;
@@ -32,6 +32,7 @@ const titles: Record<AdminSection, string> = {
   workspaces: "Admin",
   users: "Users · Admin",
   oauth: "OAuth apps · Admin",
+  email: "Email · Admin",
 };
 const docTitle = `${titles[section]} · uploads.sh`;
 
@@ -44,6 +45,7 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
   { href: "/admin", section: "workspaces", label: "Workspaces" },
   { href: "/admin/users", section: "users", label: "Users" },
   { href: "/admin/oauth", section: "oauth", label: "OAuth apps" },
+  { href: "/admin/email", section: "email", label: "Email" },
 ];
 ---
 

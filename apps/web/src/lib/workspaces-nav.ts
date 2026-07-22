@@ -19,7 +19,7 @@ import { escapeHtml } from "./workspace-ui";
 export const WORKSPACES_CACHE_KEY = "uploads:myWorkspaces";
 export const ACTIVE_WORKSPACE_CACHE_KEY = "uploads:activeWorkspace";
 
-export type WorkspaceNavTab = "files" | "galleries" | "people" | "settings";
+export type WorkspaceNavTab = "files" | "galleries" | "people" | "billing" | "settings";
 
 export const WORKSPACE_NAV_TABS: {
   id: WorkspaceNavTab;
@@ -30,6 +30,7 @@ export const WORKSPACE_NAV_TABS: {
   { id: "files", label: "files", path: "" },
   { id: "galleries", label: "galleries", path: "/galleries" },
   { id: "people", label: "people", path: "/people" },
+  { id: "billing", label: "billing", path: "/billing" },
   { id: "settings", label: "settings", path: "/settings" },
 ];
 
@@ -136,6 +137,7 @@ export function workspaceTabFromPathname(pathname: string): WorkspaceNavTab | ""
   if (!segment) return "files";
   if (segment === "galleries") return "galleries";
   if (segment === "people" || segment === "invite") return "people";
+  if (segment === "billing") return "billing";
   if (segment === "settings") return "settings";
   return "";
 }
