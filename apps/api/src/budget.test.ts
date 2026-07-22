@@ -29,7 +29,7 @@ describe("resolveBudgetLimits — plan-aware resolution", () => {
 
   it("a workspace explicitly on the pro plan resolves pro's defaults", () => {
     expect(resolveBudgetLimits({ plan: "pro" })).toEqual({
-      maxStorageBytes: 25_000_000_000,
+      maxStorageBytes: 10_000_000_000,
       maxUploadsPerPeriod: 100_000,
     });
   });

@@ -48,15 +48,17 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   pro: {
     id: "pro",
     name: "Pro",
-    blurb: "Higher storage and upload limits for teams — coming soon.",
+    blurb: "10 GB of storage and files up to 100 MB — coming soon.",
     available: false,
-    // Provisional placeholders invented ahead of real pricing (pro is not
-    // yet purchasable) — revisit before pro becomes available.
+    // Decided 2026-07-22 (first-paid-plan memo): two marketed meters —
+    // storage and one unified file cap (video ceiling = upload ceiling on
+    // pro; only free carves video out). maxUploadsPerPeriod is an internal
+    // abuse guard, not a marketed limit.
     defaultLimits: {
-      maxStorageBytes: 25_000_000_000,
+      maxStorageBytes: 10_000_000_000,
       maxUploadsPerPeriod: 100_000,
       maxUploadBytes: 100_000_000,
-      maxVideoUploadBytes: 50_000_000,
+      maxVideoUploadBytes: 100_000_000,
     },
   },
 };

@@ -450,7 +450,7 @@ describe("GET /me/workspaces/:name/billing", () => {
     expect(body.plan).toBe("pro");
     expect(body.available).toBe(false);
     expect(body.planApplied).toBe(true);
-    expect(body.limits.maxStorageBytes).toBe(25_000_000_000);
+    expect(body.limits.maxStorageBytes).toBe(10_000_000_000);
   });
 });
 
