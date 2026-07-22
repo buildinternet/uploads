@@ -7,7 +7,9 @@ import type { GlobalFlags } from "../src/cli-args.js";
 import type {
   AddGalleryItemOptions,
   CreateGalleryOptions,
+  GithubRepoLinkResult,
   LinkGalleryExternalReferenceOptions,
+  ListItem,
   UploadsClient,
 } from "../src/client.js";
 import type { UploadsClientConfig } from "../src/config.js";
@@ -360,6 +362,7 @@ describe("tools/list", () => {
       "screenshot",
       "attach",
       "list",
+      "staged",
       "delete",
       "get_metadata",
       "set_metadata",
@@ -1220,5 +1223,138 @@ describe("canonical metadata params reach the upload", () => {
       arguments: { file, metadata: { state: "before" }, state: "after" },
     });
     expect(puts[0]?.metadata?.state).toBe("after");
+  });
+});
+
+describe("staged tool (issue #405)", () => {
+  function stagedFactory(opts: {
+    items?: ListItem[];
+    repoLinkStatus?: GithubRepoLinkResult | Error;
+  }) {
+    const listCalls: { prefix?: string; metadata?: boolean }[] = [];
+    const factory = (): UploadsClient =>
+      ({
+        list: async (listOpts: { prefix?: string; metadata?: boolean }) => {
+          listCalls.push(listOpts);
+          return { items: opts.items ?? [], cursor: null };
+        },
+        ...(opts.repoLinkStatus !== undefined
+          ? {
+              githubRepoLinkStatus: async () => {
+                if (opts.repoLinkStatus instanceof Error) throw opts.repoLinkStatus;
+                return opts.repoLinkStatus!;
+              },
+            }
+          : {}),
+      }) as unknown as UploadsClient;
+    return { factory, listCalls };
+  }
+
+  function branchRunner(branch = "feature/thing"): CommandRunner {
+    return (cmd, args) => {
+      if (cmd === "git" && args[0] === "rev-parse") return `${branch}\n`;
+      throw new Error(`unexpected call: ${cmd} ${args.join(" ")}`);
+    };
+  }
+
+  it("is registered and mirrors the CLI (repo/branch args, files + binding)", async () => {
+    const { factory, listCalls } = stagedFactory({
+      items: [
+        {
+          key: "gh/o/r/branch/feature-thing/shot.png",
+          url: "https://x.test/shot.png",
+          size: 10,
+          metadata: { "gh.staged-at": "2026-07-20T10:00:00Z" },
+        },
+      ],
+      repoLinkStatus: { binding: "self" },
+    });
+    const server = createMcpServer({
+      serverInfo: { name: "uploads", version: "0.0.0-test" },
+      tools: createUploadsMcpTools({
+        globals: { apiUrl: "https://x.test", token: "up_test_x" },
+        runner: noRun,
+        clientFactory: factory,
+      }),
+    });
+    const res = await rpc(server, "tools/call", {
+      name: "staged",
+      arguments: { branch: "feature/thing", repo: "o/r" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(listCalls[0]).toEqual({ prefix: "gh/o/r/branch/feature-thing/", metadata: true });
+    expect(res.result.structuredContent).toEqual({
+      repo: "o/r",
+      branch: "feature/thing",
+      files: [
+        {
+          key: "gh/o/r/branch/feature-thing/shot.png",
+          filename: "shot.png",
+          size: 10,
+          stagedAt: "2026-07-20T10:00:00Z",
+          url: "https://x.test/shot.png",
+        },
+      ],
+      binding: {
+        state: "self",
+        autoAttach: true,
+        message: "these auto-attach when this branch's PR opens",
+      },
+    });
+  });
+
+  it("defaults branch to the current git branch when omitted", async () => {
+    const { factory, listCalls } = stagedFactory({ repoLinkStatus: { binding: "none" } });
+    const server = createMcpServer({
+      serverInfo: { name: "uploads", version: "0.0.0-test" },
+      tools: createUploadsMcpTools({
+        globals: { apiUrl: "https://x.test", token: "up_test_x" },
+        runner: branchRunner("main"),
+        clientFactory: factory,
+      }),
+    });
+    const res = await rpc(server, "tools/call", {
+      name: "staged",
+      arguments: { repo: "o/r" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(listCalls[0]?.prefix).toBe("gh/o/r/branch/main/");
+  });
+
+  it("empty staging returns a valid empty files array (never an error, never empty)", async () => {
+    const { factory } = stagedFactory({ repoLinkStatus: { binding: "none" } });
+    const server = createMcpServer({
+      serverInfo: { name: "uploads", version: "0.0.0-test" },
+      tools: createUploadsMcpTools({
+        globals: { apiUrl: "https://x.test", token: "up_test_x" },
+        runner: noRun,
+        clientFactory: factory,
+      }),
+    });
+    const res = await rpc(server, "tools/call", {
+      name: "staged",
+      arguments: { branch: "feature/thing", repo: "o/r" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.structuredContent.files).toEqual([]);
+    expect(res.result.structuredContent.binding.state).toBe("none");
+  });
+
+  it("binding degrades to unknown when the lookup route is absent (older server)", async () => {
+    const { factory } = stagedFactory({}); // no repoLinkStatus -> method absent
+    const server = createMcpServer({
+      serverInfo: { name: "uploads", version: "0.0.0-test" },
+      tools: createUploadsMcpTools({
+        globals: { apiUrl: "https://x.test", token: "up_test_x" },
+        runner: noRun,
+        clientFactory: factory,
+      }),
+    });
+    const res = await rpc(server, "tools/call", {
+      name: "staged",
+      arguments: { branch: "feature/thing", repo: "o/r" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(res.result.structuredContent.binding.state).toBe("unknown");
   });
 });

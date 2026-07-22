@@ -11,6 +11,7 @@ import {
   buildDoctorReport,
   makeGhTarget,
   resolvePutStagingTarget,
+  resolveStaged,
   syncAttachmentsComment,
   type AttachmentsCommentResult,
   uploadAttachments,
@@ -33,6 +34,7 @@ import { type OptimizeImageOptions } from "../optimize.js";
 import {
   execRunner,
   ghMetadataFromTargetWithTitle,
+  resolveCurrentBranch,
   resolveCurrentPullRequest,
   resolveRepo,
   type CommandRunner,
@@ -1074,6 +1076,32 @@ export function createUploadsMcpTools(opts: {
           return { items, cursor: null };
         }
         return client.list({ prefix, limit, cursor });
+      },
+    },
+    {
+      name: "staged",
+      description:
+        "Read-only view of what's staged for a git branch (attach --branch / bare put on a non-default branch) and whether it will auto-attach once a PR opens. One list call against the branch staging prefix plus a repo-binding check (files:read only). Returns { repo, branch, files, binding }; binding.state is self/other/none/unknown and binding.autoAttach is true only for self.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          branch: {
+            type: "string",
+            description: "Branch name (default: current git branch, worktree-safe).",
+          },
+          repo: {
+            type: "string",
+            description: "owner/name repo (default: gh/git remote inference).",
+          },
+          workspace: workspaceProp,
+        },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const { client } = clientFor(args);
+        const repo = resolveRepo(optString(args, "repo"), run);
+        const branch = optString(args, "branch") ?? resolveCurrentBranch(run);
+        return resolveStaged({ client, repo, branch });
       },
     },
     {
