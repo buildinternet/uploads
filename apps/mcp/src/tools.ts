@@ -5,7 +5,13 @@
  * becomes an isError tool result rather than a JSON-RPC error. Tools needing
  * a filesystem or the gh CLI (attach, comment, doctor) stay stdio-only.
  */
-import { buildMarkdown, buildScreenshotKey } from "@buildinternet/uploads";
+import {
+  buildMarkdown,
+  buildScreenshotKey,
+  ghAttachmentKey,
+  ghMetadataFromTarget,
+  type GhTarget,
+} from "@buildinternet/uploads";
 import {
   appProp,
   METADATA_DESCRIPTION,
@@ -25,6 +31,7 @@ import {
 } from "@buildinternet/uploads/mcp";
 import { AppError, NotFoundError } from "@uploads/errors";
 import { badKey } from "@uploads/api/files";
+import { postManagedComment, type PostCommentResult } from "@uploads/api/github-comment-service";
 import {
   findObjectsByMetadata,
   getFileMetadata,
@@ -131,6 +138,34 @@ function optPutFileItems(args: Record<string, unknown>): PutFileItem[] | undefin
   });
 }
 
+// Same owner/name grammar as the REST route's parseTarget (routes/github-comment.ts,
+// now apps/api/src/github-comment-service.ts's caller) — `repo` is interpolated into
+// a server-side api.github.com path via postManagedComment, so a dot-only segment
+// ("..") must be rejected here too, not just the simpler public-files grammar.
+const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+const DOTS_ONLY_RE = /^\.+$/;
+
+function validRepoGrammar(repo: string): boolean {
+  return REPO_RE.test(repo) && !repo.split("/").some((seg) => DOTS_ONLY_RE.test(seg));
+}
+
+/**
+ * Reads `pr`/`issue` (+ `repo`) into a `GhTarget`; undefined when neither is
+ * present. Unlike the stdio tool, `repo` is REQUIRED with a target — there is
+ * no git context on this server to infer it from (deliberate divergence,
+ * documented on the arg itself).
+ */
+function ghTargetFromArgs(args: Record<string, unknown>): GhTarget | undefined {
+  const pr = optPosInt(args, "pr");
+  const issue = optPosInt(args, "issue");
+  if (pr === undefined && issue === undefined) return undefined;
+  if (pr !== undefined && issue !== undefined) usage("pr and issue are mutually exclusive");
+  const repo = optString(args, "repo");
+  if (!repo) usage("repo is required with pr/issue (no git context on the hosted server)");
+  if (!validRepoGrammar(repo)) usage("repo must be owner/name");
+  return { repo, kind: pr !== undefined ? "pull" : "issues", num: (pr ?? issue) as number };
+}
+
 /** Per-item failure detail, same shape as the CLI/stdio `failures[]` entries. */
 function errorDetail(err: unknown): {
   message: string;
@@ -155,6 +190,31 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     // Mirrors the REST API's writeRateLimit middleware (guards.ts): plain
     // Error, not usage() — over-budget is not a caller mistake.
     if (!(await allowWrite(env, workspaceName))) throw new Error("rate limit exceeded");
+  }
+
+  /**
+   * Best-effort managed-comment sync after a successful `put` (issue #392),
+   * reusing the REST route's in-process service. A comment failure — a
+   * decline (not_installed/not_authorized/forbidden/...) is NOT a failure,
+   * it's returned honestly in `comment` — never fails the tool call; a throw
+   * (e.g. an unexpected GitHub API error) is caught into `commentError`, same
+   * shape as the stdio tools' `syncComment`.
+   */
+  async function attachComment(
+    target: GhTarget,
+  ): Promise<{ comment?: PostCommentResult; commentError?: string }> {
+    try {
+      const comment = await postManagedComment(
+        env,
+        workspace,
+        workspaceName,
+        ctx.mintingUserId,
+        target,
+      );
+      return { comment };
+    } catch (err) {
+      return { commentError: err instanceof Error ? err.message : String(err) };
+    }
   }
 
   function requiredString(args: Record<string, unknown>, name: string): string {
@@ -377,7 +437,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     {
       name: "put",
       description:
-        "Upload base64-encoded content to the workspace and get a public URL plus GitHub-ready embed markdown (the returned `markdown` is ready to paste into a PR or issue). Single file: pass `contentBase64` + `filename` (flat result). Multiple files: pass `files` (uploaded in parallel; returns `uploads` + `failures`, one bad item does not abort the rest). The key defaults to <prefix>/<repo>/<ref>/<name>-<hash>.<ext>; pass `key` for an explicit path instead (single-file only). Uploads are public regardless of GitHub repository visibility; explicit predictable keys must contain only non-sensitive media. The stored content type is sniffed from the bytes and restricted to the workspace's allowlist (images plus mp4/webm by default).",
+        "Upload base64-encoded content to the workspace and get a public URL plus GitHub-ready embed markdown (the returned `markdown` is ready to paste into a PR or issue). Single file: pass `contentBase64` + `filename` (flat result). Multiple files: pass `files` (uploaded in parallel; returns `uploads` + `failures`, one bad item does not abort the rest). The key defaults to <prefix>/<repo>/<ref>/<name>-<hash>.<ext>; pass `key` for an explicit path instead (single-file only). With `pr`/`issue` (+ required `repo`) the key is stable instead (gh/…, always overwrites) and `comment` syncs the managed attachments comment as uploads-sh[bot] — bot-only on this hosted server, no local gh fallback. Uploads are public regardless of GitHub repository visibility; explicit predictable keys must contain only non-sensitive media. The stored content type is sniffed from the bytes and restricted to the workspace's allowlist (images plus mp4/webm by default).",
       inputSchema: {
         type: "object",
         properties: {
@@ -412,7 +472,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
               required: ["filename", "contentBase64"],
               additionalProperties: false,
             },
-            description: `Multiple files to upload in one call (max ${MAX_PUT_FILES} items). Cannot be combined with contentBase64, filename, or key; prefix/repo/ref/width/metadata apply to every item. Returns { uploads, failures } with per-item results.`,
+            description: `Multiple files to upload in one call (max ${MAX_PUT_FILES} items). Cannot be combined with contentBase64, filename, or key; prefix/repo/ref/pr/issue/width/metadata apply to every item. Returns { uploads, failures } with per-item results (plus comment/commentError once for the whole batch when comment: true).`,
           },
           key: {
             type: "string",
@@ -425,11 +485,28 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           },
           repo: {
             type: "string",
-            description: "owner/name repo segment for the default key layout (default: misc).",
+            description:
+              "owner/name repo segment for the default key layout (default: misc). REQUIRED (and must be owner/name) with pr/issue — there is no git context on this server to infer it from.",
           },
           ref: {
             type: "string",
-            description: "PR/issue/branch key segment for the default key layout (default: today).",
+            description:
+              "PR/issue/branch key segment for the default key layout (default: today). Cannot be combined with pr/issue.",
+          },
+          pr: {
+            type: "number",
+            description:
+              "Attach to this pull request: uses a stable gh/ key (always overwrites) and stamps canonical gh.* metadata. Mutually exclusive with issue and with key/prefix/ref. Requires repo.",
+          },
+          issue: {
+            type: "number",
+            description:
+              "Attach to this issue: uses a stable gh/ key (always overwrites) and stamps canonical gh.* metadata. Mutually exclusive with pr and with key/prefix/ref. Requires repo.",
+          },
+          comment: {
+            type: "boolean",
+            description:
+              "With pr/issue: after a successful upload, create or update the managed attachments comment via the uploads.sh GitHub App (bot-only on this hosted server — no local gh fallback). Requires pr or issue. A comment failure never fails the upload; see the response's `comment`/`commentError`.",
           },
           alt: {
             type: "string",
@@ -479,6 +556,34 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           if (!filename) usage("filename is required");
         }
 
+        // PR/issue targeting (issue #392): mirrors the stdio put contract, but
+        // `repo` is required here (no git context on this server, enforced by
+        // ghTargetFromArgs). Mutually exclusive with key/prefix/ref — a target
+        // always uses the stable gh/ key layout, never the default one.
+        const target = ghTargetFromArgs(args);
+        const wantComment = optBool(args, "comment");
+        if (wantComment && !target) usage("comment requires pr or issue");
+        // The comment path's gather reads the workspace's own objects,
+        // metadata, and galleries (github-comment-service.ts's
+        // gatherCommentBody) — the same reason the REST route requires
+        // files:read. Checked up front, alongside the other argument
+        // validation, so a files:write-only token is rejected before any
+        // bytes are written — never after a successful upload.
+        if (wantComment) requireScope("files:read");
+
+        const explicitKey = optString(args, "key");
+        const prefix = optString(args, "prefix");
+        const repo = optString(args, "repo");
+        const ref = optString(args, "ref");
+        if (target) {
+          if (explicitKey) usage("key cannot be combined with pr/issue");
+          if (prefix) usage("prefix cannot be combined with pr/issue");
+          if (ref) usage("ref cannot be combined with pr/issue");
+        }
+        if (explicitKey && (prefix ?? repo ?? ref) !== undefined) {
+          usage("key cannot be combined with prefix/repo/ref");
+        }
+
         // state/app are explicit input and win over a same-named metadata key.
         // This server cannot derive the EXIF-sourced keys (no image decoding in
         // the Workers runtime), so these two are the whole canonical surface here.
@@ -490,6 +595,10 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             usage(err instanceof Error ? err.message : String(err));
           }
         }
+        // With a target, stamp the canonical gh.* pairs (parity with the
+        // attach flow, so find/activity-feed/attribution see these uploads).
+        // Canonical keys win over any caller-supplied same-named pair.
+        if (target) metadata = { ...metadata, ...ghMetadataFromTarget(target) };
         // Uploader attribution (issue #345, parity with the REST PUT hook in
         // apps/api/src/routes/files.ts): gh.*-tagged uploads get server-derived
         // `gh.uploader`/`gh.uploader-id` stamped from the OAuth JWT's (or
@@ -504,14 +613,6 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             const merged = { ...metadata, ...uploader };
             if (Object.keys(merged).length <= META_MAX_KEYS) metadata = merged;
           }
-        }
-
-        const explicitKey = optString(args, "key");
-        const prefix = optString(args, "prefix");
-        const repo = optString(args, "repo");
-        const ref = optString(args, "ref");
-        if (explicitKey && (prefix ?? repo ?? ref) !== undefined) {
-          usage("key cannot be combined with prefix/repo/ref");
         }
 
         const policy = resolveUploadPolicy(workspace);
@@ -541,22 +642,25 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
               );
             }
           });
-          // Keys are deterministic (sanitized name + content hash), so two
+          // Keys are deterministic (sanitized name + content hash for the
+          // default layout, or filename alone under a gh/ target), so two
           // items can collide — e.g. the same file listed twice. Reject
           // before any write: concurrent same-key puts would double-count
           // the usage ledger and report more uploads than stored objects.
-          const keys = await Promise.all(
-            decoded.map((bytes, i) =>
-              buildScreenshotKey({
-                filename: items[i]!.filename,
-                fileBytes: bytes,
-                prefix,
-                repo,
-                ref,
-                deriveRepoFromGit: false,
-              }),
-            ),
-          );
+          const keys = target
+            ? items.map((item) => ghAttachmentKey(target, item.filename))
+            : await Promise.all(
+                decoded.map((bytes, i) =>
+                  buildScreenshotKey({
+                    filename: items[i]!.filename,
+                    fileBytes: bytes,
+                    prefix,
+                    repo,
+                    ref,
+                    deriveRepoFromGit: false,
+                  }),
+                ),
+              );
           const firstIndexByKey = new Map<string, number>();
           keys.forEach((key, i) => {
             const first = firstIndexByKey.get(key);
@@ -608,22 +712,28 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
               failures,
             });
           }
-          return { workspace: workspaceName, uploads, failures };
+          // At least one item made it into R2 (issue #392): sync the comment
+          // once for the whole batch, same as the stdio tool syncs once per call.
+          const commentResult =
+            wantComment && target && uploads.length > 0 ? await attachComment(target) : undefined;
+          return { workspace: workspaceName, uploads, failures, ...commentResult };
         }
 
         const bytes = decodeBase64(contentBase64!, maxBytes);
 
         const key =
           explicitKey ??
-          // deriveRepoFromGit: false — no git (or child_process) on a worker.
-          (await buildScreenshotKey({
-            filename: filename!,
-            fileBytes: bytes,
-            prefix,
-            repo,
-            ref,
-            deriveRepoFromGit: false,
-          }));
+          (target
+            ? ghAttachmentKey(target, filename!)
+            : // deriveRepoFromGit: false — no git (or child_process) on a worker.
+              await buildScreenshotKey({
+                filename: filename!,
+                fileBytes: bytes,
+                prefix,
+                repo,
+                ref,
+                deriveRepoFromGit: false,
+              }));
 
         // Key/body validation and the size/type guardrails live in putObject,
         // shared with the REST API — the stored content type is sniffed there.
@@ -637,7 +747,8 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
                 alt: alt ?? filename!,
                 width,
               });
-        return { workspace: workspaceName, ...result, markdown };
+        const commentResult = wantComment && target ? await attachComment(target) : undefined;
+        return { workspace: workspaceName, ...result, markdown, ...commentResult };
       },
     },
     {

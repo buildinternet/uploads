@@ -18,7 +18,8 @@
     "./galleries": "./src/galleries.ts",
     "./gallery-service": "./src/gallery-service.ts",
     "./external-references": "./src/external-references.ts",
-    "./uploader-identity": "./src/uploader-identity.ts"
+    "./uploader-identity": "./src/uploader-identity.ts",
+    "./github-comment-service": "./src/github-comment-service.ts"
   },
   "scripts": {
     "dev": "wrangler dev",
