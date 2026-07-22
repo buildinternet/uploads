@@ -94,12 +94,18 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
 // present, else it's simply the counterpart's opposite — either way, only
 // rendered when the API actually returned a counterpart.
 const counterpart = file?.counterpart ?? null;
+
+/** This file's own before/after role, given the counterpart it's paired with. */
+function ownBeforeAfterState(
+  metadataState: string | undefined,
+  counterpartState: "before" | "after",
+): "before" | "after" {
+  if (metadataState === "before" || metadataState === "after") return metadataState;
+  return counterpartState === "before" ? "after" : "before";
+}
+
 const ownState: "before" | "after" | null = counterpart
-  ? file?.metadata?.state === "before" || file?.metadata?.state === "after"
-    ? file.metadata.state
-    : counterpart.state === "before"
-      ? "after"
-      : "before"
+  ? ownBeforeAfterState(file?.metadata?.state, counterpart.state)
   : null;
 const counterpartFilename = counterpart ? counterpart.key.split("/").filter(Boolean).pop() ?? counterpart.key : null;
 const counterpartHref = counterpart ? filePath(workspace, counterpart.key) : null;

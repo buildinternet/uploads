@@ -69,6 +69,12 @@ beforeAll(() => {
 });
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+// ISO base media `ftyp` box with an `isom` major brand — sniffs as video/mp4
+// (apps/api/src/guards.ts's detectContentType; the stored type comes from
+// sniffed bytes, never the client's Content-Type header).
+const MP4 = new Uint8Array([
+  0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+]);
 
 async function makeEnv(
   overrides: Partial<WorkspaceRecord> = {},
@@ -666,11 +672,12 @@ describe("putObject uploaded-at stamp", () => {
   });
 });
 
-/** PUT an arbitrary key with optional headers, returning the stored key (unprefixed). */
+/** PUT an arbitrary key with optional headers/body, returning the stored key (unprefixed). */
 async function seedFile(
   env: Parameters<typeof app.request>[2],
   key: string,
   headers: Record<string, string> = {},
+  body: Uint8Array = PNG,
 ) {
   const res = await app.request(
     `/v1/default/files/${key}`,
@@ -682,7 +689,7 @@ async function seedFile(
         "X-Uploads-Replace": "1",
         ...headers,
       },
-      body: PNG,
+      body,
     },
     env,
   );
@@ -831,6 +838,77 @@ describe("GET /public/files/:workspace/:key — before/after counterpart (issue 
       {},
       env,
     );
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.counterpart).toBeUndefined();
+  });
+
+  it("does not pair videos — the paired view only renders images", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(
+      env,
+      "gh/acme/web/pull/12/hero-before.mp4",
+      { "Content-Type": "video/mp4" },
+      MP4,
+    );
+    await seedFile(env, "gh/acme/web/pull/12/hero-after.mp4", { "Content-Type": "video/mp4" }, MP4);
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.mp4",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.counterpart).toBeUndefined();
+  });
+
+  it("does not pair an image with a video counterpart via metadata", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp", {
+      "X-Uploads-Meta-path": "hero",
+      "X-Uploads-Meta-state": "before",
+    });
+    await seedFile(
+      env,
+      "gh/acme/web/pull/12/hero-after.mp4",
+      {
+        "Content-Type": "video/mp4",
+        "X-Uploads-Meta-path": "hero",
+        "X-Uploads-Meta-state": "after",
+      },
+      MP4,
+    );
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.webp",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.counterpart).toBeUndefined();
+  });
+
+  it("stays rule-1-only when path/state metadata is usable but finds no match (no filename fallback)", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    // Has usable path/state metadata, but no object carries the matching
+    // path=hero/state=after pair — rule 1 comes back empty.
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp", {
+      "X-Uploads-Meta-path": "hero",
+      "X-Uploads-Meta-state": "before",
+    });
+    // A filename-stem neighbor exists, but must NOT be used as a fallback
+    // once the file has its own usable path metadata (mirrors the
+    // comment-side rule from PR #424: metadata-declared files are
+    // rule-1-only).
+    await seedFile(env, "gh/acme/web/pull/12/hero-after.webp");
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.webp",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
     const json = (await res.json()) as Record<string, unknown>;
     expect(json.counterpart).toBeUndefined();
   });

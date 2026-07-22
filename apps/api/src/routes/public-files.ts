@@ -1,7 +1,11 @@
 import { NotFoundError, UnauthorizedError } from "@uploads/errors";
 import { Hono } from "hono";
 import type { Files } from "@uploads/storage";
-import { findCounterpartCandidate, type BeforeAfterState } from "../before-after";
+import {
+  findCounterpartCandidate,
+  isPairableImageContentType,
+  type BeforeAfterState,
+} from "../before-after";
 import { badKey, downloadResponse, publicObjectDateFields } from "../files-core";
 import { displayTitle, getFileMetadata, isServerMetaKey } from "../file-metadata";
 import { githubAvatarProxyUrl, ownerFromRepo } from "../github-avatars";
@@ -195,15 +199,24 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
   // Before/after counterpart (issue #420). findCounterpartCandidate only
   // proposes a key from D1 metadata / filename convention — it has no
   // storage binding, so this route must independently verify the candidate
-  // exists AND is public before ever mentioning it in the response. Skipping
-  // either check would let a public page leak the existence of a private
-  // counterpart object.
+  // exists, is public, AND is an image before ever mentioning it in the
+  // response. Skipping any of those would either leak the existence of a
+  // private counterpart object, or hand the web page's static side-by-side
+  // layout (issue #420 v1 renders both sides as an image element) a video
+  // or other non-image file it can't render that way.
   let counterpart: { key: string; url: string; state: BeforeAfterState } | undefined;
-  const candidate = await findCounterpartCandidate(c.env.DB, workspace, key, metadata);
+  const ownContentType = meta.type ?? "application/octet-stream";
+  const candidate = isPairableImageContentType(ownContentType)
+    ? await findCounterpartCandidate(c.env.DB, workspace, key, metadata)
+    : null;
   if (candidate && candidate.key !== key) {
     if (await store.exists(candidate.key)) {
       const counterpartMeta = await store.head(candidate.key);
-      if (!objectVisibility(counterpartMeta.metadata ?? undefined)) {
+      const counterpartType = counterpartMeta.type ?? "application/octet-stream";
+      if (
+        isPairableImageContentType(counterpartType) &&
+        !objectVisibility(counterpartMeta.metadata ?? undefined)
+      ) {
         const counterpartUrls = objectPublicUrls(env, cfg, candidate.key);
         if (counterpartUrls.url) {
           counterpart = { key: candidate.key, url: counterpartUrls.url, state: candidate.state };

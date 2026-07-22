@@ -2,21 +2,26 @@
  * Before/after counterpart detection for the public file page (issue #420).
  *
  * Pairing rule, in priority order — mirrors the managed-comment pairing rule
- * from issue #365:
+ * from issue #365 / PR #424:
  *   1. Same `path` metadata where one file has `state=before` and the other
  *      `state=after` (queryable-tier D1 metadata, file-metadata.ts).
  *   2. Fallback: filename stems differing only by a before/after token
- *      (`hero-before.webp` / `hero-after.webp`).
+ *      (`hero-before.webp` / `hero-after.webp`) — but only when the file has
+ *      no usable `path`/`state` metadata at all. A file with usable path
+ *      metadata is rule-1-only, same as the comment side: a stem-swapped
+ *      neighbor that happens to sit alongside it is not treated as a
+ *      counterpart, since the file's own metadata already declares which
+ *      other object (if any) it pairs with.
  *
  * Both rules are scoped to the same attachment prefix (same PR or same
  * staged branch — everything up to the last `/` in the object key) so
  * unrelated files sharing a `state` value never pair across a workspace.
  *
  * This module only *finds a candidate key* — it has no storage binding, so
- * it cannot check the candidate's own visibility or whether it actually
- * exists. Callers (routes/public-files.ts) must verify both before treating
- * the candidate as a real counterpart, so a public page never reveals a
- * private object's existence.
+ * it cannot check the candidate's own visibility, content type, or whether
+ * it actually exists. Callers (routes/public-files.ts) must verify all of
+ * that before treating the candidate as a real counterpart, so a public page
+ * never reveals a private object's existence and never pairs a non-image.
  */
 
 import { findObjectsByMetadata } from "./file-metadata";
@@ -68,6 +73,22 @@ export interface CounterpartCandidate {
   state: BeforeAfterState;
 }
 
+// v1 pairing only supports images side by side (issue #420's static layout
+// renders both sides as <img>) — same allowlist apps/web's fileKind() treats
+// as "image", minus SVG (never previewed inline, see guards.ts).
+const IMAGE_CONTENT_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+]);
+
+/** True for content types the paired view can render as an `<img>`. */
+export function isPairableImageContentType(contentType: string): boolean {
+  return IMAGE_CONTENT_TYPES.has(contentType);
+}
+
 /**
  * Finds a before/after counterpart candidate for `key`, or null if none
  * applies. Does not check the candidate's existence or visibility — see the
@@ -82,17 +103,21 @@ export async function findCounterpartCandidate(
   const prefix = attachmentPrefix(key);
   const path = metadata.path;
   const state = metadata.state;
+  const hasUsablePathMetadata = Boolean(path && state && STATE_VALUES.has(state));
 
-  if (path && state && STATE_VALUES.has(state)) {
+  if (hasUsablePathMetadata) {
     const want = opposite(state as BeforeAfterState);
     const matches = await findObjectsByMetadata(
       db,
       workspace,
-      { path, state: want },
+      { path: path!, state: want },
       { prefix, limit: 5 },
     );
     const match = matches.find((row) => row.key !== key);
-    if (match) return { key: match.key, state: want };
+    // Rule-1-only once path metadata is usable — mirrors the comment-side
+    // rule (#424): don't fall through to a filename-guess for a file that
+    // already declares its own pairing via metadata.
+    return match ? { key: match.key, state: want } : null;
   }
 
   const filename = key.slice(prefix.length);
