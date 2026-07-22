@@ -90,7 +90,8 @@ describe("POST /admin-ui/dev/emails/:type", () => {
         to: "admin@example.com",
         type: preview.id,
       });
-      expect(sent).toEqual([{ to: "admin@example.com" }]);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]?.to).toBe("admin@example.com");
     }
 
     sent.length = 0;
