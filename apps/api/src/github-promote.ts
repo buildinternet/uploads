@@ -7,10 +7,14 @@
  * no installation lookup — just reading and writing the calling workspace's
  * own bucket/prefix and D1 rows.
  *
- * Originals are never deleted here (a later-phase reaper owns cleanup); a
- * second PR promoting the same branch is expected to re-promote and just
- * overwrites the destination copies (last-write-wins, same contract as any
- * other overwrite in this API).
+ * Originals are never deleted here, and no reaper exists to delete them
+ * later — this is deliberate, not a gap to be filled. Staged originals are
+ * removed only by per-workspace retention or explicit `files:delete`, same
+ * as any other object; see docs/deletion.md ("Branch-staged attachments
+ * after promotion") for the contract and why a promoted-at-based reaper was
+ * tried and retired. A second PR promoting the same branch is expected to
+ * re-promote and just overwrites the destination copies (last-write-wins,
+ * same contract as any other overwrite in this API).
  */
 
 import { getMetadataForKeys, setFileMetadata } from "./file-metadata";

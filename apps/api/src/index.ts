@@ -12,7 +12,6 @@ import { tokens } from "./routes/tokens";
 import { workspaces } from "./routes/workspaces";
 import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
-import { runStagingReaper } from "./staging-reaper";
 import { runObservabilityRetention } from "./observability-retention";
 import { galleries } from "./routes/galleries";
 import { publicGalleries } from "./routes/public-galleries";
@@ -170,18 +169,6 @@ export default {
         console.error(
           JSON.stringify({
             message: "retention_sweep_failed",
-            error: appErr.message,
-            code: appErr.code,
-          }),
-        );
-      }),
-    );
-    ctx.waitUntil(
-      runStagingReaper(env).catch((err) => {
-        const appErr = AppError.from(err);
-        console.error(
-          JSON.stringify({
-            message: "staging_reap_failed",
             error: appErr.message,
             code: appErr.code,
           }),
