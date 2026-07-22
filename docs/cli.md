@@ -170,7 +170,14 @@ pairs alone. `uploads attach` and `put --pr`/`--issue` also stamp `gh.repo` /
 PR/issue title is resolvable via local `gh` (best-effort — never blocks the
 upload). Branch staging (`attach --branch`) stamps `gh.status=staged`, flipped
 to `promoted` on promotion — query in-flight files with
-`uploads find gh.status=staged`. On gh.\*-tagged uploads the server also
+`uploads find gh.status=staged`. Promotion only considers staged files fresh
+enough: past a 30-day window since `gh.staged-at`
+(`FRESHNESS_WINDOW_MS`, `apps/api/src/github-promote.ts`) a staged file stops
+being promotable, but it **keeps serving** — nothing deletes it. There is no
+staging reaper (see `docs/deletion.md`); once a file ages out of the
+promotion window it just sits there, still reachable at its original URL,
+until per-workspace retention or an explicit `files:delete` removes it. On
+gh.\*-tagged uploads the server also
 stamps `gh.uploader` (GitHub login) and `gh.uploader-id` from the user who
 minted the bearer token — attribution only, not access control; a
 client-supplied value of those keys is overridden.

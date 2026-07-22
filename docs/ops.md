@@ -74,7 +74,12 @@ uploads reconcile          # storage is truth
 uploads purge-expired      # needs retentionDays
 ```
 
-The API worker also runs a **daily cron** (`0 6 * * *` UTC) that purges every workspace with `retentionDays` set. Logs: `retention_sweep` JSON.
+The API worker also runs a **daily cron** (`0 6 * * *` UTC) that purges every workspace with `retentionDays` set. Logs: `retention_sweep` JSON. This is
+the only deletion-capable cron task on the worker — branch-staged GitHub
+attachments have no dedicated cleanup by design (a `promoted-at`+7d reaper
+shipped in #314 and was retired in #421; see `docs/deletion.md`). The
+scheduled handler also runs `runObservabilityRetention` (telemetry/enrollment
+row purge, not object storage) alongside the sweep.
 
 The same sweep also finalizes soft-deleted workspaces (see below): once a
 workspace's grace window elapses, the sweep runs the full hard teardown and
