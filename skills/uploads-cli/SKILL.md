@@ -615,6 +615,17 @@ uploads comment --pr 123
 uploads comment --issue 45 --repo buildinternet/uploads
 ```
 
+Removed the wrong screenshots? `delete` the object(s) and re-run `comment` to
+re-sync. When the **last** attachment and gallery are gone, the managed comment
+is rewritten in place to a neutral empty state (`No attachments are currently
+associated with this pull request.`) — it is never deleted (a later upload
+repopulates it) and never created just to say it's empty:
+
+```bash
+uploads delete gh/owner/name/pull/123/after.png   # remove the asset
+uploads comment --pr 123                           # comment now shows the empty state
+```
+
 Past 16 inline images, the comment collapses the rest into a `<details>` link
 list so a heavily-screenshotted PR stays readable. Each workspace gets its own
 managed comment on a shared repo (namespaced under the hood) instead of
@@ -794,6 +805,15 @@ uploads --api-url http://localhost:8787 doctor
   access not yet approved — includes a `fixUrl` to the org's permission-review
   page), never as a thrown tool error; an unexpected error surfaces
   separately as `commentError`.
+
+  **Hosted MCP standalone `comment` tool.** The hosted server also has a
+  `comment` tool (`{ repo, pr | issue }`, `repo` required for the same
+  no-git-context reason) that refreshes the managed comment **without
+  re-uploading** — the hosted equivalent of CLI `uploads comment`. Use it to
+  re-sync after deleting an asset: `delete` the `gh/…` key, then call `comment`.
+  When the last attachment and gallery are gone the comment is rewritten in
+  place to a neutral empty state (never deleted, never created empty). It is
+  bot-only with the same honest declines as `put`'s comment field.
 
   **Hosted MCP: checking what's staged (issue #405).** There's no dedicated
   `staged` tool on the hosted server — it has no local git context to default

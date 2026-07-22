@@ -169,6 +169,12 @@ and subscribed to the `issue_comment` event, a deleted or edited-out managed
 comment self-heals automatically on the next webhook delivery — no need to
 run `comment`/`attach` again just to bring it back.
 
+**Removed the wrong screenshots?** `delete` the object(s) and re-run
+`comment` (or the hosted `comment` tool) to re-sync. Once the last attachment
+is gone the comment is rewritten in place to a neutral empty state — it stays
+on the PR (a later upload repopulates it) rather than leaving stale entries
+that point at deleted files.
+
 **Bot comment not showing up at all?** The managed comment needs a
 repo↔workspace binding (normally created implicitly by the first
 comment/promote call, or by installing the GitHub App). If a comment you
