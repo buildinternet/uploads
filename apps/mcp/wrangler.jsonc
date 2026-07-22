@@ -12,6 +12,14 @@
     // .dev.vars (AUTH_ORIGIN=http://127.0.0.1:8788, matching apps/auth's
     // pinned dev port).
     "AUTH_ORIGIN": "https://auth.uploads.sh",
+    // GitHub App identity for the hosted put/comment path (#392) — the same
+    // App uploads-api uses; postManagedComment runs in-process on this
+    // worker, so it needs its own copy of the config. GITHUB_APP_PRIVATE_KEY
+    // is the only true secret and must be set separately:
+    //   wrangler secret put GITHUB_APP_PRIVATE_KEY --config apps/mcp/wrangler.jsonc
+    // Without all three, comment: true degrades to { reason: "app_unconfigured" }.
+    "GITHUB_APP_ID": "4346270",
+    "GITHUB_APP_HOME_INSTALLATION_ID": "147814297",
   },
   "routes": [
     // Primary domain; mcp.uploads.sh is kept as a working alternate.
