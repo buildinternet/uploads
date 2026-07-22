@@ -84,6 +84,26 @@ export function uploadBudgetDenial(
   };
 }
 
+/** The 507 storage-quota denial, shared by the read-side check and
+ * the atomic reservation path (usage.ts reserveStorageBytes). */
+export function storageBudgetDenial(
+  usage: WorkspaceUsage,
+  maxStorageBytes: number,
+  deltaBytes: number,
+): BudgetDenial {
+  return {
+    code: "storage_quota_exceeded",
+    status: 507,
+    message: `storage quota exceeded (${usage.bytes} + ${deltaBytes} > ${maxStorageBytes} bytes)`,
+    detail: {
+      bytes: usage.bytes,
+      deltaBytes,
+      maxStorageBytes,
+      objects: usage.objects,
+    },
+  };
+}
+
 /** Map a denial to the thrown error type: 507 storage, 429 upload budget. */
 export function budgetDenialError(
   denial: BudgetDenial,
@@ -113,19 +133,8 @@ export function checkPutBudget(
   }
 
   if (maxStorageBytes !== undefined && delta.bytes > 0) {
-    const next = usage.bytes + delta.bytes;
-    if (next > maxStorageBytes) {
-      return {
-        code: "storage_quota_exceeded",
-        status: 507,
-        message: `storage quota exceeded (${usage.bytes} + ${delta.bytes} > ${maxStorageBytes} bytes)`,
-        detail: {
-          bytes: usage.bytes,
-          deltaBytes: delta.bytes,
-          maxStorageBytes,
-          objects: usage.objects,
-        },
-      };
+    if (usage.bytes + delta.bytes > maxStorageBytes) {
+      return storageBudgetDenial(usage, maxStorageBytes, delta.bytes);
     }
   }
 

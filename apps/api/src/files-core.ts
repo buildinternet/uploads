@@ -11,6 +11,7 @@ import {
   budgetDenialError,
   checkPutBudget,
   resolveBudgetLimits,
+  storageBudgetDenial,
   uploadBudgetDenial,
 } from "./budget";
 import {
@@ -37,7 +38,14 @@ import {
   type ProvenanceMap,
 } from "./provenance";
 import { objectPublicUrls, storage, storageConfig } from "./storage";
-import { getWorkspaceUsage, recordUsageSafe, releaseUploadsSafe, reserveUploads } from "./usage";
+import {
+  getWorkspaceUsage,
+  recordUsageSafe,
+  releaseStorageBytesSafe,
+  releaseUploadsSafe,
+  reserveStorageBytes,
+  reserveUploads,
+} from "./usage";
 import { objectVisibility, VISIBILITY_META_KEY, type Visibility } from "./visibility";
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
@@ -388,20 +396,40 @@ export async function putObject(
   const uploadedAt = resolveUploadedAtMeta(prior);
 
   const usage = await getWorkspaceUsage(env.DB, workspaceName);
+  // Cheap read-side reject for obviously spent budgets (both caps). Concurrent
+  // puts at the boundary still need the atomic reservations below.
   const denial = checkPutBudget(usage, ws, { bytes: deltaBytes, uploads: 1 });
   if (denial) throw budgetDenialError(denial);
 
-  // The read-side check above handles the storage cap and rejects
-  // obviously-spent budgets cheaply, but it races with concurrent puts at the
-  // upload-cap boundary. Reserve the upload atomically (guarded D1 increment)
-  // before the R2 write; the reservation IS the upload count, so the post-put
-  // recordUsageSafe below must not count it again, and a failed write
-  // releases it.
-  const { maxUploadsPerPeriod } = resolveBudgetLimits(ws);
-  const reservation = await reserveUploads(env.DB, workspaceName, 1, maxUploadsPerPeriod);
-  if (!reservation.ok) {
-    throw budgetDenialError(uploadBudgetDenial(reservation.usage, reservation.maxUploadsPerPeriod));
+  // Atomically reserve monthly upload count AND (when growing) net storage
+  // bytes before the R2 write. Reservations ARE the ledger increments for
+  // those fields, so post-put recordUsageSafe must not count them again; a
+  // failed write releases both.
+  const { maxUploadsPerPeriod, maxStorageBytes } = resolveBudgetLimits(ws);
+  const uploadReservation = await reserveUploads(env.DB, workspaceName, 1, maxUploadsPerPeriod);
+  if (!uploadReservation.ok) {
+    throw budgetDenialError(
+      uploadBudgetDenial(uploadReservation.usage, uploadReservation.maxUploadsPerPeriod),
+    );
   }
+
+  const storageReservation = await reserveStorageBytes(
+    env.DB,
+    workspaceName,
+    deltaBytes,
+    maxStorageBytes,
+  );
+  if (!storageReservation.ok) {
+    await releaseUploadsSafe(env.DB, workspaceName, 1);
+    throw budgetDenialError(
+      storageBudgetDenial(
+        storageReservation.usage,
+        storageReservation.maxStorageBytes,
+        storageReservation.deltaBytes,
+      ),
+    );
+  }
+  const reservedBytes = storageReservation.reservedBytes;
 
   // Client headers first; always attach content-sha256 of the final stored body
   // (never trust a client-supplied hash). Visibility lives alongside provenance
@@ -427,18 +455,20 @@ export async function putObject(
       metadata: storageMetadata,
     });
   } catch (err) {
-    // Nothing was stored, so the reserved upload goes back to the budget.
+    // Nothing was stored — return both reservations to the budget.
     await releaseUploadsSafe(env.DB, workspaceName, 1);
+    await releaseStorageBytesSafe(env.DB, workspaceName, reservedBytes);
     throw err;
   }
 
   // Usage accounting first: the object is already durably stored above, so
   // the ledger must be updated regardless of whether the metadata batch
   // below succeeds — otherwise a metadata failure leaves bytes/objects
-  // stored but under-counted (recordUsageSafe never throws). The upload
-  // itself was already counted by reserveUploads, hence `uploads: 0`.
+  // stored but under-counted (recordUsageSafe never throws). Upload count
+  // and any reserved positive byte delta were already applied at reservation
+  // time; only remaining deltas (objects; shrink/unlimited bytes) land here.
   await recordUsageSafe(env.DB, workspaceName, {
-    bytes: deltaBytes,
+    bytes: reservedBytes > 0 ? 0 : deltaBytes,
     objects: replaced ? 0 : 1,
     uploads: 0,
   });
