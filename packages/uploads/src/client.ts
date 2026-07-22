@@ -302,6 +302,17 @@ export interface GithubLinkUnlinkResult {
   reason?: "not_linked";
 }
 
+/**
+ * `GET /v1/:workspace/github/repo-link` result (issue #398). Deliberately
+ * minimal relative to `GithubLinkResult`: never names the owning workspace
+ * when it isn't this one — "self"/"other"/"none" is all the stage-time
+ * warning needs, and anything richer would leak cross-tenant info to a
+ * caller that's just probing a repo it detected from local git context.
+ */
+export interface GithubRepoLinkResult {
+  binding: "self" | "other" | "none";
+}
+
 export interface HealthResult {
   ok: boolean;
 }
@@ -1135,6 +1146,20 @@ export function createUploadsClient(config: UploadsClientConfig) {
           body: new TextEncoder().encode(JSON.stringify({ repo })),
           headers: { "Content-Type": "application/json" },
         },
+      );
+    },
+
+    /**
+     * Tri-state binding status for `repo` relative to this workspace (issue
+     * #398, `attach --branch`'s stage-time warning) — never names another
+     * workspace, unlike `githubLinkStatus` above. Throws `UploadsError`
+     * (status 404) on an older/self-hosted server without this route; the
+     * caller (the stage warning) treats ANY failure here as "stay silent".
+     */
+    async githubRepoLinkStatus(repo: string): Promise<GithubRepoLinkResult> {
+      return request<GithubRepoLinkResult>(
+        "GET",
+        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/repo-link?repo=${encodeURIComponent(repo)}`,
       );
     },
 

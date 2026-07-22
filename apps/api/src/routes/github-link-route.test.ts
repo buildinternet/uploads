@@ -74,6 +74,16 @@ function get(env: Env, workspace: string, repo: string, token: string) {
   );
 }
 
+function getRepoLink(env: Env, workspace: string, repo: string, token: string) {
+  return app.request(
+    `/v1/${workspace}/github/repo-link?repo=${encodeURIComponent(repo)}`,
+    {
+      headers: { authorization: `Bearer ${token}` },
+    },
+    env,
+  );
+}
+
 function post(env: Env, workspace: string, body: unknown, token: string) {
   return app.request(
     `/v1/${workspace}/github/link`,
@@ -129,6 +139,82 @@ describe("GET /v1/:workspace/github/link", () => {
     const { env } = await seededEnv();
     const res = await app.request(`/v1/${WS}/github/link?repo=${REPO}`, {}, env);
     expect(res.status).toBe(401);
+  });
+});
+
+describe("GET /v1/:workspace/github/repo-link", () => {
+  it("reports 'none' for an unclaimed repo", async () => {
+    const { env } = await seededEnv();
+    const res = await getRepoLink(env, WS, REPO, TOKEN);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ binding: "none" });
+  });
+
+  it("reports 'self' when the repo is bound to the calling workspace", async () => {
+    const { env, db } = await seededEnv();
+    db.repoLinks.set(REPO, {
+      repo_full_name: REPO,
+      workspace_name: WS,
+      installation_id: null,
+      source: "comment",
+      created_at: "2026-01-01T00:00:00.000Z",
+    });
+    const res = await getRepoLink(env, WS, REPO, TOKEN);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ binding: "self" });
+  });
+
+  it("reports 'other' when the repo is bound to a different workspace, without naming it", async () => {
+    const { env, db } = await seededEnv();
+    db.repoLinks.set(REPO, {
+      repo_full_name: REPO,
+      workspace_name: "someone-else",
+      installation_id: null,
+      source: "comment",
+      created_at: "2026-01-01T00:00:00.000Z",
+    });
+    const res = await getRepoLink(env, WS, REPO, TOKEN);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ binding: "other" });
+    // Cross-tenant info disclosure guard: the response body must never
+    // contain the other workspace's name, in this field or any other.
+    expect(JSON.stringify(body)).not.toContain("someone-else");
+  });
+
+  it("400s on a malformed repo", async () => {
+    const { env } = await seededEnv();
+    const res = await getRepoLink(env, WS, "not-a-repo", TOKEN);
+    expect(res.status).toBe(400);
+  });
+
+  it("401s with no bearer token", async () => {
+    const { env } = await seededEnv();
+    const res = await app.request(`/v1/${WS}/github/repo-link?repo=${REPO}`, {}, env);
+    expect(res.status).toBe(401);
+  });
+
+  it("degrades to 'none' (not a 5xx) on a D1 lookup failure — advisory must never hard-fail", async () => {
+    // Only the github_repo_links query fails — auth (auth_tokens) still
+    // resolves normally, so this isolates the lenient findRepoLink fallback
+    // rather than tripping over workspaceAuth's own D1 read.
+    const { env, db } = await seededEnv();
+    const realPrepare = db.prepare;
+    const flakyDb = {
+      prepare: (sql: string) =>
+        sql.includes("github_repo_links")
+          ? {
+              bind: () => ({
+                first: async () => {
+                  throw new Error("d1 unavailable");
+                },
+              }),
+            }
+          : realPrepare(sql),
+    };
+    const res = await getRepoLink({ ...env, DB: flakyDb } as unknown as Env, WS, REPO, TOKEN);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ binding: "none" });
   });
 });
 

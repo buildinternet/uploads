@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
-import type { PromoteBranchAttachmentsResult, UploadsClient } from "../src/client.js";
+import type {
+  GithubRepoLinkResult,
+  PromoteBranchAttachmentsResult,
+  UploadsClient,
+} from "../src/client.js";
 import { runAttach, type CliContext } from "../src/commands.js";
 import { UploadsError } from "../src/errors.js";
 import type { CommandRunner } from "../src/github-gh.js";
@@ -26,6 +30,12 @@ function fakeClient(opts?: {
     num: number;
     branch: string;
   }) => Promise<PromoteBranchAttachmentsResult> | PromoteBranchAttachmentsResult;
+  /**
+   * `client.githubRepoLinkStatus` behavior (issue #398 stage-time binding
+   * warning): a `GithubRepoLinkResult`, a thrown error, or omitted (method
+   * absent — simulates an older server without the route).
+   */
+  repoLinkStatus?: GithubRepoLinkResult | Error | ((repo: string) => GithubRepoLinkResult | Error);
 }) {
   const puts: string[] = [];
   const metadataByKey: Record<string, Record<string, string> | undefined> = {};
@@ -66,6 +76,18 @@ function fakeClient(opts?: {
     },
     findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
     getGallery: async () => ({ items: [] }),
+    ...(opts?.repoLinkStatus !== undefined
+      ? {
+          githubRepoLinkStatus: async (repo: string) => {
+            const result =
+              typeof opts.repoLinkStatus === "function"
+                ? opts.repoLinkStatus(repo)
+                : opts.repoLinkStatus!;
+            if (result instanceof Error) throw result;
+            return result;
+          },
+        }
+      : {}),
     ...(opts?.promote
       ? {
           promoteBranchAttachments: async (promoteOpts: {
@@ -516,6 +538,225 @@ describe("runAttach --branch (branch-staged, pre-PR)", () => {
         expect(puts.length).toBe(1);
       },
     );
+  });
+});
+
+describe("runAttach --branch stage-time binding warning (issue #398)", () => {
+  const branchRunner =
+    (branch = "feature/thing"): CommandRunner =>
+    (cmd, args) => {
+      if (cmd === "git" && args[0] === "rev-parse") return `${branch}\n`;
+      throw new Error(`unexpected call: ${cmd} ${args.join(" ")}`);
+    };
+
+  /** Run `fn` with stderr captured and stdout swallowed. */
+  async function withCapturedStderr(fn: () => Promise<unknown>): Promise<string> {
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+    vi.spyOn(process.stdout, "write").mockImplementation(
+      (() => true) as typeof process.stdout.write,
+    );
+    try {
+      await fn();
+    } finally {
+      vi.restoreAllMocks();
+    }
+    return stderr.join("");
+  }
+
+  it("warns when the repo is unbound (binding: none)", async () => {
+    const { client } = fakeClient({ repoLinkStatus: { binding: "none" } });
+    const ctx = { ...ctxWith(client), quiet: false };
+    const stderr = await withCapturedStderr(() =>
+      runAttach(
+        ctx,
+        [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        branchRunner(),
+      ),
+    );
+    expect(stderr).toContain(
+      "note: staged, but o/r isn't linked to your workspace yet — staged files only auto-attach on PR open for linked repos. " +
+        "Link it once with: uploads attach <file> (on any PR) or uploads github link. " +
+        "After the PR opens: uploads attach --promote",
+    );
+  });
+
+  it("warns when the repo is bound to a different workspace (binding: other)", async () => {
+    const { client } = fakeClient({ repoLinkStatus: { binding: "other" } });
+    const ctx = { ...ctxWith(client), quiet: false };
+    const stderr = await withCapturedStderr(() =>
+      runAttach(
+        ctx,
+        [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        branchRunner(),
+      ),
+    );
+    expect(stderr).toContain(
+      "note: staged, but o/r is linked to a different workspace — these files won't auto-attach from here.",
+    );
+  });
+
+  it("is silent when the repo is bound to this workspace (binding: self)", async () => {
+    const { client } = fakeClient({ repoLinkStatus: { binding: "self" } });
+    const ctx = { ...ctxWith(client), quiet: false };
+    const stderr = await withCapturedStderr(() =>
+      runAttach(
+        ctx,
+        [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        branchRunner(),
+      ),
+    );
+    expect(stderr).not.toContain("note:");
+  });
+
+  it("is silent on an unrecognized binding value (server-side 'unknown')", async () => {
+    const { client } = fakeClient({
+      repoLinkStatus: { binding: "unknown" } as unknown as GithubRepoLinkResult,
+    });
+    const ctx = { ...ctxWith(client), quiet: false };
+    const stderr = await withCapturedStderr(() =>
+      runAttach(
+        ctx,
+        [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        branchRunner(),
+      ),
+    );
+    expect(stderr).not.toContain("note:");
+  });
+
+  it("is silent when the endpoint call fails (network error)", async () => {
+    const { client } = fakeClient({ repoLinkStatus: new Error("network down") });
+    const ctx = { ...ctxWith(client), quiet: false };
+    let code: number | undefined;
+    const stderr = await withCapturedStderr(async () => {
+      code = await runAttach(
+        ctx,
+        [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        branchRunner(),
+      );
+    });
+    expect(stderr).not.toContain("note:");
+    expect(code).toBe(0); // staging itself still succeeded
+  });
+
+  it("is silent when the endpoint route is absent (older/self-hosted server)", async () => {
+    const { client } = fakeClient(); // no repoLinkStatus option → method absent
+    const ctx = { ...ctxWith(client), quiet: false };
+    const stderr = await withCapturedStderr(() =>
+      runAttach(
+        ctx,
+        [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        branchRunner(),
+      ),
+    );
+    expect(stderr).not.toContain("note:");
+  });
+
+  it("is silent in quiet mode even when unbound", async () => {
+    const { client } = fakeClient({ repoLinkStatus: { binding: "none" } });
+    const stderr = await withCapturedStderr(() =>
+      runAttach(
+        ctxWith(client), // quiet: true (default)
+        [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        branchRunner(),
+      ),
+    );
+    expect(stderr).not.toContain("note:");
+  });
+
+  it("is silent when UPLOADS_NO_NUDGE=1", async () => {
+    const prev = process.env.UPLOADS_NO_NUDGE;
+    process.env.UPLOADS_NO_NUDGE = "1";
+    try {
+      const { client } = fakeClient({ repoLinkStatus: { binding: "none" } });
+      const ctx = { ...ctxWith(client), quiet: false };
+      const stderr = await withCapturedStderr(() =>
+        runAttach(
+          ctx,
+          [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r"],
+          false,
+          branchRunner(),
+        ),
+      );
+      expect(stderr).not.toContain("note:");
+    } finally {
+      if (prev === undefined) delete process.env.UPLOADS_NO_NUDGE;
+      else process.env.UPLOADS_NO_NUDGE = prev;
+    }
+  });
+
+  it("never writes the warning to stdout", async () => {
+    const { client } = fakeClient({ repoLinkStatus: { binding: "none" } });
+    const ctx = { ...ctxWith(client), quiet: false };
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      stdout.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    vi.spyOn(process.stderr, "write").mockImplementation(
+      (() => true) as typeof process.stderr.write,
+    );
+    try {
+      await runAttach(
+        ctx,
+        [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        branchRunner(),
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(stdout.join("")).not.toContain("note:");
+  });
+
+  it("includes an additive JSON hint field when it fires, absent otherwise", async () => {
+    const unbound = fakeClient({ repoLinkStatus: { binding: "none" } }).client;
+    const stdoutUnbound: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      stdoutUnbound.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      await runAttach(
+        { ...ctxWith(unbound), quiet: false, json: true },
+        [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        branchRunner(),
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+    const payloadUnbound = JSON.parse(stdoutUnbound.join("")) as { hint?: string };
+    expect(payloadUnbound.hint).toContain("isn't linked to your workspace yet");
+
+    const bound = fakeClient({ repoLinkStatus: { binding: "self" } }).client;
+    const stdoutBound: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      stdoutBound.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      await runAttach(
+        { ...ctxWith(bound), quiet: false, json: true },
+        [...files("shot.png"), "--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        branchRunner(),
+      );
+    } finally {
+      vi.restoreAllMocks();
+    }
+    const payloadBound = JSON.parse(stdoutBound.join("")) as Record<string, unknown>;
+    expect("hint" in payloadBound).toBe(false);
   });
 });
 
