@@ -14,6 +14,7 @@ import { colorEnabled, createStyle } from "./cli-style.js";
 import {
   runPut,
   runAttach,
+  runStaged,
   runList,
   runFind,
   runMeta,
@@ -340,6 +341,7 @@ export async function runCli(argv: string[]): Promise<number> {
         break;
       case "attach":
       case "put":
+      case "staged":
       case "screenshot":
       case "gallery":
       case "list":
@@ -359,6 +361,9 @@ export async function runCli(argv: string[]): Promise<number> {
             break;
           case "put":
             code = await runPut(ctx, cmdArgs, showHelp);
+            break;
+          case "staged":
+            code = await runStaged(ctx, cmdArgs, showHelp);
             break;
           case "screenshot":
             code = await runScreenshot(ctx, cmdArgs, showHelp);

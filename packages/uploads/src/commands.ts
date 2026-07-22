@@ -35,6 +35,7 @@ import { mergeDerivedMeta, nearMissMetaWarnings, validateStateValue } from "./me
 import {
   ghAttachmentKey,
   ghBranchAttachmentKey,
+  ghBranchKeyPrefix,
   ghKeyPrefix,
   ghMetadataFromTarget,
   ghMetadataForBranch,
@@ -1479,6 +1480,32 @@ async function runAttachBranch(
 }
 
 /**
+ * One source of truth for the "staged, but not going to auto-attach" advisory
+ * text (issue #398), shared by the `attach --branch`/bare-`put` stage-time
+ * warning below and the `uploads staged` view (issue #405) — both surfaces
+ * must say the exact same thing for the same binding state, verified by
+ * tests on both call sites. Returns undefined for `"self"` (the happy path —
+ * callers each phrase that themselves) and any unrecognized value.
+ */
+export function stagingBindingAdvisory(binding: string, repo: string): string | undefined {
+  switch (binding) {
+    case "none":
+      return (
+        `staged, but ${repo} isn't linked to your workspace yet — staged files only ` +
+        `auto-attach on PR open for linked repos. Link it once with: uploads attach <file> ` +
+        `(on any PR) or uploads github link. After the PR opens: uploads attach --promote`
+      );
+    case "other":
+      return (
+        `staged, but ${repo} is linked to a different workspace — these files won't ` +
+        `auto-attach from here.`
+      );
+    default:
+      return undefined; // "self", or any unrecognized value
+  }
+}
+
+/**
  * Best-effort stage-time binding warning (issue #398): after `attach
  * --branch` stages files, checks whether `repo` is bound to THIS workspace —
  * webhook auto-promotion at PR open only fires for a repo already bound
@@ -1499,21 +1526,8 @@ export async function resolveStageBindingWarning(opts: {
   if (defaults.noNudge) return undefined;
   try {
     const { binding } = await ctx.client.githubRepoLinkStatus(repo);
-    switch (binding) {
-      case "none":
-        return (
-          `note: staged, but ${repo} isn't linked to your workspace yet — staged files only ` +
-          `auto-attach on PR open for linked repos. Link it once with: uploads attach <file> ` +
-          `(on any PR) or uploads github link. After the PR opens: uploads attach --promote`
-        );
-      case "other":
-        return (
-          `note: staged, but ${repo} is linked to a different workspace — these files won't ` +
-          `auto-attach from here.`
-        );
-      default:
-        return undefined; // "self", or any unrecognized value — stay silent
-    }
+    const advisory = stagingBindingAdvisory(binding, repo);
+    return advisory ? `note: ${advisory}` : undefined;
   } catch {
     return undefined; // any failure (network, non-200, older server) — stay silent
   }
@@ -1724,6 +1738,175 @@ export function putStagingNoteText(branch: string): string {
     `note: staged for branch ${branch} — auto-attaches to this branch's PR when it opens ` +
     `(or run: uploads attach --promote once it exists). Use --ref/--prefix for a plain dated upload.`
   );
+}
+
+// --- staged ---
+
+/** One file currently staged for a branch (issue #405). */
+export interface StagedFile {
+  /** Full object key (`gh/<owner>/<repo>/branch/<branch>/<filename>`). */
+  key: string;
+  /** `key` with the staging prefix stripped. */
+  filename: string;
+  size?: number;
+  /** `gh.staged-at` metadata (ISO 8601 UTC), when present. */
+  stagedAt?: string;
+  url: string | null;
+}
+
+/** Tri-state binding, folded into a ready-to-render advisory (issue #405/#398). */
+export interface StagedBinding {
+  state: "self" | "other" | "none" | "unknown";
+  /** True only for "self" — the only state where staged files actually auto-attach. */
+  autoAttach: boolean;
+  message: string;
+}
+
+export interface StagedResult {
+  repo: string;
+  branch: string;
+  files: StagedFile[];
+  binding: StagedBinding;
+}
+
+/**
+ * Binding lookup for `uploads staged`, folded into a renderable `StagedBinding`.
+ * `"none"`/`"other"` reuse `stagingBindingAdvisory` — the exact #398 wording,
+ * one source of truth. `"self"` gets its own message (the #398 warning stays
+ * silent on "self"; this view is the one place that names the happy path
+ * explicitly). Any failure (network, non-200, older server without the
+ * route) degrades to `"unknown"` rather than throwing — this is a read-only
+ * view and a binding check failing must never make it fail outright.
+ */
+async function resolveStagedBinding(client: UploadsClient, repo: string): Promise<StagedBinding> {
+  try {
+    const { binding } = await client.githubRepoLinkStatus(repo);
+    switch (binding) {
+      case "self":
+        return {
+          state: "self",
+          autoAttach: true,
+          message: "these auto-attach when this branch's PR opens",
+        };
+      case "none":
+      case "other":
+        return {
+          state: binding,
+          autoAttach: false,
+          // stagingBindingAdvisory is total for "none"/"other" — never undefined here.
+          message: stagingBindingAdvisory(binding, repo)!,
+        };
+      default:
+        return { state: "unknown", autoAttach: false, message: "binding status unrecognized" };
+    }
+  } catch {
+    return {
+      state: "unknown",
+      autoAttach: false,
+      message: "could not check binding status (offline, or an older server without this route)",
+    };
+  }
+}
+
+/**
+ * Shared core for `uploads staged` (CLI) and the `staged` MCP tool (issue
+ * #405): one `list` call against the branch staging prefix
+ * (`ghBranchKeyPrefix` — never hand-built) plus the #398 binding check. Never
+ * throws on the binding check (see `resolveStagedBinding`); a failed `list`
+ * call still propagates, same as every other read command.
+ */
+export async function resolveStaged(opts: {
+  client: UploadsClient;
+  repo: string;
+  branch: string;
+}): Promise<StagedResult> {
+  const { client, repo, branch } = opts;
+  const prefix = ghBranchKeyPrefix(repo, branch);
+  const [list, binding] = await Promise.all([
+    client.list({ prefix, metadata: true }),
+    resolveStagedBinding(client, repo),
+  ]);
+  const files: StagedFile[] = list.items.map((item) => ({
+    key: item.key,
+    filename: item.key.slice(prefix.length),
+    size: item.size,
+    stagedAt: item.metadata?.["gh.staged-at"],
+    url: item.url,
+  }));
+  return { repo, branch, files, binding };
+}
+
+const STAGED_HELP = `uploads staged [--branch <name>] [--repo <owner/name>] [--format json] [--workspace <name>]
+
+Read-only view of what's staged for a branch (\`attach --branch\` / bare
+\`put\` on a non-default branch, issue #403) and whether it will auto-attach
+once a PR opens. One \`list\` call against the branch staging prefix
+(gh/<owner>/<repo>/branch/<branch>/) plus a binding check — files:read only,
+no new server surface.
+
+Defaults: current git branch (same resolution as \`attach --branch\`, worktree-
+safe), repo from --repo / gh / git remote (same as every other command).
+
+Binding: self means these files auto-attach when this branch's PR opens; none
+or other means they won't (repo unlinked, or linked to a different
+workspace) — same advisory as the attach --branch stage-time warning.
+
+Examples:
+  uploads staged
+  uploads staged --branch feature/thing --repo owner/name
+  uploads staged --format json
+`;
+
+export async function runStaged(
+  ctx: CliContext,
+  args: string[],
+  help = false,
+  run: CommandRunner = execRunner,
+): Promise<number> {
+  const parsed = parseCommandArgs(args);
+  if (help || parsed.help) {
+    writeCommandHelp(STAGED_HELP);
+    return 0;
+  }
+  const format = ctx.json
+    ? "json"
+    : (() => {
+        const raw = flagString(parsed.flags, "--format");
+        if (!raw || raw === "human") return "human" as const;
+        if (raw === "json") return "json" as const;
+        throw new UsageError(`invalid --format: ${raw} (expected: json)`);
+      })();
+
+  const repo = resolveRepo(flagString(parsed.flags, "--repo"), run);
+  const branch = flagString(parsed.flags, "--branch") ?? resolveCurrentBranch(run);
+
+  const result = await resolveStaged({ client: ctx.client, repo, branch });
+
+  if (format === "json") {
+    // Always a valid JSON document, even with zero files — never empty
+    // stdout (issue #405 explicitly calls out find --format json's empty-
+    // stdout-on-no-matches wart as a wrong pattern to avoid here).
+    await writeJson(result);
+    return 0;
+  }
+
+  if (result.files.length === 0) {
+    await writeStdout(`nothing staged for ${branch} in ${repo}\n`);
+    return 0;
+  }
+
+  for (const file of result.files) {
+    const size = file.size !== undefined ? formatByteSize(file.size) : "? B";
+    const staged = file.stagedAt ? `  staged ${file.stagedAt}` : "";
+    await writeStdout(`${file.filename}  ${size}${staged}  ${file.url ?? "(no url)"}\n`);
+  }
+  process.stderr.write(`binding: ${result.binding.state} — ${result.binding.message}\n`);
+  // Promote is pointless advice when the repo belongs to another workspace —
+  // the cross-tenant gate (#297) would reject it from here.
+  if (result.binding.state !== "other") {
+    process.stderr.write(`once the PR exists: uploads attach --promote\n`);
+  }
+  return 0;
 }
 
 export async function runPut(

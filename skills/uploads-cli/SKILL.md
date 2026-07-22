@@ -57,6 +57,44 @@ the token's minting user) on gh.\*-tagged uploads, so
 `uploads find gh.status=staged gh.uploader=<login>` narrows to one
 contributor's in-flight files.
 
+**Check what's staged: `uploads staged`.** A dedicated read-only view —
+"what's staged for this branch, and will it auto-attach?" — instead of
+hand-building the `find`/`list` query above:
+
+```bash
+uploads staged                                  # current branch, repo from gh/git remote
+uploads staged --branch feature/thing --repo owner/name
+uploads staged --format json
+```
+
+Same branch/repo resolution as `attach --branch` (current git branch by
+default, worktree-safe). Human mode prints one compact line per staged file
+(filename, size, `gh.staged-at`, public URL), then a `binding:` line and
+`once the PR exists: uploads attach --promote` (the promote line is omitted
+for `binding: other` — promoting from a non-owning workspace would be
+rejected by the cross-tenant gate). Nothing staged prints a
+single zero-state line. `--format json` (or global `--json`) always emits a
+valid document — `{ repo, branch, files, binding }` — even with zero files;
+`files` is `[]`, never empty stdout.
+
+`binding` folds in the same repo↔workspace check the stage-time warning uses
+(see "Repo binding" below), so you don't have to separately reason about it:
+
+| `binding.state` | `binding.autoAttach` | Meaning                                                                                                      |
+| --------------- | -------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `self`          | `true`               | Repo is bound to this workspace — staged files auto-attach on PR open.                                       |
+| `none`          | `false`              | Repo isn't linked yet — link it (`uploads github link`) or nothing auto-attaches.                            |
+| `other`         | `false`              | Repo is linked to a **different** workspace — these files won't auto-attach from here.                       |
+| `unknown`       | `false`              | Binding check failed (offline, or an older server without the route) — advisory only, never blocks the view. |
+
+The `none`/`other` wording is the exact same advisory text as the
+`attach --branch` stage-time warning (issue #398) — one source of truth, so
+the two surfaces never drift.
+
+Local stdio MCP mirrors this as the `staged` tool (`branch`/`repo` args,
+same `{ repo, branch, files, binding }` shape). The hosted MCP has no
+dedicated tool for this — see "Hosted MCP: checking what's staged" below.
+
 Getting those files into the PR's attachments comment needs no extra step
 once a PR exists for that branch:
 
@@ -643,6 +681,11 @@ title updates, self-healing) seems to be silently doing nothing.
 comment --body-file` over inline HEREDOCs.
 - The host is agnostic — the same URLs work in issues, PR comments, discussions, and
   plain markdown docs.
+- **Prefer short, compressed clips (or an animated capture) over large raw
+  video files** when attaching to PRs. Per-file and workspace storage caps
+  apply underneath, and a multi-minute uncompressed recording is a poor PR
+  embed regardless — trim to the relevant seconds and compress before
+  uploading.
 
 ## Managing uploads
 
@@ -751,6 +794,25 @@ uploads --api-url http://localhost:8787 doctor
   access not yet approved — includes a `fixUrl` to the org's permission-review
   page), never as a thrown tool error; an unexpected error surfaces
   separately as `commentError`.
+
+  **Hosted MCP: checking what's staged (issue #405).** There's no dedicated
+  `staged` tool on the hosted server — it has no local git context to default
+  `branch` from, so it always needs the caller's own `repo`/`branch`. Answer
+  "what's staged?" with the existing tools instead:
+
+  ```text
+  list  { prefix: "gh/<owner>/<repo>/branch/<branch>/" }
+  # or
+  find_files  { filters: { "gh.branch": "<branch>" } }
+  ```
+
+  `find_files` returns each match's metadata inline, so `gh.staged-at` gives
+  recency without a second call; add `"gh.repo": "<owner>/<repo>"` to the
+  filters when branch names aren't unique across repos you're working in. For
+  the binding question ("will these auto-attach?"), there's no hosted-MCP
+  tool for the repo-link check either — fall back to the CLI's `uploads
+github link --status --repo <owner/name>`, or just try `attach --promote`
+  once the PR exists and read its result.
 
 - **Agents on the Worker side:** the package also exports
   `createUploadsWorkerFileTools()` from `@buildinternet/uploads/agent` for exposing

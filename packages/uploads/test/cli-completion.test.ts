@@ -24,7 +24,7 @@ describe("generateCompletionScript", () => {
   it("bash script registers complete -F and lists root commands", () => {
     const script = generateCompletionScript("bash");
     expect(script).toMatch(/complete -o default -F _uploads uploads/);
-    expect(script).toMatch(/local -a root_cmds=\(attach put screenshot gallery/);
+    expect(script).toMatch(/local -a root_cmds=\(attach put staged screenshot gallery/);
     for (const cmd of ROOT_COMMANDS) {
       expect(script).toContain(cmd.name);
     }

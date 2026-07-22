@@ -131,6 +131,10 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
     essential: true,
   },
   {
+    name: "staged",
+    summary: "Show what's staged for a branch, and whether it will auto-attach",
+  },
+  {
     name: "screenshot",
     usage: "screenshot <target>",
     summary: "Capture a URL or .html file and host it (local browser or remote render)",
