@@ -1432,6 +1432,10 @@ async function runAttachBranch(
     }
     if (!ctx.quiet && uploads.length > 0) {
       process.stderr.write(`>> find these later: uploads find gh.branch=${branch.toLowerCase()}\n`);
+      process.stderr.write(
+        `>> staged: these auto-attach to this branch's PR when it opens ` +
+          `(or run \`uploads attach --promote\` after opening)\n`,
+      );
     }
   }
   return failures.length === 0 ? 0 : 1;

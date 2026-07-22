@@ -10,7 +10,7 @@
       "name": "uploads",
       "source": "./",
       "description": "Get screenshots, GIFs, recordings, and files into GitHub PRs and issues via uploads.sh. Bundles the github-screenshots + uploads-cli skills, a local MCP server, and the /uploads:attach command.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "author": {
         "name": "Build Internet"
       },
@@ -21,7 +21,8 @@
       "strict": false,
       "skills": ["./skills/github-screenshots", "./skills/uploads-cli"],
       "commands": "./plugins/claude/uploads/commands",
-      "mcpServers": "./plugins/claude/uploads/.mcp.json"
+      "mcpServers": "./plugins/claude/uploads/.mcp.json",
+      "hooks": "./plugins/claude/uploads/hooks/hooks.json"
     }
   ]
 }

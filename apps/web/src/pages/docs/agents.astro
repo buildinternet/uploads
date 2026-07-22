@@ -6,7 +6,7 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
 
 <DocsLayout
   title="Set up your agent"
-  description="Install the uploads agent skill and MCP server so Claude Code and other agents can attach screenshots to GitHub on their own."
+  description="Install the uploads agent skill and MCP server so your coding agent can attach screenshots to GitHub on its own."
   path="/docs/agents"
   heading="Set up your agent"
   tagline="Teach a coding agent to upload and attach media on its own."
@@ -15,14 +15,17 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
   <section class="lead" id="install">
     <h2>One command <a class="anchor" href="#install" aria-label="Link to this section">#</a></h2>
     <p>
-      If you use Claude Code or another agent runtime, one command installs both the agent
-      skill and the hosted MCP server:
+      One command detects your agent runtime and installs both the agent skill and the
+      hosted MCP server:
     </p>
     <div class="cmd">
       <span class="text">uploads install</span>
       <button type="button" data-copy="uploads install" aria-live="polite">copy</button>
     </div>
-    <p>Or set up each piece yourself:</p>
+    <p>
+      Or set up each piece yourself — the skill via <code>npx skills</code>, the MCP
+      server with your runtime's MCP registration (shown here for Claude Code):
+    </p>
     <div class="cmd">
       <span class="text">npx skills add buildinternet/uploads --skill uploads-cli</span>
       <button type="button" data-copy="npx skills add buildinternet/uploads --skill uploads-cli" aria-live="polite">copy</button>
@@ -63,7 +66,8 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
       attaching before/after screenshots to the PR it just opened. The <strong>MCP
       server</strong> gives agents the same tools (<code>put</code>, <code>attach</code>,&#32;
       <code>list</code>, <code>delete</code>, and more) over HTTP, using the same token as the
-      CLI. There's also a local stdio variant if you prefer:
+      CLI. There's also a local stdio variant — register <code>uploads mcp</code> with
+      any MCP client, e.g.:
     </p>
     <div class="cmd">
       <span class="text">claude mcp add uploads -- uploads mcp</span>
@@ -73,6 +77,76 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
       Want the guided version? The <a href="/github-screenshots">agent walkthrough</a> takes a
       coding agent from install to a first before/after attachment on a PR.
     </div>
+  </section>
+
+  <section id="stage-as-you-go">
+    <h2>Stage screenshots as the agent works <a class="anchor" href="#stage-as-you-go" aria-label="Link to this section">#</a></h2>
+    <p>
+      Any agent that can run a shell command can capture at each visual milestone, run&#32;
+      <code>uploads attach --branch --state before|after</code>, and let the PR comment
+      assemble itself once a PR opens — via the GitHub App webhook, or the next&#32;
+      <code>uploads attach</code> (or <code>uploads attach --promote</code>) without the
+      App. See the <a href="/github-screenshots">stage-as-you-go walkthrough</a>&#32;
+      for the full loop.
+    </p>
+  </section>
+
+  <section id="instructions-file">
+    <h2>Put it in your instructions file <a class="anchor" href="#instructions-file" aria-label="Link to this section">#</a></h2>
+    <p>
+      Add a block like this to your project's instructions file —&#32;
+      <code>AGENTS.md</code>, <code>CLAUDE.md</code>, <code>.cursor/rules</code>, wherever
+      your runtime reads project instructions:
+    </p>
+    <div class="block" aria-label="AGENTS.md snippet">
+      <pre>## Screenshots
+When a change is visually observable (UI, layout, styling), capture it as you
+go — don't wait until the PR is open. After each meaningful visual change:
+
+  uploads attach ./shot.png --branch --state before   # or --state after
+
+Stage before/after pairs where it makes sense. No need to open the PR first —
+staged files are promoted into the PR's attachments comment automatically.</pre>
+    </div>
+    <p>
+      Requires the <code>uploads</code> CLI on <code>PATH</code> and <code>uploads login</code>&#32;
+      already run once — see <a href="#install">One command</a> above.
+    </p>
+  </section>
+
+  <section id="pre-pr-reminder">
+    <h2>Optional: remind before the PR opens <a class="anchor" href="#pre-pr-reminder" aria-label="Link to this section">#</a></h2>
+    <p>
+      A useful backstop is a check at <code>gh pr create</code> time: is anything staged
+      for this branch? If your runtime supports pre-command hooks — or you wrap&#32;
+      <code>gh pr create</code> yourself — it's a few lines of shell.&#32;
+      <strong>Keep it fail-open</strong> — a broken check should never block a PR from being
+      created.
+    </p>
+    <div class="block" aria-label="Generic pre-PR reminder script">
+      <pre>#!/bin/sh
+# Run before `gh pr create` (wrapper, or your agent's pre-command hook).
+# Fails open: any error here just skips the reminder, never blocks the PR.
+set -u
+branch=$(git branch --show-current 2>/dev/null) || exit 0
+[ -n "$branch" ] || exit 0
+# gh.branch metadata is stored lowercased
+branch_key=$(printf '%s' "$branch" | tr '[:upper:]' '[:lower:]')
+
+staged=$(uploads find "gh.branch=$branch_key" 2>/dev/null) || exit 0
+if [ -z "$staged" ]; then
+  echo "note: no screenshots staged for branch '$branch' — if this PR" >&2
+  echo "touches UI, consider 'uploads attach ./shot.png --branch' first" >&2
+fi
+exit 0</pre>
+    </div>
+    <p>
+      The <a href="#plugin">Claude Code plugin</a> ships this reminder as a bundled hook.
+      And no reminder is required at all — <code>uploads attach --promote</code> (no file
+      arguments) right after opening a PR picks up everything staged against the branch
+      and posts or refreshes the attachments comment; it exits <code>0</code> even if
+      nothing was staged.
+    </p>
   </section>
 
   <nav class="page-nav" aria-label="More docs">
