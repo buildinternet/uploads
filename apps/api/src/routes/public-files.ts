@@ -2,11 +2,33 @@ import { NotFoundError, UnauthorizedError } from "@uploads/errors";
 import { Hono } from "hono";
 import type { Files } from "@uploads/storage";
 import { badKey, downloadResponse, publicObjectDateFields } from "../files-core";
-import { displayTitle, getFileMetadata } from "../file-metadata";
+import { displayTitle, getFileMetadata, isServerMetaKey } from "../file-metadata";
 import { resolveTitles, withPublicTitleBudget } from "../github-titles";
+import { posterKeyFor } from "../poster";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
+
+const POSITIVE_INT_RE_STRICT = /^[1-9][0-9]*$/;
+
+interface VideoDimensions {
+  width: number;
+  height: number;
+}
+
+/** Parses a `video.width`/`video.height` D1 string pair into positive integers, or undefined. */
+function parseVideoDimensions(metadata: Record<string, string>): VideoDimensions | undefined {
+  const widthRaw = metadata["video.width"];
+  const heightRaw = metadata["video.height"];
+  if (!widthRaw || !heightRaw) return undefined;
+  if (!POSITIVE_INT_RE_STRICT.test(widthRaw) || !POSITIVE_INT_RE_STRICT.test(heightRaw)) {
+    return undefined;
+  }
+  const width = Number(widthRaw);
+  const height = Number(heightRaw);
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height)) return undefined;
+  return { width, height };
+}
 
 type GithubKind = "pull" | "issue";
 
@@ -70,6 +92,8 @@ interface ResolvedPublicObject {
   store: Files;
   meta: { size?: number; type?: string; lastModified?: number; metadata?: Record<string, string> };
   urls: { url: string | null; embedUrl: string | null };
+  env: Env;
+  cfg: Awaited<ReturnType<typeof storageConfig>>;
 }
 
 /**
@@ -106,7 +130,7 @@ async function resolvePublicObject(
     throw new UnauthorizedError("sign in to view this file", { code: "auth_required" });
   }
 
-  return { store, meta, urls };
+  return { store, meta, urls, env, cfg };
 }
 
 /**
@@ -143,7 +167,7 @@ async function resolvePublicObject(
 export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}", async (c) => {
   const workspace = c.req.param("workspace");
   const key = c.req.param("key");
-  const { store, meta, urls } = await resolvePublicObject(c.env, workspace, key);
+  const { store, meta, urls, env, cfg } = await resolvePublicObject(c.env, workspace, key);
 
   const downloadParam = c.req.query("download");
   if (downloadParam === "1" || downloadParam === "true") {
@@ -154,6 +178,21 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
   // After the visibility gate — private objects 401 before this D1 read.
   const metadata = await getFileMetadata(c.env.DB, workspace, key);
   let github = deriveGithubContext(metadata);
+
+  // `video.*` rows are server-owned (issue #299) and never meant to reach
+  // clients as generic metadata — only via the derived posterUrl/videoDimensions
+  // fields below. Filter them out of the raw metadata pass-through the same way
+  // provenance/visibility are already excluded from D1 reads entirely.
+  const publicMetadata = Object.fromEntries(
+    Object.entries(metadata).filter(([metaKey]) => !isServerMetaKey(metaKey)),
+  );
+
+  let posterUrl: string | undefined;
+  if (metadata["video.poster"] === "1") {
+    const posterUrls = objectPublicUrls(env, cfg, posterKeyFor(key));
+    posterUrl = posterUrls.url ?? undefined;
+  }
+  const videoDimensions = parseVideoDimensions(metadata);
 
   // Live title (KV-cached App ladder) wins over stamped gh.title. Failures and
   // budget timeouts never 500 — keep the stamp or omit title entirely.
@@ -179,7 +218,9 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
     size: meta.size ?? 0,
     contentType: meta.type ?? "application/octet-stream",
     ...publicObjectDateFields(meta),
-    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    ...(Object.keys(publicMetadata).length > 0 ? { metadata: publicMetadata } : {}),
     ...(github ? { github } : {}),
+    ...(posterUrl ? { posterUrl } : {}),
+    ...(videoDimensions ? { videoDimensions } : {}),
   });
 });

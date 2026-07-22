@@ -170,7 +170,18 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
           <figure class="stage" style="margin:0">
             <div class="media">
               {kind(file.contentType) === "image" && <img src={file.url} alt={filename} decoding="async" />}
-              {kind(file.contentType) === "video" && <video src={file.url} controls playsinline preload="metadata">Your browser cannot play this video.</video>}
+              {kind(file.contentType) === "video" && (
+                <video
+                  src={file.url}
+                  poster={file.posterUrl ?? undefined}
+                  style={file.videoDimensions
+                    ? `aspect-ratio:${file.videoDimensions.width}/${file.videoDimensions.height}`
+                    : undefined}
+                  controls
+                  playsinline
+                  preload="metadata"
+                >Your browser cannot play this video.</video>
+              )}
               {kind(file.contentType) === "file" && <div class="fallback"><strong>Preview unavailable</strong><a href={file.url} rel="noopener noreferrer">Open {filename}</a></div>}
               {kind(file.contentType) === "unsupported" && <div class="fallback"><strong>Unsupported media type</strong><span>This file cannot be previewed inline.</span></div>}
             </div>

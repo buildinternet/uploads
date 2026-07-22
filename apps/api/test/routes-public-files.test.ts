@@ -3,6 +3,7 @@ import { FakeR2Bucket } from "./fake-r2";
 import { FakeKv } from "./fake-kv";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
+import { setServerFileMetadata } from "../src/file-metadata";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 
 // The public file page (issue #135) is served over HTTP from this endpoint:
@@ -436,6 +437,67 @@ describe("GET /public/files/:workspace/:key", () => {
     expect(json.github?.title).toBe("Stamped under budget");
     // Budget 1400ms + request overhead; must stay well under web's 4s abort.
     expect(elapsedMs).toBeLessThan(3000);
+  });
+
+  it("exposes posterUrl + videoDimensions when the poster sentinel is set, without leaking video.* into metadata", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env, { "X-Uploads-Meta-app": "uploads-cli" });
+    await setServerFileMetadata(
+      env.DB as unknown as D1Database,
+      "default",
+      "screenshots/shot.png",
+      {
+        "video.poster": "1",
+        "video.width": "1920",
+        "video.height": "1080",
+        "video.duration": "12",
+      },
+    );
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      posterUrl?: string;
+      videoDimensions?: { width: number; height: number };
+      metadata?: Record<string, string>;
+    };
+    expect(json.posterUrl).toBe(
+      "https://storage.uploads.sh/default/_internal/posters/screenshots/shot.png.jpg",
+    );
+    expect(json.videoDimensions).toEqual({ width: 1920, height: 1080 });
+    // video.* rows are server-owned — never surfaced via the generic metadata map.
+    expect(json.metadata).toEqual({ app: "uploads-cli" });
+  });
+
+  it("omits posterUrl and videoDimensions when there is no poster", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env);
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json).not.toHaveProperty("posterUrl");
+    expect(json).not.toHaveProperty("videoDimensions");
+  });
+
+  it("omits videoDimensions when width/height are missing even though the poster sentinel is set", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedShot(env);
+    await setServerFileMetadata(
+      env.DB as unknown as D1Database,
+      "default",
+      "screenshots/shot.png",
+      {
+        "video.poster": "1",
+      },
+    );
+
+    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    const json = (await res.json()) as {
+      posterUrl?: string;
+      videoDimensions?: unknown;
+    };
+    expect(json.posterUrl).toBeDefined();
+    expect(json.videoDimensions).toBeUndefined();
   });
 });
 

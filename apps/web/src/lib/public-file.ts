@@ -31,6 +31,10 @@ export interface PublicFile {
   metadata?: Record<string, string>;
   /** Convenience view of `gh.repo`/`gh.kind`/`gh.number`, when all three are present and valid. */
   github?: GithubContext;
+  /** Public URL of the derived poster frame (issue #299); present only when the video has one. */
+  posterUrl?: string | null;
+  /** Real video dimensions, for reserving aspect ratio before playback; omitted when unknown. */
+  videoDimensions?: { width: number; height: number };
 }
 
 /** Result of resolving a public file: the DTO, a hard 404, a private gate, or a soft outage. */
@@ -221,6 +225,18 @@ function isGithubContext(value: unknown): value is GithubContext {
   );
 }
 
+/** Bounded `videoDimensions` convenience object — both fields positive safe integers. */
+function isVideoDimensions(value: unknown): value is { width: number; height: number } {
+  if (typeof value !== "object" || value === null) return false;
+  const dims = value as Record<string, unknown>;
+  return (
+    Number.isSafeInteger(dims.width) &&
+    (dims.width as number) > 0 &&
+    Number.isSafeInteger(dims.height) &&
+    (dims.height as number) > 0
+  );
+}
+
 /** Optional ISO timestamp field: absent, null, or a bounded parseable string. */
 function optionalIsoDate(value: unknown): boolean {
   return (
@@ -236,6 +252,9 @@ export function isPublicFile(value: unknown): value is PublicFile {
   const file = value as Record<string, unknown>;
   const metadataOk = file.metadata === undefined || isMetadataMap(file.metadata);
   const githubOk = file.github === undefined || isGithubContext(file.github);
+  const posterUrlOk = file.posterUrl === undefined || nullableHttpsUrl(file.posterUrl);
+  const videoDimensionsOk =
+    file.videoDimensions === undefined || isVideoDimensions(file.videoDimensions);
   return (
     text(file.workspace, 64) &&
     text(file.key, 1024) &&
@@ -247,7 +266,9 @@ export function isPublicFile(value: unknown): value is PublicFile {
     optionalIsoDate(file.uploaded) &&
     optionalIsoDate(file.modified) &&
     metadataOk &&
-    githubOk
+    githubOk &&
+    posterUrlOk &&
+    videoDimensionsOk
   );
 }
 
