@@ -669,7 +669,7 @@ describe("workspace plan editing", () => {
     return { env, store };
   }
 
-  it("GET returns the free plan and resolved defaults for a bare record", async () => {
+  it("GET reports the free plan (display) but leaves a bare record unlimited — planApplied: false", async () => {
     const { env } = planEnv(ADMIN_USER, REC);
     const res = await app().request("/admin-ui/workspaces/acme/plan", {}, env);
     expect(res.status).toBe(200);
@@ -677,6 +677,26 @@ describe("workspace plan editing", () => {
       workspace: "acme",
       plan: "free",
       available: true,
+      planApplied: false,
+      limits: {
+        maxStorageBytes: null,
+        maxUploadsPerPeriod: null,
+        maxUploadBytes: null,
+        maxVideoUploadBytes: null,
+      },
+      overrides: [],
+    });
+  });
+
+  it("GET resolves plan defaults once a plan is explicitly set — planApplied: true", async () => {
+    const { env } = planEnv(ADMIN_USER, { ...REC, plan: "free" });
+    const res = await app().request("/admin-ui/workspaces/acme/plan", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      workspace: "acme",
+      plan: "free",
+      available: true,
+      planApplied: true,
       limits: {
         maxStorageBytes: 250_000_000,
         maxUploadsPerPeriod: 3000,
@@ -699,9 +719,10 @@ describe("workspace plan editing", () => {
       env,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { plan: string; available: boolean };
+    const body = (await res.json()) as { plan: string; available: boolean; planApplied: boolean };
     expect(body.plan).toBe("pro");
     expect(body.available).toBe(false);
+    expect(body.planApplied).toBe(true);
     expect(JSON.parse(store.get("ws:acme") ?? "{}").plan).toBe("pro");
   });
 

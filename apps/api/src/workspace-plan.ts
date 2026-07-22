@@ -30,20 +30,44 @@ export function validatePlanPatch(body: unknown): { plan: PlanId } {
   return { plan: plan as PlanId };
 }
 
-/** Response body shared by GET and PATCH /admin-ui/workspaces/:name/plan. */
+/**
+ * Response body shared by GET and PATCH /admin-ui/workspaces/:name/plan.
+ *
+ * `plan`/`available` always fail open to the `free` catalog entry for
+ * display (`getPlan`'s contract) — but `limits` must not silently apply
+ * `free`'s numeric defaults to a record with no `plan` field: budget.ts's
+ * enforcement path treats an absent `plan` as legacy/unlimited (explicit
+ * overrides only, no plan defaults — see budget.ts's early-return branch),
+ * and this response would otherwise lie about a workspace's real caps
+ * (e.g. showing "250MB" for a workspace that's actually unlimited).
+ * `planApplied` is the honest signal distinguishing the two states:
+ * `false` means `limits` reflects raw overrides only (unlimited where
+ * unset, mirroring the null-for-unlimited convention `limitsResponse`
+ * uses above); `true` means `limits` reflects plan-aware resolution via
+ * `resolvePlanLimits` (overrides layered onto the plan's defaults).
+ */
 export function planResponse(name: string, record: WorkspaceRecord) {
   const definition = getPlan(record.plan);
   const overrides = LIMIT_FIELDS_FOR_OVERRIDES.filter((field) => record[field] !== undefined);
-  const limits = resolvePlanLimits(record.plan, {
-    maxStorageBytes: record.maxStorageBytes,
-    maxUploadsPerPeriod: record.maxUploadsPerPeriod,
-    maxUploadBytes: record.maxUploadBytes,
-    maxVideoUploadBytes: record.maxVideoUploadBytes,
-  });
+  const planApplied = record.plan !== undefined;
+  const limits = planApplied
+    ? resolvePlanLimits(record.plan, {
+        maxStorageBytes: record.maxStorageBytes,
+        maxUploadsPerPeriod: record.maxUploadsPerPeriod,
+        maxUploadBytes: record.maxUploadBytes,
+        maxVideoUploadBytes: record.maxVideoUploadBytes,
+      })
+    : {
+        maxStorageBytes: record.maxStorageBytes ?? null,
+        maxUploadsPerPeriod: record.maxUploadsPerPeriod ?? null,
+        maxUploadBytes: record.maxUploadBytes ?? null,
+        maxVideoUploadBytes: record.maxVideoUploadBytes ?? null,
+      };
   return {
     workspace: name,
     plan: definition.id,
     available: definition.available,
+    planApplied,
     limits,
     overrides,
   };

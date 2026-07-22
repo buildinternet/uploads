@@ -22,28 +22,43 @@ describe("validatePlanPatch", () => {
 });
 
 describe("planResponse", () => {
-  it("reports the free plan, its resolved limits, and no overrides for a bare record", () => {
+  it("reports the free plan (display default) but leaves a bare record's limits unlimited — planApplied: false", () => {
     const result = planResponse("acme", { provider: "r2", bucket: "b" });
     expect(result).toEqual({
       workspace: "acme",
       plan: "free",
       available: true,
+      planApplied: false,
       limits: {
-        maxStorageBytes: 250_000_000,
-        maxUploadsPerPeriod: 3000,
-        maxUploadBytes: 25_000_000,
-        maxVideoUploadBytes: 8_000_000,
+        maxStorageBytes: null,
+        maxUploadsPerPeriod: null,
+        maxUploadBytes: null,
+        maxVideoUploadBytes: null,
       },
       overrides: [],
     });
   });
 
-  it("lists explicit override fields and resolves them into limits", () => {
+  it("reflects explicit overrides on a bare (no-plan) record without applying plan defaults", () => {
     const result = planResponse("acme", {
       provider: "r2",
       bucket: "b",
       maxStorageBytes: 999,
     });
+    expect(result.planApplied).toBe(false);
+    expect(result.overrides).toEqual(["maxStorageBytes"]);
+    expect(result.limits.maxStorageBytes).toBe(999);
+    expect(result.limits.maxUploadsPerPeriod).toBe(null);
+  });
+
+  it("resolves plan defaults + overrides once a plan is explicitly set — planApplied: true", () => {
+    const result = planResponse("acme", {
+      provider: "r2",
+      bucket: "b",
+      plan: "free",
+      maxStorageBytes: 999,
+    });
+    expect(result.planApplied).toBe(true);
     expect(result.overrides).toEqual(["maxStorageBytes"]);
     expect(result.limits.maxStorageBytes).toBe(999);
     expect(result.limits.maxUploadsPerPeriod).toBe(3000);
@@ -53,14 +68,18 @@ describe("planResponse", () => {
     const result = planResponse("acme", { provider: "r2", bucket: "b", plan: "pro" });
     expect(result.plan).toBe("pro");
     expect(result.available).toBe(false);
+    expect(result.planApplied).toBe(true);
+    expect(result.limits.maxStorageBytes).toBe(25_000_000_000);
   });
 
-  it("fails open to free for an unrecognized stored plan string", () => {
+  it("fails open to free for an unrecognized stored plan string, but still applies plan-aware resolution", () => {
     const result = planResponse("acme", {
       provider: "r2",
       bucket: "b",
       plan: "enterprise" as never,
     });
     expect(result.plan).toBe("free");
+    expect(result.planApplied).toBe(true);
+    expect(result.limits.maxStorageBytes).toBe(250_000_000);
   });
 });
