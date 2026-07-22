@@ -13,6 +13,7 @@ import { workspaces } from "./routes/workspaces";
 import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
 import { runStagingReaper } from "./staging-reaper";
+import { runObservabilityRetention } from "./observability-retention";
 import { galleries } from "./routes/galleries";
 import { publicGalleries } from "./routes/public-galleries";
 import { publicFiles } from "./routes/public-files";
@@ -181,6 +182,18 @@ export default {
         console.error(
           JSON.stringify({
             message: "staging_reap_failed",
+            error: appErr.message,
+            code: appErr.code,
+          }),
+        );
+      }),
+    );
+    ctx.waitUntil(
+      runObservabilityRetention(env).catch((err) => {
+        const appErr = AppError.from(err);
+        console.error(
+          JSON.stringify({
+            message: "observability_retention_failed",
             error: appErr.message,
             code: appErr.code,
           }),

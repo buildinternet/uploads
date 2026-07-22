@@ -113,7 +113,9 @@ export const account = sqliteTable(
  * Single-use verification records — magic-link tokens (`storeToken: "hashed"`,
  * see src/auth.ts) live here.
  *
- * Paired migration: `migrations/20260712200000_better_auth_core.sql`.
+ * Paired migrations: `migrations/20260712200000_better_auth_core.sql`,
+ * `migrations/20260722180000_retention_expires_at_idx.sql`
+ * (`idx_verification_expires_at` for nightly retention sweep).
  */
 export const verification = sqliteTable(
   "verification",
@@ -125,7 +127,11 @@ export const verification = sqliteTable(
     createdAt: timestampCol("created_at"),
     updatedAt: timestampCol("updated_at"),
   },
-  (t) => [index("idx_verification_identifier").on(t.identifier)],
+  (t) => [
+    index("idx_verification_identifier").on(t.identifier),
+    // Retention sweep: expires_at < now. Migration: 20260722180000_retention_expires_at_idx.sql
+    index("idx_verification_expires_at").on(t.expiresAt),
+  ],
 );
 
 /**
@@ -229,7 +235,9 @@ export const invitation = sqliteTable(
  * is snake_case but the drizzle-adapter schema KEY must stay the camelCase
  * model name `deviceCode`.
  *
- * Paired migration: `migrations/20260712230000_device_code.sql`.
+ * Paired migrations: `migrations/20260712230000_device_code.sql`,
+ * `migrations/20260722180000_retention_expires_at_idx.sql`
+ * (`idx_device_code_expires_at` for nightly retention sweep).
  */
 export const deviceCode = sqliteTable(
   "device_code",
@@ -251,6 +259,8 @@ export const deviceCode = sqliteTable(
   (t) => [
     index("idx_device_code_device_code").on(t.deviceCode),
     index("idx_device_code_user_code").on(t.userCode),
+    // Retention sweep: expires_at < now. Migration: 20260722180000_retention_expires_at_idx.sql
+    index("idx_device_code_expires_at").on(t.expiresAt),
   ],
 );
 

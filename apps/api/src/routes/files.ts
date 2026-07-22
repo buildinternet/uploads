@@ -1,4 +1,9 @@
-import { ConflictError, NotFoundError, ValidationError } from "@uploads/errors";
+import {
+  ConflictError,
+  NotFoundError,
+  UnsupportedMediaTypeError,
+  ValidationError,
+} from "@uploads/errors";
 import { Hono } from "hono";
 import {
   badKey,
@@ -20,9 +25,20 @@ import {
 import { splitUploadMetaHeaders } from "../provenance";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
-import { checkDeclaredLength, resolveUploadPolicy, writeRateLimit } from "../guards";
+import {
+  checkDeclaredLength,
+  maxBytesForContentType,
+  resolveUploadPolicy,
+  writeRateLimit,
+} from "../guards";
 import { hasGithubTags, uploaderTags } from "../uploader-identity";
 import { sanitizeVisibility } from "../visibility";
+
+/** Normalize a client Content-Type for allowlist compare (type/subtype only, lowercased). */
+function normalizePresignContentType(raw: string): string {
+  const beforeParams = raw.split(";", 1)[0] ?? raw;
+  return beforeParams.trim().toLowerCase();
+}
 
 export const files = new Hono<WorkspaceVars>()
 
@@ -54,11 +70,28 @@ export const files = new Hono<WorkspaceVars>()
     const key = finalizeUploadKey(rawKey, ws);
 
     const policy = resolveUploadPolicy(ws);
-    const ceiling = Math.max(policy.maxBytes, policy.maxVideoBytes);
+
+    // Content-type is required on presign: the direct-to-bucket PUT cannot
+    // magic-byte sniff, so the allowlist must be enforced at mint time.
+    const rawContentType = typeof body.contentType === "string" ? body.contentType : "";
+    if (!rawContentType.trim()) {
+      throw new ValidationError("contentType is required for presign", {
+        code: "content_type_required",
+      });
+    }
+    const contentType = normalizePresignContentType(rawContentType);
+    if (!policy.allowed.has(contentType)) {
+      throw new UnsupportedMediaTypeError("unsupported media type", {
+        code: "unsupported_media_type",
+        details: { allowed: [...policy.allowed] },
+      });
+    }
+
+    const typeCeiling = maxBytesForContentType(policy, contentType);
     const maxSize =
       typeof body.maxSize === "number" && body.maxSize > 0
-        ? Math.min(body.maxSize, ceiling)
-        : ceiling;
+        ? Math.min(body.maxSize, typeCeiling)
+        : typeCeiling;
     const expiresIn =
       typeof body.expiresIn === "number" && body.expiresIn > 0 && body.expiresIn <= 86400
         ? Math.floor(body.expiresIn)
@@ -90,7 +123,7 @@ export const files = new Hono<WorkspaceVars>()
 
       const upload = await store.signedUploadUrl(key, {
         expiresIn,
-        contentType: body.contentType,
+        contentType,
         maxSize,
       });
       const cfg = await storageConfig(c.env, ws);
@@ -106,11 +139,12 @@ export const files = new Hono<WorkspaceVars>()
       });
     } catch (err) {
       if (err instanceof ConflictError) throw err;
+      if (err instanceof ValidationError || err instanceof UnsupportedMediaTypeError) throw err;
       const message = err instanceof Error ? err.message : String(err);
       console.error(JSON.stringify({ message: "presign failed", error: message }));
       throw new ValidationError(
         "presign unavailable for this workspace (needs S3 HTTP credentials; binding-only cannot sign)",
-        { code: "presign_unavailable", details: { detail: message }, cause: err },
+        { code: "presign_unavailable", cause: err },
       );
     }
   })

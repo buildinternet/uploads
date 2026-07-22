@@ -356,27 +356,60 @@ export async function replaceFileMetadata(
   await db.batch(statements);
 }
 
+/** Keyset cursor for cross-workspace metadata scans (workspace, object_key). */
+export type MetadataCrossWorkspaceCursor = {
+  workspace: string;
+  key: string;
+};
+
 /**
  * Cross-workspace `(meta_key, meta_value)` lookup (staging reaper: `gh.kind=branch`).
- * Bounded by `limit`; ordered by (workspace, object_key).
- * Needs `file_metadata_value_lookup_idx` — workspace-leading index cannot serve this.
+ * Bounded by `limit`; ordered by (workspace, object_key). Optional keyset
+ * `after` continues past a prior page. `nextAfter` is the last row when the
+ * page was full (caller should resume), or null at end-of-set (reset cursor).
+ *
+ * Served by covering `file_metadata_value_lookup_idx`
+ * `(meta_key, meta_value, workspace, object_key)` — workspace-leading index
+ * cannot serve this.
  */
 export async function findObjectsByMetadataAcrossWorkspaces(
   db: D1Database,
   metaKey: string,
   metaValue: string,
   limit: number,
-): Promise<Array<{ workspace: string; key: string }>> {
-  const result = await db
-    .prepare(
-      `SELECT workspace, object_key FROM file_metadata
-       WHERE meta_key = ? AND meta_value = ?
-       ORDER BY workspace, object_key
-       LIMIT ?`,
-    )
-    .bind(metaKey, metaValue, limit)
-    .all<{ workspace: string; object_key: string }>();
-  return result.results.map((row) => ({ workspace: row.workspace, key: row.object_key }));
+  opts?: { after?: MetadataCrossWorkspaceCursor | null },
+): Promise<{
+  rows: Array<{ workspace: string; key: string }>;
+  /** Null when this page was short (end of set — caller should reset cursor). */
+  nextAfter: MetadataCrossWorkspaceCursor | null;
+}> {
+  const after = opts?.after;
+  const result = after
+    ? await db
+        .prepare(
+          `SELECT workspace, object_key FROM file_metadata
+           WHERE meta_key = ? AND meta_value = ?
+             AND (workspace > ? OR (workspace = ? AND object_key > ?))
+           ORDER BY workspace, object_key
+           LIMIT ?`,
+        )
+        .bind(metaKey, metaValue, after.workspace, after.workspace, after.key, limit)
+        .all<{ workspace: string; object_key: string }>()
+    : await db
+        .prepare(
+          `SELECT workspace, object_key FROM file_metadata
+           WHERE meta_key = ? AND meta_value = ?
+           ORDER BY workspace, object_key
+           LIMIT ?`,
+        )
+        .bind(metaKey, metaValue, limit)
+        .all<{ workspace: string; object_key: string }>();
+
+  const rows = result.results.map((row) => ({ workspace: row.workspace, key: row.object_key }));
+  const last = rows[rows.length - 1];
+  const nextAfter =
+    rows.length === limit && last ? { workspace: last.workspace, key: last.key } : null;
+  return { rows, nextAfter };
 }
 
 const FIND_DEFAULT_LIMIT = 50;

@@ -388,7 +388,7 @@ describe("POST /v1/:workspace/files/sign strict-overwrite gate (review follow-up
       {
         method: "POST",
         headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-        body: JSON.stringify({ key: "screenshots/shot.png" }),
+        body: JSON.stringify({ key: "screenshots/shot.png", contentType: "image/png" }),
       },
       env,
     );
@@ -407,7 +407,11 @@ describe("POST /v1/:workspace/files/sign strict-overwrite gate (review follow-up
       {
         method: "POST",
         headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-        body: JSON.stringify({ key: "screenshots/shot.png", replace: true }),
+        body: JSON.stringify({
+          key: "screenshots/shot.png",
+          replace: true,
+          contentType: "image/png",
+        }),
       },
       env,
     );
@@ -425,7 +429,10 @@ describe("POST /v1/:workspace/files/sign strict-overwrite gate (review follow-up
       {
         method: "POST",
         headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-        body: JSON.stringify({ key: "screenshots/never-uploaded.png" }),
+        body: JSON.stringify({
+          key: "screenshots/never-uploaded.png",
+          contentType: "image/png",
+        }),
       },
       env,
     );
@@ -450,11 +457,143 @@ describe("POST /v1/:workspace/files/sign strict-overwrite gate (review follow-up
       {
         method: "POST",
         headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
-        body: JSON.stringify({ key: "gh/acme/widgets/pull/1/shot.png" }),
+        body: JSON.stringify({
+          key: "gh/acme/widgets/pull/1/shot.png",
+          contentType: "image/png",
+        }),
       },
       env,
     );
     expect(res.status).not.toBe(409);
+  });
+});
+
+describe("POST /v1/:workspace/files/sign content-type policy", () => {
+  it("rejects missing contentType with content_type_required", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/default/files/sign",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({ key: "screenshots/a.png" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: { code: string } };
+    expect(json.error.code).toBe("content_type_required");
+  });
+
+  it("rejects SVG (and other disallowed types) before storage is called", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/default/files/sign",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          key: "screenshots/evil.svg",
+          contentType: "image/svg+xml",
+        }),
+      },
+      env,
+    );
+    expect(res.status).toBe(415);
+    const json = (await res.json()) as {
+      error: { code: string; type: string; details?: { detail?: string } };
+    };
+    expect(json.error.code).toBe("unsupported_media_type");
+    expect(json.error.type).toBe("unsupported_media_type");
+    // Must not echo provider internals via details.detail (presign_unavailable path).
+    expect(json.error.details?.detail).toBeUndefined();
+  });
+
+  it("rejects text/html", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/default/files/sign",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          key: "screenshots/page.html",
+          contentType: "text/html",
+        }),
+      },
+      env,
+    );
+    expect(res.status).toBe(415);
+    const json = (await res.json()) as { error: { code: string } };
+    expect(json.error.code).toBe("unsupported_media_type");
+  });
+
+  it("treats case-insensitive types as allowed (may still fail presign without S3)", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/default/files/sign",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          key: "screenshots/case.png",
+          contentType: "Image/PNG",
+        }),
+      },
+      env,
+    );
+    // Not a content-type rejection — without S3 credentials this is typically
+    // presign_unavailable (400), never 415 / content_type_required.
+    expect(res.status).not.toBe(415);
+    const json = (await res.json()) as { error?: { code: string; details?: { detail?: string } } };
+    expect(json.error?.code).not.toBe("content_type_required");
+    expect(json.error?.code).not.toBe("unsupported_media_type");
+    if (json.error?.code === "presign_unavailable") {
+      expect(json.error.details?.detail).toBeUndefined();
+    }
+  });
+
+  it("accepts image/png without content-type rejection", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/default/files/sign",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          key: "screenshots/ok.png",
+          contentType: "image/png",
+        }),
+      },
+      env,
+    );
+    expect(res.status).not.toBe(415);
+    const json = (await res.json()) as { error?: { code: string } };
+    expect(json.error?.code).not.toBe("unsupported_media_type");
+    expect(json.error?.code).not.toBe("content_type_required");
+  });
+
+  it("does not include raw provider detail on presign_unavailable", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/default/files/sign",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          key: "screenshots/ok.png",
+          contentType: "image/png",
+        }),
+      },
+      env,
+    );
+    // Fake workspace has no S3 HTTP credentials → presign_unavailable.
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as {
+      error: { code: string; details?: { detail?: string } };
+    };
+    expect(json.error.code).toBe("presign_unavailable");
+    expect(json.error.details).toBeUndefined();
   });
 });
 
