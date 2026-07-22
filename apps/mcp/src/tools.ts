@@ -41,6 +41,7 @@ import {
   validateMetadataFilters,
 } from "@uploads/api/file-metadata";
 import { hasGithubTags, uploaderTags } from "@uploads/api/uploader-identity";
+import { findRepoLink } from "@uploads/api/github-repo-links";
 import {
   addExternalReference,
   addGalleryItem,
@@ -899,6 +900,31 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           })),
           cursor: null,
         };
+      },
+    },
+    {
+      name: "repo_link_status",
+      description:
+        'Whether files staged for a repo will auto-attach into that repo\'s PRs from this workspace. Returns a tri-state `binding`: "self" (this repo is bound to this workspace — staged files will auto-attach), "other" (bound to a different workspace — they will not; the owning workspace is deliberately never disclosed), or "none" (unbound).',
+      inputSchema: {
+        type: "object",
+        properties: {
+          repo: {
+            type: "string",
+            description: "GitHub repo as owner/name.",
+          },
+        },
+        required: ["repo"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:read");
+        const repo = requiredString(args, "repo");
+        if (!validRepoGrammar(repo)) usage("repo must be owner/name");
+        const link = await findRepoLink(env.DB, repo);
+        const binding =
+          link === null ? "none" : link.workspaceName === workspaceName ? "self" : "other";
+        return { binding };
       },
     },
     {
