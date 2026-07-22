@@ -94,12 +94,18 @@ class RepoLinksTable {
 
 /**
  * Combines the file_metadata fake (gh.* stamping on `putObject`) with a
- * `github_repo_links` table and a not-found `auth_tokens` lookup (legacy
- * token auth only — every test here uses `TOKEN`, never a D1-tracked one, so
- * `mintingUserId` is always null; the entitlement/claim path is covered by
- * the route-level tests instead).
+ * `github_repo_links` table and an `auth_tokens` lookup. By default the
+ * active-token lookup always misses (legacy token path — full FILE_SCOPES,
+ * `mintingUserId` null; the entitlement/claim path is covered by the
+ * route-level tests instead). Pass `scopedToken` to instead return a
+ * D1-tracked row for `TOKEN` carrying exactly those scopes, for the
+ * files:read-required-for-comment scope test.
  */
-function makeDb(links: RepoLinksTable, metadata: Map<string, Map<string, string>>) {
+function makeDb(
+  links: RepoLinksTable,
+  metadata: Map<string, Map<string, string>>,
+  scopedToken?: { tokenHash: string; scopes: string[] },
+) {
   const scopeKey = (ws: string, objectKey: string) => `${ws} ${objectKey}`;
   return {
     prepare: (sql: string) => {
@@ -113,6 +119,23 @@ function makeDb(links: RepoLinksTable, metadata: Map<string, Map<string, string>
         async first<T>() {
           if (normalized.includes("github_repo_links")) {
             return (links.tryFirst(normalized, values) ?? null) as T;
+          }
+          if (normalized.startsWith("SELECT id, workspace, token_hash")) {
+            const [, hash] = values as [string, string];
+            if (scopedToken && hash === scopedToken.tokenHash) {
+              return {
+                id: "token-id",
+                workspace: WS,
+                token_hash: hash,
+                label: null,
+                scopes: JSON.stringify(scopedToken.scopes),
+                created_at: "2026-07-13T00:00:00.000Z",
+                expires_at: null,
+                revoked_at: null,
+                minting_user_id: null,
+              } as T;
+            }
+            return null as T;
           }
           // auth_tokens active-token lookup: always miss (legacy token path).
           return null as T;
@@ -163,14 +186,15 @@ function makeDb(links: RepoLinksTable, metadata: Map<string, Map<string, string>
 }
 
 async function makeEnv(
-  opts: { boundTo?: string } = {},
+  opts: { boundTo?: string; scopes?: string[] } = {},
 ): Promise<{ env: Env; bucket: FakeR2Bucket; links: RepoLinksTable; githubCache: FakeKv }> {
+  const tokenHash = await sha256Hex(TOKEN);
   const record: WorkspaceRecord = {
     provider: "r2",
     bucket: "test-bucket",
     binding: "UPLOADS",
     publicBaseUrl: "https://storage.example.com",
-    tokenHash: await sha256Hex(TOKEN),
+    tokenHash,
   };
   const bucket = new FakeR2Bucket();
   const links = new RepoLinksTable();
@@ -185,9 +209,10 @@ async function makeEnv(
   }
   const metadata = new Map<string, Map<string, string>>();
   const githubCache = new FakeKv();
+  const scopedToken = opts.scopes ? { tokenHash, scopes: opts.scopes } : undefined;
   const env = {
     REGISTRY: { get: async (key: string) => (key === `ws:${WS}` ? record : null) },
-    DB: makeDb(links, metadata),
+    DB: makeDb(links, metadata, scopedToken),
     UPLOADS: bucket,
     GITHUB_CACHE: githubCache,
     ...GITHUB_APP_CFG_ENV,
@@ -475,5 +500,32 @@ describe("hosted put: comment sync (issue #392)", () => {
     expect(result.isError).toBe(false);
     expect(result.structuredContent?.comment).toBeUndefined();
     expect(result.structuredContent?.commentError).toBeUndefined();
+  });
+
+  it("requires files:read for comment: true — a files:write-only token is rejected before any write", async () => {
+    const { env, bucket } = await makeEnv({ boundTo: WS, scopes: ["files:write"] });
+    const result = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "hero.png",
+      pr: 12,
+      repo: "acme/widgets",
+      comment: true,
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([{ type: "text", text: expect.stringContaining("files:read") }]);
+    // Rejected up front — no object written, not even a partial upload.
+    expect(bucket.store.has("gh/acme/widgets/pull/12/hero.png")).toBe(false);
+  });
+
+  it("the same files:write-only token can still put without comment", async () => {
+    const { env, bucket } = await makeEnv({ boundTo: WS, scopes: ["files:write"] });
+    const result = await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "hero.png",
+      pr: 12,
+      repo: "acme/widgets",
+    });
+    expect(result.isError).toBe(false);
+    expect(bucket.store.has("gh/acme/widgets/pull/12/hero.png")).toBe(true);
   });
 });

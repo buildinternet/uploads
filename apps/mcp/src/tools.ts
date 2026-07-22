@@ -563,6 +563,13 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         const target = ghTargetFromArgs(args);
         const wantComment = optBool(args, "comment");
         if (wantComment && !target) usage("comment requires pr or issue");
+        // The comment path's gather reads the workspace's own objects,
+        // metadata, and galleries (github-comment-service.ts's
+        // gatherCommentBody) — the same reason the REST route requires
+        // files:read. Checked up front, alongside the other argument
+        // validation, so a files:write-only token is rejected before any
+        // bytes are written — never after a successful upload.
+        if (wantComment) requireScope("files:read");
 
         const explicitKey = optString(args, "key");
         const prefix = optString(args, "prefix");
