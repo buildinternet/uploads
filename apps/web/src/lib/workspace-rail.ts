@@ -21,7 +21,7 @@ import { getWorkspaceSummary, type GithubTitleMap, type MyWorkspace } from "./ap
 import { onSession } from "./account-shell";
 import { escapeHtml, renderUsageHtml } from "./workspace-ui";
 import { githubKindSvg } from "./brand-icons";
-import { applyGhTitles, type GhKind, type GhWorkItem } from "./gh-context";
+import { applyGhTitles, githubOwnerAvatarUrl, type GhKind, type GhWorkItem } from "./gh-context";
 
 /** Optional titles come from the files tab's one listing-scoped title request. */
 export type ConnectedWorkSetter = (items: GhWorkItem[], titles?: GithubTitleMap) => void;
@@ -40,13 +40,17 @@ const CONNECTED_WORK_ICON: Record<GhKind, string> = {
   issue: githubKindSvg("issue", { className: "ws-rail__connected-icon" }),
 };
 
-function connectedWorkRowHtml(item: GhWorkItem): string {
-  return `<div class="ws-rail__connected-item">${CONNECTED_WORK_ICON[item.kind]}<div class="ws-rail__connected-meta"><a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.label)}</a></div></div>`;
+function connectedWorkRowHtml(item: GhWorkItem, apiOrigin?: string): string {
+  const avatar =
+    item.owner && apiOrigin
+      ? `<img class="ws-rail__connected-avatar" src="${escapeHtml(githubOwnerAvatarUrl(apiOrigin, item.owner))}" alt="" width="16" height="16" loading="lazy" decoding="async" />`
+      : "";
+  return `<div class="ws-rail__connected-item">${avatar}${CONNECTED_WORK_ICON[item.kind]}<div class="ws-rail__connected-meta"><a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.label)}</a></div></div>`;
 }
 
 /** Pure row-HTML builder for the rail's "connected work" section. `[]` → `""`. */
-export function renderConnectedWorkHtml(items: GhWorkItem[]): string {
-  return items.map(connectedWorkRowHtml).join("");
+export function renderConnectedWorkHtml(items: GhWorkItem[], apiOrigin?: string): string {
+  return items.map((item) => connectedWorkRowHtml(item, apiOrigin)).join("");
 }
 
 /** Minimal shape `renderDetailsHtml` needs — `MyWorkspace` is a structural superset. */
@@ -99,7 +103,10 @@ export function planTitleRepaint(
   return updated.some((item, i) => item.label !== items[i].label) ? updated : null;
 }
 
-function bindConnectedWorkSetter(root: Document | Element): ConnectedWorkSetter {
+function bindConnectedWorkSetter(
+  root: Document | Element,
+  apiOrigin?: string,
+): ConnectedWorkSetter {
   const section = root.querySelector<HTMLElement>("[data-rail-connected]");
   const list = root.querySelector<HTMLElement>("[data-rail-connected-list]");
   // Whether the user has clicked "show N more" for the current item set. A
@@ -126,7 +133,7 @@ function bindConnectedWorkSetter(root: Document | Element): ConnectedWorkSetter 
       const shown = items.slice(0, limit);
       const hidden = items.length - shown.length;
       list.innerHTML =
-        renderConnectedWorkHtml(shown) +
+        renderConnectedWorkHtml(shown, apiOrigin) +
         (hidden > 0
           ? `<button type="button" class="ws-rail__more" data-rail-more>show ${hidden} more</button>`
           : "");
@@ -171,7 +178,7 @@ export function initWorkspaceRail(
 ): void {
   const root = opts.root ?? document;
 
-  const setConnectedWork = bindConnectedWorkSetter(root);
+  const setConnectedWork = bindConnectedWorkSetter(root, apiOrigin);
   setConnectedWork([]);
 
   const detailsEl = root.querySelector<HTMLElement>("[data-rail-details]");

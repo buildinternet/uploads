@@ -3,11 +3,13 @@ import { Hono } from "hono";
 import type { Files } from "@uploads/storage";
 import { badKey, downloadResponse, publicObjectDateFields } from "../files-core";
 import { displayTitle, getFileMetadata, isServerMetaKey } from "../file-metadata";
+import { githubAvatarProxyUrl, ownerFromRepo } from "../github-avatars";
 import { resolveTitles, withPublicTitleBudget } from "../github-titles";
 import { posterKeyFor } from "../poster";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
+import { requestOrigin } from "../well-known";
 
 const POSITIVE_INT_RE_STRICT = /^[1-9][0-9]*$/;
 
@@ -39,6 +41,8 @@ interface GithubContext {
   url: string;
   /** Attach-time stamp and/or live resolveTitles overlay; omitted when unknown. */
   title?: string;
+  /** API proxy for the repo owner avatar; omitted when owner is invalid. */
+  avatarUrl?: string;
 }
 
 // Deliberately permissive (not the full GitHub owner/repo charset) — this only
@@ -196,6 +200,7 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
 
   // Live title (KV-cached App ladder) wins over stamped gh.title. Failures and
   // budget timeouts never 500 — keep the stamp or omit title entirely.
+  // avatarUrl is pure derivation from gh.repo — no extra network here.
   if (github) {
     const ref = githubRefKey(metadata, github);
     let title = github.title;
@@ -206,8 +211,15 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
     } catch {
       // Missing GITHUB_CACHE / App misconfig / transient — keep stamp if any.
     }
-    const { title: _drop, ...base } = github;
-    github = title ? { ...base, title } : base;
+    const owner = ownerFromRepo(github.repo);
+    github = {
+      repo: github.repo,
+      kind: github.kind,
+      number: github.number,
+      url: github.url,
+      ...(title ? { title } : {}),
+      ...(owner ? { avatarUrl: githubAvatarProxyUrl(requestOrigin(c.req.url), owner) } : {}),
+    };
   }
 
   return c.json({

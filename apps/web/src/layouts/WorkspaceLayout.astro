@@ -86,6 +86,15 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
     align-items: center;
     gap: 9px;
   }
+  :global(.account-shell) .ws-rail :global(.ws-rail__connected-avatar) {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex: none;
+    background: var(--panel);
+    border: 1px solid var(--line);
+  }
   :global(.account-shell) .ws-rail :global(.ws-rail__connected-icon) {
     width: 14px;
     height: 14px;

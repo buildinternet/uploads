@@ -93,9 +93,34 @@ describe("isPublicFile", () => {
       kind: "pull",
       number: 142,
       url: "https://github.com/buildinternet/uploads/pull/142",
+      avatarUrl: "https://api.uploads.sh/public/github/avatars/buildinternet",
     } as const;
     const metadata = { "gh.repo": "buildinternet/uploads", "gh.kind": "pull", "gh.number": "142" };
     expect(isPublicFile({ ...file, metadata, github })).toBe(true);
+  });
+
+  it("accepts loopback http avatarUrl for local dev but rejects arbitrary http", () => {
+    const base = {
+      repo: "buildinternet/uploads",
+      kind: "pull" as const,
+      number: 142,
+      url: "https://github.com/buildinternet/uploads/pull/142",
+    };
+    expect(
+      isPublicFile({
+        ...file,
+        github: {
+          ...base,
+          avatarUrl: "http://localhost:8787/public/github/avatars/buildinternet",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isPublicFile({
+        ...file,
+        github: { ...base, avatarUrl: "http://evil.example/avatar.png" },
+      }),
+    ).toBe(false);
   });
 
   it("rejects malformed metadata maps", () => {

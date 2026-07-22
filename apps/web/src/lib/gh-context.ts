@@ -16,6 +16,9 @@ import type { GithubTitleMap } from "./api-client";
 
 export type GhKind = "pull" | "issue";
 
+/** Mirrors apps/api `GITHUB_OWNER_RE`. */
+const GITHUB_OWNER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
+
 export interface GhWorkItem {
   repo: string;
   kind: GhKind;
@@ -25,12 +28,27 @@ export interface GhWorkItem {
   /** `gh.title` when the CLI resolved one at attach time, else `ref` (e.g. "o/uploads#1789"). */
   label: string;
   kindLabel: "pull request" | "issue";
+  /** Lowercased `owner` from `repo` when it is a valid GitHub login. */
+  owner?: string;
 }
 
 /** `https://github.com/{repo}/{pull|issues}/{number}`. */
 export function githubUrl(repo: string, kind: GhKind, number: string): string {
   const path = kind === "pull" ? "pull" : "issues";
   return `https://github.com/${repo}/${path}/${number}`;
+}
+
+/** Owner of `owner/repo`, lowercased — same rules as the avatar proxy. */
+export function ownerFromRepo(repo: string): string | null {
+  const slash = repo.indexOf("/");
+  if (slash <= 0 || slash !== repo.lastIndexOf("/") || !repo.slice(slash + 1)) return null;
+  const owner = repo.slice(0, slash).trim();
+  return GITHUB_OWNER_RE.test(owner) ? owner.toLowerCase() : null;
+}
+
+/** `{apiOrigin}/public/github/avatars/{owner}`. */
+export function githubOwnerAvatarUrl(apiOrigin: string, owner: string): string {
+  return `${apiOrigin.replace(/\/$/, "")}/public/github/avatars/${encodeURIComponent(owner)}`;
 }
 
 /**
@@ -48,6 +66,7 @@ export function ghWorkItemFromMetadata(
   if (!repo || !kind || !number || !ref) return null;
   if (kind !== "pull" && kind !== "issue") return null;
   const title = meta["gh.title"];
+  const owner = ownerFromRepo(repo) ?? undefined;
   return {
     repo,
     kind,
@@ -56,6 +75,7 @@ export function ghWorkItemFromMetadata(
     url: githubUrl(repo, kind, number),
     label: title ? title : ref,
     kindLabel: kind === "pull" ? "pull request" : "issue",
+    ...(owner ? { owner } : {}),
   };
 }
 

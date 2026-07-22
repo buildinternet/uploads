@@ -246,11 +246,21 @@ describe("GET /public/files/:workspace/:key", () => {
       "X-Uploads-Meta-app": "uploads-cli",
     });
 
-    const res = await app.request("/public/files/default/screenshots/shot.png", {}, env);
+    const res = await app.request(
+      "https://api.uploads.sh/public/files/default/screenshots/shot.png",
+      {},
+      env,
+    );
     expect(res.status).toBe(200);
     const json = (await res.json()) as {
       metadata?: Record<string, string>;
-      github?: { repo: string; kind: string; number: number; url: string };
+      github?: {
+        repo: string;
+        kind: string;
+        number: number;
+        url: string;
+        avatarUrl?: string;
+      };
     };
     expect(json.metadata).toEqual({
       "gh.repo": "buildinternet/uploads",
@@ -263,6 +273,7 @@ describe("GET /public/files/:workspace/:key", () => {
       kind: "pull",
       number: 142,
       url: "https://github.com/buildinternet/uploads/pull/142",
+      avatarUrl: "https://api.uploads.sh/public/github/avatars/buildinternet",
     });
   });
 

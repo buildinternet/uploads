@@ -16,6 +16,7 @@ import { runStagingReaper } from "./staging-reaper";
 import { galleries } from "./routes/galleries";
 import { publicGalleries } from "./routes/public-galleries";
 import { publicFiles } from "./routes/public-files";
+import { publicGithubAvatars } from "./routes/public-github-avatars";
 import { telemetry } from "./routes/telemetry";
 import { reports } from "./routes/reports";
 import { render } from "./routes/render";
@@ -106,6 +107,9 @@ export const app = new Hono<WorkspaceVars>()
   // Public single-object metadata for the file page (#135). Like public
   // galleries, fetched server-side by apps/web; no CORS (not a browser call).
   .route("/public/files", publicFiles)
+  // Public GitHub owner avatar proxy (file byline + connected-work rail).
+  // Edge-cached image bytes; unauthenticated. See github-avatars.ts.
+  .route("/public/github/avatars", publicGithubAvatars)
   // Session-authenticated workspace-token mint (Phase 4). Registered BEFORE the
   // `/v1/:workspace/*` bearer guard: `/v1/tokens` does NOT match that pattern
   // (no trailing segment), so `workspaceAuth` never runs for it — this route
