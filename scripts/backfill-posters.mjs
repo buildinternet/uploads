@@ -208,9 +208,13 @@ export async function runBackfill({
       } catch (err) {
         counts.failed += 1;
         log(`error: ${item.key} failed (${err instanceof Error ? err.message : String(err)})`);
+      } finally {
+        // Every attempted item sleeps, including the continue paths above
+        // (download-failure, PUT-failure) — otherwise a run that starts
+        // hitting non-ok responses fires the rest back-to-back with no
+        // delay, defeating the rate-limit guarantee documented above.
+        await sleepImpl(intervalMs);
       }
-
-      await sleepImpl(intervalMs);
     }
 
     cursor = page.cursor;

@@ -144,4 +144,48 @@ describe("runBackfill", () => {
     const headers = puts[0].headers as Record<string, string>;
     expect(headers["X-Uploads-Visibility"]).toBeUndefined();
   });
+
+  it("still sleeps between items when the re-PUT fails (rate-limit guarantee)", async () => {
+    const sleepImpl = vi.fn(async () => {});
+    const fetchImpl = vi.fn(async (url: string, init?: Record<string, unknown>) => {
+      if (url.includes("/files?")) {
+        return jsonResponse({
+          items: [
+            {
+              key: "a.mp4",
+              contentType: "video/mp4",
+              size: 100,
+              url: "https://example.test/a.mp4",
+            },
+            {
+              key: "b.mp4",
+              contentType: "video/mp4",
+              size: 100,
+              url: "https://example.test/b.mp4",
+            },
+          ],
+          cursor: null,
+        });
+      }
+      if ((url.endsWith("/a.mp4") || url.endsWith("/b.mp4")) && !init) {
+        // download of bytes (no init = plain GET of item.url)
+        return jsonResponse({});
+      }
+      if (url.includes("/files/a.mp4") || url.includes("/files/b.mp4")) {
+        // Every re-PUT fails: exercises the continue path that used to skip
+        // the inter-item sleep.
+        return jsonResponse({}, 500);
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const summary = await runBackfill({
+      ...baseOpts,
+      sleepImpl,
+      fetchImpl,
+    });
+
+    expect(summary.failed).toBe(2);
+    expect(sleepImpl).toHaveBeenCalledTimes(2);
+  });
 });

@@ -147,6 +147,16 @@ async function existingSize(store: Files, key: string): Promise<number | null> {
 const POSTER_META_KEYS = ["video.poster", "video.duration", "video.width", "video.height"];
 
 /**
+ * Upper bound on frame extraction (issue #299 review): the MEDIA binding
+ * exposes no AbortSignal/timeout hook of its own (confirmed against
+ * Cloudflare's docs — see the coderabbit finding), so `makePoster`'s call
+ * into it could otherwise hang indefinitely and hold `putObject`'s response
+ * open. This race just bounds that wait; the outer try/catch below already
+ * turns a rejection into the ordinary no-poster path.
+ */
+const POSTER_GENERATION_TIMEOUT_MS = 30_000;
+
+/**
  * Best-effort poster generation (issue #299). Never throws: the object is
  * already durably stored by the time this runs, and no poster simply means the
  * managed comment renders a bullet link, exactly as it did before this feature.
@@ -158,6 +168,7 @@ export async function generateAndStorePoster(
   bytes: Uint8Array,
   contentType: string,
   workspaceName: string,
+  visibility?: Visibility,
 ): Promise<void> {
   const posterKey = posterKeyFor(key);
   try {
@@ -165,10 +176,22 @@ export async function generateAndStorePoster(
     // posterGenerationAllowed already confirmed env.MEDIA is present; env.MEDIA
     // is typed optional so apps/mcp's Env (no media binding) also type-checks.
     if (!env.MEDIA) return;
-    const made = await makePoster(
-      { bytes, contentType },
-      { extractor: mediaFrameExtractor(env.MEDIA), probe: mediabunnyProbe() },
-    );
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const made = await Promise.race([
+      makePoster(
+        { bytes, contentType },
+        { extractor: mediaFrameExtractor(env.MEDIA), probe: mediabunnyProbe() },
+      ),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("poster generation timed out")),
+          POSTER_GENERATION_TIMEOUT_MS,
+        );
+      }),
+    ]).finally(() => {
+      // Never keep the worker alive on the timer once either side settles.
+      if (timer !== undefined) clearTimeout(timer);
+    });
 
     const store = await storage(env, ws);
     if (!made) {
@@ -186,6 +209,10 @@ export async function generateAndStorePoster(
     await store.upload(posterKey, made.jpeg, {
       contentType: "image/jpeg",
       cacheControl: UPLOAD_CACHE_CONTROL,
+      // Mirrors putObject's own VISIBILITY_META_KEY convention: only written
+      // when private, so a private source video never leaves behind a
+      // publicly-fetchable poster at its deterministic _internal/ path.
+      ...(visibility === "private" ? { metadata: { [VISIBILITY_META_KEY]: "private" } } : {}),
     });
     // Counted because reconcileWorkspaceUsage walks every object under the
     // prefix and would otherwise disagree with the ledger permanently.
@@ -194,6 +221,10 @@ export async function generateAndStorePoster(
       objects: previous === null ? 1 : 0,
       uploads: 0,
     });
+    // Full replace, not upsert: a regeneration whose probe/extraction found
+    // fewer fields than the prior poster (e.g. no dims this time) must not
+    // leave stale video.width/height/duration rows behind.
+    await deleteServerFileMetadataKeys(env.DB, workspaceName, key, POSTER_META_KEYS);
     await setServerFileMetadata(env.DB, workspaceName, key, made.meta);
   } catch (err) {
     console.error({ event: "poster_generation_failed", workspace: workspaceName, key, err });
@@ -423,7 +454,15 @@ export async function putObject(
 
   // After the metadata replace, never before: replaceFileMetadata is
   // delete-then-insert and would wipe the server-owned video.* rows.
-  await generateAndStorePoster(env, ws, finalKey, bytes, inspection.contentType, workspaceName);
+  await generateAndStorePoster(
+    env,
+    ws,
+    finalKey,
+    bytes,
+    inspection.contentType,
+    workspaceName,
+    storedVisibility,
+  );
 
   const cfg = await storageConfig(env, ws);
   const urls = objectPublicUrls(env, cfg, finalKey);
@@ -475,15 +514,18 @@ export async function setObjectVisibility(
     });
   }
 
-  await rewriteVisibility(store, key, visibility);
-
   // Derived poster (issue #299), best-effort: a missing one is the norm for
   // every non-video object. THE security case — a private video must never
-  // keep a publicly fetchable poster frame — so this propagation is not
-  // optional.
+  // keep a publicly fetchable poster frame — so this propagation must land
+  // before the primary flip, so a crash between the two calls never leaves
+  // a private video with a still-public poster. (Widening is harmless in
+  // this order too: a poster that stays private a moment longer than the
+  // now-public video is not a confidentiality issue.)
   const posterKey = posterKeyFor(key);
   const posterExists = await store.head(posterKey).catch(() => null);
   if (posterExists) await rewriteVisibility(store, posterKey, visibility);
+
+  await rewriteVisibility(store, key, visibility);
 }
 
 /**
@@ -693,16 +735,21 @@ export async function deleteObject(
   }
 
   // Derived poster (issue #299), best-effort: a missing one is the norm for
-  // every non-video object.
+  // every non-video object. Guarded so a transient poster-cleanup failure
+  // never fails a delete whose primary work already succeeded.
   const posterKey = posterKeyFor(key);
-  const posterSize = await existingSize(store, posterKey);
-  if (posterSize !== null) {
-    await store.delete(posterKey);
-    await recordUsageSafe(env.DB, workspaceName, {
-      bytes: -posterSize,
-      objects: -1,
-      uploads: 0,
-    });
+  try {
+    const posterSize = await existingSize(store, posterKey);
+    if (posterSize !== null) {
+      await store.delete(posterKey);
+      await recordUsageSafe(env.DB, workspaceName, {
+        bytes: -posterSize,
+        objects: -1,
+        uploads: 0,
+      });
+    }
+  } catch (err) {
+    console.error({ event: "poster_delete_failed", workspace: workspaceName, key, err });
   }
 
   return { key, deleted: true };

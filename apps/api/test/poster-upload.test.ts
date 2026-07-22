@@ -4,6 +4,7 @@ import { MP4, makePosterEnv, PNG, WORKSPACE } from "./poster-fixtures";
 import { putObject } from "../src/files-core";
 import { posterKeyFor } from "../src/poster";
 import { getMetadataForKeys } from "../src/file-metadata";
+import { objectVisibility } from "../src/visibility";
 
 describe("poster generation on upload", () => {
   it("stores a poster at the derived key and tags the video", async () => {
@@ -60,6 +61,24 @@ describe("poster generation on upload", () => {
     await putObject(env, ws, "images/pic.png", PNG, WORKSPACE);
     const internalKeys = [...bucket.store.keys()].filter((k) => k.includes("_internal/"));
     expect(internalKeys).toHaveLength(0);
+  });
+
+  it("inherits private visibility onto the poster (issue #299 review, critical)", async () => {
+    const { env, bucket, ws } = makePosterEnv();
+    const result = await putObject(env, ws, "videos/clip.mp4", MP4, WORKSPACE, {
+      visibility: "private",
+    });
+    const posterKey = posterKeyFor(result.key);
+    const stored = bucket.store.get(`default/${posterKey}`);
+    expect(objectVisibility(stored?.customMetadata)).toBe("private");
+  });
+
+  it("leaves a public upload's poster without visibility metadata", async () => {
+    const { env, bucket, ws } = makePosterEnv();
+    const result = await putObject(env, ws, "videos/clip.mp4", MP4, WORKSPACE);
+    const posterKey = posterKeyFor(result.key);
+    const stored = bucket.store.get(`default/${posterKey}`);
+    expect(objectVisibility(stored?.customMetadata)).toBeUndefined();
   });
 
   it("does not fail the upload when generation throws", async () => {
