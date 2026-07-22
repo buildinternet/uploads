@@ -291,4 +291,24 @@ describe("attachmentsCommentBody", () => {
     ]);
     expect(body).toContain('<a href="https://x.test/after.png"><img');
   });
+
+  it("suppresses a bare / path caption (issue #375)", () => {
+    const body = attachmentsCommentBody([
+      {
+        key: "gh/o/r/pull/1/home.webp",
+        url: "https://x.test/home.webp",
+        embedUrl: "https://embed.test/home.webp",
+        meta: { path: "/" },
+      },
+      {
+        key: "gh/o/r/pull/1/home-before.webp",
+        url: "https://x.test/home-before.webp",
+        embedUrl: "https://embed.test/home-before.webp",
+        meta: { path: "/", state: "before" },
+      },
+    ]);
+    expect(body).not.toContain("<sub>/</sub>");
+    expect(body).not.toContain("/ · before");
+    expect(body).toContain("<sub>before</sub>");
+  });
 });
