@@ -12,10 +12,45 @@ function loadFixture(name: string) {
 const golden = loadFixture("github-comment-golden.json");
 const goldenCap = loadFixture("github-comment-golden-cap.json");
 const goldenMeta = loadFixture("github-comment-golden-meta.json");
+const goldenVideo = loadFixture("github-comment-golden-video.json");
 
 describe("attachmentsCommentBody (CLI copy)", () => {
   it("renders the golden body byte-for-byte", () => {
     expect(attachmentsCommentBody(golden.items, golden.galleries)).toBe(golden.expected);
+  });
+
+  it("renders a video with a poster as a linked image with a play caption", () => {
+    expect(attachmentsCommentBody(goldenVideo.items, goldenVideo.galleries)).toBe(
+      goldenVideo.expected,
+    );
+  });
+
+  it("falls back to a bullet link when a video has no poster", () => {
+    const body = attachmentsCommentBody([
+      {
+        key: "gh/acme/web/pull/12/demo.mp4",
+        url: "https://uploads.sh/f/demo.mp4",
+        embedUrl: null,
+        pageUrl: "https://uploads.sh/f/acme/demo.mp4",
+      },
+    ]);
+    expect(body).toContain("- [demo.mp4](https://uploads.sh/f/acme/demo.mp4)");
+    expect(body).not.toContain("<img");
+  });
+
+  it("composes the play caption with path/state metadata", () => {
+    const body = attachmentsCommentBody([
+      {
+        key: "gh/acme/web/pull/12/demo.mp4",
+        url: "https://uploads.sh/f/demo.mp4",
+        embedUrl: null,
+        pageUrl: "https://uploads.sh/f/acme/demo.mp4",
+        posterUrl: "https://embed.uploads.sh/_internal/posters/demo.mp4.jpg",
+        videoMeta: { durationSeconds: 14, width: 1920, height: 1080 },
+        meta: { path: "src/app", state: "after" },
+      },
+    ]);
+    expect(body).toContain("<sub>▶ Play video · 0:14 · src/app · after</sub>");
   });
 
   it("caps inline images at 16, collapsing the rest into a details block", () => {

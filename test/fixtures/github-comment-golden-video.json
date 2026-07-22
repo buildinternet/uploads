@@ -1,0 +1,15 @@
+{
+  "items": [
+    {
+      "key": "gh/acme/web/pull/12/demo.mp4",
+      "url": "https://uploads.sh/f/demo.mp4",
+      "embedUrl": null,
+      "pageUrl": "https://uploads.sh/f/acme/demo.mp4",
+      "posterUrl": "https://embed.uploads.sh/_internal/posters/demo.mp4.jpg",
+      "videoMeta": { "durationSeconds": 14, "width": 1920, "height": 1080 },
+      "meta": { "path": "src/app", "state": "after" }
+    }
+  ],
+  "galleries": [],
+  "expected": "<!-- uploads.sh:attachments -->\n### 📎 Attachments\n\n<a href=\"https://uploads.sh/f/acme/demo.mp4\"><img width=\"640\" alt=\"demo.mp4\" src=\"https://embed.uploads.sh/_internal/posters/demo.mp4.jpg\"></a>\n<sub>▶ Play video · 0:14 · src/app · after</sub>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>\n<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
+}
