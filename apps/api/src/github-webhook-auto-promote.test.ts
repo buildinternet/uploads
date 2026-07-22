@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { handleWebhook } from "./github-webhook";
+import { attachmentsMarker } from "./github-comment-render";
 import { recordRepoLink } from "./github-repo-links";
 import { replaceFileMetadata } from "./file-metadata";
 import { sha256Hex, type WorkspaceRecord } from "./workspace";
@@ -189,14 +190,21 @@ describe("handleWebhook pull_request auto-promotion", () => {
     expect(bucket.store.has(`${PREFIX}${destKey("hero.png")}`)).toBe(true);
   });
 
-  it("does not post a comment when nothing is staged and nothing pre-exists", async () => {
+  it("does not create a comment on a bound PR that never had one", async () => {
     const { env } = await baseEnv();
     await recordRepoLink(env.DB, REPO, WS, "promote");
 
-    let fetchCalled = false;
+    // Empty gather (nothing staged, no galleries) + no existing marker
+    // comment (the list call returns []) — patch-only-when-empty must never
+    // create a comment just to say "empty".
+    const calls: { method: string; url: string }[] = [];
     const realFetch = globalThis.fetch;
-    globalThis.fetch = (async () => {
-      fetchCalled = true;
+    globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
+      const method = init.method ?? "GET";
+      calls.push({ method, url: String(url) });
+      if (String(url).includes(`/issues/${NUM}/comments`) && method === "GET") {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
       return new Response("nf", { status: 404 });
     }) as unknown as typeof fetch;
     try {
@@ -204,7 +212,44 @@ describe("handleWebhook pull_request auto-promotion", () => {
     } finally {
       globalThis.fetch = realFetch;
     }
-    expect(fetchCalled).toBe(false);
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+  });
+
+  it("patches the comment to empty when the last attachment is removed on a bound PR", async () => {
+    const { env } = await baseEnv();
+    await recordRepoLink(env.DB, REPO, WS, "promote");
+
+    // Empty gather (nothing staged, no galleries) but a marker comment
+    // already exists on the thread — it must be rewritten to the empty
+    // state, not left stale and not deleted.
+    const calls: { method: string; url: string; body?: string }[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
+      const method = init.method ?? "GET";
+      const body = typeof init.body === "string" ? init.body : undefined;
+      calls.push({ method, url: String(url), body });
+      if (String(url).includes(`/issues/${NUM}/comments`) && method === "GET") {
+        return new Response(JSON.stringify([{ id: 9, body: `${attachmentsMarker(WS)}\nold` }]), {
+          status: 200,
+        });
+      }
+      if (String(url).includes("/issues/comments/9") && method === "PATCH") {
+        return new Response(
+          JSON.stringify({ id: 9, html_url: `https://github.com/${REPO}/pull/${NUM}#c9` }),
+          { status: 200 },
+        );
+      }
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+    try {
+      await handleWebhook(env, "pull_request", prPayload());
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(
+      calls.some((c) => c.method === "PATCH" && c.body?.includes("_No attachments") === true),
+    ).toBe(true);
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
   });
 
   it("ignores actions outside the promote set (e.g. closed)", async () => {

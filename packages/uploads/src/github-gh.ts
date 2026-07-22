@@ -259,7 +259,9 @@ export function upsertAttachmentsComment(
   body: string,
   run: CommandRunner = execRunner,
   marker: string = ATTACHMENTS_MARKER,
-): { created: boolean } {
+  opts: { createIfMissing?: boolean } = {},
+): { action: "created" | "updated" | "skipped" } {
+  const createIfMissing = opts.createIfMissing ?? true;
   const existing = findManagedComment(target, run, marker);
   if (existing) {
     run(
@@ -274,8 +276,11 @@ export function upsertAttachmentsComment(
       ],
       body,
     );
-    return { created: false };
+    return { action: "updated" };
   }
+  // Patch-only (createIfMissing false, i.e. an empty body) with no existing
+  // comment: nothing to do — never create one just to say it's empty.
+  if (!createIfMissing) return { action: "skipped" };
   run("gh", ["api", `repos/${target.repo}/issues/${target.num}/comments`, "-F", "body=@-"], body);
-  return { created: true };
+  return { action: "created" };
 }

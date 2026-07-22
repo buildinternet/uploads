@@ -7,7 +7,7 @@ import {
   syncAttachmentsComment,
   type CliContext,
 } from "../src/commands.js";
-import { attachmentsMarker } from "../src/github.js";
+import { ATTACHMENTS_MARKER, attachmentsMarker } from "../src/github.js";
 import type { CommandRunner } from "../src/github-gh.js";
 
 function listClient(
@@ -68,14 +68,38 @@ function ctxWith(client: UploadsClient): CliContext {
 
 /** gh runner that reports no existing comments and records the create call. */
 function ghRunner() {
+  return ghRunnerWithExisting(null);
+}
+
+/**
+ * gh runner for the empty-state path: reports either an existing managed
+ * comment (`existingCommentId`) or none (`null`) on the marker hunt, and
+ * records every call so a test can assert whether PATCH/create ever fired.
+ */
+function ghRunnerWithExisting(existingCommentId: number | null) {
   const calls: { args: string[]; input?: string }[] = [];
   const run: CommandRunner = (cmd, args, input) => {
     if (cmd !== "gh") throw new Error(`unexpected command: ${cmd}`);
     calls.push({ args, input });
-    if (args[1]?.includes("per_page=100")) return "[]";
-    return JSON.stringify({ id: 9 });
+    if (args[1]?.includes("per_page=100")) {
+      return existingCommentId === null
+        ? "[]"
+        : JSON.stringify([{ id: existingCommentId, body: `${ATTACHMENTS_MARKER}\nold` }]);
+    }
+    return JSON.stringify({ id: existingCommentId ?? 9 });
   };
   return { run, calls };
+}
+
+/** Run `fn` with process.stderr.write captured, returning the concatenated output. */
+async function captureStderr(fn: () => Promise<unknown>): Promise<string> {
+  const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  try {
+    await fn();
+    return writeSpy.mock.calls.map((c) => String(c[0])).join("");
+  } finally {
+    writeSpy.mockRestore();
+  }
 }
 
 describe("runComment", () => {
@@ -99,7 +123,10 @@ describe("runComment", () => {
     expect(create!.input).toContain("after.png");
   });
 
-  it("skips gh entirely when there are no attachments", async () => {
+  it("no-ops (no create) via gh when there are no attachments and no comment exists", async () => {
+    // Patch-only-when-empty still hunts for an existing marker comment (one
+    // gh call), it just never creates one — this is the "never create just
+    // to say empty" safety property, not a full skip of gh.
     const { run, calls } = ghRunner();
     const code = await runComment(
       ctxWith(listClient([])),
@@ -108,7 +135,22 @@ describe("runComment", () => {
       run,
     );
     expect(code).toBe(0);
-    expect(calls.length).toBe(0);
+    expect(calls.some((c) => c.args.includes("PATCH"))).toBe(false);
+    expect(calls.some((c) => c.args.includes("repos/o/r/issues/5/comments"))).toBe(false);
+  });
+
+  it("prints a cleared message when the comment is emptied", async () => {
+    const { run } = ghRunnerWithExisting(7);
+    const err = await captureStderr(() =>
+      runComment(
+        { ...ctxWith(listClient([])), quiet: false },
+        ["--pr", "12", "--repo", "o/r"],
+        false,
+        run,
+      ),
+    );
+    expect(err).toContain("cleared attachments comment");
+    expect(err).not.toContain("(0 files)");
   });
   it("renders available gallery images inline and falls back for missing media", async () => {
     const { run, calls } = ghRunner();
@@ -284,5 +326,35 @@ describe("syncAttachmentsComment", () => {
     expect(posted).toContain("<sub>/settings · before</sub>");
     expect(posted).not.toContain("iPhone");
     expect(posted).not.toContain("Photoshop");
+  });
+
+  const clientWithNothing = fakeClient({
+    upsertGithubComment: async () => ({ posted: false, reason: "not_installed" }),
+    listAll: async () => [],
+    findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+  });
+
+  it("empties an existing managed comment via gh when nothing is left", async () => {
+    const { run, calls } = ghRunnerWithExisting(7);
+    const result = await syncAttachmentsComment(
+      clientWithNothing,
+      { repo: "acme/web", num: 12, kind: "pull" },
+      run,
+    );
+    expect(result).toEqual({ action: "updated", count: 0, via: "gh" });
+    expect(calls.some((c) => c.args.includes("PATCH"))).toBe(true);
+    expect(calls.some((c) => c.args.includes("repos/acme/web/issues/12/comments"))).toBe(false);
+  });
+
+  it("no-ops via gh when nothing is left and no comment exists", async () => {
+    const { run, calls } = ghRunnerWithExisting(null);
+    const result = await syncAttachmentsComment(
+      clientWithNothing,
+      { repo: "acme/web", num: 12, kind: "pull" },
+      run,
+    );
+    expect(result).toEqual({ action: "skipped", count: 0, via: "gh" });
+    expect(calls.some((c) => c.args.includes("PATCH"))).toBe(false);
+    expect(calls.some((c) => c.args.includes("repos/acme/web/issues/12/comments"))).toBe(false);
   });
 });

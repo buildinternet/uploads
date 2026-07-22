@@ -761,17 +761,16 @@ export async function syncAttachmentsComment(
     }),
   );
 
-  if (items.length === 0 && previewGalleries.length === 0)
-    return { action: "skipped", count: 0, via: "gh" };
-
   const marker = attachmentsMarker(workspace);
   const body = attachmentsCommentBody(items, previewGalleries, marker);
-  const { created } = upsertAttachmentsComment(target, body, run, marker);
-  return {
-    action: created ? "created" : "updated",
-    count: items.length + previewGalleries.length,
-    via: "gh",
-  };
+  const count = items.length + previewGalleries.length;
+  // Empty (count 0) renders the neutral empty-state body but must not create a
+  // comment — it only rewrites one that already exists (`action: "skipped"`
+  // when none does).
+  const { action } = upsertAttachmentsComment(target, body, run, marker, {
+    createIfMissing: count > 0,
+  });
+  return { action, count, via: "gh" };
 }
 
 // --- attach ---
@@ -2793,11 +2792,16 @@ export async function runComment(
     await writeJson({ ...target, ...result });
   } else if (!ctx.quiet) {
     const via = commentViaSuffix(result.via);
-    process.stderr.write(
-      result.action === "skipped"
-        ? `no attachments under ${ghKeyPrefix(target)} — nothing to do\n`
-        : `${result.action} attachments comment on ${target.repo}#${target.num} (${result.count} file${result.count === 1 ? "" : "s"})${via}\n`,
-    );
+    let line: string;
+    if (result.action === "skipped") {
+      line = `no attachments under ${ghKeyPrefix(target)} — nothing to do\n`;
+    } else if (result.count === 0) {
+      // An existing comment rewritten to the empty state (every file removed).
+      line = `cleared attachments comment on ${target.repo}#${target.num} — no files remaining${via}\n`;
+    } else {
+      line = `${result.action} attachments comment on ${target.repo}#${target.num} (${result.count} file${result.count === 1 ? "" : "s"})${via}\n`;
+    }
+    process.stderr.write(line);
   }
   return 0;
 }

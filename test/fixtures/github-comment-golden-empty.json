@@ -1,0 +1,5 @@
+{
+  "items": [],
+  "galleries": [],
+  "expected": "<!-- uploads.sh:attachments -->\n### 📎 Attachments\n\n_No attachments are currently associated with this pull request._\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>\n<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
+}

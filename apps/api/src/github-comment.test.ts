@@ -67,14 +67,15 @@ function fakeFetch(routes: Record<string, (init: RequestInit) => Response>): typ
 }
 
 describe("gatherCommentBody", () => {
-  it("returns skip when the workspace has no attachments and no galleries", async () => {
+  it("returns the empty-state body (no skip) when nothing is staged", async () => {
     const { env, ws, workspaceName } = makeTestEnv();
     const result = await gatherCommentBody(env, ws, workspaceName, {
       repo: "acme/web",
       num: 12,
       kind: "pull",
     });
-    expect(result).toEqual({ skip: true });
+    expect(result.count).toBe(0);
+    expect(result.body).toContain("_No attachments are currently associated");
   });
 
   it("renders the workspace's own attachments under the gh prefix", async () => {
@@ -87,8 +88,6 @@ describe("gatherCommentBody", () => {
       num: 12,
       kind: "pull",
     });
-    expect(result.skip).toBe(false);
-    if (result.skip) return;
     expect(result.body.startsWith(attachmentsMarker(workspaceName))).toBe(true);
     expect(result.body).toContain("hero.png");
     expect(result.count).toBe(1);
@@ -104,8 +103,6 @@ describe("gatherCommentBody", () => {
       num: 12,
       kind: "pull",
     });
-    expect(result.skip).toBe(false);
-    if (result.skip) return;
     expect(result.body).toContain(`/f/${workspaceName}/`);
   });
 
@@ -120,8 +117,6 @@ describe("gatherCommentBody", () => {
       workspaceName,
       { repo: "acme/web", num: 12, kind: "pull" },
     );
-    expect(result.skip).toBe(false);
-    if (result.skip) return;
     expect(result.body).toContain(`/f/${workspaceName}/`);
   });
 
@@ -136,8 +131,6 @@ describe("gatherCommentBody", () => {
       workspaceName,
       { repo: "acme/web", num: 12, kind: "pull" },
     );
-    expect(result.skip).toBe(false);
-    if (result.skip) return;
     expect(result.body).not.toContain(`/f/${workspaceName}/`);
     // Falls back to the raw storage url.
     expect(result.body).toContain("storage.uploads.sh");
@@ -186,8 +179,6 @@ describe("gatherCommentBody", () => {
       num: 12,
       kind: "pull",
     });
-    expect(result.skip).toBe(false);
-    if (result.skip) return;
     expect(result.body.startsWith(attachmentsMarker(workspaceName))).toBe(true);
     expect(result.body).toContain("Launch media");
     expect(result.body).not.toContain("Not ours");
@@ -211,8 +202,7 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       kind: "pull",
     });
 
-    expect(result.skip).toBe(false);
-    expect((result as { body: string }).body).toContain("<sub>/settings · before</sub>");
+    expect(result.body).toContain("<sub>/settings · before</sub>");
   });
 
   it("never fetches or renders EXIF-derived keys", async () => {
@@ -229,7 +219,7 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       kind: "pull",
     });
 
-    const body = (result as { body: string }).body;
+    const body = result.body;
     expect(body).toContain("<sub>/settings</sub>");
     expect(body).not.toContain("iPhone");
     expect(body).not.toContain("Photoshop");
@@ -245,7 +235,7 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       kind: "pull",
     });
 
-    expect((result as { body: string }).body).not.toContain("<sub>/");
+    expect(result.body).not.toContain("<sub>/");
   });
 
   it("skips the D1 read entirely when githubCommentShowMetadata is false", async () => {
@@ -271,7 +261,7 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
     );
 
     expect(metadataQueries).toBe(0);
-    expect((result as { body: string }).body).not.toContain("<sub>/settings");
+    expect(result.body).not.toContain("<sub>/settings");
   });
 
   it("does not leak another workspace's metadata for the same object key", async () => {
@@ -292,8 +282,7 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       kind: "pull",
     });
 
-    expect(result.skip).toBe(false);
-    const body = (result as { body: string }).body;
+    const body = result.body;
     expect(body).toContain("<sub>/settings · before</sub>");
     expect(body).not.toContain("/intruder-path");
     expect(body).not.toContain("compromised");
@@ -325,8 +314,6 @@ describe("gatherCommentBody poster hydration (issue #299)", () => {
       num: 12,
       kind: "pull",
     });
-    expect(result.skip).toBe(false);
-    if (result.skip) return;
 
     const cfg = await storageConfig(env, ws);
     const expectedUrls = objectPublicUrls(env, cfg, posterKeyFor(key));
@@ -348,8 +335,6 @@ describe("gatherCommentBody poster hydration (issue #299)", () => {
       num: 12,
       kind: "pull",
     });
-    expect(result.skip).toBe(false);
-    if (result.skip) return;
     expect(result.body).not.toContain("_internal/posters");
     expect(result.body).toContain("clip.mp4");
   });
@@ -370,8 +355,6 @@ describe("gatherCommentBody poster hydration (issue #299)", () => {
       num: 12,
       kind: "pull",
     });
-    expect(result.skip).toBe(false);
-    if (result.skip) return;
     // formatDuration(14) === "0:14" (github-comment-render.ts / poster.ts).
     // Task 11's caption format: "▶ Play video · 0:14 · ...". Dimensions feed
     // display width selection rather than appearing verbatim, so duration is
@@ -795,5 +778,62 @@ describe("upsertBotComment", () => {
       commentUrl: "https://github.com/other-ws/web/pull/12#c66",
     });
     expect(await kv.get("ghcomment:other-ws:acme/web#12")).toBe("66");
+  });
+
+  it("patches an existing comment to empty when createIfMissing is false", async () => {
+    const { env } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    const fetchImpl = fakeFetch({
+      "/access_tokens": () => new Response(JSON.stringify({ token: "t" }), { status: 201 }),
+      "/issues/12/comments": (init) => {
+        if (init.method === "POST") throw new Error("must not create");
+        return new Response(
+          JSON.stringify([{ id: 99, body: `${attachmentsMarker("acme")}\nold body` }]),
+          { status: 200 },
+        );
+      },
+      "/issues/comments/99": () =>
+        new Response(
+          JSON.stringify({ id: 99, html_url: "https://github.com/acme/web/pull/12#c99" }),
+          { status: 200 },
+        ),
+    });
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "EMPTY BODY",
+      "acme",
+      fetchImpl,
+      { createIfMissing: false },
+    );
+    expect(res).toEqual({
+      action: "updated",
+      commentUrl: "https://github.com/acme/web/pull/12#c99",
+    });
+  });
+
+  it("no-ops (skipped) when createIfMissing is false and no comment exists", async () => {
+    const { env } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    const fetchImpl = fakeFetch({
+      "/access_tokens": () => new Response(JSON.stringify({ token: "t" }), { status: 201 }),
+      "/issues/12/comments": (init) => {
+        if (init.method === "POST") throw new Error("must not create");
+        return new Response(JSON.stringify([]), { status: 200 });
+      },
+    });
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "EMPTY BODY",
+      "acme",
+      fetchImpl,
+      { createIfMissing: false },
+    );
+    expect(res).toEqual({ action: "skipped" });
   });
 });
