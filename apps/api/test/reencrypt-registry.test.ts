@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { fakeRegistry } from "./fake-kv";
 import { encryptSecret } from "../src/secrets";
 import { reencryptRegistryCredentials } from "../src/reencrypt-registry";
 import type { WorkspaceRecord } from "../src/workspace";
@@ -10,47 +11,25 @@ describe("reencryptRegistryCredentials", () => {
   it("rewrites credentials sealed with the previous key", async () => {
     const sealedAk = await encryptSecret(PREVIOUS, "AKIA");
     const sealedSk = await encryptSecret(PREVIOUS, "secret");
-    const store = new Map<string, string>([
-      [
-        "ws:byo",
-        JSON.stringify({
-          provider: "r2",
-          bucket: "other",
-          accessKeyId: sealedAk,
-          secretAccessKey: sealedSk,
-        } satisfies WorkspaceRecord),
-      ],
-      [
-        "ws:shared",
-        JSON.stringify({
-          provider: "r2",
-          bucket: "uploads-default",
-          prefix: "shared/",
-        } satisfies WorkspaceRecord),
-      ],
-    ]);
+    const registry = fakeRegistry({
+      byo: {
+        provider: "r2",
+        bucket: "other",
+        accessKeyId: sealedAk,
+        secretAccessKey: sealedSk,
+      } satisfies WorkspaceRecord,
+      shared: {
+        provider: "r2",
+        bucket: "uploads-default",
+        prefix: "shared/",
+      } satisfies WorkspaceRecord,
+    });
+    const store = registry.store;
 
     const env = {
       WORKSPACE_SECRETS_KEY: CURRENT,
       WORKSPACE_SECRETS_KEY_PREVIOUS: PREVIOUS,
-      REGISTRY: {
-        list: async () => ({
-          keys: [...store.keys()].map((name) => ({ name })),
-          list_complete: true as const,
-          cursor: undefined,
-        }),
-        // Honors the read type the way Workers KV does — mutateWorkspaceRecord
-        // verifies its write by reading the key back as text (issue #387).
-        get: async (key: string, type?: "text" | "json" | { type?: string }) => {
-          const raw = store.get(key);
-          if (raw === undefined) return null;
-          const json = typeof type === "string" ? type === "json" : type?.type === "json";
-          return json ? (JSON.parse(raw) as WorkspaceRecord) : raw;
-        },
-        put: async (key: string, value: string) => {
-          store.set(key, value);
-        },
-      },
+      REGISTRY: registry,
     } as unknown as Env;
 
     const dry = await reencryptRegistryCredentials(env, { dryRun: true });

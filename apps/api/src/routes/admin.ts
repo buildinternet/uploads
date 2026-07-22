@@ -531,13 +531,11 @@ export const admin = new Hono<{ Bindings: Env }>()
     // Stamp the record non-serving before any destructive step: if teardown
     // crashes partway, the workspace denies access instead of serving a
     // half-wiped state, and the retention sweep finalizes it (purgeAt is
-    // already past) on its next run. Skip if already soft-deleted.
-    if (!record.deletedAt) {
-      const now = new Date().toISOString();
-      await mutateWorkspaceRecord(c.env, name, (current) =>
-        current.deletedAt ? null : { ...current, deletedAt: now, purgeAt: now },
-      );
-    }
+    // already past) on its next run. Already soft-deleted -> nothing to write.
+    const now = new Date().toISOString();
+    await mutateWorkspaceRecord(c.env, name, (current) =>
+      current.deletedAt ? null : { ...current, deletedAt: now, purgeAt: now },
+    );
 
     const result = await teardownWorkspace(c.env, name, record, {
       reason: "admin_hard_delete",

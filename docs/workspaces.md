@@ -23,7 +23,17 @@ overwritten.
 
 Workers KV has no compare-and-swap, so this narrows the lost-update window
 rather than eliminating it — acceptable for these admin/owner-initiated,
-low-concurrency edits. The exceptions are writes that replace the record
+low-concurrency edits. Issue #389 tracks the durable fix (moving the mutable
+field groups to D1, where transactions exist).
+
+Two caveats on the guarantee. A write landing between our read and our put is
+still lost; the retry only recovers a competitor whose put landed between our
+put and our verification read. And the guarantee covers the **worker only** —
+`pnpm workspace:limits` and `pnpm workspace:add` do their own
+`wrangler kv get` → splice → `wrangler kv put` out of process, so an operator
+running a script while someone edits the same workspace in the admin UI can
+still clobber it, unversioned and unretried. Prefer the admin UI (or the
+`/admin-ui/workspaces/:name/limits` endpoint) for edits to a live workspace. The exceptions are writes that replace the record
 outright rather than mutating it: self-serve creation (`selfServeWorkspaceRecord`,
 which stamps `version: 1`) and the purged tombstone written by teardown.
 
