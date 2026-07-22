@@ -49,12 +49,15 @@ import {
   resolveRepo,
   resolveCurrentPullRequest,
   resolveCurrentBranch,
+  resolveDefaultBranch,
   classifyGhNumber,
   execRunner,
+  timedExecRunner,
   ghMetadataFromTargetWithTitle,
   upsertAttachmentsComment,
   type CommandRunner,
 } from "./github-gh.js";
+import { deriveRepoFromGit } from "./keys.js";
 import { resolvePutPrefix } from "./destinations.js";
 import {
   optimizeImageForUpload,
@@ -171,6 +174,10 @@ Options:
                         (or UPLOADS_OVERWRITE=1). No effect on --pr/--issue, which always overwrite.
   --dry-run             Print key + public URL without uploading; reports if the key would replace
                         (or, on a strict key, be refused). Not with --comment/--gallery
+
+A bare put (no --pr/--issue/--key) on a non-default git branch prints a one-line
+nudge toward --pr/attach --branch (stderr in human mode, a "hint" field in
+--format json). Suppress with --quiet, UPLOADS_NO_NUDGE=1, or config UPLOADS_NO_NUDGE=1.
 
 Exit codes: 0 ok · 2 usage/token/file · 3 auth/policy · 4 network · 1 other (incl. partial multi-file failure).
 Scripted formats (json|url|markdown) also print failures on stdout.
@@ -1499,6 +1506,84 @@ async function runAttachPromoteOnly(
   return 0;
 }
 
+/** Bounds the best-effort `gh pr view` lookup the put nudge (issue #393) makes
+ * on top of the normal put flow — long enough for a real gh call, short
+ * enough to never be felt as a hang. */
+const PUT_NUDGE_GH_TIMEOUT_MS = 3000;
+
+/**
+ * The bare-put nudge's wording (issue #393): teaches `--pr`/`attach --branch`
+ * as an upgrade from a targetless `put`. `pr` present → names the PR;
+ * otherwise a generic variant that still points at `--pr <num>`. Used
+ * verbatim for both the human-mode stderr line and the JSON `hint` field.
+ */
+function putNudgeText(branch: string, pr: number | undefined): string {
+  const prClause =
+    pr !== undefined ? ` (PR #${pr} open) — rerun with --pr ${pr}` : ` — rerun with --pr <num>`;
+  return (
+    `note: on branch ${branch}${prClause} for a stable key plus a managed comment ` +
+    `that collects this PR's media, or stage pre-PR files with: uploads attach <file> --branch`
+  );
+}
+
+/**
+ * Best-effort bare-put nudge (issue #393): fires only when `put` has no
+ * targeting flag at all (`--pr`/`--issue`/`--key`; `--branch` too, though
+ * `put` doesn't currently accept it — defensive parity with `attach`), is
+ * inside a git repo (reusing `deriveRepoFromGit`, the same detection the
+ * default screenshot key's repo segment uses), and the current branch isn't
+ * the default one. Never throws — any failure (not a repo, detached HEAD,
+ * `gh` missing/unauthenticated/timed out) degrades to "no nudge" or, once a
+ * branch is already known, to the generic no-PR wording. Must never affect
+ * put's exit code, stdout, or upload behavior.
+ */
+function resolvePutNudge(opts: {
+  ctx: CliContext;
+  flags: CommandFlags["flags"];
+  ghTarget: GhTarget | undefined;
+  keyHint: string | undefined;
+  noGit: boolean;
+  defaults: PutDefaults;
+  run: CommandRunner;
+}): string | undefined {
+  const { ctx, flags, ghTarget, keyHint, noGit, defaults, run } = opts;
+  if (ctx.quiet) return undefined;
+  if (defaults.noNudge) return undefined;
+  if (ghTarget || keyHint || noGit) return undefined;
+  if (flags.has("--branch")) return undefined; // not a real put flag today; defensive only
+  try {
+    if (deriveRepoFromGit(run) === undefined) return undefined; // not a (usable) git repo
+    let branch: string;
+    try {
+      branch = resolveCurrentBranch(run);
+    } catch {
+      return undefined; // detached HEAD, or git unavailable
+    }
+    const defaultBranch = resolveDefaultBranch(run);
+    const onDefaultBranch = defaultBranch
+      ? branch === defaultBranch
+      : branch === "main" || branch === "master"; // undetermined: err toward not nudging
+    if (onDefaultBranch) return undefined;
+
+    let pr: number | undefined;
+    try {
+      // Only swap in the bounded runner for the real subprocess path — an
+      // injected `run` (tests, or a future caller) is trusted to already be
+      // fast/fake, and execFileSync's `timeout` option is meaningless
+      // against anything that isn't actually shelling out.
+      const timed = run === execRunner ? timedExecRunner(PUT_NUDGE_GH_TIMEOUT_MS) : run;
+      const repoArg = flagString(flags, "--repo") ?? defaults.repo;
+      const repo = resolveRepo(repoArg, timed);
+      pr = resolveCurrentPullRequest(repo, timed).num;
+    } catch {
+      pr = undefined; // gh missing/unauthenticated/timed out/no open PR — generic wording
+    }
+    return putNudgeText(branch, pr);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function runPut(
   ctx: CliContext,
   args: string[],
@@ -1655,6 +1740,19 @@ export async function runPut(
     }
   }
 
+  // Bare-put nudge (issue #393): computed once, used for both the trailing
+  // stderr line (human mode) and the JSON `hint` field below. Best-effort —
+  // see resolvePutNudge; never affects exit code, stdout, or the upload.
+  const nudge = resolvePutNudge({
+    ctx,
+    flags: parsed.flags,
+    ghTarget,
+    keyHint,
+    noGit,
+    defaults,
+    run,
+  });
+
   const logHuman = !ctx.quiet && format === "human";
   if (logHuman) {
     if (multi) {
@@ -1749,6 +1847,7 @@ export async function runPut(
         failures,
         comment,
         commentError,
+        ...(nudge ? { hint: nudge } : {}),
       });
     } else {
       for (const result of uploads) {
@@ -1785,6 +1884,7 @@ export async function runPut(
           `warning: could not upload ${failure.file}: ${failure.error.message}\n`,
         );
       }
+      if (nudge) process.stderr.write(`${nudge}\n`);
     }
     return failures.length === 0 && !galleryHadError ? 0 : 1;
   }
@@ -1817,6 +1917,7 @@ export async function runPut(
         frame: result.frame,
         gallery,
         ...(dryRun ? { dryRun: true } : {}),
+        ...(nudge ? { hint: nudge } : {}),
       });
       break;
     case "url":
@@ -1841,6 +1942,7 @@ export async function runPut(
       `warning: upload succeeded but adding it to gallery ${gallery.id} failed: ${gallery.error.message}\n`,
     );
   }
+  if (nudge && format !== "json") process.stderr.write(`${nudge}\n`);
 
   return gallery?.error ? 1 : 0;
 }
