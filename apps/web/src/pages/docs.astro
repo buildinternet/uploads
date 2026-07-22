@@ -41,10 +41,7 @@ const REPO = "https://github.com/buildinternet/uploads";
 
   <section id="before-the-pr">
     <h2>Start before the PR exists <a class="anchor" href="#before-the-pr" aria-label="Link to this section">#</a></h2>
-    <p>
-      You don't need a PR open to start uploading. On a branch, a bare <code>put</code> stages
-      automatically:
-    </p>
+    <p>You don't need a PR open to start uploading — on a branch, it stages automatically:</p>
     <div class="cmd">
       <span class="text">uploads put ./after.png</span>
       <button type="button" data-copy="uploads put ./after.png" aria-live="polite">copy</button>
@@ -55,9 +52,9 @@ note: staged for branch feat/nav — auto-attaches to this branch's PR when
 it opens (or run: uploads attach --promote once it exists)</pre>
     </div>
     <p>
-      Keep doing that at each visual milestone, and the PR opens already furnished — no upload
-      command needed at PR time. Check what's queued anytime with <code>uploads staged</code>.
-      Details in <a href="/docs/attach-pull-request-images#staging">Attach &amp; share</a>.
+      Keep doing that as you work and the PR opens already furnished — see&#32;
+      <a href="/docs/attach-pull-request-images#staging">Attach &amp; share</a> for the staged
+      view that shows what's queued.
     </p>
   </section>
 

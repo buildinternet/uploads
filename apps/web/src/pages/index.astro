@@ -41,7 +41,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
     <title>uploads.sh — the missing upload command for coding agents</title>
     <meta
       name="description"
-      content="GitHub has no real way for an agent to show their work. Capture as you go — uploads put stages screenshots on a branch automatically, so the PR opens already furnished with one tidy comment. uploads attach targets an existing PR or issue directly. Open source — CLI, agent skill, and MCP server."
+      content="GitHub has no real way for an agent to show their work. Capture screenshots as you go and they're staged for the branch automatically, so the PR opens already furnished with one tidy comment. Open source — CLI, agent skill, and MCP server."
     />
     <link rel="canonical" href="https://uploads.sh/" />
     <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
@@ -50,13 +50,13 @@ Source (and where to look if something breaks): https://github.com/buildinternet
     <meta property="og:title" content="uploads.sh — the missing upload command for coding agents" />
     <meta
       property="og:description"
-      content="GitHub has no real way for an agent to show their work. Capture as you go — uploads put stages screenshots on a branch automatically, so the PR opens already furnished with one tidy comment."
+      content="GitHub has no real way for an agent to show their work. Capture screenshots as you go and they're staged for the branch automatically, so the PR opens already furnished with one tidy comment."
     />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="uploads.sh — the missing upload command for coding agents" />
     <meta
       name="twitter:description"
-      content="Capture as you go — uploads put stages screenshots on a branch automatically, so the PR opens already furnished with one tidy comment."
+      content="Capture screenshots as you go — they're staged for the branch automatically, so the PR opens already furnished with one tidy comment."
     />
     <style>
       * { box-sizing: border-box; }
@@ -474,11 +474,9 @@ Source (and where to look if something breaks): https://github.com/buildinternet
     <main>
       <h1>The missing upload command for <span class="nb">coding agents.</span></h1>
       <p class="lede">
-        GitHub has no real way for an agent to show their work. Capture screenshots as you go —
-        a bare <code>uploads put</code> on a branch stages them automatically — and by the time
-        the PR opens, it's already furnished with one tidy, update-in-place comment. Point&#32;
-        <code>uploads attach</code> at an existing PR or issue anytime you'd rather target it
-        directly.
+        GitHub has no real way for an agent to show their work. Capture screenshots as you go
+        — they're staged for the branch automatically — and by the time the PR opens, it's
+        already furnished with one tidy comment.
       </p>
 
       <div class="cmdrow hero-install">
@@ -591,16 +589,17 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           <div class="feature">
             <h3>stage as you go</h3>
             <p>
-              A bare <code>put</code> on a branch stages automatically — no <code>--branch</code>&#32;
-              flag needed. <code>uploads staged</code> shows what's queued and whether it'll
-              auto-attach. Promotion never breaks a URL you already embedded.
+              A plain upload on a branch stages automatically — no extra flag needed. A staged
+              view (<code>uploads staged</code>) shows what's queued and whether it'll
+              auto-attach, and re-running it later updates the same comment instead of adding
+              a new one. Promotion never breaks a URL you've already embedded.
             </p>
           </div>
           <div class="feature">
             <h3>device frames</h3>
             <p>
-              <code>--frame phone</code>, <code>browser</code>, or <code>iphone-16-pro</code>&#32;
-              puts a raw screenshot inside device chrome.
+              Wrap a raw screenshot in device chrome — phone, browser, or a specific iPhone —
+              with <code>--frame</code>.
             </p>
           </div>
           <div class="feature">
