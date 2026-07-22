@@ -162,6 +162,9 @@ export async function generateAndStorePoster(
   const posterKey = posterKeyFor(key);
   try {
     if (!(await posterGenerationAllowed(env, ws, workspaceName))) return;
+    // posterGenerationAllowed already confirmed env.MEDIA is present; env.MEDIA
+    // is typed optional so apps/mcp's Env (no media binding) also type-checks.
+    if (!env.MEDIA) return;
     const made = await makePoster(
       { bytes, contentType },
       { extractor: mediaFrameExtractor(env.MEDIA), probe: mediabunnyProbe() },
