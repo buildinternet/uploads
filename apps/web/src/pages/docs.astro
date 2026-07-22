@@ -39,6 +39,28 @@ const REPO = "https://github.com/buildinternet/uploads";
     </p>
   </section>
 
+  <section id="before-the-pr">
+    <h2>Start before the PR exists <a class="anchor" href="#before-the-pr" aria-label="Link to this section">#</a></h2>
+    <p>
+      You don't need a PR open to start uploading. On a branch, a bare <code>put</code> stages
+      automatically:
+    </p>
+    <div class="cmd">
+      <span class="text">uploads put ./after.png</span>
+      <button type="button" data-copy="uploads put ./after.png" aria-live="polite">copy</button>
+    </div>
+    <div class="block" aria-label="Example output">
+      <pre>&gt;&gt; uploading 1 file (staged for branch feat/nav)
+note: staged for branch feat/nav — auto-attaches to this branch's PR when
+it opens (or run: uploads attach --promote once it exists)</pre>
+    </div>
+    <p>
+      Keep doing that at each visual milestone, and the PR opens already furnished — no upload
+      command needed at PR time. Check what's queued anytime with <code>uploads staged</code>.
+      Details in <a href="/docs/attach-pull-request-images#staging">Attach &amp; share</a>.
+    </p>
+  </section>
+
   <section id="install">
     <h2>Install &amp; sign in <a class="anchor" href="#install" aria-label="Link to this section">#</a></h2>
     <p>Install the CLI globally, then sign in once:</p>
