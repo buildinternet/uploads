@@ -268,16 +268,17 @@ Default `put` is the fast path; you don't need `--key`, `--prefix`, or `--repo`.
 automatically (issue #403)** — same key/metadata as `attach --branch`
 (`gh/<owner>/<repo>/branch/<branch>/<filename>`), so it auto-attaches to that
 branch's PR when one opens. This fires whenever none of
-`--pr`/`--issue`/`--key`/`--ref`/`--prefix` is set and `--no-git` isn't
-passed; any of those flags (or the default branch, detached HEAD, not being
-in a git repo, or `--no-git`) falls back to the classic **dated** layout:
+`--pr`/`--issue`/`--key`/`--ref`/`--prefix`/`--destination` is set and
+`--no-git` isn't passed; any of those flags (or the default branch, detached
+HEAD, not being in a git repo, or `--no-git`) falls back to the classic
+**dated** layout:
 `<prefix>/<repo-name>/<ref-or-date>/<basename>-<shorthash>.<ext>` — the short
 hash prevents collisions without random names or a separate "preserve name"
 flag. Prefer `--destination screenshots` (or `gh` with `--pr`/`--issue`) over
 inventing roots — workspaces may allowlist only those destinations. Override
 with `--key` only when you have a reason, and keep the key under an allowed
-root. Pass `--ref`/`--prefix` explicitly for a plain dated upload on a
-branch (the opt-out).
+root. Pass `--ref`/`--prefix`/`--destination` explicitly for a plain dated
+upload on a branch (the opt-out).
 
 **Output formats** — pick what you'll consume:
 
