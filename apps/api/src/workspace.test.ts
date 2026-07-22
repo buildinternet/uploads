@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  hexToBytes,
   isPurgedTombstone,
+  isSha256Hex,
   loadWorkspaceRecord,
   loadWorkspaceRecordRaw,
   WORKSPACE_DELETE_GRACE_DAYS,
@@ -82,5 +84,21 @@ describe("loadWorkspaceRecord (#247 soft-delete filtering)", () => {
 
   it("grace window constant is 14 days", () => {
     expect(WORKSPACE_DELETE_GRACE_DAYS).toBe(14);
+  });
+});
+
+describe("isSha256Hex / hexToBytes (corrupt token-hash guard)", () => {
+  it("accepts a 64-char hex digest", () => {
+    const hex = "a".repeat(64);
+    expect(isSha256Hex(hex)).toBe(true);
+    expect(hexToBytes(hex).byteLength).toBe(32);
+  });
+
+  it("rejects wrong length or non-hex so timingSafeEqual is never fed unequal buffers", () => {
+    expect(isSha256Hex("deadbeef")).toBe(false);
+    expect(isSha256Hex("z".repeat(64))).toBe(false);
+    expect(isSha256Hex("")).toBe(false);
+    expect(isSha256Hex("a".repeat(63))).toBe(false);
+    expect(isSha256Hex("a".repeat(65))).toBe(false);
   });
 });

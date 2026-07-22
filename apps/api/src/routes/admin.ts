@@ -349,7 +349,7 @@ export const admin = new Hono<{ Bindings: Env }>()
       throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
     }
 
-    const d1 = (await listTokens(c.env.DB, name)).map((token) => ({
+    const d1 = (await listTokens(c.env.DB, name, { includeRevoked: true })).map((token) => ({
       label: token.label,
       createdAt: token.created_at,
       hashPrefix: token.token_hash.slice(0, HASH_PREFIX_LEN),
@@ -393,10 +393,9 @@ export const admin = new Hono<{ Bindings: Env }>()
     const kvMatches = kv.filter((token) =>
       hashPrefix ? token.hash.startsWith(hashPrefix) : token.label === label,
     );
-    const activeD1 = (await listTokens(c.env.DB, name)).filter(
-      (token) =>
-        token.revoked_at === null &&
-        (hashPrefix ? token.token_hash.startsWith(hashPrefix) : token.label === label),
+    // Active-only list (default) — revoked tokens cannot be re-revoked here.
+    const activeD1 = (await listTokens(c.env.DB, name)).filter((token) =>
+      hashPrefix ? token.token_hash.startsWith(hashPrefix) : token.label === label,
     );
     const count = kvMatches.length + activeD1.length;
     if (count === 0) throw new NotFoundError("no matching token");

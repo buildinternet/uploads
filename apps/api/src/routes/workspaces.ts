@@ -452,10 +452,9 @@ workspaces.get("/:name/tokens", workspaceManageAuth(), async (c) => {
   requireWorkspaceName(name);
 
   const now = new Date().toISOString();
+  // listTokens is active-only by default; also drop expired actives for UX.
   const tokens = (await listTokens(c.env.DB, name))
-    .filter(
-      (token) => token.revoked_at === null && (token.expires_at === null || token.expires_at > now),
-    )
+    .filter((token) => token.expires_at === null || token.expires_at > now)
     .map((token) => ({
       label: token.label,
       createdAt: token.created_at,

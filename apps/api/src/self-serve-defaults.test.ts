@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PLANS } from "@uploads/billing";
 import { selfServeWorkspaceRecord, SELF_SERVE_LIMITS } from "./self-serve-defaults";
 
 describe("selfServeWorkspaceRecord", () => {
@@ -18,10 +19,10 @@ describe("selfServeWorkspaceRecord", () => {
       selfServe: true,
       createdByUserId: "u1",
       createdAt: "2026-07-14T00:00:00.000Z",
-      maxStorageBytes: 250_000_000,
-      maxUploadsPerPeriod: 3000,
-      maxUploadBytes: 25_000_000,
-      maxVideoUploadBytes: 8_000_000,
+      maxStorageBytes: PLANS.free.defaultLimits.maxStorageBytes,
+      maxUploadsPerPeriod: PLANS.free.defaultLimits.maxUploadsPerPeriod,
+      maxUploadBytes: PLANS.free.defaultLimits.maxUploadBytes,
+      maxVideoUploadBytes: PLANS.free.defaultLimits.maxVideoUploadBytes,
       allowedKeyPrefixes: ["f", "screenshots", "gh"],
       maxKeyDepth: 8,
     });
@@ -32,8 +33,12 @@ describe("selfServeWorkspaceRecord", () => {
     const b = selfServeWorkspaceRecord({ name: "b", userId: "u", now: new Date(0) });
     expect(a.allowedKeyPrefixes).not.toBe(b.allowedKeyPrefixes);
   });
-  it("limits are 250MB/3000-per-month", () => {
-    expect(SELF_SERVE_LIMITS.maxStorageBytes).toBe(250_000_000);
-    expect(SELF_SERVE_LIMITS.maxUploadsPerPeriod).toBe(3000);
+  it("budget fields match PLANS.free.defaultLimits (single source of truth)", () => {
+    expect({
+      maxStorageBytes: SELF_SERVE_LIMITS.maxStorageBytes,
+      maxUploadsPerPeriod: SELF_SERVE_LIMITS.maxUploadsPerPeriod,
+      maxUploadBytes: SELF_SERVE_LIMITS.maxUploadBytes,
+      maxVideoUploadBytes: SELF_SERVE_LIMITS.maxVideoUploadBytes,
+    }).toEqual(PLANS.free.defaultLimits);
   });
 });

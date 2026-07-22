@@ -168,6 +168,19 @@ export type WorkspaceVars = {
  * don't drift from one another. */
 export const WS_NAME_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 
+/** SHA-256 hex digests are always 64 lowercase/uppercase hex chars (32 bytes). */
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/i;
+
+/** True when `hex` is a well-formed SHA-256 digest (64 hex chars). */
+export function isSha256Hex(hex: string): boolean {
+  return SHA256_HEX_RE.test(hex);
+}
+
+/**
+ * Decode a hex string to bytes. Callers that compare digests with
+ * `timingSafeEqual` must pass only `isSha256Hex` values — unequal lengths
+ * throw in the Workers runtime.
+ */
 export function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
@@ -258,13 +271,33 @@ function workspaceAuthWith(
     const providedHash = await sha256Hex(token);
     const providedBytes = hexToBytes(providedHash);
     const candidates = record ? workspaceTokenHashes(record) : [];
-    // Compare against every candidate hash (no early break) so match position isn't timing-visible.
+    // Compare against every *valid* candidate hash (no early break) so match
+    // position isn't timing-visible. Skip corrupt/hand-edited hashes: unequal
+    // lengths make timingSafeEqual throw and would 500 the whole tenant.
     // Note: total work scales with token count — acceptable for this throwaway PoC; a leaked
     // token-count signal goes away with the real auth system.
     const toCheck = candidates.length > 0 ? candidates : [providedHash.replace(/./g, "0")];
     let matched = false;
+    let skippedInvalidHash = false;
     for (const hash of toCheck) {
-      if (crypto.subtle.timingSafeEqual(providedBytes, hexToBytes(hash))) matched = true;
+      if (!isSha256Hex(hash)) {
+        skippedInvalidHash = true;
+        continue;
+      }
+      const candidateBytes = hexToBytes(hash);
+      if (candidateBytes.byteLength !== providedBytes.byteLength) {
+        skippedInvalidHash = true;
+        continue;
+      }
+      if (crypto.subtle.timingSafeEqual(providedBytes, candidateBytes)) matched = true;
+    }
+    if (skippedInvalidHash && record) {
+      console.error(
+        JSON.stringify({
+          message: "workspace_token_hash_invalid",
+          workspace: name ?? null,
+        }),
+      );
     }
     const legacyOk = record !== null && token.length > 0 && candidates.length > 0 && matched;
     // Always pay the D1 round-trip, with dummy inputs when the workspace is
