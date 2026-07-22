@@ -87,6 +87,42 @@ const title = file
 // oEmbed discovery only when the public object is fully resolved — private /
 // missing pages must not advertise an endpoint that would 404 or leak existence.
 const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : null;
+
+// Before/after paired view (issue #420). The API already did the
+// visibility-safe lookup (routes/public-files.ts); this page only decides
+// how to lay the two images out. Own state comes from `state` metadata when
+// present, else it's simply the counterpart's opposite — either way, only
+// rendered when the API actually returned a counterpart.
+const counterpart = file?.counterpart ?? null;
+
+/** This file's own before/after role, given the counterpart it's paired with. */
+function ownBeforeAfterState(
+  metadataState: string | undefined,
+  counterpartState: "before" | "after",
+): "before" | "after" {
+  if (metadataState === "before" || metadataState === "after") return metadataState;
+  return counterpartState === "before" ? "after" : "before";
+}
+
+const ownState: "before" | "after" | null = counterpart
+  ? ownBeforeAfterState(file?.metadata?.state, counterpart.state)
+  : null;
+const counterpartFilename = counterpart ? counterpart.key.split("/").filter(Boolean).pop() ?? counterpart.key : null;
+const counterpartHref = counterpart ? filePath(workspace, counterpart.key) : null;
+interface PairPanel {
+  state: "before" | "after";
+  src: string;
+  current: boolean;
+  href: string | null;
+}
+const pairPanels: PairPanel[] | null =
+  counterpart && ownState
+    ? (["before", "after"] as const).map((state) =>
+        state === ownState
+          ? { state, src: file!.url, current: true, href: null }
+          : { state, src: counterpart.url, current: false, href: counterpartHref },
+      )
+    : null;
 ---
 
 <!doctype html>
@@ -152,6 +188,16 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
       dl.meta dt { color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-size:11px; }
       dl.meta dd { margin:0; color:var(--body); overflow-wrap:anywhere; }
       .details :global(.actions) { margin-top:0; }
+      /* Before/after paired view (issue #420) — static side-by-side, no slider. */
+      .pair { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--line); border:1px solid var(--line); border-radius:var(--radius-lg); overflow:hidden; margin:0 0 20px; }
+      .pair-panel { position:relative; background:var(--panel); display:flex; flex-direction:column; }
+      .pair-panel img { width:100%; height:220px; object-fit:contain; background:var(--bg); display:block; }
+      .pair-label { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px; font:11px var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+      .pair-label strong { color:var(--fg); font-weight:600; }
+      .pair-panel[data-current="true"] .pair-label strong { color:var(--accent); }
+      .pair-link { color:var(--muted); text-decoration:none; font:12px var(--mono); text-transform:none; letter-spacing:normal; }
+      .pair-link:hover, .pair-link:focus-visible { color:var(--accent); outline:none; }
+      @media (max-width: 620px) { .pair { grid-template-columns:1fr; } }
       .error { padding:70px 24px; border:1px solid var(--line); border-radius:var(--radius-lg); text-align:center; background:var(--panel); color:var(--body); }
       .error code { color:var(--accent); font-family:var(--mono); }
       .error .signin { display:inline-block; margin-top:18px; padding:9px 16px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--bg); color:var(--fg); font:12px var(--mono); text-decoration:none; }
@@ -226,6 +272,21 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
               </a>
             )}
           </header>
+          {pairPanels && (
+            <div class="pair" role="group" aria-label={`Before/after comparison, viewing the ${ownState}`}>
+              {pairPanels.map((panel) => (
+                <div class="pair-panel" data-current={panel.current ? "true" : "false"}>
+                  <img src={panel.src} alt={`${panel.state} of ${filename}`} loading={panel.current ? "eager" : "lazy"} />
+                  <div class="pair-label">
+                    <strong>{panel.state}</strong>
+                    {!panel.current && panel.href && (
+                      <a class="pair-link" href={panel.href}>{counterpartFilename} ↗</a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <figure class="stage" style="margin:0">
             {kind(file.contentType) === "image" ? (
               <ImagePreview src={file.url} alt={filename} />

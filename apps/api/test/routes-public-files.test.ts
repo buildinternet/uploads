@@ -69,6 +69,12 @@ beforeAll(() => {
 });
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+// ISO base media `ftyp` box with an `isom` major brand — sniffs as video/mp4
+// (apps/api/src/guards.ts's detectContentType; the stored type comes from
+// sniffed bytes, never the client's Content-Type header).
+const MP4 = new Uint8Array([
+  0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+]);
 
 async function makeEnv(
   overrides: Partial<WorkspaceRecord> = {},
@@ -663,5 +669,247 @@ describe("putObject uploaded-at stamp", () => {
 
     await seedShot(env);
     expect(bucket.store.get(key)?.customMetadata?.["uploaded-at"]).toBe(priorLm.toISOString());
+  });
+});
+
+/** PUT an arbitrary key with optional headers/body, returning the stored key (unprefixed). */
+async function seedFile(
+  env: Parameters<typeof app.request>[2],
+  key: string,
+  headers: Record<string, string> = {},
+  body: Uint8Array = PNG,
+) {
+  const res = await app.request(
+    `/v1/default/files/${key}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        "Content-Type": "image/png",
+        "X-Uploads-Replace": "1",
+        ...headers,
+      },
+      body,
+    },
+    env,
+  );
+  if (res.status !== 201) throw new Error(`seed failed: ${res.status} ${await res.text()}`);
+  return key;
+}
+
+describe("GET /public/files/:workspace/:key — before/after counterpart (issue #420)", () => {
+  it("pairs same-path opposite-state metadata within the same prefix", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "before",
+    });
+    await seedFile(env, "gh/acme/web/pull/12/hero-after.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "after",
+    });
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.webp",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      counterpart?: { key: string; url: string; state: string };
+    };
+    expect(json.counterpart).toEqual({
+      key: "gh/acme/web/pull/12/hero-after.webp",
+      url: "https://storage.uploads.sh/default/gh/acme/web/pull/12/hero-after.webp",
+      state: "after",
+    });
+  });
+
+  it("does not pair same-path/state metadata across different prefixes (different PR)", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "before",
+    });
+    await seedFile(env, "gh/acme/web/pull/13/hero-after.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "after",
+    });
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.webp",
+      {},
+      env,
+    );
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.counterpart).toBeUndefined();
+  });
+
+  it("falls back to filename-stem pairing when no path/state metadata is set", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp");
+    await seedFile(env, "gh/acme/web/pull/12/hero-after.webp");
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-after.webp",
+      {},
+      env,
+    );
+    const json = (await res.json()) as { counterpart?: { key: string; state: string } };
+    expect(json.counterpart).toEqual({
+      key: "gh/acme/web/pull/12/hero-before.webp",
+      state: "before",
+      url: "https://storage.uploads.sh/default/gh/acme/web/pull/12/hero-before.webp",
+    });
+  });
+
+  it("omits counterpart when the paired-looking file doesn't actually exist", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp");
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.webp",
+      {},
+      env,
+    );
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.counterpart).toBeUndefined();
+  });
+
+  it("omits counterpart entirely (no leak) when it exists but is private — public page", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "before",
+    });
+    await seedFile(env, "gh/acme/web/pull/12/hero-after.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "after",
+      "X-Uploads-Visibility": "private",
+    });
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.webp",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as Record<string, unknown>;
+    // The public before file's own page must not reveal that a private
+    // after counterpart exists at all.
+    expect(json.counterpart).toBeUndefined();
+  });
+
+  it("the private counterpart's own page still 401s (no bypass via the pairing lookup)", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "before",
+    });
+    await seedFile(env, "gh/acme/web/pull/12/hero-after.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "after",
+      "X-Uploads-Visibility": "private",
+    });
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-after.webp",
+      {},
+      env,
+    );
+    expect(res.status).toBe(401);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json).not.toHaveProperty("counterpart");
+  });
+
+  it("does not pair unrelated files that merely share a state value", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp", {
+      "X-Uploads-Meta-path": "hero.webp",
+      "X-Uploads-Meta-state": "before",
+    });
+    await seedFile(env, "gh/acme/web/pull/12/other.webp", {
+      "X-Uploads-Meta-path": "other.webp",
+      "X-Uploads-Meta-state": "after",
+    });
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.webp",
+      {},
+      env,
+    );
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.counterpart).toBeUndefined();
+  });
+
+  it("does not pair videos — the paired view only renders images", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(
+      env,
+      "gh/acme/web/pull/12/hero-before.mp4",
+      { "Content-Type": "video/mp4" },
+      MP4,
+    );
+    await seedFile(env, "gh/acme/web/pull/12/hero-after.mp4", { "Content-Type": "video/mp4" }, MP4);
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.mp4",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.counterpart).toBeUndefined();
+  });
+
+  it("does not pair an image with a video counterpart via metadata", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp", {
+      "X-Uploads-Meta-path": "hero",
+      "X-Uploads-Meta-state": "before",
+    });
+    await seedFile(
+      env,
+      "gh/acme/web/pull/12/hero-after.mp4",
+      {
+        "Content-Type": "video/mp4",
+        "X-Uploads-Meta-path": "hero",
+        "X-Uploads-Meta-state": "after",
+      },
+      MP4,
+    );
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.webp",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.counterpart).toBeUndefined();
+  });
+
+  it("stays rule-1-only when path/state metadata is usable but finds no match (no filename fallback)", async () => {
+    const { env } = await makeEnv({}, { db: makeFakeDB() });
+    // Has usable path/state metadata, but no object carries the matching
+    // path=hero/state=after pair — rule 1 comes back empty.
+    await seedFile(env, "gh/acme/web/pull/12/hero-before.webp", {
+      "X-Uploads-Meta-path": "hero",
+      "X-Uploads-Meta-state": "before",
+    });
+    // A filename-stem neighbor exists, but must NOT be used as a fallback
+    // once the file has its own usable path metadata (mirrors the
+    // comment-side rule from PR #424: metadata-declared files are
+    // rule-1-only).
+    await seedFile(env, "gh/acme/web/pull/12/hero-after.webp");
+
+    const res = await app.request(
+      "/public/files/default/gh/acme/web/pull/12/hero-before.webp",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.counterpart).toBeUndefined();
   });
 });

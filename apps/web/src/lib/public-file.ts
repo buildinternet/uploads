@@ -37,6 +37,15 @@ export interface PublicFile {
   posterUrl?: string | null;
   /** Real video dimensions, for reserving aspect ratio before playback; omitted when unknown. */
   videoDimensions?: { width: number; height: number };
+  /** Before/after counterpart (issue #420), when one exists and is visible to this viewer. */
+  counterpart?: PublicFileCounterpart;
+}
+
+/** A file's before/after counterpart — already visibility-checked server-side. */
+export interface PublicFileCounterpart {
+  key: string;
+  url: string;
+  state: "before" | "after";
 }
 
 /** Result of resolving a public file: the DTO, a hard 404, a private gate, or a soft outage. */
@@ -231,6 +240,17 @@ function optionalIsoDate(value: unknown): boolean {
   );
 }
 
+/** Bounded `counterpart` convenience object — mirrors apps/api's response shape. */
+function isPublicFileCounterpart(value: unknown): value is PublicFileCounterpart {
+  if (typeof value !== "object" || value === null) return false;
+  const counterpart = value as Record<string, unknown>;
+  return (
+    text(counterpart.key, 1024) &&
+    httpsUrl(counterpart.url) &&
+    (counterpart.state === "before" || counterpart.state === "after")
+  );
+}
+
 /** Validate an untrusted API response against the bounded {@link PublicFile} shape. */
 export function isPublicFile(value: unknown): value is PublicFile {
   if (typeof value !== "object" || value === null) return false;
@@ -240,6 +260,7 @@ export function isPublicFile(value: unknown): value is PublicFile {
   const posterUrlOk = file.posterUrl === undefined || nullableHttpsUrl(file.posterUrl);
   const videoDimensionsOk =
     file.videoDimensions === undefined || isVideoDimensions(file.videoDimensions);
+  const counterpartOk = file.counterpart === undefined || isPublicFileCounterpart(file.counterpart);
   return (
     text(file.workspace, 64) &&
     text(file.key, 1024) &&
@@ -253,7 +274,8 @@ export function isPublicFile(value: unknown): value is PublicFile {
     metadataOk &&
     githubOk &&
     posterUrlOk &&
-    videoDimensionsOk
+    videoDimensionsOk &&
+    counterpartOk
   );
 }
 
