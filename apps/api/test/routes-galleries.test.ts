@@ -836,5 +836,17 @@ describe("GET /public/galleries/:id/items/:item/download", () => {
     expect(await download.json()).toMatchObject({
       error: { code: "gallery_not_found", type: "not_found" },
     });
+
+    // Unknown item IDs must not leak a different code (item oracle) while the
+    // workspace is soft-deleted — workspace gate runs first.
+    const missingItem = await app.request(
+      `/public/galleries/${gallery.id}/items/item_does_not_exist/download`,
+      {},
+      env,
+    );
+    expect(missingItem.status).toBe(404);
+    expect(await missingItem.json()).toMatchObject({
+      error: { code: "gallery_not_found", type: "not_found" },
+    });
   });
 });

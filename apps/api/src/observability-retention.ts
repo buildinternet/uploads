@@ -29,6 +29,39 @@ function placeholders(n: number): string {
   return Array.from({ length: n }, () => "?").join(", ");
 }
 
+/**
+ * Fetch BATCH_SIZE + 1 ids so truncation is grounded in a leftover row, not
+ * “the last batch happened to be full” (exact-cap runs must report truncated=false).
+ */
+async function purgeInBatches(
+  db: D1Database,
+  selectIds: (limit: number) => Promise<string[]>,
+  deleteIds: (ids: string[]) => Promise<void>,
+): Promise<{ deleted: number; truncated: boolean }> {
+  let deleted = 0;
+  const fetchLimit = OBSERVABILITY_RETENTION_BATCH_SIZE + 1;
+
+  for (let batch = 0; batch < OBSERVABILITY_RETENTION_MAX_BATCHES; batch++) {
+    const ids = await selectIds(fetchLimit);
+    if (ids.length === 0) break;
+
+    const toDelete = ids.slice(0, OBSERVABILITY_RETENTION_BATCH_SIZE);
+    await deleteIds(toDelete);
+    deleted += toDelete.length;
+
+    // Fewer than a full batch available → nothing left after this delete.
+    if (ids.length <= OBSERVABILITY_RETENTION_BATCH_SIZE) break;
+
+    // At least one eligible row remains (the +1 lookahead). If this was the
+    // last allowed cycle, report truncation; otherwise continue.
+    if (batch === OBSERVABILITY_RETENTION_MAX_BATCHES - 1) {
+      return { deleted, truncated: true };
+    }
+  }
+
+  return { deleted, truncated: false };
+}
+
 async function purgeTelemetry(
   db: D1Database,
   cutoffMs: number,
@@ -36,33 +69,22 @@ async function purgeTelemetry(
   deleted: number;
   truncated: boolean;
 }> {
-  let deleted = 0;
-  let truncated = false;
-
-  for (let batch = 0; batch < OBSERVABILITY_RETENTION_MAX_BATCHES; batch++) {
-    const { results } = await db
-      .prepare(`SELECT id FROM uploads_telemetry_events WHERE timestamp < ? LIMIT ?`)
-      .bind(cutoffMs, OBSERVABILITY_RETENTION_BATCH_SIZE)
-      .all<{ id: string }>();
-
-    if (!results || results.length === 0) break;
-
-    const ids = results.map((r) => r.id);
-    await db
-      .prepare(`DELETE FROM uploads_telemetry_events WHERE id IN (${placeholders(ids.length)})`)
-      .bind(...ids)
-      .run();
-    deleted += ids.length;
-
-    if (ids.length < OBSERVABILITY_RETENTION_BATCH_SIZE) break;
-
-    // Full batch at the last allowed cycle — more rows may remain.
-    if (batch === OBSERVABILITY_RETENTION_MAX_BATCHES - 1) {
-      truncated = true;
-    }
-  }
-
-  return { deleted, truncated };
+  return purgeInBatches(
+    db,
+    async (limit) => {
+      const { results } = await db
+        .prepare(`SELECT id FROM uploads_telemetry_events WHERE timestamp < ? LIMIT ?`)
+        .bind(cutoffMs, limit)
+        .all<{ id: string }>();
+      return (results ?? []).map((r) => r.id);
+    },
+    async (ids) => {
+      await db
+        .prepare(`DELETE FROM uploads_telemetry_events WHERE id IN (${placeholders(ids.length)})`)
+        .bind(...ids)
+        .run();
+    },
+  );
 }
 
 async function purgeEnrollments(
@@ -72,39 +94,29 @@ async function purgeEnrollments(
   deleted: number;
   truncated: boolean;
 }> {
-  let deleted = 0;
-  let truncated = false;
-
-  for (let batch = 0; batch < OBSERVABILITY_RETENTION_MAX_BATCHES; batch++) {
-    // Never delete unexpired unused enrollments: only rows past the retention
-    // window on expires_at, or used rows whose used_at is past the window.
-    const { results } = await db
-      .prepare(
-        `SELECT id FROM auth_enrollments
-         WHERE expires_at < ?
-            OR (used_at IS NOT NULL AND used_at < ?)
-         LIMIT ?`,
-      )
-      .bind(cutoffIso, cutoffIso, OBSERVABILITY_RETENTION_BATCH_SIZE)
-      .all<{ id: string }>();
-
-    if (!results || results.length === 0) break;
-
-    const ids = results.map((r) => r.id);
-    await db
-      .prepare(`DELETE FROM auth_enrollments WHERE id IN (${placeholders(ids.length)})`)
-      .bind(...ids)
-      .run();
-    deleted += ids.length;
-
-    if (ids.length < OBSERVABILITY_RETENTION_BATCH_SIZE) break;
-
-    if (batch === OBSERVABILITY_RETENTION_MAX_BATCHES - 1) {
-      truncated = true;
-    }
-  }
-
-  return { deleted, truncated };
+  // Never delete unexpired unused enrollments: only rows past the retention
+  // window on expires_at, or used rows whose used_at is past the window.
+  return purgeInBatches(
+    db,
+    async (limit) => {
+      const { results } = await db
+        .prepare(
+          `SELECT id FROM auth_enrollments
+           WHERE expires_at < ?
+              OR (used_at IS NOT NULL AND used_at < ?)
+           LIMIT ?`,
+        )
+        .bind(cutoffIso, cutoffIso, limit)
+        .all<{ id: string }>();
+      return (results ?? []).map((r) => r.id);
+    },
+    async (ids) => {
+      await db
+        .prepare(`DELETE FROM auth_enrollments WHERE id IN (${placeholders(ids.length)})`)
+        .bind(...ids)
+        .run();
+    },
+  );
 }
 
 export async function runObservabilityRetention(

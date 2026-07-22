@@ -198,4 +198,36 @@ describe("runObservabilityRetention", () => {
       sqlite.close();
     }
   });
+
+  it("exact daily cap is not reported as truncated", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const now = new Date("2026-07-22T12:00:00.000Z");
+      const oldTs = now.getTime() - (TELEMETRY_RETENTION_DAYS + 5) * MS_PER_DAY;
+      // Exactly MAX_BATCHES full pages — +1 lookahead must not invent leftovers.
+      const exactCap = OBSERVABILITY_RETENTION_BATCH_SIZE * OBSERVABILITY_RETENTION_MAX_BATCHES;
+
+      const insert = sqlite.db.prepare(
+        `INSERT INTO uploads_telemetry_events (
+          id, anon_id, timestamp, surface, client_kind, command, cli_version
+        ) VALUES (?, '11111111-2222-3333-4444-555555555555', ?, 'cli', 'external', 'put', '0.10.0')`,
+      );
+      for (let i = 0; i < exactCap; i++) {
+        insert.run(`tel_exact_${i}`, oldTs);
+      }
+
+      const result = await runObservabilityRetention(env(database(sqlite)), now);
+      expect(result.telemetryDeleted).toBe(exactCap);
+      expect(result.telemetryTruncated).toBe(false);
+
+      const left = (
+        sqlite.db.prepare("SELECT COUNT(*) AS n FROM uploads_telemetry_events").get() as {
+          n: number;
+        }
+      ).n;
+      expect(left).toBe(0);
+    } finally {
+      sqlite.close();
+    }
+  });
 });

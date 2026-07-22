@@ -23,17 +23,19 @@ export const publicGalleries = new Hono<WorkspaceVars>()
     const record = await resolvePublicGallery(c.env.DB, c.req.param("id"));
     if (!record) throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
 
+    // Soft-deleted / purged workspaces collapse to null — same uniform 404 as
+    // missing tenants (matches public-files + authenticated paths). Check
+    // before item lookup so existing and unknown item IDs both yield
+    // gallery_not_found for unavailable workspaces (no item-existence oracle).
+    const workspace = await loadWorkspaceRecord(c.env, record.workspace);
+    if (!workspace) {
+      throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
+    }
+
     const items = await listGalleryItems(c.env.DB, record.workspace, record.id);
     const item = items.find((entry) => entry.id === c.req.param("item"));
     if (!item) {
       throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
-    }
-
-    // Soft-deleted / purged workspaces collapse to null — same uniform 404 as
-    // missing tenants (matches public-files + authenticated paths).
-    const workspace = await loadWorkspaceRecord(c.env, record.workspace);
-    if (!workspace) {
-      throw new NotFoundError("Gallery not found.", { code: "gallery_not_found" });
     }
 
     const store = await withGalleryStorageErrors(() => storage(c.env, workspace));
