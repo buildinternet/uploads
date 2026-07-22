@@ -29,7 +29,7 @@
   border-color: var(--accent);
 }
 
-#email-action-status {
+.email-status {
   margin-top: 12px;
   font: 12px var(--mono);
   padding: 8px 10px;
@@ -37,21 +37,13 @@
   border: 1px solid var(--line);
   background: var(--panel);
 }
-#email-action-status[data-state="ok"] {
-  color: var(--fg);
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
-}
-#email-action-status[data-state="error"] {
+.email-status[data-state="error"] {
   color: #f0a8a8;
-  border-color: color-mix(in srgb, #c44 45%, var(--line));
 }
 
-#email-list {
-  margin-top: 18px;
-  display: grid;
-  gap: 22px;
+.email-category {
+  margin-top: 22px;
 }
-
 .email-category h3 {
   margin: 0 0 10px;
   font: 600 12px var(--mono);
@@ -79,16 +71,9 @@
   border-radius: 8px;
   background: var(--panel);
 }
-
 .email-row-label {
-  margin: 0;
   font: 600 14px var(--sans);
   color: var(--fg);
-}
-.email-row-id {
-  margin: 3px 0 0;
-  font: 11px var(--mono);
-  color: var(--muted);
 }
 
 .email-send {

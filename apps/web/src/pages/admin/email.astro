@@ -1,13 +1,22 @@
 ---
 /**
- * Operator transactional email previews — send sample templates to yourself
- * (or an override address) to check HTML, deliverability, and Gmail markup.
- * Backed by POST /admin-ui/dev/emails/:type on apps/api.
+ * Operator transactional email previews. POST /admin-ui/dev/emails/:type.
+ * Type list mirrors EMAIL_PREVIEW_TYPES in apps/api/src/admin-email-preview.ts.
  */
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import "../../styles/admin-email.css";
 
 export const prerender = false;
+
+// Keep in sync with apps/api/src/admin-email-preview.ts EMAIL_PREVIEW_TYPES.
+const PREVIEW_TYPES = [
+  { id: "magic-link", label: "Magic sign-in link", category: "Auth" },
+  { id: "org-invitation", label: "Workspace invitation", category: "Auth" },
+  { id: "member-joined", label: "Member joined notify", category: "Auth" },
+  { id: "enrollment-invitation", label: "Enrollment invitation", category: "Invites" },
+] as const;
+
+const categories = [...new Set(PREVIEW_TYPES.map((t) => t.category))];
 ---
 
 <AdminLayout section="email">
@@ -16,168 +25,108 @@ export const prerender = false;
     <p>
       Send a sample of each product email through Cloudflare Email Sending.
       Links use placeholder tokens and will not complete a real sign-in or invite.
-      Defaults to your signed-in address; override when testing Gmail markup or
-      another inbox.
+      Defaults to your signed-in address; override for another inbox (e.g. Gmail markup tests).
     </p>
 
-    <form id="email-recipient" class="email-recipient" autocomplete="off">
+    <div class="email-recipient">
       <label for="email-to">Send to</label>
-      <input
-        type="email"
-        id="email-to"
-        name="to"
-        placeholder="you@example.com"
-        maxlength="320"
-      />
-    </form>
+      <input type="email" id="email-to" maxlength="320" placeholder="you@example.com" />
+    </div>
 
-    <div id="email-status" class="muted" style="margin-top:12px;font-size:13px">Loading…</div>
-    <div id="email-action-status" role="status" hidden></div>
-    <div id="email-list"></div>
+    <div id="email-action-status" class="email-status" role="status" hidden></div>
+
+    {
+      categories.map((category) => (
+        <section class="email-category">
+          <h3>{category}</h3>
+          <ul class="email-type-list">
+            {PREVIEW_TYPES.filter((t) => t.category === category).map((t) => (
+              <li class="email-row">
+                <span class="email-row-label">{t.label}</span>
+                <button type="button" class="email-send" data-type={t.id}>
+                  Send preview
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))
+    }
   </section>
 
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
 
-    type PreviewType = { id: string; label: string; category: string };
-
-    function escapeHtml(value: string): string {
-      return value.replace(
-        /[&<>"']/g,
-        (ch) =>
-          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
-      );
-    }
-
     onAstroPageLoad(() => {
-      if (!document.getElementById("email-list")) return;
+      if (!document.getElementById("email-to")) return;
 
       const w = window as unknown as { __UPLOADS_API_ORIGIN__: string };
       const apiOrigin = w.__UPLOADS_API_ORIGIN__.replace(/\/$/, "");
-
-      const statusEl = requireElement<HTMLElement>("#email-status", "admin email");
-      const actionStatus = requireElement<HTMLElement>("#email-action-status", "admin email");
-      const listEl = requireElement<HTMLElement>("#email-list", "admin email");
       const toInput = requireElement<HTMLInputElement>("#email-to", "admin email");
+      const statusEl = requireElement<HTMLElement>("#email-action-status", "admin email");
+      const buttons = [...document.querySelectorAll<HTMLButtonElement>("button.email-send")];
 
-      let sendingId: string | null = null;
+      let busy = false;
 
-      function setAction(message: string, state: "ok" | "error" | "idle" = "idle") {
-        if (state === "idle" || !message) {
-          actionStatus.hidden = true;
-          actionStatus.textContent = "";
-          actionStatus.removeAttribute("data-state");
-          return;
-        }
-        actionStatus.hidden = false;
-        actionStatus.textContent = message;
-        actionStatus.dataset.state = state;
-      }
-
-      function renderList(types: PreviewType[]) {
-        const categories = [...new Set(types.map((t) => t.category))];
-        listEl.innerHTML = categories
-          .map((category) => {
-            const rows = types
-              .filter((t) => t.category === category)
-              .map(
-                (t) => `
-              <li class="email-row" data-type="${escapeHtml(t.id)}">
-                <div class="email-row-copy">
-                  <p class="email-row-label">${escapeHtml(t.label)}</p>
-                  <p class="email-row-id mono">${escapeHtml(t.id)}</p>
-                </div>
-                <button type="button" class="email-send" data-type="${escapeHtml(t.id)}">
-                  Send preview
-                </button>
-              </li>`,
-              )
-              .join("");
-            return `
-              <section class="email-category">
-                <h3>${escapeHtml(category)}</h3>
-                <ul class="email-type-list">${rows}</ul>
-              </section>`;
-          })
-          .join("");
-
-        listEl.querySelectorAll<HTMLButtonElement>("button.email-send").forEach((btn) => {
-          btn.addEventListener("click", () => {
-            void sendPreview(btn.dataset.type ?? "");
-          });
-        });
+      function setStatus(message: string, state?: "ok" | "error") {
+        statusEl.hidden = !message;
+        statusEl.textContent = message;
+        if (state) statusEl.dataset.state = state;
+        else delete statusEl.dataset.state;
       }
 
       function setBusy(typeId: string | null) {
-        sendingId = typeId;
-        listEl.querySelectorAll<HTMLButtonElement>("button.email-send").forEach((btn) => {
-          const active = btn.dataset.type === typeId;
-          btn.disabled = typeId != null;
-          btn.textContent = active ? "Sending…" : "Send preview";
-        });
+        busy = typeId != null;
+        for (const btn of buttons) {
+          btn.disabled = busy;
+          btn.textContent = btn.dataset.type === typeId ? "Sending…" : "Send preview";
+        }
       }
 
       async function sendPreview(typeId: string) {
-        if (!typeId || sendingId) return;
+        if (!typeId || busy) return;
         setBusy(typeId);
-        setAction("");
+        setStatus("");
         try {
-          const body: { to?: string } = {};
-          const override = toInput.value.trim();
-          if (override) body.to = override;
-
+          const to = toInput.value.trim();
           const res = await fetch(`${apiOrigin}/admin-ui/dev/emails/${encodeURIComponent(typeId)}`, {
             method: "POST",
             credentials: "include",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify(body),
+            body: JSON.stringify(to ? { to } : {}),
           });
           const payload = (await res.json().catch(() => null)) as {
             ok?: boolean;
             to?: string;
             subject?: string;
-            error?: { message?: string; code?: string };
+            error?: { message?: string };
           } | null;
 
           if (!res.ok || !payload?.ok || !payload.to) {
-            const msg =
+            setStatus(
               payload?.error?.message ||
-              (res.status === 503
-                ? "Email Sending is not configured on this environment."
-                : `Could not send (${res.status}).`);
-            setAction(msg, "error");
+                (res.status === 503
+                  ? "Email Sending is not configured on this environment."
+                  : `Could not send (${res.status}).`),
+              "error",
+            );
             return;
           }
-
-          setAction(`Sent “${payload.subject ?? typeId}” to ${payload.to}`, "ok");
+          setStatus(`Sent “${payload.subject ?? typeId}” to ${payload.to}`, "ok");
         } catch {
-          setAction("Could not send the preview email.", "error");
+          setStatus("Could not send the preview email.", "error");
         } finally {
           setBusy(null);
         }
       }
 
       onSession((user) => {
-        if (user?.email && !toInput.value) {
-          toInput.placeholder = user.email;
-          toInput.value = user.email;
-        }
+        if (user?.email && !toInput.value) toInput.value = user.email;
       });
 
-      void (async () => {
-        try {
-          const res = await fetch(`${apiOrigin}/admin-ui/dev/emails`, {
-            credentials: "include",
-            cache: "no-store",
-          });
-          if (!res.ok) throw new Error(`list failed: ${res.status}`);
-          const body = (await res.json()) as { types: PreviewType[] };
-          statusEl.textContent = "";
-          renderList(body.types ?? []);
-        } catch {
-          statusEl.textContent = "Could not load email templates.";
-        }
-      })();
+      for (const btn of buttons) {
+        btn.addEventListener("click", () => void sendPreview(btn.dataset.type ?? ""));
+      }
     });
   </script>
 </AdminLayout>
