@@ -1126,6 +1126,30 @@ describe("GET /v1/:workspace/files list + meta.* filter", () => {
     expect(json.error.code).toBe("file_metadata_too_many_filters");
     expect(json.error.details).toEqual({ limit: 24, count: 25 });
   });
+
+  it("hydrates queryable metadata onto list rows when ?metadata=1 is set", async () => {
+    const { env } = await makeEnv();
+    await putShot(env, {
+      headers: { "X-Uploads-Meta-Path": "/settings", "X-Uploads-Meta-State": "before" },
+    });
+
+    const res = await listFiles(env, "?prefix=screenshots/&metadata=1");
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { items: ListedFile[] };
+    expect(json.items[0].key).toBe("screenshots/shot.png");
+    expect(json.items[0].metadata).toEqual({ path: "/settings", state: "before" });
+  });
+
+  it("omits metadata from list rows when the param is absent", async () => {
+    const { env } = await makeEnv();
+    await putShot(env, { headers: { "X-Uploads-Meta-Path": "/settings" } });
+
+    const res = await listFiles(env, "?prefix=screenshots/");
+
+    const json = (await res.json()) as { items: { metadata?: object }[] };
+    expect(json.items[0].metadata).toBeUndefined();
+  });
 });
 
 describe("PUT /v1/:workspace/files uploader attribution (issue #340)", () => {

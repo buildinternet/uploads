@@ -12,6 +12,7 @@ import {
 import {
   findObjectsByMetadata,
   getFileMetadata,
+  getMetadataForKeys,
   META_MAX_KEYS,
   setFileMetadata,
   validateMetadataFilters,
@@ -248,13 +249,25 @@ export const files = new Hono<WorkspaceVars>()
 
     const { prefix, cursor } = query;
     const limit = Number(c.req.query("limit") ?? 100) || 100;
-    return c.json(
-      await listObjects(c.env, c.get("workspace"), {
-        prefix,
-        limit,
-        cursor,
-      }),
+    const page = await listObjects(c.env, c.get("workspace"), { prefix, limit, cursor });
+
+    // `?metadata=1` hydrates each row's queryable D1 metadata — same spelling
+    // as `GET /v1/:workspace/files/:key?metadata=1` and the same hydration the
+    // session-authed `/me/workspaces/:name/files` already does. Unfiltered by
+    // design: this is a general-purpose listing, not the managed-comment path
+    // (which narrows to `path`/`state` at its own query — issue #365).
+    const metadataParam = c.req.query("metadata");
+    if (metadataParam !== "1" && metadataParam !== "true") return c.json(page);
+
+    const metaByKey = await getMetadataForKeys(
+      c.env.DB,
+      c.get("workspaceName"),
+      page.items.map((item) => item.key),
     );
+    return c.json({
+      ...page,
+      items: page.items.map((item) => ({ ...item, metadata: metaByKey.get(item.key) })),
+    });
   })
 
   // Metadata now lives on the key-at-tail routes (same shape PUT/GET/DELETE

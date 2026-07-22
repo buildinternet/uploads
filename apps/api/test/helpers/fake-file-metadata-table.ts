@@ -112,12 +112,21 @@ export class FileMetadataTable {
       return { success: true, results: results.slice(0, limit) as T[], meta: {} };
     }
     if (normalizedSql.startsWith("SELECT object_key, meta_key, meta_value FROM file_metadata")) {
-      const [workspace, ...keys] = args as [string, ...string[]];
+      // getMetadataForKeys binds (workspace, ...objectKeys, ...metaKeys). The
+      // trailing meta-key filter (issue #365) is optional, so split the args by
+      // how many `?` placeholders the IN-filter actually carries.
+      const metaKeyCount = (normalizedSql.match(/AND meta_key IN \(([^)]*)\)/)?.[1] ?? "")
+        .split(",")
+        .filter((placeholder) => placeholder.trim() === "?").length;
+      const [workspace, ...rest] = args as [string, ...string[]];
+      const keys = metaKeyCount > 0 ? rest.slice(0, -metaKeyCount) : rest;
+      const wanted = metaKeyCount > 0 ? new Set(rest.slice(-metaKeyCount)) : undefined;
       const results: { object_key: string; meta_key: string; meta_value: string }[] = [];
       for (const key of keys) {
         const map = this.metadata.get(this.scopeKey(workspace, key));
         if (!map) continue;
         for (const [meta_key, meta_value] of map.entries()) {
+          if (wanted && !wanted.has(meta_key)) continue;
           results.push({ object_key: key, meta_key, meta_value });
         }
       }

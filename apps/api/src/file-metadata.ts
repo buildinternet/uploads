@@ -374,14 +374,25 @@ const METADATA_LOOKUP_CHUNK = 100;
  * metadata each key already has. Keys with no rows are simply absent from
  * the returned map (not present with an empty object). Chunks the `keys`
  * list to stay under D1/SQLite's bound-parameter limit per statement.
+ *
+ * `opts.metaKeys` narrows the SELECT to the named meta keys (issue #365).
+ * Prefer it on hot paths: the filter rides the `(workspace, object_key,
+ * meta_key)` primary-key index, so the read stays flat at ~3-5 D1 rows per
+ * object key however many keys that object carries. An empty array is treated
+ * as "no filter", not "select nothing" — a silently empty result map is the
+ * worse failure mode for a caller that built the list dynamically.
  */
 export async function getMetadataForKeys(
   db: D1Database,
   workspace: string,
   keys: string[],
+  opts: { metaKeys?: string[] } = {},
 ): Promise<Map<string, Record<string, string>>> {
   const out = new Map<string, Record<string, string>>();
   if (keys.length === 0) return out;
+
+  const metaKeys = opts.metaKeys?.length ? opts.metaKeys : undefined;
+  const metaFilter = metaKeys ? ` AND meta_key IN (${metaKeys.map(() => "?").join(", ")})` : "";
 
   for (let i = 0; i < keys.length; i += METADATA_LOOKUP_CHUNK) {
     const chunk = keys.slice(i, i + METADATA_LOOKUP_CHUNK);
@@ -389,9 +400,9 @@ export async function getMetadataForKeys(
     const result = await db
       .prepare(
         `SELECT object_key, meta_key, meta_value FROM file_metadata
-         WHERE workspace = ? AND object_key IN (${placeholders})`,
+         WHERE workspace = ? AND object_key IN (${placeholders})${metaFilter}`,
       )
-      .bind(workspace, ...chunk)
+      .bind(workspace, ...chunk, ...(metaKeys ?? []))
       .all<{ object_key: string; meta_key: string; meta_value: string }>();
     for (const row of result.results) {
       let map = out.get(row.object_key);

@@ -678,7 +678,7 @@ describe("workspace github-comment settings editing", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       workspace: "acme",
-      settings: { githubCommentLinkToFilePage: null },
+      settings: { githubCommentLinkToFilePage: null, githubCommentShowMetadata: null },
     });
   });
 
@@ -688,7 +688,7 @@ describe("workspace github-comment settings editing", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       workspace: "acme",
-      settings: { githubCommentLinkToFilePage: false },
+      settings: { githubCommentLinkToFilePage: false, githubCommentShowMetadata: null },
     });
   });
 
@@ -706,7 +706,7 @@ describe("workspace github-comment settings editing", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       workspace: "acme",
-      settings: { githubCommentLinkToFilePage: false },
+      settings: { githubCommentLinkToFilePage: false, githubCommentShowMetadata: null },
     });
     const saved = JSON.parse(store.get("ws:acme")!);
     expect(saved.githubCommentLinkToFilePage).toBe(false);
@@ -829,6 +829,57 @@ describe("workspace github-comment settings editing", () => {
       env,
     );
     expect(res.status).toBe(429);
+  });
+
+  it("PATCH sets githubCommentShowMetadata on the record", async () => {
+    const { env, store } = settingsEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentShowMetadata: false }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      workspace: "acme",
+      settings: { githubCommentLinkToFilePage: null, githubCommentShowMetadata: false },
+    });
+    expect(JSON.parse(store.get("ws:acme")!).githubCommentShowMetadata).toBe(false);
+  });
+
+  it("PATCH rejects a non-boolean githubCommentShowMetadata", async () => {
+    const { env } = settingsEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentShowMetadata: "no" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH leaves githubCommentShowMetadata unchanged when omitted", async () => {
+    const { env, store } = settingsEnv(ADMIN_USER, {
+      ...REC,
+      githubCommentShowMetadata: false,
+    });
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentLinkToFilePage: true }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(store.get("ws:acme")!).githubCommentShowMetadata).toBe(false);
   });
 });
 

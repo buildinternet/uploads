@@ -132,3 +132,54 @@ describe("metadata CRUD client methods", () => {
     expect(result.cursor).toBeNull();
   });
 });
+
+describe("list metadata hydration", () => {
+  it("requests metadata=1 and surfaces the hydrated map on list rows", async () => {
+    let seenUrl = "";
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      seenUrl = String(input);
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              key: "gh/acme/web/pull/12/before.webp",
+              url: "https://storage.test/before.webp",
+              metadata: { path: "/settings", state: "before" },
+            },
+          ],
+          cursor: null,
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = createUploadsClient({
+      apiUrl: "https://api.test",
+      workspace: "test",
+      token: "up_test_x",
+    });
+
+    const items = await client.listAll({ prefix: "gh/acme/web/pull/12/", metadata: true });
+
+    expect(seenUrl).toContain("metadata=1");
+    expect(items[0].metadata).toEqual({ path: "/settings", state: "before" });
+  });
+
+  it("omits the param when metadata is not requested", async () => {
+    let seenUrl = "";
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      seenUrl = String(input);
+      return new Response(JSON.stringify({ items: [], cursor: null }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = createUploadsClient({
+      apiUrl: "https://api.test",
+      workspace: "test",
+      token: "up_test_x",
+    });
+
+    await client.listAll({ prefix: "gh/" });
+
+    expect(seenUrl).not.toContain("metadata");
+  });
+});

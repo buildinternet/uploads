@@ -58,6 +58,8 @@ export interface ListOptions {
   prefix?: string;
   limit?: number;
   cursor?: string;
+  /** Hydrate each row's queryable D1 metadata (`?metadata=1`). */
+  metadata?: boolean;
 }
 
 export interface FindFilesOptions {
@@ -114,6 +116,8 @@ export interface ListItem {
   pageUrl?: string;
   size?: number;
   uploaded?: string;
+  /** Present only when listed with `metadata: true`, and only for keys that have rows. */
+  metadata?: Record<string, string>;
 }
 
 export interface ListResult {
@@ -816,6 +820,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     if (opts.prefix) params.set("prefix", opts.prefix);
     if (opts.limit != null) params.set("limit", String(opts.limit));
     if (opts.cursor) params.set("cursor", opts.cursor);
+    if (opts.metadata) params.set("metadata", "1");
     const qs = params.toString();
     const page = await request<ListResult>("GET", `${filesBase(config)}${qs ? `?${qs}` : ""}`);
     return {

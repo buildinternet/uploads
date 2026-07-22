@@ -193,6 +193,14 @@ export interface AttachmentItem {
   embedUrl?: string | null;
   /** Canonical `/f/` file-page URL (server-computed). Preferred click-through target; falls back to `url`. */
   pageUrl?: string | null;
+  /**
+   * The only canonical metadata the managed comment renders (issue #365).
+   * Deliberately two named fields rather than `Record<string, string>`: the
+   * comment is posted publicly, and keeping the set narrow at the type level
+   * mirrors the server-side query filter that never fetches EXIF-derived
+   * keys like `device`/`software` for this path.
+   */
+  meta?: { path?: string; state?: string };
 }
 
 /** A public gallery linked to the PR or issue whose managed comment is syncing. */
@@ -235,6 +243,53 @@ function escapeHtmlAttr(s: string): string {
 
 function escapeHtmlText(s: string): string {
   return escapeHtmlAttr(s).replace(/'/g, "&#39;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Backslash-escape the markdown metacharacters that can appear in a metadata
+ * value. `~` is in the set because GitHub's strikethrough extension treats a
+ * matching pair of ONE or two tildes as markup, so an unescaped `/a~b~c` would
+ * render with `b` struck through.
+ */
+function escapeMarkdownText(s: string): string {
+  return s.replace(/([\\`*_[\]~])/g, "\\$1");
+}
+
+/**
+ * An attachment's caption parts — `path`, then `state` (issue #365). Empty
+ * when neither is usable, so callers emit nothing at all and a body with no
+ * metadata stays byte-identical to the pre-#365 render.
+ *
+ * Neither value is pre-sanitized: metadata values are printable ASCII up to
+ * 512 chars, and while the CLI validates `--state` against a closed enum,
+ * `PATCH /v1/:workspace/files/:key` can set any valid metadata value. A
+ * whitespace-only value passes that validation (length-1 printable ASCII), so
+ * treat it as absent rather than rendering a dangling separator.
+ */
+function metaCaptionParts(meta: AttachmentItem["meta"]): string[] {
+  const parts: string[] = [];
+  for (const value of [meta?.path, meta?.state]) {
+    const trimmed = value?.trim();
+    if (trimmed) parts.push(trimmed);
+  }
+  return parts;
+}
+
+/** `<sub>` caption body for an inline image, or null when there is nothing to say. */
+function metaCaptionHtml(meta: AttachmentItem["meta"]): string | null {
+  const parts = metaCaptionParts(meta);
+  return parts.length > 0 ? parts.map(escapeHtmlText).join(" · ") : null;
+}
+
+/**
+ * ` · …` suffix for a markdown list row, or `""` when there is nothing to add.
+ * HTML-escapes first, then markdown-escapes: HTML escaping introduces no
+ * backslashes or brackets, so the markdown pass cannot corrupt its entities.
+ */
+function metaCaptionMarkdown(meta: AttachmentItem["meta"]): string {
+  const parts = metaCaptionParts(meta);
+  if (parts.length === 0) return "";
+  return ` · ${parts.map((p) => escapeMarkdownText(escapeHtmlText(p))).join(" · ")}`;
 }
 
 /**
@@ -291,11 +346,13 @@ export function attachmentsCommentBody(
       const href = escapeHtmlAttr(link ?? (src as string));
       const imgSrc = escapeHtmlAttr(src as string);
       lines.push(`<a href="${href}"><img width="${w}" alt="${alt}" src="${imgSrc}"></a>`);
+      const caption = metaCaptionHtml(item.meta);
+      if (caption) lines.push(`<sub>${caption}</sub>`);
       lines.push("");
     } else if (link) {
-      lines.push(`- [${name}](${link})`);
+      lines.push(`- [${name}](${link})${metaCaptionMarkdown(item.meta)}`);
     } else {
-      lines.push(`- ${name}`);
+      lines.push(`- ${name}${metaCaptionMarkdown(item.meta)}`);
     }
   }
   if (overflowImages.length > 0) {
@@ -304,7 +361,8 @@ export function attachmentsCommentBody(
     for (const item of overflowImages) {
       const name = item.key.slice(item.key.lastIndexOf("/") + 1);
       const link = item.pageUrl ?? item.url;
-      lines.push(link ? `- [${name}](${link})` : `- ${name}`);
+      const suffix = metaCaptionMarkdown(item.meta);
+      lines.push(link ? `- [${name}](${link})${suffix}` : `- ${name}${suffix}`);
     }
     lines.push("", "</details>", "");
   }

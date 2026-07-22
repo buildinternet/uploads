@@ -92,6 +92,15 @@ export interface WorkspaceRecord {
    * links or any non-comment surface.
    */
   githubCommentLinkToFilePage?: boolean;
+  /**
+   * Governs whether the managed GitHub comment shows an upload's canonical
+   * `path`/`state` metadata (issue #365). Default (undefined/true) = show.
+   * When `false`, the comment renders filenames only and the server skips the
+   * metadata read entirely. Deliberately narrow: no other canonical key is
+   * ever read for this surface, because the comment is posted publicly on
+   * repos whose visibility uploads.sh does not check.
+   */
+  githubCommentShowMetadata?: boolean;
   /** Set by `DELETE /admin/workspaces/:name` (default/soft mode). Present → the workspace is soft-deleted. */
   deletedAt?: string;
   /** `deletedAt` + the grace window (`WORKSPACE_DELETE_GRACE_DAYS`); the retention sweep finalizes at/after this. */

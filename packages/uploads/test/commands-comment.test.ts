@@ -255,4 +255,34 @@ describe("syncAttachmentsComment", () => {
     );
     expect(res.via).toBe("gh");
   });
+
+  it("renders only path/state from a listing that carries every metadata key", async () => {
+    const client = listClient([
+      {
+        key: "gh/acme/web/pull/12/before.webp",
+        url: "https://storage.test/before.webp",
+        embedUrl: "https://embed.test/before.webp",
+        pageUrl: "https://uploads.sh/f/acme/before.webp",
+        metadata: {
+          path: "/settings",
+          state: "before",
+          device: "iPhone 15 Pro",
+          software: "Adobe Photoshop 26.0",
+        },
+      },
+    ] as never);
+
+    let posted = "";
+    const run: CommandRunner = (cmd, args, input) => {
+      if (args[1]?.includes("per_page=100")) return "[]";
+      if (input) posted = input;
+      return JSON.stringify({ id: 9 });
+    };
+
+    await syncAttachmentsComment(client, { repo: "acme/web", num: 12, kind: "pull" }, run, "acme");
+
+    expect(posted).toContain("<sub>/settings · before</sub>");
+    expect(posted).not.toContain("iPhone");
+    expect(posted).not.toContain("Photoshop");
+  });
 });
