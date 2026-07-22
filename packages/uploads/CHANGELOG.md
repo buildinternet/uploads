@@ -1,5 +1,17 @@
 # @buildinternet/uploads
 
+## 0.22.0
+
+### Minor Changes
+
+- c553499: Managed GitHub attachment comments now show an upload's canonical `path` and `state` metadata — a screenshot tagged `--state before` on `/settings` renders as `/settings · before` beneath the image instead of just its filename. Attachments without that metadata render exactly as before.
+- e87bca5: Device login now picks the workspace in the browser. `uploads login` works with
+  no flags for every account — the approval page lists the workspaces you can use,
+  creates one if you have none, and refuses to approve a workspace your account
+  can't reach instead of reporting success and failing in the terminal.
+  `--workspace` becomes an optional preselect; `--workspace <name> --create` still
+  provisions by name.
+
 ## 0.21.0
 
 ### Minor Changes
