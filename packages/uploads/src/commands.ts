@@ -1901,7 +1901,11 @@ export async function runStaged(
     await writeStdout(`${file.filename}  ${size}${staged}  ${file.url ?? "(no url)"}\n`);
   }
   process.stderr.write(`binding: ${result.binding.state} — ${result.binding.message}\n`);
-  process.stderr.write(`once the PR exists: uploads attach --promote\n`);
+  // Promote is pointless advice when the repo belongs to another workspace —
+  // the cross-tenant gate (#297) would reject it from here.
+  if (result.binding.state !== "other") {
+    process.stderr.write(`once the PR exists: uploads attach --promote\n`);
+  }
   return 0;
 }
 

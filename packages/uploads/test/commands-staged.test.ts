@@ -255,6 +255,30 @@ describe("runStaged: file listing", () => {
     expect(stderr).toContain("binding: self");
     expect(stderr).toContain("once the PR exists: uploads attach --promote");
   });
+
+  it("human mode omits the promote affordance when the repo is bound to another workspace", async () => {
+    const { client } = fakeClient({
+      items: [
+        {
+          key: "gh/o/r/branch/feature-thing/shot.png",
+          url: "https://x.test/shot.png",
+          size: 2048,
+          metadata: { "gh.staged-at": "2026-07-20T10:00:00Z" },
+        },
+      ],
+      repoLinkStatus: { binding: "other" },
+    });
+    const { stderr } = await withCapturedOutput(async () => {
+      await runStaged(
+        ctxWith(client),
+        ["--branch", "feature/thing", "--repo", "o/r"],
+        false,
+        noRun,
+      );
+    });
+    expect(stderr).toContain("binding: other");
+    expect(stderr).not.toContain("uploads attach --promote");
+  });
 });
 
 describe("runStaged: binding states", () => {

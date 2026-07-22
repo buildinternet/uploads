@@ -70,7 +70,9 @@ uploads staged --format json
 Same branch/repo resolution as `attach --branch` (current git branch by
 default, worktree-safe). Human mode prints one compact line per staged file
 (filename, size, `gh.staged-at`, public URL), then a `binding:` line and
-`once the PR exists: uploads attach --promote`. Nothing staged prints a
+`once the PR exists: uploads attach --promote` (the promote line is omitted
+for `binding: other` — promoting from a non-owning workspace would be
+rejected by the cross-tenant gate). Nothing staged prints a
 single zero-state line. `--format json` (or global `--json`) always emits a
 valid document — `{ repo, branch, files, binding }` — even with zero files;
 `files` is `[]`, never empty stdout.
