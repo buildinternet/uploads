@@ -27,8 +27,10 @@ public/sitemap.xml                   Public URL list (landing only)
 public/llms.txt                      Agent-oriented product summary
 public/auth.md                       Agent enrollment / bearer auth + hosted-MCP OAuth
 public/.well-known/api-catalog       RFC 9727 linkset
-public/.well-known/openapi.json      Summary OpenAPI for the REST API
+public/.well-known/integrations.json integrations.sh v3 surface declaration
+public/.well-known/openapi.json      Summary OpenAPI for the REST API (canonical copy)
 public/.well-known/mcp/              MCP server card (points at agents.uploads.sh)
+src/pages/openapi.json.ts            Re-serves the canonical spec at /openapi.json
 src/worker.ts                        Live agent-skills index implementation
 src/entry.ts                         Worker entry (Astro handler + markdown negotiation)
 src/markdown-negotiation.ts          Accept: text/markdown → HTML→Markdown for agents
@@ -67,11 +69,29 @@ rules there.
 | robots.txt      | `/robots.txt`                                                        |
 | sitemap         | `/sitemap.xml` (referenced from robots)                              |
 | Link headers    | homepage `/` via `_headers`                                          |
+| Integrations    | `/.well-known/integrations.json` (integrations.sh v3 declaration)    |
 | API catalog     | `/.well-known/api-catalog`                                           |
+| OpenAPI         | `/.well-known/openapi.json` (canonical) and `/openapi.json` (probe)  |
 | MCP server card | `/.well-known/mcp/server-card.json`                                  |
 | Agent skills    | `/.well-known/agent-skills/index.json`                               |
 | Auth for agents | `/auth.md` (bearer / invite; also documents the hosted-MCP OAuth AS) |
 | oEmbed          | `/oembed?url=…` for public `/f/…` and `/g/…` pages (JSON only)       |
+
+### Integration surfaces (`/.well-known/integrations.json`)
+
+One self-contained v3 document declaring every way an agent can integrate: the
+REST API (`api.uploads.sh`), the hosted MCP server (`agents.uploads.sh/mcp`,
+streamable-http only), and the CLI (`@buildinternet/uploads`). Credentials are
+defined once in the top-level `credentials` map and referenced by id from each
+surface's `auth`; the hosted MCP lists two entries because a workspace bearer
+token **or** an OAuth 2.1 token both work.
+
+Read by [integrations.sh](https://integrations.sh/uploads.sh/), which silently
+ignores the file if it fails to parse or match the schema — so
+`src/integrations-manifest.test.ts` asserts the shape (v3, credential ids
+resolve, every `basis.source` is this origin's canonical URL). Only declare
+surfaces that exist: no GraphQL, no agent card, and `storage.uploads.sh` is
+raw hosted bytes rather than an API.
 
 ### Agent skills — always track GitHub `main`
 

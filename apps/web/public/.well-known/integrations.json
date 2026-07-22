@@ -1,0 +1,146 @@
+{
+  "version": 3,
+  "summary": "File hosting for agents and humans — upload a file, get a public URL, embed it in GitHub pull requests and issues. Workspace-scoped REST API, hosted MCP server, and a CLI. Open source for self-hosting.",
+  "credentials": {
+    "workspace-token": {
+      "type": "bearer",
+      "label": "uploads.sh workspace token",
+      "generateUrl": "https://uploads.sh/account/developers",
+      "setup": "Sign in at https://uploads.sh/login (GitHub or email magic link). You need access to a workspace: create one at https://uploads.sh/account/workspaces/new (requires a linked GitHub account) or accept an invitation from a workspace admin. Then:\n\n```bash\nnpm install -g @buildinternet/uploads\nuploads login\n```\n\n`uploads login` runs a browser device-authorization flow and saves `UPLOADS_TOKEN` (with `UPLOADS_API_URL` and `UPLOADS_WORKSPACE`) to the shared config file; the raw token is never printed. Pass `--workspace <name>` if the account can reach more than one. Tokens look like `up_<workspace>_…`, are scoped to a single workspace, carry `files:read` and `files:write` by default (`files:delete` must be granted by an admin), and expire after 90 days. Full details: https://uploads.sh/auth.md",
+      "fields": {
+        "UPLOADS_TOKEN": {
+          "secret": true,
+          "description": "Workspace bearer token (up_<workspace>_…). Sent as `Authorization: Bearer <token>`; also read from the environment by the CLI."
+        }
+      }
+    },
+    "mcp-oauth": {
+      "type": "oauth2",
+      "label": "uploads.sh OAuth 2.1 (hosted MCP only)",
+      "setup": "Applies only to https://agents.uploads.sh/mcp — the REST API does not accept OAuth tokens in v1. The authorization server is https://auth.uploads.sh (issuer https://auth.uploads.sh/api/auth). It supports PKCE and dynamic client registration (RFC 7591), so an MCP client can register itself with no manual setup, and it is discoverable from the MCP endpoint via RFC 9728:\n\n```bash\ncurl -s https://agents.uploads.sh/.well-known/oauth-protected-resource\ncurl -s https://auth.uploads.sh/.well-known/oauth-authorization-server\n```\n\nA human signs in and grants scopes (`files:read`, `files:write`, `files:delete`) at https://uploads.sh/oauth/consent. Each grant is scoped to exactly one workspace, carried in the token's `workspace` claim; a token minted without one is refused with a `workspace_required` error. There is no OIDC surface. Full details: https://uploads.sh/auth.md"
+    }
+  },
+  "surfaces": [
+    {
+      "type": "http",
+      "slug": "uploads-api",
+      "name": "uploads.sh REST API",
+      "url": "https://api.uploads.sh",
+      "spec": "https://uploads.sh/openapi.json",
+      "docs": "https://github.com/buildinternet/uploads/blob/main/docs/api.md",
+      "basis": {
+        "via": "declared",
+        "source": "https://uploads.sh/.well-known/integrations.json"
+      },
+      "auth": {
+        "status": "required",
+        "entries": [
+          {
+            "use": [
+              {
+                "id": "workspace-token",
+                "mechanics": {
+                  "source": "http",
+                  "in": "header",
+                  "headerName": "Authorization",
+                  "scheme": "Bearer"
+                }
+              }
+            ],
+            "basis": {
+              "via": "declared",
+              "source": "https://uploads.sh/.well-known/integrations.json"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "mcp",
+      "slug": "uploads-mcp",
+      "name": "uploads.sh hosted MCP server",
+      "url": "https://agents.uploads.sh/mcp",
+      "transports": ["streamable-http"],
+      "docs": "https://uploads.sh/docs/agents",
+      "basis": {
+        "via": "declared",
+        "source": "https://uploads.sh/.well-known/integrations.json"
+      },
+      "auth": {
+        "status": "required",
+        "entries": [
+          {
+            "use": [
+              {
+                "id": "workspace-token",
+                "mechanics": {
+                  "source": "http",
+                  "in": "header",
+                  "headerName": "Authorization",
+                  "scheme": "Bearer"
+                }
+              }
+            ],
+            "basis": {
+              "via": "declared",
+              "source": "https://uploads.sh/.well-known/integrations.json"
+            }
+          },
+          {
+            "use": [
+              {
+                "id": "mcp-oauth",
+                "mechanics": {
+                  "source": "well-known"
+                }
+              }
+            ],
+            "basis": {
+              "via": "declared",
+              "source": "https://uploads.sh/.well-known/integrations.json"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "cli",
+      "slug": "uploads-cli",
+      "name": "uploads CLI",
+      "command": "uploads",
+      "packages": [
+        {
+          "registryType": "npm",
+          "identifier": "@buildinternet/uploads",
+          "runtimeHint": "npx"
+        }
+      ],
+      "docs": "https://uploads.sh/docs",
+      "basis": {
+        "via": "declared",
+        "source": "https://uploads.sh/.well-known/integrations.json"
+      },
+      "auth": {
+        "status": "required",
+        "entries": [
+          {
+            "use": [
+              {
+                "id": "workspace-token",
+                "mechanics": {
+                  "source": "cli",
+                  "command": "uploads login",
+                  "env": ["UPLOADS_TOKEN"]
+                }
+              }
+            ],
+            "basis": {
+              "via": "declared",
+              "source": "https://uploads.sh/.well-known/integrations.json"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

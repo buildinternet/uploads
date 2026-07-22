@@ -61,17 +61,18 @@ inferred from the `up_<workspace>_…` token form).
 
 ## Discovery documents
 
-| Resource               | URL                                                            |
-| ---------------------- | -------------------------------------------------------------- |
-| This file              | https://uploads.sh/auth.md                                     |
-| Agent summary          | https://uploads.sh/llms.txt                                    |
-| API catalog (RFC 9727) | https://uploads.sh/.well-known/api-catalog                     |
-| OpenAPI (summary)      | https://uploads.sh/.well-known/openapi.json                    |
-| MCP server card        | https://uploads.sh/.well-known/mcp/server-card.json            |
-| Agent skills index     | https://uploads.sh/.well-known/agent-skills/index.json         |
-| Narrative API docs     | https://github.com/buildinternet/uploads/blob/main/docs/api.md |
-| API health             | https://api.uploads.sh/health                                  |
-| MCP health             | https://agents.uploads.sh/health                               |
+| Resource               | URL                                                              |
+| ---------------------- | ---------------------------------------------------------------- |
+| This file              | https://uploads.sh/auth.md                                       |
+| Agent summary          | https://uploads.sh/llms.txt                                      |
+| Integration surfaces   | https://uploads.sh/.well-known/integrations.json                 |
+| API catalog (RFC 9727) | https://uploads.sh/.well-known/api-catalog                       |
+| OpenAPI (summary)      | https://uploads.sh/.well-known/openapi.json (also /openapi.json) |
+| MCP server card        | https://uploads.sh/.well-known/mcp/server-card.json              |
+| Agent skills index     | https://uploads.sh/.well-known/agent-skills/index.json           |
+| Narrative API docs     | https://github.com/buildinternet/uploads/blob/main/docs/api.md   |
+| API health             | https://api.uploads.sh/health                                    |
+| MCP health             | https://agents.uploads.sh/health                                 |
 
 ## OAuth for the hosted MCP
 
