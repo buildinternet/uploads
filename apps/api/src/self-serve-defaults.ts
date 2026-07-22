@@ -24,6 +24,9 @@ export function selfServeWorkspaceRecord(args: {
 }): WorkspaceRecord {
   return {
     name: args.name,
+    // First write of a brand-new record (issue #387); every later mutation
+    // goes through `mutateWorkspaceRecord`, which bumps this.
+    version: 1,
     provider: "r2",
     bucket: "uploads-default",
     binding: "UPLOADS_DEFAULT",

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { fakeRegistry } from "./fake-kv";
 import { encryptSecret } from "../src/secrets";
 import { reencryptRegistryCredentials } from "../src/reencrypt-registry";
 import type { WorkspaceRecord } from "../src/workspace";
@@ -10,43 +11,25 @@ describe("reencryptRegistryCredentials", () => {
   it("rewrites credentials sealed with the previous key", async () => {
     const sealedAk = await encryptSecret(PREVIOUS, "AKIA");
     const sealedSk = await encryptSecret(PREVIOUS, "secret");
-    const store = new Map<string, string>([
-      [
-        "ws:byo",
-        JSON.stringify({
-          provider: "r2",
-          bucket: "other",
-          accessKeyId: sealedAk,
-          secretAccessKey: sealedSk,
-        } satisfies WorkspaceRecord),
-      ],
-      [
-        "ws:shared",
-        JSON.stringify({
-          provider: "r2",
-          bucket: "uploads-default",
-          prefix: "shared/",
-        } satisfies WorkspaceRecord),
-      ],
-    ]);
+    const registry = fakeRegistry({
+      byo: {
+        provider: "r2",
+        bucket: "other",
+        accessKeyId: sealedAk,
+        secretAccessKey: sealedSk,
+      } satisfies WorkspaceRecord,
+      shared: {
+        provider: "r2",
+        bucket: "uploads-default",
+        prefix: "shared/",
+      } satisfies WorkspaceRecord,
+    });
+    const store = registry.store;
 
     const env = {
       WORKSPACE_SECRETS_KEY: CURRENT,
       WORKSPACE_SECRETS_KEY_PREVIOUS: PREVIOUS,
-      REGISTRY: {
-        list: async () => ({
-          keys: [...store.keys()].map((name) => ({ name })),
-          list_complete: true as const,
-          cursor: undefined,
-        }),
-        get: async (key: string) => {
-          const raw = store.get(key);
-          return raw ? (JSON.parse(raw) as WorkspaceRecord) : null;
-        },
-        put: async (key: string, value: string) => {
-          store.set(key, value);
-        },
-      },
+      REGISTRY: registry,
     } as unknown as Env;
 
     const dry = await reencryptRegistryCredentials(env, { dryRun: true });

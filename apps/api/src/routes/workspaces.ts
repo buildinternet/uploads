@@ -44,6 +44,7 @@ import {
   workspaceGovernanceAuth,
   type GovernanceVars,
 } from "../workspace";
+import { mutateWorkspaceRecord } from "../workspace-mutate";
 
 const HASH_PREFIX_LEN = 8;
 
@@ -285,16 +286,19 @@ workspaces.delete("/:name", sessionAuth, requireSessionUser, async (c) => {
   }
   const user = c.get("sessionUser")!;
 
-  const record = await loadOwnedSelfServeRecord(c, name, user.id);
-  if (record.deletedAt) {
-    throw new ConflictError("workspace is already deleted", {
-      code: "already_deleted",
-      details: { deletedAt: record.deletedAt, purgeAt: record.purgeAt },
-    });
-  }
-
-  const updated = stampSoftDelete(record);
-  await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(updated));
+  // Authorization is settled against the record as read here; the mutable
+  // state check (already-deleted) runs inside the mutation against the
+  // freshest record (issue #387).
+  await loadOwnedSelfServeRecord(c, name, user.id);
+  const updated = await mutateWorkspaceRecord(c.env, name, (current) => {
+    if (current.deletedAt) {
+      throw new ConflictError("workspace is already deleted", {
+        code: "already_deleted",
+        details: { deletedAt: current.deletedAt, purgeAt: current.purgeAt },
+      });
+    }
+    return stampSoftDelete(current);
+  });
 
   console.log(
     JSON.stringify({
@@ -330,21 +334,21 @@ workspaces.post("/:name/restore", sessionAuth, requireSessionUser, async (c) => 
   }
   const user = c.get("sessionUser")!;
 
-  const record = await loadOwnedSelfServeRecord(c, name, user.id);
-  if (!record.deletedAt) {
-    throw new ConflictError("workspace is not deleted", { code: "not_deleted" });
-  }
-  if (isPastGrace(record.purgeAt)) {
-    throw new AppError({
-      type: "conflict",
-      code: "grace_expired",
-      message: "grace period has expired",
-      status: 410,
-    });
-  }
-
-  const rest = stampRestore(record);
-  await c.env.REGISTRY.put(`ws:${name}`, JSON.stringify(rest));
+  await loadOwnedSelfServeRecord(c, name, user.id);
+  await mutateWorkspaceRecord(c.env, name, (current) => {
+    if (!current.deletedAt) {
+      throw new ConflictError("workspace is not deleted", { code: "not_deleted" });
+    }
+    if (isPastGrace(current.purgeAt)) {
+      throw new AppError({
+        type: "conflict",
+        code: "grace_expired",
+        message: "grace period has expired",
+        status: 410,
+      });
+    }
+    return stampRestore(current);
+  });
 
   console.log(
     JSON.stringify({ event: "workspace_restored", workspace: name, actor: "self_serve" }),

@@ -6,6 +6,7 @@
  */
 import { resealCredentialFields, secretsKeyRingFromEnv, type SecretsKeyRing } from "./secrets";
 import type { WorkspaceRecord } from "./workspace";
+import { mutateWorkspaceRecord } from "./workspace-mutate";
 
 export interface ReencryptResult {
   dryRun: boolean;
@@ -66,28 +67,47 @@ export async function reencryptRegistryCredentials(
       }
 
       try {
-        const resealed = await resealCredentialFields(ring, {
-          accessKeyId: record.accessKeyId,
-          secretAccessKey: record.secretAccessKey,
+        if (dryRun) {
+          const resealed = await resealCredentialFields(ring, {
+            accessKeyId: record.accessKeyId,
+            secretAccessKey: record.secretAccessKey,
+          });
+          if (!resealed.changed) {
+            skipped += 1;
+            workspaces.push({ workspace: name, action: "skipped", reason: "already_current" });
+            continue;
+          }
+          updated += 1;
+          workspaces.push({ workspace: name, action: "would_update" });
+          continue;
+        }
+
+        // Reseal against the freshest record, inside the mutation (issue
+        // #387): this sweep walks every workspace, so an admin edit landing
+        // mid-sweep must not be reverted. The record read above only decides
+        // the cheap missing/no-credentials skips — resealing there too would
+        // pay for the crypto twice on every workspace the sweep rewrites.
+        let changed = false;
+        await mutateWorkspaceRecord(env, name, async (current) => {
+          const resealed = await resealCredentialFields(ring, {
+            accessKeyId: current.accessKeyId,
+            secretAccessKey: current.secretAccessKey,
+          });
+          changed = resealed.changed;
+          if (!changed) return null;
+          return {
+            ...current,
+            accessKeyId: resealed.accessKeyId,
+            secretAccessKey: resealed.secretAccessKey,
+          };
         });
-        if (!resealed.changed) {
+        if (!changed) {
           skipped += 1;
           workspaces.push({ workspace: name, action: "skipped", reason: "already_current" });
           continue;
         }
-        if (!dryRun) {
-          const next: WorkspaceRecord = {
-            ...record,
-            accessKeyId: resealed.accessKeyId,
-            secretAccessKey: resealed.secretAccessKey,
-          };
-          await env.REGISTRY.put(entry.name, JSON.stringify(next));
-        }
         updated += 1;
-        workspaces.push({
-          workspace: name,
-          action: dryRun ? "would_update" : "updated",
-        });
+        workspaces.push({ workspace: name, action: "updated" });
       } catch (err) {
         errors.push({
           workspace: name,
