@@ -679,4 +679,39 @@ describe("hosted comment tool (issue #392 stretch)", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toEqual([{ type: "text", text: expect.stringContaining("files:read") }]);
   });
+
+  it("rewrites an existing comment to the empty state once every attachment is gone", async () => {
+    // No attachment seeded → the workspace has nothing under the PR prefix, so
+    // the gathered body is the neutral empty state (count 0). A cached comment
+    // id makes upsertBotComment PATCH the existing comment directly — the empty
+    // body rewrites it in place; it is never deleted, and no new one is created.
+    const { env, githubCache } = await makeEnv({ boundTo: WS });
+    githubCache.store.set("ghinst:acme/widgets", { value: "42" });
+    githubCache.store.set("ghtok:42", { value: "cached-token" });
+    githubCache.store.set("ghcomment:test-ws:acme/widgets#12", { value: "5" });
+    let patchedBody: string | undefined;
+    const restore = stubGithubFetch((url, init) => {
+      if (url.includes("/issues/comments/5") && init.method === "PATCH") {
+        patchedBody = JSON.parse(String(init.body)).body as string;
+        return new Response(
+          JSON.stringify({ id: 5, html_url: "https://github.com/acme/widgets/pull/12#c5" }),
+          { status: 200 },
+        );
+      }
+      return new Response("nf", { status: 404 });
+    });
+    try {
+      const result = await callTool(env, "comment", { repo: "acme/widgets", pr: 12 });
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent).toEqual({
+        posted: true,
+        action: "updated",
+        count: 0,
+        commentUrl: "https://github.com/acme/widgets/pull/12#c5",
+      });
+      expect(patchedBody).toContain("_No attachments are currently associated");
+    } finally {
+      restore();
+    }
+  });
 });
