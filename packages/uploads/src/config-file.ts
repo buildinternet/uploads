@@ -16,6 +16,7 @@ export const UPLOADS_CONFIG_KEYS = [
   "UPLOADS_KEEP_EXIF",
   "UPLOADS_NO_AUTO_META",
   "UPLOADS_SCREENSHOT_VIA",
+  "UPLOADS_NO_NUDGE",
 ] as const;
 
 export type UploadsConfigKey = (typeof UPLOADS_CONFIG_KEYS)[number];
@@ -34,6 +35,8 @@ export interface PutDefaults {
   keepExif?: boolean;
   /** When true, `put` does NOT auto-resolve/stamp gh.* on the default path. */
   noAutoMeta?: boolean;
+  /** When true, `put` never prints the bare-put --pr/attach nudge (issue #393). */
+  noNudge?: boolean;
 }
 
 const PUT_DEFAULT_KEY_MAP: Record<keyof PutDefaults, UploadsConfigKey> = {
@@ -45,6 +48,7 @@ const PUT_DEFAULT_KEY_MAP: Record<keyof PutDefaults, UploadsConfigKey> = {
   noOptimize: "UPLOADS_NO_OPTIMIZE",
   keepExif: "UPLOADS_KEEP_EXIF",
   noAutoMeta: "UPLOADS_NO_AUTO_META",
+  noNudge: "UPLOADS_NO_NUDGE",
 };
 
 function isTruthyConfigFlag(value: string | undefined): boolean {
@@ -63,6 +67,7 @@ export function putDefaultsToConfigValues(defaults: PutDefaults): UploadsConfigV
   if (defaults.noOptimize) out.UPLOADS_NO_OPTIMIZE = "1";
   if (defaults.keepExif) out.UPLOADS_KEEP_EXIF = "1";
   if (defaults.noAutoMeta) out.UPLOADS_NO_AUTO_META = "1";
+  if (defaults.noNudge) out.UPLOADS_NO_NUDGE = "1";
   return out;
 }
 
@@ -79,6 +84,7 @@ function parsePutDefaultsFromRaw(raw: UploadsConfigValues): PutDefaults {
   if (isTruthyConfigFlag(raw.UPLOADS_NO_OPTIMIZE)) out.noOptimize = true;
   if (isTruthyConfigFlag(raw.UPLOADS_KEEP_EXIF)) out.keepExif = true;
   if (isTruthyConfigFlag(raw.UPLOADS_NO_AUTO_META)) out.noAutoMeta = true;
+  if (isTruthyConfigFlag(raw.UPLOADS_NO_NUDGE)) out.noNudge = true;
   return out;
 }
 
@@ -94,6 +100,7 @@ function parsePutDefaultsFromEnv(): PutDefaults {
   if (process.env.UPLOADS_NO_OPTIMIZE) raw.UPLOADS_NO_OPTIMIZE = process.env.UPLOADS_NO_OPTIMIZE;
   if (process.env.UPLOADS_KEEP_EXIF) raw.UPLOADS_KEEP_EXIF = process.env.UPLOADS_KEEP_EXIF;
   if (process.env.UPLOADS_NO_AUTO_META) raw.UPLOADS_NO_AUTO_META = process.env.UPLOADS_NO_AUTO_META;
+  if (process.env.UPLOADS_NO_NUDGE) raw.UPLOADS_NO_NUDGE = process.env.UPLOADS_NO_NUDGE;
   return parsePutDefaultsFromRaw(raw);
 }
 
@@ -159,6 +166,7 @@ export function mergePutDefaults(...layers: PutDefaults[]): PutDefaults {
     if (layer.noOptimize != null) out.noOptimize = layer.noOptimize;
     if (layer.keepExif != null) out.keepExif = layer.keepExif;
     if (layer.noAutoMeta != null) out.noAutoMeta = layer.noAutoMeta;
+    if (layer.noNudge != null) out.noNudge = layer.noNudge;
   }
   return out;
 }
