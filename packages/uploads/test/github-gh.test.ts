@@ -213,6 +213,40 @@ describe("upsertAttachmentsComment", () => {
     expect(patch.args).toContain("repos/o/r/issues/comments/7");
     expect(patch.input).toContain(marker);
   });
+
+  it("does not create a comment when createIfMissing is false and none exists", () => {
+    const { run, calls } = fakeRunner({
+      gh: (args) => {
+        if (args[1]?.includes("/comments?per_page=100")) {
+          return JSON.stringify([{ id: 1, body: "unrelated comment" }]);
+        }
+        throw new Error("must not create");
+      },
+    });
+    const result = upsertAttachmentsComment(target, "EMPTY BODY", run, undefined, {
+      createIfMissing: false,
+    });
+    expect(result).toEqual({ created: false, patched: false });
+    expect(calls).toHaveLength(1); // only the marker hunt — no create call.
+  });
+
+  it("patches an existing comment when createIfMissing is false", () => {
+    const { run, calls } = fakeRunner({
+      gh: (args) => {
+        if (args[1]?.includes("/comments?per_page=100")) {
+          return JSON.stringify([{ id: 42, body: `${ATTACHMENTS_MARKER}\nold body` }]);
+        }
+        return JSON.stringify({ id: 42 });
+      },
+    });
+    const result = upsertAttachmentsComment(target, "EMPTY BODY", run, undefined, {
+      createIfMissing: false,
+    });
+    expect(result).toEqual({ created: false, patched: true });
+    const patch = calls[1];
+    expect(patch.args).toContain("repos/o/r/issues/comments/42");
+    expect(patch.args).toContain("PATCH");
+  });
 });
 
 describe("resolveGhTitle", () => {

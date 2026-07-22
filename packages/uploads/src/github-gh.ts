@@ -259,7 +259,9 @@ export function upsertAttachmentsComment(
   body: string,
   run: CommandRunner = execRunner,
   marker: string = ATTACHMENTS_MARKER,
-): { created: boolean } {
+  opts: { createIfMissing?: boolean } = {},
+): { created: boolean; patched: boolean } {
+  const createIfMissing = opts.createIfMissing ?? true;
   const existing = findManagedComment(target, run, marker);
   if (existing) {
     run(
@@ -274,8 +276,9 @@ export function upsertAttachmentsComment(
       ],
       body,
     );
-    return { created: false };
+    return { created: false, patched: true };
   }
+  if (!createIfMissing) return { created: false, patched: false };
   run("gh", ["api", `repos/${target.repo}/issues/${target.num}/comments`, "-F", "body=@-"], body);
-  return { created: true };
+  return { created: true, patched: false };
 }

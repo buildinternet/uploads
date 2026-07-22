@@ -761,12 +761,14 @@ export async function syncAttachmentsComment(
     }),
   );
 
-  if (items.length === 0 && previewGalleries.length === 0)
-    return { action: "skipped", count: 0, via: "gh" };
-
   const marker = attachmentsMarker(workspace);
   const body = attachmentsCommentBody(items, previewGalleries, marker);
-  const { created } = upsertAttachmentsComment(target, body, run, marker);
+  const empty = items.length === 0 && previewGalleries.length === 0;
+  const { created, patched } = upsertAttachmentsComment(target, body, run, marker, {
+    createIfMissing: !empty,
+  });
+  // Empty + nothing to patch → no comment ever existed; leave it a no-op.
+  if (empty && !patched) return { action: "skipped", count: 0, via: "gh" };
   return {
     action: created ? "created" : "updated",
     count: items.length + previewGalleries.length,
@@ -2793,11 +2795,13 @@ export async function runComment(
     await writeJson({ ...target, ...result });
   } else if (!ctx.quiet) {
     const via = commentViaSuffix(result.via);
-    process.stderr.write(
+    const line =
       result.action === "skipped"
         ? `no attachments under ${ghKeyPrefix(target)} — nothing to do\n`
-        : `${result.action} attachments comment on ${target.repo}#${target.num} (${result.count} file${result.count === 1 ? "" : "s"})${via}\n`,
-    );
+        : result.count === 0
+          ? `cleared attachments comment on ${target.repo}#${target.num} — no files remaining${via}\n`
+          : `${result.action} attachments comment on ${target.repo}#${target.num} (${result.count} file${result.count === 1 ? "" : "s"})${via}\n`;
+    process.stderr.write(line);
   }
   return 0;
 }
