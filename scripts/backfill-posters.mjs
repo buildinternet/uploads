@@ -33,6 +33,22 @@
  * re-attempted (and re-skipped) on every run. This is a known, harmless
  * limitation — see docs/ops.md.
  *
+ * Visibility is preserved: the list response's `visibility` field (present
+ * only when an object is private) is forwarded as `X-Uploads-Visibility:
+ * private` on each re-PUT, so private videos stay private. Public items send
+ * no such header, matching the API's own public-by-default sanitizer.
+ *
+ * COST — NOT free, NOT lossless in one respect (see docs/ops.md for the
+ * full callout): every re-PUT is a real upload, so each candidate consumes
+ * one unit of the workspace's `maxUploadsPerPeriod` budget via
+ * `reserveUploads`, exactly like a brand-new upload would, even though no
+ * new object is being created. A large run can burn through a workspace's
+ * upload budget and start failing with 429s partway through, or crowd out
+ * real traffic sharing that budget. There is no admin bypass for this
+ * (fixing it requires a new endpoint, out of scope here) — check the
+ * workspace's current budget before a large run and use `--limit` to bound
+ * each invocation.
+ *
  * Usage (from monorepo root, with UPLOADS_API_URL / UPLOADS_WORKSPACE /
  * UPLOADS_TOKEN in .env, same names as .env.example):
  *   node --env-file=.env scripts/backfill-posters.mjs --workspace default --dry-run
@@ -155,12 +171,30 @@ export async function runBackfill({
         // No X-Uploads-Meta-* headers: existing D1 metadata is left
         // untouched (see files.ts hasCustomMeta comment). The write path
         // this hits calls generateAndStorePoster after storing.
+        //
+        // Visibility (issue #365 review, critical): putObject builds R2
+        // custom metadata fresh on every write and only sets the private
+        // flag when the request explicitly carries it (files-core.ts —
+        // `storedVisibility = opts?.visibility === "private" ? ... `).
+        // Without forwarding it here, every private video this script
+        // touches would silently flip to public on re-PUT, since
+        // store.upload metadata is full-replace, not a merge. `GET
+        // /v1/:ws/files` (files-core.ts listObjects) already surfaces
+        // `visibility: "private"` per item whenever the object is private
+        // (absent/undefined means public) — the same field
+        // headObjectJson/list responses use everywhere else in the API, so
+        // this is the cheapest honest source and needs no new endpoint.
+        // Forward it verbatim via the header the PUT route actually parses
+        // (`sanitizeVisibility(c.req.header("x-uploads-visibility"))`,
+        // apps/api/src/routes/files.ts) — omitted entirely for public
+        // items, matching the sanitizer's "anything but 'private'" default.
         const putRes = await fetchImpl(`${base}/v1/${workspace}/files/${item.key}`, {
           method: "PUT",
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": item.contentType,
             "X-Uploads-Replace": "1",
+            ...(item.visibility === "private" ? { "X-Uploads-Visibility": "private" } : {}),
           },
           body: bytes,
         });

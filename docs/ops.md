@@ -546,6 +546,26 @@ type isn't `video/mp4` (skip), object over 100 MB (skip, matches
 `POSTER_MAX_INPUT_BYTES`). Sleeps 3s between writes, comfortably under the
 `POSTER_LIMITER` ceiling of 30/min.
 
+**Visibility is preserved.** The re-PUT forwards `X-Uploads-Visibility:
+private` whenever the listing marks the object private (the `visibility`
+field `GET /v1/:ws/files` already returns per item); public objects send no
+such header. Without this the backfill would silently make every private
+video it touches public, since a PUT's R2 custom metadata is built fresh
+each time (full-replace, not a merge) and the private flag is only set when
+the request explicitly carries it.
+
+**Cost — not free.** Each re-PUT is a real upload through the normal write
+path, so every candidate consumes one unit of the workspace's
+`maxUploadsPerPeriod` budget (`reserveUploads`), exactly like a brand-new
+upload, even though no new object is created. There is no admin bypass for
+this (would need a new endpoint; out of scope for this script). Before a
+large run:
+
+- Check the workspace's current upload budget/usage first.
+- Use `--limit <n>` to bound how much budget a single run spends.
+- Expect a large backfill to compete with real user uploads for the same
+  budget, and to start failing with 429s if it exhausts it partway through.
+
 ## Deploys
 
 Code via Workers Builds / `pnpm run deploy`. D1 migrations on merge. npm CLI via changesets.
