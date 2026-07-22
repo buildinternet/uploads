@@ -96,8 +96,9 @@ const refsClass = variant === "inline" ? "refs refs--inline" : "refs";
     border-radius: var(--radius-lg, 10px);
     background: var(--panel);
   }
-  /* Nested inside the item-page rail — drop the outer card so chips sit like
-     the file share page's gh-chip under the filename. */
+  /* Nested inside the item-page rail — drop the outer card so chips sit flush
+     in the details column (file share page puts the PR as a byline under the
+     filename instead). */
   .refs--inline {
     margin: 0 0 12px;
     padding: 0;

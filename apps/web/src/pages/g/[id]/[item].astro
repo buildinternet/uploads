@@ -4,6 +4,7 @@ import Brand from "../../../components/Brand.astro";
 import CopyAsControls from "../../../components/CopyAsControls.astro";
 import Footer from "../../../components/Footer.astro";
 import GalleryReferences from "../../../components/GalleryReferences.astro";
+import ImagePreview from "../../../components/ImagePreview.astro";
 import { buildEmbedFormats, type EmbedFormatOption } from "../../../lib/embed-formats";
 import {
   formatBytes,
@@ -109,8 +110,9 @@ const sizeLabel =
       .crumbs .count { color:var(--muted); }
       .filetitle { margin:0 0 16px; color:var(--fg); font:600 17px var(--mono); letter-spacing:-.01em; overflow-wrap:anywhere; }
       .stage { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-lg); overflow:hidden; }
+      /* Video / non-image fallbacks only — images use ImagePreview. */
       .media { min-height:320px; max-height:78vh; background:var(--bg); display:grid; place-items:center; overflow:hidden; }
-      img,video { max-width:100%; max-height:78vh; width:auto; height:auto; object-fit:contain; display:block; }
+      .media video { max-width:100%; max-height:78vh; width:auto; height:auto; object-fit:contain; display:block; }
       .fallback { padding:60px 30px; text-align:center; color:var(--muted); font:13px/1.6 var(--mono); }
       .fallback strong { display:block; color:var(--fg); margin-bottom:8px; }
       .fallback a { color:var(--fg); overflow-wrap:anywhere; }
@@ -155,13 +157,16 @@ const sizeLabel =
           <div class="crumbs"><a href={listPath}>{gallery.title}</a> · <span class="count">{index + 1} of {items.length}</span></div>
           <h1 class="filetitle">{item.filename}</h1>
           <figure class="stage" style="margin:0">
-            <div class="media">
-              {kind(item) === "image" && <img src={item.url!} alt={item.altText ?? item.caption ?? item.filename} decoding="async" />}
-              {kind(item) === "video" && <video src={item.url!} controls playsinline preload="metadata" aria-describedby="item-caption">Your browser cannot play this video.</video>}
-              {kind(item) === "file" && <div class="fallback"><strong>Preview unavailable</strong><a href={item.url!} rel="noopener noreferrer">Open {item.filename}</a></div>}
-              {kind(item) === "unsupported" && <div class="fallback"><strong>Unsupported media type</strong><span>This item cannot be opened inline.</span></div>}
-              {kind(item) === "missing" && <div class="fallback"><strong>Removed or expired</strong><span>This item remains in the gallery to preserve its place.</span></div>}
-            </div>
+            {kind(item) === "image" && item.url ? (
+              <ImagePreview src={item.url} alt={item.altText ?? item.caption ?? item.filename} />
+            ) : (
+              <div class="media">
+                {kind(item) === "video" && <video src={item.url!} controls playsinline preload="metadata" aria-describedby="item-caption">Your browser cannot play this video.</video>}
+                {kind(item) === "file" && <div class="fallback"><strong>Preview unavailable</strong><a href={item.url!} rel="noopener noreferrer">Open {item.filename}</a></div>}
+                {kind(item) === "unsupported" && <div class="fallback"><strong>Unsupported media type</strong><span>This item cannot be opened inline.</span></div>}
+                {kind(item) === "missing" && <div class="fallback"><strong>Removed or expired</strong><span>This item remains in the gallery to preserve its place.</span></div>}
+              </div>
+            )}
             <figcaption class="details" id="item-caption">
               <GalleryReferences references={gallery.references} variant="inline" />
               {item.caption && <div class="caption">{item.caption}</div>}

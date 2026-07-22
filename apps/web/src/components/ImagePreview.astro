@@ -1,0 +1,165 @@
+---
+/**
+ * Public image stage with Fit / Full width controls.
+ *
+ * Fit: compact, viewport-capped (photos / wide UI).
+ * Full width: stage grows with the image; page scroll (tall screenshots).
+ * Tall images auto-open full width. Mode resolution: `lib/image-preview-mode.ts`.
+ */
+interface Props {
+  src: string;
+  alt: string;
+}
+
+const { src, alt } = Astro.props;
+---
+
+<div class="media image-preview" data-mode="fit" data-image-preview>
+  <div class="size-toggle" role="group" aria-label="Preview size">
+    <button type="button" data-size="fit" aria-pressed="true">Fit</button>
+    <button type="button" data-size="full" aria-pressed="false">Full width</button>
+  </div>
+  <img src={src} alt={alt} decoding="async" />
+</div>
+
+<script>
+  import {
+    resolvePreviewMode,
+    type ImagePreviewMode,
+  } from "../lib/image-preview-mode";
+
+  function applyMode(root: HTMLElement, mode: ImagePreviewMode): void {
+    root.dataset.mode = mode;
+    for (const btn of root.querySelectorAll<HTMLButtonElement>("button[data-size]")) {
+      btn.setAttribute("aria-pressed", btn.dataset.size === mode ? "true" : "false");
+    }
+  }
+
+  function initPreview(root: HTMLElement): void {
+    if (root.dataset.previewReady === "1") return;
+    root.dataset.previewReady = "1";
+
+    const img = root.querySelector("img");
+    if (!(img instanceof HTMLImageElement)) return;
+
+    // Page-view only — no storage, so the next tall shot still auto-picks full.
+    let override: ImagePreviewMode | null = null;
+
+    const sync = () => {
+      applyMode(
+        root,
+        resolvePreviewMode({
+          override,
+          naturalWidth: img.naturalWidth,
+          naturalHeight: img.naturalHeight,
+        }),
+      );
+    };
+
+    for (const btn of root.querySelectorAll<HTMLButtonElement>("button[data-size]")) {
+      btn.addEventListener("click", () => {
+        const size = btn.dataset.size;
+        if (size !== "fit" && size !== "full") return;
+        override = size;
+        applyMode(root, size);
+      });
+    }
+
+    if (img.complete && img.naturalWidth > 0) sync();
+    else img.addEventListener("load", sync, { once: true });
+  }
+
+  function boot(): void {
+    document.querySelectorAll<HTMLElement>("[data-image-preview]").forEach(initPreview);
+  }
+
+  boot();
+  document.addEventListener("astro:page-load", boot);
+</script>
+
+<style>
+  .image-preview {
+    --preview-max-h: 78vh;
+    position: relative;
+    min-height: 320px;
+    background: var(--bg);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+
+  .size-toggle {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 2;
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    backdrop-filter: blur(8px);
+  }
+
+  .size-toggle button {
+    appearance: none;
+    margin: 0;
+    padding: 5px 11px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font: 11px var(--mono);
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    line-height: 1.2;
+  }
+
+  .size-toggle button:hover,
+  .size-toggle button:focus-visible {
+    color: var(--fg);
+    outline: none;
+  }
+
+  .size-toggle button:focus-visible {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+
+  .size-toggle button[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--accent) 22%, var(--panel));
+    color: var(--fg);
+  }
+
+  .image-preview img {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    object-fit: contain;
+  }
+
+  .image-preview[data-mode="fit"] {
+    max-height: var(--preview-max-h);
+  }
+
+  .image-preview[data-mode="fit"] img {
+    max-height: var(--preview-max-h);
+  }
+
+  .image-preview[data-mode="full"] {
+    max-height: none;
+    place-items: start stretch;
+  }
+
+  .image-preview[data-mode="full"] img {
+    width: 100%;
+    max-height: none;
+  }
+
+  @media (max-width: 760px) {
+    .image-preview {
+      min-height: 220px;
+    }
+  }
+</style>
