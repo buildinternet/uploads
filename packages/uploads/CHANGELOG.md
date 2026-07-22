@@ -1,5 +1,13 @@
 # @buildinternet/uploads
 
+## 0.24.0
+
+### Minor Changes
+
+- d9cd253: Bare `put` on a non-default git branch now stages to the branch prefix by default — same key and `gh.*` metadata as `attach --branch`, so it auto-attaches to that branch's PR when one opens. Only applies when none of `--pr`/`--issue`/`--key`/`--ref`/`--prefix`/`--destination` is set and `--no-git` isn't passed; the default branch, detached HEAD, not being in a git repo, `--no-git`, or any of those explicit flags keeps the classic dated layout. Prints a one-line staging note (same suppression as the existing bare-put nudge), and the stage-time binding warning from `attach --branch` now fires on this path too. Local stdio MCP `put` mirrors the same default.
+- c472755: `attach --branch` now warns at stage time when the repo won't auto-attach staged files at PR open — either because it isn't linked to your workspace yet, or because it's linked to a different workspace. Advisory only: staging always succeeds regardless. Suppressed by `--quiet`, `UPLOADS_NO_NUDGE=1` (env or config), same as the bare-put nudge (#396).
+- b3b02c2: New `uploads staged [--branch <name>] [--repo <owner/name>] [--format json]`: a read-only view of what's staged for a branch (`attach --branch` / bare `put` on a non-default branch) and whether it will auto-attach once a PR opens. One `list` call against the branch staging prefix plus the repo-binding check (files:read only, no new server surface); `--format json` always prints a valid document, even with nothing staged. Also available as the `staged` tool on the local stdio MCP server.
+
 ## 0.23.0
 
 ### Minor Changes
