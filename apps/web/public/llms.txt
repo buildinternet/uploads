@@ -2,7 +2,7 @@
 
 > File hosting for agents and humans — hosted CLI, agent skill, and MCP server. Open source for self-hosting.
 
-Access is by invitation. Hosted files are public (including media attached to private repositories). Do not upload secrets or sensitive UI. APIs may change without notice while the project is in active development.
+Access requires a workspace — create your own with a linked GitHub account, or be invited to an existing one. Hosted files are public (including media attached to private repositories). Do not upload secrets or sensitive UI. APIs may change without notice while the project is in active development.
 
 ## Start here
 
