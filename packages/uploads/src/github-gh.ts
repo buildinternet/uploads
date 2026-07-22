@@ -16,6 +16,23 @@ export const execRunner: CommandRunner = (cmd, args, input) =>
   execFileSync(cmd, args, { encoding: "utf8", input, stdio: ["pipe", "pipe", "pipe"] });
 
 /**
+ * A `CommandRunner` bounded by `timeoutMs` (node's native `execFileSync`
+ * `timeout` option). There is no other subprocess-timeout wrapper in this
+ * codebase to reuse, so this is the minimal one: for a best-effort lookup
+ * that must never block its caller for long (e.g. the bare-`put` nudge's `gh
+ * pr view` check, issue #393), pass this instead of the default `execRunner`.
+ */
+export const timedExecRunner =
+  (timeoutMs: number): CommandRunner =>
+  (cmd, args, input) =>
+    execFileSync(cmd, args, {
+      encoding: "utf8",
+      input,
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: timeoutMs,
+    });
+
+/**
  * Resolve "owner/name". Order: explicit --repo (validated) → `gh repo view`
  * (fork-aware) → parse the origin remote → UsageError.
  */
@@ -94,6 +111,25 @@ export function resolveCurrentBranch(run: CommandRunner = execRunner): string {
     );
   }
   return branch;
+}
+
+/**
+ * Best-effort default-branch name via the local `origin/HEAD` ref (no
+ * network call — just reads the ref git already cached from the last
+ * fetch/clone). Returns undefined when it can't be determined (no origin,
+ * `origin/HEAD` never set, not a git repo) — callers should treat that as
+ * "unknown", not "no default branch exists".
+ */
+export function resolveDefaultBranch(run: CommandRunner = execRunner): string | undefined {
+  try {
+    const out = run("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]).trim();
+    if (!out) return undefined;
+    const slash = out.indexOf("/");
+    const branch = slash === -1 ? out : out.slice(slash + 1);
+    return branch || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
