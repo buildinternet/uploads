@@ -104,8 +104,10 @@ const TOC = [
       (<code>--no-promote</code> skips it).
     </p>
     <p>
-      Staging cleans itself up: promoted files drop out after ~7 days, abandoned ones after
-      ~30.
+      Promotion copies — it never deletes the staged original, so URLs you've already
+      embedded keep working. Staged files stick around under the same rules as anything else
+      in your workspace. The one caveat: a file staged more than 30 days before its PR opens
+      won't auto-promote (it's still there, just not attached automatically).
     </p>
   </section>
 

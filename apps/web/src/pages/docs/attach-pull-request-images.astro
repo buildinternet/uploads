@@ -134,7 +134,21 @@ const TOC = [
       <button type="button" data-copy="uploads put ./shot.png" aria-live="polite">copy</button>
     </div>
     <div class="block" aria-label="Example output">
-      <pre># re-encoded to WebP, then hosted at a stable public URL
+      <pre># on a non-default git branch, bare put stages for that branch
+&gt;&gt; optimized 411.5 KB → 94.2 KB (shot.webp)
+URL: <span class="v">https://storage.uploads.sh/gh/you/app/branch/feat-shot/shot.webp</span>
+MARKDOWN: ![shot.png](https://storage.uploads.sh/gh/you/app/branch/feat-shot/shot.webp)
+note: staged for branch feat/shot — auto-attaches to this branch's PR when
+it opens (or run: uploads attach --promote once it exists). Use --ref/
+--prefix for a plain dated upload.</pre>
+    </div>
+    <p>
+      On a branch, a bare <code>put</code> stages the file for that branch's future PR — same
+      behavior as <code>attach</code>, above. Everywhere else it keeps the plain dated path
+      shown next.
+    </p>
+    <div class="block" aria-label="Example output">
+      <pre># on the default branch (or --no-git), the classic dated layout applies
 &gt;&gt; optimized 411.5 KB → 94.2 KB (shot.webp)
 URL: <span class="v">https://storage.uploads.sh/screenshots/app/2026-07-12/shot-9f2c1a.webp</span>
 MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot-9f2c1a.webp)</pre>
@@ -169,6 +183,13 @@ MARKDOWN: ![shot.png](https://storage.uploads.sh/screenshots/app/2026-07-12/shot
       supports <a href="https://oembed.com/">oEmbed</a> — so chat apps, notes tools, and
       other unfurlers can embed the image when you paste the page link. Details are in&#32;
       <a href="/docs/reference#good-to-know">Reference</a>.
+    </p>
+    <p class="note">
+      Details: any of <code>--pr</code>, <code>--issue</code>, <code>--key</code>,&#32;
+      <code>--ref</code>, <code>--prefix</code>, or <code>--destination</code> opts a bare&#32;
+      <code>put</code> out of branch staging, as does <code>--no-git</code>. Staged keys have
+      no content-hash suffix (unlike the dated layout above) — they're stable per filename, so
+      re-uploading the same file replaces it in place instead of minting a new URL.
     </p>
   </section>
 
