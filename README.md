@@ -68,11 +68,11 @@ One comment per PR, rewritten in place on every sync. Files tagged
 else lands below it.
 
 <div align="center">
-  <a href="https://github.com/buildinternet/uploads/pull/425#issuecomment-5051281079"><img src="docs/assets/readme-comment.png" alt="The managed attachments comment on a pull request, with a before/after pair rendered side by side under Before and After headings" width="760"></a>
+  <a href="https://github.com/buildinternet/uploads/pull/436#issuecomment-5052307515"><img src="docs/assets/readme-comment.png" alt="The managed attachments comment on a pull request, with a before/after pair rendered side by side under Before and After headings" width="760"></a>
 </div>
 
 <sub>The real comment on
-[#425](https://github.com/buildinternet/uploads/pull/425#issuecomment-5051281079).</sub>
+[#436](https://github.com/buildinternet/uploads/pull/436#issuecomment-5052307515).</sub>
 
 Pairing is by `--meta path=…` when several pairs share a comment (one `before`
 and one `after` per path), and falls back to filenames that differ only by a
