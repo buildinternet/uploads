@@ -210,6 +210,8 @@ export interface WorkspaceFile {
   uploaded?: string;
   /** Present (== "private") only when the file was marked private (issue #139). */
   visibility?: "private";
+  /** Public `/f/` file-page URL when the workspace has a public base (issue #308). */
+  pageUrl?: string;
 }
 
 function isWorkspaceFile(value: unknown): value is WorkspaceFile {
@@ -558,6 +560,8 @@ export interface SearchFileItem {
   url: string | null;
   embedUrl: string | null;
   metadata: Record<string, string>;
+  /** Public `/f/` file-page URL when present (issue #308). */
+  pageUrl?: string;
 }
 
 export type SearchFilesResult =
@@ -572,7 +576,8 @@ function isSearchFileItem(value: unknown): value is SearchFileItem {
     (item.url === null || typeof item.url === "string") &&
     (item.embedUrl === null || typeof item.embedUrl === "string") &&
     typeof item.metadata === "object" &&
-    item.metadata !== null
+    item.metadata !== null &&
+    (item.pageUrl === undefined || typeof item.pageUrl === "string")
   );
 }
 
@@ -656,6 +661,8 @@ export interface WorkspaceFolderFile {
   uploaded?: string;
   visibility?: "public" | "private";
   metadata?: Record<string, string>;
+  /** Public `/f/` file-page URL when present (issue #308). Prefer for open/copy. */
+  pageUrl?: string;
 }
 
 export interface WorkspaceFolderListing {
@@ -692,6 +699,7 @@ function toWorkspaceFolderFile(raw: Record<string, unknown>): WorkspaceFolderFil
       raw.metadata && typeof raw.metadata === "object"
         ? (raw.metadata as Record<string, string>)
         : undefined,
+    pageUrl: typeof raw.pageUrl === "string" && raw.pageUrl ? raw.pageUrl : undefined,
   };
 }
 

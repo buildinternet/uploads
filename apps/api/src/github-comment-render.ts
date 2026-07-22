@@ -155,13 +155,17 @@ function escapeMarkdownText(s: string): string {
  * `PATCH /v1/:workspace/files/:key` can set any valid metadata value. A
  * whitespace-only value passes that validation (length-1 printable ASCII), so
  * treat it as absent rather than rendering a dangling separator.
+ *
+ * Bare `/` is stored/searchable but omitted from captions (issue #375) —
+ * alone it is a stray character, and as a prefix next to `state` it is
+ * noise. Only exact `/` after trim is suppressed.
  */
 function metaCaptionParts(meta: AttachmentItem["meta"]): string[] {
   const parts: string[] = [];
-  for (const value of [meta?.path, meta?.state]) {
-    const trimmed = value?.trim();
-    if (trimmed) parts.push(trimmed);
-  }
+  const path = meta?.path?.trim();
+  if (path && path !== "/") parts.push(path);
+  const state = meta?.state?.trim();
+  if (state) parts.push(state);
   return parts;
 }
 

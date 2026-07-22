@@ -76,6 +76,8 @@ interface FileTableRow {
   contentType?: string;
   visibility?: FileVisibility;
   metadata?: Record<string, string>;
+  /** Public `/f/` file-page URL when present (issue #308). */
+  pageUrl?: string;
 }
 
 type ListingState =
@@ -286,10 +288,9 @@ function sizeLabel(size: number | undefined): string {
 }
 
 // ── URL-resolution helpers (open-file / copy-link) ────────────────────────
-// Mirrors AccountFileBrowser's hasPublicUrl-branching open logic verbatim:
-// a workspace with a stable public domain always opens through the chrome-
-// wrapped `/f/` page (issue #135); otherwise (private/BYO without a public
-// domain) resolve a short-lived signed URL via the member-gated endpoint.
+// Prefer API `pageUrl` (`/f/…` file page, issue #308), else same-origin
+// `/f/` when the workspace has a public domain (issue #135), else a
+// short-lived signed URL for private/BYO workspaces.
 
 async function resolveSignedFileUrl(
   apiOrigin: string,
@@ -305,20 +306,33 @@ async function resolveSignedFileUrl(
   return result.response.ok && typeof body.url === "string" ? body.url : null;
 }
 
+function openInNewTab(url: string): void {
+  const tab = window.open(url, "_blank");
+  if (tab) tab.opener = null;
+}
+
 /** "1 file" / "2 files" — `plural` defaults to `${singular}s`, override for irregulars (e.g. "match" → "matches"). */
 function pluralCount(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-function openFile(apiOrigin: string, workspace: string, hasPublicUrl: boolean, key: string): void {
+function openFile(
+  apiOrigin: string,
+  workspace: string,
+  hasPublicUrl: boolean,
+  file: Pick<FileTableRow, "key" | "pageUrl">,
+): void {
+  if (file.pageUrl) {
+    openInNewTab(file.pageUrl);
+    return;
+  }
   if (hasPublicUrl) {
-    const tab = window.open(filePath(workspace, key), "_blank");
-    if (tab) tab.opener = null;
+    openInNewTab(filePath(workspace, file.key));
     return;
   }
   const tab = window.open("about:blank", "_blank");
   if (tab) tab.opener = null;
-  void resolveSignedFileUrl(apiOrigin, workspace, key).then((url) => {
+  void resolveSignedFileUrl(apiOrigin, workspace, file.key).then((url) => {
     if (url) {
       if (tab) tab.location.replace(url);
       else window.location.assign(url);
@@ -546,7 +560,9 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
   };
 
   const copyLink = async (file: FileTableRow, button: HTMLButtonElement) => {
-    const url = file.url ?? (await resolveSignedFileUrl(apiOrigin, workspace, file.key));
+    // Prefer pageUrl (file page), then storage URL, then signed link.
+    const url =
+      file.pageUrl ?? file.url ?? (await resolveSignedFileUrl(apiOrigin, workspace, file.key));
     if (!url) {
       setActionError(`Couldn't get a link for "${leafName(file.key)}".`);
       return;
@@ -815,7 +831,7 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
                 <button
                   type="button"
                   className="wft-name wft-name--btn"
-                  onClick={() => openFile(apiOrigin, workspace, info.hasPublicUrl, file.key)}
+                  onClick={() => openFile(apiOrigin, workspace, info.hasPublicUrl, file)}
                 >
                   {thumb.kind !== "none" && <FileThumb thumb={thumb} />}
                   <span className="wft-filename">{name}</span>
@@ -861,7 +877,7 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
             const thumb = pickThumbnail(file);
             const type = fileTypeLabel(file);
             const priv = isPrivateFile(file);
-            const open = () => openFile(apiOrigin, workspace, info.hasPublicUrl, file.key);
+            const open = () => openFile(apiOrigin, workspace, info.hasPublicUrl, file);
 
             return (
               <div className="wft-card" key={file.key}>
