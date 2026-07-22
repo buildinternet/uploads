@@ -16,10 +16,17 @@ const golden = loadFixture("github-comment-golden.json");
 const goldenCap = loadFixture("github-comment-golden-cap.json");
 const goldenMeta = loadFixture("github-comment-golden-meta.json");
 const goldenVideo = loadFixture("github-comment-golden-video.json");
+const goldenEmpty = loadFixture("github-comment-golden-empty.json");
 
 describe("attachmentsCommentBody (api copy)", () => {
   it("renders the golden body byte-for-byte", () => {
     expect(attachmentsCommentBody(golden.items, golden.galleries)).toBe(golden.expected);
+  });
+
+  it("renders a neutral empty state when there are no items or galleries", () => {
+    expect(attachmentsCommentBody(goldenEmpty.items, goldenEmpty.galleries)).toBe(
+      goldenEmpty.expected,
+    );
   });
 
   it("renders a video with a poster as a linked image with a play caption", () => {

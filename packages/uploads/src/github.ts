@@ -569,6 +569,14 @@ export function attachmentsCommentBody(
     }
     lines.push("", "</details>", "");
   }
+  // Emptied state: a PR/issue whose attachments and galleries were all removed
+  // still keeps its managed comment (a later push can repopulate it) — show a
+  // neutral resting state under the heading rather than a bare heading. Only
+  // the truly-empty case (no attachments, no galleries); a galleries-only
+  // comment has no Attachments heading and must not get this line.
+  if (sorted.length === 0 && sortedGalleries.length === 0) {
+    lines.push("_No attachments are currently associated with this pull request._", "");
+  }
   lines.push(
     '<sub>Maintained by <a href="https://uploads.sh">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>',
   );
