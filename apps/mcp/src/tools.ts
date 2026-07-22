@@ -41,7 +41,7 @@ import {
   validateMetadataFilters,
 } from "@uploads/api/file-metadata";
 import { hasGithubTags, uploaderTags } from "@uploads/api/uploader-identity";
-import { deriveRepoBinding, findRepoLink } from "@uploads/api/github-repo-links";
+import { deriveRepoBinding, findRepoLink } from "@uploads/api/github-repo-binding";
 import {
   addExternalReference,
   addGalleryItem,
