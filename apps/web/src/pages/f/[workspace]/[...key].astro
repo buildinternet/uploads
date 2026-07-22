@@ -3,6 +3,7 @@ import BaseHead from "../../../components/BaseHead.astro";
 import Brand from "../../../components/Brand.astro";
 import CopyAsControls from "../../../components/CopyAsControls.astro";
 import Footer from "../../../components/Footer.astro";
+import ImagePreview from "../../../components/ImagePreview.astro";
 import { GH_KIND_PATH } from "../../../lib/brand-icons";
 import { buildEmbedFormats } from "../../../lib/embed-formats";
 import {
@@ -60,8 +61,8 @@ const ghAriaLabel = gh
   : "";
 const canonical = new URL(file ? filePath(workspace, key) : Astro.url.pathname, Astro.url.origin)
   .href;
-// Generic metadata list excludes `gh.*` pairs — those render as the GitHub
-// chip above via `file.github` instead of duplicating them here.
+// Generic metadata list excludes `gh.*` pairs — those render as the byline
+// under the filename via `file.github` instead of duplicating them here.
 const metadataEntries = file?.metadata
   ? Object.entries(file.metadata)
       .filter(([metaKey]) => !metaKey.startsWith("gh."))
@@ -116,25 +117,32 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
       nav.top { display:flex; align-items:center; justify-content:space-between; margin-bottom:32px; font:13px var(--mono); letter-spacing:.02em; }
       .public { color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:6px 11px; background:var(--panel); }
       .stage { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-lg); overflow:hidden; }
+      /* Video / non-image fallbacks only — images use ImagePreview. */
       .media { min-height:320px; max-height:78vh; background:var(--bg); display:grid; place-items:center; overflow:hidden; }
-      img,video { max-width:100%; max-height:78vh; width:auto; height:auto; object-fit:contain; display:block; }
+      .media video { max-width:100%; max-height:78vh; width:auto; height:auto; object-fit:contain; display:block; }
       .fallback { padding:60px 30px; text-align:center; color:var(--muted); font:13px/1.6 var(--mono); }
       .fallback strong { display:block; color:var(--fg); margin-bottom:8px; }
       .fallback a { color:var(--fg); overflow-wrap:anywhere; }
-      .details { padding:18px 20px 22px; border-top:1px solid var(--line); }
-      .filetitle { margin:0 0 16px; color:var(--fg); font:600 17px var(--mono); letter-spacing:-.01em; overflow-wrap:anywhere; }
-      dl.meta { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; margin:14px 0 0; font:12px var(--mono); }
+      .filehead { margin:0 0 16px; min-width:0; }
+      .filetitle { margin:0; color:var(--fg); font:600 17px var(--mono); letter-spacing:-.01em; overflow-wrap:anywhere; }
+      /* PR/issue under the filename — light byline, not a rail chip. */
+      .gh-byline { display:inline-flex; align-items:baseline; flex-wrap:wrap; column-gap:8px; row-gap:2px; margin-top:6px; max-width:100%; color:var(--muted); font:12.5px/1.45 var(--mono); text-decoration:none; }
+      .gh-byline:hover, .gh-byline:focus-visible { color:var(--accent); outline:none; }
+      .gh-byline-icon { flex:none; align-self:center; }
+      .gh-byline-title { color:var(--body); overflow-wrap:anywhere; }
+      .gh-byline:hover .gh-byline-title, .gh-byline:focus-visible .gh-byline-title { color:inherit; }
+      .gh-byline-sep { opacity:.7; }
+      .gh-byline-ref { overflow-wrap:anywhere; }
+      /* Right rail: account-shell-like section gap; Metadata uses label + rule. */
+      .details { display:flex; flex-direction:column; gap:22px; padding:18px 20px 22px; border-top:1px solid var(--line); }
+      .details > * { min-width:0; }
+      .rail-head { display:flex; align-items:center; gap:10px; margin:0 0 12px; }
+      .rail-label { color:var(--muted); font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; white-space:nowrap; }
+      .rail-rule { flex:1; height:1px; background:var(--line); }
+      dl.meta { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; margin:0; font:12px var(--mono); }
       dl.meta dt { color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-size:11px; }
       dl.meta dd { margin:0; color:var(--body); overflow-wrap:anywhere; }
-      .gh-chip { display:inline-flex; align-items:center; gap:6px; margin:10px 0 0; padding:6px 10px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel); color:var(--fg); font:12px var(--mono); text-decoration:none; }
-      .gh-chip:hover, .gh-chip:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
-      .gh-chip-icon { flex:none; }
-      .gh-chip-text { display:flex; flex-direction:column; gap:2px; min-width:0; }
-      .gh-chip-title { overflow-wrap:anywhere; font-weight:600; }
-      .gh-chip-ref { color:var(--muted); font-size:11px; overflow-wrap:anywhere; }
-      .gh-chip-name { overflow-wrap:anywhere; }
-      .section-label { margin:16px 0 0; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font:11px var(--mono); }
-      dl.meta.metadata { margin-top:6px; }
+      .details :global(.actions) { margin-top:0; }
       .error { padding:70px 24px; border:1px solid var(--line); border-radius:var(--radius-lg); text-align:center; background:var(--panel); color:var(--body); }
       .error code { color:var(--accent); font-family:var(--mono); }
       .error .signin { display:inline-block; margin-top:18px; padding:9px 16px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--bg); color:var(--fg); font:12px var(--mono); text-decoration:none; }
@@ -166,54 +174,61 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
       <nav class="top"><Brand /><span class="public">public file</span></nav>
       {file ? (
         <>
-          <h1 class="filetitle">{filename}</h1>
-          <figure class="stage" style="margin:0">
-            <div class="media">
-              {kind(file.contentType) === "image" && <img src={file.url} alt={filename} decoding="async" />}
-              {kind(file.contentType) === "video" && <video src={file.url} controls playsinline preload="metadata">Your browser cannot play this video.</video>}
-              {kind(file.contentType) === "file" && <div class="fallback"><strong>Preview unavailable</strong><a href={file.url} rel="noopener noreferrer">Open {filename}</a></div>}
-              {kind(file.contentType) === "unsupported" && <div class="fallback"><strong>Unsupported media type</strong><span>This file cannot be previewed inline.</span></div>}
-            </div>
-            <figcaption class="details">
-              {gh && (
-                <a
-                  class="gh-chip"
-                  href={gh.url}
-                  rel="noopener noreferrer"
-                  aria-label={ghAriaLabel}
+          <header class="filehead">
+            <h1 class="filetitle">{filename}</h1>
+            {gh && (
+              <a
+                class="gh-byline"
+                href={gh.url}
+                rel="noopener noreferrer"
+                aria-label={ghAriaLabel}
+              >
+                <svg
+                  class="gh-byline-icon"
+                  viewBox="0 0 16 16"
+                  width="13"
+                  height="13"
+                  aria-hidden="true"
+                  focusable="false"
                 >
-                  <svg
-                    class="gh-chip-icon"
-                    viewBox="0 0 16 16"
-                    width="14"
-                    height="14"
-                    aria-hidden="true"
-                    focusable="false"
-                  >
-                    <title>{gh.kind === "pull" ? "pull request" : "issue"}</title>
-                    <path fill="currentColor" d={GH_KIND_PATH[gh.kind]} />
-                  </svg>
-                  <span class="gh-chip-text">
-                    {gh.title ? (
-                      <>
-                        <span class="gh-chip-title">{gh.title}</span>
-                        <span class="gh-chip-ref">{ghRef}</span>
-                      </>
-                    ) : (
-                      <span class="gh-chip-name">{ghRef}</span>
-                    )}
-                  </span>
-                </a>
-              )}
+                  <title>{gh.kind === "pull" ? "pull request" : "issue"}</title>
+                  <path fill="currentColor" d={GH_KIND_PATH[gh.kind]} />
+                </svg>
+                {gh.title ? (
+                  <>
+                    <span class="gh-byline-title">{gh.title}</span>
+                    <span class="gh-byline-sep" aria-hidden="true">·</span>
+                    <span class="gh-byline-ref">{ghRef}</span>
+                  </>
+                ) : (
+                  <span class="gh-byline-ref">{ghRef}</span>
+                )}
+              </a>
+            )}
+          </header>
+          <figure class="stage" style="margin:0">
+            {kind(file.contentType) === "image" ? (
+              <ImagePreview src={file.url} alt={filename} />
+            ) : (
+              <div class="media">
+                {kind(file.contentType) === "video" && <video src={file.url} controls playsinline preload="metadata">Your browser cannot play this video.</video>}
+                {kind(file.contentType) === "file" && <div class="fallback"><strong>Preview unavailable</strong><a href={file.url} rel="noopener noreferrer">Open {filename}</a></div>}
+                {kind(file.contentType) === "unsupported" && <div class="fallback"><strong>Unsupported media type</strong><span>This file cannot be previewed inline.</span></div>}
+              </div>
+            )}
+            <figcaption class="details">
               <dl class="meta">
                 <dt>Size</dt><dd>{formatBytes(file.size)}</dd>
                 {uploadedLabel && (<><dt>Uploaded</dt><dd>{uploadedLabel}</dd></>)}
                 {modifiedLabel && (<><dt>Modified</dt><dd>{modifiedLabel}</dd></>)}
               </dl>
               {metadataEntries.length > 0 && (
-                <>
-                  <div class="section-label">Metadata</div>
-                  <dl class="meta metadata">
+                <div>
+                  <div class="rail-head">
+                    <span class="rail-label">Metadata</span>
+                    <span class="rail-rule" aria-hidden="true"></span>
+                  </div>
+                  <dl class="meta">
                     {metadataEntries.map(([metaKey, metaValue]) => (
                       <>
                         <dt>{metaKey}</dt>
@@ -221,7 +236,7 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
                       </>
                     ))}
                   </dl>
-                </>
+                </div>
               )}
               <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
                 {kind(file.contentType) !== "unsupported" && (
