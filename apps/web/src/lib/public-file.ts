@@ -13,6 +13,8 @@ export interface GithubContext {
   url: string;
   /** Issue/PR title when the API resolved it; omitted when unavailable. */
   title?: string;
+  /** API proxy URL for the repo owner's avatar; omitted when owner is invalid. */
+  avatarUrl?: string;
 }
 
 /** Allowlisted metadata for one public object, as returned by the API. */
@@ -209,19 +211,28 @@ function isMetadataMap(value: unknown): value is Record<string, string> {
   return entries.every(([key, v]) => META_KEY_RE.test(key) && text(v, META_VALUE_MAX));
 }
 
+/** https always; loopback http for local API (avatar proxy only). */
+function isAvatarUrl(value: unknown): boolean {
+  if (httpsUrl(value)) return true;
+  if (typeof value !== "string" || value.length > 4096) return false;
+  return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(value);
+}
+
 /** Bounded `github` convenience object — mirrors apps/api's `deriveGithubContext` shape. */
 function isGithubContext(value: unknown): value is GithubContext {
   if (typeof value !== "object" || value === null) return false;
   const github = value as Record<string, unknown>;
   const titleOk =
     github.title === undefined || (text(github.title, 512) && (github.title as string).length > 0);
+  const avatarOk = github.avatarUrl === undefined || isAvatarUrl(github.avatarUrl);
   return (
     text(github.repo, 200) &&
     (github.kind === "pull" || github.kind === "issue") &&
     Number.isSafeInteger(github.number) &&
     (github.number as number) > 0 &&
     httpsUrl(github.url) &&
-    titleOk
+    titleOk &&
+    avatarOk
   );
 }
 

@@ -4,6 +4,8 @@ import {
   connectedWork,
   exactPrMatch,
   githubUrl,
+  githubOwnerAvatarUrl,
+  ownerFromRepo,
   applyGhTitles,
   type GhWorkItem,
 } from "./gh-context";
@@ -22,14 +24,24 @@ const issue = {
 };
 
 describe("gh-context", () => {
-  it("builds a work item with url + labels", () => {
+  it("builds a work item with url + labels + owner", () => {
     expect(ghWorkItemFromMetadata(pr)).toMatchObject({
       ref: "o/uploads#1789",
       kind: "pull",
       kindLabel: "pull request",
       url: "https://github.com/o/uploads/pull/1789",
+      owner: "o",
     });
     expect(ghWorkItemFromMetadata(issue)!.url).toBe("https://github.com/o/uploads/issues/1740");
+  });
+
+  it("ownerFromRepo + avatar URL helpers", () => {
+    expect(ownerFromRepo("buildinternet/uploads")).toBe("buildinternet");
+    expect(ownerFromRepo("BuildInternet/Uploads")).toBe("buildinternet");
+    expect(ownerFromRepo("bad")).toBeNull();
+    expect(githubOwnerAvatarUrl("https://api.uploads.sh/", "buildinternet")).toBe(
+      "https://api.uploads.sh/public/github/avatars/buildinternet",
+    );
   });
   it("returns null when gh.* is absent/partial", () => {
     expect(ghWorkItemFromMetadata(undefined)).toBeNull();

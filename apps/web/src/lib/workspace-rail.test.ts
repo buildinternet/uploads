@@ -28,6 +28,18 @@ describe("renderConnectedWorkHtml", () => {
     // The octicon carries the kind (title/aria-label); no repeated word subtitle.
     expect(html).not.toContain("ws-rail__connected-sub");
     expect(html).toContain("<title>pull request</title>");
+    // No apiOrigin → no avatar img (client always passes origin from the rail).
+    expect(html).not.toContain("ws-rail__connected-avatar");
+  });
+
+  it("includes the owner avatar when apiOrigin + item.owner are set", () => {
+    const html = renderConnectedWorkHtml(
+      [ghItem({ owner: "buildinternet" })],
+      "https://api.uploads.sh",
+    );
+    expect(html).toContain('src="https://api.uploads.sh/public/github/avatars/buildinternet"');
+    expect(html).toContain('class="ws-rail__connected-avatar"');
+    expect(html).toContain('alt=""');
   });
 
   it("uses a different icon for issue rows than pull-request rows", () => {
