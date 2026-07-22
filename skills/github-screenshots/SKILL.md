@@ -72,18 +72,29 @@ attach shot.png --branch` (see below) — no PR/issue needed yet; promotion
 
 **Default loop: stage as you go, from the first visual milestone.** Don't wait
 for a PR to exist. The moment you have something worth capturing — mid-task,
-still on a branch, no PR yet — attach it right then with `uploads attach
---branch`:
+still on a branch, no PR yet — attach it right then. As of issue #403, a
+**bare `uploads put`** already does this automatically whenever you're inside
+a git repo on a non-default branch with no `--pr`/`--issue`/`--key`/`--ref`/
+`--prefix` — it stages under the same branch-keyed path `attach --branch`
+would produce, so a plain `uploads put step1-before.png --state before` is
+enough. Reach for `attach --branch` explicitly when you want its extras
+(uploading several files at once with shared flags, or triggering promotion/
+comment sync as a side effect):
 
 ```bash
-uploads attach ./step1-before.png --branch --state before
-uploads attach ./step2-after.png --branch --state after   # later, same branch
+uploads put ./step1-before.png --state before
+uploads put ./step2-after.png --state after   # later, same branch
+
+# or, explicitly, e.g. to upload several at once:
+uploads attach ./step1-before.png ./step2-after.png --branch --state after
 ```
 
 This uploads under stable, branch-keyed paths (no PR/issue target needed, no
 comment yet — there's nothing to comment on until a PR exists). Keep doing
 this at each meaningful visual milestone as you work; don't batch everything
-into one attach at the end.
+into one call at the end. On the default branch (or outside a git repo, or
+with `--no-git`), `put` falls back to its ordinary dated layout — that's the
+opt-out, along with any explicit `--key`/`--ref`/`--prefix`.
 
 **Staging only auto-promotes into a bound repo — don't promise it blind.**
 Auto-promotion at PR-open time (webhook or CLI-triggered, below) requires the

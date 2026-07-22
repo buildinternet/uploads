@@ -200,6 +200,37 @@ const noRun: CommandRunner = () => {
   throw new Error("runner should not be called");
 };
 
+/**
+ * Fake gh/git runner for the bare-put branch-staging trigger (issue #403),
+ * mirroring `stagingRunner` in commands-put.test.ts for the MCP `put` tool.
+ */
+function branchStagingRunner(opts: {
+  branch?: string;
+  defaultBranch?: string;
+  originUrl?: string;
+  repo?: string;
+}): CommandRunner {
+  return (cmd, args) => {
+    if (cmd === "git" && args[0] === "config") {
+      if (opts.originUrl === undefined) throw new Error("not a git repo");
+      return `${opts.originUrl}\n`;
+    }
+    if (cmd === "git" && args[0] === "rev-parse") {
+      if (opts.branch === undefined) throw new Error("detached HEAD");
+      return `${opts.branch}\n`;
+    }
+    if (cmd === "git" && args[0] === "symbolic-ref") {
+      if (opts.defaultBranch === undefined) throw new Error("no origin/HEAD");
+      return `origin/${opts.defaultBranch}\n`;
+    }
+    if (cmd === "gh" && args[0] === "repo") {
+      if (opts.repo === undefined) throw new Error("gh unauthenticated");
+      return `${opts.repo}\n`;
+    }
+    throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+  };
+}
+
 function serverWith(overrides?: {
   globals?: GlobalFlags;
   runner?: CommandRunner;
@@ -584,6 +615,79 @@ describe("tools/call put", () => {
     });
     expect(res.result.isError).toBe(true);
     expect(res.result.content[0].text).toContain("invalid metadata key");
+  });
+});
+
+describe("tools/call put branch staging (issue #403)", () => {
+  const staged = {
+    branch: "feature/thing",
+    defaultBranch: "main",
+    originUrl: "git@github.com:o/r.git",
+    repo: "o/r",
+  };
+
+  it("stages a bare put on a non-default branch with detectable git context", async () => {
+    const { server, puts } = serverWith({ runner: branchStagingRunner(staged) });
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { contentBase64: PNG_B64, filename: "shot.png" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0].key).toBe("gh/o/r/branch/feature-thing/shot.png");
+  });
+
+  it("does not stage with an explicit destination — regression test for the destination-ignored bug", async () => {
+    const { server, puts } = serverWith({ runner: branchStagingRunner(staged) });
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { contentBase64: PNG_B64, filename: "shot.png", destination: "screenshots" },
+    });
+    expect(res.result.isError).toBe(false);
+    // No explicit key was given, so the fake client falls back to its
+    // default — the key must NOT be the branch-staged key that
+    // `ghBranchTarget` would otherwise silently win with.
+    expect(puts[0].key).toBe("generated/key.png");
+  });
+
+  it("does not stage with an explicit prefix", async () => {
+    const { server, puts } = serverWith({ runner: branchStagingRunner(staged) });
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { contentBase64: PNG_B64, filename: "shot.png", prefix: "custom" },
+    });
+    expect(res.result.isError).toBe(false);
+    // No explicit key was given, so the fake client falls back to its
+    // default — the key must NOT be the branch-staged key that
+    // `ghBranchTarget` would otherwise silently win with.
+    expect(puts[0].key).toBe("generated/key.png");
+  });
+
+  it("does not stage on the default branch", async () => {
+    const { server, puts } = serverWith({
+      runner: branchStagingRunner({ ...staged, branch: "main" }),
+    });
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { contentBase64: PNG_B64, filename: "shot.png" },
+    });
+    expect(res.result.isError).toBe(false);
+    // No explicit key was given, so the fake client falls back to its
+    // default — the key must NOT be the branch-staged key that
+    // `ghBranchTarget` would otherwise silently win with.
+    expect(puts[0].key).toBe("generated/key.png");
+  });
+
+  it("does not stage with noGit", async () => {
+    const { server, puts } = serverWith({ runner: noRun });
+    const res = await rpc(server, "tools/call", {
+      name: "put",
+      arguments: { contentBase64: PNG_B64, filename: "shot.png", noGit: true },
+    });
+    expect(res.result.isError).toBe(false);
+    // No explicit key was given, so the fake client falls back to its
+    // default — the key must NOT be the branch-staged key that
+    // `ghBranchTarget` would otherwise silently win with.
+    expect(puts[0].key).toBe("generated/key.png");
   });
 });
 

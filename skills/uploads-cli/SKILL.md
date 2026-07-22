@@ -263,13 +263,22 @@ the original is uploaded. Use `--no-optimize` when you need lossless originals.
 Timestamped captures break stable `--pr` keys — pass `--name hero.webp` to keep a
 clean leaf. Use `--dry-run` to preview the exact public URL before uploading.
 
-Default `put` is the fast path; you don't need `--key`, `--prefix`, or `--repo`. Without
-`--key`, keys look like
-`<prefix>/<repo-name>/<ref-or-date>/<basename>-<shorthash>.<ext>` — the short hash
-prevents collisions without random names or a separate "preserve name" flag. Prefer
-`--destination screenshots` (or `gh` with `--pr`/`--issue`) over inventing roots —
-workspaces may allowlist only those destinations. Override with `--key` only when you
-have a reason, and keep the key under an allowed root.
+Default `put` is the fast path; you don't need `--key`, `--prefix`, or `--repo`.
+**Inside a git repo, on a non-default branch, a bare `put` now stages
+automatically (issue #403)** — same key/metadata as `attach --branch`
+(`gh/<owner>/<repo>/branch/<branch>/<filename>`), so it auto-attaches to that
+branch's PR when one opens. This fires whenever none of
+`--pr`/`--issue`/`--key`/`--ref`/`--prefix`/`--destination` is set and
+`--no-git` isn't passed; any of those flags (or the default branch, detached
+HEAD, not being in a git repo, or `--no-git`) falls back to the classic
+**dated** layout:
+`<prefix>/<repo-name>/<ref-or-date>/<basename>-<shorthash>.<ext>` — the short
+hash prevents collisions without random names or a separate "preserve name"
+flag. Prefer `--destination screenshots` (or `gh` with `--pr`/`--issue`) over
+inventing roots — workspaces may allowlist only those destinations. Override
+with `--key` only when you have a reason, and keep the key under an allowed
+root. Pass `--ref`/`--prefix`/`--destination` explicitly for a plain dated
+upload on a branch (the opt-out).
 
 **Output formats** — pick what you'll consume:
 
@@ -279,27 +288,38 @@ uploads put ./shot.png --format markdown   # just the ![]()/<img> snippet
 uploads put ./shot.png --json              # {workspace,key,url,size,markdown}
 ```
 
-**The bare-put nudge (issue #393).** A `put` with no targeting flag at all
-(`--pr`/`--issue`/`--key`) while inside a git repo on a non-default branch
-prints a one-line note teaching the upgrade — human mode writes it to stderr,
-`--format json` adds it as an additive optional `hint` field on the same
-response:
+**The bare-put staging note (issue #403).** Since a bare `put` on a
+non-default branch now stages by default (see above), it prints a one-line
+note confirming that instead of nudging you to do it yourself — human mode
+writes it to stderr, `--format json` adds it as an additive optional `hint`
+field on the same response:
 
+```text
+note: staged for branch fix-header — auto-attaches to this branch's PR when
+it opens (or run: uploads attach --promote once it exists). Use --ref/--prefix
+for a plain dated upload.
 ```
+
+If the same call also trips the stage-time binding warning (issue #398/#400
+— the repo isn't bound to this workspace), that warning takes the `hint`
+slot instead (it's the more actionable of the two); both still print on
+stderr in human mode. Suppress the note (not the staging itself) with
+`--quiet`, `UPLOADS_NO_NUDGE=1` (env), or `UPLOADS_NO_NUDGE=1` in the config
+file (`uploads config set UPLOADS_NO_NUDGE 1`).
+
+**The old "rerun with --pr" nudge (issue #393)** still fires, unchanged, for
+the narrower case a bare put still lands on the dated layout with a
+detectable PR — in practice, an explicit `--ref`/`--prefix` opting out of
+staging while a PR is open for that branch:
+
+```text
 note: on branch fix-header (PR #142 open) — rerun with --pr 142 for a stable
 key plus a managed comment that collects this PR's media, or stage pre-PR
 files with: uploads attach <file> --branch
 ```
 
-**If you're an agent and you see this `hint` (or the stderr note), act on
-it** — rerun with `--pr <num>` (or `attach --branch` pre-PR) rather than
-ignoring it; it never changes exit code or upload behavior, so it's easy to
-skip if you're only inspecting `url`/`markdown`, but the suggested command is
-the one that gets a stable key and a managed comment instead of a one-off
-throwaway URL. It's best-effort (a quick `gh pr view` lookup, bounded to 3s) —
-no open PR just widens the wording to a generic `--pr <num>`. Suppress it with
-`--quiet`, `UPLOADS_NO_NUDGE=1` (env), or `UPLOADS_NO_NUDGE=1` in the config
-file (`uploads config set UPLOADS_NO_NUDGE 1`).
+It's best-effort (a quick `gh pr view` lookup, bounded to 3s) — no open PR
+just widens the wording to a generic `--pr <num>`. Same suppression as above.
 
 ## Capturing a screenshot: `uploads screenshot`
 
