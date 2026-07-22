@@ -42,9 +42,22 @@ comment on fork branches ([issue #317](https://github.com/buildinternet/uploads/
 That fork check is inherently best-effort — cross-checking the PR's actual
 target repo, as opposed to just whether `origin` is a fork, isn't attempted.
 
-**Disable it:** set `UPLOADS_HOOK_DISABLE=1` in your environment, or remove
-the `hooks` entry from this plugin's `.claude-plugin/marketplace.json` /
-delete `plugins/claude/uploads/hooks/hooks.json` in a local checkout.
+**Disable it:** the hook honors `UPLOADS_HOOK_DISABLE=1`. Set it wherever
+fits the scope you want — Claude Code's `env` settings block is the
+established way to make that durable:
+
+```jsonc
+// ~/.claude/settings.json        → off everywhere, for you
+// <repo>/.claude/settings.json   → off for everyone in one repo
+// <repo>/.claude/settings.local.json → off for just your checkout
+{
+  "env": { "UPLOADS_HOOK_DISABLE": "1" },
+}
+```
+
+Disabling the plugin itself also works but takes the skills and MCP server
+with it. Claude Code has no per-hook toggle today, so the env var is the
+supported per-hook switch.
 
 ## Install
 
