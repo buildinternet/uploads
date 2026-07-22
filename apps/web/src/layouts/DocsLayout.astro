@@ -468,6 +468,17 @@ const fullTitle = `${title} · uploads.sh`;
         line-height: 1.6;
       }
       .doc .installed strong { color: var(--green); }
+      /* Contextual callout (e.g. "landed here from a bot comment?" on docs/github-app). */
+      .doc .callout {
+        margin: 0 0 28px;
+        padding: 12px 16px;
+        border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--accent) 6%, transparent);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .doc .callout strong { color: var(--accent); }
       .doc .note {
         margin: 20px 0 0;
         color: var(--muted);

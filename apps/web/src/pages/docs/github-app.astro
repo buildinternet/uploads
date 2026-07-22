@@ -19,7 +19,7 @@ const TOC = [
 
 <DocsLayout
   title="GitHub App"
-  description="Install the uploads-sh GitHub App so attachment comments post as uploads-sh[bot], private-repo PR and issue titles show on file pages, and titles stay current."
+  description="Install the uploads-sh GitHub App so attachment comments post as the bot, private-repo PR and issue titles show on file pages, and titles stay current."
   path="/docs/github-app"
   heading="GitHub App"
   tagline="Optional, but nicer: bot-posted comments and live PR/issue titles."
@@ -34,45 +34,36 @@ const TOC = [
     run <code>uploads attach</code>.
   </aside>
 
-  <p>
-    Landed here from a <code>uploads-sh[bot]</code> comment's "docs" link? That comment is a
-    managed, auto-updating attachment list — images and files someone uploaded for this PR or
-    issue, kept current under one collapsible block instead of scattered across separate
-    comments. Anyone with repo access can add to it:
-    install the <a href="https://www.npmjs.com/package/@buildinternet/uploads">uploads CLI</a>,
-    run <code>uploads login</code> once, then <code>uploads put ./file.png --pr 123 --comment</code>
-    (or <code>--issue 123</code>) to upload a file and refresh the comment in one step. See&#32;
-    <a href="/docs/attach-pull-request-images">Attach &amp; share</a> for the full put/attach
-    walkthrough. The rest of this page is about the optional GitHub App that makes that comment
-    post as the bot instead of via your own <code>gh</code> auth.
-  </p>
+  <aside class="callout">
+    <strong>Landed here from a <code>uploads-sh[bot]</code> comment?</strong> That's an
+    auto-updating list of files uploaded for the PR or issue. Anyone with repo access can add
+    to it with the <a href="/docs/attach-pull-request-images">uploads CLI</a>. This page
+    covers the optional GitHub App that posts it.
+  </aside>
 
   <section class="lead" id="what-it-adds">
     <h2>What it adds <a class="anchor" href="#what-it-adds" aria-label="Link to this section">#</a></h2>
     <p>
-      Everything in these docs works without the App. Installing the&#32;
-      <a href={APP_URL}>uploads-sh GitHub App</a> on your repos upgrades three things:
+      Everything in these docs works without the App. Installing&#32;
+      <a href={APP_URL}>the App</a> upgrades four things:
     </p>
     <ul>
       <li>
-        <strong>Comments post as <code>uploads-sh[bot]</code>.</strong> The managed
-        "📎 Attachments" comment is created and updated by the App on the server, instead of
-        under your own GitHub identity via the local <code>gh</code> CLI. That keeps
-        attachment noise off your account — and it works in environments with no&#32;
-        <code>gh</code> auth at all.
+        <strong>The bot posts all linked media automatically.</strong> The attachments
+        comment is created and kept current on the server — no local <code>gh</code> auth,
+        no comments under contributors' own accounts.
       </li>
       <li>
-        <strong>File pages show titles for private repos.</strong> A file attached to a PR or
-        issue gets a share page that names its PR or issue. For public repos that works out
-        of the box; for private repos the App is what grants read access to the title.
+        <strong>File pages show titles for private repos.</strong> Public repos work out of
+        the box; the App grants read access for private ones.
       </li>
       <li>
-        <strong>Titles stay current.</strong> The App's webhooks tell uploads.sh when a PR or
-        issue is renamed, closed, or merged, so file pages don't show stale titles.
+        <strong>Titles stay current.</strong> Webhooks pick up when a PR or issue is renamed,
+        closed, or merged.
       </li>
       <li>
-        <strong>Screenshots staged before the PR exists get promoted automatically.</strong>
-        See <a href="#staging">Staging before a PR exists</a> below.
+        <strong>Screenshots staged before the PR exists get promoted automatically.</strong>&#32;
+        See <a href="#staging">Staging before a PR exists</a>.
       </li>
     </ul>
   </section>
@@ -80,13 +71,9 @@ const TOC = [
   <section id="install">
     <h2>Install it <a class="anchor" href="#install" aria-label="Link to this section">#</a></h2>
     <p>
-      Install from <a href={APP_URL}>github.com/apps/uploads-sh</a>. Pick the organization or
-      account, then choose the repositories you attach files to — "only select repositories"
-      is fine, and you can add more later from GitHub's settings.
-    </p>
-    <p>
-      That's the whole setup. The next <code>uploads attach</code> against an installed repo
-      prints <code>(uploads-sh[bot])</code> instead of <code>(via gh)</code>:
+      Install from <a href={APP_URL}>github.com/apps/uploads-sh</a> and pick the repositories
+      you attach files to (add more later in GitHub's settings). That's the whole setup — the
+      next <code>uploads attach</code> against an installed repo posts as the bot:
     </p>
     <div class="cmd">
       <span class="text">uploads attach ./after.png</span>
@@ -101,78 +88,55 @@ const TOC = [
   <section id="staging">
     <h2>Staging before a PR exists <a class="anchor" href="#staging" aria-label="Link to this section">#</a></h2>
     <p>
-      Working on a branch with no PR open yet? <code>--branch</code> stages screenshots
-      against the branch instead of a PR — no comment to post yet, nothing to target:
+      No PR open yet? <code>--branch</code> stages screenshots against the branch instead
+      (defaults to your current git branch). Staged files are hosted and public immediately —
+      there's just no PR to comment on yet.
     </p>
     <div class="cmd">
       <span class="text">uploads attach --branch ./progress.png</span>
       <button type="button" data-copy="uploads attach --branch ./progress.png" aria-live="polite">copy</button>
     </div>
     <p>
-      It defaults to your current git branch (or pass <code>--branch some-name</code>
-      explicitly). Staged files are hosted and public immediately, same as any attachment —
-      there's just no PR to comment on yet.
+      The moment a PR opens for that branch (or reopens, or gets new commits), the App
+      promotes the staged files onto it and posts or updates the bot comment — no CLI
+      involvement. Without the App, the next <code>uploads attach</code> against that PR
+      promotes them, or run <code>uploads attach --promote</code> with no files
+      (<code>--no-promote</code> skips it).
     </p>
-    <p>Once a pull request opens for that branch, staged files land on it one of two ways:</p>
-    <ul>
-      <li>
-        <strong>With the App installed</strong> (and this workspace linked to the repo — that
-        linking happens automatically the first time the workspace posts a comment or
-        promotes for it), the webhook promotes staged files onto the PR and posts or updates
-        the bot comment the moment the PR opens, reopens, or gets new commits. No CLI
-        involvement at all — this is on by default for fresh installs.
-      </li>
-      <li>
-        <strong>Without the App</strong>, the next <code>uploads attach</code> you run against
-        that PR promotes them automatically, or run <code>uploads attach --promote</code> with
-        no files to do it explicitly (<code>--no-promote</code> skips promotion).
-      </li>
-    </ul>
     <p>
-      Staged files that never make it into a PR are cleaned up on their own — promoted files
-      drop out of the staging area after about 7 days, and anything abandoned is removed after
-      about 30.
+      Staging cleans itself up: promoted files drop out after ~7 days, abandoned ones after
+      ~30.
     </p>
   </section>
 
   <section id="permissions">
     <h2>Permissions &amp; events <a class="anchor" href="#permissions" aria-label="Link to this section">#</a></h2>
-    <p>The App asks for the minimum it needs:</p>
-    <ul>
-      <li>
-        <strong>Issues and Pull requests: read &amp; write</strong> — read titles and state,
-        and post the one managed attachments comment. It never touches other comments, PR
-        descriptions, or your code.
-      </li>
-    </ul>
     <p>
-      If your org installed the App before a permission was added, GitHub holds the upgrade
-      until an org admin approves it. The CLI tells you when that's the case — it prints the
-      exact approval link and falls back to posting via <code>gh</code> in the meantime.
+      The App asks for one permission: <strong>Issues and Pull requests, read &amp;
+      write</strong> — to read titles and state and post the one managed attachments comment.
+      It never touches other comments, PR descriptions, or your code. If your org installed
+      the App before a permission was added, GitHub holds the upgrade until an org admin
+      approves it; the CLI prints the approval link and posts via <code>gh</code> in the
+      meantime.
     </p>
     <p>
-      Permissions alone aren't enough — the App also has to be
-      <strong>subscribed to webhook events</strong> (Settings → your App →
+      The App also needs <strong>webhook event subscriptions</strong> (Settings → your App →&#32;
       <em>Permissions &amp; events</em> → <em>Subscribe to events</em>):
     </p>
     <ul>
       <li>
         <strong>Required — <code>issues</code> and <code>pull_request</code>.</strong> Without
-        these the App's ping still shows green (GitHub always sends <code>ping</code> and
-        installation events regardless of subscription) but webhook-driven title cache
-        invalidation and branch-staged attachment auto-promotion silently do nothing.
+        these the ping still shows green, but title updates and staged-file auto-promotion
+        silently do nothing.
       </li>
       <li>
-        <strong>Recommended — <code>issue_comment</code>.</strong> Optional; the App works fully
-        without it. It's what lets the managed attachments comment&#32;
-        <a href="#self-healing">self-heal</a> if it's ever deleted or edited out from under the
-        bot, instead of waiting for the next PR push to re-render it.
+        <strong>Recommended — <code>issue_comment</code>.</strong> Enables&#32;
+        <a href="#self-healing">self-healing comments</a>; the App works fully without it.
       </li>
     </ul>
     <p>
-      Run <code>uploads github doctor</code> to check: it calls the App API directly and
-      reports any missing required subscription, so a silent misconfiguration doesn't sit there
-      unnoticed.
+      <code>uploads github doctor</code> checks the subscriptions directly and reports
+      anything missing:
     </p>
     <div class="cmd">
       <span class="text">uploads github doctor</span>
@@ -183,69 +147,54 @@ const TOC = [
   <section id="bindings">
     <h2>Repo bindings <a class="anchor" href="#bindings" aria-label="Link to this section">#</a></h2>
     <p>
-      One repo maps to at most one workspace's managed comment — first claim wins. The binding
-      is normally created implicitly the first time a workspace successfully comments, attaches,
-      or promotes against a repo; you can also inspect or claim it explicitly:
+      Each repo maps to at most one workspace's managed comment. The binding is created
+      implicitly the first time a workspace comments, attaches, or promotes against a repo;
+      inspect or claim it explicitly with:
     </p>
     <div class="cmd">
       <span class="text">uploads github link --status</span>
       <button type="button" data-copy="uploads github link --status" aria-live="polite">copy</button>
     </div>
-    <p>
-      Claiming an already-bound repo never steals it from whoever claimed it first — the
-      command just reports the current owner. <code>uploads github unlink</code> releases a
-      binding your own workspace owns; it fails if another workspace owns it, same as claiming
-      does. If a binding is stuck or abandoned, an operator can reassign or remove it from the
-      admin panel without going through the owning workspace at all.
-    </p>
-    <p>
-      <strong>Other workspaces can't post to your repo.</strong> If your repo is bound to your
-      workspace, a different workspace's <code>comment</code>/<code>attach</code> call against it
-      is declined outright (<code>not_authorized</code>) — it does not fall back to posting
-      under that person's own <code>gh</code> credentials, so there's no way for someone else's
-      workspace to deface or duplicate the bot comment on your repo. <code>default</code> is a
-      tenant like any other here — it claims and posts to repos under the exact same rules as
-      every other workspace.
-    </p>
-    <p>
-      <strong>Claiming an unbound repo is authorized, not just first-come.</strong> Because the
-      App is installed org-wide, uploads.sh holds a write token for every org that has installed
-      it — so nothing about the App's own installation says a given workspace should be allowed
-      to post into a given repo. Before a workspace's first <code>comment</code>,
-      <code>attach --comment</code>, <code>promote</code>, or explicit <code>uploads github
-      link</code> call is allowed to bind an unclaimed repo, the server verifies that the calling
-      token's linked GitHub account actually has push (or higher) access to that repo — checked
-      live against GitHub via the App's own installation token, the same way GitHub itself would
-      answer "can this user push here?" A token with no linked GitHub identity (a legacy,
-      enrollment, or shared token — including <code>default</code>'s) can never make a first
-      claim; it can still act normally on any repo already bound to it. An unauthorized claim
-      attempt gets the same soft <code>not_authorized</code> decline as posting to someone else's
-      bound repo — never a server error, and the CLI never silently falls back to <code>gh</code>
-      for it. Repos bound before this check existed keep working unchanged.
-    </p>
+    <ul>
+      <li>
+        <strong>Bindings can't be stolen.</strong> Claiming a bound repo just reports the
+        current owner. <code>uploads github unlink</code> releases your own binding; an
+        operator can reassign stuck ones from the admin panel.
+      </li>
+      <li>
+        <strong>Other workspaces can't post to your repo.</strong> Their&#32;
+        <code>comment</code>/<code>attach</code> calls get a <code>not_authorized</code>&#32;
+        decline with no <code>gh</code> fallback — nobody can deface or duplicate the bot
+        comment on your repo.
+      </li>
+      <li>
+        <strong>First claims require push access.</strong> Before a workspace can bind an
+        unclaimed repo, the server verifies live against GitHub that the calling token's
+        linked GitHub account can push to it. Tokens with no linked GitHub identity can't
+        make first claims (they still work on repos already bound to them), and repos bound
+        before this check existed keep working.
+      </li>
+    </ul>
   </section>
 
   <section id="self-healing">
     <h2>Self-healing comments <a class="anchor" href="#self-healing" aria-label="Link to this section">#</a></h2>
     <p>
-      With the <code>issue_comment</code> event subscribed (see
-      <a href="#permissions">Permissions &amp; events</a> above), deleting the managed
-      <code>uploads-sh[bot]</code> comment — or editing out its hidden marker — doesn't leave a
-      PR or issue without one for long. The next <code>issue_comment</code> webhook delivery
-      notices it's gone or mangled and recreates it automatically, with the same attachment
-      list it would have shown. No CLI call needed to trigger it. If an agent notices the
-      comment briefly missing, that's expected — it isn't a signal to panic-repost with a fresh
-      <code>uploads comment</code> call.
+      If the managed comment is deleted or edited out from under the bot, the App restores it
+      automatically on the next comment activity in that PR or issue — same attachment list, no
+      CLI call needed. This requires the <code>issue_comment</code> event
+      (see <a href="#permissions">Permissions &amp; events</a>). A briefly missing comment is
+      expected and not a reason to repost one manually.
     </p>
   </section>
 
   <section id="without-it">
     <h2>Without the App <a class="anchor" href="#without-it" aria-label="Link to this section">#</a></h2>
     <p>
-      No install, no problem: <code>uploads attach</code> posts the same managed comment
-      through your local <code>gh</code> CLI, and file pages still resolve titles for public
-      repos. Uninstalling later just returns you to that behavior — hosted files and their
-      URLs are unaffected either way.
+      <code>uploads attach</code> posts the same managed comment through your local&#32;
+      <code>gh</code> CLI, and file pages still resolve titles for public repos. Uninstalling
+      just returns you to that behavior — hosted files and their URLs are unaffected either
+      way.
     </p>
   </section>
 
