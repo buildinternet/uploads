@@ -6,6 +6,7 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
 
 const TOC = [
   { id: "attach", label: "Attach files to a PR" },
+  { id: "staging", label: "Stage before a PR exists" },
   { id: "put", label: "Get a URL for any file" },
   { id: "screenshot", label: "Capture a screenshot" },
 ];
@@ -106,20 +107,56 @@ const TOC = [
       <span class="text">uploads attach ./shot.png --no-comment <span class="cm"># print URLs, post nothing</span></span>
       <button type="button" data-copy="uploads attach ./shot.png --no-comment" aria-live="polite">copy</button>
     </div>
+  </section>
+
+  <section id="staging">
+    <h2>Stage before a PR exists <a class="anchor" href="#staging" aria-label="Link to this section">#</a></h2>
     <p>
-      No PR yet? <code>--branch</code> stages files against your current branch instead, so
-      you can attach screenshots while you work:
+      Don't wait for a PR to capture something. As of issue #403, a bare <code>put</code> on a
+      non-default git branch already stages by default — no <code>--branch</code> flag needed:
     </p>
     <div class="cmd">
-      <span class="text">uploads attach --branch ./shot.png</span>
-      <button type="button" data-copy="uploads attach --branch ./shot.png" aria-live="polite">copy</button>
+      <span class="text">uploads put ./after.png</span>
+      <button type="button" data-copy="uploads put ./after.png" aria-live="polite">copy</button>
     </div>
     <p>
-      Once the PR opens, the next <code>attach</code> promotes those staged files onto it
+      <code>attach --branch</code> is the explicit, multi-file form of the same thing — reach
+      for it to upload several files at once with shared flags, or to force staging outside a
+      plain upload:
+    </p>
+    <div class="cmd">
+      <span class="text">uploads attach --branch ./before.png ./after.png</span>
+      <button type="button" data-copy="uploads attach --branch ./before.png ./after.png" aria-live="polite">copy</button>
+    </div>
+    <p>
+      See what's queued for the current branch, and whether it'll actually auto-attach, with&#32;
+      <code>uploads staged</code>:
+    </p>
+    <div class="cmd">
+      <span class="text">uploads staged</span>
+      <button type="button" data-copy="uploads staged" aria-live="polite">copy</button>
+    </div>
+    <div class="block" aria-label="Example output">
+      <pre>after.webp  94.2 KB  staged 2026-07-22T14:00:00Z  https://storage.uploads.sh/gh/you/app/branch/feat-nav/after.webp
+binding: self — these auto-attach when this branch's PR opens
+once the PR exists: uploads attach --promote</pre>
+    </div>
+    <p>
+      The <code>binding</code> line is the thing worth reading: <code>self</code> means these
+      files will actually auto-attach when the PR opens; <code>none</code> or <code>other</code>&#32;
+      means they won't (the repo isn't linked to this workspace, or it's linked to a different
+      one), and <code>unknown</code> means the check itself couldn't run. Pass&#32;
+      <code>--format json</code> for a machine-readable version — it always prints a valid
+      document, even with zero files staged. See&#32;
+      <a href="/docs/github-app#staging">GitHub App: staging before a PR exists</a> for what
+      each binding state means and how to fix it.
+    </p>
+    <p>
+      Once the PR opens, the next <code>attach</code> against it promotes those staged files
       automatically — or run <code>uploads attach --promote</code> with no files to do it
-      explicitly (<code>--no-promote</code> opts out). See&#32;
-      <a href="/docs/github-app#staging">GitHub App: staging before a PR exists</a> for how
-      this works with zero CLI involvement.
+      explicitly (<code>--no-promote</code> opts out). Promotion is copy-and-keep: the staged
+      original is never deleted, so a URL you already embedded (in the PR body, say, before it
+      was even opened) keeps serving.
     </p>
   </section>
 

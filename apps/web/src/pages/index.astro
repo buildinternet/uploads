@@ -21,12 +21,14 @@ Setup:
 2. Authenticate: uploads login (opens a browser sign-in — wait for me to approve it)
 3. Wire it into you: uploads install (adds the agent skill + MCP server so future sessions know how to use it)
 
-Then get one attachment working end to end:
-- From a branch with an open PR, capture a screenshot of something that changed. uploads screenshot <url> captures and hosts in one step if that's easier.
-- Run uploads attach <files> from that branch — it creates or updates the single attachments comment on the PR.
+Then get the staged loop working end to end:
+- While you're still working, before there's a PR, capture a screenshot at each visual milestone and run uploads put <file> --state before (or --state after). On a branch, a bare put stages it automatically — no --branch flag, no PR needed yet. uploads screenshot <url> captures and hosts in one step if that's easier.
+- Check what's queued anytime with uploads staged.
+- Open the PR (gh pr create or the GitHub UI) and the staged files promote automatically — the single attachments comment appears with no extra upload command at PR time.
+- Already have an open PR or issue to target directly instead? uploads attach <files> does that immediately.
 - Tag uploads with --meta key=value (e.g. --meta path=/settings) so we can find them again later with uploads find.
 
-Finally, update AGENTS.md (or CLAUDE.md) so that whenever UI changes, before/after screenshots get attached to the PR going forward.
+Finally, update AGENTS.md (or CLAUDE.md) so that whenever UI changes, screenshots get captured at each milestone as you work going forward.
 
 Docs: https://uploads.sh/docs
 Agent guide: https://uploads.sh/github-screenshots
@@ -39,7 +41,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
     <title>uploads.sh — the missing upload command for coding agents</title>
     <meta
       name="description"
-      content="GitHub has no real way for an agent to show their work. uploads attach puts screenshots and screen recordings on the PR in one tidy comment — plus one-command captures, device frames, and tags you can search later. Open source — CLI, agent skill, and MCP server."
+      content="GitHub has no real way for an agent to show their work. Capture screenshots as you go and they're staged for the branch automatically, so the PR opens already furnished with one tidy comment. Open source — CLI, agent skill, and MCP server."
     />
     <link rel="canonical" href="https://uploads.sh/" />
     <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
@@ -48,13 +50,13 @@ Source (and where to look if something breaks): https://github.com/buildinternet
     <meta property="og:title" content="uploads.sh — the missing upload command for coding agents" />
     <meta
       property="og:description"
-      content="GitHub has no real way for an agent to show their work. uploads attach puts screenshots and screen recordings on the PR in one tidy comment — plus one-command captures, device frames, and tags you can search later."
+      content="GitHub has no real way for an agent to show their work. Capture screenshots as you go and they're staged for the branch automatically, so the PR opens already furnished with one tidy comment."
     />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="uploads.sh — the missing upload command for coding agents" />
     <meta
       name="twitter:description"
-      content="GitHub has no real way for an agent to show their work. uploads attach puts screenshots and screen recordings on the PR in one tidy comment."
+      content="Capture screenshots as you go — they're staged for the branch automatically, so the PR opens already furnished with one tidy comment."
     />
     <style>
       * { box-sizing: border-box; }
@@ -472,9 +474,9 @@ Source (and where to look if something breaks): https://github.com/buildinternet
     <main>
       <h1>The missing upload command for <span class="nb">coding agents.</span></h1>
       <p class="lede">
-        GitHub has no real way for an agent to show their work. <code>uploads attach</code> puts
-        screenshots and screen recordings on the PR in one tidy comment — and it comes with the
-        rest of the kit: one-command captures, device frames, and tags you can search later.
+        GitHub has no real way for an agent to show their work. Capture screenshots as you go
+        — they're staged for the branch automatically — and by the time the PR opens, it's
+        already furnished with one tidy comment.
       </p>
 
       <div class="cmdrow hero-install">
@@ -492,17 +494,19 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           <span>bash</span>
         </div>
         <div class="screen">
-          <p class="line out"># attach media to the PR for this branch</p>
-          <p class="line"><span class="prompt">$</span> <span class="cmd">uploads attach ./before.png ./after.png</span></p>
-          <p class="line out hidden">&gt;&gt; uploading ./before.png</p>
+          <p class="line out"># capture as you work — no PR yet</p>
+          <p class="line"><span class="prompt">$</span> <span class="cmd">uploads put ./after.png</span></p>
           <p class="line out hidden">&gt;&gt; uploading ./after.png</p>
-          <p class="line hidden"><span class="ok">&gt;&gt; attachments comment updated</span></p>
+          <p class="line out hidden">note: staged for branch feat/nav — auto-attaches to this branch's PR when it opens…</p>
+          <div class="gap hidden"></div>
+          <p class="line hidden"><span class="prompt">$</span> <span class="cmd">gh pr create</span></p>
+          <p class="line out hidden"><span class="ok">&gt;&gt; https://github.com/you/app/pull/123</span></p>
           <div class="gap"></div>
           <p class="line hidden"><span class="prompt">$</span> <span class="cursor" aria-hidden="true"></span></p>
         </div>
       </section>
 
-      <p class="flow-note"><span class="arrow">└─▶</span> And on your pull request:</p>
+      <p class="flow-note"><span class="arrow">└─▶</span> your PR opens already furnished:</p>
 
       <section
         class="ghc"
@@ -583,18 +587,19 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         <h2 class="sect-head later"># what else it does</h2>
         <div class="grid">
           <div class="feature">
-            <h3>update-in-place comments</h3>
+            <h3>stage as you go</h3>
             <p>
-              <code>attach</code> keeps a single attachments comment per PR or issue. Run it
-              again and the same comment updates — no comment spam. Agents can manually link
-              visuals too, of course.
+              A plain upload on a branch stages automatically — no extra flag needed. A staged
+              view (<code>uploads staged</code>) shows what's queued and whether it'll
+              auto-attach, and re-running it later updates the same comment instead of adding
+              a new one. Promotion never breaks a URL you've already embedded.
             </p>
           </div>
           <div class="feature">
             <h3>device frames</h3>
             <p>
-              <code>--frame phone</code>, <code>browser</code>, or <code>iphone-16-pro</code>&#32;
-              puts a raw screenshot inside device chrome.
+              Wrap a raw screenshot in device chrome — phone, browser, or a specific iPhone —
+              with <code>--frame</code>.
             </p>
           </div>
           <div class="feature">

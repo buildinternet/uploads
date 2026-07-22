@@ -82,10 +82,12 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
   <section id="stage-as-you-go">
     <h2>Stage screenshots as the agent works <a class="anchor" href="#stage-as-you-go" aria-label="Link to this section">#</a></h2>
     <p>
-      Any agent that can run a shell command can capture at each visual milestone, run&#32;
-      <code>uploads attach --branch --state before|after</code>, and let the PR comment
-      assemble itself once a PR opens — via the GitHub App webhook, or the next&#32;
-      <code>uploads attach</code> (or <code>uploads attach --promote</code>) without the
+      Any agent that can run a shell command can capture at each visual milestone and run a
+      bare <code>uploads put ./shot.png --state before|after</code> — on a branch it stages
+      automatically (issue #403), no <code>--branch</code> flag required. <code>--state</code>
+      is still worth keeping as a habit; it's the one thing no tool can infer from the image.
+      Let the PR comment assemble itself once a PR opens — via the GitHub App webhook, or the
+      next <code>uploads attach</code> (or <code>uploads attach --promote</code>) without the
       App. See the <a href="/github-screenshots">stage-as-you-go walkthrough</a>&#32;
       for the full loop.
     </p>
@@ -103,9 +105,10 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
 When a change is visually observable (UI, layout, styling), capture it as you
 go — don't wait until the PR is open. After each meaningful visual change:
 
-  uploads attach ./shot.png --branch --state before   # or --state after
+  uploads put ./shot.png --state before   # or --state after
 
-Stage before/after pairs where it makes sense. No need to open the PR first —
+On a branch, that stages automatically — no --branch flag needed. Stage
+before/after pairs where it makes sense. No need to open the PR first —
 staged files are promoted into the PR's attachments comment automatically.</pre>
     </div>
     <p>
@@ -128,16 +131,15 @@ staged files are promoted into the PR's attachments comment automatically.</pre>
 # Run before `gh pr create` (wrapper, or your agent's pre-command hook).
 # Fails open: any error here just skips the reminder, never blocks the PR.
 set -u
-branch=$(git branch --show-current 2>/dev/null) || exit 0
-[ -n "$branch" ] || exit 0
-# gh.branch metadata is stored lowercased
-branch_key=$(printf '%s' "$branch" | tr '[:upper:]' '[:lower:]')
-
-staged=$(uploads find "gh.branch=$branch_key" 2>/dev/null) || exit 0
-if [ -z "$staged" ]; then
-  echo "note: no screenshots staged for branch '$branch' — if this PR" >&2
-  echo "touches UI, consider 'uploads attach ./shot.png --branch' first" >&2
-fi
+# --format json always prints a valid document, even with zero files staged —
+# no empty-stdout special case to handle here.
+staged=$(uploads staged --format json 2>/dev/null) || exit 0
+case "$staged" in
+  *'"files": []'*)
+    echo "note: nothing staged for this branch — if this PR touches UI," >&2
+    echo "consider 'uploads put ./shot.png' first" >&2
+    ;;
+esac
 exit 0</pre>
     </div>
     <p>
