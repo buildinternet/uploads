@@ -2,17 +2,22 @@
 name: github-screenshots
 description: >-
   Embed screenshots, images, diagrams, GIFs, and screen recordings in GitHub
-  PRs and issues — or get a durable public link to share a visual with a
+  PRs and issues — or stage them ahead of a PR, collect them into one
+  attachments comment, or get a durable public link to share a visual with a
   person. Use this whenever a visual needs to end up in a PR description,
-  issue body, or PR/issue comment, or in front of a teammate. Triggers include
-  "attach a screenshot to the PR", "add a before/after to the issue", "include
-  a screenshot of …", "share a GIF of the flow", "record the bug and put it in
-  the issue", "get me a link I can paste in Slack", or having just captured or
-  changed something visual that a shot would make clearer. Reach for this
-  instead of drag-and-drop or github.com/user-attachments (agents can't upload
-  there) and instead of hand-rolling cloud-storage uploads. Capture the visual
-  with whatever browser or screenshot tooling you have; this skill covers
-  hosting and embedding it.
+  issue body, or PR/issue comment, in front of a teammate, or saved for a PR
+  that doesn't exist yet. Triggers include "attach a screenshot to the PR",
+  "add a before/after to the issue", "include a screenshot of …", "share a GIF
+  of the flow", "record the bug and put it in the issue", "get me a link I can
+  paste in Slack", "stage screenshots for the PR", "attach this when I open
+  the PR", "save this for the PR", "collect the PR's media", or having just
+  captured or changed something visual that a shot would make clearer — even
+  mid-task, before a PR exists. Also applies when an agent has no local
+  filesystem and is uploading via the hosted MCP (agents.uploads.sh). Reach
+  for this instead of drag-and-drop or github.com/user-attachments (agents
+  can't upload there) and instead of hand-rolling cloud-storage uploads.
+  Capture the visual with whatever browser or screenshot tooling you have;
+  this skill covers hosting and embedding it.
 ---
 
 # Screenshots and recordings in GitHub PRs and issues
@@ -52,6 +57,19 @@ optimizer only rewrites still images (PNG/JPEG → WebP).
 
 ## Step 2 — Host and embed
 
+Two tiers, pick by whether a PR already exists:
+
+- **Simple — a PR/issue already exists.** `uploads put shot.png --pr 123` (or
+  `uploads attach shot.png`, which infers the PR from the current branch) —
+  one call, stable per-PR key, embed URLs back immediately, and the managed
+  comment collects that PR's media as a side effect.
+- **Advanced — stage pre-PR, before there's anything to target.** `uploads
+attach shot.png --branch` (see below) — no PR/issue needed yet; promotion
+  and the comment happen automatically once the PR opens, **but only for a
+  repo already bound to the workspace** (see the caveat below). Reach for the
+  simple tier once the PR exists unless you're deliberately building up a
+  staged set across a longer branch.
+
 **Default loop: stage as you go, from the first visual milestone.** Don't wait
 for a PR to exist. The moment you have something worth capturing — mid-task,
 still on a branch, no PR yet — attach it right then with `uploads attach
@@ -66,6 +84,25 @@ This uploads under stable, branch-keyed paths (no PR/issue target needed, no
 comment yet — there's nothing to comment on until a PR exists). Keep doing
 this at each meaningful visual milestone as you work; don't batch everything
 into one attach at the end.
+
+**Staging only auto-promotes into a bound repo — don't promise it blind.**
+Auto-promotion at PR-open time (webhook or CLI-triggered, below) requires the
+repo already bound to a workspace: any earlier successful attach/comment/
+promote call against that repo binds it implicitly, or `uploads github link`
+binds it explicitly. A repo that's never been bound and only ever staged with
+`--branch` sees **no error and no comment** when the PR opens — it's a silent
+no-op. If you can't confirm the repo is already bound (`uploads github link
+--status`), don't tell the user the screenshot will "just show up" in the PR.
+The zero-setup fallback that works regardless of binding history: once the PR
+exists, run `uploads attach --promote` (or any targeted `uploads attach`
+against that PR) to promote and post explicitly.
+
+**No local filesystem?** An agent driving the hosted MCP
+(`agents.uploads.sh/mcp`, no CLI, no git checkout) can still get a visual into
+a PR in one call: the `put` tool takes `pr`/`issue` (+ required `repo`, since
+there's no git context server-side) plus `comment: true` to post straight to
+the managed attachments comment — see the **uploads-cli** skill for the exact
+tool contract and honest decline reasons.
 
 **Pass `--state before`/`--state after` as a habit.** Before/after is the whole
 point of most PR screenshots, and it's the one thing no tool can infer from the
