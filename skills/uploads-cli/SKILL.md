@@ -1,13 +1,16 @@
 ---
 name: uploads-cli
 description: >-
-  Reference for the uploads CLI — host files on uploads.sh and manage them.
-  Covers put and attach, screenshot capture (local browser or server-side
-  render), stable PR/issue keys, the managed attachments comment, metadata
-  and search, galleries, config defaults, login/doctor, and output formats.
-  Use when driving the `uploads` CLI or its MCP tools, when
-  you need a public URL for a local file ("upload this", "host this image",
-  "give me a public URL for this file"), or when you need exact flags, key
+  Reference for the uploads CLI and its stdio/hosted MCP tools — exact flags,
+  keys, and contracts for put and attach, screenshot capture, stable PR/issue
+  keys, the managed attachments comment, metadata and search, galleries,
+  config defaults, login/doctor, and output formats. Use when driving the
+  `uploads` CLI or its MCP tools (including the hosted MCP at
+  agents.uploads.sh for agents without local filesystem/git access), when you
+  need a public URL for a local file ("upload this", "host this image", "give
+  me a public URL for this file"), when the CLI itself prints a hint or nudge
+  you need to act on (a `hint` field in `--format json`, or the stderr note
+  suggesting `--pr`/`attach --branch`), or when you need exact flags, key
   layouts, or setup and auth details. For the when-and-how of getting a
   screenshot or recording into a GitHub PR or issue, start with the
   github-screenshots skill — it defers here for CLI detail.
@@ -69,6 +72,17 @@ once a PR exists for that branch:
 
 Promotion only applies to PRs, never issues, and both paths degrade silently
 (no error) if the workspace's server doesn't support promotion yet.
+
+**Promotion needs the repo already bound to the workspace.** Both the webhook
+and the CLI-triggered path above rely on the same repo↔workspace binding used
+by the managed comment (see "Repo binding" below) — any earlier successful
+`attach`/`comment`/promote call against that repo binds it implicitly, or
+`uploads github link` claims it explicitly. A repo that has **never** been
+bound and is only ever staged with `--branch` sees no error and no comment —
+promotion is a silent no-op at PR-open time. If you can't confirm the repo is
+already bound, don't promise auto-attach; the zero-setup fallback that works
+regardless of binding history is running `uploads attach --promote` (or any
+targeted `uploads attach`) once the PR exists.
 
 **Comment missing?** First, give it a moment — if the App is installed and
 subscribed to `issue_comment`, a deleted or mangled bot comment self-heals on
@@ -264,6 +278,28 @@ uploads put ./shot.png --format url        # just the URL, for scripting
 uploads put ./shot.png --format markdown   # just the ![]()/<img> snippet
 uploads put ./shot.png --json              # {workspace,key,url,size,markdown}
 ```
+
+**The bare-put nudge (issue #393).** A `put` with no targeting flag at all
+(`--pr`/`--issue`/`--key`) while inside a git repo on a non-default branch
+prints a one-line note teaching the upgrade — human mode writes it to stderr,
+`--format json` adds it as an additive optional `hint` field on the same
+response:
+
+```
+note: on branch fix-header (PR #142 open) — rerun with --pr 142 for a stable
+key plus a managed comment that collects this PR's media, or stage pre-PR
+files with: uploads attach <file> --branch
+```
+
+**If you're an agent and you see this `hint` (or the stderr note), act on
+it** — rerun with `--pr <num>` (or `attach --branch` pre-PR) rather than
+ignoring it; it never changes exit code or upload behavior, so it's easy to
+skip if you're only inspecting `url`/`markdown`, but the suggested command is
+the one that gets a stable key and a managed comment instead of a one-off
+throwaway URL. It's best-effort (a quick `gh pr view` lookup, bounded to 3s) —
+no open PR just widens the wording to a generic `--pr <num>`. Suppress it with
+`--quiet`, `UPLOADS_NO_NUDGE=1` (env), or `UPLOADS_NO_NUDGE=1` in the config
+file (`uploads config set UPLOADS_NO_NUDGE 1`).
 
 ## Capturing a screenshot: `uploads screenshot`
 
@@ -631,7 +667,7 @@ uploads config init --api-url http://localhost:8787 --workspace default --token 
 Recognized keys: `UPLOADS_API_URL`, `UPLOADS_WORKSPACE`, `UPLOADS_TOKEN`,
 `UPLOADS_DEFAULT_PREFIX`, `UPLOADS_DEFAULT_REPO`, `UPLOADS_DEFAULT_REF`,
 `UPLOADS_DEFAULT_WIDTH`, `UPLOADS_NO_GIT`, `UPLOADS_NO_OPTIMIZE`, `UPLOADS_KEEP_EXIF`,
-`UPLOADS_NO_AUTO_META`, `UPLOADS_SCREENSHOT_VIA`.
+`UPLOADS_NO_AUTO_META`, `UPLOADS_SCREENSHOT_VIA`, `UPLOADS_NO_NUDGE`.
 Also read (env only, not config-file keys): `UPLOADS_EMBED_PUBLIC_BASE_URL`,
 `UPLOADS_OVERWRITE`.
 
@@ -667,13 +703,35 @@ uploads --api-url http://localhost:8787 doctor
 - **Reports:** only when the user asks — `uploads report "what broke"` or
   `--file ./trace.log`. Never auto-send logs. MCP tool: `report`.
 - **MCP:** `uploads mcp` (stdio) mirrors CLI tools; hosted MCP at
-  `https://agents.uploads.sh/mcp`. Metadata: `get_metadata` / `set_metadata` /
-  `find_files` (same as `meta get` / `meta set` / `find`). Both support
-  multi-file `put` in one call — stdio takes `files` as paths, hosted takes
+  `https://agents.uploads.sh/mcp` — the one to reach for when an agent has no
+  local filesystem or git checkout to shell out from (send base64 content
+  directly). Metadata: `get_metadata` / `set_metadata` / `find_files` (same as
+  `meta get` / `meta set` / `find`). Both support multi-file `put` in one call
+  — stdio takes `files` as paths, hosted takes
   `files: [{ filename, contentBase64, alt? }]` (max 20/call; per-item `alt`
   overrides the top-level one) — returning `{ uploads, failures }` with
   per-item results. `uploads install` sets
   up this skill + hosted MCP (short progress; `--verbose` / `--dry-run` available).
+
+  **Hosted MCP `put` comment parity (issue #392).** The hosted `put` tool
+  accepts `pr`/`issue` (mutually exclusive, mirroring the CLI's `--pr`/
+  `--issue`) plus a required `repo` (`owner/name` — the hosted server has no
+  git context to infer it from) to get the same stable `gh/…` key the CLI
+  produces. Add `comment: true` to post/update the managed `uploads-sh[bot]`
+  attachments comment directly, same as CLI `--comment` — bot-only on this
+  server, no local-`gh` fallback. Prefer `pr`/`issue`/`comment` over just
+  returning a raw `url`/`embedUrl` whenever the caller is going to paste the
+  result into a PR/issue: it gets the stable overwrite-in-place key and
+  (optionally) lands straight in the collected attachments comment instead of
+  a one-off link the caller has to hand-embed. A comment failure never fails
+  the upload — it's returned honestly in the result's `comment` field as one
+  of `not_installed` (App not installed on the repo), `not_authorized` (repo
+  bound to a different workspace, or unbound and this workspace isn't
+  entitled to claim it), or `forbidden` (App installed but Issues/PR write
+  access not yet approved — includes a `fixUrl` to the org's permission-review
+  page), never as a thrown tool error; an unexpected error surfaces
+  separately as `commentError`.
+
 - **Agents on the Worker side:** the package also exports
   `createUploadsWorkerFileTools()` from `@buildinternet/uploads/agent` for exposing
   upload/list/delete as AI-SDK tools inside a Worker — only relevant if you're
