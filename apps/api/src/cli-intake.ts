@@ -136,6 +136,6 @@ export function envFlagOn(value: string | undefined): boolean {
   return value === "1" || value === "true";
 }
 
-export function newId(prefix: "tel" | "rpt"): string {
+export function newId(prefix: "tel" | "rpt" | "ab"): string {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, "")}`;
 }

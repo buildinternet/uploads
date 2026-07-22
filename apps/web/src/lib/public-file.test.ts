@@ -11,6 +11,7 @@ import {
   isPublicFile,
   isSafeKey,
   PUBLIC_FILE_CSP,
+  publicFileCsp,
   sameUtcDay,
   shouldShowModified,
 } from "./public-file";
@@ -30,6 +31,8 @@ describe("public file headers", () => {
     expect(PUBLIC_FILE_CSP).toContain("default-src 'none'");
     expect(PUBLIC_FILE_CSP).toContain("frame-ancestors 'none'");
     expect(PUBLIC_FILE_CSP).toContain("style-src 'self' 'unsafe-inline'");
+    // Default CSP (prod API origin) allows Report-a-problem + RUM.
+    expect(PUBLIC_FILE_CSP).toContain("connect-src https://api.uploads.sh");
     const headers = new Headers();
     applyPublicFileHeaders(headers);
     expect(headers.get("Content-Security-Policy")).toBe(PUBLIC_FILE_CSP);
@@ -37,27 +40,23 @@ describe("public file headers", () => {
     expect(headers.get("X-Robots-Tag")).toBe("noindex, nofollow, noarchive");
   });
 
-  it("authRequiredFileCsp widens script-src/connect-src but keeps the rest locked down", () => {
-    const csp = authRequiredFileCsp("https://api.uploads.sh");
-    expect(csp).toContain("default-src 'none'");
-    expect(csp).toContain("script-src 'self' 'unsafe-inline'");
-    expect(csp).toContain("connect-src https://api.uploads.sh");
-    expect(csp).toContain("'self'");
-    expect(csp).toContain("https://cloudflareinsights.com");
-    expect(csp).toContain("frame-ancestors 'none'");
+  it("publicFileCsp / authRequiredFileCsp share API connect-src for report + session probe", () => {
+    const publicCsp = publicFileCsp("https://api.example.test");
+    const authCsp = authRequiredFileCsp("https://api.example.test");
+    expect(publicCsp).toBe(authCsp);
+    expect(publicCsp).toContain("default-src 'none'");
+    expect(publicCsp).toContain("script-src 'self' 'unsafe-inline'");
+    expect(publicCsp).toContain("connect-src https://api.example.test");
+    expect(publicCsp).toContain("https://cloudflareinsights.com");
+    expect(publicCsp).toContain("frame-ancestors 'none'");
 
     const headers = new Headers();
-    applyPublicFileHeaders(headers, { csp });
-    expect(headers.get("Content-Security-Policy")).toBe(csp);
+    applyPublicFileHeaders(headers, { csp: publicCsp });
+    expect(headers.get("Content-Security-Policy")).toBe(publicCsp);
     expect(headers.get("Cache-Control")).toBe("no-store");
-
-    // Default call (no override) still gets the strict, script-free policy.
-    const defaultHeaders = new Headers();
-    applyPublicFileHeaders(defaultHeaders);
-    expect(defaultHeaders.get("Content-Security-Policy")).toBe(PUBLIC_FILE_CSP);
   });
 
-  it("widens script-src on the ok branch too — same posture as authRequiredFileCsp", () => {
+  it("widens script-src on the ok branch for copy + report controls", () => {
     expect(PUBLIC_FILE_CSP).toContain(
       "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
     );

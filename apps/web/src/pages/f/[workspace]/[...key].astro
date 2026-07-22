@@ -4,11 +4,12 @@ import Brand from "../../../components/Brand.astro";
 import CopyAsControls from "../../../components/CopyAsControls.astro";
 import Footer from "../../../components/Footer.astro";
 import ImagePreview from "../../../components/ImagePreview.astro";
+import ReportAbuse from "../../../components/ReportAbuse.astro";
 import { GH_KIND_PATH } from "../../../lib/brand-icons";
 import { buildEmbedFormats } from "../../../lib/embed-formats";
 import {
   applyPublicFileHeaders,
-  authRequiredFileCsp,
+  publicFileCsp,
   fetchPublicFile,
   fileDownloadUrl,
   fileKind as kind,
@@ -31,10 +32,9 @@ const origin =
   "https://api.uploads.sh";
 const result = await fetchPublicFile(workspace, key, { origin });
 
-applyPublicFileHeaders(
-  Astro.response.headers,
-  result.status === "auth_required" ? { csp: authRequiredFileCsp(origin) } : undefined,
-);
+// Always allow connect-src → API: Report a problem (public) and the
+// auth_required session probe both POST/GET against the API origin.
+applyPublicFileHeaders(Astro.response.headers, { csp: publicFileCsp(origin) });
 
 const file = result.status === "ok" ? result.file : null;
 if (result.status === "unavailable") Astro.response.status = 503;
@@ -274,6 +274,12 @@ const oembedHref = file ? oembedDiscoveryHref(canonical, Astro.url.origin) : nul
                   <a class="original" href={file.url} rel="noopener noreferrer">Open original ↗</a>
                 )}
               </CopyAsControls>
+              <ReportAbuse
+                apiOrigin={origin}
+                pageUrl={canonical}
+                workspace={workspace}
+                objectKey={key}
+              />
             </figcaption>
           </figure>
         </>

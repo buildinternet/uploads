@@ -95,20 +95,18 @@ export function fileDownloadUrl(origin: string, workspace: string, key: string):
 }
 
 /**
- * Shared directives behind both {@link PUBLIC_FILE_CSP} and
- * {@link authRequiredFileCsp} — locked down except for self-hosted
- * styles/fonts and the Cloudflare RUM beacon. `scriptSrc`/`connectSrc`
- * override the default (script-free) posture for the auth-required branch.
+ * File-page CSP. Inline script for Copy-as / Report; `connect-src` includes
+ * the API origin for `/v1/abuse` and the auth_required session probe.
  */
-function buildFileCsp(overrides?: { scriptSrc?: string; connectSrc?: string }): string {
+export function publicFileCsp(apiOrigin: string): string {
   return [
     "default-src 'none'",
     "img-src https: data:",
     "media-src https:",
     "font-src 'self'",
     `style-src ${STYLE_SRC_SELF_AND_INLINE}`,
-    `script-src ${overrides?.scriptSrc ?? CF_RUM_SCRIPT_SRC}`,
-    `connect-src ${overrides?.connectSrc ?? CF_RUM_CONNECT_SRC}`,
+    `script-src 'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
+    `connect-src ${apiOrigin} ${CF_RUM_CONNECT_SRC}`,
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'none'",
@@ -116,37 +114,13 @@ function buildFileCsp(overrides?: { scriptSrc?: string; connectSrc?: string }): 
   ].join("; ");
 }
 
-/**
- * Public file page CSP — same posture as the public gallery: locked down
- * except for self-hosted styles/fonts, the Cloudflare RUM beacon, and (as of
- * the file-page-polish work) inline script for the click-to-copy button and
- * "Copy as" control. `connect-src` stays untouched — clipboard writes never
- * hit the network, and the download link needs no script at all.
- */
-export const PUBLIC_FILE_CSP = buildFileCsp({
-  scriptSrc: `'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
-});
+/** Default prod CSP (tests / callers without a dynamic API origin). */
+export const PUBLIC_FILE_CSP = publicFileCsp("https://api.uploads.sh");
 
-/**
- * CSP for the `auth_required` branch only: same posture as {@link PUBLIC_FILE_CSP}
- * plus `'self' 'unsafe-inline'` script-src (Astro-processed inline `<script>`,
- * same allowance as the signed-in shells — see `signed-in-page.ts`) and
- * `connect-src` widened to the API origin, so the progressive-enhancement
- * script can probe `/me/workspaces/:workspace/file-url`. The normal public
- * branch keeps the strict, script-free policy.
- */
-export function authRequiredFileCsp(apiOrigin: string): string {
-  return buildFileCsp({
-    scriptSrc: `'self' 'unsafe-inline' ${CF_RUM_SCRIPT_SRC}`,
-    connectSrc: `${apiOrigin} ${CF_RUM_CONNECT_SRC}`,
-  });
-}
+/** Alias — public and auth_required branches share one allowlist now. */
+export const authRequiredFileCsp = publicFileCsp;
 
-/**
- * Strict CSP, noindex, no-store — matches the public gallery pages. Pass a
- * `csp` override (e.g. {@link authRequiredFileCsp}) for the auth-required
- * branch, which needs script execution and API connectivity.
- */
+/** Strict CSP, noindex, no-store. Pass `csp` when the page needs API connectivity. */
 export function applyPublicFileHeaders(headers: Headers, options?: { csp?: string }): void {
   headers.set("Content-Security-Policy", options?.csp ?? PUBLIC_FILE_CSP);
   headers.set("Referrer-Policy", "no-referrer");

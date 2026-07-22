@@ -19,6 +19,7 @@ import { publicFiles } from "./routes/public-files";
 import { publicGithubAvatars } from "./routes/public-github-avatars";
 import { telemetry } from "./routes/telemetry";
 import { reports } from "./routes/reports";
+import { abuse } from "./routes/abuse";
 import { render } from "./routes/render";
 import { githubWebhook } from "./routes/github-webhook";
 import { handleGithubWebhookBatch } from "./github-webhook-queue";
@@ -120,6 +121,8 @@ export const app = new Hono<WorkspaceVars>()
   .route("/v1/telemetry", telemetry)
   // Explicit opt-in diagnostic reports (message + optional log) — no auth.
   .route("/v1/reports", reports)
+  // Public content / abuse reports from the file page — no auth; emails abuse@.
+  .route("/v1/abuse", abuse)
   // Screenshot render (phase 1, POST /v1/render). Brings its own auth
   // (tokenWorkspaceAuth resolves the workspace from the token, not the path)
   // so — like /v1/tokens — it must be registered before the `/v1/:workspace/*`
