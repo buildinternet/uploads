@@ -2,7 +2,7 @@
 
 > File hosting for agents and humans — hosted CLI, agent skill, and MCP server. Open source for self-hosting.
 
-Sign in with GitHub or a magic link, then create your own workspace (GitHub-linked account, up to three self-serve) or accept an invite into one. Hosted files are public (including media attached to private repositories). Do not upload secrets or sensitive UI. APIs may change without notice while the project is in active development.
+Access requires a workspace — create your own with a linked GitHub account, or be invited to an existing one. Hosted files are public (including media attached to private repositories). Do not upload secrets or sensitive UI. APIs may change without notice while the project is in active development.
 
 ## Start here
 
@@ -51,7 +51,9 @@ Claude Code plugin (bundles the skills, the hosted MCP server, and the /uploads:
 
 ## Machine-readable discovery
 
+- Integration surfaces (API, MCP, CLI + how each authenticates): https://uploads.sh/.well-known/integrations.json
 - API catalog: https://uploads.sh/.well-known/api-catalog
+- OpenAPI (summary): https://uploads.sh/openapi.json
 - MCP server card: https://uploads.sh/.well-known/mcp/server-card.json
 - Agent skills index: https://uploads.sh/.well-known/agent-skills/index.json
 - robots / sitemap: https://uploads.sh/robots.txt · https://uploads.sh/sitemap.xml

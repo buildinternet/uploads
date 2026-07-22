@@ -36,14 +36,15 @@ Details: [enrollment docs](https://github.com/buildinternet/uploads/blob/main/do
 
 ## Getting workspace access
 
-Two paths, no `ADMIN_TOKEN` for either:
+Two paths, then `uploads login` as above:
 
-- **Create your own.** Sign in (GitHub or magic-link) and link a GitHub
-  account, then create a workspace from `/account/workspaces` — or
-  `uploads login --workspace <name> --create`. Capped at three self-serve
+- **Create your own.** Sign in (GitHub or magic link) at
+  <https://uploads.sh/account/workspaces/new> and create a workspace. This
+  requires a linked GitHub account and is capped at three self-serve
   workspaces per account.
-- **Accept an invitation.** A workspace owner/admin (or a site operator from
-  `/admin`) invites your email; accept it, then run `uploads login` as above.
+- **Be invited.** An uploads.sh administrator invites your email address to an
+  existing workspace's organization from the session-authenticated `/admin`
+  UI. Accept the invitation (GitHub or magic-link sign-in).
 
 ## Using the credential
 
@@ -65,17 +66,18 @@ inferred from the `up_<workspace>_…` token form).
 
 ## Discovery documents
 
-| Resource               | URL                                                            |
-| ---------------------- | -------------------------------------------------------------- |
-| This file              | https://uploads.sh/auth.md                                     |
-| Agent summary          | https://uploads.sh/llms.txt                                    |
-| API catalog (RFC 9727) | https://uploads.sh/.well-known/api-catalog                     |
-| OpenAPI (summary)      | https://uploads.sh/.well-known/openapi.json                    |
-| MCP server card        | https://uploads.sh/.well-known/mcp/server-card.json            |
-| Agent skills index     | https://uploads.sh/.well-known/agent-skills/index.json         |
-| Narrative API docs     | https://github.com/buildinternet/uploads/blob/main/docs/api.md |
-| API health             | https://api.uploads.sh/health                                  |
-| MCP health             | https://agents.uploads.sh/health                               |
+| Resource               | URL                                                              |
+| ---------------------- | ---------------------------------------------------------------- |
+| This file              | https://uploads.sh/auth.md                                       |
+| Agent summary          | https://uploads.sh/llms.txt                                      |
+| Integration surfaces   | https://uploads.sh/.well-known/integrations.json                 |
+| API catalog (RFC 9727) | https://uploads.sh/.well-known/api-catalog                       |
+| OpenAPI (summary)      | https://uploads.sh/.well-known/openapi.json (also /openapi.json) |
+| MCP server card        | https://uploads.sh/.well-known/mcp/server-card.json              |
+| Agent skills index     | https://uploads.sh/.well-known/agent-skills/index.json           |
+| Narrative API docs     | https://github.com/buildinternet/uploads/blob/main/docs/api.md   |
+| API health             | https://api.uploads.sh/health                                    |
+| MCP health             | https://agents.uploads.sh/health                                 |
 
 ## OAuth for the hosted MCP
 
