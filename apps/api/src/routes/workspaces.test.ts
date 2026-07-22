@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SqliteD1 } from "../../test/helpers/sqlite-d1";
 import { createToken } from "../auth-db";
 import { respondError } from "../error-response";
@@ -22,6 +22,13 @@ interface EnvOpts {
   onDeleteOrg?: (slug: string) => void;
   putThrows?: boolean;
   wsCreateLimiterAllows?: boolean;
+  emailSend?: (msg: {
+    to: string;
+    from: { name: string; email: string };
+    subject: string;
+    text?: string;
+    html?: string;
+  }) => Promise<unknown>;
 }
 
 function stubAuth(handler: (req: Request) => Response | Promise<Response>): Pick<Fetcher, "fetch"> {
@@ -47,6 +54,7 @@ function stubEnv(opts: EnvOpts = {}): Env {
     onDeleteOrg,
     putThrows = false,
     wsCreateLimiterAllows,
+    emailSend,
   } = opts;
 
   const auth = stubAuth((req) => {
@@ -109,10 +117,19 @@ function stubEnv(opts: EnvOpts = {}): Env {
           limit: (async () => ({ success: wsCreateLimiterAllows })) as unknown,
         } as unknown as Env["WS_CREATE_LIMITER"]);
 
-  return Object.assign({ AUTH: auth, REGISTRY: registry, __puts: puts } as unknown as Env, {
-    __puts: puts,
-    ...(wsCreateLimiter ? { WS_CREATE_LIMITER: wsCreateLimiter } : {}),
-  });
+  return Object.assign(
+    {
+      AUTH: auth,
+      REGISTRY: registry,
+      WEB_ORIGIN: "https://uploads.sh",
+      __puts: puts,
+      ...(emailSend ? { EMAIL: { send: emailSend } } : {}),
+    } as unknown as Env,
+    {
+      __puts: puts,
+      ...(wsCreateLimiter ? { WS_CREATE_LIMITER: wsCreateLimiter } : {}),
+    },
+  );
 }
 
 function app() {
@@ -271,6 +288,31 @@ describe("POST /v1/workspaces", () => {
     const res = await post(env, { name: "zachbot" });
     expect(res.status).toBeGreaterThanOrEqual(500);
     expect(deletedSlug).toBe("zachbot");
+  });
+
+  it("sends a welcome email on the user's first workspace", async () => {
+    const emailSend = vi.fn().mockResolvedValue({});
+    const env = stubEnv({ memberships: [], emailSend });
+    const res = await post(env, { name: "zachbot" });
+    expect(res.status).toBe(201);
+    expect(emailSend).toHaveBeenCalledTimes(1);
+    const msg = emailSend.mock.calls[0]?.[0];
+    expect(msg.to).toBe("z@x.com");
+    expect(msg.subject).toBe("Welcome to uploads.sh");
+    expect(msg.html).toContain("zachbot");
+    expect(msg.html).toContain("uploads install");
+  });
+
+  it("does not send welcome when the user already has a membership", async () => {
+    const emailSend = vi.fn().mockResolvedValue({});
+    const env = stubEnv({
+      memberships: [{ organizationId: "o1", organizationSlug: "existing", role: "member" }],
+      kvRecords: { existing: { provider: "r2", bucket: "b" } },
+      emailSend,
+    });
+    const res = await post(env, { name: "zachbot" });
+    expect(res.status).toBe(201);
+    expect(emailSend).not.toHaveBeenCalled();
   });
 });
 

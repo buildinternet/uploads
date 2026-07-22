@@ -6,6 +6,7 @@ import {
   renderMagicLinkEmail,
   renderMemberJoinedEmail,
   renderOrgInvitationEmail,
+  renderWelcomeEmail,
 } from "../src/index";
 
 function parseJsonLd(html: string): Record<string, unknown> | null {
@@ -210,5 +211,43 @@ describe("renderMemberJoinedEmail", () => {
     expect(out.html).toContain("buildinternet");
     expect(out.text).toContain("accepted your invitation");
     expect(out.html).not.toContain("application/ld+json");
+  });
+});
+
+describe("renderWelcomeEmail", () => {
+  it("names the workspace, links next steps, and embeds a docs ViewAction", () => {
+    const out = renderWelcomeEmail({
+      workspaceName: "acme",
+      webOrigin: "https://uploads.sh",
+    });
+    expect(out.subject).toBe("Welcome to uploads.sh");
+    expect(out.html).toContain("You&#39;re in");
+    expect(out.html).toContain("acme");
+    expect(out.html).toContain("uploads install");
+    expect(out.html).toContain("https://github.com/apps/uploads-sh");
+    expect(out.html).toContain("https://github.com/buildinternet/uploads");
+    expect(out.html).toContain("https://uploads.sh/docs");
+    expect(out.text).toContain("uploads install");
+    expect(out.text).toContain("github.com/buildinternet/uploads");
+    expect(parseJsonLd(out.html)?.potentialAction).toEqual({
+      "@type": "ViewAction",
+      name: "Open the docs",
+      url: "https://uploads.sh/docs",
+    });
+  });
+
+  it("escapes hostile workspace names", () => {
+    const out = renderWelcomeEmail({
+      workspaceName: `<script>x</script>`,
+      webOrigin: "https://uploads.sh",
+    });
+    expect(out.html).not.toContain("<script>x</script>");
+    expect(out.html).toContain("&lt;script&gt;x&lt;/script&gt;");
+  });
+
+  it("omits the workspace clause when name is empty", () => {
+    const out = renderWelcomeEmail({ webOrigin: "https://uploads.sh" });
+    expect(out.html).toContain("Your uploads.sh account is ready");
+    expect(out.text).toContain("Your uploads.sh account is ready");
   });
 });

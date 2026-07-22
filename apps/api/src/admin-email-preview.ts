@@ -7,6 +7,7 @@ import {
   renderMagicLinkEmail,
   renderMemberJoinedEmail,
   renderOrgInvitationEmail,
+  renderWelcomeEmail,
 } from "@uploads/email";
 import { ServiceUnavailableError, ValidationError } from "@uploads/errors";
 
@@ -14,6 +15,7 @@ export const EMAIL_PREVIEW_TYPES = [
   { id: "magic-link", label: "Magic sign-in link", category: "Auth" },
   { id: "org-invitation", label: "Workspace invitation", category: "Auth" },
   { id: "member-joined", label: "Member joined notify", category: "Auth" },
+  { id: "welcome", label: "Welcome / next steps", category: "Auth" },
   { id: "enrollment-invitation", label: "Enrollment invitation", category: "Invites" },
 ] as const;
 
@@ -70,6 +72,14 @@ function renderPreview(type: EmailPreviewType, origin: string) {
         ...renderMemberJoinedEmail({
           organizationName: "preview-workspace",
           memberEmail: "new-member@example.com",
+          webOrigin: origin,
+        }),
+      };
+    case "welcome":
+      return {
+        from: AUTH_FROM,
+        ...renderWelcomeEmail({
+          workspaceName: "preview-workspace",
           webOrigin: origin,
         }),
       };

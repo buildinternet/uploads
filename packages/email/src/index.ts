@@ -12,3 +12,4 @@ export {
   renderMemberJoinedEmail,
   renderOrgInvitationEmail,
 } from "./invites";
+export { renderWelcomeEmail } from "./welcome";
