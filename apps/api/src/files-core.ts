@@ -472,6 +472,24 @@ export async function setObjectVisibility(
     });
   }
 
+  await rewriteVisibility(store, key, visibility);
+
+  // Derived poster (issue #299), best-effort: a missing one is the norm for
+  // every non-video object. THE security case — a private video must never
+  // keep a publicly fetchable poster frame — so this propagation is not
+  // optional.
+  const posterKey = posterKeyFor(key);
+  const posterExists = await store.head(posterKey).catch(() => null);
+  if (posterExists) await rewriteVisibility(store, posterKey, visibility);
+}
+
+/**
+ * Shared rewrite body for `setObjectVisibility`: download the object, flip
+ * the `visibility` custom-metadata flag, and upload it back under the same
+ * key. Extracted so the primary object and its derived poster (issue #299)
+ * go through identical logic.
+ */
+async function rewriteVisibility(store: Files, key: string, visibility: Visibility): Promise<void> {
   const current = await store.download(key);
   const bytes = new Uint8Array(await current.arrayBuffer());
   const metadata: Record<string, string> = { ...current.metadata };
@@ -656,6 +674,19 @@ export async function deleteObject(
   if (prev !== null) {
     await recordUsageSafe(env.DB, workspaceName, {
       bytes: -prev,
+      objects: -1,
+      uploads: 0,
+    });
+  }
+
+  // Derived poster (issue #299), best-effort: a missing one is the norm for
+  // every non-video object.
+  const posterKey = posterKeyFor(key);
+  const posterSize = await existingSize(store, posterKey);
+  if (posterSize !== null) {
+    await store.delete(posterKey);
+    await recordUsageSafe(env.DB, workspaceName, {
+      bytes: -posterSize,
       objects: -1,
       uploads: 0,
     });
