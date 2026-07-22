@@ -338,18 +338,27 @@ function metaCaptionMarkdown(meta: AttachmentItem["meta"]): string {
  * carries no recognizable before/after token. Requires a separator (`-`, `_`,
  * or `.`) between the token and the rest of the name — except when the token
  * IS the whole stem (`before.png`) — so `beforehand.png` doesn't false-match. */
+// Token bounded by `-`, `_`, `.`, or stem start/end, so `hero-before.webp`
+// and `paired-view-before-desktop.webp` match but `beforehand.webp` does
+// not. Mirrors before-after.ts's TOKEN_RE (file page), applied to the stem.
+const STEM_TOKEN_RE = /(^|[-_.])(before|after)($|[-_.])/i;
+
 function filenameStemToken(name: string): { base: string; state: "before" | "after" } | null {
   const dot = name.lastIndexOf(".");
   const stem = dot > 0 ? name.slice(0, dot) : name;
-  const lower = stem.toLowerCase();
-  if (lower === "before" || lower === "after") {
-    return { base: "", state: lower as "before" | "after" };
-  }
-  let m = /^(.+?)[-_.](before|after)$/i.exec(stem);
-  if (m) return { base: m[1].toLowerCase(), state: m[2].toLowerCase() as "before" | "after" };
-  m = /^(before|after)[-_.](.+)$/i.exec(stem);
-  if (m) return { base: m[2].toLowerCase(), state: m[1].toLowerCase() as "before" | "after" };
-  return null;
+  const m = STEM_TOKEN_RE.exec(stem);
+  if (!m) return null;
+  const state = m[2]!.toLowerCase() as "before" | "after";
+  const tokenStart = m.index + m[1]!.length;
+  const tokenEnd = tokenStart + m[2]!.length;
+  // Base = stem with the token and one adjoining delimiter removed, so
+  // `paired-view-before-desktop` and `paired-view-after-desktop` both
+  // collapse to `paired-view-desktop` and group together.
+  const base =
+    m[1]!.length > 0
+      ? stem.slice(0, m.index) + stem.slice(tokenEnd)
+      : stem.slice(tokenEnd + m[3]!.length);
+  return { base: base.toLowerCase(), state };
 }
 
 /**

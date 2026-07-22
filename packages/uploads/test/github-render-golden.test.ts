@@ -144,6 +144,25 @@ describe("attachmentsCommentBody (CLI copy)", () => {
       expect(body).not.toContain("<table>");
     });
 
+    it("pairs a delimiter-bounded before/after token in the middle of the stem", () => {
+      const body = attachmentsCommentBody([
+        img("gh/acme/web/pull/12/paired-view-after-desktop.webp"),
+        img("gh/acme/web/pull/12/paired-view-before-desktop.webp"),
+      ]);
+      const beforeIdx = body.indexOf("paired-view-before-desktop.webp");
+      const afterIdx = body.indexOf("paired-view-after-desktop.webp");
+      expect(beforeIdx).toBeGreaterThan(-1);
+      expect(beforeIdx).toBeLessThan(afterIdx);
+    });
+
+    it("does not treat 'before'/'after' as a token when not delimiter-bounded", () => {
+      const body = attachmentsCommentBody([
+        img("gh/acme/web/pull/12/beforehand.webp"),
+        img("gh/acme/web/pull/12/aftermath.webp"),
+      ]);
+      expect(body).not.toContain("<table>");
+    });
+
     it("leaves an unpaired attachment (including error/loading state) rendered as today", () => {
       const body = attachmentsCommentBody([
         img("gh/acme/web/pull/12/lonely-before.webp"),
