@@ -463,6 +463,109 @@ wrangler r2 object get "uploads-default/_internal/uploads-cli-reports/${REPORT_I
   --file ./trace.log
 ```
 
+## Video poster thumbnails (issue #299)
+
+Write-time poster generation (`generateAndStorePoster`,
+`apps/api/src/files-core.ts`) runs on every `PUT /v1/:ws/files/:key` and
+stores a `.jpg` frame at `_internal/posters/<key>.jpg`, flagging the source
+object with D1 metadata `video.poster=1`. It does **not** run on
+`POST /sign` uploads — those hand the client a presigned URL straight to R2,
+bypassing the worker (and therefore `generateAndStorePoster`) entirely. Any
+video uploaded that way needs a backfill pass (below) once generation is on.
+
+### Kill switches (in order of blast radius)
+
+1. **Flagship flag (preferred, instant, reversible)** — turn generation off
+   globally without a deploy:
+
+   ```bash
+   wrangler flagship flags update 8371bfe7-9767-4b4d-b75a-37b94d2724f7 \
+     video-poster-generation --default off
+   ```
+
+   Checked by `posterGenerationAllowed` (`apps/api/src/poster.ts`) on every
+   write. Currently **off** in production — this feature has not shipped to
+   users yet.
+
+2. **Remove the `MEDIA` binding** — `generateAndStorePoster` needs
+   `env.MEDIA` (Cloudflare Media Transformations) to extract a frame. Drop
+   the binding from `wrangler.jsonc` and redeploy to hard-disable extraction
+   regardless of the flag. Slower (needs a deploy) but survives a Flagship
+   outage.
+
+3. **`POSTER_LIMITER` denial (fails closed, no action needed)** — poster
+   generation is gated behind its own rate limiter,
+   `posterRateLimitGuard` / `POSTER_LIMITER` (`apps/api/src/guards.ts`). If
+   that binding is ever absent from the environment, generation fails closed
+   (treated as denied) rather than failing open — see
+   `apps/api/src/poster.ts`'s comment on `posterGenerationAllowed`. This isn't
+   something to toggle deliberately as a kill switch, but it means a
+   misconfigured or missing `POSTER_LIMITER` binding is safe, not silently
+   permissive.
+
+Any of the three means: existing posters keep serving from
+`_internal/posters/`, new writes just stop generating new ones — no data
+loss, no user-visible error (the managed comment/file page renderer falls
+back to its pre-#299 bullet link).
+
+### Backfill script
+
+`scripts/backfill-posters.mjs` finds `video/mp4` objects without a poster and
+generates one for each, mirroring `apps/api/scripts/backfill-gh-metadata.mjs`
+(same `--workspace`/`--dry-run` shape, same `UPLOADS_API_URL`/
+`UPLOADS_WORKSPACE`/`UPLOADS_TOKEN` env vars, same cursor-walk-then-summarize
+shape), plus `--limit <n>` to bound a run:
+
+```bash
+# Always dry-run first — read-only, prints the candidate plan, no writes.
+node --env-file=.env scripts/backfill-posters.mjs --workspace default --dry-run --limit 20
+
+# Real run once the plan looks sane.
+node --env-file=.env scripts/backfill-posters.mjs --workspace default --limit 20
+```
+
+**Mechanism:** there is no admin route that calls `generateAndStorePoster`
+directly for an already-stored object. The script instead re-`PUT`s each
+candidate's existing bytes back to their own key
+(`PUT /v1/:ws/files/:key`, no `X-Uploads-Meta-*` headers so existing D1
+metadata is left untouched) — the same write path a fresh upload takes, which
+already calls `generateAndStorePoster` after storing. **This means the
+backfill only has an effect while the `video-poster-generation` flag is on**
+(kill switch 1, above) — with it off, every re-put is a no-op write that
+leaves the object exactly as it was.
+
+**Idempotency:** a candidate that already carries `video.poster=1` is skipped
+up front, so re-running the script is always safe. Objects over 10 minutes
+are silently skipped server-side (`POSTER_MAX_DURATION_SECONDS`,
+`apps/api/src/poster.ts`) and never get `video.poster` set — the script can't
+know duration before the write path probes it, so those get reattempted (and
+re-skipped) on every run. Harmless, just noisy in the summary line.
+
+Filters applied before any write: `video.poster` already set (skip), content
+type isn't `video/mp4` (skip), object over 100 MB (skip, matches
+`POSTER_MAX_INPUT_BYTES`). Sleeps 3s between writes, comfortably under the
+`POSTER_LIMITER` ceiling of 30/min.
+
+**Visibility is preserved.** The re-PUT forwards `X-Uploads-Visibility:
+private` whenever the listing marks the object private (the `visibility`
+field `GET /v1/:ws/files` already returns per item); public objects send no
+such header. Without this the backfill would silently make every private
+video it touches public, since a PUT's R2 custom metadata is built fresh
+each time (full-replace, not a merge) and the private flag is only set when
+the request explicitly carries it.
+
+**Cost — not free.** Each re-PUT is a real upload through the normal write
+path, so every candidate consumes one unit of the workspace's
+`maxUploadsPerPeriod` budget (`reserveUploads`), exactly like a brand-new
+upload, even though no new object is created. There is no admin bypass for
+this (would need a new endpoint; out of scope for this script). Before a
+large run:
+
+- Check the workspace's current upload budget/usage first.
+- Use `--limit <n>` to bound how much budget a single run spends.
+- Expect a large backfill to compete with real user uploads for the same
+  budget, and to start failing with 429s if it exhausts it partway through.
+
 ## Deploys
 
 Code via Workers Builds / `pnpm run deploy`. D1 migrations on merge. npm CLI via changesets.

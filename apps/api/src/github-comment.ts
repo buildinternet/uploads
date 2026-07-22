@@ -12,6 +12,8 @@ import { getMetadataForKeys } from "./file-metadata";
 import { findGalleriesByReference, listGalleryItems, type GalleryCursor } from "./galleries";
 import { galleryUrl, hydrateOwnerGallery } from "./gallery-service";
 import { parseExternalReference } from "./external-references";
+import { objectPublicUrls, storageConfig } from "./storage";
+import { posterKeyFor } from "./poster";
 import type { WorkspaceRecord } from "./workspace";
 import { githubFetch, githubHeaders, installationToken, type GithubAppConfig } from "./github-app";
 import {
@@ -54,12 +56,19 @@ export async function gatherCommentBody(
 }
 
 /**
- * The only metadata keys the managed comment reads or renders (issue #365).
- * Filtering at the query rather than the renderer keeps the D1 cost flat at
- * ~3-5 rows read per attachment however many keys a file carries, and means
- * EXIF-derived keys are never fetched for a surface that posts publicly.
+ * The only metadata keys the managed comment reads or renders (issue #365,
+ * extended for #299). The `video.*` keys are server-owned derived facts about
+ * the file itself — not EXIF-derived keys like `device`/`software` — so the
+ * narrowness rationale still holds for a surface that posts publicly.
  */
-const COMMENT_META_KEYS = ["path", "state"];
+const COMMENT_META_KEYS = [
+  "path",
+  "state",
+  "video.poster",
+  "video.duration",
+  "video.width",
+  "video.height",
+];
 
 /** The workspace's own objects under the stable gh key prefix. */
 async function gatherAttachments(
@@ -102,12 +111,28 @@ async function gatherAttachments(
     items.map((item) => item.key),
     { metaKeys: COMMENT_META_KEYS },
   );
+  const cfg = await storageConfig(env, ws);
   for (const item of items) {
     const meta = metaByKey.get(item.key);
     if (!meta) continue;
     const { path, state } = meta;
     if (path || state) {
       item.meta = { ...(path ? { path } : {}), ...(state ? { state } : {}) };
+    }
+    // `video.poster` is a presence flag only. The URL is always recomputed
+    // from the object key, so a client-settable row can never decide what
+    // image renders in a public comment.
+    if (meta["video.poster"] === "1") {
+      const posterUrls = objectPublicUrls(env, cfg, posterKeyFor(item.key));
+      item.posterUrl = posterUrls.embedUrl ?? posterUrls.url;
+      const duration = Number(meta["video.duration"]);
+      const width = Number(meta["video.width"]);
+      const height = Number(meta["video.height"]);
+      item.videoMeta = {
+        ...(Number.isFinite(duration) && duration > 0 ? { durationSeconds: duration } : {}),
+        ...(Number.isFinite(width) && width > 0 ? { width } : {}),
+        ...(Number.isFinite(height) && height > 0 ? { height } : {}),
+      };
     }
   }
   return items;

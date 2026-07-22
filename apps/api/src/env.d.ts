@@ -38,4 +38,16 @@ interface Env {
    * Unset/empty disables the webhook endpoint (503).
    */
   GITHUB_APP_WEBHOOK_SECRET?: string;
+  /**
+   * Video poster generation (issue #299). Declared optional here (rather than
+   * relying solely on each app's generated worker-configuration.d.ts) because
+   * apps/mcp's wrangler.jsonc has none of these three bindings, yet its
+   * program transitively type-checks files-core.ts/poster.ts through the
+   * `@uploads/api/files` export — posterGenerationAllowed already treats all
+   * three as possibly absent at runtime (fails closed), so `?` here matches
+   * both apps' actual binding shape instead of only apps/api's.
+   */
+  MEDIA?: MediaBinding;
+  FLAGS?: Flagship;
+  POSTER_LIMITER?: RateLimit;
 }

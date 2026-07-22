@@ -52,6 +52,17 @@ export class FileMetadataTable {
       this.metadata.get(this.scopeKey(workspace, objectKey))?.delete(key);
       return { success: true, meta: { changes: 1 }, results: [] };
     }
+    if (
+      normalizedSql.startsWith("DELETE FROM file_metadata") &&
+      normalizedSql.includes("meta_key IN (")
+    ) {
+      // Named-keys delete (deleteServerFileMetadataKeys) — only the listed
+      // keys, never the whole object's row set.
+      const [workspace, objectKey, ...keys] = args as [string, string, ...string[]];
+      const map = this.metadata.get(this.scopeKey(workspace, objectKey));
+      if (map) for (const key of keys) map.delete(key);
+      return { success: true, meta: { changes: 1 }, results: [] };
+    }
     if (normalizedSql.startsWith("DELETE FROM file_metadata")) {
       // Whole-object delete (deleteFileMetadata).
       const [workspace, objectKey] = args as [string, string];

@@ -27,6 +27,31 @@ export const META_KEY_RE = /^[a-z][a-z0-9._-]{0,63}$/;
 // like an access-control setting when it's just an unrelated user tag.
 const RESERVED_META_KEYS = new Set<string>([...PROVENANCE_SERVER_KEYS, "visibility"]);
 
+/**
+ * Namespaces the server owns outright (issue #299). A client must never write
+ * these: `video.poster` decides whether a poster `<img>` renders in a public
+ * PR comment, so a user-settable row would be a spoofable input to public
+ * output. Reserved as a *prefix* rather than four exact keys so future derived
+ * facts can't collide.
+ */
+export const SERVER_META_PREFIXES = ["video."] as const;
+
+export function isServerMetaKey(key: string): boolean {
+  return SERVER_META_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
+/**
+ * True when `key` must not be written (or deleted) by a client:
+ * `RESERVED_META_KEYS` always, plus the server-owned `video.*` namespace
+ * unless `opts.allowServerKeys` opts in. Single choke point for the
+ * reserved-key check — every caller must go through this rather than
+ * re-pairing `RESERVED_META_KEYS.has` with `isServerMetaKey` by hand, which
+ * would silently reopen the hole this predicate exists to close.
+ */
+function isReservedMetaKey(key: string, opts: { allowServerKeys?: boolean } = {}): boolean {
+  return RESERVED_META_KEYS.has(key) || (!opts.allowServerKeys && isServerMetaKey(key));
+}
+
 /** Cap applied both to a single write request and to a file's total keys post-merge. */
 export const META_MAX_KEYS = 24;
 
@@ -52,17 +77,24 @@ const VALUE_SAFE_RE = /^[\x20-\x7E]+$/;
 const encoder = new TextEncoder();
 
 /**
- * Throws a `ValidationError` (AppError, type "validation") if `meta` violates
- * key format, value format/length, the per-map key-count cap, or the total
- * key+value byte cap. Callers use this both on the raw request payload and
- * on the post-merge map so a write can never silently exceed the caps.
+ * Shared validation body for `validateMetadataEntries` and
+ * `validateStoredMetadataEntries`: key format, value format/length, the
+ * per-map key-count cap, and the total key+value byte cap.
+ * `opts.allowServerKeys` is the one difference between the two exported
+ * wrappers below — kept private so no other call site can pass it directly.
  */
-export function validateMetadataEntries(meta: Record<string, string>): void {
+function validateMetadataEntriesImpl(
+  meta: Record<string, string>,
+  opts: { allowServerKeys?: boolean },
+): void {
   const keys = Object.keys(meta);
-  if (keys.length > META_MAX_KEYS) {
+  // Server-owned keys don't consume the user's budget — otherwise every video
+  // upload would silently cost four of their META_MAX_KEYS slots.
+  const countable = keys.filter((key) => !isServerMetaKey(key));
+  if (countable.length > META_MAX_KEYS) {
     throw new ValidationError(`metadata must have at most ${META_MAX_KEYS} keys.`, {
       code: "file_metadata_limit_exceeded",
-      details: { limit: META_MAX_KEYS, count: keys.length },
+      details: { limit: META_MAX_KEYS, count: countable.length },
     });
   }
 
@@ -74,7 +106,7 @@ export function validateMetadataEntries(meta: Record<string, string>): void {
         details: { key },
       });
     }
-    if (RESERVED_META_KEYS.has(key)) {
+    if (isReservedMetaKey(key, opts)) {
       throw new ValidationError(`reserved metadata key: ${key}`, {
         code: "file_metadata_reserved_key",
         details: { key },
@@ -101,6 +133,34 @@ export function validateMetadataEntries(meta: Record<string, string>): void {
       details: { limit: META_MAX_TOTAL_BYTES, bytes: totalBytes },
     });
   }
+}
+
+/**
+ * Throws a `ValidationError` (AppError, type "validation") if `meta` violates
+ * key format, value format/length, the per-map key-count cap, or the total
+ * key+value byte cap — and rejects both `RESERVED_META_KEYS` and the
+ * server-owned `video.*` namespace. Every client-facing path calls this: the
+ * PATCH route, upload header capture, MCP tools, `replaceFileMetadata`, and
+ * `setFileMetadata`'s pre-check on `set`.
+ */
+export function validateMetadataEntries(meta: Record<string, string>): void {
+  validateMetadataEntriesImpl(meta, {});
+}
+
+/**
+ * Same checks as `validateMetadataEntries`, except the server-owned
+ * `video.*` namespace is allowed through (`RESERVED_META_KEYS` — provenance,
+ * `visibility` — is still rejected). Used ONLY by `setServerFileMetadata` and
+ * by `setFileMetadata`'s post-merge check, where `video.*` rows may already
+ * be present in stored state that this call is re-validating, not writing.
+ *
+ * MUST NEVER be called with client-supplied key names — doing so would let a
+ * client write the server-owned `video.*` namespace directly (e.g. spoof
+ * `video.poster` to render an attacker-controlled image on a public PR
+ * comment).
+ */
+export function validateStoredMetadataEntries(meta: Record<string, string>): void {
+  validateMetadataEntriesImpl(meta, { allowServerKeys: true });
 }
 
 /**
@@ -159,10 +219,41 @@ export async function getFileMetadata(
 }
 
 /**
+ * Prepared upsert statements for `entries`, one `INSERT ... ON CONFLICT DO
+ * UPDATE` per key/value pair. Shared by `setFileMetadata`,
+ * `replaceFileMetadata`, and `setServerFileMetadata` so the SQL lives in
+ * exactly one place; does not change SQL semantics for any of them.
+ */
+function upsertStatements(
+  db: D1Database,
+  workspace: string,
+  objectKey: string,
+  entries: Record<string, string>,
+  now: string,
+): D1PreparedStatement[] {
+  return Object.entries(entries).map(([key, value]) =>
+    db
+      .prepare(
+        `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(workspace, object_key, meta_key)
+         DO UPDATE SET meta_value = excluded.meta_value, updated_at = excluded.updated_at`,
+      )
+      .bind(workspace, objectKey, key, value, now),
+  );
+}
+
+/**
  * Merge `set` into the object's metadata and drop `remove` keys, enforcing
  * caps against the post-merge state. Rejects (no write) if the caps would be
  * violated; otherwise upserts/deletes atomically and returns the final map.
  * `remove` is applied before `set`, so a key present in both ends up set.
+ *
+ * `remove` is checked against the same reserved/server-owned key rules as
+ * `set` (`isReservedMetaKey`) before any read or write: a
+ * client that cannot set `video.*`, `visibility`, or a provenance key must
+ * not be able to delete it by name either, since that would let it silently
+ * blank a value the server owns (e.g. a video poster).
  *
  * Concurrency: the read → validate → batch write is not guarded, so two
  * concurrent merges on the same object can land a combined state slightly
@@ -178,28 +269,32 @@ export async function setFileMetadata(
   remove: string[] = [],
 ): Promise<Record<string, string>> {
   validateMetadataEntries(set);
+  // Symmetry with the write path: a client that cannot SET a reserved or
+  // server-owned key (RESERVED_META_KEYS / video.*) has no legitimate reason
+  // to DELETE it either — otherwise it could silently blank a value like
+  // video.poster or visibility by naming it in `remove`. Checked before any
+  // read/write so a reserved key anywhere in the list blocks the whole call.
+  for (const key of remove) {
+    if (isReservedMetaKey(key)) {
+      throw new ValidationError(`reserved metadata key: ${key}`, {
+        code: "file_metadata_reserved_key",
+        details: { key },
+      });
+    }
+  }
 
   const current = await getFileMetadata(db, workspace, objectKey);
   const next: Record<string, string> = { ...current };
   for (const key of remove) delete next[key];
   Object.assign(next, set);
 
-  validateMetadataEntries(next);
+  // `current` may already carry server-owned video.* rows (e.g. a poster),
+  // so this post-merge pass enforces the count/byte caps on the merged
+  // result — it must not re-reject keys that were already validly stored.
+  validateStoredMetadataEntries(next);
 
   const now = new Date().toISOString();
-  const statements = [];
-  for (const [key, value] of Object.entries(set)) {
-    statements.push(
-      db
-        .prepare(
-          `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(workspace, object_key, meta_key)
-           DO UPDATE SET meta_value = excluded.meta_value, updated_at = excluded.updated_at`,
-        )
-        .bind(workspace, objectKey, key, value, now),
-    );
-  }
+  const statements: D1PreparedStatement[] = upsertStatements(db, workspace, objectKey, set, now);
   for (const key of remove) {
     if (key in set) continue; // set wins when a key is both removed and set
     statements.push(
@@ -252,20 +347,11 @@ export async function replaceFileMetadata(
   validateMetadataEntries(metadata);
 
   const now = new Date().toISOString();
-  const statements = [
+  const statements: D1PreparedStatement[] = [
     db
       .prepare(`DELETE FROM file_metadata WHERE workspace = ? AND object_key = ?`)
       .bind(workspace, objectKey),
-    ...Object.entries(metadata).map(([key, value]) =>
-      db
-        .prepare(
-          `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(workspace, object_key, meta_key)
-           DO UPDATE SET meta_value = excluded.meta_value, updated_at = excluded.updated_at`,
-        )
-        .bind(workspace, objectKey, key, value, now),
-    ),
+    ...upsertStatements(db, workspace, objectKey, metadata, now),
   ];
   await db.batch(statements);
 }
@@ -415,4 +501,41 @@ export async function getMetadataForKeys(
   }
 
   return out;
+}
+
+/**
+ * Upsert server-owned metadata (`video.*`) without touching user rows.
+ * Deliberately not `replaceFileMetadata`: that is delete-then-insert, and this
+ * runs *after* it on the upload path — a full replace here would wipe the
+ * request's own custom metadata.
+ */
+export async function setServerFileMetadata(
+  db: D1Database,
+  workspace: string,
+  objectKey: string,
+  metadata: Record<string, string>,
+): Promise<void> {
+  if (Object.keys(metadata).length === 0) return;
+  validateStoredMetadataEntries(metadata);
+
+  const now = new Date().toISOString();
+  await db.batch(upsertStatements(db, workspace, objectKey, metadata, now));
+}
+
+/** Drop specific server-owned rows — used to clear a stale poster pointer. */
+export async function deleteServerFileMetadataKeys(
+  db: D1Database,
+  workspace: string,
+  objectKey: string,
+  keys: string[],
+): Promise<void> {
+  if (keys.length === 0) return;
+  const placeholders = keys.map(() => "?").join(", ");
+  await db
+    .prepare(
+      `DELETE FROM file_metadata
+       WHERE workspace = ? AND object_key = ? AND meta_key IN (${placeholders})`,
+    )
+    .bind(workspace, objectKey, ...keys)
+    .run();
 }

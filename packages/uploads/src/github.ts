@@ -201,6 +201,14 @@ export interface AttachmentItem {
    * keys like `device`/`software` for this path.
    */
   meta?: { path?: string; state?: string };
+  /**
+   * Poster frame for a video (issue #299), server-computed like `embedUrl` —
+   * never taken from client-settable metadata. Absent means "no poster", and
+   * the renderer falls back to the bullet link.
+   */
+  posterUrl?: string | null;
+  /** Derived video facts used for the caption and display width. */
+  videoMeta?: { durationSeconds?: number; width?: number; height?: number };
 }
 
 /** A public gallery linked to the PR or issue whose managed comment is syncing. */
@@ -235,6 +243,35 @@ export function attachmentImageWidth(filename: string): number {
     return ATTACHMENT_IMAGE_WIDTH_PORTRAIT;
   }
   return ATTACHMENT_IMAGE_WIDTH_DEFAULT;
+}
+
+/** `m:ss` under an hour, `h:mm:ss` at or above one. */
+function formatDuration(seconds: number): string {
+  const total = Math.floor(seconds);
+  const s = total % 60;
+  const m = Math.floor(total / 60) % 60;
+  const h = Math.floor(total / 3600);
+  const ss = String(s).padStart(2, "0");
+  if (h === 0) return `${m}:${ss}`;
+  return `${h}:${String(m).padStart(2, "0")}:${ss}`;
+}
+
+/**
+ * Display width for a video poster. Real dimensions only *select* among the
+ * width constants — a raw 1920 would blow out the comment column — and the
+ * result is capped at the real width so a small clip is never upscaled.
+ */
+function posterImageWidth(videoMeta: AttachmentItem["videoMeta"], filename: string): number {
+  const w = videoMeta?.width ?? 0;
+  const h = videoMeta?.height ?? 0;
+  if (w <= 0 || h <= 0) return attachmentImageWidth(filename);
+  const chosen =
+    h > w
+      ? ATTACHMENT_IMAGE_WIDTH_PORTRAIT
+      : w / h >= 16 / 9
+        ? ATTACHMENT_IMAGE_WIDTH_WIDE
+        : ATTACHMENT_IMAGE_WIDTH_DEFAULT;
+  return Math.min(chosen, w);
 }
 
 function escapeHtmlAttr(s: string): string {
@@ -335,13 +372,30 @@ export function attachmentsCommentBody(
     const src = item.embedUrl ?? item.url;
     const link = item.pageUrl ?? stable; // click-through: file page when known, else raw
     const isImage = Boolean(src) && inferContentType(name).startsWith("image/");
-    if (isImage && inlinedImages >= MAX_INLINE_ATTACHMENT_IMAGES) {
+    const isPosterVideo = Boolean(item.posterUrl) && inferContentType(name).startsWith("video/");
+    const inlines = isImage || isPosterVideo;
+    if (inlines && inlinedImages >= MAX_INLINE_ATTACHMENT_IMAGES) {
       // Cap hit — defer to the collapsed overflow list below rather than
       // embedding every remaining image inline.
       overflowImages.push(item);
       continue;
     }
-    if (isImage) {
+    if (isPosterVideo) {
+      inlinedImages++;
+      const w = posterImageWidth(item.videoMeta, name);
+      const href = escapeHtmlAttr(link ?? (item.posterUrl as string));
+      lines.push(
+        `<a href="${href}"><img width="${w}" alt="${escapeHtmlAttr(name)}" src="${escapeHtmlAttr(item.posterUrl as string)}"></a>`,
+      );
+      // GitHub strips <video>, so a still frame needs an explicit affordance
+      // or it reads as a screenshot.
+      const parts = ["▶ Play video"];
+      if (item.videoMeta?.durationSeconds != null) {
+        parts.push(formatDuration(item.videoMeta.durationSeconds));
+      }
+      parts.push(...metaCaptionParts(item.meta).map(escapeHtmlText));
+      lines.push(`<sub>${parts.join(" · ")}</sub>`, "");
+    } else if (isImage) {
       inlinedImages++;
       // Markdown ![]() has no width control — phone frames become full-column giants.
       // img src uses embed host when available (Camo revalidates); click-through prefers the file page.

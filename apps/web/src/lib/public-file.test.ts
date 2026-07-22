@@ -306,4 +306,59 @@ describe("fetchPublicFile", () => {
         .status,
     ).toBe("ok");
   });
+
+  it("exposes a poster url for a video that has one", async () => {
+    const withPoster = {
+      ...file,
+      contentType: "video/mp4",
+      posterUrl: "https://storage.uploads.sh/acme/_internal/posters/clip.mp4.jpg",
+      videoDimensions: { width: 1920, height: 1080 },
+    };
+    const fetcher = vi.fn(async () => Response.json(withPoster));
+    const result = await fetchPublicFile("acme", "clip.mp4", {
+      origin: "https://api.uploads.sh",
+      fetch: fetcher,
+    });
+    expect(result.status).toBe("ok");
+    expect(result.status === "ok" && result.file.posterUrl).toBe(
+      "https://storage.uploads.sh/acme/_internal/posters/clip.mp4.jpg",
+    );
+    expect(isPublicFile(withPoster)).toBe(true);
+  });
+
+  it("omits the poster url when the video has none", async () => {
+    const withoutPoster = { ...file, contentType: "video/mp4" };
+    const fetcher = vi.fn(async () => Response.json(withoutPoster));
+    const result = await fetchPublicFile("acme", "clip.mp4", {
+      origin: "https://api.uploads.sh",
+      fetch: fetcher,
+    });
+    expect(result.status).toBe("ok");
+    expect(result.status === "ok" && result.file.posterUrl).toBeUndefined();
+    // A response that fabricates a non-https/malformed posterUrl must fail validation
+    // rather than silently rendering an attacker-controlled image.
+    expect(isPublicFile({ ...withoutPoster, posterUrl: "javascript:alert(1)" })).toBe(false);
+  });
+
+  it("exposes dimensions for aspect-ratio boxing", async () => {
+    const withDims = {
+      ...file,
+      contentType: "video/mp4",
+      videoDimensions: { width: 1280, height: 720 },
+    };
+    const fetcher = vi.fn(async () => Response.json(withDims));
+    const result = await fetchPublicFile("acme", "clip.mp4", {
+      origin: "https://api.uploads.sh",
+      fetch: fetcher,
+    });
+    expect(result.status).toBe("ok");
+    expect(result.status === "ok" && result.file.videoDimensions).toEqual({
+      width: 1280,
+      height: 720,
+    });
+    // Non-numeric or missing width/height must not produce a videoDimensions object.
+    expect(isPublicFile({ ...file, videoDimensions: { width: "1280", height: 720 } })).toBe(false);
+    const { videoDimensions: _omit, ...noDims } = withDims;
+    expect(isPublicFile(noDims)).toBe(true);
+  });
 });

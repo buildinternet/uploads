@@ -2,12 +2,19 @@ import { AppError, InternalError } from "@uploads/errors";
 import { describe, expect, it } from "vitest";
 import {
   getFileMetadata,
+  isServerMetaKey,
   META_KEY_RE,
   META_MAX_KEYS,
   META_MAX_TOTAL_BYTES,
   META_VALUE_MAX,
+  setFileMetadata,
+  setServerFileMetadata,
   validateMetadataEntries,
+  validateStoredMetadataEntries,
 } from "../src/file-metadata";
+import { database, SqliteD1 } from "./helpers/sqlite-d1";
+
+const FILE_METADATA_MIGRATION = "migrations/20260713210559_file_metadata.sql";
 
 describe("META_KEY_RE", () => {
   it("accepts lowercase, digit, dot, underscore, and dash keys starting with a letter", () => {
@@ -115,6 +122,152 @@ describe("validateMetadataEntries", () => {
   });
 });
 
+describe("setFileMetadata: reserved/server-owned keys cannot be deleted", () => {
+  // A client that cannot SET these keys (validateMetadataEntries rejects
+  // them on the write path) must not be able to DELETE them either — issue
+  // #365's follow-up: deleting video.poster/visibility/content-sha256 by
+  // name would silently blank a value the server owns.
+
+  it("throws the reserved-key ValidationError when deleting video.poster", async () => {
+    const sqlite = new SqliteD1(FILE_METADATA_MIGRATION);
+    try {
+      try {
+        await setFileMetadata(database(sqlite), "alpha", "f/one.png", {}, ["video.poster"]);
+        throw new Error("expected setFileMetadata to throw");
+      } catch (err) {
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError & { code?: string }).code).toBe("file_metadata_reserved_key");
+      }
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("throws the reserved-key ValidationError when deleting visibility", async () => {
+    const sqlite = new SqliteD1(FILE_METADATA_MIGRATION);
+    try {
+      try {
+        await setFileMetadata(database(sqlite), "alpha", "f/one.png", {}, ["visibility"]);
+        throw new Error("expected setFileMetadata to throw");
+      } catch (err) {
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError & { code?: string }).code).toBe("file_metadata_reserved_key");
+      }
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("throws the reserved-key ValidationError when deleting content-sha256", async () => {
+    const sqlite = new SqliteD1(FILE_METADATA_MIGRATION);
+    try {
+      try {
+        await setFileMetadata(database(sqlite), "alpha", "f/one.png", {}, ["content-sha256"]);
+        throw new Error("expected setFileMetadata to throw");
+      } catch (err) {
+        expect(err).toBeInstanceOf(AppError);
+        expect((err as AppError & { code?: string }).code).toBe("file_metadata_reserved_key");
+      }
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("still deletes an ordinary key exactly as before", async () => {
+    const sqlite = new SqliteD1(FILE_METADATA_MIGRATION);
+    try {
+      await setFileMetadata(database(sqlite), "alpha", "f/one.png", {
+        path: "/checkout",
+        app: "screenshots",
+      });
+
+      const result = await setFileMetadata(database(sqlite), "alpha", "f/one.png", {}, ["path"]);
+
+      expect(result).toEqual({ app: "screenshots" });
+      await expect(getFileMetadata(database(sqlite), "alpha", "f/one.png")).resolves.toEqual({
+        app: "screenshots",
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("still no-ops when deleting a non-existent ordinary key", async () => {
+    const sqlite = new SqliteD1(FILE_METADATA_MIGRATION);
+    try {
+      await setFileMetadata(database(sqlite), "alpha", "f/one.png", { app: "screenshots" });
+
+      const result = await setFileMetadata(database(sqlite), "alpha", "f/one.png", {}, [
+        "does-not-exist",
+      ]);
+
+      expect(result).toEqual({ app: "screenshots" });
+      await expect(getFileMetadata(database(sqlite), "alpha", "f/one.png")).resolves.toEqual({
+        app: "screenshots",
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("rejects a mixed delete list and does not partially delete the ordinary keys", async () => {
+    const sqlite = new SqliteD1(FILE_METADATA_MIGRATION);
+    try {
+      await setFileMetadata(database(sqlite), "alpha", "f/one.png", {
+        app: "screenshots",
+        path: "/checkout",
+      });
+
+      await expect(
+        setFileMetadata(database(sqlite), "alpha", "f/one.png", {}, ["path", "visibility"]),
+      ).rejects.toBeInstanceOf(AppError);
+
+      // Neither ordinary key in the mixed list was removed — the reserved
+      // key in the same list must block the whole call, not just itself.
+      await expect(getFileMetadata(database(sqlite), "alpha", "f/one.png")).resolves.toEqual({
+        app: "screenshots",
+        path: "/checkout",
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("setFileMetadata: post-merge validation must not re-reject stored server keys", () => {
+  // Regression for the bug in issue #365's cleanup review: once a video has
+  // a poster, `current` (read inside setFileMetadata) already contains
+  // video.* rows. The post-merge check exists to enforce the count/byte caps
+  // on the merged result, not to re-police provenance — it must not throw
+  // just because a server-owned key is present in the stored state.
+  it("lets an ordinary metadata PATCH succeed on a file that already has video.* rows", async () => {
+    const sqlite = new SqliteD1(FILE_METADATA_MIGRATION);
+    try {
+      await setServerFileMetadata(database(sqlite), "alpha", "f/clip.mp4", {
+        "video.poster": "1",
+        "video.duration": "14",
+      });
+
+      const result = await setFileMetadata(database(sqlite), "alpha", "f/clip.mp4", {
+        path: "/checkout",
+      });
+
+      expect(result).toEqual({
+        "video.poster": "1",
+        "video.duration": "14",
+        path: "/checkout",
+      });
+      await expect(getFileMetadata(database(sqlite), "alpha", "f/clip.mp4")).resolves.toEqual({
+        "video.poster": "1",
+        "video.duration": "14",
+        path: "/checkout",
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
 describe("getFileMetadata", () => {
   it("wraps raw D1 failures in InternalError", async () => {
     const db = {
@@ -127,5 +280,37 @@ describe("getFileMetadata", () => {
       }),
     } as unknown as D1Database;
     await expect(getFileMetadata(db, "ws", "f/one.png")).rejects.toBeInstanceOf(InternalError);
+  });
+});
+
+describe("server-owned video.* namespace", () => {
+  it("recognizes the namespace", () => {
+    expect(isServerMetaKey("video.poster")).toBe(true);
+    expect(isServerMetaKey("video.duration")).toBe(true);
+    expect(isServerMetaKey("videoclip")).toBe(false);
+    expect(isServerMetaKey("path")).toBe(false);
+  });
+
+  it("rejects a client write to the namespace", () => {
+    expect(() => validateMetadataEntries({ "video.poster": "1" })).toThrow(/reserved metadata key/);
+  });
+
+  it("allows a server write when opted in", () => {
+    expect(() => validateStoredMetadataEntries({ "video.poster": "1" })).not.toThrow();
+  });
+
+  it("still rejects RESERVED_META_KEYS through the stored-entries variant", () => {
+    expect(() => validateStoredMetadataEntries({ visibility: "private" })).toThrow(
+      /reserved metadata key/,
+    );
+  });
+
+  it("excludes server keys from the per-object key cap", () => {
+    const meta: Record<string, string> = { "video.poster": "1", "video.duration": "14" };
+    for (let i = 0; i < META_MAX_KEYS; i++) meta[`k${i}`] = "v";
+    // 24 user keys + 2 server keys must still pass.
+    expect(() => validateStoredMetadataEntries(meta)).not.toThrow();
+    meta.overflow = "v";
+    expect(() => validateStoredMetadataEntries(meta)).toThrow(/at most 24 keys/);
   });
 });

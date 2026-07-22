@@ -116,6 +116,12 @@ export interface WorkspaceRecord {
    * repos whose visibility uploads.sh does not check.
    */
   githubCommentShowMetadata?: boolean;
+  /**
+   * Per-workspace opt-out for video poster generation (issue #299). Default
+   * (undefined/true) generates. The surgical kill switch between "all
+   * workspaces" (Flagship) and "nothing" (removing the MEDIA binding).
+   */
+  videoPosterEnabled?: boolean;
   /** Set by `DELETE /admin/workspaces/:name` (default/soft mode). Present → the workspace is soft-deleted. */
   deletedAt?: string;
   /** `deletedAt` + the grace window (`WORKSPACE_DELETE_GRACE_DAYS`); the retention sweep finalizes at/after this. */

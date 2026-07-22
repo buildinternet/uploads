@@ -34,7 +34,8 @@ export const DEFAULT_ALLOWED_CONTENT_TYPES: readonly string[] = [
 
 const DEFAULT_ALLOWED_SET = new Set(DEFAULT_ALLOWED_CONTENT_TYPES);
 
-const VIDEO_TYPES = new Set(["video/mp4", "video/webm"]);
+/** Video content types the upload path (and poster generation) accepts. */
+export const VIDEO_TYPES = new Set(["video/mp4", "video/webm"]);
 
 export interface UploadPolicy {
   /** Max for images (and as fallback when maxVideoBytes is unset). */
@@ -230,6 +231,13 @@ export const allowWrite = writeRateLimitGuard.allow;
 const renderRateLimitGuard = makeRateLimitGuard("RENDER_LIMITER", "render rate limit exceeded");
 export const renderRateLimit = renderRateLimitGuard.middleware;
 export const allowRender = renderRateLimitGuard.allow;
+
+/**
+ * Per-workspace rate limit for video poster generation (`POSTER_LIMITER`),
+ * used by `posterGenerationAllowed` in poster.ts.
+ */
+const posterRateLimitGuard = makeRateLimitGuard("POSTER_LIMITER", "poster rate limit exceeded");
+export const allowPoster = posterRateLimitGuard.allow;
 
 /**
  * Strict per-user rate limit for self-serve workspace creation. Kept separate
