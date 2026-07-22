@@ -381,10 +381,13 @@ const fullTitle = `${title} · uploads.sh`;
       .doc .ghc .avatar {
         width: 40px;
         height: 40px;
-        border-radius: 50%;
+        border-radius: 6px;
         background: #21262e;
         border: 1px solid #30363d;
+        display: grid;
+        place-items: center;
       }
+      .doc .ghc .avatar svg { width: 32px; height: 32px; }
       .doc .ghc .bubble {
         background: #161b22;
         border: 1px solid #30363d;
@@ -415,6 +418,15 @@ const fullTitle = `${title} · uploads.sh`;
         color: #8b949e;
       }
       .doc .ghc .head .user { color: #e6edf3; font-weight: 600; }
+      .doc .ghc .head .bot-chip {
+        font: 10px var(--sans);
+        letter-spacing: 0.02em;
+        color: #8b949e;
+        border: 1px solid #30363d;
+        border-radius: 999px;
+        padding: 0 6px;
+        background: transparent;
+      }
       .doc .ghc .head .badge {
         font: 11px var(--mono);
         color: #8b949e;

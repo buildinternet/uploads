@@ -162,10 +162,13 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       .ghc .avatar {
         width: 40px;
         height: 40px;
-        border-radius: 50%;
+        border-radius: 6px;
         background: #21262e;
         border: 1px solid #30363d;
+        display: grid;
+        place-items: center;
       }
+      .ghc .avatar svg { width: 32px; height: 32px; }
       .ghc .bubble {
         background: #161b22;
         border: 1px solid #30363d;
@@ -196,6 +199,15 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         color: #8b949e;
       }
       .ghc .head .user { color: #e6edf3; font-weight: 600; }
+      .ghc .head .bot-chip {
+        font: 10px var(--sans);
+        letter-spacing: 0.02em;
+        color: #8b949e;
+        border: 1px solid #30363d;
+        border-radius: 999px;
+        padding: 0 6px;
+        background: transparent;
+      }
       .ghc .head .badge {
         font: 11px var(--mono);
         color: #8b949e;
@@ -495,12 +507,28 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       <section
         class="ghc"
         role="img"
-        aria-label="Wireframe of the managed GitHub attachments comment with two inline images"
+        aria-label="Wireframe of the managed GitHub attachments comment, posted by the uploads.sh bot, with two inline images"
       >
-        <div class="avatar"></div>
+        <div class="avatar">
+          <svg viewBox="0 0 32 32" shape-rendering="crispEdges" aria-hidden="true">
+            <path d="M4 0H28V4H32V28H28V32H4V28H0V4H4Z" fill="#0d1117" />
+            <g fill="#c27eff">
+              <path d="M14 4h4v4h-4z M10 6h4v4h-4z M18 6h4v4h-4z M6 8h4v4h-4z M22 8h4v4h-4z" />
+              <path
+                opacity=".55"
+                d="M14 12h4v4h-4z M10 14h4v4h-4z M18 14h4v4h-4z M6 16h4v4h-4z M22 16h4v4h-4z"
+              />
+              <path
+                opacity=".28"
+                d="M14 20h4v4h-4z M10 22h4v4h-4z M18 22h4v4h-4z M6 24h4v4h-4z M22 24h4v4h-4z"
+              />
+            </g>
+          </svg>
+        </div>
         <div class="bubble">
           <div class="head">
-            <span class="user">you</span>
+            <span class="user">uploads-sh[bot]</span>
+            <span class="bot-chip">bot</span>
             <span>commented just now</span>
             <span class="badge">managed by uploads.sh</span>
           </div>
