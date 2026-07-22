@@ -1395,6 +1395,18 @@ describe("runPut branch staging (issue #403)", () => {
       expect(puts[0]?.prefix).toBe("custom");
     });
 
+    it("does not stage with an explicit --destination", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(
+        ctxWith(client),
+        [tmpFile(), "--destination", "screenshots"],
+        false,
+        stagingRunner(staged),
+      );
+      expect(puts[0]?.key).toBeUndefined(); // no explicit key → server derives the dated key
+      expect(puts[0]?.prefix).toBe("screenshots");
+    });
+
     it("does not stage with --no-git", async () => {
       const { client, puts } = fakeClient();
       await runPut(ctxWith(client), [tmpFile(), "--no-git"], false, noRun);
@@ -1444,7 +1456,13 @@ describe("runPut branch staging (issue #403)", () => {
         ctxWith(client),
         [tmpFile()],
         false,
-        stagingRunner({ defaultBranch: "main", repo: "o/r" }), // no branch → git rev-parse throws
+        stagingRunner({
+          originUrl: "git@github.com:o/r.git", // git repo detected...
+          defaultBranch: "main",
+          repo: "o/r",
+          // ...but no branch → git rev-parse throws (this is the actual
+          // detached-HEAD path, not the "not a git repo" one above)
+        }),
       );
       expect(puts[0]?.key).toBeUndefined();
     });

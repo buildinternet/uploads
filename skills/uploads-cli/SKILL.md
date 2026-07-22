@@ -293,7 +293,7 @@ note confirming that instead of nudging you to do it yourself — human mode
 writes it to stderr, `--format json` adds it as an additive optional `hint`
 field on the same response:
 
-```
+```text
 note: staged for branch fix-header — auto-attaches to this branch's PR when
 it opens (or run: uploads attach --promote once it exists). Use --ref/--prefix
 for a plain dated upload.
@@ -311,7 +311,7 @@ the narrower case a bare put still lands on the dated layout with a
 detectable PR — in practice, an explicit `--ref`/`--prefix` opting out of
 staging while a PR is open for that branch:
 
-```
+```text
 note: on branch fix-header (PR #142 open) — rerun with --pr 142 for a stable
 key plus a managed comment that collects this PR's media, or stage pre-PR
 files with: uploads attach <file> --branch

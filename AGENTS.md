@@ -31,9 +31,9 @@ sync when the CLI's commands or flags change.
 **Screenshots: stage as you go.** If your change is visually observable (web
 UI, email templates, rendered output), capture and stage screenshots at each
 milestone while you work — don't wait for a PR to exist. A bare `uploads put`
-already stages by default when you're on a non-default git branch (issue
-#403); reach for `attach --branch` when you want its extras (multiple files
-in one call, or triggering promotion/comment sync as a side effect):
+already stages by default on a non-default git branch (issue #403); reach for
+`attach --branch` when you want its extras (multiple files in one call, or
+triggering promotion/comment sync as a side effect):
 
 ```bash
 uploads put ./after.png --state after                # before|after|empty|error|loading

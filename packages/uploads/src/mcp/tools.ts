@@ -500,15 +500,16 @@ export function createUploadsMcpTools(opts: {
         const contentType = optString(args, "contentType");
 
         // Bare-put branch staging (issue #403): local stdio MCP put mirrors
-        // the CLI default — no pr/issue/key/ref/prefix, not noGit, on a
-        // non-default git branch stages to the branch prefix (identical
-        // key/metadata to `attach --branch`) instead of the dated layout.
-        // Never throws — see resolvePutStagingTarget.
+        // the CLI default — no pr/issue/key/ref/prefix/destination, not
+        // noGit, on a non-default git branch stages to the branch prefix
+        // (identical key/metadata to `attach --branch`) instead of the
+        // dated layout. Never throws — see resolvePutStagingTarget.
         const stagingTarget = resolvePutStagingTarget({
           ghTarget: target,
           keyHint: keyArg,
           refArg,
           prefixArg,
+          destinationArg: destArg,
           noGit,
           repoArg: optString(args, "repo") ?? defaults.repo,
           run,

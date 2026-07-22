@@ -1663,10 +1663,11 @@ function resolvePutNudge(opts: {
  * `resolvePutNudge` (`deriveRepoFromGit` / `resolveCurrentBranch` /
  * `resolveDefaultBranch` / main-master fallback) plus a `resolveRepo` lookup
  * (needed for the "owner/name" staging key) and an explicit-flag opt-out:
- * `ghTarget`/`keyHint`/`refArg`/`prefixArg` set, or `noGit`, forces the
- * classic dated layout. Never throws — any failure (not a repo, detached
- * HEAD, gh missing/unauthenticated/timed out, unresolvable repo) degrades to
- * "no staging", leaving the caller to fall back to the dated path.
+ * `ghTarget`/`keyHint`/`refArg`/`prefixArg`/`destinationArg` set, or `noGit`,
+ * forces the classic dated (or typed-destination) layout. Never throws — any
+ * failure (not a repo, detached HEAD, gh missing/unauthenticated/timed out,
+ * unresolvable repo) degrades to "no staging", leaving the caller to fall
+ * back to the dated path.
  *
  * Plain-params (not CLI `flags`) so both `runPut` and the local stdio MCP
  * `put` tool — same staging default, issue #403's scope — can call this
@@ -1677,13 +1678,17 @@ export function resolvePutStagingTarget(opts: {
   keyHint: string | undefined;
   refArg: string | undefined;
   prefixArg: string | undefined;
+  /** Explicit `--destination` (CLI) / `destination` (MCP) also opts out — it
+   * resolves to its own prefix via `resolvePutPrefix`, which staging would
+   * otherwise silently override. */
+  destinationArg: string | undefined;
   noGit: boolean;
   repoArg: string | undefined;
   run: CommandRunner;
 }): BranchTarget | undefined {
-  const { ghTarget, keyHint, refArg, prefixArg, noGit, repoArg, run } = opts;
+  const { ghTarget, keyHint, refArg, prefixArg, destinationArg, noGit, repoArg, run } = opts;
   if (ghTarget || keyHint || noGit) return undefined;
-  if (refArg || prefixArg) return undefined;
+  if (refArg || prefixArg || destinationArg) return undefined;
   try {
     if (deriveRepoFromGit(run) === undefined) return undefined; // not a (usable) git repo
     let branch: string;
@@ -1844,16 +1849,18 @@ export async function runPut(
   const noGit = flagBool(parsed.flags, "--no-git") || defaults.noGit === true;
 
   // Bare-put branch staging (issue #403): a bare put (no --pr/--issue/--key/
-  // --ref/--prefix, not --no-git) on a non-default git branch stages to the
-  // branch prefix — identical key/metadata to `attach --branch` — instead of
-  // the dated layout. Computed before gh.* metadata resolution below since it
-  // takes over that resolution entirely (branch metadata, not PR/issue
-  // metadata) and supersedes the #393 nudge for this case.
+  // --ref/--prefix/--destination, not --no-git) on a non-default git branch
+  // stages to the branch prefix — identical key/metadata to `attach
+  // --branch` — instead of the dated layout. Computed before gh.* metadata
+  // resolution below since it takes over that resolution entirely (branch
+  // metadata, not PR/issue metadata) and supersedes the #393 nudge for this
+  // case.
   const stagingTarget = resolvePutStagingTarget({
     ghTarget,
     keyHint,
     refArg: flagString(parsed.flags, "--ref"),
     prefixArg: prefixFlag,
+    destinationArg: destFlag,
     noGit,
     repoArg: flagString(parsed.flags, "--repo") ?? defaults.repo,
     run,
