@@ -207,8 +207,8 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
       var label = document.getElementById("ws-switcher-label");
       if (label && !pathWs) label.textContent = activeWs;
       var base = "/account/workspaces/" + encodeURIComponent(activeWs);
-      var paths = ["", "/galleries", "/people", "/settings"];
-      var names = ["files", "galleries", "people", "settings"];
+      var paths = ["", "/galleries", "/people", "/billing", "/settings"];
+      var names = ["files", "galleries", "people", "billing", "settings"];
       var html = "";
       for (var i = 0; i < paths.length; i++) {
         html += '<a href="' + base + paths[i] + '" class="side-link">' + names[i] + "</a>";

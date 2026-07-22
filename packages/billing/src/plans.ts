@@ -48,6 +48,8 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     name: "Pro",
     blurb: "Higher storage and upload limits for teams — coming soon.",
     available: false,
+    // Provisional placeholders invented ahead of real pricing (pro is not
+    // yet purchasable) — revisit before pro becomes available.
     defaultLimits: {
       maxStorageBytes: 25_000_000_000,
       maxUploadsPerPeriod: 100_000,
