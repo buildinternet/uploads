@@ -16,6 +16,7 @@ export function renderOrgInvitationEmail(ctx: {
   return renderEmailCard({
     subject: `You're invited to ${ctx.organizationName} on uploads.sh`,
     preheader: lead,
+    eyebrow: "Invitation",
     title: "You're invited",
     bodyHtml: `${strong(ctx.inviterEmail)} invited you to join ${strong(ctx.organizationName)} on uploads.sh.`,
     text: [
@@ -69,6 +70,7 @@ export function renderEnrollmentInvitationEmail(ctx: {
       ? "You've been given access to uploads.sh"
       : `You're invited to ${ctx.workspaceName} on uploads.sh`,
     preheader: `${invitedTo} — one click to accept, link expires ${expires}.`,
+    eyebrow: "Invitation",
     title: "You're invited",
     bodyHtml: isDefault
       ? `You've been given access to ${strong("uploads.sh")} &mdash; ${PITCH}.`
@@ -102,6 +104,7 @@ export function renderMemberJoinedEmail(ctx: {
   return renderEmailCard({
     subject: `${ctx.memberEmail} joined ${ctx.organizationName} on uploads.sh`,
     preheader: `${ctx.memberEmail} joined ${ctx.organizationName}.`,
+    eyebrow: "Membership",
     title: "Someone joined",
     bodyHtml: `${strong(ctx.memberEmail)} accepted your invitation and joined ${strong(ctx.organizationName)} on uploads.sh.`,
     text: [lead, "", "—", "uploads.sh · a Build Internet project"].join("\n"),
