@@ -9,7 +9,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import app from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "@uploads/api/workspace";
-import { FakeR2Bucket } from "@uploads/storage/test/fake-r2";
 
 const TOKEN = "up_test-ws_legacy-token-value";
 const WS = "test-ws";
@@ -55,9 +54,11 @@ class RepoLinksTable {
 
 /**
  * D1 fake covering just what `findRepoLink` and (for the scope test) the
- * `auth_tokens` active-token lookup need. By default the token lookup always
- * misses (legacy token path — full FILE_SCOPES). Pass `scopedToken` to
- * instead return a D1-tracked row for `TOKEN` carrying exactly those scopes.
+ * `auth_tokens` active-token lookup need — `prepare().bind().first()` and
+ * nothing else, because `repo_link_status` is read-only and never writes.
+ * By default the token lookup always misses (legacy token path — full
+ * FILE_SCOPES). Pass `scopedToken` to instead return a D1-tracked row for
+ * `TOKEN` carrying exactly those scopes.
  */
 function makeDb(links: RepoLinksTable, scopedToken?: { tokenHash: string; scopes: string[] }) {
   return {
@@ -92,17 +93,8 @@ function makeDb(links: RepoLinksTable, scopedToken?: { tokenHash: string; scopes
           }
           return null as T;
         },
-        async run() {
-          return { success: true, meta: { changes: 0 }, results: [] };
-        },
-        async all<T>() {
-          return { success: true, results: [] as T[], meta: {} };
-        },
       };
       return stmt;
-    },
-    async batch(stmts: { run: () => Promise<unknown> }[]) {
-      return Promise.all(stmts.map((s) => s.run()));
     },
   };
 }
@@ -118,7 +110,6 @@ async function makeEnv(
     publicBaseUrl: "https://storage.example.com",
     tokenHash,
   };
-  const bucket = new FakeR2Bucket();
   const links = new RepoLinksTable();
   if (opts.boundTo) {
     links.rows.set("acme/widgets", {
@@ -133,7 +124,7 @@ async function makeEnv(
   const env = {
     REGISTRY: { get: async (key: string) => (key === `ws:${WS}` ? record : null) },
     DB: makeDb(links, scopedToken),
-    UPLOADS: bucket,
+    // No UPLOADS binding on purpose: this tool never touches storage.
   } as unknown as Env;
   return { env, links };
 }

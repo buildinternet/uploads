@@ -105,6 +105,23 @@ export async function findRepoLink(db: D1Database, repo: string): Promise<RepoLi
   }
 }
 
+/** The tri-state a caller is allowed to learn about someone else's binding (issue #398). */
+export type RepoBinding = "self" | "other" | "none";
+
+/**
+ * Collapses a link record to what the *calling* workspace may know: bound to
+ * me, bound to someone else, or unbound. The point is the deliberate loss of
+ * information — "other" must never carry, or let a caller reconstruct, the
+ * owning workspace's name (see routes/github-link.ts's `/repo-link` for why).
+ * Lives here, beside the record it collapses, so that rule has one home
+ * rather than one copy per surface: the REST route and the hosted MCP
+ * `repo_link_status` tool (issue #422) both call this.
+ */
+export function deriveRepoBinding(link: RepoLink | null, workspaceName: string): RepoBinding {
+  if (link === null) return "none";
+  return link.workspaceName === workspaceName ? "self" : "other";
+}
+
 /**
  * Strict counterpart to `findRepoLink` for callers that must distinguish
  * "no binding" from "D1 is unavailable" (self-serve/admin lookups, issue

@@ -41,7 +41,7 @@ import {
   validateMetadataFilters,
 } from "@uploads/api/file-metadata";
 import { hasGithubTags, uploaderTags } from "@uploads/api/uploader-identity";
-import { findRepoLink } from "@uploads/api/github-repo-links";
+import { deriveRepoBinding, findRepoLink } from "@uploads/api/github-repo-links";
 import {
   addExternalReference,
   addGalleryItem,
@@ -922,9 +922,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         const repo = requiredString(args, "repo");
         if (!validRepoGrammar(repo)) usage("repo must be owner/name");
         const link = await findRepoLink(env.DB, repo);
-        const binding =
-          link === null ? "none" : link.workspaceName === workspaceName ? "self" : "other";
-        return { binding };
+        return { binding: deriveRepoBinding(link, workspaceName) };
       },
     },
     {
