@@ -79,11 +79,11 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
     <h2>Any coding agent <a class="anchor" href="#any-agent" aria-label="Link to this section">#</a></h2>
     <p>
       None of this is Claude-Code-specific. Any agent that can run a shell command can
-      stage screenshots as it works: capture at each visual milestone, run
+      stage screenshots as it works: capture at each visual milestone, run&#32;
       <code>uploads attach --branch --state before|after</code>, and the PR comment
-      assembles itself once a PR opens — via the GitHub App webhook, or the next
+      assembles itself once a PR opens — via the GitHub App webhook, or the next&#32;
       <code>uploads attach</code> (or <code>uploads attach --promote</code>) if you're not
-      running the App. See the <a href="/github-screenshots">stage-as-you-go walkthrough</a>
+      running the App. See the <a href="/github-screenshots">stage-as-you-go walkthrough</a>&#32;
       for the full loop.
     </p>
   </section>
@@ -107,7 +107,7 @@ Stage before/after pairs where it makes sense. No need to open the PR first —
 staged files are promoted into the PR's attachments comment automatically.</pre>
     </div>
     <p>
-      Requires the <code>uploads</code> CLI on <code>PATH</code> and <code>uploads login</code>
+      Requires the <code>uploads</code> CLI on <code>PATH</code> and <code>uploads login</code>&#32;
       already run once — see <a href="#install">One command</a> above.
     </p>
   </section>
@@ -127,7 +127,7 @@ staged files are promoted into the PR's attachments comment automatically.</pre>
     <p>
       If your agent supports pre-command hooks (or you're willing to wrap <code>gh pr
       create</code> yourself), the same reminder is a few lines of POSIX shell: check
-      whether anything is staged for the current branch, and print a nudge if not.
+      whether anything is staged for the current branch, and print a nudge if not.&#32;
       <strong>Keep it fail-open</strong> — a broken check should never block a PR from being
       created.
     </p>
@@ -149,7 +149,7 @@ fi
 exit 0</pre>
     </div>
     <p>
-      <code>uploads find gh.branch=&lt;name&gt;</code> lists what's staged for a branch — see the
+      <code>uploads find gh.branch=&lt;name&gt;</code> lists what's staged for a branch — see the&#32;
       <strong>uploads-cli</strong> skill for the full query vocabulary.
     </p>
   </section>
@@ -159,7 +159,7 @@ exit 0</pre>
     <p>
       None of the above is required. Even with zero setup, running <code>uploads attach
       --promote</code> (no file arguments) right after opening a PR picks up everything
-      staged against that branch and posts or refreshes the attachments comment — it exits
+      staged against that branch and posts or refreshes the attachments comment — it exits&#32;
       <code>0</code> even if nothing was staged.
     </p>
   </section>
