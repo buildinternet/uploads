@@ -329,7 +329,7 @@ describe("POST /v1/:workspace/github/comment implicit repo-link claim", () => {
     }
   });
 
-  it("does not record a link when gathering skips (nothing to post)", async () => {
+  it("does not record a link when there is nothing to post (empty, no existing comment)", async () => {
     const { db, links } = claimTestDb("user-1");
     const hash = await sha256Hex(TOKEN);
     const record: WorkspaceRecord = {
@@ -356,10 +356,16 @@ describe("POST /v1/:workspace/github/comment implicit repo-link claim", () => {
       ...GITHUB_APP_CFG_ENV,
     } as unknown as Env;
     const realFetch = globalThis.fetch;
-    globalThis.fetch = (async (url: string) =>
-      String(url).includes("/collaborators/octocat/permission")
-        ? new Response(JSON.stringify({ permission: "write" }), { status: 200 })
-        : new Response("nf", { status: 404 })) as unknown as typeof fetch;
+    globalThis.fetch = (async (url: string) => {
+      const u = String(url);
+      if (u.includes("/collaborators/octocat/permission"))
+        return new Response(JSON.stringify({ permission: "write" }), { status: 200 });
+      // Empty PR: the create-vs-patch discovery lists the thread's comments and
+      // finds no managed comment (an empty list, not a 404) — so nothing is
+      // created and the result is `skipped`.
+      if (u.includes("/issues/12/comments")) return new Response("[]", { status: 200 });
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
     try {
       const res = await post(env, { repo: "acme/web", num: 12, kind: "pull" });
       expect(res.status).toBe(200);
