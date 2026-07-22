@@ -25,9 +25,9 @@ The workspace is settled there, before approval: a workspace your account can't
 reach is refused on the page rather than reported as a success that then fails
 in your terminal.
 
-Pass `--workspace <name>` to preselect a workspace and skip the picker, and
-`--workspace <name> --create` to provision one by name (the one thing the picker
-can't express). An invitation from a workspace admin also works — `login` trades
+Pass `--workspace <name>` to preselect a workspace in the browser — you can
+still change it there — and `--workspace <name> --create` to provision one by
+name (the one thing the picker can't express). An invitation from a workspace admin also works — `login` trades
 an enrollment code for a saved workspace token, and `logout` removes it.
 `uploads doctor` checks health, auth, and workspace access when something's off.
 Routine agents never receive or need `ADMIN_TOKEN`. See

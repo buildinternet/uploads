@@ -98,7 +98,7 @@ reaches `approved`, and the page writes `scope` strictly before calling
 The panel-state decision as a pure function, unit-tested independently, keeping
 `device.astro` thin — the pattern `session-device.ts` already sets.
 
-```
+```text
 resolveDeviceWorkspaceState({ requested, create, memberships }) =>
   | { kind: "denied";    requested; memberships }
   | { kind: "provision"; requested }

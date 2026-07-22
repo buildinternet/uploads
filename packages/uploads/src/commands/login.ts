@@ -31,8 +31,8 @@ workspace to sign in to, so --workspace is optional. Pass an enrollment code
 only if you were given one from before device login (fallback path).
 
 Options:
-  --workspace <name>  Preselect the workspace in the browser and skip its
-                      picker (device flow)
+  --workspace <name>  Preselect this workspace in the browser (device flow);
+                      you can still change it there
   --create            With --workspace: create the workspace first if your
                       account doesn't have it yet (device flow only) — lets
                       scripted/agent logins provision without a prompt

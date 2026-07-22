@@ -1125,7 +1125,7 @@ const minted = await mintWorkspaceToken(opts.apiUrl, session.accessToken, {
 
 In the `HELP` constant, replace the description block and the `--workspace` / `--create` entries:
 
-```
+```text
 const HELP = `uploads login [options]
 
 Sign in and save workspace credentials. With no flags, opens a browser to

@@ -276,6 +276,17 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
   /** Null until the lookup runs — approval then skips the choice write entirely. */
   let wsState: DeviceWorkspaceState | null = null;
 
+  /**
+   * A workspace this page already created, so a retry doesn't try to create it
+   * twice. Approve is a three-step sequence and only the first step creates:
+   * if recording the choice or approving then fails, the user clicks Approve
+   * again — and without this, the second run would re-POST the same name and
+   * get a "name taken" conflict caused by its own first attempt, stranding
+   * them with no way to finish. Keyed by the name that was submitted so
+   * editing the field still creates the new one.
+   */
+  let createdWorkspace: { name: string; slug: string } | null = null;
+
   let userCode = new URLSearchParams(location.search).get("user_code")?.trim() ?? "";
 
   const callbackURL = () => location.href;
@@ -506,11 +517,16 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
       confirmError.hidden = false;
       return false;
     }
+    // Already created on an earlier attempt that failed further down the
+    // sequence — reuse it rather than colliding with ourselves.
+    if (createdWorkspace?.name === name) return createdWorkspace.slug;
+
     const created = await createWorkspace(apiOrigin, name);
     if (created.kind === "created") {
       // Drop the sidebar membership cache so /account reflects the new
       // workspace on its next paint.
       clearCachedWorkspaces();
+      createdWorkspace = { name, slug: created.workspace.name };
       return created.workspace.name;
     }
     if (created.kind === "error" && created.code === "github_required") {
