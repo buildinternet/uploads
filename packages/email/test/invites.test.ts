@@ -19,6 +19,7 @@ describe("renderEmailCard", () => {
     const out = renderEmailCard({
       subject: "Test",
       preheader: "Preview line",
+      eyebrow: "Invitation",
       title: "Hello",
       bodyHtml: "Body <strong>here</strong>",
       text: "Body here",
@@ -37,11 +38,13 @@ describe("renderEmailCard", () => {
     const out = renderEmailCard({
       subject: "Notify",
       preheader: "p",
+      eyebrow: "Membership",
       title: "Joined",
       bodyHtml: "ok",
       text: "ok",
     });
-    expect(out.html).not.toContain("background-color:#b794ff");
+    expect(out.html).not.toContain("background-color:#c27eff");
+    expect(out.html).not.toContain("Or paste this link");
   });
 });
 

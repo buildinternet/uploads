@@ -5,7 +5,7 @@
  */
 
 import {
-  escapeHtml,
+  renderMagicLinkEmail,
   renderMemberJoinedEmail,
   renderOrgInvitationEmail,
   type RenderedEmail,
@@ -44,14 +44,8 @@ export type SendAuthEmailArgs =
 
 function render(args: SendAuthEmailArgs, webOrigin: string): RenderedEmail {
   switch (args.template) {
-    case "magic-link": {
-      const { url } = args.context;
-      return {
-        subject: "Sign in to uploads.sh",
-        text: `Sign in to uploads.sh by opening this link (expires in 15 minutes):\n\n${url}\n\nIf you didn't request this, you can ignore this email.`,
-        html: `<p>Sign in to uploads.sh by clicking the link below. It expires in 15 minutes.</p><p><a href="${escapeHtml(url)}">Sign in to uploads.sh</a></p><p>If you didn't request this, you can ignore this email.</p>`,
-      };
-    }
+    case "magic-link":
+      return renderMagicLinkEmail({ ...args.context, webOrigin });
     case "invitation":
       return renderOrgInvitationEmail({ ...args.context, webOrigin });
     case "member-joined":
