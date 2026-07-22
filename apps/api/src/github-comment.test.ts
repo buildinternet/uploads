@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 import { gatherCommentBody, upsertBotComment } from "./github-comment";
 import { ATTACHMENTS_MARKER, attachmentsMarker } from "./github-comment-render";
 import { addExternalReference, addGalleryItem, createGallery } from "./galleries";
-import { replaceFileMetadata } from "./file-metadata";
+import { replaceFileMetadata, setServerFileMetadata } from "./file-metadata";
+import { objectPublicUrls, storageConfig } from "./storage";
+import { posterKeyFor } from "./poster";
 import type { WorkspaceRecord } from "./workspace";
 import { FakeR2Bucket } from "../test/fake-r2";
 import { FakeKv } from "../test/fake-kv";
@@ -295,6 +297,86 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
     expect(body).toContain("<sub>/settings · before</sub>");
     expect(body).not.toContain("/intruder-path");
     expect(body).not.toContain("compromised");
+  });
+});
+
+describe("gatherCommentBody poster hydration (issue #299)", () => {
+  it("attaches a poster url computed from the key, never from metadata", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const key = "gh/acme/web/pull/12/clip.mp4";
+    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "video/mp4" } });
+    // The real write path (`setServerFileMetadata`) is what generateAndStorePoster
+    // (Task 8) uses — this is the only legitimate way `video.poster` gets set.
+    await setServerFileMetadata(env.DB, workspaceName, key, { "video.poster": "1" });
+    // A hostile row: no client-facing write path can produce this (`video.*` is
+    // server-reserved — file-metadata.ts's `isServerMetaKey`), but seed it
+    // directly to prove the renderer can't be fooled into using a stored URL
+    // even if one somehow existed under a plausible-looking key.
+    const hostileAt = new Date().toISOString();
+    await env.DB.prepare(
+      `INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+      .bind(workspaceName, key, "video.poster_hostile", "https://evil.example/x.jpg", hostileAt)
+      .run();
+
+    const result = await gatherCommentBody(env, ws, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+    expect(result.skip).toBe(false);
+    if (result.skip) return;
+
+    const cfg = await storageConfig(env, ws);
+    const expectedUrls = objectPublicUrls(env, cfg, posterKeyFor(key));
+    const expectedPosterUrl = expectedUrls.embedUrl ?? expectedUrls.url;
+    expect(expectedPosterUrl).toBeTruthy();
+    expect(result.body).toContain(expectedPosterUrl as string);
+    expect(result.body).not.toContain("evil.example");
+  });
+
+  it("leaves posterUrl unset when video.poster is absent", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const key = "gh/acme/web/pull/12/clip.mp4";
+    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "video/mp4" } });
+    // No file_metadata row at all — the common case for every non-video
+    // attachment, and for a video whose poster generation was skipped/failed.
+
+    const result = await gatherCommentBody(env, ws, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+    expect(result.skip).toBe(false);
+    if (result.skip) return;
+    expect(result.body).not.toContain("_internal/posters");
+    expect(result.body).toContain("clip.mp4");
+  });
+
+  it("carries duration and dimensions onto videoMeta", async () => {
+    const { env, ws, workspaceName, bucket } = makeTestEnv();
+    const key = "gh/acme/web/pull/12/clip.mp4";
+    await bucket.put(`acme/${key}`, PNG, { httpMetadata: { contentType: "video/mp4" } });
+    await setServerFileMetadata(env.DB, workspaceName, key, {
+      "video.poster": "1",
+      "video.duration": "14",
+      "video.width": "1920",
+      "video.height": "1080",
+    });
+
+    const result = await gatherCommentBody(env, ws, workspaceName, {
+      repo: "acme/web",
+      num: 12,
+      kind: "pull",
+    });
+    expect(result.skip).toBe(false);
+    if (result.skip) return;
+    // formatDuration(14) === "0:14" (github-comment-render.ts / poster.ts).
+    // Task 11's caption format: "▶ Play video · 0:14 · ...". Dimensions feed
+    // display width selection rather than appearing verbatim, so duration is
+    // the one directly observable proof that videoMeta parsed as numbers.
+    expect(result.body).toContain("0:14");
   });
 });
 
