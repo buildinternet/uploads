@@ -9,6 +9,7 @@
  * (`workspace_not_found`) rather than 403ing, so membership can't be probed
  * for workspace existence any more precisely than for any other workspace.
  */
+import { getPlan, NullBillingProvider, resolvePlanLimits } from "@uploads/billing";
 import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
@@ -42,6 +43,10 @@ import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
 import { loadWorkspaceRecord } from "../workspace";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// No live billing yet — see @uploads/billing's NullBillingProvider doc
+// comment. Swapping in a real provider later only changes this line.
+const billingProvider = new NullBillingProvider();
 
 interface MyWorkspace {
   workspace: string;
@@ -226,6 +231,48 @@ export const me = new Hono<SessionVars>()
       hasPublicUrl: Boolean(publicBaseUrl),
       publicBaseUrl,
       usage,
+    });
+  })
+
+  // Plan metadata, resolved effective limits, usage, and subscription state
+  // (always null today) for the account billing tab — 404s unless the
+  // caller is a member. Response shape is stable across the future Stripe
+  // iteration: adding a real subscription only changes `subscription` from
+  // null to a populated object.
+  .get("/workspaces/:name/billing", async (c) => {
+    const name = c.req.param("name");
+    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
+
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
+
+    const definition = getPlan(record.plan);
+    const limits = resolvePlanLimits(record.plan, {
+      maxStorageBytes: record.maxStorageBytes,
+      maxUploadsPerPeriod: record.maxUploadsPerPeriod,
+      maxUploadBytes: record.maxUploadBytes,
+      maxVideoUploadBytes: record.maxVideoUploadBytes,
+    });
+
+    let usage: ReturnType<typeof usageWithLimits> | null = null;
+    try {
+      usage = usageWithLimits(await getWorkspaceUsage(c.env.DB, name), record);
+    } catch {
+      usage = null;
+    }
+
+    const subscription = await billingProvider.getSubscription(name);
+
+    return c.json({
+      workspace: ws.workspace,
+      organization: ws.organization,
+      plan: definition.id,
+      available: definition.available,
+      limits,
+      usage,
+      subscription,
     });
   })
 

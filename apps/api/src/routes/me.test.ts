@@ -365,6 +365,58 @@ describe("GET /me/workspaces/:name/summary", () => {
   });
 });
 
+describe("GET /me/workspaces/:name/billing", () => {
+  it("returns plan, resolved limits, usage, and a null subscription for a member", async () => {
+    const db = new UsageFakeD1();
+    db.usage.set("acme", {
+      workspace: "acme",
+      bytes: 500,
+      objects: 3,
+      uploads_in_period: 2,
+      period_start: "2026-07",
+      updated_at: "2026-07-10T00:00:00.000Z",
+    });
+    const env = memberEnv({ workspace: "acme", role: "member", db, record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/billing", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      workspace: string;
+      plan: string;
+      available: boolean;
+      limits: Record<string, number>;
+      subscription: null;
+    };
+    expect(body.workspace).toBe("acme");
+    expect(body.plan).toBe("free");
+    expect(body.available).toBe(true);
+    expect(body.limits.maxStorageBytes).toBe(250_000_000);
+    expect(body.subscription).toBeNull();
+  });
+
+  it("404s for a non-member", async () => {
+    const env = stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") return Response.json([]);
+      return new Response(null, { status: 404 });
+    });
+    const res = await app().request("/me/workspaces/acme/billing", {}, env);
+    expect(res.status).toBe(404);
+  });
+
+  it("reports pro plan and its own resolved limits when the workspace is on pro", async () => {
+    const db = new UsageFakeD1();
+    const env = memberEnv({
+      workspace: "acme",
+      role: "member",
+      db,
+      record: { ...R2_RECORD, plan: "pro" },
+    });
+    const res = await app().request("/me/workspaces/acme/billing", {}, env);
+    const body = (await res.json()) as { plan: string; available: boolean };
+    expect(body.plan).toBe("pro");
+    expect(body.available).toBe(false);
+  });
+});
+
 describe("GET /me/workspaces/:name/people", () => {
   it("returns members + invites for an admin in one authz pass", async () => {
     const env = stubEnv(USER, (path) => {
