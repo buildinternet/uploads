@@ -9,7 +9,7 @@
  * (`workspace_not_found`) rather than 403ing, so membership can't be probed
  * for workspace existence any more precisely than for any other workspace.
  */
-import { getPlan, NullBillingProvider, resolvePlanLimits } from "@uploads/billing";
+import { NullBillingProvider } from "@uploads/billing";
 import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
@@ -41,6 +41,7 @@ import { objectPublicUrls, publicUrl, storage, storageConfig } from "../storage"
 import { getWorkspaceUsage } from "../usage";
 import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
 import { loadWorkspaceRecord } from "../workspace";
+import { planResponse } from "../workspace-plan";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -236,9 +237,15 @@ export const me = new Hono<SessionVars>()
 
   // Plan metadata, resolved effective limits, usage, and subscription state
   // (always null today) for the account billing tab — 404s unless the
-  // caller is a member. Response shape is stable across the future Stripe
-  // iteration: adding a real subscription only changes `subscription` from
-  // null to a populated object.
+  // caller is a member. `plan`/`available`/`planApplied`/`limits` reuse
+  // workspace-plan.ts's `planResponse` — the same attribution contract the
+  // admin plan surface uses (Task 5's Critical fix): a record with no
+  // `plan` field must never display free-plan default caps it isn't
+  // actually enforcing, so `planApplied` is `false` and `limits` mirrors
+  // enforcement (explicit-or-unlimited) rather than the plan defaults.
+  // Response shape is stable across the future Stripe iteration: adding a
+  // real subscription only changes `subscription` from null to a
+  // populated object.
   .get("/workspaces/:name/billing", async (c) => {
     const name = c.req.param("name");
     const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
@@ -248,13 +255,7 @@ export const me = new Hono<SessionVars>()
       throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
     }
 
-    const definition = getPlan(record.plan);
-    const limits = resolvePlanLimits(record.plan, {
-      maxStorageBytes: record.maxStorageBytes,
-      maxUploadsPerPeriod: record.maxUploadsPerPeriod,
-      maxUploadBytes: record.maxUploadBytes,
-      maxVideoUploadBytes: record.maxVideoUploadBytes,
-    });
+    const { plan, available, planApplied, limits } = planResponse(name, record);
 
     let usage: ReturnType<typeof usageWithLimits> | null = null;
     try {
@@ -268,8 +269,9 @@ export const me = new Hono<SessionVars>()
     return c.json({
       workspace: ws.workspace,
       organization: ws.organization,
-      plan: definition.id,
-      available: definition.available,
+      plan,
+      available,
+      planApplied,
       limits,
       usage,
       subscription,

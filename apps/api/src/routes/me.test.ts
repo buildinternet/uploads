@@ -366,7 +366,13 @@ describe("GET /me/workspaces/:name/summary", () => {
 });
 
 describe("GET /me/workspaces/:name/billing", () => {
-  it("returns plan, resolved limits, usage, and a null subscription for a member", async () => {
+  it("displays free with planApplied=false and unlimited (explicit-or-null) limits for a record with no plan field", async () => {
+    // R2_RECORD has no `plan` field — same "legacy/unset" shape budget.ts's
+    // enforcement treats as unlimited (explicit overrides only). The
+    // billing tab must never show free-plan default caps (250MB etc.) as
+    // if they were real limits here — see workspace-plan.ts's
+    // `planResponse` doc comment and Task 5's Critical fix on the admin
+    // surface.
     const db = new UsageFakeD1();
     db.usage.set("acme", {
       workspace: "acme",
@@ -383,13 +389,15 @@ describe("GET /me/workspaces/:name/billing", () => {
       workspace: string;
       plan: string;
       available: boolean;
-      limits: Record<string, number>;
+      planApplied: boolean;
+      limits: Record<string, number | null>;
       subscription: null;
     };
     expect(body.workspace).toBe("acme");
     expect(body.plan).toBe("free");
     expect(body.available).toBe(true);
-    expect(body.limits.maxStorageBytes).toBe(250_000_000);
+    expect(body.planApplied).toBe(false);
+    expect(body.limits.maxStorageBytes).toBeNull();
     expect(body.subscription).toBeNull();
   });
 
@@ -402,7 +410,29 @@ describe("GET /me/workspaces/:name/billing", () => {
     expect(res.status).toBe(404);
   });
 
-  it("reports pro plan and its own resolved limits when the workspace is on pro", async () => {
+  it("reports free with planApplied=true and resolved plan-default limits when the record has an explicit free plan", async () => {
+    const db = new UsageFakeD1();
+    const env = memberEnv({
+      workspace: "acme",
+      role: "member",
+      db,
+      record: { ...R2_RECORD, plan: "free" },
+    });
+    const res = await app().request("/me/workspaces/acme/billing", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      plan: string;
+      available: boolean;
+      planApplied: boolean;
+      limits: Record<string, number | null>;
+    };
+    expect(body.plan).toBe("free");
+    expect(body.available).toBe(true);
+    expect(body.planApplied).toBe(true);
+    expect(body.limits.maxStorageBytes).toBe(250_000_000);
+  });
+
+  it("reports pro plan, planApplied=true, and pro's own resolved limits when the workspace is on pro", async () => {
     const db = new UsageFakeD1();
     const env = memberEnv({
       workspace: "acme",
@@ -411,9 +441,16 @@ describe("GET /me/workspaces/:name/billing", () => {
       record: { ...R2_RECORD, plan: "pro" },
     });
     const res = await app().request("/me/workspaces/acme/billing", {}, env);
-    const body = (await res.json()) as { plan: string; available: boolean };
+    const body = (await res.json()) as {
+      plan: string;
+      available: boolean;
+      planApplied: boolean;
+      limits: Record<string, number | null>;
+    };
     expect(body.plan).toBe("pro");
     expect(body.available).toBe(false);
+    expect(body.planApplied).toBe(true);
+    expect(body.limits.maxStorageBytes).toBe(25_000_000_000);
   });
 });
 
