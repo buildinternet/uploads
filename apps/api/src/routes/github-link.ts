@@ -55,6 +55,26 @@ export const githubLink = new Hono<WorkspaceVars>()
     const link = await findRepoLink(c.env.DB, repo);
     return c.json(linkResponse(repo, link));
   })
+  // `/repo-link` (issue #398): a deliberately minimal, cross-tenant-safe
+  // counterpart to `/link` above. `/link` names the owning workspace in its
+  // response — fine for an authenticated inspect/claim flow the caller
+  // initiated for their own repo, but wrong for the `attach --branch` stage
+  // warning, which fires for ANY repo the CLI happens to detect from local
+  // git context. That warning must be able to say "this repo belongs to
+  // someone else" without ever saying to whom, so this route collapses the
+  // full link record down to a tri-state relative to the calling workspace:
+  // "self" (bound to me), "other" (bound, not to me), or "none" (unbound).
+  // Uses the lenient `findRepoLink` (never throws — a D1 blip degrades to
+  // "none", not a 5xx) because this is advisory-only; the CLI already
+  // silences anything but a clean 200.
+  .get("/repo-link", requireScope("files:read"), async (c) => {
+    const repo = parseRepo(c.req.query("repo"));
+    const workspaceName = c.get("workspaceName");
+    const link = await findRepoLink(c.env.DB, repo);
+    const binding =
+      link === null ? "none" : link.workspaceName === workspaceName ? "self" : "other";
+    return c.json({ binding });
+  })
   .post("/link", writeRateLimit, requireScope("files:write"), async (c) => {
     const repo = parseRepo((await jsonBody(c)).repo);
     const workspaceName = c.get("workspaceName");
