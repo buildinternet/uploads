@@ -7,6 +7,7 @@
  */
 
 import { InsufficientStorageError, RateLimitedError } from "@uploads/errors";
+import { resolvePlanLimits } from "@uploads/billing";
 import type { WorkspaceUsage } from "./usage";
 
 /** Cumulative caps from the workspace registry record. */
@@ -15,6 +16,8 @@ export interface WorkspaceBudgetLimits {
   maxStorageBytes?: number;
   /** Cap on successful puts in the current UTC calendar month. */
   maxUploadsPerPeriod?: number;
+  /** Subscription plan — see `@uploads/billing`'s `PlanId`. Absent = free. */
+  plan?: string;
 }
 
 export type BudgetDenialCode = "storage_quota_exceeded" | "upload_budget_exceeded";
@@ -37,9 +40,24 @@ export function resolveBudgetLimits(record: WorkspaceBudgetLimits): {
   maxStorageBytes?: number;
   maxUploadsPerPeriod?: number;
 } {
-  return {
+  const explicit = {
     maxStorageBytes: positiveLimit(record.maxStorageBytes),
     maxUploadsPerPeriod: positiveLimit(record.maxUploadsPerPeriod),
+  };
+  // Plan defaults apply ONLY when a workspace has been explicitly placed on
+  // a plan. Absent `plan` must reproduce today's (pre-billing) behavior
+  // byte-for-byte: an unset field is unlimited, full stop — no free-tier
+  // fallback. This keeps every legacy/admin-provisioned workspace unlimited
+  // as it is in production today; only a record with `plan` set opts into
+  // plan-aware resolution (self-serve creation does not set `plan` in this
+  // task — that wiring is a later task).
+  if (record.plan === undefined) {
+    return explicit;
+  }
+  const resolved = resolvePlanLimits(record.plan, explicit);
+  return {
+    maxStorageBytes: positiveLimit(resolved.maxStorageBytes),
+    maxUploadsPerPeriod: positiveLimit(resolved.maxUploadsPerPeriod),
   };
 }
 

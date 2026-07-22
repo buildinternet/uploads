@@ -30,6 +30,32 @@ describe("resolvePlanLimits", () => {
     expect(resolvePlanLimits(undefined, {})).toEqual(PLANS.free.defaultLimits);
   });
 
+  it("an explicit null override wins over the plan default, resolving to unlimited (undefined)", () => {
+    const resolved = resolvePlanLimits("free", { maxStorageBytes: null });
+    expect(resolved.maxStorageBytes).toBeUndefined();
+    expect(resolved.maxUploadsPerPeriod).toBe(PLANS.free.defaultLimits.maxUploadsPerPeriod);
+  });
+
+  it("a null override on a plan with a defined default still clears it (pro)", () => {
+    const resolved = resolvePlanLimits("pro", { maxUploadsPerPeriod: null });
+    expect(resolved.maxUploadsPerPeriod).toBeUndefined();
+    expect(resolved.maxStorageBytes).toBe(PLANS.pro.defaultLimits.maxStorageBytes);
+  });
+
+  it("null and undefined overrides can be mixed with numeric overrides across fields", () => {
+    const resolved = resolvePlanLimits("free", {
+      maxStorageBytes: null,
+      maxUploadsPerPeriod: undefined,
+      maxUploadBytes: 42,
+    });
+    expect(resolved).toEqual({
+      maxStorageBytes: undefined,
+      maxUploadsPerPeriod: PLANS.free.defaultLimits.maxUploadsPerPeriod,
+      maxUploadBytes: 42,
+      maxVideoUploadBytes: PLANS.free.defaultLimits.maxVideoUploadBytes,
+    });
+  });
+
   it("all four override fields compose independently", () => {
     const resolved = resolvePlanLimits("free", {
       maxStorageBytes: 1,
