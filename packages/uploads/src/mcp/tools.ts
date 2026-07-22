@@ -10,6 +10,7 @@ import { createUploadsClient, type UploadsClient } from "../client.js";
 import {
   buildDoctorReport,
   makeGhTarget,
+  resolvePutStagingTarget,
   syncAttachmentsComment,
   type AttachmentsCommentResult,
   uploadAttachments,
@@ -24,7 +25,7 @@ import {
   type UploadsClientConfig,
 } from "../config.js";
 import { resolvePutPrefix } from "../destinations.js";
-import { ghKeyPrefix, type GhTarget } from "../github.js";
+import { ghKeyPrefix, ghMetadataForBranch, type GhTarget } from "../github.js";
 import { safeCaptureFacts } from "../capture-facts.js";
 import { validateMetaMap } from "../metadata.js";
 import { mergeDerivedMeta } from "../metadata-vocab.js";
@@ -497,9 +498,36 @@ export function createUploadsMcpTools(opts: {
         const alt = optString(args, "alt");
         const width = optPosInt(args, "width") ?? defaults.width;
         const contentType = optString(args, "contentType");
+
+        // Bare-put branch staging (issue #403): local stdio MCP put mirrors
+        // the CLI default — no pr/issue/key/ref/prefix, not noGit, on a
+        // non-default git branch stages to the branch prefix (identical
+        // key/metadata to `attach --branch`) instead of the dated layout.
+        // Never throws — see resolvePutStagingTarget.
+        const stagingTarget = resolvePutStagingTarget({
+          ghTarget: target,
+          keyHint: keyArg,
+          refArg,
+          prefixArg,
+          noGit,
+          repoArg: optString(args, "repo") ?? defaults.repo,
+          run,
+        });
+        const putMetadata = stagingTarget
+          ? (() => {
+              const merged = {
+                ...metadata,
+                ...ghMetadataForBranch(stagingTarget.repo, stagingTarget.branch),
+              };
+              validateMetaMap(merged); // same builder, same contract as attach --branch
+              return merged;
+            })()
+          : metadata;
+
         const putShared = {
           client,
           ghTarget: target,
+          ghBranchTarget: stagingTarget,
           prefix: resolvedPrefix ?? defaults.prefix,
           repo: optString(args, "repo") ?? defaults.repo,
           ref: refArg ?? defaults.ref,
@@ -509,7 +537,7 @@ export function createUploadsMcpTools(opts: {
           replace: replaceArg,
           optimize: optimizeOpts,
           frame: frameOpts,
-          metadata,
+          metadata: putMetadata,
           // The shared metadata description promises uploads.sh derives these
           // "automatically where it can" — MCP has no --no-auto, so always on.
           deriveImageFacts: true,
@@ -546,6 +574,7 @@ export function createUploadsMcpTools(opts: {
               frame: frameOpts,
               optimize: optimizeOpts,
               ghTarget: target,
+              ghBranchTarget: stagingTarget,
               key: keyArg,
               prefix: resolvedPrefix ?? defaults.prefix,
               repo: optString(args, "repo") ?? defaults.repo,
@@ -554,7 +583,7 @@ export function createUploadsMcpTools(opts: {
               deriveRepoFromGit: !noGit,
               dryRun,
               replace: replaceArg,
-              metadata,
+              metadata: putMetadata,
               provenanceClient: "uploads-mcp",
               alt: () => alt ?? sourceName,
               width,

@@ -94,6 +94,13 @@ attachments when one opens: automatically via the
 workspace↔repo binding the webhook path uses. Promoted staging is cleaned up
 server-side after ~7 days (~30 for branches that never got a PR).
 
+**Bare `put` stages too, by default (issue #403):** on a non-default git
+branch, a `put` with none of `--pr`/`--issue`/`--key`/`--ref`/`--prefix` set
+(and not `--no-git`) stages exactly like `attach --branch` — same key,
+same `gh.*` metadata. The classic dated layout
+(`<prefix>/<repo>/<ref-or-date>/<name>`) remains the default branch/detached
+HEAD/non-repo/`--no-git` behavior, and the explicit-flags opt-out.
+
 **Screenshot capture:** `uploads screenshot <url|file.html>` renders a page to a
 hosted image in one step — no separate browser tooling needed. `--via auto`
 (default) drives a Chrome/Chromium already on the machine (`playwright-core`

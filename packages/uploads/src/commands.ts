@@ -496,6 +496,13 @@ export interface UploadPreparedImageOptions {
   optimize: OptimizeImageOptions;
   /** gh attachment key wins over `key` when both are set (matches every call site). */
   ghTarget?: GhTarget;
+  /**
+   * Branch-staged key (issue #403): wins over `key`, loses to `ghTarget` (the
+   * two are mutually exclusive at every call site — a PR/issue target always
+   * implies staging is moot). Produces the exact same key as `attach
+   * --branch` for the same filename via `ghBranchAttachmentKey`.
+   */
+  ghBranchTarget?: BranchTarget;
   key?: string;
   prefix?: string;
   repo?: string;
@@ -558,7 +565,15 @@ export async function uploadPreparedImage(
     frameFit: opts.frame.frameFit,
     optimize: opts.optimize,
   });
-  let key = opts.ghTarget ? ghAttachmentKey(opts.ghTarget, prepared.filename) : opts.key;
+  let key = opts.ghTarget
+    ? ghAttachmentKey(opts.ghTarget, prepared.filename)
+    : opts.ghBranchTarget
+      ? ghBranchAttachmentKey(
+          opts.ghBranchTarget.repo,
+          opts.ghBranchTarget.branch,
+          prepared.filename,
+        )
+      : opts.key;
   if (key && prepared.optimized) key = rewriteKeyExtension(key, prepared.filename);
   const result = await client.put(prepared.bytes, {
     filename: prepared.filename,
@@ -1051,6 +1066,8 @@ export async function uploadPuts(opts: {
   /** Single-file --key. */
   explicitKey?: string;
   ghTarget?: GhTarget;
+  /** Branch-staged key (issue #403) — see UploadPreparedImageOptions.ghBranchTarget. */
+  ghBranchTarget?: BranchTarget;
   prefix?: string;
   repo?: string;
   ref?: string;
@@ -1110,6 +1127,7 @@ export async function uploadPuts(opts: {
             frame: opts.frame,
             optimize: opts.optimize,
             ghTarget: opts.ghTarget,
+            ghBranchTarget: opts.ghBranchTarget,
             key: opts.explicitKey,
             prefix: opts.prefix,
             repo: opts.repo,
@@ -1471,7 +1489,7 @@ async function runAttachBranch(
  * it failed. Same suppression as the #393 put nudge: `--quiet`,
  * `UPLOADS_NO_NUDGE=1` (env or config).
  */
-async function resolveStageBindingWarning(opts: {
+export async function resolveStageBindingWarning(opts: {
   ctx: CliContext;
   defaults: PutDefaults;
   repo: string;
@@ -1637,6 +1655,72 @@ function resolvePutNudge(opts: {
   }
 }
 
+/**
+ * Bare-put branch-staging trigger (issue #403): put on a non-default git
+ * branch stages to the branch prefix by default — the branch becomes the
+ * organizing unit instead of the date, superseding the #393 CLI nudge for
+ * this case (see `putStagingNoteText`). Reuses the same detection stack as
+ * `resolvePutNudge` (`deriveRepoFromGit` / `resolveCurrentBranch` /
+ * `resolveDefaultBranch` / main-master fallback) plus a `resolveRepo` lookup
+ * (needed for the "owner/name" staging key) and an explicit-flag opt-out:
+ * `ghTarget`/`keyHint`/`refArg`/`prefixArg` set, or `noGit`, forces the
+ * classic dated layout. Never throws — any failure (not a repo, detached
+ * HEAD, gh missing/unauthenticated/timed out, unresolvable repo) degrades to
+ * "no staging", leaving the caller to fall back to the dated path.
+ *
+ * Plain-params (not CLI `flags`) so both `runPut` and the local stdio MCP
+ * `put` tool — same staging default, issue #403's scope — can call this
+ * without either depending on the other's argument shape.
+ */
+export function resolvePutStagingTarget(opts: {
+  ghTarget: GhTarget | undefined;
+  keyHint: string | undefined;
+  refArg: string | undefined;
+  prefixArg: string | undefined;
+  noGit: boolean;
+  repoArg: string | undefined;
+  run: CommandRunner;
+}): BranchTarget | undefined {
+  const { ghTarget, keyHint, refArg, prefixArg, noGit, repoArg, run } = opts;
+  if (ghTarget || keyHint || noGit) return undefined;
+  if (refArg || prefixArg) return undefined;
+  try {
+    if (deriveRepoFromGit(run) === undefined) return undefined; // not a (usable) git repo
+    let branch: string;
+    try {
+      branch = resolveCurrentBranch(run);
+    } catch {
+      return undefined; // detached HEAD, or git unavailable
+    }
+    const defaultBranch = resolveDefaultBranch(run);
+    const onDefaultBranch = defaultBranch
+      ? branch === defaultBranch
+      : branch === "main" || branch === "master"; // undetermined: err toward the dated layout
+    if (onDefaultBranch) return undefined;
+
+    // Same bounded-timeout treatment as the #393 nudge's `gh pr view` call —
+    // this is best-effort, and must never be felt as a hang.
+    const timed = run === execRunner ? timedExecRunner(PUT_NUDGE_GH_TIMEOUT_MS) : run;
+    const repo = resolveRepo(repoArg, timed);
+    return { repo, branch };
+  } catch {
+    return undefined; // gh/git unavailable, or repo unresolvable — dated layout
+  }
+}
+
+/**
+ * The bare-put staging note's wording (issue #403): replaces the #393 nudge
+ * for the (now default) case where a bare put on a non-default branch stages
+ * to the branch prefix instead of landing on the dated layout. Used verbatim
+ * for both the human-mode stderr line and the JSON `hint` field.
+ */
+export function putStagingNoteText(branch: string): string {
+  return (
+    `note: staged for branch ${branch} — auto-attaches to this branch's PR when it opens ` +
+    `(or run: uploads attach --promote once it exists). Use --ref/--prefix for a plain dated upload.`
+  );
+}
+
 export async function runPut(
   ctx: CliContext,
   args: string[],
@@ -1758,7 +1842,25 @@ export async function runPut(
         : defaults.width;
 
   const noGit = flagBool(parsed.flags, "--no-git") || defaults.noGit === true;
-  // gh.* metadata: explicit --pr/--issue target wins over --meta; otherwise
+
+  // Bare-put branch staging (issue #403): a bare put (no --pr/--issue/--key/
+  // --ref/--prefix, not --no-git) on a non-default git branch stages to the
+  // branch prefix — identical key/metadata to `attach --branch` — instead of
+  // the dated layout. Computed before gh.* metadata resolution below since it
+  // takes over that resolution entirely (branch metadata, not PR/issue
+  // metadata) and supersedes the #393 nudge for this case.
+  const stagingTarget = resolvePutStagingTarget({
+    ghTarget,
+    keyHint,
+    refArg: flagString(parsed.flags, "--ref"),
+    prefixArg: prefixFlag,
+    noGit,
+    repoArg: flagString(parsed.flags, "--repo") ?? defaults.repo,
+    run,
+  });
+
+  // gh.* metadata: explicit --pr/--issue target wins over --meta; staging
+  // wins over --meta the same way (matches attach --branch); otherwise
   // best-effort auto resolution (on by default) where --meta wins. --no-git,
   // --no-auto, or UPLOADS_NO_AUTO_META disable auto; --auto forces past the
   // config default but never past --no-git (no repo to resolve).
@@ -1769,6 +1871,13 @@ export async function runPut(
     validateMetaMap(merged); // enforce 24-key/8KB caps on the merged map (matches attach)
     metadata = merged;
     attachedRef = merged["gh.ref"];
+  } else if (stagingTarget) {
+    const merged = {
+      ...userMeta,
+      ...ghMetadataForBranch(stagingTarget.repo, stagingTarget.branch),
+    };
+    validateMetaMap(merged); // matches attach --branch's unwrapped call — same builder, same contract
+    metadata = merged;
   } else {
     // gh.* additionally needs git, which the shared derived gate ignores.
     if (!noGit && derivedMetaEnabled(parsed.flags, defaults)) {
@@ -1793,18 +1902,33 @@ export async function runPut(
     }
   }
 
-  // Bare-put nudge (issue #393): computed once, used for both the trailing
-  // stderr line (human mode) and the JSON `hint` field below. Best-effort —
-  // see resolvePutNudge; never affects exit code, stdout, or the upload.
-  const nudge = resolvePutNudge({
-    ctx,
-    flags: parsed.flags,
-    ghTarget,
-    keyHint,
-    noGit,
-    defaults,
-    run,
-  });
+  // Bare-put nudge (issue #393): only relevant when staging didn't take over
+  // — once `stagingTarget` resolves, staging IS the upgrade the nudge used to
+  // point at, so this is skipped entirely rather than firing redundantly.
+  // Still fires as before for a bare put that lands on the dated layout with
+  // a detectable PR (e.g. an explicit --ref/--prefix opts out of staging).
+  // Computed once, used for both the trailing stderr line (human mode) and
+  // the JSON `hint` field below. Best-effort — see resolvePutNudge; never
+  // affects exit code, stdout, or the upload.
+  const nudge = stagingTarget
+    ? undefined
+    : resolvePutNudge({
+        ctx,
+        flags: parsed.flags,
+        ghTarget,
+        keyHint,
+        noGit,
+        defaults,
+        run,
+      });
+
+  // Staging note (issue #403): same suppression as the #393 nudge
+  // (--quiet, UPLOADS_NO_NUDGE=1 env/config); staging itself is NOT gated by
+  // either — only whether the note is printed/hinted.
+  const stagingNote =
+    stagingTarget && !ctx.quiet && !defaults.noNudge
+      ? putStagingNoteText(stagingTarget.branch)
+      : undefined;
 
   const logHuman = !ctx.quiet && format === "human";
   if (logHuman) {
@@ -1825,6 +1949,7 @@ export async function runPut(
     nameOverride: nameFlag,
     explicitKey: keyHint,
     ghTarget,
+    ghBranchTarget: stagingTarget,
     prefix: resolvedPrefix ?? defaults.prefix,
     repo: flagString(parsed.flags, "--repo") ?? defaults.repo,
     ref: flagString(parsed.flags, "--ref") ?? defaults.ref,
@@ -1844,6 +1969,21 @@ export async function runPut(
   if (uploads.length === 0 && failures.length > 0 && !multi) {
     throw firstError instanceof Error ? firstError : new Error(String(firstError));
   }
+
+  // Stage-time binding warning (issue #398/#400): same check `attach
+  // --branch` runs, now also on the bare-put staging path. Best-effort — see
+  // resolveStageBindingWarning; never affects exit code or the upload.
+  const bindingWarning =
+    stagingTarget && uploads.length > 0
+      ? await resolveStageBindingWarning({ ctx, defaults, repo: stagingTarget.repo })
+      : undefined;
+  // One JSON `hint` slot, shared with the #393 nudge (mutually exclusive with
+  // it — nudge is undefined whenever staging took over). When staging fires,
+  // prefer the more actionable binding warning over the generic staging note
+  // (mirrors attach --branch, whose only JSON hint content IS the binding
+  // warning); stderr prints the nudge/staging-note and binding-warning lines
+  // independently, below.
+  const jsonHint = nudge ?? bindingWarning ?? stagingNote;
 
   type GalleryOutcome = {
     id: string;
@@ -1900,7 +2040,7 @@ export async function runPut(
         failures,
         comment,
         commentError,
-        ...(nudge ? { hint: nudge } : {}),
+        ...(jsonHint ? { hint: jsonHint } : {}),
       });
     } else {
       for (const result of uploads) {
@@ -1938,6 +2078,8 @@ export async function runPut(
         );
       }
       if (nudge) process.stderr.write(`${nudge}\n`);
+      if (stagingNote) process.stderr.write(`${stagingNote}\n`);
+      if (bindingWarning) process.stderr.write(`${bindingWarning}\n`);
     }
     return failures.length === 0 && !galleryHadError ? 0 : 1;
   }
@@ -1970,7 +2112,7 @@ export async function runPut(
         frame: result.frame,
         gallery,
         ...(dryRun ? { dryRun: true } : {}),
-        ...(nudge ? { hint: nudge } : {}),
+        ...(jsonHint ? { hint: jsonHint } : {}),
       });
       break;
     case "url":
@@ -1996,6 +2138,8 @@ export async function runPut(
     );
   }
   if (nudge && format !== "json") process.stderr.write(`${nudge}\n`);
+  if (stagingNote && format !== "json") process.stderr.write(`${stagingNote}\n`);
+  if (bindingWarning && format !== "json") process.stderr.write(`${bindingWarning}\n`);
 
   return gallery?.error ? 1 : 0;
 }

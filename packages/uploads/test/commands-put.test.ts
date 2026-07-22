@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import { UploadsError } from "../src/errors.js";
-import type { UploadsClient } from "../src/client.js";
+import type { GithubRepoLinkResult, UploadsClient } from "../src/client.js";
 import { runPut, stateAppMetaFromFlags, type CliContext } from "../src/commands.js";
 import type { CommandRunner } from "../src/github-gh.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -9,7 +9,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /** Fake client capturing put() calls; other methods throw if reached. */
-function fakeClient() {
+function fakeClient(opts?: {
+  /**
+   * `client.githubRepoLinkStatus` behavior (issue #398/#400 stage-time
+   * binding warning, now also reachable from the bare-put staging path): a
+   * `GithubRepoLinkResult`, a thrown error, or omitted (method absent —
+   * simulates an older server without the route).
+   */
+  repoLinkStatus?: GithubRepoLinkResult | Error | ((repo: string) => GithubRepoLinkResult | Error);
+}) {
   const puts: {
     key?: string;
     filename: string;
@@ -22,7 +30,7 @@ function fakeClient() {
   const client = {
     put: async (
       body: Uint8Array,
-      opts: {
+      putOpts: {
         filename: string;
         key?: string;
         prefix?: string;
@@ -32,18 +40,18 @@ function fakeClient() {
       },
     ) => {
       puts.push({
-        key: opts.key,
-        filename: opts.filename,
-        prefix: opts.prefix,
-        dryRun: opts.dryRun,
-        replace: opts.replace,
+        key: putOpts.key,
+        filename: putOpts.filename,
+        prefix: putOpts.prefix,
+        dryRun: putOpts.dryRun,
+        replace: putOpts.replace,
         body,
-        metadata: opts.metadata,
+        metadata: putOpts.metadata,
       });
       return {
         workspace: "test",
-        key: opts.key ?? "generated/key.png",
-        url: `https://x.test/${opts.key ?? "generated/key.png"}`,
+        key: putOpts.key ?? "generated/key.png",
+        url: `https://x.test/${putOpts.key ?? "generated/key.png"}`,
         embedUrl: null,
         size: body.byteLength,
         contentType: "image/png",
@@ -57,6 +65,18 @@ function fakeClient() {
       throw new Error("unexpected head");
     },
     health: async () => ({ ok: true }),
+    ...(opts?.repoLinkStatus !== undefined
+      ? {
+          githubRepoLinkStatus: async (repo: string) => {
+            const result =
+              typeof opts.repoLinkStatus === "function"
+                ? opts.repoLinkStatus(repo)
+                : opts.repoLinkStatus!;
+            if (result instanceof Error) throw result;
+            return result;
+          },
+        }
+      : {}),
   } as unknown as UploadsClient;
   return { client, puts };
 }
@@ -1014,12 +1034,19 @@ describe("runPut bare-put nudge (issue #393)", () => {
     pr: 123,
   };
 
-  it("fires on stderr for a fully bare put with detectable branch/PR context", async () => {
+  // Issue #403: a bare put on a non-default branch now STAGES by default
+  // (see the "branch staging" describe block below), which supersedes this
+  // nudge for that exact scenario. The nudge only still fires when an
+  // explicit --ref/--prefix opts out of staging and forces the dated layout
+  // — these four tests exercise that narrower "still lands on dated, still
+  // has PR context" case (per issue #403's "Behavior" section).
+
+  it("fires on stderr for a bare put forced onto the dated layout (--ref) with detectable branch/PR context", async () => {
     const { client } = fakeClient();
     const stderr = await captureStderr(() =>
       runPut(
         { ...ctxWith(client), quiet: false },
-        [tmpFile(), "--repo", "o/r"],
+        [tmpFile(), "--repo", "o/r", "--ref", "manual"],
         false,
         nudgeRunner(allClear),
       ),
@@ -1035,7 +1062,7 @@ describe("runPut bare-put nudge (issue #393)", () => {
     const stdout = await captureStdout(() =>
       runPut(
         { ...ctxWith(client), quiet: false },
-        [tmpFile(), "--repo", "o/r"],
+        [tmpFile(), "--repo", "o/r", "--ref", "manual"],
         false,
         nudgeRunner(allClear),
       ),
@@ -1048,7 +1075,7 @@ describe("runPut bare-put nudge (issue #393)", () => {
     const stdout = await captureStdout(() =>
       runPut(
         { ...ctxWith(client), quiet: false, json: true },
-        [tmpFile(), "--repo", "o/r"],
+        [tmpFile(), "--repo", "o/r", "--ref", "manual"],
         false,
         nudgeRunner(allClear),
       ),
@@ -1078,7 +1105,7 @@ describe("runPut bare-put nudge (issue #393)", () => {
     const stderr = await captureStderr(() =>
       runPut(
         { ...ctxWith(client), quiet: false },
-        [tmpFile(), "--repo", "o/r"],
+        [tmpFile(), "--repo", "o/r", "--ref", "manual"],
         false,
         nudgeRunner({
           branch: "feature/thing",
@@ -1107,7 +1134,7 @@ describe("runPut bare-put nudge (issue #393)", () => {
     const stderr = await captureStderr(async () => {
       const code = await runPut(
         { ...ctxWith(client), quiet: false },
-        [tmpFile(), "--repo", "o/r"],
+        [tmpFile(), "--repo", "o/r", "--ref", "manual"],
         false,
         run,
       );
@@ -1223,12 +1250,12 @@ describe("runPut bare-put nudge (issue #393)", () => {
     expect(stderr).not.toContain("note:");
   });
 
-  it("still nudges on a non-main/master branch when the default branch can't be determined", async () => {
+  it("still nudges on a non-main/master branch when the default branch can't be determined (forced onto dated via --ref)", async () => {
     const { client } = fakeClient();
     const stderr = await captureStderr(() =>
       runPut(
         { ...ctxWith(client), quiet: false },
-        [tmpFile(), "--repo", "o/r"],
+        [tmpFile(), "--repo", "o/r", "--ref", "manual"],
         false,
         nudgeRunner({
           branch: "feature/thing",
@@ -1265,6 +1292,396 @@ describe("runPut bare-put nudge (issue #393)", () => {
       ),
     );
     expect(stderr).not.toContain("note:");
+  });
+});
+
+/**
+ * Fake gh/git runner for the bare-put branch-staging trigger (issue #403).
+ * Shares nudgeRunner's shape (git config/rev-parse/symbolic-ref, gh repo
+ * view) but never expects a `gh pr view` call — staging never resolves a
+ * PR — so an unexpected one fails loudly via the shared "unexpected:" throw.
+ */
+function stagingRunner(opts: {
+  branch?: string;
+  defaultBranch?: string;
+  originUrl?: string;
+  repo?: string;
+}): CommandRunner {
+  return (cmd, args) => {
+    if (cmd === "git" && args[0] === "config") {
+      if (opts.originUrl === undefined) throw new Error("not a git repo");
+      return `${opts.originUrl}\n`;
+    }
+    if (cmd === "git" && args[0] === "rev-parse") {
+      if (opts.branch === undefined) throw new Error("detached HEAD");
+      return `${opts.branch}\n`;
+    }
+    if (cmd === "git" && args[0] === "symbolic-ref") {
+      if (opts.defaultBranch === undefined) throw new Error("no origin/HEAD");
+      return `origin/${opts.defaultBranch}\n`;
+    }
+    if (cmd === "gh" && args[0] === "repo") {
+      if (opts.repo === undefined) throw new Error("gh unauthenticated");
+      return `${opts.repo}\n`;
+    }
+    throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+  };
+}
+
+describe("runPut branch staging (issue #403)", () => {
+  const staged = {
+    branch: "feature/thing",
+    defaultBranch: "main",
+    originUrl: "git@github.com:o/r.git",
+    repo: "o/r",
+  };
+
+  describe("detection matrix", () => {
+    it("stages a bare put on a non-default branch with detectable git context", async () => {
+      const { client, puts } = fakeClient();
+      expect(await runPut(ctxWith(client), [tmpFile()], false, stagingRunner(staged))).toBe(0);
+      expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/shot.png");
+    });
+
+    it("does not stage with --pr (dated PR-attach layout instead)", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(
+        ctxWith(client),
+        [tmpFile(), "--pr", "9", "--repo", "o/r"],
+        false,
+        stagingRunner(staged),
+      );
+      expect(puts[0]?.key).toBe("gh/o/r/pull/9/shot.png");
+    });
+
+    it("does not stage with --issue (dated issue-attach layout instead)", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(
+        ctxWith(client),
+        [tmpFile(), "--issue", "9", "--repo", "o/r"],
+        false,
+        stagingRunner(staged),
+      );
+      expect(puts[0]?.key).toBe("gh/o/r/issues/9/shot.png");
+    });
+
+    it("does not stage with an explicit --key", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(
+        ctxWith(client),
+        [tmpFile(), "--key", "screenshots/explicit.png"],
+        false,
+        stagingRunner(staged),
+      );
+      expect(puts[0]?.key).toBe("screenshots/explicit.png");
+    });
+
+    it("does not stage with an explicit --ref (dated layout, still git-derived)", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(ctxWith(client), [tmpFile(), "--ref", "1722"], false, stagingRunner(staged));
+      expect(puts[0]?.key).toBeUndefined(); // no explicit key → server derives the dated key
+      expect(puts[0]?.prefix).toBeUndefined();
+    });
+
+    it("does not stage with an explicit --prefix", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(
+        ctxWith(client),
+        [tmpFile(), "--prefix", "custom"],
+        false,
+        stagingRunner(staged),
+      );
+      expect(puts[0]?.key).toBeUndefined();
+      expect(puts[0]?.prefix).toBe("custom");
+    });
+
+    it("does not stage with --no-git", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(ctxWith(client), [tmpFile(), "--no-git"], false, noRun);
+      expect(puts[0]?.key).toBeUndefined();
+    });
+
+    it("does not stage on the default branch (remote HEAD resolved)", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(
+        ctxWith(client),
+        [tmpFile()],
+        false,
+        stagingRunner({ ...staged, branch: "main" }),
+      );
+      expect(puts[0]?.key).toBeUndefined();
+    });
+
+    it("does not stage on main when the default branch can't be determined (errs toward the dated layout)", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(
+        ctxWith(client),
+        [tmpFile()],
+        false,
+        stagingRunner({ branch: "main", originUrl: "git@github.com:o/r.git", repo: "o/r" }),
+      );
+      expect(puts[0]?.key).toBeUndefined();
+    });
+
+    it("still stages on a non-main/master branch when the default branch can't be determined", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(
+        ctxWith(client),
+        [tmpFile()],
+        false,
+        stagingRunner({
+          branch: "feature/thing",
+          originUrl: "git@github.com:o/r.git",
+          repo: "o/r",
+        }),
+      );
+      expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/shot.png");
+    });
+
+    it("does not stage on detached HEAD", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(
+        ctxWith(client),
+        [tmpFile()],
+        false,
+        stagingRunner({ defaultBranch: "main", repo: "o/r" }), // no branch → git rev-parse throws
+      );
+      expect(puts[0]?.key).toBeUndefined();
+    });
+
+    it("does not stage outside a git repo", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(
+        ctxWith(client),
+        [tmpFile()],
+        false,
+        stagingRunner({ branch: "feature/thing" }), // no originUrl → deriveRepoFromGit fails
+      );
+      expect(puts[0]?.key).toBeUndefined();
+    });
+
+    it("does not stage when the repo can't be resolved (gh unauthenticated, unparsable remote)", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(
+        ctxWith(client),
+        [tmpFile()],
+        false,
+        stagingRunner({
+          branch: "feature/thing",
+          defaultBranch: "main",
+          // Parses for the boolean "is this a git repo" gate (deriveRepoFromGit
+          // just grabs the last `:`/`/`-delimited segment), but has no second
+          // "/"-separated segment for parseRepoFromRemoteUrl to read an
+          // owner/repo out of.
+          originUrl: "git@github.com:onlyrepo",
+          // repo: undefined → `gh repo view` also fails
+        }),
+      );
+      expect(puts[0]?.key).toBeUndefined();
+    });
+  });
+
+  describe("key + metadata parity with attach --branch", () => {
+    it("produces the identical key attach --branch would for the same filename/branch", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(ctxWith(client), [tmpFile()], false, stagingRunner(staged));
+      expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/shot.png");
+    });
+
+    it("sanitizes a slashed branch name the same way attach --branch does", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(
+        ctxWith(client),
+        [tmpFile()],
+        false,
+        stagingRunner({ ...staged, branch: "release/1.2" }),
+      );
+      expect(puts[0]?.key).toBe("gh/o/r/branch/release-1.2/shot.png");
+    });
+
+    it("writes gh.repo/gh.kind=branch/gh.branch/gh.staged-at (no gh.number/gh.ref/gh.title)", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(ctxWith(client), [tmpFile()], false, stagingRunner(staged));
+      const metadata = puts[0]?.metadata;
+      expect(metadata).toMatchObject({
+        "gh.repo": "o/r",
+        "gh.kind": "branch",
+        "gh.branch": "feature/thing",
+        "gh.status": "staged",
+      });
+      expect(metadata?.["gh.staged-at"]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+      expect(metadata?.["gh.number"]).toBeUndefined();
+      expect(metadata?.["gh.ref"]).toBeUndefined();
+      expect(metadata?.["gh.title"]).toBeUndefined();
+    });
+
+    it("lets user --meta win, except gh.* pairs which the branch metadata always overrides", async () => {
+      const { client, puts } = fakeClient();
+      await runPut(
+        ctxWith(client),
+        [tmpFile(), "--meta", "app=myapp", "--meta", "gh.repo=should-be-overridden/nope"],
+        false,
+        stagingRunner(staged),
+      );
+      const metadata = puts[0]?.metadata;
+      expect(metadata?.app).toBe("myapp");
+      expect(metadata?.["gh.repo"]).toBe("o/r");
+    });
+
+    it("stages every file under the correct per-filename key on a multi-file put", async () => {
+      const { client, puts } = fakeClient();
+      const paths = tmpFiles("before.png", "after.png");
+      await runPut(ctxWith(client), paths, false, stagingRunner(staged));
+      expect(puts.map((p) => p.key).sort()).toEqual([
+        "gh/o/r/branch/feature-thing/after.png",
+        "gh/o/r/branch/feature-thing/before.png",
+      ]);
+    });
+  });
+
+  it("re-uploading the same filename overwrites in place: identical key, no hash suffix, no --key/--replace needed", async () => {
+    const { client, puts } = fakeClient();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-put-restage-"));
+    const file = join(dir, "shot.png");
+    writeFileSync(file, "v1");
+    await runPut(ctxWith(client), [file], false, stagingRunner(staged));
+    writeFileSync(file, "v2-different-bytes-different-hash");
+    await runPut(ctxWith(client), [file], false, stagingRunner(staged));
+    expect(puts).toHaveLength(2);
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/shot.png");
+    expect(puts[1]?.key).toBe(puts[0]?.key);
+    // No caller-set --replace: the server hot-swaps this key purely because
+    // it lives under gh/ (issue #403's "structurally impossible spam" claim),
+    // not because the client asked to overwrite.
+    expect(puts.every((p) => p.replace !== true)).toBe(true);
+  });
+
+  describe("staging note: wording, suppression, JSON hint", () => {
+    it("fires the exact staging-note wording on stderr", async () => {
+      const { client } = fakeClient();
+      const stderr = await captureStderr(() =>
+        runPut({ ...ctxWith(client), quiet: false }, [tmpFile()], false, stagingRunner(staged)),
+      );
+      expect(stderr).toContain(
+        "note: staged for branch feature/thing — auto-attaches to this branch's PR when it opens " +
+          "(or run: uploads attach --promote once it exists). Use --ref/--prefix for a plain dated upload.",
+      );
+    });
+
+    it("never writes the staging note to stdout", async () => {
+      const { client } = fakeClient();
+      const stdout = await captureStdout(() =>
+        runPut({ ...ctxWith(client), quiet: false }, [tmpFile()], false, stagingRunner(staged)),
+      );
+      expect(stdout).not.toContain("note:");
+    });
+
+    it("is suppressed by quiet, while staging itself still happens", async () => {
+      const { client, puts } = fakeClient();
+      const stderr = await captureStderr(
+        () => runPut(ctxWith(client), [tmpFile()], false, stagingRunner(staged)), // quiet: true (default)
+      );
+      expect(stderr).not.toContain("note:");
+      expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/shot.png");
+    });
+
+    it("is suppressed by UPLOADS_NO_NUDGE=1, while staging itself still happens", async () => {
+      const prev = process.env.UPLOADS_NO_NUDGE;
+      process.env.UPLOADS_NO_NUDGE = "1";
+      try {
+        const { client, puts } = fakeClient();
+        const stderr = await captureStderr(() =>
+          runPut({ ...ctxWith(client), quiet: false }, [tmpFile()], false, stagingRunner(staged)),
+        );
+        expect(stderr).not.toContain("note:");
+        expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/shot.png");
+      } finally {
+        if (prev === undefined) delete process.env.UPLOADS_NO_NUDGE;
+        else process.env.UPLOADS_NO_NUDGE = prev;
+      }
+    });
+
+    it("includes an additive JSON hint field carrying the staging note", async () => {
+      const { client } = fakeClient();
+      const stdout = await captureStdout(() =>
+        runPut(
+          { ...ctxWith(client), quiet: false, json: true },
+          [tmpFile()],
+          false,
+          stagingRunner(staged),
+        ),
+      );
+      const payload = JSON.parse(stdout) as { hint?: string };
+      expect(payload.hint).toContain("staged for branch feature/thing");
+    });
+
+    it("omits the JSON hint field on the dated fallback path (default branch)", async () => {
+      const { client } = fakeClient();
+      const stdout = await captureStdout(() =>
+        runPut(
+          { ...ctxWith(client), quiet: false, json: true },
+          [tmpFile()],
+          false,
+          stagingRunner({ ...staged, branch: "main" }),
+        ),
+      );
+      const payload = JSON.parse(stdout) as Record<string, unknown>;
+      expect("hint" in payload).toBe(false);
+    });
+  });
+
+  describe("stage-time binding warning (issue #398/#400) on the staged put path", () => {
+    it("warns when the repo is unbound (binding: none)", async () => {
+      const { client } = fakeClient({ repoLinkStatus: { binding: "none" } });
+      const stderr = await captureStderr(() =>
+        runPut({ ...ctxWith(client), quiet: false }, [tmpFile()], false, stagingRunner(staged)),
+      );
+      expect(stderr).toContain(
+        "note: staged, but o/r isn't linked to your workspace yet — staged files only auto-attach on PR open for linked repos. " +
+          "Link it once with: uploads attach <file> (on any PR) or uploads github link. " +
+          "After the PR opens: uploads attach --promote",
+      );
+    });
+
+    it("warns when the repo is bound to a different workspace (binding: other)", async () => {
+      const { client } = fakeClient({ repoLinkStatus: { binding: "other" } });
+      const stderr = await captureStderr(() =>
+        runPut({ ...ctxWith(client), quiet: false }, [tmpFile()], false, stagingRunner(staged)),
+      );
+      expect(stderr).toContain(
+        "note: staged, but o/r is linked to a different workspace — these files won't auto-attach from here.",
+      );
+    });
+
+    it("is silent when the repo is bound to this workspace (binding: self)", async () => {
+      const { client } = fakeClient({ repoLinkStatus: { binding: "self" } });
+      const stderr = await captureStderr(() =>
+        runPut({ ...ctxWith(client), quiet: false }, [tmpFile()], false, stagingRunner(staged)),
+      );
+      expect(stderr).not.toContain("note: staged, but");
+    });
+
+    it("is silent when the endpoint route is absent (older/self-hosted server)", async () => {
+      const { client } = fakeClient(); // no repoLinkStatus option → method absent
+      const stderr = await captureStderr(() =>
+        runPut({ ...ctxWith(client), quiet: false }, [tmpFile()], false, stagingRunner(staged)),
+      );
+      expect(stderr).not.toContain("note: staged, but");
+    });
+
+    it("prefers the binding warning over the generic staging note in the JSON hint when both fire", async () => {
+      const { client } = fakeClient({ repoLinkStatus: { binding: "none" } });
+      const stdout = await captureStdout(() =>
+        runPut(
+          { ...ctxWith(client), quiet: false, json: true },
+          [tmpFile()],
+          false,
+          stagingRunner(staged),
+        ),
+      );
+      const payload = JSON.parse(stdout) as { hint?: string };
+      expect(payload.hint).toContain("isn't linked to your workspace yet");
+    });
   });
 });
 
