@@ -375,6 +375,75 @@ export async function getWorkspacePeople(
   };
 }
 
+export interface WorkspaceBillingLimits {
+  maxStorageBytes: number | null;
+  maxUploadsPerPeriod: number | null;
+  maxUploadBytes: number | null;
+  maxVideoUploadBytes: number | null;
+}
+
+export interface WorkspaceBilling {
+  workspace: string;
+  organization: { id: string; slug: string; name: string };
+  plan: string;
+  available: boolean;
+  planApplied: boolean;
+  limits: WorkspaceBillingLimits;
+  usage: Record<string, unknown> | null;
+  subscription: null;
+}
+
+export type WorkspaceBillingResult =
+  | { kind: "ok"; billing: WorkspaceBilling }
+  | { kind: "unavailable"; reason?: "not_found" | "server" | RequestFailure };
+
+/**
+ * GET /me/workspaces/:name/billing — plan metadata, resolved effective
+ * limits, usage, and (always-null-for-now) subscription for the billing tab.
+ */
+export async function getWorkspaceBilling(
+  apiOrigin: string,
+  name: string,
+): Promise<WorkspaceBillingResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/billing`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body || typeof body.plan !== "string") {
+    return { kind: "unavailable", reason: "server" };
+  }
+  const org = body.organization as Record<string, unknown> | undefined;
+  const rawLimits = (body.limits as Record<string, unknown> | undefined) ?? {};
+  const numOrNull = (v: unknown): number | null => (typeof v === "number" ? v : null);
+  return {
+    kind: "ok",
+    billing: {
+      workspace: typeof body.workspace === "string" ? body.workspace : name,
+      organization: {
+        id: typeof org?.id === "string" ? org.id : "",
+        slug: typeof org?.slug === "string" ? org.slug : name,
+        name: typeof org?.name === "string" ? org.name : name,
+      },
+      plan: body.plan,
+      available: body.available === true,
+      planApplied: body.planApplied === true,
+      limits: {
+        maxStorageBytes: numOrNull(rawLimits.maxStorageBytes),
+        maxUploadsPerPeriod: numOrNull(rawLimits.maxUploadsPerPeriod),
+        maxUploadBytes: numOrNull(rawLimits.maxUploadBytes),
+        maxVideoUploadBytes: numOrNull(rawLimits.maxVideoUploadBytes),
+      },
+      usage: (body.usage as Record<string, unknown> | null) ?? null,
+      subscription: null,
+    },
+  };
+}
+
 /**
  * POST /me/workspaces/:name/invites — workspace admin|owner invites an email.
  * Always prefer showing `acceptUrl` (works without outbound email).

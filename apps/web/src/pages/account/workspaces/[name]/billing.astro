@@ -1,0 +1,193 @@
+---
+/**
+ * Workspace billing tab — current plan, resolved limits vs usage, and a
+ * disabled "Upgrade — coming soon" affordance (spec 2026-07-22, billing
+ * infrastructure). No live billing exists yet: no invoices, no payment
+ * method, no real upgrade flow — honest copy only. When the backend hasn't
+ * actually applied a plan (`planApplied === false`), limits are rendered as
+ * whatever `limits` says (often unlimited/custom) rather than free-tier
+ * marketing caps — see apps/api/src/routes/me.ts's billing route.
+ */
+import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
+
+export const prerender = false;
+
+const nameParam = Astro.params.name ?? "";
+const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
+if (!workspace) return Astro.redirect("/account/workspaces");
+---
+
+<WorkspaceLayout workspace={workspace}>
+  <div id="ws-status" class="ul-callout status" role="status">Loading…</div>
+  <button id="ws-retry" type="button" hidden>Try again</button>
+
+  <div id="ws-app" hidden>
+    <section class="card settings-page">
+      <div class="settings-section">
+        <div class="ws-page-header">
+          <div class="ws-title-block">
+            <h2>Billing</h2>
+            <p class="muted" id="ws-slug"></p>
+          </div>
+          <a class="text-btn" id="ws-back" href={`/account/workspaces/${workspace}`}>← Workspace</a>
+        </div>
+
+        <div id="ws-plan-card" class="ul-callout">
+          <p><strong id="ws-plan-name"></strong></p>
+          <p class="muted" id="ws-plan-blurb"></p>
+        </div>
+
+        <div id="ws-limits" class="settings-section">
+          <h3>Limits &amp; usage</h3>
+          <dl class="ws-rail__kv" id="ws-limits-list"></dl>
+        </div>
+
+        <div class="settings-section">
+          <button type="button" id="ws-upgrade-btn" disabled>Upgrade — coming soon</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    import {
+      getPageVisit,
+      isCurrentPageVisit,
+      onAstroPageLoad,
+      onSession,
+      requireElement,
+    } from "../../../../lib/account-shell";
+    import { getWorkspaceBilling, type WorkspaceBilling } from "../../../../lib/api-client";
+    import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
+
+    onAstroPageLoad(() => {
+      if (!document.getElementById("ws-plan-card")) return;
+
+      const page = "workspace billing";
+      const visit = getPageVisit();
+      const stillHere = (): boolean => isCurrentPageVisit(visit);
+      const w = window as unknown as {
+        __UPLOADS_API_ORIGIN__: string;
+        __UPLOADS_ACTIVE_WORKSPACE__: string;
+      };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+      const workspaceName = resolveActiveWorkspace(
+        window.location.pathname,
+        w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+      );
+
+      const statusEl = requireElement<HTMLElement>("#ws-status", page);
+      const retryBtn = requireElement<HTMLButtonElement>("#ws-retry", page);
+      const appEl = requireElement<HTMLElement>("#ws-app", page);
+      const slugEl = requireElement<HTMLElement>("#ws-slug", page);
+      const planNameEl = requireElement<HTMLElement>("#ws-plan-name", page);
+      const planBlurbEl = requireElement<HTMLElement>("#ws-plan-blurb", page);
+      const limitsListEl = requireElement<HTMLElement>("#ws-limits-list", page);
+
+      function showError(message: string, retry = true): void {
+        if (!stillHere()) return;
+        statusEl.hidden = false;
+        statusEl.textContent = message;
+        statusEl.dataset.state = "error";
+        appEl.hidden = true;
+        retryBtn.hidden = !retry;
+      }
+
+      function formatBytes(n: number): string {
+        if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)} GB`;
+        if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(0)} MB`;
+        return `${n} bytes`;
+      }
+
+      function planLabel(plan: string): string {
+        return plan.charAt(0).toUpperCase() + plan.slice(1);
+      }
+
+      function paintLimits(billing: WorkspaceBilling): void {
+        const usage = billing.usage as
+          | { bytes?: number; objects?: number; uploadsInPeriod?: number }
+          | null;
+        const { limits } = billing;
+        const rows: string[] = [];
+
+        const storageUsed = usage?.bytes ?? 0;
+        rows.push(
+          `<dt>Storage</dt><dd>${formatBytes(storageUsed)} of ${
+            limits.maxStorageBytes === null ? "unlimited" : formatBytes(limits.maxStorageBytes)
+          }</dd>`,
+        );
+
+        const uploadsUsed = usage?.uploadsInPeriod ?? 0;
+        rows.push(
+          `<dt>Uploads this month</dt><dd>${uploadsUsed} of ${
+            limits.maxUploadsPerPeriod === null ? "unlimited" : limits.maxUploadsPerPeriod
+          }</dd>`,
+        );
+
+        rows.push(
+          `<dt>Max file size</dt><dd>${
+            limits.maxUploadBytes === null ? "unlimited" : formatBytes(limits.maxUploadBytes)
+          }</dd>`,
+        );
+
+        rows.push(
+          `<dt>Max video size</dt><dd>${
+            limits.maxVideoUploadBytes === null
+              ? "unlimited"
+              : formatBytes(limits.maxVideoUploadBytes)
+          }</dd>`,
+        );
+
+        limitsListEl.innerHTML = rows.join("");
+      }
+
+      async function loadBillingPage(): Promise<void> {
+        if (!stillHere()) return;
+        statusEl.hidden = false;
+        statusEl.textContent = "Loading…";
+        statusEl.removeAttribute("data-state");
+        retryBtn.hidden = true;
+        appEl.hidden = true;
+
+        const result = await getWorkspaceBilling(apiOrigin, workspaceName);
+        if (!stillHere()) return;
+        if (result.kind === "unavailable") {
+          if (result.reason === "not_found") {
+            showError("You don’t have access to this workspace.", false);
+            return;
+          }
+          showError("Billing is temporarily unavailable. Check the local stack or try again.");
+          return;
+        }
+
+        const { billing } = result;
+        planNameEl.textContent = `${planLabel(billing.plan)} plan`;
+        // Honest copy: a record with no plan actually applied isn't on
+        // free-tier marketing caps — it's running whatever `limits` says.
+        planBlurbEl.textContent = billing.planApplied
+          ? billing.available
+            ? "This plan is active on your workspace."
+            : "This plan isn’t available for self-serve upgrade yet."
+          : "No plan has been applied yet — limits below reflect what's currently enforced.";
+        paintLimits(billing);
+
+        statusEl.hidden = true;
+        appEl.hidden = false;
+
+        const displayName = billing.organization.name || workspaceName;
+        slugEl.textContent =
+          displayName === workspaceName ? workspaceName : `${displayName} · ${workspaceName}`;
+        document.title = `Billing · ${displayName} · uploads.sh`;
+      }
+
+      retryBtn.addEventListener("click", () => {
+        void loadBillingPage();
+      });
+
+      onSession(() => {
+        void loadBillingPage();
+      });
+    });
+  </script>
+</WorkspaceLayout>
