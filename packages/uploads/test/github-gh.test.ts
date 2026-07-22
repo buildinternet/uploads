@@ -147,7 +147,7 @@ describe("upsertAttachmentsComment", () => {
       },
     });
     const result = upsertAttachmentsComment(target, `${ATTACHMENTS_MARKER}\nbody`, run);
-    expect(result.created).toBe(true);
+    expect(result).toEqual({ action: "created" });
     // The lookup paginates so the marker is found past the first 100 comments.
     expect(calls[0].args).toContain("--paginate");
     const post = calls[1];
@@ -169,7 +169,7 @@ describe("upsertAttachmentsComment", () => {
       },
     });
     const result = upsertAttachmentsComment(target, `${ATTACHMENTS_MARKER}\nnew body`, run);
-    expect(result.created).toBe(false);
+    expect(result).toEqual({ action: "updated" });
     const patch = calls[1];
     expect(patch.args).toContain("repos/o/r/issues/comments/42");
     expect(patch.args).toContain("PATCH");
@@ -190,7 +190,7 @@ describe("upsertAttachmentsComment", () => {
       },
     });
     const result = upsertAttachmentsComment(target, `${marker}\nnew body`, run, marker);
-    expect(result.created).toBe(false);
+    expect(result).toEqual({ action: "updated" });
     const patch = calls[1];
     expect(patch.args).toContain("repos/o/r/issues/comments/2");
   });
@@ -208,7 +208,7 @@ describe("upsertAttachmentsComment", () => {
     // The namespaced marker is already the first line of the new body —
     // patching the legacy comment with it migrates the comment in place.
     const result = upsertAttachmentsComment(target, `${marker}\nnew body`, run, marker);
-    expect(result.created).toBe(false);
+    expect(result).toEqual({ action: "updated" });
     const patch = calls[1];
     expect(patch.args).toContain("repos/o/r/issues/comments/7");
     expect(patch.input).toContain(marker);
@@ -226,7 +226,7 @@ describe("upsertAttachmentsComment", () => {
     const result = upsertAttachmentsComment(target, "EMPTY BODY", run, undefined, {
       createIfMissing: false,
     });
-    expect(result).toEqual({ created: false, patched: false });
+    expect(result).toEqual({ action: "skipped" });
     expect(calls).toHaveLength(1); // only the marker hunt — no create call.
   });
 
@@ -242,7 +242,7 @@ describe("upsertAttachmentsComment", () => {
     const result = upsertAttachmentsComment(target, "EMPTY BODY", run, undefined, {
       createIfMissing: false,
     });
-    expect(result).toEqual({ created: false, patched: true });
+    expect(result).toEqual({ action: "updated" });
     const patch = calls[1];
     expect(patch.args).toContain("repos/o/r/issues/comments/42");
     expect(patch.args).toContain("PATCH");

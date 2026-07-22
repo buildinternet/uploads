@@ -108,8 +108,11 @@ export type PostCommentResult =
 /**
  * Gather + upsert the managed comment for `target` on behalf of
  * `workspaceName`. Same ordering as the REST route: app-config, then
- * installation lookup, then the cross-tenant gate, then gather (skip-on-zero),
- * then upsert. On an actual post, best-effort records `target.repo` as bound
+ * installation lookup, then the cross-tenant gate, then gather, then upsert.
+ * Gather always renders a body (the neutral empty state when nothing is
+ * staged); the create-vs-patch decision is the upsert's `createIfMissing`
+ * gate (`count > 0`), so an emptied PR rewrites an existing comment but never
+ * creates one. On an actual post, best-effort records `target.repo` as bound
  * to `workspaceName` (first-claim-wins, never affects the return value).
  */
 export async function postManagedComment(

@@ -68,14 +68,7 @@ function ctxWith(client: UploadsClient): CliContext {
 
 /** gh runner that reports no existing comments and records the create call. */
 function ghRunner() {
-  const calls: { args: string[]; input?: string }[] = [];
-  const run: CommandRunner = (cmd, args, input) => {
-    if (cmd !== "gh") throw new Error(`unexpected command: ${cmd}`);
-    calls.push({ args, input });
-    if (args[1]?.includes("per_page=100")) return "[]";
-    return JSON.stringify({ id: 9 });
-  };
-  return { run, calls };
+  return ghRunnerWithExisting(null);
 }
 
 /**
