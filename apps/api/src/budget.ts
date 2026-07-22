@@ -16,7 +16,11 @@ export interface WorkspaceBudgetLimits {
   maxStorageBytes?: number;
   /** Cap on successful puts in the current UTC calendar month. */
   maxUploadsPerPeriod?: number;
-  /** Subscription plan — see `@uploads/billing`'s `PlanId`. Absent = free. */
+  /**
+   * Subscription plan — see `@uploads/billing`'s `PlanId`. Absent means
+   * legacy/unlimited enforcement (explicit limit fields only, no plan
+   * defaults applied) — NOT a free-tier fallback. See `resolveBudgetLimits`.
+   */
   plan?: string;
 }
 

@@ -100,7 +100,7 @@ export const prerender = false;
         <p class="muted plan-availability">${data.available ? "Available" : "Not available for self-serve upgrade"}</p>
         ${appliedNote}
         <form class="plan-form">
-          <select class="plan-select">${options}</select>
+          <select class="plan-select" aria-label="Plan">${options}</select>
           <button type="submit">Save plan</button>
           <div class="plan-status" role="status" aria-live="polite" hidden></div>
         </form>`;

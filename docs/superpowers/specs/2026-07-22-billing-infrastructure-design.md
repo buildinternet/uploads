@@ -6,8 +6,9 @@ Status: approved
 ## Goal
 
 Lay the infrastructure for workspace subscription plans without any live billing.
-Every workspace is on a `free` plan in perpetuity today; a paid plan is a defined
-but unavailable placeholder. Billing logic is isolated in a dedicated package so
+`free` is the default plan today and no self-serve billing path exists; `pro` is
+a defined but unavailable placeholder that admins may still assign to a workspace
+as an operator override. Billing logic is isolated in a dedicated package so
 a future Stripe integration stays contained and the open-source repo never holds
 secrets (secrets remain Cloudflare Worker secrets, as with existing GitHub keys).
 
@@ -67,12 +68,18 @@ Not published; excluded from release versioning like other private packages.
   - `GET /me/workspaces/:name/billing` — plan metadata, effective limits,
     current usage, `subscription` from the provider (`null` today). Response
     shape is stable across the future Stripe iteration.
+- Both the admin plan routes and `/me/workspaces/:name/billing` include a
+  `planApplied` boolean: `true` when `record.plan` is explicitly set (limits
+  shown are plan-resolved); `false` for records with no `plan` field, where
+  the limits shown are the enforcement truth (explicit-or-unlimited) and the
+  displayed plan name ("free") is for UX only, not what's being enforced.
 
 ## Web (apps/web)
 
 - New workspace tab `pages/account/workspaces/[name]/billing.astro`, registered
-  in the workspace rail/nav (`workspaces-nav.ts`, `WorkspaceLayout.astro`),
-  following the `people.astro` pattern. Content: current plan card, effective
+  in the workspace nav (`lib/workspaces-nav.ts`) and the fast-paint tab
+  fallback in `layouts/AccountLayout.astro`, following the `people.astro`
+  pattern. Content: current plan card, effective
   limits vs usage, disabled "Upgrade — coming soon" affordance. Honest copy —
   no fake invoices or mock billing history.
 - Admin panel (`pages/admin/index.astro`): plan selector in the expanded

@@ -36,4 +36,14 @@ describe("getPlan", () => {
     expect(getPlan("")).toBe(PLANS.free);
     expect(getPlan(undefined)).toBe(PLANS.free);
   });
+
+  it("fails open to free for inherited-property names, not the prototype value", () => {
+    expect(getPlan("constructor")).toBe(PLANS.free);
+    expect(getPlan("__proto__")).toBe(PLANS.free);
+  });
+
+  it("still resolves real plan ids unaffected by the hasOwn check", () => {
+    expect(getPlan("free")).toBe(PLANS.free);
+    expect(getPlan("pro")).toBe(PLANS.pro);
+  });
 });

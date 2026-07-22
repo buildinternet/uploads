@@ -63,7 +63,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
 export const PLAN_IDS = Object.keys(PLANS) as PlanId[];
 
 function isPlanId(value: unknown): value is PlanId {
-  return typeof value === "string" && value in PLANS;
+  return typeof value === "string" && Object.hasOwn(PLANS, value);
 }
 
 /**
