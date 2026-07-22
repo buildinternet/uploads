@@ -135,10 +135,10 @@ const TOC = [
     </div>
     <div class="block" aria-label="Example output">
       <pre># on a non-default git branch, bare put stages for that branch
-&gt;&gt; uploading 1 file (staged for branch feat/shot)
+&gt;&gt; uploading ./shot.png
 &gt;&gt; optimized 411.5 KB → 94.2 KB (shot.webp)
-URL: <span class="v">https://storage.uploads.sh/gh/you/app/branch/feat/shot/shot-9f2c1a.webp</span>
-MARKDOWN: ![shot.png](https://storage.uploads.sh/gh/you/app/branch/feat/shot/shot-9f2c1a.webp)
+URL: <span class="v">https://storage.uploads.sh/gh/you/app/branch/feat-shot/shot.webp</span>
+MARKDOWN: ![shot.png](https://storage.uploads.sh/gh/you/app/branch/feat-shot/shot.webp)
 note: staged for branch feat/shot — auto-attaches to this branch's PR when
 it opens (or run: uploads attach --promote once it exists). Use --ref/
 --prefix for a plain dated upload.</pre>
@@ -150,7 +150,9 @@ it opens (or run: uploads attach --promote once it exists). Use --ref/
       <code>--key</code>, <code>--ref</code>, <code>--prefix</code>, or&#32;
       <code>--destination</code> opts out and targets that location instead, as does&#32;
       <code>--no-git</code>. On the default branch (or detached HEAD, or outside a git repo),&#32;
-      <code>put</code> keeps the classic dated layout shown next.
+      <code>put</code> keeps the classic dated layout shown next. Notice the staged key has no
+      content-hash suffix, unlike the dated layout below — it's stable per filename, so
+      re-uploading <code>shot.png</code> replaces it in place instead of minting a new URL.
     </p>
     <div class="block" aria-label="Example output">
       <pre># on the default branch (or --no-git), the classic dated layout applies
