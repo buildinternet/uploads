@@ -51,7 +51,9 @@ Claude Code plugin (bundles the skills, the hosted MCP server, and the /uploads:
 
 ## Machine-readable discovery
 
+- Integration surfaces (API, MCP, CLI + how each authenticates): https://uploads.sh/.well-known/integrations.json
 - API catalog: https://uploads.sh/.well-known/api-catalog
+- OpenAPI (summary): https://uploads.sh/openapi.json
 - MCP server card: https://uploads.sh/.well-known/mcp/server-card.json
 - Agent skills index: https://uploads.sh/.well-known/agent-skills/index.json
 - robots / sitemap: https://uploads.sh/robots.txt · https://uploads.sh/sitemap.xml

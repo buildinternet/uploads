@@ -1,6 +1,7 @@
 # Homepage — RFC 8288 Link discovery for agents
 /
   Link: </.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"
+  Link: </.well-known/integrations.json>; rel="alternate"; type="application/json"
   Link: </.well-known/openapi.json>; rel="service-desc"; type="application/vnd.oai.openapi+json"
   Link: <https://github.com/buildinternet/uploads/blob/main/docs/api.md>; rel="service-doc"; type="text/markdown"
   Link: </llms.txt>; rel="describedby"; type="text/plain"
@@ -67,6 +68,20 @@
 
 /.well-known/openapi.json
   Content-Type: application/vnd.oai.openapi+json;version=3.1
+  Cache-Control: public, max-age=300
+  Access-Control-Allow-Origin: *
+
+# Conventional probe path for the same document (src/pages/openapi.json.ts).
+# Plain application/json here — crawlers that probe this path match on the
+# extension, not the OpenAPI media type.
+/openapi.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=300
+  Access-Control-Allow-Origin: *
+
+# integrations.sh surface declaration (v3) — credentials + surfaces inline.
+/.well-known/integrations.json
+  Content-Type: application/json; charset=utf-8
   Cache-Control: public, max-age=300
   Access-Control-Allow-Origin: *
 
