@@ -13,10 +13,23 @@ import {
   resolveBudgetLimits,
   uploadBudgetDenial,
 } from "./budget";
-import { deleteFileMetadata, replaceFileMetadata, validateMetadataEntries } from "./file-metadata";
+import {
+  deleteFileMetadata,
+  deleteServerFileMetadataKeys,
+  replaceFileMetadata,
+  setServerFileMetadata,
+  validateMetadataEntries,
+} from "./file-metadata";
 import { recordPrActivityFromMetadata } from "./github-pr-activity";
 import { DEFAULT_MAX_UPLOAD_BYTES, inspectUpload, resolveUploadPolicy } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
+import {
+  makePoster,
+  mediabunnyProbe,
+  mediaFrameExtractor,
+  posterGenerationAllowed,
+  posterKeyFor,
+} from "./poster";
 import {
   contentSha256Hex,
   provenanceForResponse,
@@ -128,6 +141,60 @@ async function existingHead(
 async function existingSize(store: Files, key: string): Promise<number | null> {
   const head = await existingHead(store, key);
   return head?.size ?? null;
+}
+
+/** Reserved keys `makePoster` may write, cleared together when it fails. */
+const POSTER_META_KEYS = ["video.poster", "video.duration", "video.width", "video.height"];
+
+/**
+ * Best-effort poster generation (issue #299). Never throws: the object is
+ * already durably stored by the time this runs, and no poster simply means the
+ * managed comment renders a bullet link, exactly as it did before this feature.
+ */
+export async function generateAndStorePoster(
+  env: Env,
+  ws: WorkspaceRecord,
+  key: string,
+  bytes: Uint8Array,
+  contentType: string,
+  workspaceName: string,
+): Promise<void> {
+  const posterKey = posterKeyFor(key);
+  try {
+    if (!(await posterGenerationAllowed(env, ws, workspaceName))) return;
+    const made = await makePoster(
+      { bytes, contentType },
+      { extractor: mediaFrameExtractor(env.MEDIA), probe: mediabunnyProbe() },
+    );
+
+    const store = await storage(env, ws);
+    if (!made) {
+      // A replacement that can't be postered must not keep the old frame.
+      const stale = await existingSize(store, posterKey);
+      if (stale !== null) {
+        await store.delete(posterKey);
+        await deleteServerFileMetadataKeys(env.DB, workspaceName, key, POSTER_META_KEYS);
+        await recordUsageSafe(env.DB, workspaceName, { bytes: -stale, objects: -1, uploads: 0 });
+      }
+      return;
+    }
+
+    const previous = await existingSize(store, posterKey);
+    await store.upload(posterKey, made.jpeg, {
+      contentType: "image/jpeg",
+      cacheControl: UPLOAD_CACHE_CONTROL,
+    });
+    // Counted because reconcileWorkspaceUsage walks every object under the
+    // prefix and would otherwise disagree with the ledger permanently.
+    await recordUsageSafe(env.DB, workspaceName, {
+      bytes: made.jpeg.byteLength - (previous ?? 0),
+      objects: previous === null ? 1 : 0,
+      uploads: 0,
+    });
+    await setServerFileMetadata(env.DB, workspaceName, key, made.meta);
+  } catch (err) {
+    console.error({ event: "poster_generation_failed", workspace: workspaceName, key, err });
+  }
 }
 
 /**
@@ -350,6 +417,10 @@ export async function putObject(
     await replaceFileMetadata(env.DB, workspaceName, finalKey, opts.metadata);
     await recordPrActivityFromMetadata(env.DB, workspaceName, opts.metadata);
   }
+
+  // After the metadata replace, never before: replaceFileMetadata is
+  // delete-then-insert and would wipe the server-owned video.* rows.
+  await generateAndStorePoster(env, ws, finalKey, bytes, inspection.contentType, workspaceName);
 
   const cfg = await storageConfig(env, ws);
   const urls = objectPublicUrls(env, cfg, finalKey);
