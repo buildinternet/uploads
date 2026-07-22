@@ -5,14 +5,9 @@
  * Pure — no I/O — so `apps/api/src/budget.ts` and the admin/user routes can
  * all call through this single chokepoint without drifting on precedence.
  */
-import { getPlan, type PlanId, type WorkspacePlanLimits } from "./plans";
+import { PLANS, getPlan, type PlanId, type WorkspacePlanLimits } from "./plans";
 
-const LIMIT_KEYS: (keyof WorkspacePlanLimits)[] = [
-  "maxStorageBytes",
-  "maxUploadsPerPeriod",
-  "maxUploadBytes",
-  "maxVideoUploadBytes",
-];
+const LIMIT_KEYS = Object.keys(PLANS.free.defaultLimits) as (keyof WorkspacePlanLimits)[];
 
 /**
  * Per-field override input. Mirrors the real-world tri-state on

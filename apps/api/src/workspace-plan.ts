@@ -5,16 +5,16 @@
  * validateLimitsPatch / admin-ui.ts's limitsResponse pattern (spec
  * 2026-07-22, billing infrastructure).
  */
-import { getPlan, PLAN_IDS, resolvePlanLimits, type PlanId } from "@uploads/billing";
+import {
+  getPlan,
+  PLAN_IDS,
+  resolvePlanLimits,
+  type PlanId,
+  type WorkspacePlanLimits,
+} from "@uploads/billing";
 import { ValidationError } from "@uploads/errors";
 import type { WorkspaceRecord } from "./workspace";
-
-const LIMIT_FIELDS_FOR_OVERRIDES = [
-  "maxStorageBytes",
-  "maxUploadsPerPeriod",
-  "maxUploadBytes",
-  "maxVideoUploadBytes",
-] as const;
+import { LIMIT_FIELDS } from "./workspace-limits";
 
 export function validatePlanPatch(body: unknown): { plan: PlanId } {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
@@ -48,21 +48,20 @@ export function validatePlanPatch(body: unknown): { plan: PlanId } {
  */
 export function planResponse(name: string, record: WorkspaceRecord) {
   const definition = getPlan(record.plan);
-  const overrides = LIMIT_FIELDS_FOR_OVERRIDES.filter((field) => record[field] !== undefined);
+  const overrides = LIMIT_FIELDS.filter(
+    (field) => record[field as keyof WorkspacePlanLimits] !== undefined,
+  );
   const planApplied = record.plan !== undefined;
   const limits = planApplied
-    ? resolvePlanLimits(record.plan, {
-        maxStorageBytes: record.maxStorageBytes,
-        maxUploadsPerPeriod: record.maxUploadsPerPeriod,
-        maxUploadBytes: record.maxUploadBytes,
-        maxVideoUploadBytes: record.maxVideoUploadBytes,
-      })
-    : {
-        maxStorageBytes: record.maxStorageBytes ?? null,
-        maxUploadsPerPeriod: record.maxUploadsPerPeriod ?? null,
-        maxUploadBytes: record.maxUploadBytes ?? null,
-        maxVideoUploadBytes: record.maxVideoUploadBytes ?? null,
-      };
+    ? resolvePlanLimits(
+        record.plan,
+        Object.fromEntries(
+          LIMIT_FIELDS.map((field) => [field, record[field as keyof WorkspacePlanLimits]]),
+        ),
+      )
+    : Object.fromEntries(
+        LIMIT_FIELDS.map((field) => [field, record[field as keyof WorkspacePlanLimits] ?? null]),
+      );
   return {
     workspace: name,
     plan: definition.id,

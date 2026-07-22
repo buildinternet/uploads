@@ -257,14 +257,12 @@ export const me = new Hono<SessionVars>()
 
     const { plan, available, planApplied, limits } = planResponse(name, record);
 
-    let usage: ReturnType<typeof usageWithLimits> | null = null;
-    try {
-      usage = usageWithLimits(await getWorkspaceUsage(c.env.DB, name), record);
-    } catch {
-      usage = null;
-    }
-
-    const subscription = await billingProvider.getSubscription(name);
+    const [usage, subscription] = await Promise.all([
+      getWorkspaceUsage(c.env.DB, name)
+        .then((raw) => usageWithLimits(raw, record))
+        .catch(() => null),
+      billingProvider.getSubscription(name),
+    ]);
 
     return c.json({
       workspace: ws.workspace,

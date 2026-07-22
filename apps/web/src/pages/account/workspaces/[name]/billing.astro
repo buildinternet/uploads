@@ -59,6 +59,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       requireElement,
     } from "../../../../lib/account-shell";
     import { getWorkspaceBilling, type WorkspaceBilling } from "../../../../lib/api-client";
+    import { formatBytes } from "../../../../lib/workspace-ui";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
 
     onAstroPageLoad(() => {
@@ -92,12 +93,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         statusEl.dataset.state = "error";
         appEl.hidden = true;
         retryBtn.hidden = !retry;
-      }
-
-      function formatBytes(n: number): string {
-        if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)} GB`;
-        if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(0)} MB`;
-        return `${n} bytes`;
       }
 
       function planLabel(plan: string): string {
