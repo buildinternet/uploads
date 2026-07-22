@@ -51,7 +51,7 @@ describe("sendAuthEmail", () => {
     expect(args.text).toContain("https://auth.uploads.sh/x");
   });
 
-  it("routes invitation + member-joined through the shared templates", async () => {
+  it("routes invitation + member-joined + welcome through the shared templates", async () => {
     const send = vi.fn().mockResolvedValue({});
     const EMAIL: EmailBinding = { send };
 
@@ -75,6 +75,14 @@ describe("sendAuthEmail", () => {
         context: { organizationName: "buildinternet", memberEmail: "new@example.com" },
       },
     );
+    await sendAuthEmail(
+      { EMAIL, ENVIRONMENT: "production" },
+      {
+        to: "new@example.com",
+        template: "welcome",
+        context: { workspaceName: "acme" },
+      },
+    );
 
     const invite = send.mock.calls[0]?.[0];
     expect(invite.html).toContain("<!doctype html>");
@@ -84,6 +92,12 @@ describe("sendAuthEmail", () => {
     const joined = send.mock.calls[1]?.[0];
     expect(joined.to).toBe("admin@example.com");
     expect(joined.subject).toBe("new@example.com joined buildinternet on uploads.sh");
+
+    const welcome = send.mock.calls[2]?.[0];
+    expect(welcome.to).toBe("new@example.com");
+    expect(welcome.subject).toBe("Welcome to uploads.sh");
+    expect(welcome.html).toContain("uploads install");
+    expect(welcome.html).toContain("acme");
   });
 
   it("never throws when the send fails", async () => {
