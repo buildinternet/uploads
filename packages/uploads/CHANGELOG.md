@@ -1,5 +1,18 @@
 # @buildinternet/uploads
 
+## 0.25.0
+
+### Minor Changes
+
+- b810875: Managed attachments comment renders before/after pairs side by side
+
+### Patch Changes
+
+- fe32621: Align the managed comment's filename-stem before/after fallback with the file page: a delimiter-bounded token anywhere in the stem now pairs (not just at the start or end).
+- 140951e: Correct the README's branch-staging retention claim: staged files are never
+  deleted by promotion (copy-and-keep), only skipped by promotion after 30
+  days.
+
 ## 0.24.0
 
 ### Minor Changes
