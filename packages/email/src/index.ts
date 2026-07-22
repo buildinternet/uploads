@@ -13,3 +13,4 @@ export {
   renderOrgInvitationEmail,
 } from "./invites";
 export { renderWelcomeEmail } from "./welcome";
+export { renderAbuseReportEmail, type AbuseReportEmailInput } from "./abuse";

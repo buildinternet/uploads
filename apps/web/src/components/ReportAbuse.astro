@@ -1,0 +1,275 @@
+---
+/**
+ * Compact content-report control for public asset pages.
+ * Posts to POST /v1/abuse on the API origin.
+ */
+interface Props {
+  apiOrigin: string;
+  pageUrl: string;
+  workspace: string;
+  objectKey: string;
+}
+
+const { apiOrigin, pageUrl, workspace, objectKey } = Astro.props;
+
+const REASONS = [
+  { value: "abuse", label: "Abuse" },
+  { value: "copyright", label: "Copyright" },
+  { value: "spam", label: "Spam" },
+  { value: "privacy", label: "Privacy" },
+  { value: "other", label: "Other" },
+] as const;
+---
+
+<div class="report" data-report-abuse>
+  <button type="button" class="report-toggle" data-report-toggle aria-expanded="false">
+    Report a problem
+  </button>
+  <form class="report-form" data-report-form hidden>
+    <p class="report-lead">Flag this file for review. We read every report.</p>
+    <label class="field">
+      <span class="field-label">Reason</span>
+      <select name="reason">
+        {REASONS.map((r) =>
+          r.value === "abuse" ? (
+            <option value={r.value} selected>
+              {r.label}
+            </option>
+          ) : (
+            <option value={r.value}>{r.label}</option>
+          ),
+        )}
+      </select>
+    </label>
+    <label class="field">
+      <span class="field-label">Details <em>(required for Other)</em></span>
+      <textarea name="message" rows="3" maxlength="2000" placeholder="What should we know?"></textarea>
+    </label>
+    <label class="field">
+      <span class="field-label">Contact <em>(optional)</em></span>
+      <input type="text" name="contact" maxlength="200" placeholder="email or handle" autocomplete="email" />
+    </label>
+    <div class="report-actions">
+      <button type="submit" class="report-submit">Submit report</button>
+      <button type="button" class="report-cancel" data-report-cancel>Cancel</button>
+    </div>
+    <p class="report-status" data-report-status role="status" aria-live="polite" hidden></p>
+  </form>
+  <p class="report-done" data-report-done hidden>Thanks — we received your report.</p>
+</div>
+
+<script define:vars={{ apiOrigin, pageUrl, workspace, objectKey }}>
+  (function () {
+    const root = document.querySelector("[data-report-abuse]");
+    if (!(root instanceof HTMLElement)) return;
+
+    const toggle = root.querySelector("[data-report-toggle]");
+    const form = root.querySelector("[data-report-form]");
+    const cancel = root.querySelector("[data-report-cancel]");
+    const status = root.querySelector("[data-report-status]");
+    const done = root.querySelector("[data-report-done]");
+    if (
+      !(toggle instanceof HTMLButtonElement) ||
+      !(form instanceof HTMLFormElement) ||
+      !(status instanceof HTMLElement) ||
+      !(done instanceof HTMLElement)
+    ) {
+      return;
+    }
+
+    const setOpen = (open) => {
+      form.hidden = !open;
+      toggle.hidden = open;
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      if (!open) {
+        status.hidden = true;
+        status.textContent = "";
+      }
+    };
+
+    toggle.addEventListener("click", () => setOpen(true));
+    cancel?.addEventListener("click", () => setOpen(false));
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(form);
+      const reason = String(data.get("reason") || "abuse");
+      const message = String(data.get("message") || "").trim();
+      const contact = String(data.get("contact") || "").trim();
+      const submitBtn = form.querySelector('button[type="submit"]');
+
+      if (reason === "other" && message.length < 5) {
+        status.hidden = false;
+        status.dataset.tone = "error";
+        status.textContent = "Please add a short description for Other.";
+        return;
+      }
+
+      if (submitBtn instanceof HTMLButtonElement) submitBtn.disabled = true;
+      status.hidden = false;
+      status.dataset.tone = "";
+      status.textContent = "Sending…";
+
+      try {
+        const res = await fetch(new URL("/v1/abuse", apiOrigin), {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify({
+            pageUrl,
+            workspace,
+            key: objectKey,
+            reason,
+            message: message || undefined,
+            contact: contact || undefined,
+            surface: "web",
+          }),
+        });
+        if (!res.ok) {
+          status.dataset.tone = "error";
+          status.textContent =
+            res.status === 429
+              ? "Too many reports from this network. Try again in a minute."
+              : "Could not send report. Try again, or email abuse@uploads.sh.";
+          if (submitBtn instanceof HTMLButtonElement) submitBtn.disabled = false;
+          return;
+        }
+        form.hidden = true;
+        toggle.hidden = true;
+        status.hidden = true;
+        done.hidden = false;
+      } catch {
+        status.dataset.tone = "error";
+        status.textContent = "Network error. Email abuse@uploads.sh if this keeps happening.";
+        if (submitBtn instanceof HTMLButtonElement) submitBtn.disabled = false;
+      }
+    });
+  })();
+</script>
+
+<style>
+  .report {
+    margin-top: 4px;
+    min-width: 0;
+  }
+  .report-toggle {
+    appearance: none;
+    background: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    color: var(--muted);
+    font: 12px var(--mono);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-color: color-mix(in srgb, var(--muted) 55%, transparent);
+    cursor: pointer;
+  }
+  .report-toggle:hover,
+  .report-toggle:focus-visible {
+    color: var(--fg);
+    text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    outline: none;
+  }
+  .report-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 4px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--bg);
+  }
+  .report-lead {
+    margin: 0;
+    color: var(--muted);
+    font: 12px/1.45 var(--mono);
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+  }
+  .field-label {
+    color: var(--muted);
+    font: 11px var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .field-label em {
+    font-style: normal;
+    letter-spacing: 0;
+    text-transform: none;
+    opacity: 0.85;
+  }
+  .field select,
+  .field textarea,
+  .field input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--panel);
+    color: var(--body);
+    font: 12px/1.45 var(--mono);
+  }
+  .field textarea {
+    resize: vertical;
+  }
+  .field select:focus,
+  .field textarea:focus,
+  .field input:focus {
+    border-color: var(--accent);
+    outline: none;
+  }
+  .report-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .report-submit,
+  .report-cancel {
+    appearance: none;
+    border-radius: var(--radius-md);
+    font: 12px var(--mono);
+    cursor: pointer;
+    padding: 8px 12px;
+  }
+  .report-submit {
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--fg);
+  }
+  .report-submit:hover,
+  .report-submit:focus-visible {
+    border-color: var(--accent);
+    color: var(--accent);
+    outline: none;
+  }
+  .report-submit:disabled {
+    opacity: 0.6;
+    cursor: wait;
+  }
+  .report-cancel {
+    border: 0;
+    background: none;
+    color: var(--muted);
+  }
+  .report-cancel:hover,
+  .report-cancel:focus-visible {
+    color: var(--fg);
+    outline: none;
+  }
+  .report-status,
+  .report-done {
+    margin: 0;
+    font: 12px/1.4 var(--mono);
+    color: var(--muted);
+  }
+  .report-status[data-tone="error"] {
+    color: #e07070;
+  }
+</style>

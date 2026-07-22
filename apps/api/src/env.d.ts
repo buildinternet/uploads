@@ -25,6 +25,13 @@ interface Env {
    */
   REPORTS_DISABLED?: string;
   /**
+   * Kill switch for public content reports (`POST /v1/abuse`).
+   * Set to "1" or "true" to reject new reports.
+   */
+  ABUSE_DISABLED?: string;
+  /** Optional hourly cap on abuse-notification emails (default 20). */
+  ABUSE_NOTIFY_MAX_PER_HOUR?: string;
+  /**
    * GitHub App private key, PKCS#8 PEM (converted via openssl pkcs8 -topk8).
    * The App ids live in wrangler.jsonc vars (they're public); this is the one
    * true secret, so unset still disables title resolution gracefully.
