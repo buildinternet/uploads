@@ -162,3 +162,80 @@ describe("POST /internal/billing/plan", () => {
     });
   });
 });
+
+describe("GET /internal/billing/member-cap", () => {
+  function get(workspace: string | null, headers: Record<string, string>, env: Env) {
+    const path =
+      workspace === null
+        ? "/internal/billing/member-cap"
+        : `/internal/billing/member-cap?workspace=${encodeURIComponent(workspace)}`;
+    return app().request(path, { headers }, env);
+  }
+
+  async function capFor(record: Record<string, unknown> | undefined, name = "acme") {
+    const registry = fakeRegistry(record ? { [name]: record } : {});
+    const env = { REGISTRY: registry, BILLING_INTERNAL_KEY: SECRET } as unknown as Env;
+    const res = await get(name, { "x-internal-billing-key": SECRET }, env);
+    expect(res.status).toBe(200);
+    return (await res.json()) as { workspace: string; cap: number | null; message: string | null };
+  }
+
+  it("401s when the key is unset, regardless of the header sent", async () => {
+    const { env } = envWith({ record: { provider: "r2", bucket: "b", prefix: "acme/" } });
+    const res = await get("acme", { "x-internal-billing-key": "anything" }, env);
+    expect(res.status).toBe(401);
+  });
+
+  it("401s on a wrong key", async () => {
+    const { env } = envWith({ secret: SECRET, record: { provider: "r2", bucket: "b" } });
+    const res = await get("acme", { "x-internal-billing-key": "wrong" }, env);
+    expect(res.status).toBe(401);
+  });
+
+  it("400s when the workspace query param is missing", async () => {
+    const { env } = envWith({ secret: SECRET });
+    const res = await get(null, { "x-internal-billing-key": SECRET }, env);
+    expect(res.status).toBe(400);
+    const payload = (await res.json()) as { error?: { code?: string } };
+    expect(payload.error?.code).toBe("invalid_workspace");
+  });
+
+  it("caps a self-serve workspace at free's default and nudges toward Pro", async () => {
+    const body = await capFor({ provider: "r2", bucket: "b", prefix: "acme/", selfServe: true });
+    expect(body.cap).toBe(3);
+    expect(body.message).toBe("Free workspaces include 3 members — upgrade to Pro for more.");
+  });
+
+  it("applies pro's unmarketed guard without an upsell", async () => {
+    const body = await capFor({ provider: "r2", bucket: "b", selfServe: true, plan: "pro" });
+    expect(body.cap).toBe(25);
+    expect(body.message).toBe("This workspace includes 25 members.");
+  });
+
+  it("honors a comped per-workspace override", async () => {
+    const body = await capFor({ provider: "r2", bucket: "b", selfServe: true, maxMembers: 10 });
+    expect(body.cap).toBe(10);
+    expect(body.message).toBe("This workspace includes 10 members.");
+  });
+
+  it("reports unlimited for a legacy operator-provisioned workspace", async () => {
+    const body = await capFor({ provider: "r2", bucket: "b", prefix: "acme/" });
+    expect(body.cap).toBeNull();
+    expect(body.message).toBeNull();
+  });
+
+  it("exempts the communal default workspace even if a plan is stamped on it", async () => {
+    const registry = fakeRegistry({
+      default: { provider: "r2", bucket: "b", plan: "free", selfServe: true },
+    });
+    const env = { REGISTRY: registry, BILLING_INTERNAL_KEY: SECRET } as unknown as Env;
+    const res = await get("default", { "x-internal-billing-key": SECRET }, env);
+    expect(res.status).toBe(200);
+    expect((await res.json()) as { cap: number | null }).toMatchObject({ cap: null });
+  });
+
+  it("reports unlimited (not 404) for an unknown workspace — the invite path fails open", async () => {
+    const body = await capFor(undefined, "ghost");
+    expect(body.cap).toBeNull();
+  });
+});

@@ -9,6 +9,7 @@ import { and, count, countDistinct, eq, gt, isNull, max } from "drizzle-orm";
 import { Hono } from "hono";
 import { OAUTH_SCOPES, type AuthEnv } from "./auth";
 import { sendAuthEmail } from "./email";
+import { memberCapDenial } from "./member-cap";
 import * as schema from "./schema";
 
 function errorJson(code: string, message: string) {
@@ -740,6 +741,17 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
         200,
       );
     }
+
+    // Member cap (issue #450), checked only past the idempotent early return
+    // above: re-inviting an already-pending email consumes no new seat, so a
+    // workspace sitting exactly at its cap must still be able to re-issue the
+    // link for an invite it already sent.
+    const denial = await memberCapDenial(c.env, db, {
+      organizationId: org.id,
+      organizationSlug: org.slug,
+      inviterIsGlobalAdmin: isGlobalAdmin,
+    });
+    if (denial) return c.json(errorJson(denial.code, denial.message), 403);
 
     const id = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7); // 7 days

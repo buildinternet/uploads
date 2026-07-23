@@ -13,6 +13,7 @@ import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
+import { throwForInviteError } from "../invite-error";
 import { parseExternalReference } from "../external-references";
 import {
   findObjectsByMetadata,
@@ -582,15 +583,7 @@ export const me = new Hono<SessionVars>()
       invitation?: { id?: string };
       acceptUrl?: string;
     } | null;
-    if (!response.ok) {
-      if (response.status === 403) {
-        throw new ForbiddenError("not authorized to invite to this workspace", {
-          code: "inviter_not_authorized",
-          details: payload,
-        });
-      }
-      throw new ValidationError("failed to create invitation", { details: payload });
-    }
+    if (!response.ok) throwForInviteError(response.status, payload);
     // Ensure acceptUrl even if an older auth worker omits it.
     const webOrigin = (c.env.WEB_ORIGIN || "https://uploads.sh").replace(/\/$/, "");
     const id = payload?.invitation?.id;

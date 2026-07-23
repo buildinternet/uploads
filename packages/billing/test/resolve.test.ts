@@ -53,21 +53,24 @@ describe("resolvePlanLimits", () => {
       maxUploadsPerPeriod: PLANS.free.defaultLimits.maxUploadsPerPeriod,
       maxUploadBytes: 42,
       maxVideoUploadBytes: PLANS.free.defaultLimits.maxVideoUploadBytes,
+      maxMembers: PLANS.free.defaultLimits.maxMembers,
     });
   });
 
-  it("all four override fields compose independently", () => {
+  it("every override field composes independently", () => {
     const resolved = resolvePlanLimits("free", {
       maxStorageBytes: 1,
       maxUploadsPerPeriod: 2,
       maxUploadBytes: 3,
       maxVideoUploadBytes: 4,
+      maxMembers: 5,
     });
     expect(resolved).toEqual({
       maxStorageBytes: 1,
       maxUploadsPerPeriod: 2,
       maxUploadBytes: 3,
       maxVideoUploadBytes: 4,
+      maxMembers: 5,
     });
   });
 });
@@ -82,6 +85,7 @@ describe("resolveEffectiveLimits", () => {
       maxUploadsPerPeriod: undefined,
       maxUploadBytes: undefined,
       maxVideoUploadBytes: undefined,
+      maxMembers: undefined,
     });
   });
 

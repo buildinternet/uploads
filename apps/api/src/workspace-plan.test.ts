@@ -46,6 +46,7 @@ describe("planResponse", () => {
         maxUploadsPerPeriod: null,
         maxUploadBytes: null,
         maxVideoUploadBytes: null,
+        maxMembers: null,
       },
       overrides: [],
     });

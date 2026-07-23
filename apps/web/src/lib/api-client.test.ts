@@ -3,6 +3,7 @@ import {
   getMyWorkspaces,
   getWorkspaceInvites,
   getWorkspaceMembers,
+  inviteToWorkspace,
   listWorkspaceFolder,
   removeWorkspaceMember,
   revokeWorkspaceInvite,
@@ -558,5 +559,51 @@ describe("manage mutations map status codes", () => {
       kind: "unavailable",
       reason: "network",
     });
+  });
+});
+
+describe("inviteToWorkspace", () => {
+  it("distinguishes a member-cap denial from a plain authorization 403", async () => {
+    const message = "Free workspaces include 3 members — upgrade to Pro for more.";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { code: "member_cap_reached", message } }), {
+            status: 403,
+          }),
+      ),
+    );
+
+    await expect(inviteToWorkspace("https://api.test", "acme", "new@example.com")).resolves.toEqual(
+      { kind: "unavailable", reason: "member_cap", message },
+    );
+  });
+
+  it("still reports a non-cap 403 as forbidden", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { code: "inviter_not_authorized" } }), {
+            status: 403,
+          }),
+      ),
+    );
+
+    await expect(inviteToWorkspace("https://api.test", "acme", "new@example.com")).resolves.toEqual(
+      { kind: "unavailable", reason: "forbidden" },
+    );
+  });
+
+  it("falls back to forbidden when the 403 body is not JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("nope", { status: 403 })),
+    );
+
+    await expect(inviteToWorkspace("https://api.test", "acme", "new@example.com")).resolves.toEqual(
+      { kind: "unavailable", reason: "forbidden" },
+    );
   });
 });

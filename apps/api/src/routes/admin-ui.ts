@@ -35,6 +35,7 @@ import {
   type RepoLink,
 } from "../github-repo-links";
 import { allowWrite } from "../guards";
+import { throwForInviteError } from "../invite-error";
 import { deriveWebOrigin, inviteLinkUrl } from "../invite-links";
 import {
   invitesForOrg,
@@ -432,9 +433,7 @@ export const adminUi = new Hono<SessionVars>()
       body: JSON.stringify({ organizationSlug: org.slug, email, role, inviterUserId }),
     });
     const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      throw new ValidationError("failed to create invitation", { details: payload });
-    }
+    if (!response.ok) throwForInviteError(response.status, payload);
     return c.json(payload as object, 201);
   })
 

@@ -9,6 +9,7 @@ describe("PLANS catalog", () => {
       maxUploadsPerPeriod: 3000,
       maxUploadBytes: 25_000_000,
       maxVideoUploadBytes: 8_000_000,
+      maxMembers: 3,
     });
   });
 
@@ -25,7 +26,13 @@ describe("PLANS catalog", () => {
       maxUploadsPerPeriod: 100_000,
       maxUploadBytes: 100_000_000,
       maxVideoUploadBytes: 100_000_000,
+      maxMembers: 25,
     });
+  });
+
+  it("markets free's member cap but not pro's abuse guard (issue #450)", () => {
+    expect(PLANS.free.marketsMemberCap).toBe(true);
+    expect(PLANS.pro.marketsMemberCap).toBe(false);
   });
 
   it("every plan's id matches its catalog key", () => {
