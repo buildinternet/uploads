@@ -2,23 +2,15 @@
 
 File-hosting backend for **uploads.sh**. Provider-agnostic storage via
 [files-sdk](https://files-sdk.dev), deployed to Cloudflare Workers with
-Wrangler. Internal tool, single user for now. Successor to the R2 upload
-scripts in `buildinternet-skills/github-screenshots`.
+Wrangler. The service is public: anyone can sign up, create a workspace, and
+use the CLI, and paid plans are live.
 
 ## Layout
 
-```
-apps/api            Hono worker — REST API, deploys to api.uploads.sh
-apps/mcp            Hono worker — remote MCP server, deploys to agents.uploads.sh (alt: mcp.uploads.sh)
-apps/web            Astro placeholder — future browse/manage UI (separate deploy)
-packages/email      @uploads/email — shared invite/notify email card HTML
-packages/errors     @uploads/errors — typed AppError hierarchy + nested wire envelope
-packages/storage    @uploads/storage — files-sdk adapter factory
-packages/uploads    @buildinternet/uploads — CLI + client for GitHub image embeds
-                    (also ships `uploads mcp`, a stdio MCP server mirroring the CLI commands)
-skills/github-screenshots  Workflow skill — screenshots/recordings into PRs, issues, share links
-skills/uploads-cli  Agent skill for driving the CLI (full reference: commands, flags, keys)
-```
+The path-by-path inventory lives in the README's
+[What's in this repo](README.md#whats-in-this-repo) table — one copy, so it
+can't drift. `packages/uploads` also ships `uploads mcp`, a stdio MCP server
+mirroring the CLI commands.
 
 Two agent skills are checked in at the repo root so they're installable via
 the `npx skills add` convention (and by `uploads install`):
@@ -123,11 +115,12 @@ See [docs/ops.md](docs/ops.md#local-wrangler-gotchas).
 ### Releasing `@buildinternet/uploads` (changesets)
 
 User-visible CLI/client/MCP package changes need a `.changeset/*.md` file
-(`pnpm changeset` or hand-written). Only
-`"@buildinternet/uploads": patch|minor|major` goes in the header — private
-`@uploads/*` packages are ignored. Never hand-edit that package's `version`.
-On merge to `main`, `.github/workflows/release.yml` opens a version PR, then
-publishes to npm via OIDC after that PR merges. See [docs/releasing.md](docs/releasing.md).
+(`pnpm changeset` or hand-written). Two rules prevent damage: only
+`"@buildinternet/uploads": patch|minor|major` goes in the header (a changeset
+naming a private `@uploads/*` package yields an empty version PR and blocks the
+next publish), and never hand-edit that package's `version`. Full process —
+trusted publishing, cutting a release, recovery — is in
+[docs/releasing.md](docs/releasing.md).
 
 Run `pnpm types` (or `pnpm --filter @uploads/{api,mcp,web} types`) after any
 `wrangler.jsonc` change — `Env` is generated into `worker-configuration.d.ts`,
@@ -242,32 +235,21 @@ rationale prose. Code blocks, tables, and identifiers stay verbatim.
 
 ## Pull requests
 
-Write PR descriptions for humans first, not only for reviewers who already
-know the code. Prefer plain language over dense bullet dumps of identifiers.
+The PR shape (five sections) and title convention live in
+[CONTRIBUTING.md](CONTRIBUTING.md#pull-requests). Read it before opening one.
 
-**Shape (compact):**
+What agents get wrong most often, so it bears repeating here:
 
-1. **In plain terms** — one short paragraph: what this changes and why anyone
-   should care (the problem, the outcome). Avoid leading with file paths,
-   type names, or flag lists.
-2. **What it does / what it is not** — a few concrete bullets; call out
-   opt-in vs breaking, and anything deliberately deferred.
-3. **How to try it** — only when useful. Show the **installed** CLI
-   (`uploads …`), not `pnpm uploads …`, unless the step is explicitly
-   monorepo-only (e.g. running package tests). Same for issue comments and
-   other post-merge “once this ships” examples.
-4. **Technical notes** — optional short section for implementers (modules,
-   error codes, test commands). Keep it secondary to the plain summary.
-5. **Test plan** — checkboxes for what was run / what remains. Filter-style
-   `pnpm --filter … test` is fine here (repo CI context).
-
-**Titles:** conventional-commit type prefix + plain-language subject, e.g.
-`feat: organize upload paths (typed destinations + optional folder rules)`.
-Common types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`. Keep the
-subject readable (outcome first); avoid stuffing every flag/module into the
-title. Do **not** auto-request CodeRabbit on every PR (org policy: on-demand
-only). User-visible `@buildinternet/uploads` changes still need a changeset;
-do not merge “version packages” PRs unless shipping is intentional.
+- **Write for humans first**, not only for reviewers who already know the code.
+  Lead with the problem and the outcome in plain language. Do not open with file
+  paths, type names, or a flag list, and do not pad the description with a bullet
+  dump of identifiers.
+- **Show the installed CLI** (`uploads …`) in “how to try it” and in any
+  post-merge “once this ships” example, including issue comments. Reserve
+  `pnpm uploads …` for steps that are genuinely monorepo-only. Filter-style
+  `pnpm --filter … test` is fine in a test plan — that section is repo context.
+- **Do not auto-request CodeRabbit** on every PR. Org policy is on-demand only.
+- **Do not merge “version packages” PRs** unless shipping is intentional.
 
 ## Environment files
 

@@ -171,7 +171,9 @@ case plus peer deps, no API changes.
 | [contract testing](docs/contract-testing.md) | Deployed smoke checks and release gate              |
 | [roadmap](docs/roadmap.md)                   | Planned features                                    |
 
-Agent and contributor conventions live in [AGENTS.md](AGENTS.md).
+How to set up, test, and open a pull request:
+[CONTRIBUTING.md](CONTRIBUTING.md). Agent working conventions live in
+[AGENTS.md](AGENTS.md).
 
 ## Local development
 
@@ -181,18 +183,13 @@ D1 on disk:
 
 ```bash
 pnpm bootstrap        # one-command setup: tooling, deps, env vars, local D1, default workspace
-pnpm doctor           # diagnose the setup — reports what's missing and how to fix it
-
 pnpm dev              # API on :8787 (local R2 + KV + D1)
-pnpm dev:stack        # authenticated Auth + API + Web stack at https://uploads.localhost
-pnpm check            # lint + format (the CI gate)
-pnpm typecheck        # wrangler types + tsc across workspaces
 ```
 
-`bootstrap` is idempotent (safe to re-run; never overwrites your env files or
-re-mints an existing local workspace) and `doctor` is read-only. Manual setup
-steps, the full dev-stack detail, and a curl smoke test live in
-[docs/local-dev.md](docs/local-dev.md).
+`bootstrap` is idempotent, and `pnpm doctor` diagnoses a setup without changing
+it. The rest of the loop — the authenticated dev stack, the check and test
+gates, and how to open a pull request — is in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
