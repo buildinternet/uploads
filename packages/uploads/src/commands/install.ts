@@ -46,7 +46,7 @@ Examples:
   uploads install --dry-run
 `;
 
-interface StepResult {
+export interface StepResult {
   command: string[];
   ok: boolean;
   skipped?: "dry-run" | "sign-in";
@@ -63,7 +63,7 @@ function redactor(token: string | undefined): (text: string) => string {
   };
 }
 
-function runStep(run: CommandRunner, command: string[]): StepResult {
+export function runStep(run: CommandRunner, command: string[]): StepResult {
   try {
     const output = run(command[0], command.slice(1)).trim();
     return { command, ok: true, output: output || undefined };
