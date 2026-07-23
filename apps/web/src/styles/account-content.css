@@ -622,6 +622,93 @@ section.card .ws-note {
 section.card .ws-note {
   color: var(--body);
 }
+
+/* Compact list tables (account galleries). */
+.ws-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 16px;
+}
+.ws-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.ws-table th {
+  text-align: left;
+  font: 500 11px var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 12px 10px 0;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.ws-table th:last-child,
+.ws-table td:last-child {
+  padding-right: 0;
+}
+.ws-table th.num,
+.ws-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding-left: 16px;
+}
+.ws-table tbody > tr > td {
+  padding: 12px 12px 12px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--body);
+  vertical-align: middle;
+}
+.ws-table tbody > tr:last-child > td {
+  border-bottom: 0;
+}
+.ws-table .ws-gallery-title {
+  color: var(--fg);
+  font-weight: 600;
+  text-decoration: none;
+}
+.ws-table .ws-gallery-title:hover,
+.ws-table .ws-gallery-title:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+.ws-table .ws-gallery-desc {
+  margin-top: 3px;
+  font-size: 12px;
+  max-width: 28rem;
+}
+.ws-gallery-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: baseline;
+}
+.ws-gallery-link {
+  color: var(--fg);
+  font-size: 12px;
+  font-family: var(--mono);
+  text-decoration: none;
+  text-underline-offset: 0.15em;
+}
+.ws-gallery-link:hover,
+.ws-gallery-link:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  outline: none;
+}
+.ws-gallery-link--plain {
+  color: var(--muted);
+}
+.ws-gallery-link-more {
+  font-size: 12px;
+}
+.ws-table .ws-gallery-updated {
+  white-space: nowrap;
+  font-size: 12px;
+}
 /* Search bar breathing room above the file list. */
 .ws-page-card .ws-search-bar {
   margin: 0;

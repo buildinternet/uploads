@@ -952,6 +952,53 @@ describe("GET /me/workspaces/:name/galleries", () => {
           version: 1,
           createdAt: "2026-07-01T00:00:00.000Z",
           updatedAt: "2026-07-01T00:00:00.000Z",
+          itemCount: 0,
+          references: [],
+        },
+      ],
+    });
+  });
+
+  it("includes item counts and linked PR/issue references on each row", async () => {
+    const db = galleriesDb();
+    db.exec(
+      `INSERT INTO galleries
+         (id, workspace, title, description, visibility, cover_item_id, version, created_at, updated_at, deleted_at)
+       VALUES
+         ('gal_bbbbbbbbbbbbbbbbbbbbbb', 'acme', 'PR screenshots', NULL, 'public', NULL, 1,
+          '2026-07-02T00:00:00.000Z', '2026-07-03T00:00:00.000Z', NULL);
+       INSERT INTO gallery_items
+         (id, gallery_id, object_key, position, caption, alt_text, created_at)
+       VALUES
+         ('item_1', 'gal_bbbbbbbbbbbbbbbbbbbbbb', 'screenshots/a.png', 1, NULL, NULL, '2026-07-02T00:00:00.000Z'),
+         ('item_2', 'gal_bbbbbbbbbbbbbbbbbbbbbb', 'screenshots/b.png', 2, NULL, NULL, '2026-07-02T00:01:00.000Z');
+       INSERT INTO gallery_external_references
+         (id, gallery_id, provider, resource_type, normalized_key, locator_json, canonical_url, created_at, updated_at)
+       VALUES
+         ('ref_1', 'gal_bbbbbbbbbbbbbbbbbbbbbb', 'github', 'item',
+          'github:buildinternet/uploads#58',
+          '{"owner":"buildinternet","repository":"uploads","number":58}',
+          'https://github.com/buildinternet/uploads/pull/58',
+          '2026-07-02T00:00:00.000Z', '2026-07-02T00:00:00.000Z')`,
+    );
+    const env = memberEnv({ workspace: "acme", db: new SQLiteD1(db) });
+    const res = await app().request("/me/workspaces/acme/galleries", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      galleries: Array<{
+        id: string;
+        itemCount: number;
+        references: Array<{ coordinate: string; canonicalUrl: string | null }>;
+      }>;
+    };
+    expect(body.galleries).toHaveLength(1);
+    expect(body.galleries[0]).toMatchObject({
+      id: "gal_bbbbbbbbbbbbbbbbbbbbbb",
+      itemCount: 2,
+      references: [
+        {
+          coordinate: "buildinternet/uploads#58",
+          canonicalUrl: "https://github.com/buildinternet/uploads/pull/58",
         },
       ],
     });

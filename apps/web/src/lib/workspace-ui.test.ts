@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatGalleryDate,
   formatMarketedBytes,
   orderOrgsOldestFirst,
+  renderGalleriesTableHtml,
   renderInvitesHtml,
   renderMembersHtml,
   renderUsageHtml,
@@ -193,5 +195,75 @@ describe("orderOrgsOldestFirst", () => {
     const copy = [...orgs];
     orderOrgsOldestFirst(orgs);
     expect(orgs).toEqual(copy);
+  });
+});
+
+describe("renderGalleriesTableHtml", () => {
+  it("returns empty string for no galleries", () => {
+    expect(renderGalleriesTableHtml([])).toBe("");
+  });
+
+  it("renders name, items, linked refs, and updated date", () => {
+    const html = renderGalleriesTableHtml([
+      {
+        url: "https://uploads.sh/g/gal_1",
+        title: "Launch media",
+        description: "Ship shots",
+        updatedAt: "2026-07-03T00:00:00.000Z",
+        itemCount: 2,
+        references: [
+          {
+            coordinate: "buildinternet/uploads#58",
+            canonicalUrl: "https://github.com/buildinternet/uploads/pull/58",
+          },
+        ],
+      },
+    ]);
+    expect(html).toContain("Launch media");
+    expect(html).toContain("Ship shots");
+    expect(html).toContain('href="https://uploads.sh/g/gal_1"');
+    expect(html).toContain(">2<");
+    expect(html).toContain("buildinternet/uploads#58");
+    expect(html).toContain("https://github.com/buildinternet/uploads/pull/58");
+    expect(html).toContain(formatGalleryDate("2026-07-03T00:00:00.000Z"));
+  });
+
+  it("escapes title/description and shows em dash when nothing is linked", () => {
+    const html = renderGalleriesTableHtml([
+      {
+        url: "https://uploads.sh/g/gal_2",
+        title: "<img src=x onerror=alert(1)>",
+        description: "<b>x</b>",
+        updatedAt: "not-a-date",
+        itemCount: 0,
+        references: [],
+      },
+    ]);
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("<b>");
+    expect(html).toContain("&lt;img");
+    expect(html).toContain("—");
+    expect(html).toContain("not-a-date");
+  });
+
+  it("caps linked refs at three and shows a +N remainder", () => {
+    const refs = [1, 2, 3, 4, 5].map((n) => ({
+      coordinate: `org/repo#${n}`,
+      canonicalUrl: `https://github.com/org/repo/pull/${n}`,
+    }));
+    const html = renderGalleriesTableHtml([
+      {
+        url: "https://uploads.sh/g/gal_3",
+        title: "Many links",
+        description: null,
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        itemCount: 1,
+        references: refs,
+      },
+    ]);
+    expect(html).toContain("org/repo#1");
+    expect(html).toContain("org/repo#3");
+    expect(html).not.toContain("org/repo#4");
+    expect(html).toContain("+2");
   });
 });

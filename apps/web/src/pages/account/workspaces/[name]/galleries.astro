@@ -1,9 +1,7 @@
 ---
 /**
- * Workspace galleries tab — lifted verbatim (fetch + render) from the old
- * combined `[name].astro` page as part of the 3A workspace-tab overhaul (Task
- * 9; see `.superpowers/sdd/task-9-brief.md`). `[name].astro` keeps its own
- * copy until Task 8's rewrite lands and drops it on that side.
+ * Workspace galleries tab: explainer, create command, and table (name, items,
+ * linked PR/issues, updated) from GET /me/workspaces/:name/galleries.
  */
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
@@ -13,6 +11,8 @@ export const prerender = false;
 const nameParam = Astro.params.name ?? "";
 const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
+
+const createCmd = 'uploads gallery create --title "Release screenshots"';
 ---
 
 <WorkspaceLayout workspace={workspace}>
@@ -20,9 +20,28 @@ if (!workspace) return Astro.redirect("/account/workspaces");
   <button id="ws-retry" type="button" hidden>Try again</button>
 
   <div id="ws-app" hidden>
-    <section class="card ws-page-card">
-      <div class="ws-block" id="ws-galleries-card">
-        <h2 class="ws-section-head">Galleries</h2>
+    <section class="card settings-page">
+      <div class="settings-section" id="ws-galleries-card">
+        <div class="ws-page-header">
+          <div class="ws-title-block">
+            <h2>Galleries</h2>
+            <p class="settings-note muted">
+              Ordered sets of screenshots and media with one public link. Link a gallery to
+              pull requests or issues so a managed comment can surface the whole set.
+            </p>
+          </div>
+        </div>
+
+        <div class="command">
+          <code>{createCmd}</code>
+          <button type="button" data-copy={createCmd} aria-live="polite">copy</button>
+        </div>
+        <p class="muted cli-note">
+          Add files with <code>uploads put ./shot.png --gallery &lt;id&gt;</code> or
+          <code>uploads gallery add &lt;id&gt; &lt;key&gt;</code>. Link a PR with
+          <code>uploads gallery link &lt;id&gt; --github owner/repo#123</code>.
+        </p>
+
         <div id="ws-galleries"><p class="ws-empty">Loading…</p></div>
       </div>
     </section>
@@ -36,14 +55,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       onSession,
       requireElement,
     } from "../../../../lib/account-shell";
-    import {
-      getMyWorkspaces,
-      getMyWorkspaceGalleries,
-      type GallerySummary,
-    } from "../../../../lib/api-client";
+    import { getMyWorkspaces, getMyWorkspaceGalleries, type GallerySummary } from "../../../../lib/api-client";
     import { writeCachedWorkspaces } from "../../../../lib/workspaces-nav";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
-    import { escapeHtml } from "../../../../lib/workspace-ui";
+    import {
+      bindCopyButtons,
+      renderGalleriesTableHtml,
+    } from "../../../../lib/workspace-ui";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("ws-galleries")) return;
@@ -69,6 +87,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const galleriesCard = requireElement<HTMLElement>("#ws-galleries-card", page);
       const galleriesEl = requireElement<HTMLElement>("#ws-galleries", page);
 
+      bindCopyButtons(galleriesCard);
+
       function showError(message: string, retry = true): void {
         if (!stillHere()) return;
         statusEl.hidden = false;
@@ -81,15 +101,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       function renderGalleries(galleries: GallerySummary[]): void {
         if (!stillHere()) return;
         if (!galleries.length) {
-          galleriesEl.innerHTML = `<p class="ws-empty">No galleries yet.</p>`;
+          galleriesEl.innerHTML = `<p class="ws-empty">No galleries yet. Create one with the command above.</p>`;
           return;
         }
-        galleriesEl.innerHTML = `<ul class="ws-items">${galleries
-          .map(
-            (g) =>
-              `<li><a href="${escapeHtml(g.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(g.title)}</a></li>`,
-          )
-          .join("")}</ul>`;
+        galleriesEl.innerHTML = renderGalleriesTableHtml(galleries);
       }
 
       async function loadGalleries(): Promise<void> {

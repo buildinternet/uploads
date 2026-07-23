@@ -251,6 +251,81 @@ export function createErrorCopy(code: string): string {
   }
 }
 
+/** Fields the account galleries table needs (extra API fields are fine). */
+export interface GalleryTableRow {
+  url: string;
+  title: string;
+  description: string | null;
+  updatedAt: string;
+  itemCount?: number;
+  references?: Array<{ coordinate: string; canonicalUrl: string | null }>;
+}
+
+/** Short table-cell date (e.g. "Jul 3, 2026"). Invalid ISO falls back to the raw string. */
+export function formatGalleryDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+const EMPTY_CELL = `<span class="muted">—</span>`;
+
+/** Up to three linked PR/issue coordinates; remainder as "+N". */
+function renderGalleryLinksHtml(
+  references: Array<{ coordinate: string; canonicalUrl: string | null }>,
+): string {
+  if (!references.length) return EMPTY_CELL;
+  const shown = references.slice(0, 3);
+  const extra = references.length - shown.length;
+  const chips = shown
+    .map((ref) => {
+      const label = escapeHtml(ref.coordinate);
+      if (ref.canonicalUrl) {
+        return `<a class="ws-gallery-link" href="${escapeHtml(ref.canonicalUrl)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+      }
+      return `<span class="ws-gallery-link ws-gallery-link--plain">${label}</span>`;
+    })
+    .join("");
+  const more = extra > 0 ? `<span class="muted ws-gallery-link-more">+${extra}</span>` : "";
+  return `<div class="ws-gallery-links">${chips}${more}</div>`;
+}
+
+/** Account galleries table HTML. Empty list → "" (caller paints the empty state). */
+export function renderGalleriesTableHtml(galleries: GalleryTableRow[]): string {
+  if (!galleries.length) return "";
+  const rows = galleries
+    .map((g) => {
+      const itemsCell =
+        typeof g.itemCount === "number" ? escapeHtml(String(g.itemCount)) : EMPTY_CELL;
+      const desc = g.description?.trim()
+        ? `<div class="muted ws-gallery-desc">${escapeHtml(g.description.trim())}</div>`
+        : "";
+      return `<tr>
+  <td>
+    <a class="ws-gallery-title" href="${escapeHtml(g.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(g.title)}</a>
+    ${desc}
+  </td>
+  <td class="num">${itemsCell}</td>
+  <td>${renderGalleryLinksHtml(g.references ?? [])}</td>
+  <td class="muted ws-gallery-updated">${escapeHtml(formatGalleryDate(g.updatedAt))}</td>
+</tr>`;
+    })
+    .join("");
+  return `<div class="ws-table-wrap">
+<table class="ws-table" aria-label="Galleries">
+  <thead>
+    <tr>
+      <th scope="col">Name</th>
+      <th scope="col" class="num">Items</th>
+      <th scope="col">Linked</th>
+      <th scope="col">Updated</th>
+    </tr>
+  </thead>
+  <tbody>${rows}</tbody>
+</table>
+</div>`;
+}
+
 /**
  * Copy-to-clipboard via event delegation under `root`.
  *
