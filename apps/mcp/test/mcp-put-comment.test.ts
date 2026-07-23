@@ -9,6 +9,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import app from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "@uploads/api/workspace";
+import { attachmentsMarker } from "@uploads/api/github-comment-render";
 import { FakeR2Bucket } from "@uploads/storage/test/fake-r2";
 
 const TOKEN = "up_test-ws_legacy-token-value";
@@ -682,15 +683,23 @@ describe("hosted comment tool (issue #392 stretch)", () => {
 
   it("rewrites an existing comment to the empty state once every attachment is gone", async () => {
     // No attachment seeded → the workspace has nothing under the PR prefix, so
-    // the gathered body is the neutral empty state (count 0). A cached comment
-    // id makes upsertBotComment PATCH the existing comment directly — the empty
-    // body rewrites it in place; it is never deleted, and no new one is created.
+    // the gathered body is the neutral empty state (count 0). The empty body
+    // rewrites the existing comment in place; it is never deleted, and no new
+    // one is created. The `comment` tool is an explicit resync, so it hunts for
+    // the marker rather than trusting the cached id (issue #480) — the cache is
+    // still seeded here to prove the hunt wins.
     const { env, githubCache } = await makeEnv({ boundTo: WS });
     githubCache.store.set("ghinst:acme/widgets", { value: "42" });
     githubCache.store.set("ghtok:42", { value: "cached-token" });
     githubCache.store.set("ghcomment:test-ws:acme/widgets#12", { value: "5" });
     let patchedBody: string | undefined;
     const restore = stubGithubFetch((url, init) => {
+      if (url.includes("/issues/12/comments") && init.method !== "POST") {
+        return new Response(
+          JSON.stringify([{ id: 5, body: `${attachmentsMarker(WS)}\nold body` }]),
+          { status: 200 },
+        );
+      }
       if (url.includes("/issues/comments/5") && init.method === "PATCH") {
         patchedBody = JSON.parse(String(init.body)).body as string;
         return new Response(

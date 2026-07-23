@@ -224,6 +224,13 @@ const degradeFor = (status: number): "forbidden" | "unavailable" =>
  * PATCH with no listing. The id is only an optimization — the marker in the
  * body stays authoritative, so a stale/deleted id (404) drops the cache and
  * falls back to the marker hunt, which pages through the whole thread.
+ *
+ * `forceHunt` skips that fast path and always hunts (issue #480). The dedupe
+ * below only runs on the hunt, so while the cache is warm a race-created
+ * duplicate would otherwise survive until the id expires (30 days). Callers
+ * whose whole intent is "make the comment state correct" — the explicit
+ * `uploads comment` resync — pay one listing to bound a duplicate's lifetime
+ * to the next such call. High-frequency attach/promote syncs keep the fast path.
  */
 export async function upsertBotComment(
   env: Env,
@@ -233,7 +240,7 @@ export async function upsertBotComment(
   body: string,
   workspaceName: string,
   fetchImpl: typeof fetch = fetch,
-  opts: { createIfMissing?: boolean } = {},
+  opts: { createIfMissing?: boolean; forceHunt?: boolean } = {},
 ): Promise<
   | { action: "created" | "updated"; commentUrl: string }
   | { action: "skipped" }
@@ -264,7 +271,10 @@ export async function upsertBotComment(
   };
 
   // Fast path: a cached id lets us PATCH the comment directly, no listing.
-  const cachedId = (await env.GITHUB_CACHE.get(cacheKey)) as string | null;
+  // Skipped entirely under `forceHunt` — the caller wants the dedupe pass.
+  const cachedId = opts.forceHunt
+    ? null
+    : ((await env.GITHUB_CACHE.get(cacheKey)) as string | null);
   if (cachedId) {
     const r = await write(`${base}/issues/comments/${cachedId}`, "PATCH");
     if (r.ok) return { action: "updated", commentUrl: r.commentUrl };

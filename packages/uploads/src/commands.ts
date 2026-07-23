@@ -667,11 +667,19 @@ export function commentViaSuffix(via: AttachmentsCommentResult["via"]): string {
  */
 export class GithubCommentAuthorizationError extends Error {}
 
+/**
+ * `opts.resync` marks an explicit `uploads comment` invocation rather than a
+ * background sync (attach, screenshot, put --comment). It costs the server one
+ * extra comment listing and in exchange collapses any duplicate managed
+ * comment (issue #480) — worth it on the rare, explicitly-asked-for resync,
+ * not on every attach.
+ */
 export async function syncAttachmentsComment(
   client: UploadsClient,
   target: GhTarget,
   run: CommandRunner,
   workspace?: string,
+  opts: { resync?: boolean } = {},
 ): Promise<AttachmentsCommentResult> {
   let bot: GithubCommentResult | undefined;
   try {
@@ -679,6 +687,7 @@ export async function syncAttachmentsComment(
       repo: target.repo,
       num: target.num,
       kind: target.kind,
+      ...(opts.resync ? { resync: true } : {}),
     });
   } catch {
     // Endpoint absent/unreachable (self-hosted, network, older worker) — fall
@@ -2809,6 +2818,7 @@ async function resyncCommentAfterMetaSet(
       repo: target.repo,
       num: target.num,
       kind: target.kind,
+      resync: true,
     });
     if (bot.posted) {
       if (!ctx.quiet && !ctx.json) {
@@ -2895,7 +2905,9 @@ export async function runComment(
   const target = ghTargetFromFlags(parsed.flags, run);
   if (!target) throw new UsageError("comment requires --pr or --issue");
 
-  const result = await syncAttachmentsComment(ctx.client, target, run, ctx.config.workspace);
+  const result = await syncAttachmentsComment(ctx.client, target, run, ctx.config.workspace, {
+    resync: true,
+  });
   if (ctx.json) {
     await writeJson({ ...target, ...result });
   } else if (!ctx.quiet) {

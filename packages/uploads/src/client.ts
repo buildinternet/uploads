@@ -1092,10 +1092,18 @@ export function createUploadsClient(config: UploadsClientConfig) {
       return request<GalleryListResult>("GET", galleriesBase(config) + "/by-reference?" + params);
     },
 
+    /**
+     * Upsert the managed attachments comment. `resync: true` marks an
+     * explicit "make the comment state correct" call (`uploads comment`), so
+     * the server hunts for the marker — and collapses any duplicate — instead
+     * of patching its cached comment id (issue #480). Older servers ignore
+     * the field.
+     */
     async upsertGithubComment(opts: {
       repo: string;
       num: number;
       kind: "pull" | "issues";
+      resync?: boolean;
     }): Promise<GithubCommentResult> {
       return request<GithubCommentResult>(
         "POST",

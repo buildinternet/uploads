@@ -829,7 +829,12 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         await requireWriteBudget();
         const target = ghTargetFromArgs(args);
         if (!target) usage("comment requires pr or issue");
-        return postManagedComment(env, workspace, workspaceName, ctx.mintingUserId, target);
+        // Explicit resync (issue #480): hunt for the marker instead of
+        // trusting the cached comment id, so a duplicate gets collapsed here
+        // rather than waiting on a cache miss.
+        return postManagedComment(env, workspace, workspaceName, ctx.mintingUserId, target, {
+          resync: true,
+        });
       },
     },
     {

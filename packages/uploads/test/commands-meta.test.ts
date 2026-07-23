@@ -164,7 +164,7 @@ describe("runMeta set comment re-sync (issue #470)", () => {
       false,
     );
     expect(code).toBe(0);
-    expect(upsertCalls).toEqual([{ repo: "acme/web", num: 12, kind: "pull" }]);
+    expect(upsertCalls).toEqual([{ repo: "acme/web", num: 12, kind: "pull", resync: true }]);
   });
 
   it("re-syncs when a display-relevant key is deleted", async () => {
@@ -174,7 +174,7 @@ describe("runMeta set comment re-sync (issue #470)", () => {
       ["set", "gh/acme/web/issues/7/shot.png", "--delete", "state"],
       false,
     );
-    expect(upsertCalls).toEqual([{ repo: "acme/web", num: 7, kind: "issues" }]);
+    expect(upsertCalls).toEqual([{ repo: "acme/web", num: 7, kind: "issues", resync: true }]);
   });
 
   it("does not sync when the touched keys are not rendered in the comment", async () => {

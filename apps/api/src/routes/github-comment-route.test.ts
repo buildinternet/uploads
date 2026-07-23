@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { app } from "../index";
+import { attachmentsMarker } from "../github-comment-render";
 import { sha256Hex, type WorkspaceRecord } from "../workspace";
 import { FakeKv } from "../../test/fake-kv";
 import { FakeR2Bucket } from "../../test/fake-r2";
@@ -174,6 +175,90 @@ describe("POST /v1/:workspace/github/comment", () => {
         count: 1,
         commentUrl: "https://github.com/acme/web/pull/12#c5",
       });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("400s on a non-boolean resync", async () => {
+    const env = await seededEnv();
+    const res = await post(env, { repo: "acme/web", num: 12, kind: "pull", resync: "yes" });
+    expect(res.status).toBe(400);
+  });
+
+  it("resync:true hunts past the warm comment-id cache and collapses a duplicate (issue #480)", async () => {
+    const hash = await sha256Hex(TOKEN);
+    const record: WorkspaceRecord = {
+      provider: "r2",
+      bucket: "b",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "acme/",
+      publicBaseUrl: "https://storage.uploads.sh",
+      tokens: [{ hash, createdAt: new Date().toISOString() }],
+    };
+    const registry = {
+      get: (async (key: string) =>
+        key === `ws:${WS}` ? record : null) as unknown as KVNamespace["get"],
+    };
+    const githubCache = new FakeKv();
+    githubCache.store.set("ghinst:acme/web", { value: "42" });
+    githubCache.store.set("ghtok:42", { value: "cached-token" });
+    githubCache.store.set("ghlogin:user-1", { value: "octocat" });
+    // Warm cache pointing at the NEWER of the two marker comments — the state
+    // that used to leave the duplicate untouched for the id's whole lifetime.
+    githubCache.store.set("ghcomment:acme:acme/web#12", { value: "8" });
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/gh/acme/web/pull/12/hero.png", new Uint8Array([0x89, 0x50]), {
+      httpMetadata: { contentType: "image/png" },
+    });
+    const { db } = claimTestDb("user-1");
+    const env = {
+      REGISTRY: registry,
+      DB: db,
+      GITHUB_CACHE: githubCache,
+      UPLOADS_DEFAULT: bucket,
+      ...GITHUB_APP_CFG_ENV,
+    } as unknown as Env;
+
+    const marker = attachmentsMarker(WS);
+    const deleted: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
+      const u = String(url);
+      if (u.includes("/collaborators/octocat/permission")) {
+        return new Response(JSON.stringify({ permission: "write" }), { status: 200 });
+      }
+      if (u.includes("/issues/12/comments")) {
+        return new Response(
+          JSON.stringify([
+            { id: 7, body: `${marker}\nfirst` },
+            { id: 8, body: `${marker}\nduplicate` },
+          ]),
+          { status: 200 },
+        );
+      }
+      if (init.method === "DELETE") {
+        deleted.push(u);
+        return new Response(null, { status: 204 });
+      }
+      if (u.includes("/issues/comments/7") && init.method === "PATCH") {
+        return new Response(
+          JSON.stringify({ id: 7, html_url: "https://github.com/acme/web/pull/12#c7" }),
+          { status: 200 },
+        );
+      }
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+    try {
+      const res = await post(env, { repo: "acme/web", num: 12, kind: "pull", resync: true });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        posted: true,
+        action: "updated",
+        count: 1,
+        commentUrl: "https://github.com/acme/web/pull/12#c7",
+      });
+      expect(deleted).toEqual(["https://api.github.com/repos/acme/web/issues/comments/8"]);
     } finally {
       globalThis.fetch = realFetch;
     }

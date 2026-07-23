@@ -958,6 +958,90 @@ describe("upsertBotComment", () => {
     });
   });
 
+  it("forceHunt ignores a warm cached id so a duplicate is collapsed (issue #480)", async () => {
+    const { env, kv } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    // Warm cache pointing at the NEWER of two marker comments — exactly the
+    // state that left #468's duplicate untouched for a cache lifetime.
+    await kv.put("ghcomment:acme:acme/web#12", "8");
+    const deleted: string[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (url.includes("/access_tokens")) {
+        return new Response(JSON.stringify({ token: "t" }), { status: 201 });
+      }
+      if (url.includes("/issues/12/comments")) {
+        return new Response(
+          JSON.stringify([
+            { id: 7, body: `${attachmentsMarker("acme")}\nfirst` },
+            { id: 8, body: `${attachmentsMarker("acme")}\nduplicate` },
+          ]),
+          { status: 200 },
+        );
+      }
+      if (init.method === "DELETE") {
+        deleted.push(url);
+        return new Response(null, { status: 204 });
+      }
+      if (url.includes("/issues/comments/7") && init.method === "PATCH") {
+        return new Response(
+          JSON.stringify({ id: 7, html_url: "https://github.com/acme/web/pull/12#c7" }),
+          { status: 200 },
+        );
+      }
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "BODY",
+      "acme",
+      fetchImpl,
+      { forceHunt: true },
+    );
+    expect(res).toEqual({
+      action: "updated",
+      commentUrl: "https://github.com/acme/web/pull/12#c7",
+    });
+    expect(deleted).toEqual(["https://api.github.com/repos/acme/web/issues/comments/8"]);
+    // The cache now points at the surviving (oldest) comment.
+    expect(await kv.get("ghcomment:acme:acme/web#12")).toBe("7");
+  });
+
+  it("leaves the cached-id fast path alone without forceHunt", async () => {
+    const { env, kv } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    await kv.put("ghcomment:acme:acme/web#12", "8");
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (url.includes("/access_tokens")) {
+        return new Response(JSON.stringify({ token: "t" }), { status: 201 });
+      }
+      if (url.includes("/issues/12/comments")) throw new Error("listed on cache hit");
+      if (url.includes("/issues/comments/8") && init.method === "PATCH") {
+        return new Response(
+          JSON.stringify({ id: 8, html_url: "https://github.com/acme/web/pull/12#c8" }),
+          { status: 200 },
+        );
+      }
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "BODY",
+      "acme",
+      fetchImpl,
+      { forceHunt: false },
+    );
+    expect(res).toEqual({
+      action: "updated",
+      commentUrl: "https://github.com/acme/web/pull/12#c8",
+    });
+  });
+
   it("patches an existing comment to empty when createIfMissing is false", async () => {
     const { env } = makeTestEnv();
     const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };

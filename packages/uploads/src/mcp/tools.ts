@@ -1290,7 +1290,10 @@ export function createUploadsMcpTools(opts: {
         const target = ghTargetFromArgs(args, run);
         if (!target) usage("comment requires pr or issue");
         const { config, client } = clientFor(args);
-        const result = await syncAttachmentsComment(client, target, run, config.workspace);
+        // Explicit resync, same as `uploads comment` (issue #480).
+        const result = await syncAttachmentsComment(client, target, run, config.workspace, {
+          resync: true,
+        });
         return { ...target, ...result };
       },
     },
