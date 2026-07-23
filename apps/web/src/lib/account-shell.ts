@@ -52,8 +52,9 @@ export function writeCachedSessionUser(user: SessionUser): void {
 export function clearCachedSessionUser(): void {
   try {
     sessionStorage.removeItem(SESSION_CACHE_KEY);
-    // Keep in sync with WORKSPACES_CACHE_KEY / ACTIVE_WORKSPACE_CACHE_KEY
-    // in workspaces-nav.ts (avoid importing that module from here).
+    // Keep in sync with WORKSPACES_CACHE_KEY in workspaces-nav.ts
+    // (avoid importing that module from here). Last-used workspace is
+    // localStorage-only so it survives sign-out for the next login.
     sessionStorage.removeItem("uploads:myWorkspaces");
     sessionStorage.removeItem("uploads:activeWorkspace");
   } catch {

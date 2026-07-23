@@ -7,6 +7,7 @@ import {
   readCachedWorkspaces,
   renderSwitcherMenuHtml,
   renderWorkspaceSectionNavHtml,
+  resolveDefaultWorkspace,
   resolveSidebarWorkspace,
   switcherLabel,
   workspaceTabFromPathname,
@@ -16,14 +17,28 @@ import {
 } from "./workspaces-nav";
 import type { MyWorkspace } from "./api-client";
 
-function installStorage() {
+function mapStorage() {
   const values = new Map<string, string>();
-  vi.stubGlobal("sessionStorage", {
-    getItem: (key: string) => values.get(key) ?? null,
-    removeItem: (key: string) => values.delete(key),
-    setItem: (key: string, value: string) => values.set(key, value),
-  });
-  return values;
+  return {
+    values,
+    storage: {
+      getItem: (key: string) => values.get(key) ?? null,
+      removeItem: (key: string) => {
+        values.delete(key);
+      },
+      setItem: (key: string, value: string) => {
+        values.set(key, value);
+      },
+    },
+  };
+}
+
+function installStorage() {
+  const session = mapStorage();
+  const local = mapStorage();
+  vi.stubGlobal("sessionStorage", session.storage);
+  vi.stubGlobal("localStorage", local.storage);
+  return { session: session.values, local: local.values };
 }
 
 afterEach(() => {
@@ -56,10 +71,10 @@ describe("workspaces cache", () => {
   });
 
   it("drops malformed cache payloads", () => {
-    const values = installStorage();
-    values.set(WORKSPACES_CACHE_KEY, "{not-json");
+    const { session } = installStorage();
+    session.set(WORKSPACES_CACHE_KEY, "{not-json");
     expect(readCachedWorkspaces()).toBeNull();
-    values.set(WORKSPACES_CACHE_KEY, JSON.stringify({ workspaces: "nope" }));
+    session.set(WORKSPACES_CACHE_KEY, JSON.stringify({ workspaces: "nope" }));
     expect(readCachedWorkspaces()).toBeNull();
   });
 });
@@ -86,13 +101,23 @@ describe("workspaceTabFromPathname", () => {
 });
 
 describe("active workspace cache + resolveSidebarWorkspace", () => {
-  it("round-trips the last-used workspace slug", () => {
-    installStorage();
+  it("persists last-used in localStorage (and clears session leftovers)", () => {
+    const { session, local } = installStorage();
     writeCachedActiveWorkspace("buildinternet");
     expect(readCachedActiveWorkspace()).toBe("buildinternet");
+    expect(local.get(ACTIVE_WORKSPACE_CACHE_KEY)).toBe("buildinternet");
+    expect(session.get(ACTIVE_WORKSPACE_CACHE_KEY)).toBeUndefined();
+
     clearCachedActiveWorkspace();
     expect(readCachedActiveWorkspace()).toBe("");
-    expect(sessionStorage.getItem(ACTIVE_WORKSPACE_CACHE_KEY)).toBeNull();
+    expect(local.get(ACTIVE_WORKSPACE_CACHE_KEY)).toBeUndefined();
+  });
+
+  it("reads a legacy session value so older tabs still resolve", () => {
+    const { session, local } = installStorage();
+    session.set(ACTIVE_WORKSPACE_CACHE_KEY, "buildinternet");
+    expect(local.get(ACTIVE_WORKSPACE_CACHE_KEY)).toBeUndefined();
+    expect(readCachedActiveWorkspace()).toBe("buildinternet");
   });
 
   it("rejects invalid slugs", () => {
@@ -122,6 +147,18 @@ describe("active workspace cache + resolveSidebarWorkspace", () => {
   it("returns empty when nothing is known", () => {
     installStorage();
     expect(resolveSidebarWorkspace("/account/profile", "")).toBe("");
+  });
+});
+
+describe("resolveDefaultWorkspace", () => {
+  const multi = [{ workspace: "buildinternet" }, { workspace: "side" }];
+
+  it("picks the only membership, else a valid last-used, else null", () => {
+    expect(resolveDefaultWorkspace([{ workspace: "solo" }], "other")).toBe("solo");
+    expect(resolveDefaultWorkspace(multi, "side")).toBe("side");
+    expect(resolveDefaultWorkspace(multi, "")).toBeNull();
+    expect(resolveDefaultWorkspace(multi, "gone")).toBeNull();
+    expect(resolveDefaultWorkspace([], "buildinternet")).toBeNull();
   });
 });
 
