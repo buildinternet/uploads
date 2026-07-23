@@ -7,7 +7,7 @@
  */
 
 import { InsufficientStorageError, RateLimitedError } from "@uploads/errors";
-import { resolvePlanLimits } from "@uploads/billing";
+import { resolveEffectiveLimits } from "@uploads/billing";
 import type { WorkspaceUsage } from "./usage";
 
 /** Cumulative caps from the workspace registry record. */
@@ -44,21 +44,29 @@ export function resolveBudgetLimits(record: WorkspaceBudgetLimits): {
   maxStorageBytes?: number;
   maxUploadsPerPeriod?: number;
 } {
-  const explicit = {
+  // Sanitize the record's own fields before handing off to the shared
+  // resolution seam: a zero/negative/non-finite value collapses to
+  // "unset" here (matching the pre-existing `positiveLimit` contract),
+  // *before* `resolveEffectiveLimits` decides whether that counts as an
+  // explicit override or falls back to a plan default. This also
+  // preserves the pre-existing quirk that an explicit `null` on this
+  // record type is indistinguishable from "unset" (both become
+  // `undefined`), unlike the richer null-means-"explicitly cleared"
+  // handling `resolveEffectiveLimits`/`resolvePlanLimits` do for other
+  // callers (e.g. `workspace-plan.ts`'s admin-set fields).
+  const sanitized = {
+    ...record,
     maxStorageBytes: positiveLimit(record.maxStorageBytes),
     maxUploadsPerPeriod: positiveLimit(record.maxUploadsPerPeriod),
   };
   // Plan defaults apply ONLY when a workspace has been explicitly placed on
-  // a plan. Absent `plan` must reproduce today's (pre-billing) behavior
-  // byte-for-byte: an unset field is unlimited, full stop — no free-tier
-  // fallback. This keeps every legacy/admin-provisioned workspace unlimited
-  // as it is in production today; only a record with `plan` set opts into
-  // plan-aware resolution (self-serve creation does not set `plan` in this
-  // task — that wiring is a later task).
-  if (record.plan === undefined) {
-    return explicit;
-  }
-  const resolved = resolvePlanLimits(record.plan, explicit);
+  // a plan — the single `plan === undefined` gate lives in
+  // `resolveEffectiveLimits` (issue #388). Absent `plan` must reproduce
+  // today's (pre-billing) behavior byte-for-byte: an unset field is
+  // unlimited, full stop — no free-tier fallback. This keeps every
+  // legacy/admin-provisioned workspace unlimited as it is in production
+  // today; only a record with `plan` set opts into plan-aware resolution.
+  const resolved = resolveEffectiveLimits(sanitized);
   return {
     maxStorageBytes: positiveLimit(resolved.maxStorageBytes),
     maxUploadsPerPeriod: positiveLimit(resolved.maxUploadsPerPeriod),

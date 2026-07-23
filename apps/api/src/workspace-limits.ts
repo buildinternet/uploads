@@ -6,17 +6,15 @@
  * Mirrors set-workspace-limits.mjs's field set and clear semantics, but only
  * the four numeric budget fields (no retention / key-policy). A value is a
  * finite integer >= 1 (set the cap) or null (clear the field -> unlimited).
+ *
+ * The field list itself is canonical in `@uploads/billing` (issue #388,
+ * deferred from PR #386 review) — re-exported here so existing importers
+ * (`routes/admin-ui.ts`, `workspace-plan.ts`) keep working unchanged.
  */
+import { LIMIT_FIELDS, type LimitField } from "@uploads/billing";
 import { ValidationError } from "@uploads/errors";
 
-export const LIMIT_FIELDS = [
-  "maxStorageBytes",
-  "maxUploadsPerPeriod",
-  "maxUploadBytes",
-  "maxVideoUploadBytes",
-] as const;
-
-export type LimitField = (typeof LIMIT_FIELDS)[number];
+export { LIMIT_FIELDS, type LimitField };
 
 export type LimitsPatch = Partial<Record<LimitField, number | null>>;
 

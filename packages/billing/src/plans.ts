@@ -8,18 +8,18 @@
  * `PLANS.free.defaultLimits` into `SELF_SERVE_LIMITS` (do not re-hardcode).
  */
 
+import type { LimitField } from "./limits";
+
 export type PlanId = "free" | "pro";
 
 /** The four budget-limit fields a plan can default — same shape as
  * `apps/api/src/budget.ts`'s `WorkspaceBudgetLimits` plus the two
  * per-upload caps from `WorkspaceRecord`, kept here as an independent type
- * so this package has no dependency on `@uploads/api`. */
-export interface WorkspacePlanLimits {
-  maxStorageBytes?: number;
-  maxUploadsPerPeriod?: number;
-  maxUploadBytes?: number;
-  maxVideoUploadBytes?: number;
-}
+ * so this package has no dependency on `@uploads/api`. Field set is the
+ * canonical `LIMIT_FIELDS` list from `./limits`. */
+export type WorkspacePlanLimits = {
+  [K in LimitField]?: number;
+};
 
 export interface PlanDefinition {
   id: PlanId;
