@@ -50,6 +50,11 @@ uploads screenshot http://localhost:4321 --viewport 1520x960@1x --out home.png -
 uploads screenshot https://uploads.sh --selector main --dark
 ```
 
+`--out` also drops a `<file>.uploads.json` sidecar next to the PNG — that's a
+working file for a later `put`/`attach` to pick metadata back up from, not
+something to commit, so `.gitignore` it (`*.uploads.json`) or delete it once
+you're done attaching.
+
 Only reach for your harness's browser tools / Playwright / an existing file when
 `uploads screenshot` can't reach the target (e.g. a flow that needs auth or
 interaction first). GIFs and video: capture with any tool and upload as-is — the
