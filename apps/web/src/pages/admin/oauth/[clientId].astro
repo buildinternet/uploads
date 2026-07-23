@@ -1,6 +1,5 @@
 ---
 import AdminLayout from "../../../layouts/AdminLayout.astro";
-import "../../../styles/admin-workspaces.css";
 import "../../../styles/admin-oauth.css";
 
 export const prerender = false;
@@ -10,9 +9,9 @@ if (!clientId) return Astro.redirect("/admin/oauth");
 ---
 
 <AdminLayout section="oauth">
-  <section class="card">
-    <a href="/admin/oauth" class="oauth-back">&larr; OAuth apps</a>
-    <div id="oauth-detail-status" class="muted" style="margin-top:12px;font-size:13px">Loading…</div>
+  <section class="admin-page">
+    <a href="/admin/oauth" class="admin-back">&larr; OAuth apps</a>
+    <div id="oauth-detail-status" class="admin-status">Loading…</div>
 
     <div id="oauth-detail" hidden>
       <div class="oauth-detail-header">
@@ -20,7 +19,7 @@ if (!clientId) return Astro.redirect("/admin/oauth");
         <div id="oauth-detail-badges" class="oauth-detail-badges"></div>
       </div>
 
-      <dl class="oauth-detail-grid">
+      <dl class="admin-dl">
         <div>
           <dt>Client ID</dt>
           <dd><code id="oauth-detail-client-id"></code></dd>
@@ -55,17 +54,17 @@ if (!clientId) return Astro.redirect("/admin/oauth");
         </div>
       </dl>
 
-      <div class="oauth-detail-actions">
-        <button type="button" id="oauth-edit-toggle">Edit</button>
-        <button type="button" id="oauth-disable-toggle"></button>
-        <button type="button" id="oauth-delete" class="oauth-danger">Delete</button>
+      <div class="admin-actions">
+        <button type="button" class="admin-btn" id="oauth-edit-toggle">Edit</button>
+        <button type="button" class="admin-btn" id="oauth-disable-toggle"></button>
+        <button type="button" class="admin-btn admin-btn--danger" id="oauth-delete">Delete</button>
       </div>
-      <p id="oauth-delete-hint" class="muted" style="font-size:12px;margin-top:4px" hidden>
+      <p id="oauth-delete-hint" class="muted" style="font-size:12px;margin:0" hidden>
         Remove the official flag to enable deletion.
       </p>
-      <div id="oauth-action-status" role="status" hidden></div>
+      <div id="oauth-action-status" class="admin-status" role="status" hidden></div>
 
-      <form id="oauth-edit-form" class="oauth-form" hidden>
+      <form id="oauth-edit-form" class="admin-stack-form" hidden style="margin-top:8px">
         <label>
           Name
           <input type="text" id="oauth-edit-name" required maxlength="200" />
@@ -107,6 +106,7 @@ if (!clientId) return Astro.redirect("/admin/oauth");
 
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../../lib/account-shell";
+    import { escapeHtml } from "../../../lib/admin-ui";
 
     onAstroPageLoad(() => {
       const detailEl = document.getElementById("oauth-detail");
@@ -136,11 +136,6 @@ if (!clientId) return Astro.redirect("/admin/oauth");
         lastConsentAt: number | null;
       }
 
-      function escapeHtml(value: string): string {
-        return value.replace(/[&<>"']/g, (ch) =>
-          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
-        );
-      }
 
       function errorMessage(payload: unknown, fallback: string): string {
         if (payload && typeof payload === "object") {
@@ -193,8 +188,8 @@ if (!clientId) return Astro.redirect("/admin/oauth");
 
       function badges(client: OAuthClient): string {
         const parts: string[] = [];
-        if (client.official) parts.push(`<span class="pill oauth-badge-official">Official</span>`);
-        if (client.disabled) parts.push(`<span class="pill oauth-badge-disabled">Disabled</span>`);
+        if (client.official) parts.push(`<span class="pill is-admin">Official</span>`);
+        if (client.disabled) parts.push(`<span class="pill is-disabled">Disabled</span>`);
         return parts.join(" ");
       }
 
@@ -204,11 +199,11 @@ if (!clientId) return Astro.redirect("/admin/oauth");
         nameEl.textContent = client.name;
         badgesEl.innerHTML = badges(client);
         clientIdEl.textContent = client.clientId;
-        uriEl.textContent = client.uri || "—";
+        uriEl.textContent = client.uri || "-";
         redirectsEl.innerHTML = client.redirectUris.length
           ? `<ul class="oauth-uri-list">${client.redirectUris.map((u) => `<li>${escapeHtml(u)}</li>`).join("")}</ul>`
-          : "—";
-        scopesEl.textContent = client.scopes.join(", ") || "—";
+          : "-";
+        scopesEl.textContent = client.scopes.join(", ") || "-";
         consentCountEl.textContent = String(client.consentCount);
         activeTokensEl.textContent = String(client.activeTokenCount);
         lastConsentEl.textContent = client.lastConsentAt

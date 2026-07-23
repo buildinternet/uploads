@@ -1,25 +1,43 @@
 ---
 import AdminLayout from "../../layouts/AdminLayout.astro";
-import "../../styles/admin-workspaces.css";
 import "../../styles/admin-oauth.css";
 
 export const prerender = false;
 ---
 
 <AdminLayout section="oauth">
-  <section class="card">
-    <h2>OAuth apps</h2>
-    <p>
-      Registered OAuth client applications. All clients are public PKCE
-      clients — there is no client secret to manage.
-    </p>
-    <div id="oauth-status" class="muted" style="margin-top:12px;font-size:13px">Loading…</div>
-    <div id="oauth-list"></div>
+  <section class="admin-page">
+    <header class="admin-page-header">
+      <h2>OAuth apps</h2>
+      <p>
+        Registered OAuth client applications. All clients are public PKCE
+        clients - there is no client secret to manage.
+      </p>
+    </header>
+    <div id="oauth-status" class="admin-status">Loading…</div>
+    <div class="admin-table-wrap" id="oauth-table-wrap" hidden>
+      <table class="admin-table" id="oauth-list" aria-label="OAuth apps">
+        <thead>
+          <tr>
+            <th class="keep" scope="col">Name</th>
+            <th scope="col">Client ID</th>
+            <th scope="col">Scopes</th>
+            <th scope="col">Created</th>
+            <th class="num" scope="col">Consents</th>
+            <th class="actions" scope="col">Status</th>
+          </tr>
+        </thead>
+        <tbody id="oauth-list-body"></tbody>
+      </table>
+    </div>
   </section>
 
-  <section class="card">
-    <h2>New OAuth app</h2>
-    <form id="oauth-create-form" class="oauth-form">
+  <section class="admin-page">
+    <header class="admin-page-header">
+      <h2>New OAuth app</h2>
+      <p>Create a public PKCE client for an integration or agent.</p>
+    </header>
+    <form id="oauth-create-form" class="admin-stack-form">
       <label>
         Name
         <input type="text" id="oauth-create-name" required maxlength="200" placeholder="My app" />
@@ -58,27 +76,29 @@ export const prerender = false;
       </label>
       <button type="submit">Create app</button>
     </form>
-    <div id="oauth-create-status" role="status" hidden></div>
+    <div id="oauth-create-status" class="admin-status" role="status" hidden></div>
     <div id="oauth-create-result" hidden>
-      <p class="muted">New client ID (copy it now):</p>
+      <p class="muted" style="margin:0;font-size:13px">New client ID (copy it now):</p>
       <div class="oauth-copy-row">
         <input type="text" id="oauth-create-client-id" readonly aria-label="New client ID" />
-        <button type="button" id="oauth-create-copy">Copy</button>
+        <button type="button" class="admin-btn" id="oauth-create-copy">Copy</button>
       </div>
     </div>
   </section>
 
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
+    import { escapeHtml } from "../../lib/admin-ui";
 
     onAstroPageLoad(() => {
-      if (!document.getElementById("oauth-list")) return;
+      if (!document.getElementById("oauth-list-body")) return;
 
       const w = window as unknown as { __UPLOADS_API_ORIGIN__: string };
       const apiOrigin = w.__UPLOADS_API_ORIGIN__.replace(/\/$/, "");
 
       const oauthStatus = requireElement<HTMLElement>("#oauth-status", "admin oauth");
-      const oauthList = requireElement<HTMLElement>("#oauth-list", "admin oauth");
+      const oauthListBody = requireElement<HTMLElement>("#oauth-list-body", "admin oauth");
+      const tableWrap = requireElement<HTMLElement>("#oauth-table-wrap", "admin oauth");
 
       interface OAuthClient {
         clientId: string;
@@ -100,12 +120,6 @@ export const prerender = false;
         lastConsentAt: number | null;
       }
 
-      function escapeHtml(value: string): string {
-        return value.replace(/[&<>"']/g, (ch) =>
-          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
-        );
-      }
-
       async function apiGet<T>(path: string): Promise<T> {
         const res = await fetch(`${apiOrigin}${path}`, { credentials: "include", cache: "no-store" });
         if (!res.ok) throw new Error(`request failed: ${res.status}`);
@@ -114,26 +128,26 @@ export const prerender = false;
 
       function badges(client: OAuthClient): string {
         const parts: string[] = [];
-        if (client.official) parts.push(`<span class="pill oauth-badge-official">Official</span>`);
-        if (client.disabled) parts.push(`<span class="pill oauth-badge-disabled">Disabled</span>`);
-        return parts.join(" ");
+        if (client.official) parts.push(`<span class="pill is-admin">Official</span>`);
+        if (client.disabled) parts.push(`<span class="pill is-disabled">Disabled</span>`);
+        return parts.join(" ") || `<span class="muted">-</span>`;
       }
 
       function renderClient(client: OAuthClient): HTMLElement {
-        const row = document.createElement("a");
-        row.className = "oauth-row";
-        row.href = `/admin/oauth/${encodeURIComponent(client.clientId)}`;
+        const row = document.createElement("tr");
+        row.className = "admin-row";
+        const href = `/admin/oauth/${encodeURIComponent(client.clientId)}`;
         row.innerHTML = `
-          <div class="oauth-row-main">
-            <span class="name">${escapeHtml(client.name)}</span>
-            ${badges(client)}
-          </div>
-          <div class="oauth-row-meta">
-            <code class="oauth-client-id">${escapeHtml(client.clientId)}</code>
-            <span class="muted">${client.scopes.map(escapeHtml).join(", ")}</span>
-            <span class="muted">created ${new Date(client.createdAt).toLocaleDateString()}</span>
-            <span class="muted">${client.consentCount} consent${client.consentCount === 1 ? "" : "s"}</span>
-          </div>
+          <td class="keep">
+            <a class="admin-row-link" href="${href}">
+              <span class="primary">${escapeHtml(client.name)}</span>
+            </a>
+          </td>
+          <td class="optional mono muted">${escapeHtml(client.clientId)}</td>
+          <td class="optional muted">${client.scopes.map(escapeHtml).join(", ") || "-"}</td>
+          <td class="optional muted">${new Date(client.createdAt).toLocaleDateString()}</td>
+          <td class="num optional">${client.consentCount}</td>
+          <td class="actions">${badges(client)}</td>
         `;
         return row;
       }
@@ -142,16 +156,19 @@ export const prerender = false;
         try {
           const { clients } = await apiGet<{ clients: OAuthClient[] }>("/admin-ui/oauth-clients");
           oauthStatus.hidden = true;
-          oauthList.innerHTML = "";
+          oauthListBody.innerHTML = "";
           if (!clients.length) {
             oauthStatus.hidden = false;
             oauthStatus.textContent = "No OAuth apps yet.";
+            tableWrap.hidden = true;
             return;
           }
-          for (const client of clients) oauthList.appendChild(renderClient(client));
+          tableWrap.hidden = false;
+          for (const client of clients) oauthListBody.appendChild(renderClient(client));
         } catch {
           oauthStatus.hidden = false;
           oauthStatus.textContent = "Failed to load OAuth apps.";
+          tableWrap.hidden = true;
         }
       }
 

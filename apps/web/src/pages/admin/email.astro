@@ -4,7 +4,6 @@
  * Type list mirrors EMAIL_PREVIEW_TYPES in apps/api/src/admin-email-preview.ts.
  */
 import AdminLayout from "../../layouts/AdminLayout.astro";
-import "../../styles/admin-email.css";
 
 export const prerender = false;
 
@@ -16,43 +15,54 @@ const PREVIEW_TYPES = [
   { id: "welcome", label: "Welcome / next steps", category: "Auth" },
   { id: "enrollment-invitation", label: "Enrollment invitation", category: "Invites" },
 ] as const;
-
-const categories = [...new Set(PREVIEW_TYPES.map((t) => t.category))];
 ---
 
 <AdminLayout section="email">
-  <section class="card">
-    <h2>Email previews</h2>
-    <p>
-      Send a sample of each product email through Cloudflare Email Sending.
-      Links use placeholder tokens and will not complete a real sign-in or invite.
-      Defaults to your signed-in address; override for another inbox (e.g. Gmail markup tests).
-    </p>
+  <section class="admin-page">
+    <header class="admin-page-header">
+      <h2>Email previews</h2>
+      <p>
+        Send a sample of each product email through Cloudflare Email Sending.
+        Links use placeholder tokens and will not complete a real sign-in or invite.
+        Defaults to your signed-in address; override for another inbox (e.g. Gmail markup tests).
+      </p>
+    </header>
 
-    <div class="email-recipient">
+    <div class="admin-field">
       <label for="email-to">Send to</label>
       <input type="email" id="email-to" maxlength="320" placeholder="you@example.com" />
     </div>
 
-    <div id="email-action-status" class="email-status" role="status" hidden></div>
+    <div id="email-action-status" class="admin-status" role="status" hidden></div>
 
-    {
-      categories.map((category) => (
-        <section class="email-category">
-          <h3>{category}</h3>
-          <ul class="email-type-list">
-            {PREVIEW_TYPES.filter((t) => t.category === category).map((t) => (
-              <li class="email-row">
-                <span class="email-row-label">{t.label}</span>
-                <button type="button" class="email-send" data-type={t.id}>
-                  Send preview
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))
-    }
+    <div class="admin-table-wrap">
+      <table class="admin-table" aria-label="Email previews">
+        <thead>
+          <tr>
+            <th class="keep" scope="col">Template</th>
+            <th scope="col">Category</th>
+            <th class="actions" scope="col"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {
+            PREVIEW_TYPES.map((t) => (
+              <tr class="admin-row">
+                <td class="keep">
+                  <span class="primary">{t.label}</span>
+                </td>
+                <td class="optional muted">{t.category}</td>
+                <td class="actions">
+                  <button type="button" class="admin-btn email-send" data-type={t.id}>
+                    Send preview
+                  </button>
+                </td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
   </section>
 
   <script>
@@ -69,7 +79,7 @@ const categories = [...new Set(PREVIEW_TYPES.map((t) => t.category))];
 
       let busy = false;
 
-      function setStatus(message: string, state?: "ok" | "error") {
+      function setStatus(message: string, state?: "ready" | "error") {
         statusEl.hidden = !message;
         statusEl.textContent = message;
         if (state) statusEl.dataset.state = state;
@@ -113,7 +123,7 @@ const categories = [...new Set(PREVIEW_TYPES.map((t) => t.category))];
             );
             return;
           }
-          setStatus(`Sent “${payload.subject ?? typeId}” to ${payload.to}`, "ok");
+          setStatus(`Sent "${payload.subject ?? typeId}" to ${payload.to}`, "ready");
         } catch {
           setStatus("Could not send the preview email.", "error");
         } finally {

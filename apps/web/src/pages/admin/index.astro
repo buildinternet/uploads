@@ -6,18 +6,38 @@ export const prerender = false;
 ---
 
 <AdminLayout section="workspaces">
-  <section class="card">
-    <h2>Workspaces</h2>
-    <p>
-      Every registered workspace, with its members and pending invites. Expand one
-      to load its people and invite someone.
-    </p>
-    <div id="workspaces-status" class="muted" style="margin-top:12px;font-size:13px">Loading…</div>
-    <div id="workspaces-list"></div>
+  <section class="admin-page">
+    <header class="admin-page-header">
+      <h2>Workspaces</h2>
+      <p>
+        Every registered workspace, with its members and pending invites. Expand a
+        row to load people, plan, limits, and invites.
+      </p>
+    </header>
+    <div id="workspaces-status" class="admin-status">Loading…</div>
+    <div class="admin-table-wrap" id="workspaces-table-wrap" hidden>
+      <table class="admin-table" id="workspaces-list" aria-label="Workspaces">
+        <thead>
+          <tr>
+            <th class="keep" scope="col" style="width:18px"></th>
+            <th class="keep" scope="col">Workspace</th>
+            <th scope="col">Organization</th>
+            <th class="num" scope="col">Members</th>
+            <th class="num" scope="col">Pending</th>
+          </tr>
+        </thead>
+      </table>
+    </div>
   </section>
 
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
+    import {
+      clearExpandGroups,
+      escapeHtml,
+      loadOnce,
+      wireExpandGroup,
+    } from "../../lib/admin-ui";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("workspaces-list")) return;
@@ -45,12 +65,6 @@ export const prerender = false;
       email: string;
       role: string | null;
       status: string;
-    }
-
-    function escapeHtml(value: string): string {
-      return value.replace(/[&<>"']/g, (ch) =>
-        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
-      );
     }
 
     async function apiGet<T>(path: string): Promise<T> {
@@ -348,138 +362,138 @@ export const prerender = false;
     }
 
     function renderWorkspace(ws: WorkspaceSummary): HTMLElement {
-      const details = document.createElement("details");
-      details.className = "workspace";
+      const group = document.createElement("tbody");
+      group.className = "admin-row-group workspace";
       const org = ws.organization ? ws.organization.name : "no organization yet";
-      details.innerHTML = `
-      <summary>
-        <span class="name">${escapeHtml(ws.workspace)}</span>
-        <span class="counts">${escapeHtml(org)} · ${ws.memberCount} member${ws.memberCount === 1 ? "" : "s"} · ${ws.pendingInviteCount} pending</span>
-      </summary>
-      <div class="detail">
-        <div class="members" data-state="unloaded">Members load when expanded.</div>
-        <div class="invites"></div>
-        <div class="plan" data-state="unloaded"></div>
-        <div class="limits" data-state="unloaded"></div>
-        <div class="github-links" data-state="unloaded"></div>
-        ${
-          ws.organization
-            ? `<form class="invite-form" data-workspace="${escapeHtml(ws.workspace)}">
-                <label>Email<input type="email" required class="invite-email" placeholder="you@example.com" /></label>
-                <label>Role
-                  <select class="invite-role">
-                    <option value="member">member</option>
-                    <option value="admin">admin</option>
-                  </select>
-                </label>
-                <button type="submit">Invite</button>
-              </form>
-              <div class="invite-status" hidden></div>`
-            : `<p class="muted">No organization provisioned for this workspace yet — run the org backfill.</p>`
-        }
-        <div class="invite-link-row">
-          <button type="button" class="invite-link-generate">Generate invite link</button>
-          <input type="text" class="invite-link-url" readonly hidden aria-label="Invite link" />
-          <button type="button" class="invite-link-copy" hidden>Copy</button>
-        </div>
-        <div class="invite-status invite-link-status" role="status" aria-live="polite" hidden></div>
-      </div>
-    `;
+      const orgClass = ws.organization ? "" : " muted";
 
-      let loaded = false;
-      let planLoaded = false;
-      let limitsLoaded = false;
-      let githubLinksLoaded = false;
-      details.addEventListener("toggle", () => {
-        void (async () => {
-          if (!details.open || loaded) return;
-          const membersEl = details.querySelector<HTMLElement>(".members");
-          const invitesEl = details.querySelector<HTMLElement>(".invites");
-          if (!ws.organization) {
-            if (membersEl) membersEl.textContent = "";
-            loaded = true;
-            return;
-          }
-          try {
-            const [{ members }, { invites }] = await Promise.all([
-              apiGet<{ members: Member[] }>(
-                `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/members`,
-              ),
-              apiGet<{ invites: Invite[] }>(
-                `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invites`,
-              ),
-            ]);
-            if (membersEl) {
-              membersEl.innerHTML = members.length
-                ? `<ul>${members.map((m) => `<li><span>${escapeHtml(m.email)}</span><span class="role">${escapeHtml(m.role)}</span></li>`).join("")}</ul>`
-                : `<p class="muted">No members yet.</p>`;
+      group.innerHTML = `
+      <tr class="admin-row" tabindex="0" aria-expanded="false">
+        <td class="admin-expand" aria-hidden="true">›</td>
+        <td class="keep"><span class="primary mono">${escapeHtml(ws.workspace)}</span></td>
+        <td class="optional${orgClass}">${escapeHtml(org)}</td>
+        <td class="num optional">${ws.memberCount}</td>
+        <td class="num optional">${ws.pendingInviteCount}</td>
+      </tr>
+      <tr class="admin-detail" hidden>
+        <td colspan="5">
+          <div class="admin-detail-inner">
+            <div class="members admin-detail-block" data-state="unloaded">Members load when expanded.</div>
+            <div class="invites admin-detail-block"></div>
+            <div class="plan admin-detail-block" data-state="unloaded"></div>
+            <div class="limits admin-detail-block" data-state="unloaded"></div>
+            <div class="github-links admin-detail-block" data-state="unloaded"></div>
+            ${
+              ws.organization
+                ? `<form class="invite-form admin-inline-form admin-detail-block" data-workspace="${escapeHtml(ws.workspace)}">
+                    <label>Email<input type="email" required class="invite-email" placeholder="you@example.com" /></label>
+                    <label>Role
+                      <select class="invite-role">
+                        <option value="member">member</option>
+                        <option value="admin">admin</option>
+                      </select>
+                    </label>
+                    <button type="submit">Invite</button>
+                  </form>
+                  <div class="invite-status" hidden></div>`
+                : `<p class="muted admin-detail-block">No organization provisioned for this workspace yet - run the org backfill.</p>`
             }
-            if (invitesEl) {
-              invitesEl.innerHTML = invites.length
-                ? `<ul>${invites.map((i) => `<li><span>${escapeHtml(i.email)}</span><span class="role">pending</span></li>`).join("")}</ul>`
-                : "";
+            <div class="invite-link-row admin-detail-block">
+              <button type="button" class="invite-link-generate">Generate invite link</button>
+              <input type="text" class="invite-link-url" readonly hidden aria-label="Invite link" />
+              <button type="button" class="invite-link-copy" hidden>Copy</button>
+            </div>
+            <div class="invite-status invite-link-status" role="status" aria-live="polite" hidden></div>
+          </div>
+        </td>
+      </tr>`;
+
+      const membersLoaded = { done: false };
+      const planLoaded = { done: false };
+      const limitsLoaded = { done: false };
+      const githubLinksLoaded = { done: false };
+
+      function loadDetail() {
+        const membersEl = group.querySelector<HTMLElement>(".members");
+        const invitesEl = group.querySelector<HTMLElement>(".invites");
+        if (!ws.organization) {
+          if (membersEl) membersEl.textContent = "";
+          membersLoaded.done = true;
+        } else {
+          loadOnce(membersLoaded, async () => {
+            try {
+              const [{ members }, { invites }] = await Promise.all([
+                apiGet<{ members: Member[] }>(
+                  `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/members`,
+                ),
+                apiGet<{ invites: Invite[] }>(
+                  `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invites`,
+                ),
+              ]);
+              if (membersEl) {
+                membersEl.innerHTML = members.length
+                  ? `<h4>Members</h4><ul class="admin-mini-list">${members.map((m) => `<li><span>${escapeHtml(m.email)}</span><span class="role">${escapeHtml(m.role)}</span></li>`).join("")}</ul>`
+                  : `<p class="muted">No members yet.</p>`;
+              }
+              if (invitesEl) {
+                invitesEl.innerHTML = invites.length
+                  ? `<h4>Pending invites</h4><ul class="admin-mini-list">${invites.map((i) => `<li><span>${escapeHtml(i.email)}</span><span class="role">pending</span></li>`).join("")}</ul>`
+                  : "";
+              }
+            } catch {
+              if (membersEl) membersEl.textContent = "Failed to load members.";
+              throw new Error("members");
             }
-            // Only mark as loaded once the fetch actually succeeded — a failure
-            // leaves `loaded` false so re-toggling the <details> retries instead
-            // of permanently showing "Failed to load members."
-            loaded = true;
-          } catch {
-            if (membersEl) membersEl.textContent = "Failed to load members.";
-          }
-        })();
-        // Plan selector — independent load, own retry flag, same pattern as
-        // limits below.
-        void (async () => {
-          if (!details.open || planLoaded) return;
-          const planEl = details.querySelector<HTMLElement>(".plan");
+          });
+        }
+
+        loadOnce(planLoaded, async () => {
+          const planEl = group.querySelector<HTMLElement>(".plan");
           if (!planEl) return;
           try {
             const planData = await apiGet<PlanResponse>(
               `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/plan`,
             );
             renderPlanSelector(planEl, ws.workspace, planData);
-            planLoaded = true;
           } catch {
             planEl.innerHTML = `<p class="muted">Failed to load plan.</p>`;
+            throw new Error("plan");
           }
-        })();
-        // Limits apply to every workspace regardless of org, and their load
-        // must not depend on the members/invites fetch — so run it in its own
-        // block with its own retry flag (only set on success).
-        void (async () => {
-          if (!details.open || limitsLoaded) return;
-          const limitsEl = details.querySelector<HTMLElement>(".limits");
+        });
+
+        loadOnce(limitsLoaded, async () => {
+          const limitsEl = group.querySelector<HTMLElement>(".limits");
           if (!limitsEl) return;
           try {
             const limitsData = await apiGet<LimitsResponse>(
               `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/limits`,
             );
             renderLimitsForm(limitsEl, ws.workspace, limitsData);
-            limitsLoaded = true;
           } catch {
             limitsEl.innerHTML = `<p class="muted">Failed to load limits.</p>`;
+            throw new Error("limits");
           }
-        })();
-        // GitHub repo bindings (issue #318 admin visibility) — same
-        // independent-load pattern as limits, own retry flag.
-        void (async () => {
-          if (!details.open || githubLinksLoaded) return;
-          const githubLinksEl = details.querySelector<HTMLElement>(".github-links");
+        });
+
+        loadOnce(githubLinksLoaded, async () => {
+          const githubLinksEl = group.querySelector<HTMLElement>(".github-links");
           if (!githubLinksEl) return;
           try {
             const { links } = await apiGet<GithubLinksResponse>(
               `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/github-links`,
             );
             renderGithubLinks(githubLinksEl, links);
-            githubLinksLoaded = true;
           } catch {
             githubLinksEl.innerHTML = `<p class="muted">Failed to load GitHub links.</p>`;
+            throw new Error("github");
           }
-        })();
-      });
+        });
+      }
 
-      const form = details.querySelector<HTMLFormElement>(".invite-form");
-      const statusEl = details.querySelector<HTMLElement>(".invite-status");
+      const { setOpen } = wireExpandGroup(group, loadDetail);
+
+      const form = group.querySelector<HTMLFormElement>(".invite-form");
+      const statusEl = group.querySelector<HTMLElement>(".invite-status:not(.invite-link-status)");
       form?.addEventListener("submit", (event) => {
         void (async () => {
           event.preventDefault();
@@ -512,9 +526,8 @@ export const prerender = false;
               statusEl.hidden = false;
             }
             if (emailInput) emailInput.value = "";
-            loaded = false;
-            details.open = false;
-            details.open = true;
+            membersLoaded.done = false;
+            setOpen(true);
           } catch (err) {
             if (statusEl) {
               statusEl.dataset.state = "error";
@@ -528,10 +541,10 @@ export const prerender = false;
         })();
       });
 
-      const generateBtn = details.querySelector<HTMLButtonElement>(".invite-link-generate");
-      const urlInput = details.querySelector<HTMLInputElement>(".invite-link-url");
-      const copyBtn = details.querySelector<HTMLButtonElement>(".invite-link-copy");
-      const linkStatusEl = details.querySelector<HTMLElement>(".invite-link-status");
+      const generateBtn = group.querySelector<HTMLButtonElement>(".invite-link-generate");
+      const urlInput = group.querySelector<HTMLInputElement>(".invite-link-url");
+      const copyBtn = group.querySelector<HTMLButtonElement>(".invite-link-copy");
+      const linkStatusEl = group.querySelector<HTMLElement>(".invite-link-status");
       generateBtn?.addEventListener("click", () => {
         void (async () => {
           generateBtn.disabled = true;
@@ -596,24 +609,28 @@ export const prerender = false;
         })();
       });
 
-      return details;
+      return group;
     }
 
     async function loadWorkspaces() {
+      const tableWrap = document.getElementById("workspaces-table-wrap");
       try {
         const { workspaces } = await apiGet<{ workspaces: WorkspaceSummary[] }>(
           "/admin-ui/workspaces",
         );
         workspacesStatus.hidden = true;
-        workspacesList.innerHTML = "";
+        clearExpandGroups(workspacesList);
         if (!workspaces.length) {
           workspacesStatus.hidden = false;
           workspacesStatus.textContent = "No workspaces yet.";
+          if (tableWrap) tableWrap.hidden = true;
           return;
         }
+        if (tableWrap) tableWrap.hidden = false;
         for (const ws of workspaces) workspacesList.appendChild(renderWorkspace(ws));
       } catch {
         workspacesStatus.textContent = "Failed to load workspaces.";
+        if (tableWrap) tableWrap.hidden = true;
       }
     }
 

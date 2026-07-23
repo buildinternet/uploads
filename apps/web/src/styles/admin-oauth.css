@@ -1,91 +1,8 @@
-/* Admin OAuth apps on /admin/oauth and /admin/oauth/[clientId] (JS-injected markup). */
-#oauth-list {
-  display: grid;
-  gap: 10px;
-  margin-top: 12px;
-}
-.oauth-row {
-  display: block;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg);
-  text-decoration: none;
-  color: inherit;
-}
-.oauth-row:hover,
-.oauth-row:focus-visible {
-  border-color: var(--accent);
-  outline: none;
-}
-.oauth-row-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.oauth-row-main .name {
-  color: var(--fg);
-  font-weight: 600;
-  font-size: 13px;
-}
-.oauth-row-meta {
-  margin-top: 6px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  font-size: 12px;
-}
-.oauth-client-id {
-  color: var(--body);
-  font: 11px var(--mono);
-}
+/* OAuth create form + detail extras. */
 
-.pill.oauth-badge-official {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-.pill.oauth-badge-disabled {
-  color: var(--red);
-  border-color: var(--red);
-}
-.pill.oauth-badge-dcr {
-  color: var(--muted);
-}
-
-.oauth-form {
-  display: grid;
-  gap: 12px;
-  margin-top: 12px;
-  max-width: 480px;
-}
-.oauth-form label {
-  display: grid;
-  gap: 4px;
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.oauth-form input[type="text"],
-.oauth-form input[type="url"],
-.oauth-form textarea {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--fg);
-  padding: 7px 9px;
-  font: 12px var(--mono);
-  text-transform: none;
-  letter-spacing: normal;
-}
-.oauth-form textarea {
-  resize: vertical;
-}
 .oauth-scopes {
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 8px 10px;
   display: grid;
   gap: 6px;
@@ -93,7 +10,7 @@
 .oauth-scopes legend {
   color: var(--muted);
   font-size: 11px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   padding: 0 4px;
 }
@@ -107,113 +24,22 @@
   color: var(--body) !important;
   font-size: 12px !important;
 }
-.oauth-form button,
-.oauth-detail-actions button,
-.oauth-form-actions button {
-  font: 11px var(--mono);
-  color: var(--accent);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 7px 12px;
-  cursor: pointer;
-  width: fit-content;
-}
-.oauth-form button:hover,
-.oauth-form button:focus-visible,
-.oauth-detail-actions button:hover,
-.oauth-detail-actions button:focus-visible,
-.oauth-form-actions button:hover,
-.oauth-form-actions button:focus-visible {
-  border-color: var(--accent);
-  outline: none;
-}
-.oauth-danger {
-  color: var(--red) !important;
-}
-.oauth-danger:disabled {
-  color: var(--muted) !important;
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-#oauth-create-status,
-#oauth-action-status {
-  font-size: 12px;
-  margin-top: 8px;
-}
-#oauth-create-status[data-state="error"],
-#oauth-action-status[data-state="error"] {
-  color: var(--red);
-}
-#oauth-create-status[data-state="ready"],
-#oauth-action-status[data-state="ready"] {
-  color: var(--accent);
-}
-
-#oauth-create-result {
-  margin-top: 12px;
-}
 .oauth-copy-row {
   display: flex;
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+  margin-top: 8px;
 }
 .oauth-copy-row input {
   flex: 1;
   min-width: 200px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: var(--fg);
   padding: 7px 9px;
   font: 11px var(--mono);
-}
-
-.oauth-back {
-  font-size: 12px;
-  color: var(--muted);
-  text-decoration: none;
-}
-.oauth-back:hover,
-.oauth-back:focus-visible {
-  color: var(--accent);
-}
-
-.oauth-detail-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 12px;
-}
-.oauth-detail-badges {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.oauth-detail-grid {
-  margin: 16px 0 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px 20px;
-}
-.oauth-detail-grid dt {
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.oauth-detail-grid dd {
-  margin: 4px 0 0;
-  color: var(--body);
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-.oauth-detail-grid code {
-  font: 12px var(--mono);
 }
 .oauth-uri-list {
   list-style: none;
@@ -223,17 +49,24 @@
   gap: 4px;
   font: 12px var(--mono);
 }
-
-.oauth-detail-actions {
+.oauth-detail-header {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
   flex-wrap: wrap;
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
 }
-
+.oauth-detail-header h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.oauth-detail-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 .oauth-form-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
