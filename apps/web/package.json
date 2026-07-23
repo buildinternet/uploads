@@ -19,6 +19,7 @@
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.2",
     "@astrojs/react": "^6.0.1",
+    "@uploads/billing": "workspace:^",
     "@uploads/ui": "workspace:*",
     "astro": "^7.0.6",
     "files-sdk": "^2.1.0",

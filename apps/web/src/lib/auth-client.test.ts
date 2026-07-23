@@ -9,6 +9,7 @@ import {
   listAccounts,
   listAdminUsers,
   listSessions,
+  openOrganizationBillingPortal,
   revokeSession,
   sendMagicLink,
   getOAuthWorkspaceChoice,
@@ -17,6 +18,7 @@ import {
   startLocalDemoSession,
   submitOAuthConsent,
   unbanUser,
+  upgradeOrganizationSubscription,
 } from "./auth-client";
 import { BROWSER_REQUEST_TIMEOUT_MS, fetchWithTimeout } from "./request";
 
@@ -650,5 +652,121 @@ describe("startLocalDemoSession", () => {
     await expect(
       startLocalDemoSession("http://127.0.0.1:8788", "http://127.0.0.1:4321"),
     ).resolves.toEqual({ kind: "unavailable", reason: "server" });
+  });
+});
+
+describe("upgradeOrganizationSubscription", () => {
+  it("posts the organization upgrade body and returns the checkout url", async () => {
+    const fetcher = vi.fn(async () => Response.json({ url: "https://checkout.stripe.com/x" }));
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      upgradeOrganizationSubscription("https://auth.uploads.sh", {
+        plan: "pro",
+        referenceId: "org_1",
+        successUrl: "https://uploads.sh/account/workspaces/acme/billing?upgraded=1",
+        cancelUrl: "https://uploads.sh/account/workspaces/acme/billing",
+      }),
+    ).resolves.toEqual({ ok: true, url: "https://checkout.stripe.com/x" });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://auth.uploads.sh/api/auth/subscription/upgrade",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plan: "pro",
+          referenceId: "org_1",
+          customerType: "organization",
+          successUrl: "https://uploads.sh/account/workspaces/acme/billing?upgraded=1",
+          cancelUrl: "https://uploads.sh/account/workspaces/acme/billing",
+        }),
+      }),
+    );
+  });
+
+  it("surfaces a server error message, falling back to a generic one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ message: "already subscribed" }, { status: 400 })),
+    );
+    await expect(
+      upgradeOrganizationSubscription("https://auth.uploads.sh", {
+        plan: "pro",
+        referenceId: "org_1",
+        successUrl: "https://uploads.sh/x",
+        cancelUrl: "https://uploads.sh/x",
+      }),
+    ).resolves.toEqual({ ok: false, message: "already subscribed" });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 500 })),
+    );
+    await expect(
+      upgradeOrganizationSubscription("https://auth.uploads.sh", {
+        plan: "pro",
+        referenceId: "org_1",
+        successUrl: "https://uploads.sh/x",
+        cancelUrl: "https://uploads.sh/x",
+      }),
+    ).resolves.toEqual({ ok: false, message: "Something went wrong. Try again." });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network down");
+      }),
+    );
+    await expect(
+      upgradeOrganizationSubscription("https://auth.uploads.sh", {
+        plan: "pro",
+        referenceId: "org_1",
+        successUrl: "https://uploads.sh/x",
+        cancelUrl: "https://uploads.sh/x",
+      }),
+    ).resolves.toEqual({ ok: false, message: "Couldn't reach the auth service. Try again." });
+  });
+});
+
+describe("openOrganizationBillingPortal", () => {
+  it("posts the organization billing-portal body and returns the portal url", async () => {
+    const fetcher = vi.fn(async () => Response.json({ url: "https://billing.stripe.com/x" }));
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(
+      openOrganizationBillingPortal("https://auth.uploads.sh", {
+        referenceId: "org_1",
+        returnUrl: "https://uploads.sh/account/workspaces/acme/billing",
+      }),
+    ).resolves.toEqual({ ok: true, url: "https://billing.stripe.com/x" });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://auth.uploads.sh/api/auth/subscription/billing-portal",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          referenceId: "org_1",
+          customerType: "organization",
+          returnUrl: "https://uploads.sh/account/workspaces/acme/billing",
+        }),
+      }),
+    );
+  });
+
+  it("returns false-shaped failure on non-2xx", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ error: { message: "no customer" } }, { status: 404 })),
+    );
+    await expect(
+      openOrganizationBillingPortal("https://auth.uploads.sh", {
+        referenceId: "org_1",
+        returnUrl: "https://uploads.sh/x",
+      }),
+    ).resolves.toEqual({ ok: false, message: "no customer" });
   });
 });
