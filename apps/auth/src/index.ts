@@ -7,6 +7,7 @@ import { localDemoEnabled } from "./local-demo";
 import { isTrustedOrigin } from "./trusted-origins";
 import { runAuthRetentionSweep } from "./retention-sweep";
 import { sweepOauthClients } from "./oauth-client-reaper";
+import { billingPricesResponseBody } from "./billing-prices";
 
 // Credentialed CORS for the web origin (+ dev origins), scoped to /api/auth/*
 // only — this worker has no other public surface (D1: "CORS becomes trivial").
@@ -46,8 +47,22 @@ async function discoveryAlias(
   return new Response(res.body, { status: res.status, headers });
 }
 
+// Public, non-credentialed CORS for /billing/prices — the web app fetches
+// this cross-origin with a plain `fetch`, no cookies involved, so this is
+// intentionally looser than `authCors` (no `credentials: true`).
+const billingPricesCors = cors({
+  origin: (origin, c) => (origin && isTrustedOrigin(origin, c.env as AuthEnv) ? origin : null),
+  allowMethods: ["GET", "OPTIONS"],
+  maxAge: 86400,
+});
+
 export const app = new Hono<{ Bindings: AuthEnv }>()
   .get("/health", (c) => c.json({ ok: true }))
+  .use("/billing/prices", billingPricesCors)
+  .get("/billing/prices", async (c) => {
+    const body = await billingPricesResponseBody(c.env);
+    return c.json(body, 200, { "Cache-Control": "public, max-age=300" });
+  })
   // RFC 8414 path-inserted form: /.well-known/oauth-authorization-server{issuer-path}.
   // Issuer is `${BETTER_AUTH_URL}/api/auth`, so both the bare and `/*` forms
   // rewrite to the same plugin path.

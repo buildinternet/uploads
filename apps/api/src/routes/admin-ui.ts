@@ -36,7 +36,12 @@ import {
 } from "../github-repo-links";
 import { allowWrite } from "../guards";
 import { deriveWebOrigin, inviteLinkUrl } from "../invite-links";
-import { invitesForOrg, membersForOrg, orgForWorkspace } from "../org-workspaces";
+import {
+  invitesForOrg,
+  membersForOrg,
+  orgForWorkspace,
+  subscriptionForOrg,
+} from "../org-workspaces";
 import {
   requireAdminUser,
   requireSessionUser,
@@ -47,7 +52,7 @@ import { getWorkspaceUsage } from "../usage";
 import { isPurgedTombstone, loadWorkspaceRecordRaw, type WorkspaceRecord } from "../workspace";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { LIMIT_FIELDS, validateLimitsPatch } from "../workspace-limits";
-import { planResponse, validatePlanPatch } from "../workspace-plan";
+import { planResponse, planSourceFor, validatePlanPatch } from "../workspace-plan";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BAN_REASON_MAX = 500;
@@ -224,6 +229,33 @@ async function loadEditableWorkspace(env: Env, name: string): Promise<WorkspaceR
     throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
   }
   return record;
+}
+
+/**
+ * Issue #445 (task 2): subscription enrichment for the admin panel's plan
+ * view — `planSource` reuses workspace-plan.ts's `planSourceFor` (the same
+ * helper /me/workspaces/:name/billing calls), and `stripeCustomerId` is
+ * included here ONLY (never in /me responses) as a deep-link target for
+ * support work: `https://dashboard.stripe.com/customers/<id>`, built
+ * client-side in apps/web so this stays a plain id, not a baked-in URL.
+ * `subscriptionForOrg` never throws — an AUTH outage degrades to
+ * `planSource` derived from a `null` subscription and `subscription: null`
+ * rather than a 500, same fail-soft contract as the /me surface.
+ */
+async function adminSubscriptionInfo(env: Env, workspaceName: string, record: WorkspaceRecord) {
+  const org = await orgForWorkspace(env, workspaceName);
+  const authSubscription = org ? await subscriptionForOrg(env, org.slug) : null;
+  return {
+    planSource: planSourceFor(record, authSubscription),
+    subscription: authSubscription
+      ? {
+          status: authSubscription.status,
+          periodEnd: authSubscription.periodEnd,
+          cancelAtPeriodEnd: authSubscription.cancelAtPeriodEnd,
+          stripeCustomerId: authSubscription.stripeCustomerId,
+        }
+      : null,
+  };
 }
 
 /** The per-workspace managed-comment booleans (issues #304, #365). */
@@ -506,7 +538,8 @@ export const adminUi = new Hono<SessionVars>()
   .get("/workspaces/:name/plan", async (c) => {
     const name = c.req.param("name");
     const record = await loadEditableWorkspace(c.env, name);
-    return c.json(planResponse(name, record));
+    const subscriptionInfo = await adminSubscriptionInfo(c.env, name, record);
+    return c.json({ ...planResponse(name, record), ...subscriptionInfo });
   })
 
   // Set the workspace's plan. Admins may set `pro` even though it's
@@ -528,7 +561,8 @@ export const adminUi = new Hono<SessionVars>()
     const record = await mutateWorkspaceRecord(c.env, name, (current) => ({ ...current, plan }), {
       requireServing: true,
     });
-    return c.json(planResponse(name, record));
+    const subscriptionInfo = await adminSubscriptionInfo(c.env, name, record);
+    return c.json({ ...planResponse(name, record), ...subscriptionInfo });
   })
 
   // Read the per-workspace managed-comment settings: whether attachments

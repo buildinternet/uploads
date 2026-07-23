@@ -1,11 +1,27 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatMarketedBytes,
   orderOrgsOldestFirst,
   renderInvitesHtml,
   renderMembersHtml,
   renderUsageHtml,
   safeSameOriginPath,
 } from "./workspace-ui";
+
+describe("formatMarketedBytes", () => {
+  it("renders the catalog's round decimal caps exactly as marketed", () => {
+    expect(formatMarketedBytes(250_000_000)).toBe("250 MB");
+    expect(formatMarketedBytes(25_000_000)).toBe("25 MB");
+    expect(formatMarketedBytes(8_000_000)).toBe("8 MB");
+    expect(formatMarketedBytes(10_000_000_000)).toBe("10 GB");
+    expect(formatMarketedBytes(100_000_000)).toBe("100 MB");
+  });
+
+  it("handles sub-KB and fractional values", () => {
+    expect(formatMarketedBytes(500)).toBe("500 B");
+    expect(formatMarketedBytes(1_500_000)).toBe("1.5 MB");
+  });
+});
 
 describe("renderMembersHtml", () => {
   it("leads with the display name and shows email as the sub-line", () => {

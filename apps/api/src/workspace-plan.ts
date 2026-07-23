@@ -7,14 +7,45 @@
  */
 import {
   getPlan,
+  isStripeBackingStatus,
   PLAN_IDS,
   resolveEffectiveLimits,
   type PlanId,
   type WorkspacePlanLimits,
 } from "@uploads/billing";
 import { ValidationError } from "@uploads/errors";
+import type { AuthSubscription } from "./org-workspaces";
 import type { WorkspaceRecord } from "./workspace";
 import { LIMIT_FIELDS } from "./workspace-limits";
+
+export type PlanSource = "stripe" | "admin" | "none";
+
+/**
+ * Derives `planSource` from (workspace record plan + auth subscription) live,
+ * on every read — issue #445's last paragraph explicitly asks NOT to add a
+ * stored marker to the workspace record when this is computable, since a
+ * stored marker could drift from the two systems it's derived from. This is
+ * the single shared helper both `/me/workspaces/:name/billing` and the
+ * admin-ui subscription view call (see routes/me.ts and routes/admin-ui.ts);
+ * issue #388's reconciliation sweep can reuse it too rather than
+ * reimplementing the same three-way logic.
+ *
+ * - "stripe": the plan is paid AND a Stripe subscription in an
+ *   active/trialing/past_due state backs it.
+ * - "admin": the plan is paid but no such subscription exists (comped/
+ *   admin-set via PATCH /admin-ui/workspaces/:name/plan).
+ * - "none": the plan is free (regardless of subscription state — a stray
+ *   subscription row with no live workspace plan to match isn't "stripe" from
+ *   this workspace's point of view).
+ */
+export function planSourceFor(
+  record: WorkspaceRecord,
+  subscription: AuthSubscription | null,
+): PlanSource {
+  const plan = getPlan(record.plan).id;
+  if (plan === "free") return "none";
+  return subscription && isStripeBackingStatus(subscription.status) ? "stripe" : "admin";
+}
 
 export function validatePlanPatch(body: unknown): { plan: PlanId } {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {

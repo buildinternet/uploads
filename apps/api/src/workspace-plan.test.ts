@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { planResponse, validatePlanPatch } from "./workspace-plan";
+import type { AuthSubscription } from "./org-workspaces";
+import { planResponse, planSourceFor, validatePlanPatch } from "./workspace-plan";
+
+function sub(overrides: Partial<AuthSubscription> = {}): AuthSubscription {
+  return {
+    status: "active",
+    periodEnd: "2026-08-15T00:00:00.000Z",
+    cancelAtPeriodEnd: false,
+    stripeCustomerId: "cus_123",
+    plan: "pro",
+    ...overrides,
+  };
+}
 
 describe("validatePlanPatch", () => {
   it("accepts a known plan id", () => {
@@ -81,5 +93,43 @@ describe("planResponse", () => {
     expect(result.plan).toBe("free");
     expect(result.planApplied).toBe(true);
     expect(result.limits.maxStorageBytes).toBe(250_000_000);
+  });
+});
+
+describe("planSourceFor (issue #445)", () => {
+  it("is 'none' for a free-plan record, subscription or not", () => {
+    expect(planSourceFor({ provider: "r2", bucket: "b", plan: "free" }, null)).toBe("none");
+    expect(planSourceFor({ provider: "r2", bucket: "b", plan: "free" }, sub())).toBe("none");
+  });
+
+  it("is 'none' for a bare record with no plan field (fails open to free)", () => {
+    expect(planSourceFor({ provider: "r2", bucket: "b" }, null)).toBe("none");
+  });
+
+  it("is 'admin' for a paid plan with no backing subscription", () => {
+    expect(planSourceFor({ provider: "r2", bucket: "b", plan: "pro" }, null)).toBe("admin");
+  });
+
+  it("is 'admin' for a paid plan whose subscription has a terminal status", () => {
+    expect(
+      planSourceFor({ provider: "r2", bucket: "b", plan: "pro" }, sub({ status: "canceled" })),
+    ).toBe("admin");
+  });
+
+  it("is 'stripe' for a paid plan backed by an active/trialing/past_due subscription", () => {
+    for (const status of ["active", "trialing", "past_due"]) {
+      expect(planSourceFor({ provider: "r2", bucket: "b", plan: "pro" }, sub({ status }))).toBe(
+        "stripe",
+      );
+    }
+  });
+
+  it("is 'stripe' for a cancel-at-period-end subscription that's still active", () => {
+    expect(
+      planSourceFor(
+        { provider: "r2", bucket: "b", plan: "pro" },
+        sub({ status: "active", cancelAtPeriodEnd: true }),
+      ),
+    ).toBe("stripe");
   });
 });
