@@ -81,14 +81,18 @@ still on a branch, no PR yet — attach it right then. As of issue #403, a
 **bare `uploads put`** already does this automatically whenever you're inside
 a git repo on a non-default branch with no `--pr`/`--issue`/`--key`/`--ref`/
 `--prefix` — it stages under the same branch-keyed path `attach --branch`
-would produce, so a plain `uploads put step1-before.png --state before` is
-enough. Reach for `attach --branch` explicitly when you want its extras
-(uploading several files at once with shared flags, or triggering promotion/
-comment sync as a side effect):
+would produce, so a plain `uploads put step1-before.png --meta path=/settings
+--state before` is enough. As of issue #469, **`uploads screenshot`** (with no
+`--pr`/`--issue`/`--branch` target) stages the same way, so capturing directly
+from a URL before the PR exists carries every derived fact (path/url/env/
+viewport, plus `--state`) all the way through to the PR once it opens — no
+extra flag needed for the auto-derived ones. Reach for `attach --branch`
+explicitly when you want its extras (uploading several files at once with
+shared flags, or triggering promotion/comment sync as a side effect):
 
 ```bash
-uploads put ./step1-before.png --state before
-uploads put ./step2-after.png --state after   # later, same branch
+uploads put ./step1-before.png --meta path=/settings --state before
+uploads screenshot http://localhost:4321/settings --out step2-after.png --state after
 
 # or, explicitly, e.g. to upload several at once:
 uploads attach ./step1-before.png ./step2-after.png --branch --state after
@@ -98,8 +102,9 @@ This uploads under stable, branch-keyed paths (no PR/issue target needed, no
 comment yet — there's nothing to comment on until a PR exists). Keep doing
 this at each meaningful visual milestone as you work; don't batch everything
 into one call at the end. On the default branch (or outside a git repo, or
-with `--no-git`), `put` falls back to its ordinary dated layout — that's the
-opt-out, along with any explicit `--key`/`--ref`/`--prefix`.
+with `--no-git`), `put`/`screenshot` fall back to their ordinary dated
+layout — that's the opt-out, along with any explicit `--key`/`--ref`/
+`--prefix`/`--destination`.
 
 **Staging only auto-promotes into a bound repo — don't promise it blind.**
 Auto-promotion at PR-open time (webhook or CLI-triggered, below) requires the
@@ -120,11 +125,24 @@ there's no git context server-side) plus `comment: true` to post straight to
 the managed attachments comment — see the **uploads-cli** skill for the exact
 tool contract and honest decline reasons.
 
-**Pass `--state before`/`--state after` as a habit.** Before/after is the whole
-point of most PR screenshots, and it's the one thing no tool can infer from the
-image. It costs a flag now and makes `uploads find state=after` work months
-later, when the filenames mean nothing to anyone. (`--state` also takes `empty`,
-`error`, and `loading`.) Route and viewport are derived for you — see the
+**Pass `--state before`/`--state after` and `--meta path=/route` as a habit —
+both, every time.** Before/after is the whole point of most PR screenshots, and
+it's the one thing no tool can infer from the image; `path` is the other
+highest-value queryable tag, and it's just as easy to forget outside
+`uploads screenshot` (which derives it from the captured URL automatically —
+`uploads put`/`uploads attach` of an existing file have nothing to derive it
+from). Both cost one flag now and make `uploads find state=after` or
+`uploads find path=/settings` work months later, when the filenames mean
+nothing to anyone:
+
+```bash
+uploads put ./after.png --pr 123 --meta path=/settings --state after
+```
+
+(`--state` also takes `empty`, `error`, and `loading`.) `attach`/`put --pr`/
+`put --issue` print a `tip: add --meta path=/route so this shot is findable by
+page` on stderr (and a JSON `hint` field) when an image lands with no `path`
+meta — don't ignore it. Viewport is derived for you on `screenshot` — see the
 **uploads-cli** skill for the full canonical vocabulary.
 
 **The PR comment assembles itself — you don't drive that step.** Once the PR

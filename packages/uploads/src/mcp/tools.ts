@@ -10,6 +10,7 @@ import { createUploadsClient, type UploadsClient } from "../client.js";
 import {
   buildDoctorReport,
   makeGhTarget,
+  mergeStagingMeta,
   resolvePutStagingTarget,
   resolveStaged,
   syncAttachmentsComment,
@@ -26,7 +27,7 @@ import {
   type UploadsClientConfig,
 } from "../config.js";
 import { resolvePutPrefix } from "../destinations.js";
-import { ghKeyPrefix, ghMetadataForBranch, type GhTarget } from "../github.js";
+import { ghBranchAttachmentKey, ghKeyPrefix, type GhTarget } from "../github.js";
 import { safeCaptureFacts } from "../capture-facts.js";
 import { validateMetaMap } from "../metadata.js";
 import { mergeDerivedMeta } from "../metadata-vocab.js";
@@ -516,16 +517,7 @@ export function createUploadsMcpTools(opts: {
           repoArg: optString(args, "repo") ?? defaults.repo,
           run,
         });
-        const putMetadata = stagingTarget
-          ? (() => {
-              const merged = {
-                ...metadata,
-                ...ghMetadataForBranch(stagingTarget.repo, stagingTarget.branch),
-              };
-              validateMetaMap(merged); // same builder, same contract as attach --branch
-              return merged;
-            })()
-          : metadata;
+        const putMetadata = stagingTarget ? mergeStagingMeta(metadata, stagingTarget) : metadata;
 
         const putShared = {
           client,
@@ -794,17 +786,6 @@ export function createUploadsMcpTools(opts: {
         }
         const metadata = metadataArgWithCanonical(args);
         if (metadata) validateMetaMap(metadata);
-        let resolvedPrefix: string | undefined;
-        try {
-          resolvedPrefix = resolvePutPrefix({
-            destination: destArg,
-            prefix: prefixArg,
-            key: keyArg,
-            ghAttachment: Boolean(target),
-          });
-        } catch (err) {
-          usage(err instanceof Error ? err.message : String(err));
-        }
 
         const { config, client } = clientFor(args);
         const defaults = resolvePutDefaults({ envFile: globals.envFile });
@@ -813,6 +794,35 @@ export function createUploadsMcpTools(opts: {
         const noGit = optBool(args, "noGit") || defaults.noGit === true;
         const alt = optString(args, "alt");
         const width = optPosInt(args, "width") ?? defaults.width;
+
+        // Auto branch staging (issue #469 lever 1): mirrors the CLI screenshot
+        // command and the put tool above (issue #403) — no pr/issue/key/ref/
+        // prefix/destination, not noGit, on a non-default git branch stages
+        // to the branch prefix (identical key/metadata to `attach --branch`)
+        // instead of the dated `screenshots/<repo>/<date>/...` layout. Never
+        // throws — see resolvePutStagingTarget.
+        const stagingTarget = resolvePutStagingTarget({
+          ghTarget: target,
+          keyHint: keyArg,
+          refArg,
+          prefixArg,
+          destinationArg: destArg,
+          noGit,
+          repoArg: optString(args, "repo") ?? defaults.repo,
+          run,
+        });
+
+        let resolvedPrefix: string | undefined;
+        try {
+          resolvedPrefix = resolvePutPrefix({
+            destination: destArg,
+            prefix: prefixArg,
+            key: keyArg,
+            ghAttachment: Boolean(target) || stagingTarget !== undefined,
+          });
+        } catch (err) {
+          usage(err instanceof Error ? err.message : String(err));
+        }
 
         // Dynamic import only: keeps mcp/tools.ts (and therefore anything
         // that statically imports it) free of a static reference to the
@@ -838,10 +848,16 @@ export function createUploadsMcpTools(opts: {
           viewport,
           colorSchemeArg as "dark" | "light" | undefined,
         );
-        const metadataWithCaptureFacts =
+        const metadataBase =
           metadata === undefined && Object.keys(captureDerived).length === 0
             ? undefined
             : mergeDerivedMeta(metadata ?? {}, captureDerived);
+        // gh.* metadata: explicit pr/issue target wins; staging wins the same
+        // way (matches attach --branch/bare put); otherwise capture-derived +
+        // explicit only.
+        const metadataWithCaptureFacts = stagingTarget
+          ? mergeStagingMeta(metadataBase, stagingTarget)
+          : metadataBase;
         let captured: Awaited<ReturnType<typeof screenshotModule.captureScreenshot>>;
         try {
           captured = await screenshotModule.captureScreenshot({
@@ -872,6 +888,10 @@ export function createUploadsMcpTools(opts: {
           throw err;
         }
 
+        const branchKey = stagingTarget
+          ? ghBranchAttachmentKey(stagingTarget.repo, stagingTarget.branch, captured.filename)
+          : undefined;
+
         const { result, prepared, markdown } = await uploadPreparedImage(
           client,
           captured.png,
@@ -880,7 +900,7 @@ export function createUploadsMcpTools(opts: {
             frame: frameOpts,
             optimize: optimizeOpts,
             ghTarget: target,
-            key: keyArg,
+            key: keyArg ?? branchKey,
             prefix: resolvedPrefix ?? defaults.prefix,
             repo: optString(args, "repo") ?? defaults.repo,
             ref: refArg ?? defaults.ref,

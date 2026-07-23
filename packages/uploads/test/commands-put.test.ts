@@ -56,6 +56,7 @@ function fakeClient(opts?: {
         embedUrl: null,
         size: body.byteLength,
         contentType: "image/png",
+        metadata: putOpts.metadata,
       };
     },
     list: async () => ({ items: [], cursor: null }),
@@ -1836,5 +1837,63 @@ describe("runPut sidecar manifest (issue #469)", () => {
     const code = await runPut(ctxWith(client), [file, "--no-git", "--no-auto"], false, noRun);
     expect(code).toBe(0);
     expect(puts[0]?.metadata).toBeUndefined();
+  });
+});
+
+describe("runPut path-meta tip (issue #469 lever 3)", () => {
+  it("prints the tip when a --pr put lands an image with no path meta", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--pr", "9", "--repo", "o/r"],
+        false,
+        noRun,
+      ),
+    );
+    expect(stderr).toContain("tip: add --meta path=/route so this shot is findable by page");
+  });
+
+  it("does not print the tip when --meta path= is given", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--pr", "9", "--repo", "o/r", "--meta", "path=/settings"],
+        false,
+        noRun,
+      ),
+    );
+    expect(stderr).not.toContain("tip:");
+  });
+
+  it("is suppressed by --quiet", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut(ctxWith(client), [tmpFile(), "--pr", "9", "--repo", "o/r"], false, noRun),
+    );
+    expect(stderr).not.toContain("tip:");
+  });
+
+  it("does not fire on a bare put with no --pr/--issue target", async () => {
+    const { client } = fakeClient();
+    const stderr = await captureStderr(() =>
+      runPut({ ...ctxWith(client), quiet: false }, [tmpFile(), "--no-git"], false, noRun),
+    );
+    expect(stderr).not.toContain("tip:");
+  });
+
+  it("includes an additive JSON hint field carrying the tip", async () => {
+    const { client } = fakeClient();
+    const stdout = await captureStdout(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false, json: true },
+        [tmpFile(), "--pr", "9", "--repo", "o/r"],
+        false,
+        noRun,
+      ),
+    );
+    const payload = JSON.parse(stdout) as { hint?: string };
+    expect(payload.hint).toContain("tip: add --meta path=/route");
   });
 });

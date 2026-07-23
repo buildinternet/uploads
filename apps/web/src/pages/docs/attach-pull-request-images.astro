@@ -121,6 +121,12 @@ const TOC = [
       <button type="button" data-copy="uploads put ./after.png" aria-live="polite">copy</button>
     </div>
     <p>
+      A bare <code>uploads screenshot</code> (no <code>--pr</code>/<code>--issue</code>/&#32;
+      <code>--branch</code>) stages the same way, carrying its derived <code>path</code>/&#32;
+      <code>url</code>/<code>env</code>/<code>viewport</code> metadata through promotion — so
+      capturing before the PR exists no longer loses that context.
+    </p>
+    <p>
       <code>attach --branch</code> is the explicit, multi-file form of the same thing — reach
       for it to upload several files at once with shared flags, or to force staging outside a
       plain upload:

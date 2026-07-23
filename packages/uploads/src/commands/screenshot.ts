@@ -22,6 +22,11 @@ import {
   type AttachmentsCommentResult,
   uploadPreparedImage,
   type CliContext,
+  resolvePutStagingTarget,
+  putStagingNoteText,
+  resolveStageBindingWarning,
+  mergeStagingMeta,
+  type BranchTarget,
 } from "../commands.js";
 import { resolvePutDefaults } from "../config.js";
 import { loadDefaultsRaw, resolveScreenshotDefaults } from "../config-file.js";
@@ -32,7 +37,7 @@ import {
   resolveRepo,
   type CommandRunner,
 } from "../github-gh.js";
-import { ghBranchAttachmentKey, ghMetadataForBranch } from "../github.js";
+import { ghBranchAttachmentKey } from "../github.js";
 import { safeCaptureFacts } from "../capture-facts.js";
 import { parseMetaFlags, validateMetaMap } from "../metadata.js";
 import { mergeDerivedMeta } from "../metadata-vocab.js";
@@ -65,6 +70,15 @@ fail fast with a clear error instead of sending a doomed request.
 
 After capture, screenshots share the put upload pipeline: optional --frame,
 optimize-by-default, --pr/--issue attachment + --comment, --gallery, --meta.
+
+Branch staging by default (pre-PR): with no --pr/--issue/--branch/--key/--ref/
+--prefix/--destination, a screenshot taken on a non-default git branch stages
+under gh/<owner>/<repo>/branch/<branch>/<name> instead of the dated
+screenshots/<repo>/<date>/... layout — same key/metadata as an explicit
+--branch, carrying every derived fact (path/url/env/viewport, --state) along.
+Staged files auto-attach with full metadata the first time you attach to that
+branch's PR once it opens (or run "uploads attach --promote"). Use --no-git,
+or an explicit --ref/--prefix, to opt back into the dated layout.
 
 Options:
   --via auto|local|remote   Capture backend (default: auto, or UPLOADS_SCREENSHOT_VIA)
@@ -255,8 +269,36 @@ export async function runScreenshot(
     if (noUpload) throw new UsageError("--dry-run cannot be combined with --no-upload");
   }
 
+  const putDefaults = resolvePutDefaults({ envFile: ctx.envFile }, rawDefaults);
+  const noGit = flagBool(parsed.flags, "--no-git") || putDefaults.noGit === true;
+
   const branchRepo =
     branchArg !== undefined ? resolveRepo(flagString(parsed.flags, "--repo"), run) : undefined;
+
+  // Auto branch staging (issue #469 lever 1): mirrors bare `put`'s auto-staging
+  // (issue #403). When no --branch/--pr/--issue/--key/--ref/--prefix/--destination
+  // is given and git use isn't disabled, a screenshot taken on a non-default
+  // git branch stages the same way explicit `--branch`/bare `put` do — same
+  // key shape, same gh.* metadata — instead of landing on the dated
+  // `screenshots/<repo>/<date>/...` layout. This is what lets derived
+  // metadata (path/url/env/viewport, --state) ride through to PR-open
+  // promotion when the capture happens before the PR exists. Skipped
+  // entirely when --branch was given explicitly (already handled above).
+  const autoStagingTarget: BranchTarget | undefined =
+    branchArg === undefined
+      ? resolvePutStagingTarget({
+          ghTarget,
+          keyHint,
+          refArg: flagString(parsed.flags, "--ref"),
+          prefixArg: prefixFlag,
+          destinationArg: destFlag,
+          noGit,
+          repoArg: flagString(parsed.flags, "--repo") ?? putDefaults.repo,
+          run,
+        })
+      : undefined;
+  const stagingTarget: BranchTarget | undefined =
+    branchArg !== undefined ? { repo: branchRepo!, branch: branchArg } : autoStagingTarget;
 
   let resolvedPrefix: string | undefined;
   try {
@@ -264,7 +306,7 @@ export async function runScreenshot(
       destination: destFlag,
       prefix: prefixFlag,
       key: keyHint,
-      ghAttachment: Boolean(ghTarget) || branchArg !== undefined,
+      ghAttachment: Boolean(ghTarget) || stagingTarget !== undefined,
     });
   } catch (err) {
     throw new UsageError(err instanceof Error ? err.message : String(err));
@@ -279,7 +321,6 @@ export async function runScreenshot(
         throw new UsageError(`invalid --format: ${raw}`);
       })();
 
-  const putDefaults = resolvePutDefaults({ envFile: ctx.envFile }, rawDefaults);
   const optimizeOpts = optimizeOptionsFromFlags(parsed.flags, putDefaults);
   const frameOpts = frameOptionsFromFlags(parsed.flags);
   const altFlag = flagString(parsed.flags, "--alt");
@@ -298,9 +339,8 @@ export async function runScreenshot(
   if (ghTarget) {
     metadata = { ...withFacts, ...ghMetadataFromTargetWithTitle(ghTarget, run) };
     validateMetaMap(metadata);
-  } else if (branchArg !== undefined) {
-    metadata = { ...withFacts, ...ghMetadataForBranch(branchRepo!, branchArg) };
-    validateMetaMap(metadata);
+  } else if (stagingTarget !== undefined) {
+    metadata = mergeStagingMeta(withFacts, stagingTarget);
   } else if (Object.keys(withFacts).length > 0) {
     validateMetaMap(withFacts);
   }
@@ -347,8 +387,8 @@ export async function runScreenshot(
   const repo = flagString(parsed.flags, "--repo") ?? putDefaults.repo;
   const ref = flagString(parsed.flags, "--ref") ?? putDefaults.ref;
   const branchKey =
-    branchArg !== undefined
-      ? ghBranchAttachmentKey(branchRepo!, branchArg, captured.filename)
+    stagingTarget !== undefined
+      ? ghBranchAttachmentKey(stagingTarget.repo, stagingTarget.branch, captured.filename)
       : undefined;
 
   const alt = altFlag ?? basename(captured.filename);
@@ -364,7 +404,7 @@ export async function runScreenshot(
       prefix: resolvedPrefix ?? putDefaults.prefix,
       repo,
       ref,
-      deriveRepoFromGit: !(flagBool(parsed.flags, "--no-git") || putDefaults.noGit === true),
+      deriveRepoFromGit: !noGit,
       dryRun,
       metadata,
       provenanceClient: "uploads-cli-screenshot",
@@ -372,6 +412,22 @@ export async function runScreenshot(
       width,
     },
   );
+
+  // Staging note (issue #469 lever 1, mirrors #403's bare-put note): only for
+  // the auto-staged case — explicit `--branch` keeps its own "staged: these
+  // auto-attach..." wording below. Same suppression as put's note (--quiet,
+  // UPLOADS_NO_NUDGE=1).
+  const stagingNote =
+    autoStagingTarget && !ctx.quiet && !putDefaults.noNudge
+      ? putStagingNoteText(autoStagingTarget.branch)
+      : undefined;
+  // Stage-time binding warning (issue #398), same check bare put/attach
+  // --branch run, now also reachable from screenshot's staging paths
+  // (explicit --branch and auto-staging alike).
+  const bindingWarning =
+    stagingTarget !== undefined
+      ? await resolveStageBindingWarning({ ctx, defaults: putDefaults, repo: stagingTarget.repo })
+      : undefined;
 
   let gallery: { id: string; url?: string; error?: string } | undefined;
   if (galleryId) {
@@ -412,8 +468,27 @@ export async function runScreenshot(
         `>> optimized ${prepared.originalBytes} → ${prepared.outputBytes} bytes\n`,
       );
     }
-    process.stderr.write(`>> key: ${result.key}${dryRun ? " (dry run — not uploaded)" : ""}\n\n`);
+    process.stderr.write(`>> key: ${result.key}${dryRun ? " (dry run — not uploaded)" : ""}\n`);
+    if (stagingTarget !== undefined) {
+      process.stderr.write(
+        `>> find these later: uploads find gh.branch=${stagingTarget.branch.toLowerCase()}\n`,
+      );
+      if (autoStagingTarget) {
+        if (stagingNote) process.stderr.write(`${stagingNote}\n`);
+      } else {
+        process.stderr.write(
+          `>> staged: these auto-attach to this branch's PR when it opens ` +
+            `(or run \`uploads attach --promote\` after opening)\n`,
+        );
+      }
+    }
+    if (bindingWarning) process.stderr.write(`${bindingWarning}\n`);
+    process.stderr.write("\n");
   }
+
+  // One JSON `hint` slot (mirrors bare put): the binding warning is more
+  // actionable than the generic staging note, so it wins when both fire.
+  const jsonHint = bindingWarning ?? stagingNote;
 
   switch (format) {
     case "json":
@@ -429,6 +504,7 @@ export async function runScreenshot(
         backend: captured.backend,
         gallery,
         ...(dryRun ? { dryRun: true } : {}),
+        ...(jsonHint ? { hint: jsonHint } : {}),
       });
       break;
     case "url":

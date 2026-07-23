@@ -450,6 +450,294 @@ describe("runScreenshot --branch (branch-staged, pre-PR)", () => {
   });
 });
 
+/**
+ * Fake gh/git runner for the auto branch-staging trigger (issue #469 lever
+ * 1), mirroring commands-put.test.ts's `stagingRunner` for the bare-put case
+ * (issue #403) — same git/gh call shape, never expects a `gh pr view` call.
+ */
+function stagingRunner(opts: {
+  branch?: string;
+  defaultBranch?: string;
+  originUrl?: string;
+  repo?: string;
+}): CommandRunner {
+  return (cmd, args) => {
+    if (cmd === "git" && args[0] === "config") {
+      if (opts.originUrl === undefined) throw new Error("not a git repo");
+      return `${opts.originUrl}\n`;
+    }
+    if (cmd === "git" && args[0] === "rev-parse") {
+      if (opts.branch === undefined) throw new Error("detached HEAD");
+      return `${opts.branch}\n`;
+    }
+    if (cmd === "git" && args[0] === "symbolic-ref") {
+      if (opts.defaultBranch === undefined) throw new Error("no origin/HEAD");
+      return `origin/${opts.defaultBranch}\n`;
+    }
+    if (cmd === "gh" && args[0] === "repo") {
+      if (opts.repo === undefined) throw new Error("gh unauthenticated");
+      return `${opts.repo}\n`;
+    }
+    throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+  };
+}
+
+describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
+  const staged = {
+    branch: "feature/thing",
+    defaultBranch: "main",
+    originUrl: "git@github.com:o/r.git",
+    repo: "o/r",
+  };
+
+  it("stages a bare screenshot (no --pr/--issue/--branch) on a non-default branch, same key as --branch", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com"],
+      false,
+      stagingRunner(staged),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
+  });
+
+  it("carries derived + explicit metadata (path/state) plus the branch gh.* pairs", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--meta", "path=/docs/limits", "--state", "after"],
+      false,
+      stagingRunner(staged),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.metadata).toMatchObject({
+      "gh.repo": "o/r",
+      "gh.kind": "branch",
+      "gh.branch": "feature/thing",
+      path: "/docs/limits",
+      state: "after",
+    });
+  });
+
+  it("with --out, both auto-stages the upload AND writes a sidecar manifest (issue #473 x #469)", async () => {
+    const { client, puts } = fakeClient();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-screenshot-staged-sidecar-"));
+    const out = join(dir, "shot.png");
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com/settings", "--out", out, "--state", "after"],
+      false,
+      stagingRunner(staged),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    // Auto-staged upload: branch-keyed, gh.* branch metadata present.
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
+    expect(puts[0]?.metadata).toMatchObject({
+      "gh.repo": "o/r",
+      "gh.kind": "branch",
+      "gh.branch": "feature/thing",
+      path: "/settings",
+      state: "after",
+    });
+    // Sidecar written alongside --out carries only the derived/explicit
+    // facts (no gh.* — those get resolved fresh at attach/promote time).
+    const sidecarPath = `${out}.uploads.json`;
+    expect(existsSync(sidecarPath)).toBe(true);
+    const manifest = JSON.parse(readFileSync(sidecarPath, "utf8"));
+    expect(manifest.meta).toMatchObject({
+      url: "https://example.com/settings",
+      path: "/settings",
+      state: "after",
+    });
+    expect(manifest.meta["gh.branch"]).toBeUndefined();
+  });
+
+  it("does not auto-stage on the default branch", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com"],
+      false,
+      stagingRunner({ ...staged, branch: "main" }),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.key).toBeUndefined();
+  });
+
+  it("does not auto-stage when not a git repo", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com"],
+      false,
+      stagingRunner({ branch: "feature/thing" }), // no originUrl → deriveRepoFromGit fails
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.key).toBeUndefined();
+  });
+
+  it("does not auto-stage with --no-git", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--no-git"],
+      false,
+      noRun,
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.key).toBeUndefined();
+  });
+
+  it("does not auto-stage with --pr (existing PR-attach layout wins)", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--pr", "9", "--repo", "o/r"],
+      false,
+      stagingRunner(staged),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.key).toBe("gh/o/r/pull/9/example-com.png");
+  });
+
+  it("does not auto-stage with --issue", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--issue", "9", "--repo", "o/r"],
+      false,
+      stagingRunner(staged),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.key).toBe("gh/o/r/issues/9/example-com.png");
+  });
+
+  it("does not auto-stage with an explicit --key", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--key", "screenshots/explicit.png"],
+      false,
+      stagingRunner(staged),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.key).toBe("screenshots/explicit.png");
+  });
+
+  it("does not auto-stage with an explicit --ref", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--ref", "1722"],
+      false,
+      stagingRunner(staged),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.key).toBeUndefined();
+  });
+
+  it("does not auto-stage with an explicit --prefix", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--prefix", "custom"],
+      false,
+      stagingRunner(staged),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.prefix).toBe("custom");
+    expect(puts[0]?.key).toBeUndefined();
+  });
+
+  it("does not auto-stage with an explicit --destination", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--destination", "screenshots"],
+      false,
+      stagingRunner(staged),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.key).toBeUndefined();
+  });
+
+  describe("staging note: wording, suppression, JSON hint", () => {
+    it("fires the exact staging-note wording on stderr", async () => {
+      const { client } = fakeClient();
+      const stderr = await captureStderr(() =>
+        runScreenshot(
+          { ...ctxWith(client), quiet: false },
+          ["https://example.com"],
+          false,
+          stagingRunner(staged),
+          fakeCapture("remote"),
+        ),
+      );
+      expect(stderr).toContain(
+        "note: staged for branch feature/thing — auto-attaches to this branch's PR when it opens " +
+          "(or run: uploads attach --promote once it exists). Use --ref/--prefix for a plain dated upload.",
+      );
+    });
+
+    it("is suppressed by quiet, while staging itself still happens", async () => {
+      const { client, puts } = fakeClient();
+      const stderr = await captureStderr(() =>
+        runScreenshot(
+          ctxWith(client),
+          ["https://example.com"],
+          false,
+          stagingRunner(staged),
+          fakeCapture("remote"),
+        ),
+      );
+      expect(stderr).not.toContain("note:");
+      expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
+    });
+
+    it("includes an additive JSON hint field carrying the staging note", async () => {
+      const { client } = fakeClient();
+      const stdout = await captureStdout(() =>
+        runScreenshot(
+          { ...ctxWith(client), json: true, quiet: false },
+          ["https://example.com"],
+          false,
+          stagingRunner(staged),
+          fakeCapture("remote"),
+        ),
+      );
+      const parsed = JSON.parse(stdout);
+      expect(parsed.hint).toContain("note: staged for branch feature/thing");
+    });
+
+    it("does not fire when staging didn't take over (e.g. on the default branch)", async () => {
+      const { client } = fakeClient();
+      const stderr = await captureStderr(() =>
+        runScreenshot(
+          { ...ctxWith(client), quiet: false },
+          ["https://example.com"],
+          false,
+          stagingRunner({ ...staged, branch: "main" }),
+          fakeCapture("remote"),
+        ),
+      );
+      expect(stderr).not.toContain("note:");
+    });
+  });
+});
+
 describe("runScreenshot gh.title metadata (issue #267)", () => {
   it("stamps gh.title alongside the base gh.* pairs when the title resolves", async () => {
     const { client, puts } = fakeClient();
@@ -554,3 +842,29 @@ describe("screenshot canonical metadata", () => {
     expect(meta?.path).toBeUndefined();
   });
 });
+
+/** Run `fn` with process.stderr.write captured, returning the concatenated output. */
+async function captureStderr(fn: () => Promise<unknown>): Promise<string> {
+  const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  try {
+    await fn();
+    return writeSpy.mock.calls.map((c) => String(c[0])).join("");
+  } finally {
+    writeSpy.mockRestore();
+  }
+}
+
+/** Run `fn` with process.stdout.write captured, returning the concatenated output. */
+async function captureStdout(fn: () => Promise<unknown>): Promise<string> {
+  const chunks: string[] = [];
+  const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write);
+  try {
+    await fn();
+    return chunks.join("");
+  } finally {
+    writeSpy.mockRestore();
+  }
+}

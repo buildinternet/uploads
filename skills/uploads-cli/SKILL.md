@@ -418,7 +418,24 @@ Key options (`uploads screenshot --help` for all):
 | `--no-sidecar`                                       | Don't write the `<file>.uploads.json` sidecar alongside `--out`.                                                                                                                                                                                                                                                                                      |
 | `--no-upload`                                        | Skip hosting; requires `--out` (local file only).                                                                                                                                                                                                                                                                                                     |
 | `--key` / `--pr` / `--issue` / `--comment`           | Same destination and attachment options as `put` (see above); `--pr`/`--issue` also give a stable, hash-free key.                                                                                                                                                                                                                                     |
+| `--branch [name]`                                    | Stage against a branch, pre-PR — same key as `attach --branch` (see below); this is also what a bare `screenshot` on a non-default branch does automatically (issue #469).                                                                                                                                                                            |
 | `--frame` / `--no-optimize` / `--gallery` / `--meta` | Same as `put` — reused from the shared upload pipeline.                                                                                                                                                                                                                                                                                               |
+
+**Inside a git repo, on a non-default branch, a bare `screenshot` now stages
+automatically too (issue #469, mirroring `put`'s issue #403 default)** — same
+key/metadata as `--branch`/`attach --branch`
+(`gh/<owner>/<repo>/branch/<branch>/<filename>`), carrying every derived fact
+(`path`/`url`/`env`/`viewport`, plus `--state`) through to the PR once it
+opens. This is what closes the gap a coding agent hits capturing before the PR
+exists: capture early with a plain `uploads screenshot <url> --out shot.png`,
+and the metadata rides along instead of being re-stated (or lost) at
+`attach --pr <num>` time. Fires whenever none of
+`--pr`/`--issue`/`--branch`/`--key`/`--ref`/`--prefix`/`--destination` is set
+and `--no-git` isn't passed; the same set of flags (or the default branch,
+detached HEAD, not being in a git repo, or `--no-git`) falls back to the
+classic dated `screenshots/<repo>/<date>/...` layout. Prints the same
+staging note as bare `put` (see above) — same stderr wording, same JSON
+`hint` field, same `--quiet`/`UPLOADS_NO_NUDGE` suppression.
 
 **Errors and hints:** a local capture with no usable browser fails with
 `BROWSER_NOT_FOUND` (exit `2`) — hint: try `--via remote`, or install a
@@ -456,21 +473,28 @@ to fight them by inventing a different spelling.
 | `state`    | **you** — `--state`        | `before` \| `after`            |
 | `app`      | **you** — `--app`          | `web` \| `ios`                 |
 
-**`path` is the key to search by.** It is the one most worth getting right, and
-the one agents most often misspell as `route`, `page`, or `screen`. A near-miss
-key warns on stderr and suggests the canonical spelling — but is never rewritten
-for you, so fix it at the source.
+**`path` and `state` are the two highest-value keys — pass both, every time,
+as a habit.** `path` is the key most worth getting right (the one agents most
+often misspell as `route`, `page`, or `screen` — a near-miss warns on stderr
+and suggests the canonical spelling, but is never rewritten for you, so fix it
+at the source) and `state` captures the before/after pattern that dominates
+PR screenshots — nothing can infer either one from the image alone. `state` is
+a closed set: `before`, `after`, `empty`, `error`, `loading` (a near-miss like
+`--state post` fails fast and suggests `after`).
 
-**`state` is the highest-value thing you can add by hand**, because before/after
-is the dominant pattern in PR screenshots and nothing can infer it. It is a
-closed set: `before`, `after`, `empty`, `error`, `loading`. A near-miss like
-`--state post` fails fast and suggests `after`.
+`uploads screenshot` derives `path` automatically from the captured URL, so
+you only need to add `--state`. `uploads put`/`uploads attach` of an
+already-existing file have nothing to derive `path` from, so pass it
+explicitly with `--meta path=/route` — and `attach`/`put --pr`/`put --issue`
+print a `tip: add --meta path=/route so this shot is findable by page` on
+stderr (plus a JSON `hint` field) when an image lands with no `path` meta, as
+a reminder (issue #469 lever 3; respects `--quiet`).
 
 ```bash
 uploads screenshot https://app.example/settings --state before
 # → stamps url, path=/settings, viewport, state=before
 
-uploads put ./after.png --state after --app web
+uploads put ./after.png --pr 123 --meta path=/settings --state after --app web
 uploads find path=/settings state=after        # what it was all for
 ```
 

@@ -68,6 +68,7 @@ function fakeClient(opts?: {
         embedUrl: null,
         size: 3,
         contentType: "image/png",
+        metadata: putOpts.metadata,
       };
     },
     list,
@@ -1204,5 +1205,76 @@ describe("runAttach sidecar manifest (issue #469)", () => {
     expect(code).toBe(0);
     const meta = metadataByKey["gh/buildinternet/uploads/pull/123/shot.png"];
     expect(meta?.path).toBeUndefined();
+  });
+});
+
+describe("runAttach path-meta tip (issue #469 lever 3)", () => {
+  async function captureStderr(fn: () => Promise<unknown>): Promise<string> {
+    const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      await fn();
+      return writeSpy.mock.calls.map((c) => String(c[0])).join("");
+    } finally {
+      writeSpy.mockRestore();
+    }
+  }
+
+  it("prints the tip when an image lands with no path meta", async () => {
+    const { client } = fakeClient();
+    const { run } = ghRunner();
+    const stderr = await captureStderr(() =>
+      runAttach(
+        { ...ctxWith(client), quiet: false },
+        [...files("after.png"), "--no-comment"],
+        false,
+        run,
+      ),
+    );
+    expect(stderr).toContain("tip: add --meta path=/route so this shot is findable by page");
+  });
+
+  it("does not print the tip when --meta path= is given", async () => {
+    const { client } = fakeClient();
+    const { run } = ghRunner();
+    const stderr = await captureStderr(() =>
+      runAttach(
+        { ...ctxWith(client), quiet: false },
+        [...files("after.png"), "--no-comment", "--meta", "path=/settings"],
+        false,
+        run,
+      ),
+    );
+    expect(stderr).not.toContain("tip:");
+  });
+
+  it("is suppressed by --quiet", async () => {
+    const { client } = fakeClient();
+    const { run } = ghRunner();
+    const stderr = await captureStderr(() =>
+      runAttach(ctxWith(client), [...files("after.png"), "--no-comment"], false, run),
+    );
+    expect(stderr).not.toContain("tip:");
+  });
+
+  it("includes an additive JSON hint field carrying the tip", async () => {
+    const { client } = fakeClient();
+    const { run } = ghRunner();
+    const chunks: string[] = [];
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      chunks.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      await runAttach(
+        { ...ctxWith(client), quiet: false, json: true },
+        [...files("after.png"), "--no-comment"],
+        false,
+        run,
+      );
+    } finally {
+      writeSpy.mockRestore();
+    }
+    const payload = JSON.parse(chunks.join("")) as { hint?: string };
+    expect(payload.hint).toContain("tip: add --meta path=/route");
   });
 });

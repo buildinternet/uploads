@@ -31,13 +31,17 @@ sync when the CLI's commands or flags change.
 **Screenshots: stage as you go.** If your change is visually observable (web
 UI, email templates, rendered output), capture and stage screenshots at each
 milestone while you work — don't wait for a PR to exist. A bare `uploads put`
-already stages by default on a non-default git branch (issue #403); reach for
-`attach --branch` when you want its extras (multiple files in one call, or
-triggering promotion/comment sync as a side effect):
+already stages by default on a non-default git branch (issue #403), and a
+bare `uploads screenshot` (no `--pr`/`--issue`/`--branch`) does the same
+(issue #469) — carrying its derived metadata (`path`/`url`/`env`/`viewport`,
+plus `--state`) through to the PR once it opens; reach for `attach --branch`
+when you want its extras (multiple files in one call, or triggering
+promotion/comment sync as a side effect):
 
 ```bash
-uploads put ./after.png --state after                # before|after|empty|error|loading
-uploads attach ./after.png --branch --state after     # equivalent, explicit form
+uploads put ./after.png --meta path=/settings --state after   # before|after|empty|error|loading
+uploads screenshot http://localhost:4321/settings --out after.png --state after
+uploads attach ./after.png --branch --state after              # explicit form, either way
 ```
 
 Opening a PR automatically promotes everything staged for the branch into the

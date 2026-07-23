@@ -871,6 +871,24 @@ Examples:
   uploads attach --promote
 `;
 
+/**
+ * Lever 3 (issue #469): a nudge for when an image lands on a PR/issue with
+ * no `path` metadata — `path` is one of the highest-value queryable tags
+ * (same tier as `state=`), and unlike `uploads screenshot` (which derives it
+ * from the captured URL), a plain `attach`/`put --pr`/`put --issue` of an
+ * already-existing image has nothing to derive it from, so it's easy to
+ * forget. Fires once per batch (not per file) — checks the metadata the
+ * server actually stored (`PutResult.metadata`), not what was requested, so
+ * a merge/validation drop still surfaces the gap. Non-image uploads (zips,
+ * PDFs, etc.) are exempt — "findable by page" doesn't apply to them.
+ */
+export function pathMetaHintFor(
+  uploads: { contentType: string; metadata?: Record<string, string> }[],
+): string | undefined {
+  const missingPath = uploads.some((u) => u.contentType.startsWith("image/") && !u.metadata?.path);
+  return missingPath ? "tip: add --meta path=/route so this shot is findable by page" : undefined;
+}
+
 export type AttachUploadItem = PutResult & {
   file: string;
   markdown: string;
@@ -1364,6 +1382,9 @@ export async function runAttach(
     }
   }
 
+  // Lever 3 (issue #469): tip when an image lands here with no `path` meta.
+  const pathHint = uploads.length > 0 && !ctx.quiet ? pathMetaHintFor(uploads) : undefined;
+
   if (ctx.json) {
     await writeJson({
       target,
@@ -1372,6 +1393,7 @@ export async function runAttach(
       comment,
       commentError,
       promotion: promotion ?? null,
+      ...(pathHint ? { hint: pathHint } : {}),
     });
   } else {
     for (const result of uploads) {
@@ -1402,6 +1424,7 @@ export async function runAttach(
       const ref = ghMetadataFromTarget(target)["gh.ref"];
       process.stderr.write(`>> find these later: uploads find gh.ref=${ref}\n`);
     }
+    if (pathHint) process.stderr.write(`${pathHint}\n`);
   }
   return failures.length === 0 ? 0 : 1;
 }
@@ -1749,6 +1772,22 @@ export function resolvePutStagingTarget(opts: {
 }
 
 /**
+ * Merges a staging target's `gh.*` branch metadata over `base` and validates
+ * the result (same builder, same contract as `attach --branch`) — the one
+ * merge+validate step shared by every staging call site: `runPut`,
+ * `runScreenshot`, and both the local stdio MCP `put` and `screenshot`
+ * tools.
+ */
+export function mergeStagingMeta(
+  base: Record<string, string> | undefined,
+  target: BranchTarget,
+): Record<string, string> {
+  const merged = { ...base, ...ghMetadataForBranch(target.repo, target.branch) };
+  validateMetaMap(merged);
+  return merged;
+}
+
+/**
  * The bare-put staging note's wording (issue #403): replaces the #393 nudge
  * for the (now default) case where a bare put on a non-default branch stages
  * to the branch prefix instead of landing on the dated layout. Used verbatim
@@ -2083,12 +2122,7 @@ export async function runPut(
     metadata = merged;
     attachedRef = merged["gh.ref"];
   } else if (stagingTarget) {
-    const merged = {
-      ...userMeta,
-      ...ghMetadataForBranch(stagingTarget.repo, stagingTarget.branch),
-    };
-    validateMetaMap(merged); // matches attach --branch's unwrapped call — same builder, same contract
-    metadata = merged;
+    metadata = mergeStagingMeta(userMeta, stagingTarget);
   } else {
     // gh.* additionally needs git, which the shared derived gate ignores.
     if (!noGit && derivedMetaEnabled(parsed.flags, defaults)) {
@@ -2188,13 +2222,20 @@ export async function runPut(
     stagingTarget && uploads.length > 0
       ? await resolveStageBindingWarning({ ctx, defaults, repo: stagingTarget.repo })
       : undefined;
+  // Lever 3 (issue #469): tip when a --pr/--issue put lands an image with no
+  // `path` meta. Only relevant on the ghTarget path — the bare-put paths
+  // above (staging/auto/dated) aren't attached to a PR/issue yet, so there's
+  // nothing to look up from a page later.
+  const pathHint =
+    ghTarget && uploads.length > 0 && !ctx.quiet ? pathMetaHintFor(uploads) : undefined;
   // One JSON `hint` slot, shared with the #393 nudge (mutually exclusive with
   // it — nudge is undefined whenever staging took over). When staging fires,
   // prefer the more actionable binding warning over the generic staging note
   // (mirrors attach --branch, whose only JSON hint content IS the binding
   // warning); stderr prints the nudge/staging-note and binding-warning lines
-  // independently, below.
-  const jsonHint = nudge ?? bindingWarning ?? stagingNote;
+  // independently, below. pathHint only ever fires on the ghTarget path, so
+  // it never competes with the other three.
+  const jsonHint = nudge ?? bindingWarning ?? stagingNote ?? pathHint;
 
   type GalleryOutcome = {
     id: string;
@@ -2291,6 +2332,7 @@ export async function runPut(
       if (nudge) process.stderr.write(`${nudge}\n`);
       if (stagingNote) process.stderr.write(`${stagingNote}\n`);
       if (bindingWarning) process.stderr.write(`${bindingWarning}\n`);
+      if (pathHint) process.stderr.write(`${pathHint}\n`);
     }
     return failures.length === 0 && !galleryHadError ? 0 : 1;
   }
@@ -2351,6 +2393,7 @@ export async function runPut(
   if (nudge && format !== "json") process.stderr.write(`${nudge}\n`);
   if (stagingNote && format !== "json") process.stderr.write(`${stagingNote}\n`);
   if (bindingWarning && format !== "json") process.stderr.write(`${bindingWarning}\n`);
+  if (pathHint && format !== "json") process.stderr.write(`${pathHint}\n`);
 
   return gallery?.error ? 1 : 0;
 }

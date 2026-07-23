@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { UploadsClient } from "../src/client.js";
 import type { UploadsClientConfig } from "../src/config.js";
+import type { CommandRunner } from "../src/github-gh.js";
 import { createMcpServer, type McpServer } from "../src/mcp/server.js";
 import { createUploadsMcpTools } from "../src/mcp/tools.js";
 
@@ -20,31 +21,76 @@ vi.mock("../src/screenshot.js", async (importOriginal) => {
   };
 });
 
-function fakeClient(): UploadsClient {
+function fakeClient(puts: { key?: string; metadata?: Record<string, string> }[]): UploadsClient {
   return {
-    put: async (body: Uint8Array, opts: { filename: string; key?: string }) => ({
-      workspace: "test",
-      key: opts.key ?? "screenshots/misc/generated.png",
-      url: `https://x.test/${opts.key ?? "screenshots/misc/generated.png"}`,
-      embedUrl: null,
-      size: body.byteLength,
-      contentType: "image/png",
-    }),
+    put: async (
+      body: Uint8Array,
+      opts: { filename: string; key?: string; metadata?: Record<string, string> },
+    ) => {
+      puts.push({ key: opts.key, metadata: opts.metadata });
+      return {
+        workspace: "test",
+        key: opts.key ?? "screenshots/misc/generated.png",
+        url: `https://x.test/${opts.key ?? "screenshots/misc/generated.png"}`,
+        embedUrl: null,
+        size: body.byteLength,
+        contentType: "image/png",
+        metadata: opts.metadata,
+      };
+    },
     list: async () => ({ items: [], cursor: null }),
     health: async () => ({ ok: true }),
   } as unknown as UploadsClient;
 }
 
-function serverWith() {
-  const client = fakeClient();
+function serverWith(overrides?: { runner?: CommandRunner }) {
+  const puts: { key?: string; metadata?: Record<string, string> }[] = [];
+  const client = fakeClient(puts);
   const server = createMcpServer({
     serverInfo: { name: "uploads", version: "0.0.0-test" },
     tools: createUploadsMcpTools({
       globals: { apiUrl: "https://x.test", token: "up_test_x" },
+      runner: overrides?.runner,
       clientFactory: (_config: UploadsClientConfig) => client,
     }),
   });
-  return { server };
+  return { server, puts };
+}
+
+const noRun: CommandRunner = () => {
+  throw new Error("runner should not be called");
+};
+
+/**
+ * Fake gh/git runner for the auto branch-staging trigger (issue #469 lever
+ * 1), mirroring `branchStagingRunner` in mcp.test.ts for the `put` tool
+ * (issue #403).
+ */
+function branchStagingRunner(opts: {
+  branch?: string;
+  defaultBranch?: string;
+  originUrl?: string;
+  repo?: string;
+}): CommandRunner {
+  return (cmd, args) => {
+    if (cmd === "git" && args[0] === "config") {
+      if (opts.originUrl === undefined) throw new Error("not a git repo");
+      return `${opts.originUrl}\n`;
+    }
+    if (cmd === "git" && args[0] === "rev-parse") {
+      if (opts.branch === undefined) throw new Error("detached HEAD");
+      return `${opts.branch}\n`;
+    }
+    if (cmd === "git" && args[0] === "symbolic-ref") {
+      if (opts.defaultBranch === undefined) throw new Error("no origin/HEAD");
+      return `origin/${opts.defaultBranch}\n`;
+    }
+    if (cmd === "gh" && args[0] === "repo") {
+      if (opts.repo === undefined) throw new Error("gh unauthenticated");
+      return `${opts.repo}\n`;
+    }
+    throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+  };
 }
 
 async function rpc(server: McpServer, method: string, params?: unknown, id: number | string = 1) {
@@ -159,5 +205,96 @@ describe("mcp screenshot canonical metadata", () => {
       arguments: { target: "http://localhost:4321/docs", via: "local", noGit: true },
     });
     expect(puts[0]?.metadata?.env).toBe("local");
+  });
+});
+
+describe("mcp screenshot tool auto branch staging (issue #469 lever 1)", () => {
+  const staged = {
+    branch: "feature/thing",
+    defaultBranch: "main",
+    originUrl: "git@github.com:o/r.git",
+    repo: "o/r",
+  };
+
+  it("stages a bare screenshot (no pr/issue) on a non-default branch, same key as attach --branch", async () => {
+    const { server, puts } = serverWith({ runner: branchStagingRunner(staged) });
+    const res = await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: { target: "https://example.com" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
+  });
+
+  it("carries derived + explicit metadata plus the branch gh.* pairs", async () => {
+    const { server, puts } = serverWith({ runner: branchStagingRunner(staged) });
+    const res = await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: {
+        target: "https://example.com",
+        metadata: { path: "/docs/limits" },
+        state: "after",
+      },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0]?.metadata).toMatchObject({
+      "gh.repo": "o/r",
+      "gh.kind": "branch",
+      "gh.branch": "feature/thing",
+      path: "/docs/limits",
+      state: "after",
+    });
+  });
+
+  it("does not auto-stage on the default branch", async () => {
+    const { server, puts } = serverWith({
+      runner: branchStagingRunner({ ...staged, branch: "main" }),
+    });
+    const res = await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: { target: "https://example.com" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0]?.key).toBeUndefined();
+  });
+
+  it("does not auto-stage with noGit", async () => {
+    const { server, puts } = serverWith({ runner: noRun });
+    const res = await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: { target: "https://example.com", noGit: true },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0]?.key).toBeUndefined();
+  });
+
+  it("does not auto-stage with an explicit pr target", async () => {
+    const { server, puts } = serverWith({ runner: branchStagingRunner(staged) });
+    const res = await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: { target: "https://example.com", pr: 9, repo: "o/r" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0]?.key).toBe("gh/o/r/pull/9/example-com.png");
+  });
+
+  it("does not auto-stage with an explicit key", async () => {
+    const { server, puts } = serverWith({ runner: branchStagingRunner(staged) });
+    const res = await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: { target: "https://example.com", key: "screenshots/explicit.png" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0]?.key).toBe("screenshots/explicit.png");
+  });
+
+  it("does not auto-stage with an explicit prefix", async () => {
+    const { server, puts } = serverWith({ runner: branchStagingRunner(staged) });
+    const res = await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: { target: "https://example.com", prefix: "custom" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0]?.key).toBeUndefined();
   });
 });
