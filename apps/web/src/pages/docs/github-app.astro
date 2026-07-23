@@ -194,6 +194,13 @@ const TOC = [
       (see <a href="#permissions">Permissions &amp; events</a>). A briefly missing comment is
       expected and not a reason to repost one manually.
     </p>
+    <p>
+      Duplicate marker comments — the occasional webhook-vs-CLI race that creates two — are
+      collapsed the same way: the next sync keeps the oldest, updates it, and deletes the
+      extras. And <code>uploads meta set</code> on a <code>gh/…</code>-keyed object refreshes
+      the comment automatically whenever it changes <code>path</code> or <code>state</code>,
+      so backfilled metadata shows up without waiting on the next <code>attach</code>.
+    </p>
   </section>
 
   <section id="without-it">
