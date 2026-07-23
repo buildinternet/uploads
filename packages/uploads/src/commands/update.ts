@@ -4,7 +4,7 @@ import { flagBool, parseCommandArgs, UsageError, type GlobalFlags } from "../cli
 import { execRunner, type CommandRunner } from "../github-gh.js";
 import { writeCommandHelp } from "../cli-style.js";
 import { detectInstallSource, type InstallSource } from "../install-source.js";
-import { checkForUpdate, PACKAGE_NAME, type UpdateStatus } from "../update-check.js";
+import { checkForUpdate, type UpdateStatus } from "../update-check.js";
 import { runInstall, runStep } from "./install.js";
 
 const UPDATE_HELP = `uploads update — update the CLI and refresh agent integrations
