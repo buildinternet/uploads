@@ -12,6 +12,7 @@
 import { getMyWorkspaces, type MyWorkspace } from "./api-client";
 import { onSession } from "./account-shell";
 import { isBrowseWorkspace, workspaceFromPathname } from "./workspace-browse-url";
+import { shouldShowProBadge } from "./plan-badge";
 import { escapeHtml } from "./workspace-ui";
 
 /** Storage keys — UX only; membership is still enforced server-side. */
@@ -174,7 +175,8 @@ export function renderSwitcherMenuHtml(
       const current = active === ws.workspace;
       const cls = current ? "ws-switcher__item is-current" : "ws-switcher__item";
       const aria = current ? ' aria-current="true"' : "";
-      return `<a href="${escapeHtml(href)}" class="${cls}"${aria}>${escapeHtml(displayName(ws))}</a>`;
+      const badge = shouldShowProBadge(ws.plan) ? ` <span class="pro-badge">Pro</span>` : "";
+      return `<a href="${escapeHtml(href)}" class="${cls}"${aria}>${escapeHtml(displayName(ws))}${badge}</a>`;
     })
     .join("");
 

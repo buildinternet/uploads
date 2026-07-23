@@ -78,6 +78,7 @@ describe("GET /me/workspaces", () => {
           organization: { id: "org1", slug: "acme", name: "Acme Inc" },
           role: "owner",
           hasPublicUrl: false,
+          plan: "free",
         },
       ],
     });
@@ -143,6 +144,7 @@ describe("GET /me/workspaces", () => {
           organization: { id: "org2", slug: "default", name: "Default" },
           role: "member",
           hasPublicUrl: false,
+          plan: "free",
         },
       ],
     });
@@ -155,6 +157,52 @@ describe("GET /me/workspaces", () => {
     expect((await res.json()) as { error: { code: string } }).toMatchObject({
       error: { code: "auth_lookup_failed" },
     });
+  });
+
+  it("reports plan: 'pro' for a workspace record explicitly on the pro plan (issue #365 follow-up)", async () => {
+    const env = stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") {
+        return Response.json([
+          {
+            organizationId: "org1",
+            organizationSlug: "acme",
+            organizationName: "Acme Inc",
+            role: "owner",
+          },
+        ]);
+      }
+      return new Response(null, { status: 404 });
+    });
+    (env as unknown as { REGISTRY: Pick<KVNamespace, "get"> }).REGISTRY = fakeKv({
+      "ws:acme": { provider: "r2", bucket: "shared", plan: "pro" },
+    });
+    const res = await app().request("/me/workspaces", {}, env);
+    const body = (await res.json()) as { workspaces: { workspace: string; plan: string }[] };
+    expect(body.workspaces).toEqual([expect.objectContaining({ workspace: "acme", plan: "pro" })]);
+  });
+
+  it("never reports plan: 'pro' for a legacy record with no plan field applied, even with pro-shaped overrides", async () => {
+    const env = stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") {
+        return Response.json([
+          {
+            organizationId: "org1",
+            organizationSlug: "acme",
+            organizationName: "Acme Inc",
+            role: "owner",
+          },
+        ]);
+      }
+      return new Response(null, { status: 404 });
+    });
+    // No `plan` field at all — planApplied is false; `plan` must still fail
+    // open to "free" (getPlan's contract), never leak as "pro".
+    (env as unknown as { REGISTRY: Pick<KVNamespace, "get"> }).REGISTRY = fakeKv({
+      "ws:acme": { provider: "r2", bucket: "shared", maxStorageBytes: null },
+    });
+    const res = await app().request("/me/workspaces", {}, env);
+    const body = (await res.json()) as { workspaces: { workspace: string; plan: string }[] };
+    expect(body.workspaces).toEqual([expect.objectContaining({ workspace: "acme", plan: "free" })]);
   });
 
   it("returns an empty list for a user with no memberships", async () => {

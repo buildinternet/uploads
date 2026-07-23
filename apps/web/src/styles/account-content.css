@@ -34,6 +34,23 @@
   font-size: 15px;
   font-weight: 600;
 }
+
+/* Compact "Pro" marker shown outside the billing tab (issue #365 follow-up)
+   — same uppercase/pill idiom as .plan-card__badge, but a muted accent
+   outline rather than an inverse fg/bg fill so it reads as a small aside
+   next to a workspace name, not a status callout. */
+.pro-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
 .plan-card__price {
   margin: 0;
   font-size: 13px;
