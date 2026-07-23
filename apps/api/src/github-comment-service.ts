@@ -114,6 +114,12 @@ export type PostCommentResult =
  * gate (`count > 0`), so an emptied PR rewrites an existing comment but never
  * creates one. On an actual post, best-effort records `target.repo` as bound
  * to `workspaceName` (first-claim-wins, never affects the return value).
+ *
+ * `opts.resync` marks the call as an explicit "make the comment state
+ * correct" request (the `uploads comment` command and its MCP equivalents)
+ * rather than a background sync: it forces the marker hunt, and with it the
+ * duplicate-comment dedupe, instead of trusting the cached comment id (issue
+ * #480). Costs one extra listing, so ordinary attach/promote syncs leave it off.
  */
 export async function postManagedComment(
   env: Env,
@@ -121,6 +127,7 @@ export async function postManagedComment(
   workspaceName: string,
   mintingUserId: string | null,
   target: GhTarget,
+  opts: { resync?: boolean } = {},
 ): Promise<PostCommentResult> {
   const cfg = githubAppConfig(env);
   if (!cfg) return { posted: false, reason: "app_unconfigured" };
@@ -151,6 +158,7 @@ export async function postManagedComment(
     fetch,
     {
       createIfMissing: gathered.count > 0,
+      forceHunt: opts.resync === true,
     },
   );
   if ("degrade" in result) {

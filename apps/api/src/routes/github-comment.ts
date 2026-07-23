@@ -27,6 +27,7 @@ function parseTarget(body: Record<string, unknown>): {
   repo: string;
   num: number;
   kind: GhTargetKind;
+  resync: boolean;
 } {
   const repo = typeof body.repo === "string" ? body.repo : "";
   const num = typeof body.num === "number" ? body.num : NaN;
@@ -37,7 +38,12 @@ function parseTarget(body: Record<string, unknown>): {
     throw new ValidationError("num must be a positive integer.");
   if (kind !== "pull" && kind !== "issues")
     throw new ValidationError('kind must be "pull" or "issues".');
-  return { repo, num, kind };
+  // Optional (older clients omit it): marks an explicit resync, which forces
+  // the marker hunt + duplicate dedupe instead of the cached-id fast path
+  // (issue #480).
+  if (body.resync !== undefined && typeof body.resync !== "boolean")
+    throw new ValidationError("resync must be a boolean.");
+  return { repo, num, kind, resync: body.resync === true };
 }
 
 export const githubComment = new Hono<WorkspaceVars>().post(
@@ -45,13 +51,14 @@ export const githubComment = new Hono<WorkspaceVars>().post(
   writeRateLimit,
   requireScope("files:read"),
   async (c) => {
-    const target = parseTarget(await jsonBody(c));
+    const { resync, ...target } = parseTarget(await jsonBody(c));
     const result = await postManagedComment(
       c.env,
       c.get("workspace"),
       c.get("workspaceName"),
       c.get("mintingUserId"),
       target,
+      { resync },
     );
     return c.json(result);
   },
