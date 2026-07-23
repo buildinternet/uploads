@@ -18,9 +18,16 @@
       {
         "rule": "broken-image",
         "value": "*",
-        "files": ["**/packages/uploads/src/**", "**/apps/mcp/src/**"],
+        "files": [
+          "**/packages/uploads/src/**",
+          "**/apps/mcp/src/**",
+          "**/apps/api/src/**",
+          "**/apps/web/src/lib/**",
+          "**/*.test.ts",
+          "**/*.test.tsx"
+        ],
         "createdAt": "2026-07-23T18:05:43.111Z",
-        "reason": "User confirmed: CLI/MCP source emits GitHub-markdown img templates; src is interpolated at runtime, not a rendered UI surface. apps/mcp/src added 2026-07-23: the hosted MCP worker is headless JSON-RPC (no rendered surface) and its tool-schema descriptions describe <img> markdown in prose — same class as the CLI, missed by the original packages-only glob."
+        "reason": "Waives broken-image for code that EMITS markup as strings rather than rendering it, plus test fixtures — the class this rule cannot distinguish. Covers the CLI/stdio MCP (packages/uploads/src), the hosted MCP worker and the API worker (headless JSON-RPC, no rendered surface; their <img> occurrences are GitHub-comment markdown builders and tool-schema prose), apps/web/src/lib (embed-snippet builders and UI label text, not components), and *.test.ts(x) (notably an XSS fixture, `caption: \"<img onerror=alert(1)>\"`, that must stay malformed). Scoped deliberately rather than disabled globally: the rule stays live on apps/web/src/components/**, apps/web/src/pages/**, and packages/ui/**, which all scan clean today and where a real `<img src=\"\">` would ship a broken box — verified 2026-07-23 that the detector parses .astro and catches that defect."
       }
     ]
   }
