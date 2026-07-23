@@ -118,13 +118,20 @@ export function formatUsageTimestamp(iso: string, timeZone?: string): string {
   }
 }
 
-/** Display label for a paid plan id; free/unknown stay hidden. */
-export function paidPlanLabel(plan: string | undefined): string | null {
-  if (!plan || plan === "free") return null;
+/**
+ * Display label for a plan catalog id. Free is shown too — free workspaces
+ * still have quotas (storage / monthly uploads) that usage meters report.
+ */
+export function planLabel(plan: string | undefined): string | null {
+  if (!plan) return null;
+  if (plan === "free") return "Free";
   if (plan === "pro") return "Pro";
-  // Future paid tiers: title-case the id rather than hiding them.
+  // Future tiers: title-case the id rather than hiding them.
   return plan.charAt(0).toUpperCase() + plan.slice(1);
 }
+
+/** @deprecated use planLabel — kept as an alias for any external importers. */
+export const paidPlanLabel = planLabel;
 
 /** Human-readable lines for `uploads usage` (not JSON). */
 export function formatUsageHuman(
@@ -136,8 +143,8 @@ export function formatUsageHuman(
   const metered = isUsageMetered(result);
   const lines: string[] = [`workspace: ${result.workspace}`];
 
-  const planLabel = paidPlanLabel(result.plan);
-  if (planLabel) lines.push(`plan:      ${planLabel}`);
+  const label = planLabel(result.plan);
+  if (label) lines.push(`plan:      ${label}`);
 
   const storagePct = usagePct(result.bytes, result.maxStorageBytes);
   if (storagePct !== null && result.maxStorageBytes != null) {
@@ -169,8 +176,16 @@ export function formatUsageHuman(
   lines.push(`updated:   ${formatUsageTimestamp(result.updatedAt, opts.timeZone)}`);
 
   if (!metered) {
-    // Self-host / operator unlimited: report usage without implying a plan.
-    lines.push("note:      unmetered — no storage or upload quotas on this workspace");
+    // Self-host / operator unlimited, or a plan without reported caps.
+    // Free self-serve normally reports maxStorageBytes / maxUploadsPerPeriod;
+    // when those are missing, say so explicitly rather than implying unlimited free.
+    if (result.plan === "free") {
+      lines.push(
+        "note:      free plan — no quotas reported for this workspace (limits may still apply server-side)",
+      );
+    } else {
+      lines.push("note:      unmetered — no storage or upload quotas on this workspace");
+    }
   }
 
   return lines;

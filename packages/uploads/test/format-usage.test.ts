@@ -149,7 +149,7 @@ describe("formatUsageHuman", () => {
     ]);
   });
 
-  it("shows plan on paid workspaces only", () => {
+  it("shows Free and Pro plan labels (free still has quotas when metered)", () => {
     const pro = formatUsageHuman(
       {
         workspace: "acme",
@@ -159,15 +159,43 @@ describe("formatUsageHuman", () => {
         periodStart: "2026-07",
         updatedAt: "2026-07-11T00:00:00.000Z",
         plan: "pro",
+        maxStorageBytes: 10_000_000_000,
+        storageRemainingBytes: 9_999_999_990,
+        maxUploadsPerPeriod: 100_000,
+        uploadsRemaining: 99_998,
       },
       { timeZone: "UTC" },
     );
     expect(pro[0]).toBe("workspace: acme");
     expect(pro[1]).toBe("plan:      Pro");
+    expect(pro.find((l) => l.startsWith("storage:"))).toMatch(/\[/);
 
     const free = formatUsageHuman(
       {
         workspace: "acme",
+        bytes: 1_000_000,
+        objects: 3,
+        uploadsInPeriod: 10,
+        periodStart: "2026-07",
+        updatedAt: "2026-07-11T00:00:00.000Z",
+        plan: "free",
+        maxStorageBytes: 250_000_000,
+        storageRemainingBytes: 249_000_000,
+        maxUploadsPerPeriod: 3000,
+        uploadsRemaining: 2990,
+      },
+      { timeZone: "UTC" },
+    );
+    expect(free[1]).toBe("plan:      Free");
+    expect(free.find((l) => l.startsWith("storage:"))).toMatch(/\[/);
+    expect(free.find((l) => l.startsWith("storage:"))).toMatch(/MB/);
+    expect(free.some((l) => l.startsWith("note:"))).toBe(false);
+  });
+
+  it("notes free when the plan is free but no quotas were reported", () => {
+    const lines = formatUsageHuman(
+      {
+        workspace: "legacy",
         bytes: 10,
         objects: 1,
         uploadsInPeriod: 2,
@@ -177,6 +205,7 @@ describe("formatUsageHuman", () => {
       },
       { timeZone: "UTC" },
     );
-    expect(free.some((l) => l.startsWith("plan:"))).toBe(false);
+    expect(lines[1]).toBe("plan:      Free");
+    expect(lines.some((l) => l.includes("no quotas reported"))).toBe(true);
   });
 });
