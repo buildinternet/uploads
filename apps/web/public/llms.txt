@@ -12,6 +12,7 @@ Access requires a workspace — create your own with a linked GitHub account, or
 - [Docs: GitHub App](https://uploads.sh/docs/github-app): optional install for bot-posted attachment comments, private-repo PR/issue titles, and zero-CLI promotion of branch-staged screenshots when a PR opens
 - [Docs: agents](https://uploads.sh/docs/agents): install the agent skill and MCP server, or the all-in-one Claude Code plugin
 - [Docs: reference](https://uploads.sh/docs/reference): manage uploads (list/delete/usage) and what to know before relying on it
+- [Docs: plans & limits](https://uploads.sh/docs/limits): storage/file-size/member caps per plan, behavior at each cap, and the GitHub attachment-cap comparison
 - [Agent guide](https://uploads.sh/github-screenshots): how to get coding agents to upload screenshots & video to GitHub PRs and issues
 - [Auth for agents](https://uploads.sh/auth.md): self-serve and invitation enrollment, bearer tokens, and the hosted-MCP OAuth authorization server
 - [Source & docs](https://github.com/buildinternet/uploads): repository, roadmap, and operator docs

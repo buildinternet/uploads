@@ -45,6 +45,7 @@ const DOCS_NAV = [
       { slug: "github-app", href: "/docs/github-app", label: "GitHub App" },
       { slug: "agents", href: "/docs/agents", label: "Set up your agent" },
       { slug: "reference", href: "/docs/reference", label: "Reference" },
+      { slug: "limits", href: "/docs/limits", label: "Plans & limits" },
     ],
   },
   {
@@ -262,6 +263,23 @@ const fullTitle = `${title} · uploads.sh`;
       .doc h3 { font: 600 15px/1.4 var(--sans); margin: 22px 0 6px; color: var(--fg); }
       .doc p, .doc li { color: var(--body); }
       .doc strong { color: var(--fg); }
+
+      /* plain data table (used by the plans & limits page) */
+      .doc table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 16px 0;
+        font-size: 14px;
+      }
+      .doc table th,
+      .doc table td {
+        text-align: left;
+        padding: 8px 12px;
+        border: 1px solid var(--line);
+        color: var(--body);
+      }
+      .doc table thead th { background: var(--panel); color: var(--fg); font-weight: 600; }
+      .doc table tbody th[scope="row"] { color: var(--fg); font-weight: 600; white-space: nowrap; }
 
       /* FAQ definition list (used by the agent guide) */
       .doc .faq { margin: 0; }

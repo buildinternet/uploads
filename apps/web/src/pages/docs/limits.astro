@@ -1,0 +1,148 @@
+---
+// uploads.sh — docs / plans & limits. What each plan includes, what happens
+// when you hit a cap, and how the limits compare with GitHub's own
+// attachment caps. Numbers come from the plan catalog (`@uploads/billing`
+// PLANS) at build time so this page cannot drift from what the API enforces.
+import { PLANS } from "@uploads/billing";
+import DocsLayout from "../../layouts/DocsLayout.astro";
+
+const REPO = "https://github.com/buildinternet/uploads";
+
+// Marketed byte values are clean decimal numbers (250 MB, 10 GB), so a
+// simple unit walk formats them exactly.
+function formatBytes(bytes: number): string {
+  if (bytes >= 1_000_000_000) return `${bytes / 1_000_000_000} GB`;
+  return `${bytes / 1_000_000} MB`;
+}
+
+const free = PLANS.free.defaultLimits;
+const pro = PLANS.pro.defaultLimits;
+
+const TOC = [
+  { id: "plans", label: "Plan limits" },
+  { id: "at-the-cap", label: "When you hit a cap" },
+  { id: "github", label: "Compared with GitHub" },
+];
+---
+
+<DocsLayout
+  title="Plans & limits"
+  description="Storage, file size, and member limits for uploads.sh free and pro workspaces, and how they compare with GitHub's own attachment caps."
+  path="/docs/limits"
+  heading="Plans & limits"
+  tagline="What each plan includes, and what happens when you reach a cap."
+  active="limits"
+  toc={TOC}
+>
+  <div class="callout">
+    <strong>Hosted service only.</strong> These limits apply to the cloud-hosted uploads.sh
+    service, not to self-hosted deployments, which set their own limits.
+  </div>
+
+  <section class="lead" id="plans">
+    <h2>Plan limits <a class="anchor" href="#plans" aria-label="Link to this section">#</a></h2>
+    <p>
+      Limits apply per workspace, not per user. Everyone in a workspace shares the same
+      storage and the same caps.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th></th>
+          <th>{PLANS.free.name}</th>
+          <th>{PLANS.pro.name}</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th scope="row">Storage</th>
+          <td>{formatBytes(free.maxStorageBytes!)}</td>
+          <td>{formatBytes(pro.maxStorageBytes!)}</td>
+        </tr>
+        <tr>
+          <th scope="row">Max file size</th>
+          <td>{formatBytes(free.maxUploadBytes!)}</td>
+          <td>{formatBytes(pro.maxUploadBytes!)}</td>
+        </tr>
+        <tr>
+          <th scope="row">Max video size</th>
+          <td>{formatBytes(free.maxVideoUploadBytes!)}</td>
+          <td>{formatBytes(pro.maxVideoUploadBytes!)}</td>
+        </tr>
+        <tr>
+          <th scope="row">Members</th>
+          <td>{free.maxMembers}</td>
+          <td>Unlimited</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      On {PLANS.pro.name} there is one file cap: videos get the
+      same {formatBytes(pro.maxUploadBytes!)} ceiling as everything else.
+      Only {PLANS.free.name} carves videos out with a smaller cap.
+    </p>
+    <p class="note">
+      Both plans also carry internal rate guards against automated abuse. Normal use — even
+      heavy agent-driven use — does not reach them.
+    </p>
+  </section>
+
+  <section id="at-the-cap">
+    <h2>When you hit a cap <a class="anchor" href="#at-the-cap" aria-label="Link to this section">#</a></h2>
+    <ul>
+      <li>
+        <strong>Oversized file.</strong> The upload is rejected before any bytes land, with an
+        error that names the cap. Nothing counts against your storage.
+      </li>
+      <li>
+        <strong>Storage full.</strong> New uploads are rejected until you free space. Existing
+        files keep serving. Run <code>uploads list</code> and <code>uploads delete</code> to
+        clear room, or check <code>uploads usage</code> to see where you stand.
+      </li>
+      <li>
+        <strong>Member cap (free).</strong> Invites beyond the cap are refused, pending invites
+        included. Upgrade the workspace or revoke an unused invite.
+      </li>
+    </ul>
+    <p>
+      Workspace admins can see current usage on the workspace's billing tab, and upgrade
+      to {PLANS.pro.name} from there.
+    </p>
+  </section>
+
+  <section id="github">
+    <h2>Compared with GitHub <a class="anchor" href="#github" aria-label="Link to this section">#</a></h2>
+    <p>
+      GitHub caps files you attach directly to an issue or pull request:
+      10&nbsp;MB for images and GIFs on every plan, 25&nbsp;MB for other files, and videos at
+      10&nbsp;MB on free plans (100&nbsp;MB on paid plans). Files hosted on uploads.sh don't
+      go through that path — the CLI embeds a URL, so GitHub's attachment caps never apply.
+    </p>
+    <ul>
+      <li>
+        <strong>Images:</strong> up to {formatBytes(free.maxUploadBytes!)} on free
+        ({formatBytes(pro.maxUploadBytes!)} on {PLANS.pro.name}), vs GitHub's 10&nbsp;MB on
+        every GitHub plan.
+      </li>
+      <li>
+        <strong>Videos:</strong> {formatBytes(pro.maxVideoUploadBytes!)} on {PLANS.pro.name},
+        even when the repository is on a free GitHub plan where direct attachments stop at
+        10&nbsp;MB.
+      </li>
+      <li>
+        <strong>Any file type.</strong> GitHub restricts attachments to an allowlist of
+        extensions. uploads.sh hosts whatever your workflow produces.
+      </li>
+    </ul>
+    <p class="note">
+      One difference to know: GitHub renders inline video players only for its own uploads.
+      Videos hosted on uploads.sh appear in comments as a poster image that links to the
+      file's share page, where the video plays.
+    </p>
+  </section>
+
+  <nav class="page-nav" aria-label="More docs">
+    <a class="prev" href="/docs/reference"><span class="dir">← Back</span>Reference</a>
+    <a class="next" href="/docs"><span class="dir">Docs →</span>Overview</a>
+  </nav>
+</DocsLayout>
