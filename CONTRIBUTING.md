@@ -154,11 +154,13 @@ docs: document before/after pairing
 - Common types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`.
 - Start the subject with a lowercase letter and lead with the outcome.
 - Avoid sensational language ("comprehensive", "world-class").
-- Do **not** request a CodeRabbit review on every PR. Org policy is on-demand
-  only — comment `@coderabbitai review` or add the `coderabbit:review` label
-  when a review genuinely helps.
 
 Keep a PR focused, keep CI green, and add tests for behavior you change.
+
+**Want an automated review?** CodeRabbit runs on demand rather than on every
+PR. If a second pass would help — a tricky migration, anything touching auth,
+a change you would like another read on — comment `@coderabbitai review` or add
+the `coderabbit:review` label, and it will pick the PR up.
 
 ## Releasing the CLI
 
