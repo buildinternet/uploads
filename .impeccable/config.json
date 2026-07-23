@@ -18,9 +18,9 @@
       {
         "rule": "broken-image",
         "value": "*",
-        "files": ["**/packages/uploads/src/**"],
+        "files": ["**/packages/uploads/src/**", "**/apps/mcp/src/**"],
         "createdAt": "2026-07-23T18:05:43.111Z",
-        "reason": "User confirmed: CLI/MCP source emits GitHub-markdown img templates; src is interpolated at runtime, not a rendered UI surface"
+        "reason": "User confirmed: CLI/MCP source emits GitHub-markdown img templates; src is interpolated at runtime, not a rendered UI surface. apps/mcp/src added 2026-07-23: the hosted MCP worker is headless JSON-RPC (no rendered surface) and its tool-schema descriptions describe <img> markdown in prose — same class as the CLI, missed by the original packages-only glob."
       }
     ]
   }
