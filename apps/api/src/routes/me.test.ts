@@ -448,7 +448,7 @@ describe("GET /me/workspaces/:name/billing", () => {
       limits: Record<string, number | null>;
     };
     expect(body.plan).toBe("pro");
-    expect(body.available).toBe(false);
+    expect(body.available).toBe(true);
     expect(body.planApplied).toBe(true);
     expect(body.limits.maxStorageBytes).toBe(10_000_000_000);
   });

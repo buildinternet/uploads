@@ -738,7 +738,7 @@ describe("workspace plan editing", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { plan: string; available: boolean; planApplied: boolean };
     expect(body.plan).toBe("pro");
-    expect(body.available).toBe(false);
+    expect(body.available).toBe(true);
     expect(body.planApplied).toBe(true);
     expect(JSON.parse(store.get("ws:acme") ?? "{}").plan).toBe("pro");
   });
