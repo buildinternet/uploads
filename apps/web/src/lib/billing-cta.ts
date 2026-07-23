@@ -15,23 +15,41 @@
  * reading the catalog itself) so the three states are each independently
  * testable without mocking the catalog.
  */
-export type BillingCtaState = { kind: "unavailable" } | { kind: "upgrade" } | { kind: "manage" };
+export type BillingCtaState =
+  | { kind: "unavailable" }
+  | { kind: "upgrade" }
+  | { kind: "manage" }
+  | { kind: "comped" };
 
 /**
  * Resolves which billing-tab CTA to render.
  *
  * - pro not yet available (today): unchanged disabled "coming soon" button.
  * - pro available and the workspace isn't on it: "Upgrade to Pro".
- * - pro available and the workspace is on it: "Manage billing" (portal).
+ * - pro available, on pro, backed by a live Stripe subscription:
+ *   "Manage billing" (opens the Stripe customer portal).
+ * - pro available, on pro, but the plan is comped/admin-set (`planSource`
+ *   is "admin", no Stripe customer behind it): "comped" — NO portal button.
+ *   The Stripe portal 404s for a workspace with no Stripe customer (there's
+ *   nothing to build a portal session from), so offering it would only ever
+ *   produce an opaque error. The "Included with your workspace." status line
+ *   (subscription-copy.ts) already explains the state.
  *
  * Doubles as the plan-comparison cards' state map (billing.astro): "upgrade"
  * and "unavailable" render on the Pro card's CTA when the workspace is on
  * free; "manage" renders as a standalone "Manage billing" button (the
  * downgrade/cancel path lives in the Stripe portal, not a card CTA) shown
- * alongside the Pro card once the workspace is on it.
+ * alongside the Pro card once a real subscription backs it; "comped" renders
+ * neither button, only a clarifying note.
  */
-export function resolveBillingCta(input: { proAvailable: boolean; plan: string }): BillingCtaState {
+export function resolveBillingCta(input: {
+  proAvailable: boolean;
+  plan: string;
+  planSource: "stripe" | "admin" | "none";
+}): BillingCtaState {
   if (!input.proAvailable) return { kind: "unavailable" };
-  if (input.plan === "pro") return { kind: "manage" };
+  if (input.plan === "pro") {
+    return input.planSource === "stripe" ? { kind: "manage" } : { kind: "comped" };
+  }
   return { kind: "upgrade" };
 }
