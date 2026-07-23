@@ -28,6 +28,7 @@ import { githubPromote } from "./routes/github-promote";
 import { githubLink } from "./routes/github-link";
 import { githubHealth } from "./routes/github-health";
 import { githubActivity } from "./routes/github-activity";
+import { internalBilling } from "./routes/internal-billing";
 import { protectedResourceMetadata, requestOrigin } from "./well-known";
 
 // Lets the browser console on the web origin (and local dev) call the token-
@@ -153,6 +154,11 @@ export const app = new Hono<WorkspaceVars>()
   // Issue #338: recent-PRs-with-media feed, same base path, distinct
   // sub-route "/activity".
   .route("/v1/:workspace/github", githubActivity)
+  // Internal plan-set route (Stripe phase 2, task 3): secret-gated via the
+  // `x-internal-billing-key` header, not session/bearer auth, so it's outside
+  // /v1 and the workspaceAuth guard entirely — same "brings its own auth"
+  // treatment as /v1/github/webhook above. See routes/internal-billing.ts.
+  .route("/internal/billing", internalBilling)
   .onError((err, c) => respondError(c, err))
   .notFound((c) => respondError(c, new NotFoundError()));
 

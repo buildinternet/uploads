@@ -9,6 +9,13 @@
 # If unset, /admin/* rejects every request (fails closed).
 ADMIN_TOKEN=
 
+# Gates POST /internal/billing/plan (Stripe phase 2, task 3): compared
+# timing-safe against the `x-internal-billing-key` header. Any non-empty
+# string works locally. In production set it with:
+#   cd apps/api && pnpm exec wrangler secret put BILLING_INTERNAL_KEY
+# If unset, the route rejects every request (fails closed).
+BILLING_INTERNAL_KEY=
+
 # Optional: encrypt BYO S3 keys in REGISTRY KV (openssl rand -base64 32).
 # Production: wrangler secret put WORKSPACE_SECRETS_KEY
 WORKSPACE_SECRETS_KEY=
