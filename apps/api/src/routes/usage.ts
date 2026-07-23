@@ -1,3 +1,4 @@
+import { getPlan } from "@uploads/billing";
 import { Hono } from "hono";
 import { usageWithLimits } from "../budget";
 import { reconcileWorkspaceUsage } from "../reconcile";
@@ -14,13 +15,17 @@ import { requireScope, type WorkspaceVars } from "../workspace";
 export const usage = new Hono<WorkspaceVars>()
   .get("/", requireScope("files:read"), async (c) => {
     const snapshot = await getWorkspaceUsage(c.env.DB, c.get("workspaceName"));
+    const workspace = c.get("workspace");
     // `scopes` reflects the presented credential, not the workspace — doctor
     // uses it to surface a token that can't delete before the user hits a
     // surprise `forbidden`. Legacy tokens report the full file-scope set,
     // which is what they actually have.
+    // `plan` is the catalog id (free|pro) so CLI `uploads usage` can label
+    // paid workspaces without a separate billing round trip.
     return c.json({
-      ...usageWithLimits(snapshot, c.get("workspace")),
+      ...usageWithLimits(snapshot, workspace),
       scopes: c.get("authScopes"),
+      plan: getPlan(workspace.plan).id,
     });
   })
 

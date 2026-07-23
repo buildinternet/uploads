@@ -349,18 +349,21 @@ export async function fetchPublicFile(
   }
 }
 
-/** Human-readable byte size for the metadata block. */
+/**
+ * Human-readable byte size for metadata / file lists (decimal SI).
+ * Matches account/billing meters so a 250 MB free cap never reads as 238 MB.
+ */
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "—";
-  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1000) return `${Math.round(bytes)} B`;
   const units = ["KB", "MB", "GB", "TB"];
-  let value = bytes / 1024;
+  let value = bytes / 1000;
   let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
     unit += 1;
   }
-  return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+  return `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10} ${units[unit]}`;
 }
 
 /** Same-day writes within this window share one "Uploaded" chip (R2 mtime noise). */
