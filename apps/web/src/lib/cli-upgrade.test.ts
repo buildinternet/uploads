@@ -48,7 +48,7 @@ describe("resolveUpgradePrompt", () => {
     expect(resolveUpgradePrompt("0.26.0", "0.27.0")).toMatchObject({
       current: "0.26.0",
       latest: "0.27.0",
-      installCmd: "npm i -g @buildinternet/uploads",
+      installCmd: "uploads update",
     });
     expect(resolveUpgradePrompt("0.27.0", "0.27.0")).toBeNull();
     expect(resolveUpgradePrompt(null, "0.27.0")).toBeNull();

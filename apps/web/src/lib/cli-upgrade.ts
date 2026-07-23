@@ -5,6 +5,8 @@
 
 export const CLI_PACKAGE = "@buildinternet/uploads";
 export const CLI_INSTALL_CMD = `npm i -g ${CLI_PACKAGE}`;
+/** Shown to users who already have the CLI, so it can name the CLI's own verb. */
+export const CLI_UPDATE_CMD = "uploads update";
 /** Session-storage dismiss key prefix; full key includes the latest version. */
 export const CLI_UPGRADE_DISMISS_PREFIX = "uploads:cli-upgrade-dismissed:";
 
@@ -70,8 +72,8 @@ export function resolveUpgradePrompt(
   return {
     current: cur,
     latest: lat,
-    installCmd: CLI_INSTALL_CMD,
-    message: `You’re on CLI ${cur}; ${lat} is available. Update: ${CLI_INSTALL_CMD}`,
+    installCmd: CLI_UPDATE_CMD,
+    message: `You’re on CLI ${cur}; ${lat} is available. Update: ${CLI_UPDATE_CMD}`,
   };
 }
 

@@ -189,10 +189,10 @@ export function formatUpdateBanner(options: {
   latest: string;
   color?: boolean;
 }): string {
-  return boxLines(
-    [`Update available  ${options.current} → ${options.latest}`, `npm i -g @buildinternet/uploads`],
-    { color: options.color, tone: BRAND.accent },
-  );
+  return boxLines([`Update available  ${options.current} → ${options.latest}`, `uploads update`], {
+    color: options.color,
+    tone: BRAND.accent,
+  });
 }
 
 export function formatAuthBanner(options: { color?: boolean } = {}): string {

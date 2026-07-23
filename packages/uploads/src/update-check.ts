@@ -150,7 +150,7 @@ export async function maybeHintUpdate(opts: UpdateCheckOptions = {}): Promise<vo
     if (!status.updateAvailable || !status.latest) return;
     const write = opts.write ?? ((text: string) => process.stderr.write(text));
     write(
-      `hint: ${PACKAGE_NAME}@${status.latest} is available (you have ${status.current}). Update: npm i -g ${PACKAGE_NAME}\n`,
+      `hint: ${PACKAGE_NAME}@${status.latest} is available (you have ${status.current}). Update: uploads update\n`,
     );
   } catch {
     // Never surface update-check failures.
