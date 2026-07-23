@@ -6,6 +6,11 @@ import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
 import GitHubMark from "../components/GitHubMark.astro";
 import SiteHeader from "../components/SiteHeader.astro";
+import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../lib/og";
+
+const pageTitle = "uploads.sh — the missing upload command for coding agents";
+const pageDescription =
+  "The missing upload command for coding agents. Screenshots stage on the branch as the agent works, so the PR opens with one tidy attachments comment.";
 
 // Static page (no `prerender = false`) — auth origin is baked at build time,
 // not read from request-time env. See src/lib/auth-client.ts.
@@ -37,26 +42,40 @@ Source (and where to look if something breaks): https://github.com/buildinternet
 
 <html lang="en">
   <head>
-    <BaseHead preloadSans />
-    <title>uploads.sh — the missing upload command for coding agents</title>
-    <meta
-      name="description"
-      content="GitHub has no real way for an agent to show their work. Capture screenshots as you go and they're staged for the branch automatically, so the PR opens already furnished with one tidy comment. Open source — CLI, agent skill, and MCP server."
-    />
+    <BaseHead preloadSans manifest />
+    <title>{pageTitle}</title>
+    <meta name="description" content={pageDescription} />
     <link rel="canonical" href="https://uploads.sh/" />
     <link rel="sitemap" type="application/xml" title="Sitemap" href="/sitemap.xml" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://uploads.sh/" />
-    <meta property="og:title" content="uploads.sh — the missing upload command for coding agents" />
+    <meta property="og:site_name" content={OG_SITE_NAME} />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={pageDescription} />
+    <meta property="og:image" content={OG_DEFAULT_IMAGE} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta
-      property="og:description"
-      content="GitHub has no real way for an agent to show their work. Capture screenshots as you go and they're staged for the branch automatically, so the PR opens already furnished with one tidy comment."
+      property="og:image:alt"
+      content="uploads put screenshot.png — staged on the branch, then attached to the PR as one managed comment"
     />
-    <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="uploads.sh — the missing upload command for coding agents" />
-    <meta
-      name="twitter:description"
-      content="Capture screenshots as you go — they're staged for the branch automatically, so the PR opens already furnished with one tidy comment."
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={pageDescription} />
+    <meta name="twitter:image" content={OG_DEFAULT_IMAGE} />
+    <script
+      type="application/ld+json"
+      set:html={JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        name: "uploads.sh",
+        applicationCategory: "DeveloperApplication",
+        operatingSystem: "macOS, Linux, Windows",
+        url: "https://uploads.sh/",
+        description: pageDescription,
+        offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      })}
     />
     <style>
       * { box-sizing: border-box; }

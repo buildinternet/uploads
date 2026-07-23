@@ -20,6 +20,7 @@ import {
   sameUtcDay,
 } from "../../../lib/public-file";
 import { oembedDiscoveryHref } from "../../../lib/oembed";
+import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../../../lib/og";
 import { env } from "cloudflare:workers";
 
 export const prerender = false;
@@ -123,6 +124,7 @@ const pairPanels: PairPanel[] | null =
           : { state, src: counterpart.url, current: false, href: counterpartHref },
       )
     : null;
+const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAULT_IMAGE;
 ---
 
 <!doctype html>
@@ -137,7 +139,8 @@ const pairPanels: PairPanel[] | null =
     <meta property="og:title" content={file ? filename : "File unavailable"} />
     <meta property="og:description" content="Public file hosted by uploads.sh." />
     <meta property="og:url" content={canonical} />
-    {file && kind(file.contentType) === "image" && <meta property="og:image" content={file.url} />}
+    <meta property="og:site_name" content={OG_SITE_NAME} />
+    <meta property="og:image" content={ogImage} />
     {oembedHref && (
       <link
         rel="alternate"

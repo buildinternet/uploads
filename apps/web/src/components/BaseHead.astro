@@ -19,16 +19,23 @@ import geistSansUrl from "@uploads/ui/fonts/geist.woff2?url";
 interface Props {
   /** Also preload the sans face (marketing/prose-heavy pages). */
   preloadSans?: boolean;
+  /**
+   * Link the web app manifest. Marketing/docs pages only — pages that ship a
+   * `default-src 'none'` CSP (signed-in, /f, /g, invite) would block the
+   * manifest fetch and log a violation, so they leave this off.
+   */
+  manifest?: boolean;
 }
 
-const { preloadSans = false } = Astro.props;
-
-const FAVICON =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' shape-rendering='crispEdges'%3E%3Cpath d='M4 0H28V4H32V28H28V32H4V28H0V4H4Z' fill='%23121214'%3E%3C/path%3E%3Cg fill='%23c27eff'%3E%3Cpath d='M14 4h4v4h-4z M10 6h4v4h-4z M18 6h4v4h-4z M6 8h4v4h-4z M22 8h4v4h-4z'%3E%3C/path%3E%3Cpath opacity='.55' d='M14 12h4v4h-4z M10 14h4v4h-4z M18 14h4v4h-4z M6 16h4v4h-4z M22 16h4v4h-4z'%3E%3C/path%3E%3Cpath opacity='.28' d='M14 20h4v4h-4z M10 22h4v4h-4z M18 22h4v4h-4z M6 24h4v4h-4z M22 24h4v4h-4z'%3E%3C/path%3E%3C/g%3E%3C/svg%3E";
+const { preloadSans = false, manifest = false } = Astro.props;
 ---
 
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="icon" href={FAVICON} />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+{manifest && <link rel="manifest" href="/site.webmanifest" />}
+<meta name="theme-color" content="#121214" />
 <link rel="preload" as="font" type="font/woff2" crossorigin href={geistMonoUrl} />
 {preloadSans && <link rel="preload" as="font" type="font/woff2" crossorigin href={geistSansUrl} />}
