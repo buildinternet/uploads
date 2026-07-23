@@ -3,7 +3,7 @@ import { useCurrentFrame } from "remotion";
 import { T } from "../tokens";
 import { rise } from "../kit/helpers";
 import { Cmd, Out, TerminalFrame } from "../kit/Terminal";
-import { Scene } from "../kit/Scene";
+import { Caption, Scene } from "../kit/Scene";
 import { Loop } from "../kit/Loop";
 import { Shot } from "../kit/Shot";
 
@@ -16,6 +16,7 @@ export const PutUrl: React.FC = () => {
   return (
     <Scene>
       <Loop>
+        <Caption text="uploads cli for agents" />
         <TerminalFrame width={1000} branch="feat/checkout">
           <Cmd text="uploads put screenshot.png" start={15} caretUntil={48} />
           <Out start={50} color={T.green}>

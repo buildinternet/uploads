@@ -66,8 +66,7 @@ export const Cmd: React.FC<{
   text: string;
   start: number;
   caretUntil?: number;
-  cpf?: number;
-}> = ({ text, start, caretUntil = Infinity, cpf = 1.3 }) => {
+}> = ({ text, start, caretUntil = Infinity }) => {
   const frame = useCurrentFrame();
   if (frame < start) {
     // Invisible placeholder keeps the terminal height stable pre-typing.
@@ -78,25 +77,14 @@ export const Cmd: React.FC<{
       </div>
     );
   }
-  const visible = typed(text, frame, start, cpf);
-  const done = frame >= typedEnd(text, start, cpf);
+  const visible = typed(text, frame, start);
+  const done = frame >= typedEnd(text, start);
   const caretOn = frame < caretUntil && (!done || Math.floor(frame / 16) % 2 === 0);
   return (
     <div style={{ whiteSpace: "pre" }}>
       <span style={{ color: T.muted }}>$ </span>
       <span style={{ color: T.fg }}>{visible}</span>
       <Caret on={caretOn} />
-    </div>
-  );
-};
-
-/** Idle prompt with optional blinking caret. */
-export const Prompt: React.FC<{ caret?: boolean }> = ({ caret = true }) => {
-  const frame = useCurrentFrame();
-  return (
-    <div style={{ whiteSpace: "pre" }}>
-      <span style={{ color: T.muted }}>$ </span>
-      <Caret on={caret && Math.floor(frame / 16) % 2 === 0} />
     </div>
   );
 };

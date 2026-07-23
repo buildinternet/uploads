@@ -22,7 +22,7 @@ export const Why: React.FC = () => {
     <Scene>
       <Loop>
         <Caption
-          text="Agent PRs: no screenshots"
+          text="Upgrade your pull requests"
           swaps={[{ at: 118, text: "Agents show their work" }]}
         />
         {/* The agent's PR — all text, no visuals */}

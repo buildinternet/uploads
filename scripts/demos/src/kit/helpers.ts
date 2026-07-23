@@ -18,10 +18,12 @@ export const fall = (frame: number, start: number, dur = 12) =>
     easing: EASE,
   });
 
+/** Typing speed for `Cmd` lines, in characters per frame. */
+const CPF = 1.3;
+
 /** Characters visible for a line that starts typing at `start`. */
-export const typed = (text: string, frame: number, start: number, cpf = 1.3) =>
-  text.slice(0, Math.max(0, Math.floor((frame - start) * cpf)));
+export const typed = (text: string, frame: number, start: number) =>
+  text.slice(0, Math.max(0, Math.floor((frame - start) * CPF)));
 
 /** Frame at which typing that starts at `start` finishes. */
-export const typedEnd = (text: string, start: number, cpf = 1.3) =>
-  start + Math.ceil(text.length / cpf);
+export const typedEnd = (text: string, start: number) => start + Math.ceil(text.length / CPF);

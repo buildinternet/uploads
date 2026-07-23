@@ -64,8 +64,7 @@ export const Caption: React.FC<{
   text: string;
   start?: number;
   swaps?: { at: number; text: string }[];
-  size?: number;
-}> = ({ text, start = 0, swaps = [], size = 56 }) => {
+}> = ({ text, start = 0, swaps = [] }) => {
   const frame = useCurrentFrame();
   let active = text;
   let key = start;
@@ -80,7 +79,7 @@ export const Caption: React.FC<{
       style={{
         fontFamily: T.sans,
         fontWeight: 560,
-        fontSize: size,
+        fontSize: 56,
         letterSpacing: "-0.02em",
         color: T.fg,
         textAlign: "center",
