@@ -73,6 +73,18 @@ export function normalizeGithubCoordinate(value: string): GithubCoordinate | und
   };
 }
 
+/**
+ * Inverse of `ghKeyPrefix`: parse the PR/issue coordinate back out of a
+ * stable attachment key (`gh/<owner>/<name>/<kind>/<num>/<filename>`), or
+ * undefined for any other key shape.
+ */
+export function parseGhKey(key: string): GhTarget | undefined {
+  const match = /^gh\/([^/]+)\/([^/]+)\/(pull|issues)\/([1-9][0-9]*)\/./.exec(key);
+  if (!match) return undefined;
+  const [, owner, name, kind, num] = match;
+  return { repo: `${owner}/${name}`, kind: kind as GhTargetKind, num: Number(num) };
+}
+
 export function ghKeyPrefix(target: GhTarget): string {
   const [owner, name] = target.repo.split("/");
   return `gh/${sanitizeKeySegment(owner)}/${sanitizeKeySegment(name)}/${target.kind}/${target.num}/`;

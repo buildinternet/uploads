@@ -289,6 +289,21 @@ export async function upsertBotComment(
     : await write(`${base}/issues/${target.num}/comments`, "POST");
   if (!r.ok) return { degrade: degradeFor(r.status) };
 
+  // Self-healing dedupe (issue #470): a create race can leave two marker
+  // comments on the thread; the extras would drift stale forever since the
+  // hunt keeps only the oldest. Delete them best-effort — a failed delete
+  // must never fail the caller's request, and the next sync retries anyway.
+  for (const extra of found.extras ?? []) {
+    try {
+      await githubFetch(fetchImpl, `${base}/issues/comments/${extra.id}`, {
+        method: "DELETE",
+        headers: jsonHeaders,
+      });
+    } catch {
+      // Best effort only.
+    }
+  }
+
   const id = existing?.id ?? r.id;
   if (id !== undefined) {
     await env.GITHUB_CACHE.put(cacheKey, String(id), { expirationTtl: COMMENT_ID_TTL });
@@ -308,6 +323,12 @@ export async function upsertBotComment(
  * adopted and migrated in place. When `marker` IS the legacy marker (no
  * workspace to namespace with) this collapses to a single hunt, unchanged
  * from pre-4b behavior.
+ *
+ * Collects EVERY comment carrying `marker` (a create race can leave more than
+ * one — issue #470): the oldest is `comment`, the rest come back as `extras`
+ * for the caller to delete. Only exact-`marker` hits are ever extras — a
+ * legacy (unnamespaced) comment may belong to a different workspace, so it is
+ * adopted at most, never deleted.
  */
 async function findMarkerComment(
   fetchImpl: typeof fetch,
@@ -315,9 +336,10 @@ async function findMarkerComment(
   base: string,
   num: number,
   marker: string,
-): Promise<{ comment?: GhComment; degrade?: "forbidden" | "unavailable" }> {
+): Promise<{ comment?: GhComment; extras?: GhComment[]; degrade?: "forbidden" | "unavailable" }> {
   const MAX_PAGES = 20; // 2000 comments.
   let legacyHit: GhComment | undefined;
+  const hits: GhComment[] = [];
   for (let page = 1; page <= MAX_PAGES; page++) {
     let res: Response;
     try {
@@ -334,17 +356,16 @@ async function findMarkerComment(
     if (res.status === 403) return { degrade: "forbidden" };
     if (!res.ok) return { degrade: "unavailable" };
     const comments = (await res.json().catch(() => [])) as GhComment[];
-    if (!Array.isArray(comments)) return { comment: legacyHit };
-    const namespacedHit = comments.find(
-      (c) => typeof c.body === "string" && c.body.includes(marker),
-    );
-    if (namespacedHit) return { comment: namespacedHit };
+    if (!Array.isArray(comments)) break;
+    hits.push(...comments.filter((c) => typeof c.body === "string" && c.body.includes(marker)));
     if (!legacyHit && marker !== ATTACHMENTS_MARKER) {
       legacyHit = comments.find(
         (c) => typeof c.body === "string" && c.body.includes(ATTACHMENTS_MARKER),
       );
     }
-    if (comments.length < 100) return { comment: legacyHit }; // last page reached.
+    if (comments.length < 100) break; // last page reached.
   }
-  return { comment: legacyHit }; // page cap hit — best effort, still adopt a legacy hit if seen.
+  // Comments list oldest-first, so hits[0] is the oldest marker comment.
+  if (hits.length > 0) return { comment: hits[0], extras: hits.slice(1) };
+  return { comment: legacyHit }; // best effort — adopt a legacy hit if seen.
 }

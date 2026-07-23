@@ -38,6 +38,7 @@ import {
   ghBranchKeyPrefix,
   ghKeyPrefix,
   ghMetadataFromTarget,
+  parseGhKey,
   ghMetadataForBranch,
   attachmentsCommentBody,
   attachmentsMarker,
@@ -2712,10 +2713,53 @@ export async function runMeta(ctx: CliContext, args: string[], help = false): Pr
       });
       if (ctx.json) await writeJson(result);
       else for (const [k, v] of Object.entries(result.metadata)) await writeStdout(`${k}=${v}\n`);
+      await resyncCommentAfterMetaSet(ctx, key, [...Object.keys(set ?? {}), ...del]);
       return 0;
     }
     default:
       throw new UsageError(`unknown meta command: ${action}`);
+  }
+}
+
+/** The metadata keys the managed comment renders (path/state, PR #370). */
+const COMMENT_RENDERED_META_KEYS = ["path", "state"];
+
+/**
+ * Best-effort managed-comment refresh after `meta set` touches a
+ * display-relevant key on a PR/issue-keyed object (issue #470) — without
+ * this, backfilled `path=`/`state=` never reaches the rendered comment until
+ * an unrelated attach fires. Bot endpoint only (no gh fallback — this is a
+ * metadata tweak, not an explicit comment command); any failure degrades to
+ * a stderr hint instead of failing the metadata write that already landed.
+ */
+async function resyncCommentAfterMetaSet(
+  ctx: CliContext,
+  key: string,
+  touchedKeys: string[],
+): Promise<void> {
+  if (!touchedKeys.some((k) => COMMENT_RENDERED_META_KEYS.includes(k))) return;
+  const target = parseGhKey(key);
+  if (!target) return;
+  try {
+    const bot = await ctx.client.upsertGithubComment({
+      repo: target.repo,
+      num: target.num,
+      kind: target.kind,
+    });
+    if (bot.posted) {
+      if (!ctx.quiet && !ctx.json) {
+        process.stderr.write(`refreshed the managed comment on ${target.repo}#${target.num}\n`);
+      }
+      return;
+    }
+  } catch {
+    // Fall through to the hint.
+  }
+  if (!ctx.quiet && !ctx.json) {
+    const flag = target.kind === "pull" ? "--pr" : "--issue";
+    process.stderr.write(
+      `tip: run \`uploads comment ${flag} ${target.num}\` to refresh the PR comment\n`,
+    );
   }
 }
 
