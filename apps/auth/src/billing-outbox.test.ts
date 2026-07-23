@@ -284,6 +284,34 @@ describe("runPlanSyncOutbox", () => {
     expect(await outboxRows(env)).toHaveLength(1);
   });
 
+  it("isn't starved by a backlog of exhausted rows", async () => {
+    // Exhausted rows keep a nextAttemptAt in the past forever, so they sort to
+    // the front of the due query. A batch's worth of them must not crowd out a
+    // row that genuinely needs retrying.
+    const env = dbEnv();
+    const orm_ = orm(env);
+    for (let i = 0; i < 60; i += 1) {
+      await enqueuePlanSync(orm_, `exhausted-${i}`, "status 500", new Date(0));
+      await orm_
+        .update(schema.billingPlanOutbox)
+        .set({ attempts: MAX_ATTEMPTS })
+        .where(eq(schema.billingPlanOutbox.referenceId, `exhausted-${i}`));
+    }
+
+    const orgId = await seedOrganization(env, "acme");
+    await seedSubscription(env, orgId, "active");
+    await enqueuePlanSync(orm_, orgId, "status 500", NOW);
+
+    const fetchMock = okFetch();
+    env.API = { fetch: fetchMock } as unknown as Fetcher;
+
+    const result = await runPlanSyncOutbox(env, orm_, new Date(NOW.getTime() + 120_000));
+
+    expect(result.synced).toBe(1);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ workspace: "acme", plan: "pro" });
+  });
+
   it("drops a row whose organization no longer exists", async () => {
     const env = dbEnv();
     await enqueuePlanSync(orm(env), "org-that-vanished", "status 500", NOW);

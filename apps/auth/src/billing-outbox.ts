@@ -32,7 +32,7 @@
  * Covering it would mean queueing somewhere other than D1, which is not worth
  * the second system at this volume.
  */
-import { asc, eq, lte } from "drizzle-orm";
+import { and, asc, eq, lt, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { AuthEnv } from "./auth";
 import * as schema from "./schema";
@@ -162,14 +162,24 @@ export async function runPlanSyncOutbox(
     return result;
   }
 
+  // Exhausted rows are excluded in SQL, not just skipped in the loop below.
+  // They stay in the table forever with a `nextAttemptAt` in the past, so they
+  // sort to the front of this query — enough of them would fill the batch and
+  // starve rows that genuinely need retrying.
   const due = await db
     .select()
     .from(schema.billingPlanOutbox)
-    .where(lte(schema.billingPlanOutbox.nextAttemptAt, now))
+    .where(
+      and(
+        lte(schema.billingPlanOutbox.nextAttemptAt, now),
+        lt(schema.billingPlanOutbox.attempts, MAX_ATTEMPTS),
+      ),
+    )
     .orderBy(asc(schema.billingPlanOutbox.nextAttemptAt))
     .limit(DRAIN_BATCH);
 
   for (const row of due) {
+    // Defensive: the query above already excludes these.
     if (row.attempts >= MAX_ATTEMPTS) continue;
     result.attempted += 1;
 
