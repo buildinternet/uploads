@@ -28,7 +28,7 @@ section.card.settings-page h2 {
   margin-bottom: 0;
 }
 
-/* Developers — flat hairline rows inside the settings surface. */
+/* Developers / workspaces picker — flat hairline rows, not nested boxes. */
 section.card.dev-page {
   padding-bottom: 4px;
 }
@@ -67,6 +67,9 @@ ul.dev-links a:focus-visible {
 ul.dev-links .slug {
   color: var(--muted);
   font-size: 12px;
+}
+.settings-note a {
+  text-underline-offset: 0.15em;
 }
 
 .kv {

@@ -5,17 +5,16 @@
  * workspace"). When a workspace is active, files / galleries / people /
  * settings sit as flat rows underneath.
  *
- * Memberships and last-used workspace are cached in sessionStorage for
- * instant paint (revalidated after session). Last-used keeps personal
- * routes (`/account/profile`, `/account/developers`) from collapsing the
- * workspace section nav.
+ * Memberships live in sessionStorage (instant paint, revalidated after
+ * session). Last-used workspace lives in localStorage so it survives
+ * sign-out and drives the index auto-open after login.
  */
 import { getMyWorkspaces, type MyWorkspace } from "./api-client";
 import { onSession } from "./account-shell";
 import { isBrowseWorkspace, workspaceFromPathname } from "./workspace-browse-url";
 import { escapeHtml } from "./workspace-ui";
 
-/** sessionStorage keys — UX only; membership is still enforced server-side. */
+/** Storage keys — UX only; membership is still enforced server-side. */
 export const WORKSPACES_CACHE_KEY = "uploads:myWorkspaces";
 export const ACTIVE_WORKSPACE_CACHE_KEY = "uploads:activeWorkspace";
 
@@ -41,32 +40,32 @@ export type WorkspacesNavOptions = {
 
 type CachePayload = { workspaces: MyWorkspace[] };
 
-function storageGet(key: string): string | null {
+function storeGet(store: Storage, key: string): string | null {
   try {
-    return sessionStorage.getItem(key);
+    return store.getItem(key);
   } catch {
     return null;
   }
 }
 
-function storageSet(key: string, value: string): void {
+function storeSet(store: Storage, key: string, value: string): void {
   try {
-    sessionStorage.setItem(key, value);
+    store.setItem(key, value);
   } catch {
     // Private mode / quota — nav still works without the cache.
   }
 }
 
-function storageRemove(key: string): void {
+function storeRemove(store: Storage, key: string): void {
   try {
-    sessionStorage.removeItem(key);
+    store.removeItem(key);
   } catch {
     // ignore
   }
 }
 
 export function readCachedWorkspaces(): MyWorkspace[] | null {
-  const raw = storageGet(WORKSPACES_CACHE_KEY);
+  const raw = storeGet(sessionStorage, WORKSPACES_CACHE_KEY);
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as CachePayload;
@@ -85,24 +84,45 @@ export function readCachedWorkspaces(): MyWorkspace[] | null {
 }
 
 export function writeCachedWorkspaces(workspaces: MyWorkspace[]): void {
-  storageSet(WORKSPACES_CACHE_KEY, JSON.stringify({ workspaces }));
+  storeSet(sessionStorage, WORKSPACES_CACHE_KEY, JSON.stringify({ workspaces }));
 }
 
 export function clearCachedWorkspaces(): void {
-  storageRemove(WORKSPACES_CACHE_KEY);
+  storeRemove(sessionStorage, WORKSPACES_CACHE_KEY);
 }
 
+/** Last-used workspace slug (localStorage; session fallback for older tabs). */
 export function readCachedActiveWorkspace(): string {
-  const raw = storageGet(ACTIVE_WORKSPACE_CACHE_KEY);
+  const raw =
+    storeGet(localStorage, ACTIVE_WORKSPACE_CACHE_KEY) ??
+    storeGet(sessionStorage, ACTIVE_WORKSPACE_CACHE_KEY);
   return raw && isBrowseWorkspace(raw) ? raw : "";
 }
 
 export function writeCachedActiveWorkspace(workspace: string): void {
-  if (isBrowseWorkspace(workspace)) storageSet(ACTIVE_WORKSPACE_CACHE_KEY, workspace);
+  if (!isBrowseWorkspace(workspace)) return;
+  storeSet(localStorage, ACTIVE_WORKSPACE_CACHE_KEY, workspace);
+  // Drop any pre-migration session copy so it can't re-surface later.
+  storeRemove(sessionStorage, ACTIVE_WORKSPACE_CACHE_KEY);
 }
 
 export function clearCachedActiveWorkspace(): void {
-  storageRemove(ACTIVE_WORKSPACE_CACHE_KEY);
+  storeRemove(localStorage, ACTIVE_WORKSPACE_CACHE_KEY);
+  storeRemove(sessionStorage, ACTIVE_WORKSPACE_CACHE_KEY);
+}
+
+/**
+ * Workspace to open from the index after login.
+ * One membership → that workspace. Multi → last-used if still a member.
+ * Otherwise null (show the picker).
+ */
+export function resolveDefaultWorkspace(
+  workspaces: readonly { workspace: string }[],
+  lastActive = "",
+): string | null {
+  if (workspaces.length === 1) return workspaces[0]!.workspace;
+  if (lastActive && workspaces.some((ws) => ws.workspace === lastActive)) return lastActive;
+  return null;
 }
 
 /**
