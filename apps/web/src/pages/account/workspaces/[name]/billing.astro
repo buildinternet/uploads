@@ -77,7 +77,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
     import { resolveBillingCta } from "../../../../lib/billing-cta";
     import { fetchProPrice, formatPrice } from "../../../../lib/plan-prices";
     import { resolveSubscriptionCopy } from "../../../../lib/subscription-copy";
-    import { escapeHtml, formatBytes } from "../../../../lib/workspace-ui";
+    import { escapeHtml, formatBytes, formatMarketedBytes } from "../../../../lib/workspace-ui";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
 
     onAstroPageLoad(() => {
@@ -208,12 +208,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           `<li>${
             defaultLimits.maxStorageBytes === undefined
               ? "Unlimited storage"
-              : `${formatBytes(defaultLimits.maxStorageBytes)} storage`
+              : `${formatMarketedBytes(defaultLimits.maxStorageBytes)} storage`
           }</li>`,
           `<li>${
             defaultLimits.maxUploadBytes === undefined
               ? "Unlimited file size"
-              : `Files up to ${formatBytes(defaultLimits.maxUploadBytes)}`
+              : `Files up to ${formatMarketedBytes(defaultLimits.maxUploadBytes)}`
           }</li>`,
         ];
         // A separate video line only when the plan actually carves a distinct
@@ -222,7 +222,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           defaultLimits.maxVideoUploadBytes !== undefined &&
           defaultLimits.maxVideoUploadBytes !== defaultLimits.maxUploadBytes
         ) {
-          rows.push(`<li>Videos up to ${formatBytes(defaultLimits.maxVideoUploadBytes)}</li>`);
+          rows.push(`<li>Videos up to ${formatMarketedBytes(defaultLimits.maxVideoUploadBytes)}</li>`);
         }
         return rows.join("");
       }

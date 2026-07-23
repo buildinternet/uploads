@@ -51,6 +51,25 @@ export function formatBytes(bytes: number): string {
   return `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10} ${units[unit]}`;
 }
 
+/**
+ * Decimal (SI) byte formatting for *marketed* plan limits, which are defined
+ * in plans.ts as round decimal numbers (250 MB, 10 GB, 100 MB). The binary
+ * `formatBytes` above stays for measured usage/enforcement figures, but
+ * would render those caps as 238 MB / 9.3 GB / 95 MB on the plan cards —
+ * contradicting the plan blurb on the same card.
+ */
+export function formatMarketedBytes(bytes: number): string {
+  if (bytes < 1000) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1000;
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  return `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10} ${units[unit]}`;
+}
+
 export type UsageSnapshot = {
   bytes: number;
   objects: number;
