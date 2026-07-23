@@ -32,6 +32,8 @@ function classify(path: string): { kind: InstallKind; manager: PackageManager } 
   if (path.includes("/.bun/install/global/")) return { kind: "global", manager: "bun" };
   if (path.includes("/pnpm/global/")) return { kind: "global", manager: "pnpm" };
   if (path.includes("/lib/node_modules/")) return { kind: "global", manager: "npm" };
+  // Windows npm globals have no `lib` segment: `<prefix>\npm\node_modules\<pkg>`.
+  if (path.includes("/npm/node_modules/")) return { kind: "global", manager: "npm" };
   // No node_modules segment at all means we are running out of a source checkout.
   if (!path.includes("/node_modules/")) return { kind: "workspace", manager: "npm" };
   return { kind: "unknown", manager: "npm" };

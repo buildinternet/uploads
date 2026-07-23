@@ -81,6 +81,9 @@ export async function runUpdate(
   const status = await (opts.check ?? (() => checkForUpdate({ ttlMs: 0 })))();
 
   const willUpgrade = status.updateAvailable && source.kind === "global";
+  // Resolved through PATH: in the normal single-install case this is the
+  // just-upgraded binary, but with multiple `uploads` binaries on PATH it
+  // could resolve to a different, stale one. Accepted risk, not a guarantee.
   const refreshCommand = ["uploads", "install"];
 
   // --- plan ---
@@ -144,5 +147,5 @@ export async function runUpdate(
   }
 
   // Nothing changed, so the in-process install code is already current.
-  return runInstall([], { globals: opts.globals, runner: run });
+  return runInstall(verbose ? ["--verbose"] : [], { globals: opts.globals, runner: run });
 }

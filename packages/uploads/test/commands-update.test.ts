@@ -86,6 +86,22 @@ describe("uploads update", () => {
     expect(calls).not.toContainEqual(["uploads", "install"]);
   });
 
+  it("forwards --verbose to the in-process refresh when already current", async () => {
+    const { out } = captureStreams();
+    const { run } = fakeRunner();
+    const code = await runUpdate(["--verbose"], {
+      globals: GLOBALS,
+      runner: run,
+      source: GLOBAL_SOURCE,
+      check: current,
+    });
+    expect(code).toBe(0);
+    // runInstall only prints per-step output when --verbose is forwarded; the
+    // fake runner's "ok" output surfacing here is the observable effect of
+    // --verbose reaching runInstall through the empty-args refresh call.
+    expect(out.join("")).toMatch(/^ {2}ok$/m);
+  });
+
   it("reports the current version when nothing to upgrade", async () => {
     const { out } = captureStreams();
     const { run } = fakeRunner();
