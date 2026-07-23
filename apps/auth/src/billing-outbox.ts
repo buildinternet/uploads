@@ -25,12 +25,23 @@
  *    "compare everything to Stripe" sweep could not make that promise without
  *    a comp marker.
  *
- * Known limit: the queue lives in the same D1 database the bridge reads, so a
- * D1 outage takes the enqueue down with the sync it was meant to rescue. That
- * failure is logged (`billing_outbox_enqueue_failed`) and is the one case
- * still needing an operator re-post through the idempotent internal route.
- * Covering it would mean queueing somewhere other than D1, which is not worth
- * the second system at this volume.
+ * Known limit, narrower than it first looks: the queue lives in the same D1
+ * the bridge reads, so an enqueue can fail for the same reason the sync did.
+ * A full D1 outage is already covered elsewhere — `@better-auth/stripe`
+ * writes the `subscription` row before it calls the hook that reaches this
+ * module, so if D1 is down that write throws first, the webhook returns
+ * non-2xx, and Stripe redelivers (it retries for up to three days). What is
+ * left uncovered is the window where D1 serves the plugin's write and then
+ * fails on this insert moments later. That logs
+ * `billing_outbox_enqueue_failed` and is the one case still needing an
+ * operator re-post through the idempotent internal route.
+ *
+ * Cloudflare Queues would close that window, since `send()` doesn't touch D1.
+ * Not worth it at this volume, and not free either: a D1 table dedupes to one
+ * row per organization (latest failure wins) where a queue would carry one
+ * message per failure, and it can be inspected with SQL to answer "what never
+ * landed?", which a queue backlog can't. Revisit if
+ * `billing_outbox_enqueue_failed` ever actually shows up in the logs.
  */
 import { and, asc, eq, lt, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
