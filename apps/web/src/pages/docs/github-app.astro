@@ -3,8 +3,7 @@
 // top of the CLI (bot comments, private-repo titles, live title updates), and
 // the post-install landing page (the App's Setup URL points here).
 import DocsLayout from "../../layouts/DocsLayout.astro";
-
-const APP_URL = "https://github.com/apps/uploads-sh";
+import { GITHUB_APP_INSTALL_URL, GITHUB_APP_URL } from "../../lib/github-app";
 
 const TOC = [
   { id: "what-it-adds", label: "What it adds" },
@@ -22,7 +21,7 @@ const TOC = [
   description="Install the uploads-sh GitHub App so attachment comments post as the bot, private-repo PR and issue titles show on file pages, and titles stay current."
   path="/docs/github-app"
   heading="GitHub App"
-  tagline="Optional, but nicer: bot-posted comments and live PR/issue titles."
+  tagline="The recommended setup: bot-posted comments and live PR/issue titles."
   active="github-app"
   toc={TOC}
 >
@@ -35,17 +34,17 @@ const TOC = [
   </aside>
 
   <aside class="callout">
-    <strong>Landed here from a <code>uploads-sh[bot]</code> comment?</strong> That's an
+    <strong>Landed here from an <code>uploads-sh</code> bot comment?</strong> That's an
     auto-updating list of files uploaded for the PR or issue. Anyone with repo access can add
     to it with the <a href="/docs/attach-pull-request-images">uploads CLI</a>. This page
-    covers the optional GitHub App that posts it.
+    covers the GitHub App that posts it.
   </aside>
 
   <section class="lead" id="what-it-adds">
     <h2>What it adds <a class="anchor" href="#what-it-adds" aria-label="Link to this section">#</a></h2>
     <p>
-      Everything in these docs works without the App. Installing&#32;
-      <a href={APP_URL}>the App</a> upgrades four things:
+      Installing <a href={GITHUB_APP_URL}>the App</a> is the recommended setup — it's what
+      makes the staged loop hands-off. Four things change:
     </p>
     <ul>
       <li>
@@ -66,12 +65,16 @@ const TOC = [
         See <a href="#staging">Staging before a PR exists</a>.
       </li>
     </ul>
+    <p>
+      Everything in these docs still works without it — see&#32;
+      <a href="#without-it">Without the App</a>.
+    </p>
   </section>
 
   <section id="install">
     <h2>Install it <a class="anchor" href="#install" aria-label="Link to this section">#</a></h2>
     <p>
-      Install from <a href={APP_URL}>github.com/apps/uploads-sh</a> and pick the repositories
+      <a href={GITHUB_APP_INSTALL_URL}>Install the App on GitHub</a> and pick the repositories
       you attach files to (add more later in GitHub's settings). That's the whole setup — the
       next <code>uploads attach</code> against an installed repo posts as the bot:
     </p>
