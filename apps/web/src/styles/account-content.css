@@ -72,6 +72,31 @@
   margin-top: auto;
   align-self: flex-start;
 }
+/* Billing action buttons share the account area's standard button treatment
+   (same recipe as the invite-form submit) instead of native browser chrome. */
+.plan-card__cta,
+#ws-manage-billing-btn {
+  font: 12px var(--mono);
+  letter-spacing: 0.03em;
+  color: var(--accent);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 12px;
+  background: var(--panel);
+  cursor: pointer;
+}
+.plan-card__cta:hover,
+.plan-card__cta:focus-visible,
+#ws-manage-billing-btn:hover,
+#ws-manage-billing-btn:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+.plan-card__cta:disabled,
+#ws-manage-billing-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 
 /* Settings pages: one card, hairline sections — no stacked cards / nested boxes. */
 section.card.settings-page {

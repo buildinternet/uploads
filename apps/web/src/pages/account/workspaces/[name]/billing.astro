@@ -242,10 +242,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           .map((plan) => {
             const isCurrent = plan.id === currentPlanId;
             const priceLine = planCardPriceLine(plan, proPriceCopy);
+            // The current card already carries the "Current plan" badge —
+            // no footer button, so the label doesn't appear twice.
             let footer = "";
-            if (isCurrent) {
-              footer = `<button type="button" class="plan-card__cta" disabled>Current plan</button>`;
-            } else if (plan.id === "pro") {
+            if (!isCurrent && plan.id === "pro") {
               footer =
                 cta.kind === "unavailable"
                   ? `<button type="button" class="plan-card__cta" disabled>Coming soon</button>`
