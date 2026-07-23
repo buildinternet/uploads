@@ -23,6 +23,7 @@ import {
   revokeToken,
 } from "../auth-db";
 import { allowWorkspaceCreate, allowWrite } from "../guards";
+import { throwForInviteError } from "../invite-error";
 import {
   deleteOrg,
   isGithubLinked,
@@ -425,15 +426,7 @@ workspaces.post("/:name/invites", workspaceGovernanceAuth("workspace:invite"), a
     invitation?: { id?: string };
     acceptUrl?: string;
   } | null;
-  if (!response.ok) {
-    if (response.status === 403) {
-      throw new ForbiddenError("not authorized to invite to this workspace", {
-        code: "inviter_not_authorized",
-        details: payload,
-      });
-    }
-    throw new ValidationError("failed to create invitation", { details: payload });
-  }
+  if (!response.ok) throwForInviteError(response.status, payload);
   const webOrigin = (c.env.WEB_ORIGIN || "https://uploads.sh").replace(/\/$/, "");
   const id = payload?.invitation?.id;
   const acceptUrl = payload?.acceptUrl ?? (id ? `${webOrigin}/accept-invitation/${id}` : undefined);

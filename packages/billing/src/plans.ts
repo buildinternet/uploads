@@ -12,11 +12,11 @@ import type { LimitField } from "./limits";
 
 export type PlanId = "free" | "pro";
 
-/** The four budget-limit fields a plan can default — same shape as
+/** The limit fields a plan can default — same shape as
  * `apps/api/src/budget.ts`'s `WorkspaceBudgetLimits` plus the two
- * per-upload caps from `WorkspaceRecord`, kept here as an independent type
- * so this package has no dependency on `@uploads/api`. Field set is the
- * canonical `LIMIT_FIELDS` list from `./limits`. */
+ * per-upload caps from `WorkspaceRecord` and the member cap, kept here as an
+ * independent type so this package has no dependency on `@uploads/api`.
+ * Field set is the canonical `LIMIT_FIELDS` list from `./limits`. */
 export type WorkspacePlanLimits = {
   [K in LimitField]?: number;
 };
@@ -29,6 +29,15 @@ export interface PlanDefinition {
   blurb: string;
   /** Whether a workspace/user can actually be on this plan today. */
   available: boolean;
+  /**
+   * Whether this plan's `maxMembers` is a marketed number or an internal
+   * abuse guard (issue #450). Free markets "3 members"; pro's 25 is the same
+   * species of ceiling as `maxUploadsPerPeriod` — it exists to stop quota
+   * pooling, not to sell seats, so pro's card says "Unlimited members" and
+   * the seatless positioning holds. Plan cards read this flag rather than
+   * special-casing plan ids.
+   */
+  marketsMemberCap: boolean;
   defaultLimits: WorkspacePlanLimits;
 }
 
@@ -38,11 +47,14 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     name: "Free",
     blurb: "Everything you need to host screenshots and files for your projects.",
     available: true,
+    marketsMemberCap: true,
     defaultLimits: {
       maxStorageBytes: 250_000_000,
       maxUploadsPerPeriod: 3000,
       maxUploadBytes: 25_000_000,
       maxVideoUploadBytes: 8_000_000,
+      // Owner + 2 collaborators, pending invites included (issue #450).
+      maxMembers: 3,
     },
   },
   pro: {
@@ -50,6 +62,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     name: "Pro",
     blurb: "10 GB of storage and files up to 100 MB.",
     available: true,
+    marketsMemberCap: false,
     // Decided 2026-07-22 (first-paid-plan memo): two marketed meters —
     // storage and one unified file cap (video ceiling = upload ceiling on
     // pro; only free carves video out). maxUploadsPerPeriod is an internal
@@ -59,6 +72,10 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
       maxUploadsPerPeriod: 100_000,
       maxUploadBytes: 100_000_000,
       maxVideoUploadBytes: 100_000_000,
+      // Unmarketed abuse guard, same species as maxUploadsPerPeriod above:
+      // pro stays seatless, and seats/roles are reserved for a future Team
+      // tier (issue #450).
+      maxMembers: 25,
     },
   },
 };

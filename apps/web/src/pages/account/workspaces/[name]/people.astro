@@ -254,7 +254,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             if (memberOpts.canManage) void refreshPeopleLists();
             return;
           }
-          if (result.reason === "forbidden") {
+          if (result.reason === "member_cap") {
+            inviteStatus.textContent =
+              result.message ?? "This workspace has reached its member limit.";
+          } else if (result.reason === "forbidden") {
             inviteStatus.textContent = "You need workspace admin access to invite.";
           } else if (result.reason === "invalid") {
             inviteStatus.textContent = "That email doesn’t look valid.";

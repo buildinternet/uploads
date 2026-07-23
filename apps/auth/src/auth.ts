@@ -23,6 +23,7 @@ import {
 import { deviceWorkspacePlugin } from "./device-workspace";
 import { sendAuthEmail } from "./email";
 import { localDemoEnabled, localDemoPlugin } from "./local-demo";
+import { memberCapDenial } from "./member-cap";
 import * as schema from "./schema";
 import { stripePluginOrNone } from "./stripe-plugin";
 import { authTrustedOrigins, isTrustedOrigin } from "./trusted-origins";
@@ -450,6 +451,22 @@ function buildAuth(
           });
         },
         organizationHooks: {
+          // Member cap (issue #450). This endpoint —
+          // POST /api/auth/organization/invite-member — is publicly reachable
+          // with a session cookie, so enforcing only on apps/api's invite
+          // routes would leave the cap trivially bypassable. `inviter.role`
+          // is the global (admin plugin) role, not the org role: site
+          // operators bypass, org owners/admins don't.
+          beforeCreateInvitation: async ({ inviter, organization: org }) => {
+            const denial = await memberCapDenial(env, db, {
+              organizationId: org.id,
+              organizationSlug: org.slug,
+              inviterIsGlobalAdmin: (inviter as { role?: unknown }).role === "admin",
+            });
+            if (denial) {
+              throw new APIError("FORBIDDEN", { code: denial.code, message: denial.message });
+            }
+          },
           // Inviter notify + first-membership welcome. sendAuthEmail never
           // throws so accept can't roll back on mail failure.
           afterAcceptInvitation: async ({ invitation, user, organization: org }) => {

@@ -200,8 +200,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       /** Marketed limits for a plan card — storage + max file size for every
        * plan, plus free's separate video ceiling (see plans.ts's comment:
        * on pro the video ceiling equals the upload ceiling, so it isn't
-       * worth a separate line there). `maxUploadsPerPeriod` is an internal
-       * abuse guard and is deliberately never marketed here. */
+       * worth a separate line there) and the member cap. `maxUploadsPerPeriod`
+       * is an internal abuse guard and is deliberately never marketed here. */
       function planCardLimitRows(plan: PlanDefinition): string {
         const { defaultLimits } = plan;
         const rows = [
@@ -224,6 +224,17 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         ) {
           rows.push(`<li>Videos up to ${formatMarketedBytes(defaultLimits.maxVideoUploadBytes)}</li>`);
         }
+        // Members: free markets its cap ("3 members"); pro's maxMembers is an
+        // unmarketed abuse guard, so its card says "Unlimited members" and the
+        // seatless positioning holds. Driven by the catalog's marketsMemberCap
+        // flag rather than a plan-id special case (issue #450).
+        rows.push(
+          `<li>${
+            plan.marketsMemberCap && defaultLimits.maxMembers !== undefined
+              ? `${defaultLimits.maxMembers} member${defaultLimits.maxMembers === 1 ? "" : "s"}`
+              : "Unlimited members"
+          }</li>`,
+        );
         return rows.join("");
       }
 

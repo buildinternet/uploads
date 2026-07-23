@@ -79,6 +79,7 @@ export const prerender = false;
       maxUploadsPerPeriod: number | null;
       maxUploadBytes: number | null;
       maxVideoUploadBytes: number | null;
+      maxMembers: number | null;
     }
     interface LimitsResponse {
       workspace: string;
@@ -213,6 +214,9 @@ export const prerender = false;
       { key: "maxUploadsPerPeriod", label: "Uploads / month", byte: false },
       { key: "maxUploadBytes", label: "Max file size", byte: true },
       { key: "maxVideoUploadBytes", label: "Max video size", byte: true },
+      // Members, not bytes: the invite-time cap from issue #450. Editing it
+      // here is how an operator comps an exception to the free-plan cap.
+      { key: "maxMembers", label: "Members", byte: false },
     ];
 
     /** Pick a friendly unit + value for a byte count (exact GiB > GB > MB). */

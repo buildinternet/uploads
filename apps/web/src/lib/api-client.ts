@@ -283,7 +283,14 @@ export type InviteResult =
       /** Whether this install can send invite emails; undefined = older auth worker. */
       emailConfigured?: boolean;
     }
-  | { kind: "unavailable"; reason: RequestFailure | "server" | "forbidden" | "invalid" };
+  | {
+      kind: "unavailable";
+      reason: RequestFailure | "server" | "forbidden" | "invalid" | "member_cap";
+      /** Server-authored copy, present for "member_cap": the workspace's real
+       * cap and (on free) the upgrade nudge. Shown verbatim rather than
+       * restated here, since only the API knows the resolved number. */
+      message?: string;
+    };
 
 export interface WorkspaceMember {
   id?: string;
@@ -499,7 +506,17 @@ export async function inviteToWorkspace(
   );
   if (result.kind === "unavailable") return result;
   const { response } = result;
-  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 403) {
+    // Two different 403s: a plan member cap (issue #450), which the user can
+    // act on, and the pre-existing "you aren't an admin here".
+    const error = (await response.json().catch(() => null)) as {
+      error?: { code?: string; message?: string };
+    } | null;
+    if (error?.error?.code === "member_cap_reached") {
+      return { kind: "unavailable", reason: "member_cap", message: error.error.message };
+    }
+    return { kind: "unavailable", reason: "forbidden" };
+  }
   if (response.status === 400) return { kind: "unavailable", reason: "invalid" };
   if (!response.ok) return { kind: "unavailable", reason: "server" };
   const body = (await response.json().catch(() => null)) as {

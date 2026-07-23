@@ -66,6 +66,16 @@ export interface WorkspaceRecord {
    */
   maxUploadsPerPeriod?: number;
   /**
+   * Cap on total workspace members, counting pending invites (issue #450).
+   * Omit to take the plan default; `null` clears it to unlimited. Enforced
+   * at invite creation only — never retroactively, so a workspace over cap
+   * keeps every member and simply can't send new invites. Resolved by
+   * `@uploads/billing`'s `resolveMemberCap`, not the budget seam: the member
+   * cap treats a self-serve workspace with no `plan` stamped as free, where
+   * upload budgets treat an absent plan as legacy/unlimited.
+   */
+  maxMembers?: number | null;
+  /**
    * Delete objects whose last-modified is older than this many days when
    * purge-expired runs. Omit to skip retention. Configure via workspace:limits.
    */

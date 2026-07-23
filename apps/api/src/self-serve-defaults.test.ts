@@ -34,11 +34,25 @@ describe("selfServeWorkspaceRecord", () => {
     expect(a.allowedKeyPrefixes).not.toBe(b.allowedKeyPrefixes);
   });
   it("budget fields match PLANS.free.defaultLimits (single source of truth)", () => {
+    const { maxMembers: _maxMembers, ...budgetDefaults } = PLANS.free.defaultLimits;
     expect({
       maxStorageBytes: SELF_SERVE_LIMITS.maxStorageBytes,
       maxUploadsPerPeriod: SELF_SERVE_LIMITS.maxUploadsPerPeriod,
       maxUploadBytes: SELF_SERVE_LIMITS.maxUploadBytes,
       maxVideoUploadBytes: SELF_SERVE_LIMITS.maxVideoUploadBytes,
-    }).toEqual(PLANS.free.defaultLimits);
+    }).toEqual(budgetDefaults);
+  });
+
+  it("does not stamp maxMembers onto the record (issue #450)", () => {
+    // The member cap must stay a plan default, not a per-record override:
+    // stamping free's 3 here would outlive an upgrade to Pro, since an
+    // explicit override beats a plan default in resolveMemberCap.
+    expect(SELF_SERVE_LIMITS).not.toHaveProperty("maxMembers");
+    const record = selfServeWorkspaceRecord({
+      name: "acme",
+      userId: "user_1",
+      now: new Date("2026-07-23T00:00:00.000Z"),
+    });
+    expect(record).not.toHaveProperty("maxMembers");
   });
 });
