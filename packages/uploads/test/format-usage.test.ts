@@ -97,8 +97,9 @@ describe("formatUsageHuman", () => {
       { timeZone: "America/New_York" },
     );
     expect(lines[0]).toBe("workspace: default");
+    // Caps use SI marketed units (2.5 GB, not binary ~2.3 GB).
     expect(lines[1]).toMatch(
-      /^storage:   \[█░░░░░░░░░░░░░░░░░░░\]\s+0\.1%\s+1\.5 MB \/ 2\.3 GB \(2\.3 GB free\)$/,
+      /^storage:   \[█░░░░░░░░░░░░░░░░░░░\]\s+0\.1%\s+1\.6 MB \/ 2\.5 GB \(2\.5 GB free\)$/,
     );
     expect(lines[2]).toBe("objects:   63");
     expect(lines[3]).toMatch(
@@ -147,5 +148,65 @@ describe("formatUsageHuman", () => {
       "updated:   Jul 11, 2026, 12:00 AM UTC",
       "note:      unmetered — no storage or upload quotas on this workspace",
     ]);
+  });
+
+  it("shows Free and Pro plan labels (free still has quotas when metered)", () => {
+    const pro = formatUsageHuman(
+      {
+        workspace: "acme",
+        bytes: 10,
+        objects: 1,
+        uploadsInPeriod: 2,
+        periodStart: "2026-07",
+        updatedAt: "2026-07-11T00:00:00.000Z",
+        plan: "pro",
+        maxStorageBytes: 10_000_000_000,
+        storageRemainingBytes: 9_999_999_990,
+        maxUploadsPerPeriod: 100_000,
+        uploadsRemaining: 99_998,
+      },
+      { timeZone: "UTC" },
+    );
+    expect(pro[0]).toBe("workspace: acme");
+    expect(pro[1]).toBe("plan:      Pro");
+    expect(pro.find((l) => l.startsWith("storage:"))).toMatch(/\[/);
+
+    const free = formatUsageHuman(
+      {
+        workspace: "acme",
+        bytes: 1_000_000,
+        objects: 3,
+        uploadsInPeriod: 10,
+        periodStart: "2026-07",
+        updatedAt: "2026-07-11T00:00:00.000Z",
+        plan: "free",
+        maxStorageBytes: 250_000_000,
+        storageRemainingBytes: 249_000_000,
+        maxUploadsPerPeriod: 3000,
+        uploadsRemaining: 2990,
+      },
+      { timeZone: "UTC" },
+    );
+    expect(free[1]).toBe("plan:      Free");
+    // Marketed free cap is 250_000_000 → "250 MB", not binary "238.4 MB".
+    expect(free.find((l) => l.startsWith("storage:"))).toMatch(/1 MB \/ 250 MB \(249 MB free\)/);
+    expect(free.some((l) => l.startsWith("note:"))).toBe(false);
+  });
+
+  it("notes free when the plan is free but no quotas were reported", () => {
+    const lines = formatUsageHuman(
+      {
+        workspace: "legacy",
+        bytes: 10,
+        objects: 1,
+        uploadsInPeriod: 2,
+        periodStart: "2026-07",
+        updatedAt: "2026-07-11T00:00:00.000Z",
+        plan: "free",
+      },
+      { timeZone: "UTC" },
+    );
+    expect(lines[1]).toBe("plan:      Free");
+    expect(lines.some((l) => l.includes("no quotas reported"))).toBe(true);
   });
 });

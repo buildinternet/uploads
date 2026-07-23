@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatBytes,
   formatGalleryDate,
   formatMarketedBytes,
   orderOrgsOldestFirst,
@@ -10,13 +11,15 @@ import {
   safeSameOriginPath,
 } from "./workspace-ui";
 
-describe("formatMarketedBytes", () => {
+describe("formatBytes / formatMarketedBytes (decimal SI)", () => {
   it("renders the catalog's round decimal caps exactly as marketed", () => {
     expect(formatMarketedBytes(250_000_000)).toBe("250 MB");
     expect(formatMarketedBytes(25_000_000)).toBe("25 MB");
     expect(formatMarketedBytes(8_000_000)).toBe("8 MB");
     expect(formatMarketedBytes(10_000_000_000)).toBe("10 GB");
     expect(formatMarketedBytes(100_000_000)).toBe("100 MB");
+    // formatBytes is the same SI path (no more binary 238 MB for free).
+    expect(formatBytes(250_000_000)).toBe("250 MB");
   });
 
   it("handles sub-KB and fractional values", () => {
@@ -123,7 +126,7 @@ describe("safeSameOriginPath", () => {
 describe("renderUsageHtml", () => {
   it("falls back to plain text when no quota caps are set", () => {
     const html = renderUsageHtml({
-      bytes: 8_388_608,
+      bytes: 8_000_000,
       objects: 64,
       uploadsInPeriod: 1,
     });

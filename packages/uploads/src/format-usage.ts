@@ -7,7 +7,7 @@
  * and operator workspaces usually omit them (unlimited). Progress bars only
  * appear for fields that have a positive cap — never invent a budget.
  */
-import { formatByteSize } from "./format-bytes.js";
+import { formatByteSize, formatMarketedBytes } from "./format-bytes.js";
 import { BRAND, type Rgb } from "./cli-brand.js";
 
 export type UsageSnapshotLike = {
@@ -21,6 +21,8 @@ export type UsageSnapshotLike = {
   storageRemainingBytes?: number;
   maxUploadsPerPeriod?: number;
   uploadsRemaining?: number;
+  /** Catalog plan id when the API reports it (`free` | `pro`). */
+  plan?: string;
 };
 
 export type FormatUsageOptions = {
@@ -116,6 +118,21 @@ export function formatUsageTimestamp(iso: string, timeZone?: string): string {
   }
 }
 
+/**
+ * Display label for a plan catalog id. Free is shown too — free workspaces
+ * still have quotas (storage / monthly uploads) that usage meters report.
+ */
+export function planLabel(plan: string | undefined): string | null {
+  if (!plan) return null;
+  if (plan === "free") return "Free";
+  if (plan === "pro") return "Pro";
+  // Future tiers: title-case the id rather than hiding them.
+  return plan.charAt(0).toUpperCase() + plan.slice(1);
+}
+
+/** @deprecated use planLabel — kept as an alias for any external importers. */
+export const paidPlanLabel = planLabel;
+
 /** Human-readable lines for `uploads usage` (not JSON). */
 export function formatUsageHuman(
   result: UsageSnapshotLike,
@@ -126,12 +143,18 @@ export function formatUsageHuman(
   const metered = isUsageMetered(result);
   const lines: string[] = [`workspace: ${result.workspace}`];
 
+  const label = planLabel(result.plan);
+  if (label) lines.push(`plan:      ${label}`);
+
   const storagePct = usagePct(result.bytes, result.maxStorageBytes);
   if (storagePct !== null && result.maxStorageBytes != null) {
+    // Caps (and remaining-against-cap) use SI marketed formatting so Free's
+    // 250_000_000 reads as "250 MB", not binary "238.4 MB". Used bytes share
+    // the same base on this line so the three numbers stay coherent.
     const detail =
-      `${formatByteSize(result.bytes)} / ${formatByteSize(result.maxStorageBytes)}` +
+      `${formatMarketedBytes(result.bytes)} / ${formatMarketedBytes(result.maxStorageBytes)}` +
       (result.storageRemainingBytes != null
-        ? ` (${formatByteSize(result.storageRemainingBytes)} free)`
+        ? ` (${formatMarketedBytes(result.storageRemainingBytes)} free)`
         : "");
     const bar = formatProgressBar(storagePct, { width, color });
     lines.push(`storage:   ${bar}  ${detail}`);
@@ -156,8 +179,16 @@ export function formatUsageHuman(
   lines.push(`updated:   ${formatUsageTimestamp(result.updatedAt, opts.timeZone)}`);
 
   if (!metered) {
-    // Self-host / operator unlimited: report usage without implying a plan.
-    lines.push("note:      unmetered — no storage or upload quotas on this workspace");
+    // Self-host / operator unlimited, or a plan without reported caps.
+    // Free self-serve normally reports maxStorageBytes / maxUploadsPerPeriod;
+    // when those are missing, say so explicitly rather than implying unlimited free.
+    if (result.plan === "free") {
+      lines.push(
+        "note:      free plan — no quotas reported for this workspace (limits may still apply server-side)",
+      );
+    } else {
+      lines.push("note:      unmetered — no storage or upload quotas on this workspace");
+    }
   }
 
   return lines;

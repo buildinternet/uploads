@@ -39,27 +39,15 @@ export function escapeHtml(value: string): string {
   );
 }
 
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10} ${units[unit]}`;
-}
-
 /**
- * Decimal (SI) byte formatting for *marketed* plan limits, which are defined
- * in plans.ts as round decimal numbers (250 MB, 10 GB, 100 MB). The binary
- * `formatBytes` above stays for measured usage/enforcement figures, but
- * would render those caps as 238 MB / 9.3 GB / 95 MB on the plan cards —
- * contradicting the plan blurb on the same card.
+ * Decimal (SI) human sizes for user-facing UI. Plan catalog caps are defined
+ * as round decimal numbers (250 MB, 10 GB); binary units made Free look like
+ * "238 MB". Used for both measured usage and marketed limits so meters match
+ * plan cards.
  */
-export function formatMarketedBytes(bytes: number): string {
-  if (bytes < 1000) return `${bytes} B`;
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "0 B";
+  if (bytes < 1000) return `${Math.round(bytes)} B`;
   const units = ["KB", "MB", "GB", "TB"];
   let value = bytes / 1000;
   let unit = 0;
@@ -68,6 +56,11 @@ export function formatMarketedBytes(bytes: number): string {
     unit += 1;
   }
   return `${value >= 10 ? Math.round(value) : Math.round(value * 10) / 10} ${units[unit]}`;
+}
+
+/** Alias kept for call sites that distinguish plan-card copy; same SI base. */
+export function formatMarketedBytes(bytes: number): string {
+  return formatBytes(bytes);
 }
 
 export type UsageSnapshot = {

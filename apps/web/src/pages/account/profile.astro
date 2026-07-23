@@ -26,6 +26,17 @@ export const prerender = false;
 
     <div class="settings-section">
       <h2>Sessions</h2>
+      <div id="cli-upgrade" class="ul-callout cli-upgrade" hidden role="status">
+        <span class="ul-callout__title">CLI update</span>
+        <p id="cli-upgrade-msg" class="cli-upgrade__msg"></p>
+        <div class="cli-upgrade__actions">
+          <div class="command">
+            <code id="cli-upgrade-cmd"></code>
+            <button type="button" id="cli-upgrade-copy" data-copy="" aria-live="polite">copy</button>
+          </div>
+          <button type="button" class="text-btn" id="cli-upgrade-dismiss">Dismiss</button>
+        </div>
+      </div>
       <div id="sessions-status" class="muted detail-status">Loading…</div>
       <ul class="detail-list" id="sessions-list" hidden></ul>
       <div id="sessions-recover" class="sessions-recover" hidden>
@@ -60,6 +71,24 @@ export const prerender = false;
       line-height: 1.55;
       text-wrap: pretty;
     }
+    .cli-upgrade {
+      margin: 0 0 14px;
+    }
+    .cli-upgrade__msg {
+      margin: 0 0 10px;
+    }
+    .cli-upgrade__actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 14px;
+    }
+    .cli-upgrade .command {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+    }
   </style>
 
   <script>
@@ -71,10 +100,17 @@ export const prerender = false;
       listAccounts,
       listSessions,
       revokeSession,
+      type AuthSession,
       type LinkedAccount,
       type ProviderAccountInfo,
     } from "../../lib/auth-client";
     import { githubMarkSvg } from "../../lib/brand-icons";
+    import {
+      bestCliVersion,
+      dismissUpgrade,
+      isUpgradeDismissed,
+      resolveUpgradePrompt,
+    } from "../../lib/cli-upgrade";
     import { deviceLabel, formatSessionTime, isCliUserAgent } from "../../lib/session-device";
 
     onAstroPageLoad(() => {
@@ -214,15 +250,47 @@ export const prerender = false;
 
     let currentToken: string | undefined;
 
+    async function maybeShowCliUpgrade(sessions: AuthSession[]): Promise<void> {
+      const box = requireElement<HTMLElement>("#cli-upgrade", "account profile");
+      const msg = requireElement<HTMLElement>("#cli-upgrade-msg", "account profile");
+      const cmd = requireElement<HTMLElement>("#cli-upgrade-cmd", "account profile");
+      const copyBtn = requireElement<HTMLButtonElement>("#cli-upgrade-copy", "account profile");
+      box.hidden = true;
+
+      const current = bestCliVersion(sessions);
+      if (!current) return;
+
+      let latest: string | undefined;
+      try {
+        const res = await fetch("/cli-version.json", { credentials: "same-origin" });
+        if (!res.ok) return;
+        const body = (await res.json()) as { latest?: unknown };
+        if (typeof body.latest === "string") latest = body.latest;
+      } catch {
+        return;
+      }
+
+      const prompt = resolveUpgradePrompt(current, latest);
+      if (!prompt || isUpgradeDismissed(prompt.latest, sessionStorage)) return;
+
+      msg.textContent = prompt.message;
+      cmd.textContent = prompt.installCmd;
+      copyBtn.dataset.copy = prompt.installCmd;
+      box.hidden = false;
+      box.dataset.latest = prompt.latest;
+    }
+
     async function loadSessions(): Promise<void> {
       const status = requireElement<HTMLElement>("#sessions-status", "account profile");
       const list = requireElement<HTMLUListElement>("#sessions-list", "account profile");
       const recover = requireElement<HTMLElement>("#sessions-recover", "account profile");
       const reauth = requireElement<HTMLAnchorElement>("#sessions-reauth", "account profile");
       const error = requireElement<HTMLElement>("#sessions-error", "account profile");
+      const upgradeBox = requireElement<HTMLElement>("#cli-upgrade", "account profile");
       error.hidden = true;
       list.hidden = true;
       recover.hidden = true;
+      upgradeBox.hidden = true;
       showStatus(status, "Loading…");
 
       // Point recovery at this page so re-auth lands back on the sessions list.
@@ -285,7 +353,38 @@ export const prerender = false;
           </li>`;
         })
         .join("");
+
+      void maybeShowCliUpgrade(sessions);
     }
+
+    requireElement<HTMLElement>("#cli-upgrade", "account profile").addEventListener(
+      "click",
+      (event) => {
+        void (async () => {
+          const target = event.target as HTMLElement;
+          const dismiss = target.closest<HTMLButtonElement>("#cli-upgrade-dismiss");
+          if (dismiss) {
+            const box = requireElement<HTMLElement>("#cli-upgrade", "account profile");
+            const latest = box.dataset.latest;
+            if (latest) dismissUpgrade(latest, sessionStorage);
+            box.hidden = true;
+            return;
+          }
+          const button = target.closest<HTMLButtonElement>("#cli-upgrade-copy");
+          if (!button?.dataset.copy) return;
+          try {
+            await navigator.clipboard.writeText(button.dataset.copy);
+            const previous = button.textContent;
+            button.textContent = "copied ✓";
+            setTimeout(() => {
+              button.textContent = previous;
+            }, 1500);
+          } catch {
+            // Clipboard blocked.
+          }
+        })();
+      },
+    );
 
     requireElement<HTMLUListElement>("#sessions-list", "account profile").addEventListener(
       "click",

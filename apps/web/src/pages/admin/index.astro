@@ -204,10 +204,10 @@ export const prerender = false;
       });
     }
 
+    // Decimal SI only — plan caps and display use 1000-based MB/GB (not MiB/GiB).
     const LIMIT_UNITS: { label: string; mult: number }[] = [
       { label: "MB", mult: 1_000_000 },
       { label: "GB", mult: 1_000_000_000 },
-      { label: "GiB", mult: 1024 ** 3 },
     ];
     const LIMIT_FIELDS: { key: keyof Limits; label: string; byte: boolean }[] = [
       { key: "maxStorageBytes", label: "Storage", byte: true },

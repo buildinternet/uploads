@@ -250,7 +250,7 @@ describe("runStaged: file listing", () => {
       );
     });
     expect(stdout).toContain("shot.png");
-    expect(stdout).toContain("2.0 KB");
+    expect(stdout).toContain("2 KB");
     expect(stdout).toContain("https://x.test/shot.png");
     expect(stderr).toContain("binding: self");
     expect(stderr).toContain("once the PR exists: uploads attach --promote");

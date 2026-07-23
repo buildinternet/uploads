@@ -239,10 +239,11 @@ describe("fileKind", () => {
 });
 
 describe("formatBytes", () => {
-  it("renders human sizes", () => {
+  it("renders human sizes with decimal SI units", () => {
     expect(formatBytes(512)).toBe("512 B");
-    expect(formatBytes(20480)).toBe("20 KB");
-    expect(formatBytes(1_500_000)).toBe("1.4 MB");
+    expect(formatBytes(20_000)).toBe("20 KB");
+    expect(formatBytes(1_500_000)).toBe("1.5 MB");
+    expect(formatBytes(250_000_000)).toBe("250 MB");
   });
 });
 
