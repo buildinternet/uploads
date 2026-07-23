@@ -33,8 +33,9 @@ Examples:
 
 const LOGOUT_HELP = `uploads logout
 
-Remove the saved UPLOADS_TOKEN from the shared config file so this machine is
-no longer signed in for the CLI. Does not revoke the token on the server.
+Remove the saved UPLOADS_TOKEN (and device session token) from the shared
+config file so this machine is no longer signed in for the CLI. Does not
+revoke tokens on the server.
 
 Environment variables (UPLOADS_TOKEN) are not unset — export them yourself if set.
 
@@ -160,7 +161,7 @@ export async function runLogout(
   const path = flagString(parsed.flags, "--path") ?? resolveConfigPath({ envFile: opts.envFile });
   const hadFileToken = Boolean(loadConfigFile(path).UPLOADS_TOKEN);
   const envTokenStillSet = Boolean(process.env.UPLOADS_TOKEN);
-  const result = removeConfigKeys(path, ["UPLOADS_TOKEN"]);
+  const result = removeConfigKeys(path, ["UPLOADS_TOKEN", "UPLOADS_SESSION_TOKEN"]);
 
   const payload = {
     path: result.path,
@@ -175,8 +176,11 @@ export async function runLogout(
     return 0;
   }
 
-  if (result.removed.includes("UPLOADS_TOKEN")) {
-    process.stdout.write(`signed out — removed UPLOADS_TOKEN from ${result.path}\n`);
+  if (
+    result.removed.includes("UPLOADS_TOKEN") ||
+    result.removed.includes("UPLOADS_SESSION_TOKEN")
+  ) {
+    process.stdout.write(`signed out — removed credentials from ${result.path}\n`);
   } else if (!result.existed) {
     process.stdout.write(`no config file at ${result.path} — already signed out\n`);
   } else {

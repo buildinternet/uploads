@@ -276,7 +276,7 @@ export const prerender = false;
           return `<li>
             <div class="detail-main">
               <div class="detail-title">
-                <span>${escapeHtml(deviceLabel(s.userAgent))}</span>
+                <span>${escapeHtml(deviceLabel(s.userAgent, { cliVersion: s.cliVersion }))}</span>
                 ${badge}
               </div>
               <div class="detail-meta">${meta}</div>

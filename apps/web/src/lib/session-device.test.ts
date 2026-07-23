@@ -21,6 +21,17 @@ describe("deviceLabel", () => {
     expect(deviceLabel("Mozilla/5.0 (Windows NT 10.0) Firefox/128.0")).toBe("Firefox on Windows");
     expect(deviceLabel(null)).toBe("Unknown device");
   });
+
+  it("prefers session.cliVersion over the create-time user-agent version", () => {
+    expect(deviceLabel("@buildinternet/uploads/1.0.0", { cliVersion: "1.9.0" })).toBe(
+      "uploads CLI 1.9.0",
+    );
+    expect(deviceLabel("@buildinternet/uploads", { cliVersion: "2.0.0" })).toBe(
+      "uploads CLI 2.0.0",
+    );
+    // Additional field alone is enough (upgrade path after UA was versionless).
+    expect(deviceLabel(null, { cliVersion: "1.2.3" })).toBe("uploads CLI 1.2.3");
+  });
 });
 
 describe("formatSessionTime", () => {

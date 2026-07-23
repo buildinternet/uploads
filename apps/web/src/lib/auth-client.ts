@@ -50,6 +50,8 @@ export interface AuthSession {
   expiresAt: string | Date;
   ipAddress?: string | null;
   userAgent?: string | null;
+  /** Installed CLI package version (session.additionalFields.cliVersion). */
+  cliVersion?: string | null;
 }
 
 export interface SessionResponse {
