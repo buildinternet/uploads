@@ -1,5 +1,18 @@
 # @buildinternet/uploads
 
+## 0.26.1
+
+### Patch Changes
+
+- 7fcbef5: `uploads usage` shows the workspace plan (Free or Pro) when the API reports it,
+  alongside storage/upload meters. Free is not unlimited — caps appear on the
+  meters. Additive `plan` field on the usage response.
+- 8f95bed: Device login now saves a session token and keeps `session.cliVersion` fresh so
+  the account Sessions list can show your current CLI version after upgrades
+  without re-login.
+- 2a2d2e4: Relicense from MIT to Apache 2.0. No functional change — the package's `license`
+  field and the repository LICENSE file now read Apache-2.0.
+
 ## 0.26.0
 
 ### Minor Changes
