@@ -33,9 +33,8 @@ export const StagedLoop: React.FC = () => {
     <Scene>
       <Loop>
         <Caption
-          text="The agent saves screenshots as it works."
-          swaps={[{ at: 230, text: "Ready when the PR opens — always current." }]}
-          size={44}
+          text="Saved as it works."
+          swaps={[{ at: 230, text: "Ready when the PR opens." }]}
         />
         <div style={{ position: "relative", width: 920, height: 640 }}>
           {/* Phase A: branch rail + terminal */}

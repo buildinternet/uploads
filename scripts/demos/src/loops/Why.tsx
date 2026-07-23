@@ -27,8 +27,8 @@ export const Why: React.FC = () => {
         <Caption
           text="Agent PRs: no screenshots."
           swaps={[
-            { at: 70, text: "Collecting them is a scramble." },
-            { at: 150, text: "Now agents can show their work." },
+            { at: 70, text: "The screenshot scramble." },
+            { at: 150, text: "Agents show their work." },
           ]}
         />
         {/* The agent's PR — all text, no visuals */}

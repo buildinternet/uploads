@@ -17,17 +17,16 @@ export const PutUrl: React.FC = () => {
     <Scene>
       <Loop>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-          <Caption text="One command to host it." />
+          <Caption text="The missing upload command" />
           <div
             style={{
               fontFamily: T.sans,
               fontSize: 28,
               color: T.muted,
               height: 36,
-              opacity: rise(frame, 100, 12),
             }}
           >
-            The missing upload command for coding agents.
+            for coding agents.
           </div>
         </div>
         <TerminalFrame>
