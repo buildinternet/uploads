@@ -301,6 +301,34 @@ describe("upsertAttachmentsComment", () => {
     expect(calls.some((c) => c.args.includes("DELETE"))).toBe(true);
   });
 
+  it("never deletes another workspace's namespaced marker comment while deduping", () => {
+    const marker = attachmentsMarker("acme");
+    const otherMarker = attachmentsMarker("acme-2");
+    const { run, calls } = fakeRunner({
+      gh: (args) => {
+        if (args[1]?.includes("/comments?per_page=100")) {
+          // `acme-2` is deliberately a superstring of `acme`: the trailing
+          // ` -->` in the marker is what keeps `includes()` from matching a
+          // neighbouring workspace's comment. Guards the cross-tenant
+          // property that the bot path also tests.
+          return JSON.stringify([
+            { id: 10, body: `${marker}\nours` },
+            { id: 11, body: `${otherMarker}\nanother workspace's comment` },
+            { id: 12, body: `${marker}\nour duplicate` },
+          ]);
+        }
+        return JSON.stringify({ id: 10 });
+      },
+    });
+    const result = upsertAttachmentsComment(target, `${marker}\nnew body`, run, marker);
+    expect(result).toEqual({ action: "updated" });
+
+    // Only our own duplicate is deleted — never the other workspace's.
+    const deletes = calls.filter((c) => c.args.includes("DELETE"));
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0].args).toEqual(["api", "repos/o/r/issues/comments/12", "-X", "DELETE"]);
+  });
+
   it("never deletes a legacy (unnamespaced) comment even when adopting it", () => {
     const marker = attachmentsMarker("acme");
     const { run, calls } = fakeRunner({
