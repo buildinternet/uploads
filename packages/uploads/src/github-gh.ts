@@ -274,6 +274,18 @@ function findManagedComment(
  * stale. After patching (or creating), any extra exact-`marker` hits are
  * deleted best-effort via `gh api -X DELETE`; a failed delete is swallowed
  * and never fails the caller's command, and the next sync retries anyway.
+ *
+ * On why this duplicates the bot path rather than deferring to it: the gh
+ * fallback is a supported path, not a stopgap, so it is held at behavioral
+ * parity deliberately. This file already reimplements the hunt, the legacy
+ * adoption and the create-vs-patch gate against a different transport (the
+ * `gh` subprocess, not the App's token), and #486 existed precisely because
+ * the two drifted. Treat any behavior change to `upsertBotComment`
+ * (apps/api/src/github-comment.ts) as owing a matching change here. Note
+ * this is the one place the CLI deletes a GitHub resource under the
+ * invoking human's own credentials — bounded to comments carrying this
+ * workspace's exact namespaced marker, whose content is always
+ * regenerable.
  */
 export function upsertAttachmentsComment(
   target: GhTarget,
