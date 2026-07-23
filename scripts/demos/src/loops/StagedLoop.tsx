@@ -15,26 +15,26 @@ import { Comment } from "../kit/Comment";
  * attachments comment.
  */
 const EVENTS = [
-  { file: "cart.png", cmd: 15, out: 42, thumb: 50, update: false },
-  { file: "checkout.png", cmd: 75, out: 102, thumb: 110, update: false },
-  { file: "cart.png", cmd: 135, out: 162, thumb: 170, update: true },
+  { file: "cart.png", cmd: 15, out: 46, thumb: 54, update: false },
+  { file: "checkout.png", cmd: 85, out: 116, thumb: 124, update: false },
+  { file: "cart.png", cmd: 155, out: 186, thumb: 194, update: true },
 ] as const;
 
 const RAIL = [
-  { file: "cart.png", variant: 0, thumb: 50, updatedAt: 170 },
-  { file: "checkout.png", variant: 1, thumb: 110 },
+  { file: "cart.png", variant: 0, thumb: 54, updatedAt: 194 },
+  { file: "checkout.png", variant: 1, thumb: 124 },
 ] as const;
 
 export const StagedLoop: React.FC = () => {
   const frame = useCurrentFrame();
-  const phaseA = fall(frame, 216, 12);
-  const phaseB = rise(frame, 226, 12);
+  const phaseA = fall(frame, 242, 12);
+  const phaseB = rise(frame, 252, 12);
   return (
     <Scene>
       <Loop>
         <Caption
           text="Saved as it works."
-          swaps={[{ at: 230, text: "Ready when the PR opens." }]}
+          swaps={[{ at: 256, text: "Ready when the PR opens." }]}
         />
         <div style={{ position: "relative", width: 920, height: 640 }}>
           {/* Phase A: branch rail + terminal */}
@@ -135,7 +135,7 @@ export const StagedLoop: React.FC = () => {
                   </Out>
                 </React.Fragment>
               ))}
-              <Cmd text="gh pr create" start={192} caretUntil={218} />
+              <Cmd text="gh pr create" start={216} caretUntil={244} />
             </TerminalFrame>
           </div>
           {/* Phase B: the assembled attachments comment */}
@@ -156,8 +156,8 @@ export const StagedLoop: React.FC = () => {
                   <div
                     key={s.file}
                     style={{
-                      opacity: rise(frame, 236 + i * 7, 9),
-                      scale: String(0.92 + rise(frame, 236 + i * 7, 9) * 0.08),
+                      opacity: rise(frame, 262 + i * 7, 9),
+                      scale: String(0.92 + rise(frame, 262 + i * 7, 9) * 0.08),
                     }}
                   >
                     <Shot variant={s.variant} width={290} height={182} label={s.file} />

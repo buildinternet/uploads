@@ -15,12 +15,12 @@ import { Shot } from "../kit/Shot";
  */
 export const Why: React.FC = () => {
   const frame = useCurrentFrame();
-  const placeholder = Math.min(rise(frame, 30, 10), fall(frame, 196, 8));
+  const placeholder = Math.min(rise(frame, 30, 10), fall(frame, 212, 8));
   const termUp = rise(frame, 56, 14);
-  const scramble = Math.min(termUp, fall(frame, 140, 10));
-  const fix = rise(frame, 148, 10);
-  const markdown = rise(frame, 200, 10);
-  const rendered = rise(frame, 214, 12);
+  const scramble = Math.min(termUp, fall(frame, 152, 10));
+  const fix = rise(frame, 160, 10);
+  const markdown = rise(frame, 216, 10);
+  const rendered = rise(frame, 230, 12);
   return (
     <Scene>
       <Loop>
@@ -28,7 +28,7 @@ export const Why: React.FC = () => {
           text="Agent PRs: no screenshots."
           swaps={[
             { at: 70, text: "The screenshot scramble." },
-            { at: 150, text: "Agents show their work." },
+            { at: 164, text: "Agents show their work." },
           ]}
         />
         {/* The agent's PR — all text, no visuals */}
@@ -112,7 +112,7 @@ export const Why: React.FC = () => {
                     opacity: markdown,
                   }}
                 >
-                  ![onboarding](storage.uploads.sh/zach/onboarding.webp)
+                  ![onboarding](storage.uploads.sh/zach/onboarding.png)
                 </div>
                 <div style={{ opacity: rendered, scale: String(0.95 + rendered * 0.05) }}>
                   <Shot variant={0} width={330} height={128} />
@@ -146,9 +146,9 @@ export const Why: React.FC = () => {
             }}
           >
             <TerminalFrame width={880} branch="fix/onboarding">
-              <Cmd text="git checkout main" start={64} caretUntil={84} cpf={2.6} />
-              <Cmd text="playwright screenshot before.png" start={84} caretUntil={110} cpf={2.6} />
-              <Cmd text="git checkout fix/onboarding" start={110} caretUntil={140} cpf={2.6} />
+              <Cmd text="git checkout main" start={64} caretUntil={88} cpf={2.2} />
+              <Cmd text="playwright screenshot before.png" start={88} caretUntil={118} cpf={2.2} />
+              <Cmd text="git checkout fix/onboarding" start={118} caretUntil={152} cpf={2.2} />
             </TerminalFrame>
           </div>
           <div
@@ -160,9 +160,9 @@ export const Why: React.FC = () => {
             }}
           >
             <TerminalFrame width={880} branch="fix/onboarding">
-              <Cmd text="uploads put onboarding.png" start={152} caretUntil={184} />
-              <Out start={186} color={T.accent}>
-                storage.uploads.sh/zach/onboarding.webp
+              <Cmd text="uploads put onboarding.png" start={166} caretUntil={200} />
+              <Out start={202} color={T.accent}>
+                storage.uploads.sh/zach/onboarding.png
               </Out>
             </TerminalFrame>
           </div>

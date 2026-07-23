@@ -17,10 +17,10 @@ const H = 330;
 
 export const BeforeAfter: React.FC = () => {
   const frame = useCurrentFrame();
-  const solo = fall(frame, 118, 12); // the two separate cards
-  const pair = rise(frame, 126, 12); // the merged before/after card
+  const solo = fall(frame, 132, 12); // the two separate cards
+  const pair = rise(frame, 140, 12); // the merged before/after card
   // Divider: settle at center, then one slow sweep right→left→center.
-  const divider = interpolate(frame, [126, 138, 150, 178, 196], [0.5, 0.5, 0.78, 0.24, 0.5], {
+  const divider = interpolate(frame, [140, 154, 168, 200, 222], [0.5, 0.5, 0.78, 0.24, 0.5], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
     easing: EASE,
@@ -30,13 +30,13 @@ export const BeforeAfter: React.FC = () => {
       <Loop>
         <Caption text="Automatic before / after." />
         <TerminalFrame branch="feat/settings">
-          <Cmd text="uploads put settings-before.png" start={10} caretUntil={44} />
-          <Out start={46} color={T.muted}>
-            ✓ …/settings-before.webp
+          <Cmd text="uploads put settings-before.png" start={12} caretUntil={46} />
+          <Out start={48} color={T.muted}>
+            ✓ …/settings-before.png
           </Out>
-          <Cmd text="uploads put settings-after.png" start={58} caretUntil={92} />
-          <Out start={94} color={T.muted}>
-            ✓ …/settings-after.webp
+          <Cmd text="uploads put settings-after.png" start={66} caretUntil={100} />
+          <Out start={102} color={T.muted}>
+            ✓ …/settings-after.png
           </Out>
         </TerminalFrame>
         <div style={{ position: "relative", width: W, height: H + 40 }}>
@@ -53,16 +53,16 @@ export const BeforeAfter: React.FC = () => {
           >
             <div
               style={{
-                opacity: rise(frame, 50, 12),
-                translate: `${(1 - solo) * 60}px ${(1 - rise(frame, 50, 12)) * 16}px`,
+                opacity: rise(frame, 54, 12),
+                translate: `${(1 - solo) * 60}px ${(1 - rise(frame, 54, 12)) * 16}px`,
               }}
             >
               <Shot variant={0} width={300} height={H - 60} label="settings-before" dim sparse />
             </div>
             <div
               style={{
-                opacity: rise(frame, 98, 12),
-                translate: `${(1 - solo) * -60}px ${(1 - rise(frame, 98, 12)) * 16}px`,
+                opacity: rise(frame, 106, 12),
+                translate: `${(1 - solo) * -60}px ${(1 - rise(frame, 106, 12)) * 16}px`,
               }}
             >
               <Shot variant={0} width={300} height={H - 60} label="settings-after" />

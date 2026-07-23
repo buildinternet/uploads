@@ -30,39 +30,22 @@ export const PutUrl: React.FC = () => {
           </div>
         </div>
         <TerminalFrame>
-          <Cmd text="uploads put screenshot.png" start={12} caretUntil={40} />
-          <Out start={42} color={T.green}>
+          <Cmd text="uploads put screenshot.png" start={15} caretUntil={48} />
+          <Out start={50} color={T.green}>
             ✓ uploaded
           </Out>
-          <Out start={50} color={T.accent}>
-            storage.uploads.sh/zach/screenshot.webp
+          <Out start={60} color={T.accent}>
+            storage.uploads.sh/zach/screenshot.png
           </Out>
         </TerminalFrame>
         <div
           style={{
-            opacity: rise(frame, 64, 14),
-            translate: `0px ${(1 - rise(frame, 64, 14)) * 24}px`,
-            scale: String(0.96 + rise(frame, 64, 14) * 0.04),
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 14,
+            opacity: rise(frame, 78, 14),
+            translate: `0px ${(1 - rise(frame, 78, 14)) * 24}px`,
+            scale: String(0.96 + rise(frame, 78, 14) * 0.04),
           }}
         >
-          <Shot variant={0} width={430} height={264} />
-          <div
-            style={{
-              fontFamily: T.mono,
-              fontSize: 21,
-              color: T.body,
-              border: `1px solid ${T.line}`,
-              background: T.panel,
-              borderRadius: 999,
-              padding: "8px 20px",
-            }}
-          >
-            <span style={{ color: T.accent }}>↗</span> storage.uploads.sh/zach/screenshot.webp
-          </div>
+          <Shot variant={0} width={470} height={290} />
         </div>
       </Loop>
     </Scene>
