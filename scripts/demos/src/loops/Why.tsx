@@ -8,22 +8,28 @@ import { Loop } from "../kit/Loop";
 import { Shot } from "../kit/Shot";
 
 /*
- * Loop 4 — problem framing (~8s).
- * An agent's PR arrives all text, no visuals. `uploads put` is the step
- * that lets it show its work — the screenshot lands in the PR body.
+ * Loop 4 — problem framing (~9s).
+ * An agent's PR arrives all text, no visuals. Collecting screenshots today
+ * is an end-of-task scramble (checking out main just to capture a before);
+ * `uploads put` lets the agent show its work instead.
  */
 export const Why: React.FC = () => {
   const frame = useCurrentFrame();
-  const placeholder = Math.min(rise(frame, 30, 10), fall(frame, 136, 8));
-  const termUp = rise(frame, 78, 14);
-  const markdown = rise(frame, 140, 10);
-  const rendered = rise(frame, 158, 12);
+  const placeholder = Math.min(rise(frame, 30, 10), fall(frame, 196, 8));
+  const termUp = rise(frame, 56, 14);
+  const scramble = Math.min(termUp, fall(frame, 140, 10));
+  const fix = rise(frame, 148, 10);
+  const markdown = rise(frame, 200, 10);
+  const rendered = rise(frame, 214, 12);
   return (
     <Scene>
       <Loop>
         <Caption
-          text="Agents ship work you can’t see."
-          swap={{ at: 150, text: "Now they can show their work." }}
+          text="Agent PRs: no screenshots."
+          swaps={[
+            { at: 70, text: "Collecting them is a scramble." },
+            { at: 150, text: "Now agents can show their work." },
+          ]}
         />
         {/* The agent's PR — all text, no visuals */}
         <div
@@ -106,7 +112,7 @@ export const Why: React.FC = () => {
                     opacity: markdown,
                   }}
                 >
-                  ![onboarding](uploads.sh/zach/onboarding.png)
+                  ![onboarding](storage.uploads.sh/zach/onboarding.webp)
                 </div>
                 <div style={{ opacity: rendered, scale: String(0.95 + rendered * 0.05) }}>
                   <Shot variant={0} width={330} height={128} />
@@ -129,22 +135,37 @@ export const Why: React.FC = () => {
             )}
           </div>
         </div>
-        {/* Terminal slides up for the fix */}
-        <div
-          style={{
-            opacity: termUp,
-            translate: `0px ${(1 - termUp) * 40}px`,
-            width: "100%",
-            display: "flex",
-            justifyContent: "center",
-          }}
-        >
-          <TerminalFrame width={880}>
-            <Cmd text="uploads put onboarding.png" start={90} caretUntil={126} />
-            <Out start={128} color={T.accent}>
-              https://uploads.sh/zach/onboarding.png
-            </Out>
-          </TerminalFrame>
+        {/* Terminal: the scramble, then the fix */}
+        <div style={{ position: "relative", width: 880, height: 314 }}>
+          <div
+            style={{
+              position: "absolute",
+              inset: "0 0 auto 0",
+              opacity: scramble,
+              translate: `0px ${(1 - termUp) * 40}px`,
+            }}
+          >
+            <TerminalFrame width={880} branch="fix/onboarding">
+              <Cmd text="git checkout main" start={64} caretUntil={84} cpf={2.6} />
+              <Cmd text="playwright screenshot before.png" start={84} caretUntil={110} cpf={2.6} />
+              <Cmd text="git checkout fix/onboarding" start={110} caretUntil={140} cpf={2.6} />
+            </TerminalFrame>
+          </div>
+          <div
+            style={{
+              position: "absolute",
+              inset: "0 0 auto 0",
+              opacity: fix,
+              translate: `0px ${(1 - fix) * 24}px`,
+            }}
+          >
+            <TerminalFrame width={880} branch="fix/onboarding">
+              <Cmd text="uploads put onboarding.png" start={152} caretUntil={184} />
+              <Out start={186} color={T.accent}>
+                storage.uploads.sh/zach/onboarding.webp
+              </Out>
+            </TerminalFrame>
+          </div>
         </div>
       </Loop>
     </Scene>

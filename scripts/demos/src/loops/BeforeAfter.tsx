@@ -28,15 +28,15 @@ export const BeforeAfter: React.FC = () => {
   return (
     <Scene>
       <Loop>
-        <Caption text="Two uploads, one comparison." />
-        <TerminalFrame>
+        <Caption text="Automatic before / after." />
+        <TerminalFrame branch="feat/settings">
           <Cmd text="uploads put settings-before.png" start={10} caretUntil={44} />
           <Out start={46} color={T.muted}>
-            ✓ uploads.sh/zach/settings-before.png
+            ✓ storage.uploads.sh/zach/settings-before.webp
           </Out>
           <Cmd text="uploads put settings-after.png" start={58} caretUntil={92} />
           <Out start={94} color={T.muted}>
-            ✓ uploads.sh/zach/settings-after.png
+            ✓ storage.uploads.sh/zach/settings-after.webp
           </Out>
         </TerminalFrame>
         <div style={{ position: "relative", width: W, height: H + 40 }}>

@@ -8,7 +8,8 @@ export const TerminalFrame: React.FC<{
   width?: number;
   children: React.ReactNode;
   title?: string;
-}> = ({ width = 880, children, title = "agent — zsh" }) => (
+  branch?: string;
+}> = ({ width = 880, children, title = "agent — zsh", branch }) => (
   <div
     style={{
       width,
@@ -61,6 +62,11 @@ export const TerminalFrame: React.FC<{
         flexDirection: "column",
       }}
     >
+      {branch ? (
+        <div style={{ fontSize: 23, color: T.muted, marginBottom: 6 }}>
+          <span style={{ color: T.accent }}>⎇</span> {branch}
+        </div>
+      ) : null}
       {children}
     </div>
   </div>
@@ -71,7 +77,8 @@ export const Cmd: React.FC<{
   text: string;
   start: number;
   caretUntil?: number;
-}> = ({ text, start, caretUntil = Infinity }) => {
+  cpf?: number;
+}> = ({ text, start, caretUntil = Infinity, cpf = 1.3 }) => {
   const frame = useCurrentFrame();
   if (frame < start) {
     // Invisible placeholder keeps the terminal height stable pre-typing.
@@ -82,8 +89,8 @@ export const Cmd: React.FC<{
       </div>
     );
   }
-  const visible = typed(text, frame, start);
-  const done = frame >= typedEnd(text, start);
+  const visible = typed(text, frame, start, cpf);
+  const done = frame >= typedEnd(text, start, cpf);
   const caretOn = frame < caretUntil && (!done || Math.floor(frame / 16) % 2 === 0);
   return (
     <div style={{ whiteSpace: "pre" }}>

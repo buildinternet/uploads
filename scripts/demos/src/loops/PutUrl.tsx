@@ -16,14 +16,27 @@ export const PutUrl: React.FC = () => {
   return (
     <Scene>
       <Loop>
-        <Caption text="One command to host it." />
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+          <Caption text="One command to host it." />
+          <div
+            style={{
+              fontFamily: T.sans,
+              fontSize: 28,
+              color: T.muted,
+              height: 36,
+              opacity: rise(frame, 100, 12),
+            }}
+          >
+            The missing upload command for coding agents.
+          </div>
+        </div>
         <TerminalFrame>
           <Cmd text="uploads put screenshot.png" start={12} caretUntil={40} />
           <Out start={42} color={T.green}>
             ✓ uploaded
           </Out>
           <Out start={50} color={T.accent}>
-            https://uploads.sh/zach/screenshot.png
+            storage.uploads.sh/zach/screenshot.webp
           </Out>
         </TerminalFrame>
         <div
@@ -49,7 +62,7 @@ export const PutUrl: React.FC = () => {
               padding: "8px 20px",
             }}
           >
-            <span style={{ color: T.accent }}>↗</span> uploads.sh/zach/screenshot.png
+            <span style={{ color: T.accent }}>↗</span> storage.uploads.sh/zach/screenshot.webp
           </div>
         </div>
       </Loop>
