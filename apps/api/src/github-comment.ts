@@ -376,6 +376,14 @@ async function findMarkerComment(
     if (comments.length < 100) break; // last page reached.
   }
   // Comments list oldest-first, so hits[0] is the oldest marker comment.
-  if (hits.length > 0) return { comment: hits[0], extras: hits.slice(1) };
+  if (hits.length > 0) {
+    // In legacy mode (no workspace to namespace with) our "exact" marker IS
+    // the shared one, so a second hit is not our own duplicate — it may be
+    // another workspace's comment. Adopt the oldest and never delete: the
+    // adopt-only contract is about the marker being ambiguous, which is just
+    // as true when it is the marker we are hunting on.
+    const extras = marker === ATTACHMENTS_MARKER ? undefined : hits.slice(1);
+    return { comment: hits[0], extras };
+  }
   return { comment: legacyHit }; // best effort — adopt a legacy hit if seen.
 }

@@ -217,7 +217,9 @@ interface GhComment {
 /**
  * PR comments live on the issues endpoint, so one path covers PRs and issues.
  * `--paginate` follows Link headers and merges every page into one array, so the
- * marker comment is found even on threads past 100 comments.
+ * marker comment is found even on threads past 100 comments. GitHub returns
+ * comments oldest-first, so `hits[0]` (after merging paginated pages, which
+ * preserve that order) is the oldest exact-`marker` hit.
  *
  * Hunts for `marker` (the namespaced, per-workspace marker) first; when none
  * is found, falls back to a comment carrying the shared legacy
@@ -225,27 +227,45 @@ interface GhComment {
  * migrated in place. When `marker` IS the legacy marker (no workspace to
  * namespace with) this collapses to a single hunt, unchanged from pre-4b
  * behavior.
+ *
+ * Collects EVERY comment carrying `marker` (a create race can leave more
+ * than one — issue #486, mirroring the bot path's #470 fix): the oldest is
+ * `comment`, the rest come back as `extras` for the caller to delete. Only
+ * exact-`marker` hits are ever extras — a legacy (unnamespaced) comment may
+ * belong to a different workspace, so it is adopted at most, never deleted.
  */
 function findManagedComment(
   target: GhTarget,
   run: CommandRunner,
   marker: string,
-): GhComment | undefined {
+): { comment?: GhComment; extras?: GhComment[] } {
   const raw = run("gh", [
     "api",
     `repos/${target.repo}/issues/${target.num}/comments?per_page=100`,
     "--paginate",
   ]);
   const comments = JSON.parse(raw) as GhComment[];
-  const namespacedHit = comments.find((c) => typeof c.body === "string" && c.body.includes(marker));
-  if (namespacedHit) return namespacedHit;
-  if (marker === ATTACHMENTS_MARKER) return undefined;
-  return comments.find((c) => typeof c.body === "string" && c.body.includes(ATTACHMENTS_MARKER));
+  const hits = comments.filter((c) => typeof c.body === "string" && c.body.includes(marker));
+  if (hits.length > 0) {
+    // In legacy mode (no workspace to namespace with) our "exact" marker IS
+    // the shared one, so a second hit is not our own duplicate — it may be
+    // another workspace's comment. Adopt the oldest and never delete: the
+    // adopt-only contract is about the marker being ambiguous, which is just
+    // as true when it is the marker we are hunting on.
+    const extras = marker === ATTACHMENTS_MARKER ? undefined : hits.slice(1);
+    return { comment: hits[0], extras };
+  }
+  if (marker === ATTACHMENTS_MARKER) return {};
+  const legacyHit = comments.find(
+    (c) => typeof c.body === "string" && c.body.includes(ATTACHMENTS_MARKER),
+  );
+  return { comment: legacyHit };
 }
 
 /**
  * Create the managed attachments comment, or edit it in place if it already
- * exists. Never touches any other comment. Body is passed via stdin
+ * exists. Never touches any other comment except best-effort deletes of
+ * duplicate marker comments (see below). Body is passed via stdin
  * (`-F body=@-`) so it is never shell-interpolated.
  *
  * `marker` identifies which comment to hunt for (see `findManagedComment`);
@@ -253,6 +273,27 @@ function findManagedComment(
  * (built via `attachmentsCommentBody(items, galleries, marker)`), so patching
  * an adopted legacy comment migrates it to the namespaced marker in place.
  * Defaults to the shared legacy marker for backward compatibility.
+ *
+ * Self-healing dedupe (issue #486, mirroring the bot path's #470/#484 fix):
+ * a create race (two concurrent `uploads attach` runs, neither finding an
+ * existing comment) can leave more than one marker comment on the thread.
+ * This path has no id cache, so unlike the bot path a duplicate here never
+ * heals on its own — every sync just patches the oldest and leaves the rest
+ * stale. After patching (or creating), any extra exact-`marker` hits are
+ * deleted best-effort via `gh api -X DELETE`; a failed delete is swallowed
+ * and never fails the caller's command, and the next sync retries anyway.
+ *
+ * On why this duplicates the bot path rather than deferring to it: the gh
+ * fallback is a supported path, not a stopgap, so it is held at behavioral
+ * parity deliberately. This file already reimplements the hunt, the legacy
+ * adoption and the create-vs-patch gate against a different transport (the
+ * `gh` subprocess, not the App's token), and #486 existed precisely because
+ * the two drifted. Treat any behavior change to `upsertBotComment`
+ * (apps/api/src/github-comment.ts) as owing a matching change here. Note
+ * this is the one place the CLI deletes a GitHub resource under the
+ * invoking human's own credentials — bounded to comments carrying this
+ * workspace's exact namespaced marker, whose content is always
+ * regenerable.
  */
 export function upsertAttachmentsComment(
   target: GhTarget,
@@ -262,7 +303,18 @@ export function upsertAttachmentsComment(
   opts: { createIfMissing?: boolean } = {},
 ): { action: "created" | "updated" | "skipped" } {
   const createIfMissing = opts.createIfMissing ?? true;
-  const existing = findManagedComment(target, run, marker);
+  const { comment: existing, extras } = findManagedComment(target, run, marker);
+
+  const deleteExtras = () => {
+    for (const extra of extras ?? []) {
+      try {
+        run("gh", ["api", `repos/${target.repo}/issues/comments/${extra.id}`, "-X", "DELETE"]);
+      } catch {
+        // Best effort only — a failed delete must never fail the caller's command.
+      }
+    }
+  };
+
   if (existing) {
     run(
       "gh",
@@ -276,11 +328,14 @@ export function upsertAttachmentsComment(
       ],
       body,
     );
+    deleteExtras();
     return { action: "updated" };
   }
   // Patch-only (createIfMissing false, i.e. an empty body) with no existing
   // comment: nothing to do — never create one just to say it's empty.
   if (!createIfMissing) return { action: "skipped" };
+  // No existing marker hit means `extras` is necessarily empty here (see
+  // `findManagedComment`) — nothing to delete after a create.
   run("gh", ["api", `repos/${target.repo}/issues/${target.num}/comments`, "-F", "body=@-"], body);
   return { action: "created" };
 }

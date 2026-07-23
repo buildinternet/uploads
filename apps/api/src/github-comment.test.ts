@@ -958,6 +958,55 @@ describe("upsertBotComment", () => {
     });
   });
 
+  it("in legacy mode (no workspace) never deletes a second legacy comment", async () => {
+    // Mirrors the CLI's gh-path guard: with the shared legacy marker a second
+    // hit may belong to a different workspace, so it is adopted, never deleted.
+    const { env } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    const deleted: string[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (url.includes("/access_tokens")) {
+        return new Response(JSON.stringify({ token: "t" }), { status: 201 });
+      }
+      if (url.includes("/issues/12/comments")) {
+        return new Response(
+          JSON.stringify([
+            { id: 20, body: `${ATTACHMENTS_MARKER}\nfirst` },
+            { id: 21, body: `${ATTACHMENTS_MARKER}\ncould be another workspace` },
+          ]),
+          { status: 200 },
+        );
+      }
+      if (init.method === "DELETE") {
+        deleted.push(url);
+        return new Response(null, { status: 204 });
+      }
+      if (url.includes("/issues/comments/20") && init.method === "PATCH") {
+        return new Response(
+          JSON.stringify({ id: 20, html_url: "https://github.com/acme/web/pull/12#c20" }),
+          { status: 200 },
+        );
+      }
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+    // An empty workspace name degrades attachmentsMarker() to the shared
+    // legacy marker — the only way this path is reachable server-side.
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "BODY",
+      "",
+      fetchImpl,
+    );
+    expect(res).toEqual({
+      action: "updated",
+      commentUrl: "https://github.com/acme/web/pull/12#c20",
+    });
+    expect(deleted).toEqual([]);
+  });
+
   it("forceHunt ignores a warm cached id so a duplicate is collapsed (issue #480)", async () => {
     const { env, kv } = makeTestEnv();
     const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
