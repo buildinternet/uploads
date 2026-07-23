@@ -42,6 +42,7 @@ if (isBrowseWorkspace(legacyWs)) {
       resolveDefaultWorkspace,
       writeCachedWorkspaces,
     } from "../../lib/workspaces-nav";
+    import { shouldShowProBadge } from "../../lib/plan-badge";
     import { escapeHtml } from "../../lib/workspace-ui";
 
     onAstroPageLoad(() => {
@@ -90,8 +91,11 @@ if (isBrowseWorkspace(legacyWs)) {
           .map((ws) => {
             const name = ws.organization.name || ws.workspace;
             const href = `/account/workspaces/${encodeURIComponent(ws.workspace)}`;
+            const badge = shouldShowProBadge(ws.plan)
+              ? ` <span class="pro-badge">Pro</span>`
+              : "";
             return `<li>
-              <a href="${escapeHtml(href)}">${escapeHtml(name)}</a>
+              <a href="${escapeHtml(href)}">${escapeHtml(name)}</a>${badge}
               <span class="slug">${escapeHtml(ws.role)}</span>
             </li>`;
           })

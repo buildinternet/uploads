@@ -170,18 +170,30 @@ export const me = new Hono<SessionVars>()
   // lets the account UI decide, per workspace, whether opening a file should
   // navigate to the public /f/ page (issue #135) or resolve through the
   // signed-URL-capable /file-url endpoint (issue #123) — see
-  // apps/web's AccountFileBrowser. Loaded here (not in `myWorkspaces`, which
-  // every member-gated route calls for authorization) so the extra KV read
-  // per workspace stays confined to this one listing endpoint.
+  // apps/web's AccountFileBrowser. `plan` (issue #365 follow-up, purely
+  // additive) is the same catalog-id string `planResponse` returns for the
+  // billing tab — "free" whenever the record has no plan applied (getPlan's
+  // fail-open-to-free contract), so a legacy/unapplied record can never read
+  // as "pro" here either. Lets the nav/list surfaces show a small Pro badge
+  // without a per-workspace billing round trip. Both fields are loaded here
+  // (not in `myWorkspaces`, which every member-gated route calls for
+  // authorization) so the extra KV read per workspace stays confined to this
+  // one listing endpoint.
   .get("/workspaces", async (c) => {
     const userId = c.get("sessionUser")?.id;
     if (!userId) throw new NotFoundError("no session user", { code: "workspace_not_found" });
     const workspaces = await myWorkspaces(c.env, userId);
     const withPublicUrl = await Promise.all(
       workspaces.map(async (ws) => {
-        const publicBaseUrl = (await loadWorkspaceRecord(c.env, ws.workspace))?.publicBaseUrl;
+        const record = await loadWorkspaceRecord(c.env, ws.workspace);
+        const publicBaseUrl = record?.publicBaseUrl;
+        const plan = record ? planResponse(ws.workspace, record).plan : "free";
         // `hasPublicUrl` kept alongside the URL itself for existing consumers.
-        return Object.assign({}, ws, { hasPublicUrl: Boolean(publicBaseUrl), publicBaseUrl });
+        return Object.assign({}, ws, {
+          hasPublicUrl: Boolean(publicBaseUrl),
+          publicBaseUrl,
+          plan,
+        });
       }),
     );
     return c.json({ workspaces: withPublicUrl });

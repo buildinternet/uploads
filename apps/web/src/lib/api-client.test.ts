@@ -95,6 +95,38 @@ describe("getMyWorkspaces", () => {
       ["byo", false],
     ]);
   });
+
+  it("maps plan through and leaves it undefined when the API omits it (issue #365 follow-up)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          workspaces: [
+            {
+              workspace: "acme",
+              organization: { id: "org1", slug: "acme", name: "Acme Inc" },
+              role: "owner",
+              plan: "pro",
+            },
+            {
+              // Older api response, no plan field at all.
+              workspace: "byo",
+              organization: { id: "org2", slug: "byo", name: "BYO Inc" },
+              role: "member",
+            },
+          ],
+        }),
+      ),
+    );
+
+    const result = await getMyWorkspaces("http://127.0.0.1:8787");
+    expect(result.kind).toBe("success");
+    if (result.kind !== "success") throw new Error("expected success");
+    expect(result.workspaces.map((ws) => [ws.workspace, ws.plan])).toEqual([
+      ["acme", "pro"],
+      ["byo", undefined],
+    ]);
+  });
 });
 
 describe("setFileVisibility", () => {

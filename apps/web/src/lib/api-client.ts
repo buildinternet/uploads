@@ -26,12 +26,19 @@ export interface MyWorkspace {
   hasPublicUrl: boolean;
   /** The public base URL itself (e.g. `https://storage.uploads.sh`), when configured. */
   publicBaseUrl?: string;
+  /**
+   * Catalog plan id ("free" | "pro" | …) — additive, issue #365 follow-up.
+   * Same fail-open-to-"free" contract as the billing tab's `planResponse`:
+   * a legacy/unapplied workspace record always reads as "free" here, never
+   * "pro". Undefined only against an older api build that omits the field.
+   */
+  plan?: string;
 }
 
-// `hasPublicUrl` is intentionally NOT required here: web and
+// `hasPublicUrl`/`plan` are intentionally NOT required here: web and
 // api deploy independently, so an older api may omit them. We accept the
-// entry and coerce a missing/other value to `false` in the mapper below.
-function isMyWorkspaceCore(value: unknown): value is Omit<MyWorkspace, "hasPublicUrl"> {
+// entry and coerce a missing/other value to a safe default in the mapper below.
+function isMyWorkspaceCore(value: unknown): value is Omit<MyWorkspace, "hasPublicUrl" | "plan"> {
   if (!value || typeof value !== "object") return false;
   const ws = value as Record<string, unknown>;
   const org = ws.organization as Record<string, unknown> | null | undefined;
@@ -46,10 +53,11 @@ function isMyWorkspaceCore(value: unknown): value is Omit<MyWorkspace, "hasPubli
 }
 
 /** Coerce optional/legacy fields; shared by list + summary mappers. */
-function mapMyWorkspace(ws: Omit<MyWorkspace, "hasPublicUrl">): MyWorkspace {
-  const raw = ws as Omit<MyWorkspace, "hasPublicUrl"> & {
+function mapMyWorkspace(ws: Omit<MyWorkspace, "hasPublicUrl" | "plan">): MyWorkspace {
+  const raw = ws as Omit<MyWorkspace, "hasPublicUrl" | "plan"> & {
     hasPublicUrl?: unknown;
     publicBaseUrl?: unknown;
+    plan?: unknown;
   };
   return {
     workspace: raw.workspace,
@@ -57,6 +65,7 @@ function mapMyWorkspace(ws: Omit<MyWorkspace, "hasPublicUrl">): MyWorkspace {
     role: raw.role,
     hasPublicUrl: raw.hasPublicUrl === true,
     publicBaseUrl: typeof raw.publicBaseUrl === "string" ? raw.publicBaseUrl : undefined,
+    plan: typeof raw.plan === "string" ? raw.plan : undefined,
   };
 }
 

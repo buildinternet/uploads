@@ -189,6 +189,22 @@ describe("renderSwitcherMenuHtml", () => {
     expect(html).toContain("+ new workspace");
     expect(html).not.toContain("ws-switcher__sep");
   });
+
+  it("shows a Pro badge only for a pro-plan workspace, never for free/legacy ones", () => {
+    const withPlans: MyWorkspace[] = [
+      { ...sample[0]!, plan: "pro" },
+      { ...sample[1]!, plan: "free" },
+    ];
+    const html = renderSwitcherMenuHtml(withPlans, { active: "buildinternet" });
+    expect(html).toMatch(/buildinternet[\s\S]*?<span class="pro-badge">Pro<\/span>/);
+    const sideItem = html.slice(html.indexOf('href="/account/workspaces/side"'));
+    expect(sideItem).not.toContain("pro-badge");
+  });
+
+  it("omits the badge when plan is absent (older api, legacy workspace)", () => {
+    const html = renderSwitcherMenuHtml(sample, { active: "buildinternet" });
+    expect(html).not.toContain("pro-badge");
+  });
 });
 
 describe("renderWorkspaceSectionNavHtml", () => {
