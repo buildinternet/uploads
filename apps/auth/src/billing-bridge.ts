@@ -12,16 +12,17 @@
  * return, not a thrown error.
  *
  * Because failures are swallowed, the webhook returns 2xx and Stripe will
- * NOT retry a failed sync. That's a deliberate tradeoff, not an oversight:
- * the auth-side `subscription` table (Task 1's schema) remains the source of
- * truth regardless of whether this sync landed, and an operator can re-run
- * the sync via the idempotent internal route. A persistent outbox/
- * reconciliation job is deferred until real traffic justifies it (#388).
+ * NOT retry a failed sync. The auth-side `subscription` table remains the
+ * source of truth either way, but a dropped sync used to leave the workspace
+ * `plan` stale with no recovery. Every failure path now enqueues the org in
+ * `billing_plan_outbox` (billing-outbox.ts) so the cron drain retries it —
+ * issue #451, ahead of opening signups.
  */
 import { eq } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
 import type { AuthEnv } from "./auth";
 import * as schema from "./schema";
+import { enqueuePlanSync } from "./billing-outbox";
 
 /**
  * `AuthEnv` (auth.ts) doesn't itself declare `API`/`BILLING_INTERNAL_KEY` —
@@ -51,10 +52,12 @@ export async function syncWorkspacePlan(
 
     if (!env.API) {
       console.error("syncWorkspacePlan: env.API service binding is not configured");
+      await enqueuePlanSync(db, referenceId, "env.API service binding is not configured");
       return;
     }
     if (!env.BILLING_INTERNAL_KEY) {
       console.error("syncWorkspacePlan: BILLING_INTERNAL_KEY is not configured");
+      await enqueuePlanSync(db, referenceId, "BILLING_INTERNAL_KEY is not configured");
       return;
     }
 
@@ -70,8 +73,13 @@ export async function syncWorkspacePlan(
       console.error(
         `syncWorkspacePlan: POST /internal/billing/plan for workspace ${slug} failed with status ${response.status}`,
       );
+      await enqueuePlanSync(db, referenceId, `status ${response.status}`);
     }
   } catch (error) {
     console.error(`syncWorkspacePlan: failed for organization ${referenceId}`, error);
+    // Also covers a failed org-slug lookup: the D1 read above is inside this
+    // try, and a transient D1 error there is exactly the kind of failure the
+    // queue exists to survive.
+    await enqueuePlanSync(db, referenceId, error instanceof Error ? error.message : String(error));
   }
 }

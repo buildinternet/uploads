@@ -138,6 +138,10 @@ describe("syncWorkspacePlan", () => {
 
     await expect(syncWorkspacePlan(env, brokenOrm, orgId, "pro")).resolves.toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+    // Two logs, not one: the sync failure, then the outbox enqueue failing on
+    // the same broken db. The queue lives in D1, so it cannot survive D1
+    // itself being down — see billing-outbox.ts. Still resolves either way,
+    // which is the property this test exists to pin.
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
   });
 });

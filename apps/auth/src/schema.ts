@@ -451,6 +451,30 @@ export const subscription = sqliteTable("subscription", {
 });
 
 /**
+ * Durable retry queue for the billing plan bridge (issue #451). Written by
+ * `syncWorkspacePlan` (src/billing-bridge.ts) when the `POST
+ * /internal/billing/plan` call to apps/api fails, drained by the cron in
+ * src/billing-outbox.ts.
+ *
+ * `referenceId` (the organization id) is the primary key, so a repeat failure
+ * for the same org replaces its pending row instead of queueing a duplicate.
+ *
+ * Deliberately carries NO plan column: the drain recomputes the desired plan
+ * from the `subscription` table at retry time, so a queued row can never
+ * re-apply a plan that a later event has already superseded.
+ *
+ * Paired migration: `migrations/20260723150000_billing_plan_outbox.sql`.
+ */
+export const billingPlanOutbox = sqliteTable("billing_plan_outbox", {
+  referenceId: text("reference_id").primaryKey(),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  nextAttemptAt: integer("next_attempt_at", { mode: "timestamp" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+/**
  * Drizzle relations for Better Auth `experimental.joins` (adapter needs these
  * on the same schema object as the tables). No SQL/migration impact.
  *
@@ -529,3 +553,4 @@ export type AuthDeviceCode = typeof deviceCode.$inferSelect;
 export type AuthOauthClient = typeof oauthClient.$inferSelect;
 export type AuthOauthWorkspaceChoice = typeof oauthWorkspaceChoice.$inferSelect;
 export type AuthSubscription = typeof subscription.$inferSelect;
+export type AuthBillingPlanOutbox = typeof billingPlanOutbox.$inferSelect;

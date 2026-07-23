@@ -29,12 +29,19 @@
     "enabled": true,
     "head_sampling_rate": 1,
   },
-  // Daily retention sweep for expired verification/device_code rows (plan
-  // Phase 5, uploads#102 item 4 — see src/retention-sweep.ts). Offset 15
-  // minutes from apps/api's own daily sweep (0 6 * * *) so the two crons
-  // don't fire in the same minute.
+  // Two schedules, dispatched on `controller.cron` in src/index.ts:
+  //
+  // "15 6 * * *"    daily retention sweep for expired verification/device_code
+  //                 rows (plan Phase 5, uploads#102 item 4 — see
+  //                 src/retention-sweep.ts) plus the stale OAuth-client
+  //                 reaper. Offset 15 minutes from apps/api's own daily sweep
+  //                 (0 6 * * *) so the two crons don't fire in the same minute.
+  // "*/5 * * * *"   billing plan-sync outbox drain (issue #451, see
+  //                 src/billing-outbox.ts). Frequent because the queue only
+  //                 has rows when someone's paid plan is stale; the drain is a
+  //                 single indexed D1 read and does nothing when empty.
   "triggers": {
-    "crons": ["15 6 * * *"],
+    "crons": ["15 6 * * *", "*/5 * * * *"],
   },
   // Dedicated D1 database (see docs/superpowers/plans/2026-07-12-better-auth-introduction.md,
   // decision D1) — auth tables never live in uploads-production. Database

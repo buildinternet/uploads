@@ -7,6 +7,7 @@ import { localDemoEnabled } from "./local-demo";
 import { isTrustedOrigin } from "./trusted-origins";
 import { runAuthRetentionSweep } from "./retention-sweep";
 import { sweepOauthClients } from "./oauth-client-reaper";
+import { BILLING_OUTBOX_CRON, drainBillingOutbox } from "./billing-outbox";
 import { billingPricesResponseBody } from "./billing-prices";
 
 // Credentialed CORS for the web origin (+ dev origins), scoped to /api/auth/*
@@ -120,10 +121,25 @@ export const app = new Hono<{ Bindings: AuthEnv }>()
 
 export default {
   fetch: app.fetch.bind(app),
-  // Daily retention sweep (plan Phase 5, uploads#102 item 4): expired
-  // `verification`/`device_code` rows that Better Auth doesn't proactively
-  // clean up. See src/retention-sweep.ts.
-  async scheduled(_controller: ScheduledController, env: AuthEnv, ctx: ExecutionContext) {
+  // Two schedules (see wrangler.jsonc `triggers.crons`), dispatched on
+  // `controller.cron`: the every-5-minutes billing outbox drain must not drag
+  // the daily sweeps along with it.
+  async scheduled(controller: ScheduledController, env: AuthEnv, ctx: ExecutionContext) {
+    if (controller.cron === BILLING_OUTBOX_CRON) {
+      // Issue #451: retry plan syncs whose bridge call to apps/api failed.
+      ctx.waitUntil(
+        drainBillingOutbox(env).catch((err) => {
+          console.error(
+            JSON.stringify({
+              message: "billing_outbox_drain_failed",
+              error: err instanceof Error ? err.message : String(err),
+            }),
+          );
+        }),
+      );
+      return;
+    }
+
     ctx.waitUntil(
       runAuthRetentionSweep(env).catch((err) => {
         console.error(
