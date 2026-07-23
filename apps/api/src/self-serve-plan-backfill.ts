@@ -8,8 +8,7 @@
  *
  * For every `ws:` record with `selfServe: true`:
  *   - sets `plan: "free"` if `plan` is absent.
- *   - removes each of the four budget override fields
- *     (maxStorageBytes/maxUploadsPerPeriod/maxUploadBytes/maxVideoUploadBytes)
+ *   - removes each budget override field (the canonical LIMIT_FIELDS list)
  *     whose stored value exactly equals free's default for that field — a
  *     genuinely custom override (comped or otherwise) never matches and is
  *     left untouched.
@@ -21,19 +20,13 @@
  *     stay that way (see budget.ts's resolveBudgetLimits comment).
  *   - A record that already has `plan` set is only checked for the stale
  *     override fields — it does not get plan overwritten.
- *   - `maxMembers` is out of scope here: self-serve records never stamped it
- *     (issue #450), so there is nothing to backfill for that field.
+ *   - `maxMembers` is included via LIMIT_FIELDS but is a practical no-op:
+ *     self-serve records never stamped it (issue #450), and clearing a value
+ *     equal to the plan default resolves identically anyway.
  */
-import { PLANS } from "@uploads/billing";
+import { LIMIT_FIELDS, PLANS } from "@uploads/billing";
 import { mutateWorkspaceRecord } from "./workspace-mutate";
 import type { WorkspaceRecord } from "./workspace";
-
-const BUDGET_FIELDS = [
-  "maxStorageBytes",
-  "maxUploadsPerPeriod",
-  "maxUploadBytes",
-  "maxVideoUploadBytes",
-] as const;
 
 const FREE_DEFAULTS = PLANS.free.defaultLimits;
 
@@ -57,7 +50,7 @@ export function planBackfillForRecord(
   record: WorkspaceRecord,
 ): { plan?: "free"; clearFields: string[] } | null {
   const needsPlan = record.plan === undefined;
-  const clearFields = BUDGET_FIELDS.filter(
+  const clearFields = LIMIT_FIELDS.filter(
     (field) => typeof record[field] === "number" && record[field] === FREE_DEFAULTS[field],
   );
   if (!needsPlan && clearFields.length === 0) return null;
