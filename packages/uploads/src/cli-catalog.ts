@@ -205,6 +205,11 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
     ],
   },
   {
+    name: "update",
+    summary: "Update the CLI, then refresh the agent skills + MCP registration",
+    essential: true,
+  },
+  {
     name: "login",
     summary: "Sign in via browser (or an enrollment code) and save credentials",
     essential: true,

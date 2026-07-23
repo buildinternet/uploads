@@ -35,6 +35,12 @@ describe("formatRootHelp", () => {
     expect(text).not.toMatch(/BUILDINTERNET_CONFIG/);
   });
 
+  it("includes update in the short essentials list", () => {
+    const text = formatRootHelp({ color: false });
+    expect(text).toMatch(/Essentials:/);
+    expect(text).toMatch(/update/);
+  });
+
   it("shows the full command list with full: true", () => {
     const text = formatRootHelp({ full: true, color: false });
     expect(text).toMatch(/Commands:/);

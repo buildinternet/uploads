@@ -62,7 +62,7 @@ describe("maybeHintUpdate", () => {
     expect(lines.join("")).toMatch(
       /@buildinternet\/uploads@0\.6\.0 is available \(you have 0\.5\.0\)/,
     );
-    expect(lines.join("")).toMatch(/npm i -g @buildinternet\/uploads/);
+    expect(lines.join("")).toMatch(/Update: uploads update/);
     expect(readUpdateCache(path)?.latest).toBe("0.6.0");
   });
 

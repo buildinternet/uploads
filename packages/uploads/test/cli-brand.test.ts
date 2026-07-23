@@ -69,7 +69,7 @@ describe("banners", () => {
     const text = formatUpdateBanner({ current: "0.9.0", latest: "0.10.0", color: false });
     expect(text).toMatch(/Update available/);
     expect(text).toMatch(/0\.9\.0 → 0\.10\.0/);
-    expect(text).toMatch(/npm i -g @buildinternet\/uploads/);
+    expect(text).toMatch(/uploads update/);
   });
 
   it("auth banner is two lines", () => {

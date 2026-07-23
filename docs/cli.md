@@ -15,6 +15,7 @@ and the exit codes, run `uploads help --all` or see
 uploads login          # sign in via browser; saves your workspace token, then runs doctor
 uploads whoami         # show the active workspace + token (alias: uploads status)
 uploads install        # install the agent skills + register the hosted MCP server
+uploads update         # update the CLI, then refresh the skills + MCP registration
 uploads put ./shot.png # stdout: public URL + ready-to-paste markdown; stderr: human summary
 ```
 
@@ -36,6 +37,17 @@ access. Routine agents never receive `ADMIN_TOKEN` and don't need it. See
 For local development, `pnpm workspace:add` prints a bearer token once. Save it
 with `uploads setup --token <token>`, or into `.env` or user config.
 
+Two things go stale independently: the npm package that provides the `uploads`
+binary, and the agent skills plus the MCP registration that `uploads install`
+writes. `uploads update` covers both. It upgrades the global package, then
+re-runs `install` against the new version. When the CLI is already current it
+still refreshes the skills and the MCP registration, because those drift on
+their own. Run `uploads update --dry-run` first to see the plan.
+
+The upgrade step needs a global install. Inside a checkout of this repository,
+or from an `npx` cache, `update` reports the newer version and prints the
+command to run by hand, rather than overwriting your build.
+
 ## Command overview
 
 | Command                 | What it does                                              |
@@ -49,6 +61,7 @@ with `uploads setup --token <token>`, or into `.env` or user config.
 | `delete <key>`          | Delete an object                                          |
 | `usage`                 | Workspace storage / upload counters                       |
 | `install`               | Install the agent skills + register the remote MCP server |
+| `update`                | Update the CLI, then refresh the skills and MCP           |
 | `login` / `logout`      | Sign in (browser or enrollment code) / clear saved token  |
 | `whoami` (`status`)     | Show the active workspace and token                       |
 | `invite`                | Invite a teammate to a workspace (workspace admin)        |
