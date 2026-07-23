@@ -1,0 +1,27 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "geist",
+        "createdAt": "2026-07-13T15:21:39.964Z",
+        "reason": "Zach confirmed mono-first terminal-native identity 2026-07-13; Geist retained deliberately for prose/headings"
+      },
+      {
+        "rule": "overused-font",
+        "value": "geist mono",
+        "createdAt": "2026-07-13T15:21:39.994Z",
+        "reason": "Zach confirmed mono-first terminal-native identity 2026-07-13; Geist Mono is the brand's base face for a CLI-first product"
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": ["**/packages/uploads/src/**"],
+        "createdAt": "2026-07-23T18:05:43.111Z",
+        "reason": "User confirmed: CLI/MCP source emits GitHub-markdown img templates; src is interpolated at runtime, not a rendered UI surface"
+      }
+    ]
+  }
+}

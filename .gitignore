@@ -15,7 +15,11 @@ worker-configuration.d.ts
 *.log
 pnpm-debug.log*
 coverage/
-.impeccable/
+# Impeccable design-hook state stays local, but the shared detector config
+# (rule suppressions with recorded reasons) is committed so every checkout
+# and worktree agrees on what is intentionally ignored.
+.impeccable/*
+!.impeccable/config.json
 # Local agent notes, private plans, pricing scratch (not for the public repo)
 .context/
 .superpowers/
