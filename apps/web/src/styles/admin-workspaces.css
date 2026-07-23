@@ -1,145 +1,48 @@
-/* Admin workspace accordions on /admin (JS-injected markup). */
-#workspaces-list {
-  display: grid;
-  gap: 10px;
-  margin-top: 12px;
-}
-#workspaces-list .workspace {
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg);
-}
-#workspaces-list .workspace summary {
-  cursor: pointer;
-  list-style: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-#workspaces-list .workspace summary::-webkit-details-marker {
-  display: none;
-}
-#workspaces-list .workspace .name {
-  color: var(--fg);
-  font-weight: 600;
-  font-size: 13px;
-}
-#workspaces-list .workspace .counts {
-  color: var(--muted);
-  font-size: 12px;
-  text-align: right;
-}
-#workspaces-list .workspace .detail {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-  display: grid;
-  gap: 12px;
-}
-#workspaces-list .workspace ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 6px;
-}
-#workspaces-list .workspace li {
-  font-size: 12px;
-  color: var(--body);
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
-#workspaces-list .workspace li .role {
-  color: var(--muted);
-}
-#workspaces-list .workspace .members,
-#workspaces-list .workspace .muted {
-  color: var(--muted);
-  font-size: 12px;
-}
-#workspaces-list .invite-form {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: flex-end;
-}
-#workspaces-list .invite-form label {
-  display: grid;
-  gap: 4px;
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-#workspaces-list .invite-form input,
-#workspaces-list .invite-form select {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--fg);
-  padding: 7px 9px;
-  font: 12px var(--mono);
-}
-#workspaces-list .invite-form button,
-#workspaces-list .invite-link-row button {
-  font: 11px var(--mono);
-  color: var(--accent);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 7px 12px;
-  cursor: pointer;
-}
-#workspaces-list .invite-form button:hover,
-#workspaces-list .invite-form button:focus-visible,
-#workspaces-list .invite-link-row button:hover,
-#workspaces-list .invite-link-row button:focus-visible {
-  border-color: var(--accent);
-  outline: none;
-}
-#workspaces-list .invite-status {
-  font-size: 12px;
-  margin-top: 4px;
-}
-#workspaces-list .invite-status[data-state="error"] {
-  color: var(--red);
-}
-#workspaces-list .invite-status[data-state="ready"] {
-  color: var(--accent);
-}
-#workspaces-list .invite-link-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-}
-#workspaces-list .invite-link-url {
-  flex: 1;
-  min-width: 200px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  color: var(--fg);
-  padding: 7px 9px;
-  font: 11px var(--mono);
-}
-.workspace .limits {
-  margin-top: 16px;
-  border-top: 1px solid var(--border, #e5e7eb);
-  padding-top: 12px;
-}
-.workspace .limits-heading {
-  margin: 0 0 8px;
-  font-size: 14px;
-}
+/* Workspace expand-detail: plan, limits, GitHub, invite link. */
+
+.workspace .plan-availability,
+.workspace .plan-unapplied,
 .workspace .limit-usage {
   margin: 0 0 10px;
   font-size: 12px;
+  color: var(--muted);
+}
+.workspace .plan-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.workspace .plan-select,
+.workspace .limit-value,
+.workspace .limit-unit {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  padding: 4px 6px;
+  font: 12px var(--mono);
+}
+.workspace .plan-select {
+  padding: 7px 9px;
+}
+.workspace .plan-status,
+.workspace .limit-status,
+.workspace .invite-status {
+  font-size: 12px;
+  width: 100%;
+}
+.workspace .plan-status[data-state="error"],
+.workspace .limit-status[data-state="error"],
+.workspace .invite-status[data-state="error"] {
+  color: var(--red);
+}
+.workspace .plan-status[data-state="ready"],
+.workspace .limit-status[data-state="ready"] {
+  color: var(--muted);
+}
+.workspace .invite-status[data-state="ready"] {
+  color: var(--accent);
 }
 .workspace .limits-form {
   display: flex;
@@ -157,31 +60,29 @@
 }
 .workspace .limit-row > label:first-child {
   font-size: 13px;
-}
-.workspace .limit-value,
-.workspace .limit-unit {
-  padding: 4px 6px;
-  font: inherit;
+  color: var(--body);
 }
 .workspace .limit-value:disabled,
 .workspace .limit-unit:disabled {
   opacity: 0.5;
 }
-.workspace .github-links:not(:empty) {
-  margin-top: 16px;
-  border-top: 1px solid var(--border, #e5e7eb);
-  padding-top: 12px;
+.workspace .limit-unlimited {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--muted);
 }
-.workspace .github-links-heading {
-  margin: 0 0 8px;
-  font-size: 14px;
+.workspace .limits-form button {
+  align-self: flex-start;
+  margin-top: 4px;
 }
 .workspace .github-links-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 4px;
 }
 .workspace .github-links-list li {
@@ -192,23 +93,29 @@
 }
 .workspace .github-links-list .repo {
   font: 12px var(--mono);
+  color: var(--fg);
 }
-.workspace .limit-unlimited {
-  display: inline-flex;
+.workspace .invite-link-row {
+  display: flex;
+  gap: 8px;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  white-space: nowrap;
+  flex-wrap: wrap;
 }
-.workspace .limits-form button {
-  align-self: flex-start;
-  margin-top: 4px;
+.workspace .invite-link-url {
+  flex: 1;
+  min-width: 200px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  padding: 7px 9px;
+  font: 11px var(--mono);
 }
-.workspace .limit-status[data-state="error"] {
-  color: var(--danger, #b91c1c);
-  font-size: 12px;
-}
-.workspace .limit-status[data-state="ready"] {
-  color: var(--muted, #6b7280);
-  font-size: 12px;
+
+@media (max-width: 560px) {
+  .workspace .limit-row,
+  .workspace .limit-row[data-byte] {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
 }
