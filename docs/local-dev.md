@@ -27,11 +27,11 @@ stack gets stable named `.localhost` origins instead of bare ports:
 | auth    | `https://auth.uploads.localhost` |
 | api     | `https://api.uploads.localhost`  |
 
-The shared `.uploads.localhost` parent is what makes local auth work like
-prod: the Better Auth session cookie set by the auth worker is sent to web
-and api the same way `.uploads.sh` cookies are, so signed-in pages
-(`/account/*`, `/admin/*`) just work in a local browser — including agent
-browser panels. In a linked git worktree, portless prefixes the branch name
+The shared `.uploads.localhost` parent makes local auth work like prod. The
+auth worker sets a Better Auth session cookie, and the browser sends it to web
+and api the same way it sends `.uploads.sh` cookies. So signed-in pages
+(`/account/*`, `/admin/*`) just work in a local browser, including agent browser
+panels. In a linked git worktree, portless prefixes the branch name
 (`fix-ui.uploads.localhost` / `fix-ui.auth.uploads.localhost`); the cookie
 parent still anchors on the last two labels, so nothing else changes.
 `dev:stack` prints the resolved `previewUrl` when ready, and

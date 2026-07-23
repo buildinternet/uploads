@@ -1,9 +1,9 @@
 # Signing in with `uploads login`
 
-`uploads login` is how people and agents get workspace credentials. Run with
-no flags it opens a browser for a device sign-in (GitHub or a magic link); on
-approval the CLI mints a scoped, expiring workspace token and saves it
-locally. Nobody needs the API's `ADMIN_TOKEN` to sign in.
+`uploads login` is how people and agents get workspace credentials. Run with no
+flags, it opens a browser for a device sign-in (GitHub or a magic link). On
+approval, the CLI mints a scoped, expiring workspace token and saves it locally.
+Nobody needs the API's `ADMIN_TOKEN` to sign in.
 
 ## Everyday login (device flow)
 
@@ -33,13 +33,13 @@ uploads login --workspace acme
 
 The CLI authenticates as the managed official OAuth client `uploads-cli`,
 visible and toggleable by operators in the admin panel at `/admin/oauth`.
-Deleting an official client is blocked server-side (`DELETE` returns 409)
-until an operator first clears its official flag (`PATCH official:false`);
-that two-step is deliberate. The seed migration only runs once (`INSERT OR
-IGNORE`, journaled as applied), so a deleted `uploads-cli` client is not
-automatically re-seeded and would break CLI login fleet-wide until manually
-re-inserted — prefer disabling it over clearing the official flag and
-deleting it.
+The server blocks deleting an official client (`DELETE` returns 409) until an
+operator first clears its official flag (`PATCH official:false`). That two-step
+is deliberate. The seed migration runs only once (`INSERT OR IGNORE`, journaled
+as applied), so the system does not re-seed a deleted `uploads-cli` client
+automatically. A deletion would break CLI login fleet-wide until someone
+re-inserts the row by hand, so prefer disabling the client over clearing its
+official flag and deleting it.
 
 On success, the CLI saves `UPLOADS_API_URL`, `UPLOADS_WORKSPACE`, and
 `UPLOADS_TOKEN` in the shared buildinternet config and runs `doctor`. It never
@@ -61,10 +61,10 @@ without an invitation or `ADMIN_TOKEN` — `/account/workspaces` has a "Create a
 workspace" form, and `uploads login` offers the same prompt when your account
 has no workspaces yet. Scripted or agent logins can skip the prompt with
 `uploads login --workspace <name> --create`, which provisions the workspace
-during login when the account doesn't already have it (browser device
-approval is still required once). You become the owner of a new organization and a
-`<name>/` prefix on the shared bucket, capped at 3 self-serve workspaces per
-user and with tighter default limits than an operator-provisioned workspace.
+during login when the account doesn't already have it (browser device approval
+is still required once). You become the owner of a new organization and a
+`<name>/` prefix on the shared bucket. Self-serve workspaces are capped at 3 per
+user, with tighter default limits than an operator-provisioned workspace.
 See [workspaces.md#self-serve-workspaces](workspaces.md#self-serve-workspaces)
 for the limits, name rules, and error codes.
 

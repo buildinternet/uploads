@@ -1,8 +1,8 @@
 # Releasing `@buildinternet/uploads`
 
 The CLI/client package is published with **changesets** + npm **trusted
-publishing** (OIDC — no long-lived `NPM_TOKEN`). Published versions are cut by
-the **Release** workflow on `main`.
+publishing** (OIDC — no long-lived `NPM_TOKEN`). The **Release** workflow on
+`main` cuts the published versions.
 
 ## Trusted-publishing configuration
 
@@ -43,7 +43,7 @@ requires npm ≥ 11.5.1 and Node ≥ 22.14).
 **Never hand-edit** `packages/uploads/package.json` `version` for a release —
 `changeset version` owns it.
 
-Private packages (`@uploads/api`, `@uploads/mcp`, …) are ignored by changesets;
+Changesets ignore the private packages (`@uploads/api`, `@uploads/mcp`, …);
 they deploy via Workers Builds.
 
 ## Cut a release

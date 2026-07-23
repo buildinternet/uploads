@@ -11,10 +11,10 @@ Nothing in the code treats any workspace as special.
 ## Mutating a workspace record
 
 The record is one KV blob holding unrelated field groups (limits, plan,
-GitHub-comment settings, tokens, soft-delete stamps), so every writer is a
-read-modify-write of the whole snapshot. **Never `REGISTRY.put("ws:<name>", …)`
-directly** — go through `mutateWorkspaceRecord` in
-`apps/api/src/workspace-mutate.ts`, which reads the freshest record immediately
+GitHub-comment settings, tokens, soft-delete stamps), so every writer must read,
+modify, and write back the whole snapshot. **Never call
+`REGISTRY.put("ws:<name>", …)` directly.** Go through `mutateWorkspaceRecord` in
+`apps/api/src/workspace-mutate.ts`: it reads the freshest record immediately
 before writing, stamps a monotonic `version`, and re-applies the mutation if
 another writer's `put` landed in between (issue #387). Guards that depend on
 mutable state (already-deleted, grace-expired) belong inside the mutation
@@ -26,16 +26,17 @@ rather than eliminating it — acceptable for these admin/owner-initiated,
 low-concurrency edits. Issue #389 tracks the durable fix (moving the mutable
 field groups to D1, where transactions exist).
 
-Two caveats on the guarantee. A write landing between our read and our put is
-still lost; the retry only recovers a competitor whose put landed between our
-put and our verification read. And the guarantee covers the **worker only** —
-`pnpm workspace:limits` and `pnpm workspace:add` do their own
+Two caveats on the guarantee. First, a write landing between our read and our
+put is still lost; the retry only recovers a competitor whose put landed between
+our put and our verification read. Second, the guarantee covers the **worker
+only**. `pnpm workspace:limits` and `pnpm workspace:add` do their own
 `wrangler kv get` → splice → `wrangler kv put` out of process, so an operator
 running a script while someone edits the same workspace in the admin UI can
-still clobber it, unversioned and unretried. Prefer the admin UI (or the
-`/admin-ui/workspaces/:name/limits` endpoint) for edits to a live workspace. The exceptions are writes that replace the record
-outright rather than mutating it: self-serve creation (`selfServeWorkspaceRecord`,
-which stamps `version: 1`) and the purged tombstone written by teardown.
+still clobber it — unversioned and unretried. Prefer the admin UI (or the
+`/admin-ui/workspaces/:name/limits` endpoint) for edits to a live workspace. Two
+writes are exceptions, because they replace the record outright rather than
+mutate it: self-serve creation (`selfServeWorkspaceRecord`, which stamps
+`version: 1`) and the purged tombstone written by teardown.
 
 ## Usage accounting and budgets
 

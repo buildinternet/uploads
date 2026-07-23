@@ -212,6 +212,30 @@ implementers against the same area; use a single implementer or partition
 non-overlapping files explicitly. The root agent remains responsible for final
 integration, tests, and user-facing decisions.
 
+## Writing docs
+
+House style for `docs/`, `README.md`, and web copy. It borrows the grammar
+rules of ASD-STE100 Simplified Technical English — not the controlled
+dictionary — to keep prose clear and free of AI-slop tics:
+
+- **Active voice.** "A public CDN serves hosted files", not "Hosted files are
+  served from a public CDN."
+- **One idea per sentence.** Break anything past ~25 words. A single sentence
+  chaining four clauses with em-dashes is the first thing to split.
+- **Verbs, not nominalizations.** "When the sweep finalizes the delete", not
+  "on the finalization of the delete."
+- **One term per concept.** Never vary a technical name for elegance; call it
+  the same thing every time (`workspace`, not "tenant" then "account").
+- **Keep the article and the connective.** Don't drop "the"/"a"/"that" to
+  sound terse.
+
+But this is the softened form, not literal STE100 conformance: allow compound
+sentences where the flow reads naturally, keep established idioms
+("hash-free keys", "break-glass"), and keep the confident authorial voice
+("Prefer X over Y"). Full one-instruction-per-sentence strictness is for true
+step-by-step procedures (runbooks, setup walkthroughs), not reference or
+rationale prose. Code blocks, tables, and identifiers stay verbatim.
+
 ## Pull requests
 
 Write PR descriptions for humans first, not only for reviewers who already

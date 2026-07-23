@@ -71,10 +71,10 @@ confirmation gate — that hot-swap is intentional so PR/issue embed URLs stay
 stable. Every other key is strict: a `PUT` to an existing non-`gh/` key
 throws `409 Conflict` with `code: "key_exists"` and `details: { key, url,
 embedUrl }` naming the existing object, unless the caller opts in with
-`?replace=1` (or the `X-Uploads-Replace: 1` header). This is enforced in
-`putObject` (`apps/api/src/files-core.ts`) — the one code path shared by the
-REST route and the MCP worker — so both surfaces get the same contract
-without duplicating the check. There is no server-side global escape hatch;
+`?replace=1` (or the `X-Uploads-Replace: 1` header). `putObject`
+(`apps/api/src/files-core.ts`) enforces this — it is the one code path shared by
+the REST route and the MCP worker, so both surfaces get the same contract
+without a duplicated check. There is no server-side global escape hatch;
 `UPLOADS_OVERWRITE=1` is a CLI-side default (see [cli.md](./cli.md)) that
 just sends `replace=1` on the caller's behalf.
 Worker override: optional `EMBED_PUBLIC_BASE_URL` (empty disables; any URL is
