@@ -41,7 +41,9 @@ uploads update [--dry-run] [--skip-install] [--verbose]
 
 The command runs three phases: upgrade the CLI, refresh the skills and MCP
 registration, then report the result. It sits beside `install` and `doctor` in
-the command catalog and is marked `essential`, so it appears in default help.
+the command catalog. It also appears in the short default help. Note that the
+catalog's `essential` flag does not drive that list — `ESSENTIAL_ORDER` in
+`cli-help.ts` does, so a command must be named there to show up.
 
 | Flag             | Effect                                                                                  |
 | ---------------- | --------------------------------------------------------------------------------------- |

@@ -662,7 +662,7 @@ Expected: PASS. If any pre-existing assertion in this file counts commands or sn
 
 - [ ] **Step 6: Verify the command runs end to end**
 
-Run: `pnpm --filter @buildinternet/uploads build && node packages/uploads/dist/cli.js update --dry-run`
+Run: `pnpm --filter @buildinternet/uploads build && node packages/uploads/bin/uploads.js update --dry-run`
 Expected: prints a version line, then `refresh: would run — uploads install`. It must not print a stack trace, and it must not run any command.
 
 - [ ] **Step 7: Run the full package suite**
@@ -858,6 +858,6 @@ git commit -m "docs: document uploads update and add a changeset"
 
 After Task 5, confirm the real behavior outside the test fakes:
 
-- [ ] `node packages/uploads/dist/cli.js update --dry-run` from inside this repository reports that the upgrade is skipped for a workspace checkout, and prints the manual command.
-- [ ] `node packages/uploads/dist/cli.js update --help` renders the help text without a stack trace.
-- [ ] `node packages/uploads/dist/cli.js --help` shows `update` in the essential command list, with the update banner still rendering correctly when a newer version exists.
+- [ ] `node packages/uploads/bin/uploads.js update --dry-run` from inside this repository reports that the upgrade is skipped for a workspace checkout, and prints the manual command.
+- [ ] `node packages/uploads/bin/uploads.js update --help` renders the help text without a stack trace.
+- [ ] `node packages/uploads/bin/uploads.js --help` shows `update` in the essential command list, with the update banner still rendering correctly when a newer version exists.
