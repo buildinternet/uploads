@@ -618,6 +618,11 @@ function buildAuth(
       // We only use it for account UX, not high-sensitivity actions — disable.
       freshAge: 0,
       cookieCache: { enabled: true, maxAge: 5 * 60 },
+      // CLI package version — set/refreshed via POST /update-session (not core
+      // userAgent, which Better Auth freezes after create). See account Sessions.
+      additionalFields: {
+        cliVersion: { type: "string", required: false },
+      },
     },
     databaseHooks: {
       session: {

@@ -31,6 +31,7 @@ Keys:
   UPLOADS_API_URL           API base URL (default: ${DEFAULT_API_URL})
   UPLOADS_WORKSPACE         Workspace / bucket tenant (default: ${DEFAULT_WORKSPACE})
   UPLOADS_TOKEN             Bearer token for the workspace
+  UPLOADS_SESSION_TOKEN     Device-flow session (CLI version on account sessions)
   UPLOADS_DEFAULT_PREFIX    Default key prefix for put/list
   UPLOADS_DEFAULT_REPO      Default repo segment for put
   UPLOADS_DEFAULT_REF       Default ref segment for put
@@ -234,7 +235,11 @@ Examples:
   const path = flagString(parsed.flags, "--path") ?? resolveConfigPath({ envFile: opts.envFile });
   const force = flagBool(parsed.flags, "--force");
   const result = writeConfigKeys(path, { [key]: value }, { force });
-  const payload = { ...result, key, value: key === "UPLOADS_TOKEN" ? redactToken(value) : value };
+  const payload = {
+    ...result,
+    key,
+    value: key === "UPLOADS_TOKEN" || key === "UPLOADS_SESSION_TOKEN" ? redactToken(value) : value,
+  };
 
   if (opts.json) writeJson(payload);
   else process.stdout.write(`set ${key} in ${result.path}\n`);

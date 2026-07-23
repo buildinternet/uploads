@@ -3,8 +3,10 @@ import { createInterface } from "node:readline/promises";
 import { spawn } from "node:child_process";
 import { stdin, stdout } from "node:process";
 import {
+  authUrlFromApi,
   loadConfigFile,
   redactToken,
+  removeConfigKeys,
   resolveConfigPath,
   writeConfigKeys,
   workspaceFromToken,
@@ -22,6 +24,7 @@ import { flagBool, flagString, parseCommandArgs, UsageError } from "../cli-args.
 import { parseScopes } from "./admin-enrollment.js";
 import { writeCommandHelp } from "../cli-style.js";
 import { UploadsError } from "../errors.js";
+import { syncSessionCliVersion } from "../session-cli-version.js";
 
 const HELP = `uploads login [options]
 
@@ -189,16 +192,7 @@ export function resolveAuthUrl(
 ): string {
   const explicit = flagString(parsed.flags, "--auth-url") ?? process.env.UPLOADS_AUTH_URL;
   if (explicit) return explicit.replace(/\/$/, "");
-  try {
-    const url = new URL(apiUrl);
-    if (url.hostname.startsWith("api.")) {
-      url.hostname = `auth.${url.hostname.slice(4)}`;
-      return url.origin;
-    }
-  } catch {
-    // fall through to the default
-  }
-  return "https://auth.uploads.sh";
+  return authUrlFromApi(apiUrl);
 }
 
 /** Best-effort browser open. The URL is always printed too, so failures are silent. */
@@ -285,6 +279,9 @@ interface LoginResult {
   workspace: string;
   token: string;
   apiUrl?: string;
+  /** Device-flow session bearer (absent on enrollment-code path). */
+  sessionToken?: string;
+  authUrl?: string;
 }
 
 /**
@@ -369,7 +366,13 @@ async function runDeviceLogin(
     scopes,
     label,
   }).catch((err) => describeMintFailure(opts.apiUrl, session.accessToken, workspace, err));
-  return { workspace: minted.workspace, token: minted.token, apiUrl: opts.apiUrl };
+  return {
+    workspace: minted.workspace,
+    token: minted.token,
+    apiUrl: opts.apiUrl,
+    sessionToken: session.accessToken,
+    authUrl: opts.authUrl,
+  };
 }
 
 function safeHostname(): string {
@@ -524,6 +527,8 @@ export async function runLogin(
       UPLOADS_API_URL: savedApiUrl,
       UPLOADS_WORKSPACE: result.workspace,
       UPLOADS_TOKEN: result.token,
+      // Device login only — enables throttled session.cliVersion refresh.
+      ...(result.sessionToken ? { UPLOADS_SESSION_TOKEN: result.sessionToken } : {}),
     },
     { force },
   );
@@ -533,6 +538,18 @@ export async function runLogin(
     )
   )
     throw new UsageError("credentials were not fully written; retry with --force");
+  // Enrollment path: drop any stale device session so we don't heartbeat a dead token.
+  if (!result.sessionToken) {
+    removeConfigKeys(path, ["UPLOADS_SESSION_TOKEN"]);
+  } else {
+    // Seed session.cliVersion immediately (don't wait for the next command).
+    await syncSessionCliVersion({
+      sessionToken: result.sessionToken,
+      authUrl: result.authUrl,
+      apiUrl: savedApiUrl,
+      force: true,
+    });
+  }
   const checked = !flagBool(parsed.flags, "--no-check");
   let doctor = { ok: true, error: undefined as string | undefined };
   if (checked) {

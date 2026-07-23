@@ -64,7 +64,8 @@ export const user = sqliteTable("user", {
  * columns), `migrations/20260712210000_admin_plugin.sql` (`impersonated_by`,
  * written by the `admin` plugin's impersonation feature — Phase 2),
  * `migrations/20260712220000_organization.sql` (`active_organization_id`,
- * written by the `organization` plugin — Phase 3).
+ * written by the `organization` plugin — Phase 3),
+ * `migrations/20260723120000_session_cli_version.sql` (`cli_version`).
  */
 export const session = sqliteTable(
   "session",
@@ -81,6 +82,8 @@ export const session = sqliteTable(
     updatedAt: timestampCol("updated_at"),
     impersonatedBy: text("impersonated_by"),
     activeOrganizationId: text("active_organization_id"),
+    /** Installed `@buildinternet/uploads` version for CLI device sessions. */
+    cliVersion: text("cli_version"),
   },
   (t) => [index("idx_session_user_id").on(t.userId)],
 );

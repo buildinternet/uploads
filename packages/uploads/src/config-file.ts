@@ -7,6 +7,8 @@ export const UPLOADS_CONFIG_KEYS = [
   "UPLOADS_API_URL",
   "UPLOADS_WORKSPACE",
   "UPLOADS_TOKEN",
+  /** Better Auth device-flow session bearer — keeps session.cliVersion fresh. */
+  "UPLOADS_SESSION_TOKEN",
   "UPLOADS_DEFAULT_PREFIX",
   "UPLOADS_DEFAULT_REPO",
   "UPLOADS_DEFAULT_REF",

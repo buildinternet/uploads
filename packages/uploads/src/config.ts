@@ -28,6 +28,20 @@ export interface UploadsClientConfig {
   token: string;
 }
 
+/** Derive auth origin from an API base (`api.` → `auth.`), else production default. */
+export function authUrlFromApi(apiUrl: string): string {
+  try {
+    const url = new URL(apiUrl);
+    if (url.hostname.startsWith("api.")) {
+      url.hostname = `auth.${url.hostname.slice(4)}`;
+      return url.origin;
+    }
+  } catch {
+    // fall through
+  }
+  return "https://auth.uploads.sh";
+}
+
 export const DEFAULT_API_URL = "https://api.uploads.sh";
 export const DEFAULT_WORKSPACE = "default";
 

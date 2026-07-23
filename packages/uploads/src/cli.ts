@@ -43,6 +43,7 @@ import { runReport } from "./commands/report.js";
 import { runScreenshot } from "./commands/screenshot.js";
 import { packageVersion } from "./package-version.js";
 import { checkForUpdate, maybeHintUpdate } from "./update-check.js";
+import { maybeSyncSessionCliVersion } from "./session-cli-version.js";
 import {
   errorCodeFromUnknown,
   maybeShowFirstRunNotice,
@@ -261,6 +262,11 @@ export async function runCli(argv: string[]): Promise<number> {
     const json = parsed.globals.json ?? false;
     const quiet = parsed.globals.quiet ?? false;
     apiUrl = resolveApiUrl(parsed.globals);
+
+    // Refresh session.cliVersion when the installed package changes (no-op without a session token).
+    if (parsed.command && parsed.command !== "login" && parsed.command !== "logout") {
+      maybeSyncSessionCliVersion({ apiUrl, envFile: parsed.globals.envFile });
+    }
 
     if (parsed.globals.version) {
       process.stdout.write(`${packageVersion()}\n`);

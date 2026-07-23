@@ -204,6 +204,7 @@ describe("runLogin device flow", () => {
           201,
         ),
       ) // POST /v1/tokens
+      .mockResolvedValueOnce(response({ session: { cliVersion: "0.0.0" } })) // update-session
       .mockResolvedValueOnce(response({ ok: true })) // doctor health
       .mockResolvedValueOnce(response({ items: [], cursor: null })); // doctor list
     const output = captureOutput();
@@ -223,8 +224,17 @@ describe("runLogin device flow", () => {
     expect(JSON.parse(String((mintCall![1] as RequestInit).body))).toMatchObject({
       grants: [{ workspace: "acme", scopes: ["files:read", "files:write", "files:delete"] }],
     });
-    expect(loadConfigFile(path).UPLOADS_TOKEN).toBe(token);
-    expect(loadConfigFile(path).UPLOADS_WORKSPACE).toBe("acme");
+    const cfg = loadConfigFile(path);
+    expect(cfg.UPLOADS_TOKEN).toBe(token);
+    expect(cfg.UPLOADS_WORKSPACE).toBe("acme");
+    expect(cfg.UPLOADS_SESSION_TOKEN).toBe("sess-tok");
+    const updateCall = fetchMock.mock.calls.find((c) =>
+      String(c[0]).endsWith("/api/auth/update-session"),
+    );
+    expect(updateCall).toBeTruthy();
+    expect(JSON.parse(String((updateCall![1] as RequestInit).body))).toMatchObject({
+      cliVersion: expect.any(String),
+    });
     expect(output.out() + output.err()).not.toContain(token);
   });
 
