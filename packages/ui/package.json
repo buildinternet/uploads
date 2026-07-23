@@ -4,7 +4,7 @@
   "description": "The uploads.sh design system — React components carrying the Geist / Geist Pixel brand.",
   "private": true,
   "type": "module",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "sideEffects": [
     "*.css"
   ],

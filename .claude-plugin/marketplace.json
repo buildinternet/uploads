@@ -16,7 +16,7 @@
       },
       "homepage": "https://uploads.sh",
       "repository": "https://github.com/buildinternet/uploads",
-      "license": "MIT",
+      "license": "Apache-2.0",
       "keywords": ["uploads", "screenshots", "github", "file-hosting", "images", "mcp"],
       "strict": false,
       "skills": ["./skills/github-screenshots", "./skills/uploads-cli"],
