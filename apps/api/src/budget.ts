@@ -54,8 +54,13 @@ export function resolveBudgetLimits(record: WorkspaceBudgetLimits): {
   // `undefined`), unlike the richer null-means-"explicitly cleared"
   // handling `resolveEffectiveLimits`/`resolvePlanLimits` do for other
   // callers (e.g. `workspace-plan.ts`'s admin-set fields).
+  //
+  // Built field-by-field rather than spread from `record`: enforcement only
+  // consumes the two budget caps, so naming them explicitly keeps a future
+  // field on `WorkspaceBudgetLimits` from silently becoming an override
+  // input to the shared seam.
   const sanitized = {
-    ...record,
+    plan: record.plan,
     maxStorageBytes: positiveLimit(record.maxStorageBytes),
     maxUploadsPerPeriod: positiveLimit(record.maxUploadsPerPeriod),
   };

@@ -16,12 +16,11 @@
  * Only `plan` is written — `mutateWorkspaceRecord` read-modify-writes the
  * whole record, so limit overrides, tokens, etc. are preserved untouched.
  *
- * `BILLING_INTERNAL_KEY` is read through an intersection type rather than
- * `Env` directly: it must be added to `worker-configuration.d.ts` (via
- * `wrangler types`, which reads `.dev.vars`) for the ambient `Env` interface
- * to carry it, and that's a local/per-deploy secret file this change
- * deliberately doesn't touch — see the `.dev.vars.example` entry and the
- * comment in wrangler.jsonc for how to provision it.
+ * `BILLING_INTERNAL_KEY` is declared optional on `Env` in `src/env.d.ts`
+ * alongside the other `wrangler secret put` secrets — not left to the
+ * generated `worker-configuration.d.ts`, which is git-ignored and regenerated
+ * in CI without `.dev.vars`. See the `.dev.vars.example` entry and the comment
+ * in wrangler.jsonc for how to provision it.
  */
 import { PLAN_IDS, type PlanId } from "@uploads/billing";
 import { UnauthorizedError, ValidationError } from "@uploads/errors";
@@ -47,8 +46,7 @@ function validatePlanSetBody(body: Record<string, unknown>): { workspace: string
 }
 
 internalBilling.post("/plan", async (c) => {
-  const env = c.env as Env & { BILLING_INTERNAL_KEY?: string };
-  const secret = env.BILLING_INTERNAL_KEY ?? "";
+  const secret = c.env.BILLING_INTERNAL_KEY ?? "";
   const provided = c.req.header("x-internal-billing-key") ?? "";
 
   const providedHash = await sha256Hex(provided);

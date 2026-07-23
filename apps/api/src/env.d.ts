@@ -2,6 +2,13 @@
 // so `wrangler types` does not generate them. Augment Env here.
 interface Env {
   ADMIN_TOKEN?: string;
+  /**
+   * Shared secret gating POST /internal/billing/plan, sent by apps/auth's
+   * billing bridge as x-internal-billing-key. Set via `wrangler secret put` on
+   * both workers (the values must match). Unset/empty means the route 401s
+   * every request.
+   */
+  BILLING_INTERNAL_KEY?: string;
   /** Current AES master for BYO credentials at rest in KV (optional). */
   WORKSPACE_SECRETS_KEY?: string;
   /**
