@@ -3,116 +3,269 @@
      `node scripts/og/render-og.mjs` after editing. Fonts load from
      packages/ui via relative file:// paths, so render from the repo root. -->
 <html>
-<head>
-<meta charset="utf-8" />
-<style>
-  @font-face {
-    font-family: "Geist Mono";
-    src: url("../../node_modules/@uploads/ui/fonts/geist-mono.woff2") format("woff2"),
-         url("../../packages/ui/fonts/geist-mono.woff2") format("woff2");
-  }
-  * { box-sizing: border-box; margin: 0; }
-  html, body { width: 1200px; height: 630px; overflow: hidden; }
-  body {
-    background: #121214;
-    font-family: "Geist Mono", ui-monospace, monospace;
-    position: relative;
-  }
-  .dots {
-    position: absolute; inset: 0;
-    background-image: radial-gradient(#26262c 1.5px, transparent 1.5px);
-    background-size: 28px 28px;
-    opacity: 0.55;
-  }
-  .inner {
-    position: absolute; inset: 0;
-    padding: 64px 72px 60px;
-    display: flex; flex-direction: column;
-  }
-  .brand { display: flex; align-items: center; gap: 18px; }
-  .brand svg { width: 52px; height: 52px; }
-  .brand span { font-size: 33px; font-weight: 600; color: #e8e8ec; letter-spacing: -0.01em; }
-  .tag { font-size: 22px; color: #9b9ba6; margin-top: 12px; }
-  .row { flex: 1; display: flex; align-items: center; gap: 34px; margin-top: 6px; }
-  .arrow { font-size: 38px; color: #6b6b76; flex: none; }
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      @font-face {
+        font-family: "Geist Mono";
+        src:
+          url("../../node_modules/@uploads/ui/fonts/geist-mono.woff2") format("woff2"),
+          url("../../packages/ui/fonts/geist-mono.woff2") format("woff2");
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      html,
+      body {
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+      }
+      body {
+        background: #121214;
+        font-family: "Geist Mono", ui-monospace, monospace;
+        position: relative;
+      }
+      .dots {
+        position: absolute;
+        inset: 0;
+        background-image: radial-gradient(#26262c 1.5px, transparent 1.5px);
+        background-size: 28px 28px;
+        opacity: 0.55;
+      }
+      .inner {
+        position: absolute;
+        inset: 0;
+        padding: 64px 72px 60px;
+        display: flex;
+        flex-direction: column;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+      }
+      .brand svg {
+        width: 52px;
+        height: 52px;
+      }
+      .brand span {
+        font-size: 33px;
+        font-weight: 600;
+        color: #e8e8ec;
+        letter-spacing: -0.01em;
+      }
+      .tag {
+        font-size: 22px;
+        color: #9b9ba6;
+        margin-top: 12px;
+      }
+      .row {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 34px;
+        margin-top: 6px;
+      }
+      .arrow {
+        font-size: 38px;
+        color: #6b6b76;
+        flex: none;
+      }
 
-  .term {
-    flex: 1.08;
-    background: #0c0c0e; border: 1px solid #2c2c33; border-radius: 14px;
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
-    font-size: 21px; line-height: 1.75; color: #cfcfda; padding: 24px 30px 28px;
-    /* Geist Mono ligates "--" into a joined dash; keep the flag readable. */
-    font-variant-ligatures: none;
-    font-feature-settings: "calt" 0, "liga" 0;
-  }
-  .tbar { display: flex; gap: 9px; margin-bottom: 18px; }
-  .tbar i { width: 13px; height: 13px; border-radius: 50%; background: #3a3a42; }
-  .p { color: #6b6b76; }
-  .cmd { color: #e8e8ec; }
-  .flag { color: #c27eff; }
-  .out { color: #6fd08c; }
-  .gap { height: 12px; }
+      .term {
+        flex: 1.08;
+        background: #0c0c0e;
+        border: 1px solid #2c2c33;
+        border-radius: 14px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+        font-size: 21px;
+        line-height: 1.75;
+        color: #cfcfda;
+        padding: 24px 30px 28px;
+        /* Geist Mono ligates "--" into a joined dash; keep the flag readable. */
+        font-variant-ligatures: none;
+        font-feature-settings:
+          "calt" 0,
+          "liga" 0;
+      }
+      .tbar {
+        display: flex;
+        gap: 9px;
+        margin-bottom: 18px;
+      }
+      .tbar i {
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        background: #3a3a42;
+      }
+      .p {
+        color: #6b6b76;
+      }
+      .cmd {
+        color: #e8e8ec;
+      }
+      .flag {
+        color: #c27eff;
+      }
+      .out {
+        color: #6fd08c;
+      }
+      .gap {
+        height: 12px;
+      }
 
-  .ghc {
-    flex: 1;
-    background: #ffffff; border: 1px solid #d1d9e0; border-radius: 12px;
-    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
-    color: #1f2328; overflow: hidden;
-    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
-  }
-  .hd {
-    display: flex; align-items: center; gap: 11px; padding: 13px 18px;
-    background: #f6f8fa; border-bottom: 1px solid #d1d9e0; font-size: 17px;
-  }
-  .av { width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(135deg, #c27eff, #7e4ecc); flex: none; }
-  .hd b { font-weight: 600; }
-  .bot { font-size: 11px; border: 1px solid #d1d9e0; border-radius: 999px; padding: 1px 8px; color: #59636e; }
-  .when { color: #59636e; }
-  .bd { padding: 16px 18px 18px; }
-  .bd h4 { font-size: 17px; margin-bottom: 12px; font-weight: 600; }
-  .shots { display: flex; gap: 13px; }
-  .shot { flex: 1; border: 1px solid #d1d9e0; border-radius: 8px; overflow: hidden; }
-  .img { height: 118px; background: linear-gradient(160deg, #ece1fb, #d9c4f7); position: relative; }
-  .img.after { filter: hue-rotate(-18deg) brightness(1.04); }
-  .img::after { content: ""; position: absolute; inset: 13px 16px auto 16px; height: 10px; border-radius: 5px; background: rgba(120, 70, 190, 0.35); }
-  .img::before { content: ""; position: absolute; inset: 34px 16px 14px 16px; border-radius: 6px; background: rgba(255, 255, 255, 0.7); }
-  .cap {
-    font-size: 12.5px; padding: 6px 10px; color: #59636e;
-    border-top: 1px solid #d1d9e0; background: #f6f8fa;
-    display: flex; justify-content: space-between;
-  }
-  .st { color: #8250df; font-weight: 600; }
-</style>
-</head>
-<body>
-  <div class="dots"></div>
-  <div class="inner">
-    <div class="brand">
-      <svg viewBox="0 0 32 32" shape-rendering="crispEdges"><path d="M4 0H28V4H32V28H28V32H4V28H0V4H4Z" fill="#1c1c20"></path><g fill="#c27eff"><path d="M14 4h4v4h-4z M10 6h4v4h-4z M18 6h4v4h-4z M6 8h4v4h-4z M22 8h4v4h-4z"></path><path opacity=".55" d="M14 12h4v4h-4z M10 14h4v4h-4z M18 14h4v4h-4z M6 16h4v4h-4z M22 16h4v4h-4z"></path><path opacity=".28" d="M14 20h4v4h-4z M10 22h4v4h-4z M18 22h4v4h-4z M6 24h4v4h-4z M22 24h4v4h-4z"></path></g></svg>
-      <span>uploads.sh</span>
-    </div>
-    <div class="tag">The missing upload command for coding agents</div>
-    <div class="row">
-      <div class="term">
-        <div class="tbar"><i></i><i></i><i></i></div>
-        <div><span class="p">$</span> <span class="cmd">uploads put</span> after.png<span class="flag" style="white-space: pre"> --state after</span></div>
-        <div class="out">&#10003; staged for feat/settings-page</div>
-        <div class="gap"></div>
-        <div><span class="p">$</span> <span class="cmd">gh pr create</span></div>
-        <div class="out">&#10003; 2 screenshots attached to PR #128</div>
+      .ghc {
+        flex: 1;
+        background: #ffffff;
+        border: 1px solid #d1d9e0;
+        border-radius: 12px;
+        font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+        color: #1f2328;
+        overflow: hidden;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+      }
+      .hd {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 13px 18px;
+        background: #f6f8fa;
+        border-bottom: 1px solid #d1d9e0;
+        font-size: 17px;
+      }
+      .av {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #c27eff, #7e4ecc);
+        flex: none;
+      }
+      .hd b {
+        font-weight: 600;
+      }
+      .bot {
+        font-size: 11px;
+        border: 1px solid #d1d9e0;
+        border-radius: 999px;
+        padding: 1px 8px;
+        color: #59636e;
+      }
+      .when {
+        color: #59636e;
+      }
+      .bd {
+        padding: 16px 18px 18px;
+      }
+      .bd h4 {
+        font-size: 17px;
+        margin-bottom: 12px;
+        font-weight: 600;
+      }
+      .shots {
+        display: flex;
+        gap: 13px;
+      }
+      .shot {
+        flex: 1;
+        border: 1px solid #d1d9e0;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .img {
+        height: 118px;
+        background: linear-gradient(160deg, #ece1fb, #d9c4f7);
+        position: relative;
+      }
+      .img.after {
+        filter: hue-rotate(-18deg) brightness(1.04);
+      }
+      .img::after {
+        content: "";
+        position: absolute;
+        inset: 13px 16px auto 16px;
+        height: 10px;
+        border-radius: 5px;
+        background: rgba(120, 70, 190, 0.35);
+      }
+      .img::before {
+        content: "";
+        position: absolute;
+        inset: 34px 16px 14px 16px;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.7);
+      }
+      .cap {
+        font-size: 12.5px;
+        padding: 6px 10px;
+        color: #59636e;
+        border-top: 1px solid #d1d9e0;
+        background: #f6f8fa;
+        display: flex;
+        justify-content: space-between;
+      }
+      .st {
+        color: #8250df;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="dots"></div>
+    <div class="inner">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" shape-rendering="crispEdges">
+          <path d="M4 0H28V4H32V28H28V32H4V28H0V4H4Z" fill="#1c1c20"></path>
+          <g fill="#c27eff">
+            <path d="M14 4h4v4h-4z M10 6h4v4h-4z M18 6h4v4h-4z M6 8h4v4h-4z M22 8h4v4h-4z"></path>
+            <path
+              opacity=".55"
+              d="M14 12h4v4h-4z M10 14h4v4h-4z M18 14h4v4h-4z M6 16h4v4h-4z M22 16h4v4h-4z"
+            ></path>
+            <path
+              opacity=".28"
+              d="M14 20h4v4h-4z M10 22h4v4h-4z M18 22h4v4h-4z M6 24h4v4h-4z M22 24h4v4h-4z"
+            ></path>
+          </g>
+        </svg>
+        <span>uploads.sh</span>
       </div>
-      <div class="arrow">&#8594;</div>
-      <div class="ghc">
-        <div class="hd"><span class="av"></span><b>uploads</b> <span class="bot">bot</span> <span class="when">now</span></div>
-        <div class="bd">
-          <h4>&#128206; Attachments</h4>
-          <div class="shots">
-            <div class="shot"><div class="img"></div><div class="cap"><span>settings.png</span><span class="st">before</span></div></div>
-            <div class="shot"><div class="img after"></div><div class="cap"><span>settings.png</span><span class="st">after</span></div></div>
+      <div class="tag">The missing upload command for coding agents</div>
+      <div class="row">
+        <div class="term">
+          <div class="tbar"><i></i><i></i><i></i></div>
+          <div>
+            <span class="p">$</span> <span class="cmd">uploads put</span> after.png
+            <span class="flag">--state after</span>
+          </div>
+          <div class="out">&#10003; staged for feat/settings-page</div>
+          <div class="gap"></div>
+          <div><span class="p">$</span> <span class="cmd">gh pr create</span></div>
+          <div class="out">&#10003; 2 screenshots attached to PR #128</div>
+        </div>
+        <div class="arrow">&#8594;</div>
+        <div class="ghc">
+          <div class="hd">
+            <span class="av"></span><b>uploads</b> <span class="bot">bot</span>
+            <span class="when">now</span>
+          </div>
+          <div class="bd">
+            <h4>&#128206; Attachments</h4>
+            <div class="shots">
+              <div class="shot">
+                <div class="img"></div>
+                <div class="cap"><span>settings.png</span><span class="st">before</span></div>
+              </div>
+              <div class="shot">
+                <div class="img after"></div>
+                <div class="cap"><span>settings.png</span><span class="st">after</span></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
-</body>
+  </body>
 </html>
