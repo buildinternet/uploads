@@ -98,6 +98,11 @@ explicit deletes. Promotion (auto or `--promote`) does skip files staged
 more than 30 days before the PR opens, though; they're still there, just no
 longer auto-promoted.
 
+**Metadata edits re-sync the comment too:** `uploads meta set` on a `gh/…`-keyed
+object refreshes the managed comment automatically when it touches `path` or
+`state` — best-effort, so backfilled metadata shows up without waiting on the
+next `attach`.
+
 **Bare `put` stages too, by default (issue #403):** on a non-default git
 branch, a `put` with none of
 `--pr`/`--issue`/`--key`/`--ref`/`--prefix`/`--destination` set

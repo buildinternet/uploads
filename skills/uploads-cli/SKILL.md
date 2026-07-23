@@ -507,6 +507,13 @@ request; a value may itself contain `=` (only the first `=` splits key from valu
 visibility gate, respectively). `uploads attach` writes its own `gh.*`
 reserved-by-convention keys automatically — see below.
 
+`meta set` on a `gh/…`-keyed object also refreshes the managed PR/issue comment
+whenever the write touches a rendered key (`path`/`state`) — best-effort, after
+the metadata write already lands. On success it prints
+`refreshed the managed comment on <repo>#<num>` to stderr; if the bot endpoint
+is unavailable it prints `tip: run \`uploads comment --pr <num>\` to refresh
+the PR comment` instead, and either way the metadata write itself never fails.
+
 ```bash
 uploads meta get screenshots/myapp/42/settings.webp
 uploads meta set screenshots/myapp/42/settings.webp path=/onboarding --delete url
