@@ -140,6 +140,75 @@ describe("runMeta set", () => {
   });
 });
 
+describe("runMeta set comment re-sync (issue #470)", () => {
+  function syncClient(opts: { fail?: boolean } = {}) {
+    const upsertCalls: { repo: string; num: number; kind: string }[] = [];
+    const client = {
+      patchMetadata: async (_key: string, o: { set?: Record<string, string> }) => ({
+        metadata: { ...o.set },
+      }),
+      upsertGithubComment: async (o: { repo: string; num: number; kind: string }) => {
+        upsertCalls.push(o);
+        if (opts.fail) throw new Error("endpoint unreachable");
+        return { posted: true, action: "updated", count: 1 };
+      },
+    } as unknown as UploadsClient;
+    return { client, upsertCalls };
+  }
+
+  it("re-syncs the managed comment when path/state changes on a gh-keyed object", async () => {
+    const { client, upsertCalls } = syncClient();
+    const code = await runMeta(
+      ctxWith(client),
+      ["set", "gh/acme/web/pull/12/shot.png", "path=/docs/limits"],
+      false,
+    );
+    expect(code).toBe(0);
+    expect(upsertCalls).toEqual([{ repo: "acme/web", num: 12, kind: "pull" }]);
+  });
+
+  it("re-syncs when a display-relevant key is deleted", async () => {
+    const { client, upsertCalls } = syncClient();
+    await runMeta(
+      ctxWith(client),
+      ["set", "gh/acme/web/issues/7/shot.png", "--delete", "state"],
+      false,
+    );
+    expect(upsertCalls).toEqual([{ repo: "acme/web", num: 7, kind: "issues" }]);
+  });
+
+  it("does not sync when the touched keys are not rendered in the comment", async () => {
+    const { client, upsertCalls } = syncClient();
+    await runMeta(ctxWith(client), ["set", "gh/acme/web/pull/12/shot.png", "app=myapp"], false);
+    expect(upsertCalls).toEqual([]);
+  });
+
+  it("does not sync for a non-gh key", async () => {
+    const { client, upsertCalls } = syncClient();
+    await runMeta(ctxWith(client), ["set", "screenshots/a.png", "path=/settings"], false);
+    expect(upsertCalls).toEqual([]);
+  });
+
+  it("prints a refresh hint instead of failing when the sync errors", async () => {
+    const { client } = syncClient({ fail: true });
+    const ctx = { ...ctxWith(client), quiet: false };
+    const stderr: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(
+      (() => true) as typeof process.stdout.write,
+    );
+    vi.spyOn(process.stderr, "write").mockImplementation(((chunk: unknown) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+    try {
+      expect(await runMeta(ctx, ["set", "gh/acme/web/pull/12/shot.png", "path=/x"], false)).toBe(0);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(stderr.join("")).toContain("uploads comment --pr 12");
+  });
+});
+
 describe("runMeta unknown command", () => {
   it("rejects an unrecognized subcommand", async () => {
     const { client } = fakeClient();
