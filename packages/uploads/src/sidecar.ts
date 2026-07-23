@@ -20,7 +20,7 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { CANONICAL_META_KEYS } from "./metadata-vocab.js";
+import { CANONICAL_META_KEYS, mergeDerivedMeta } from "./metadata-vocab.js";
 
 const SIDECAR_VERSION = 1;
 
@@ -113,4 +113,18 @@ export function readSidecarMeta(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Merge `filePath`'s sidecar metadata (if any, per {@link readSidecarMeta})
+ * under `baseMeta` — explicit metadata always wins. Shared by the `put` and
+ * `attach` upload loops (issue #469 lever 2).
+ */
+export function mergeSidecarMeta(
+  filePath: string,
+  bytes: Uint8Array,
+  baseMeta: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  const sidecarMeta = readSidecarMeta(filePath, bytes);
+  return sidecarMeta ? mergeDerivedMeta(baseMeta ?? {}, sidecarMeta) : baseMeta;
 }

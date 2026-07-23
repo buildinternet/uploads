@@ -32,7 +32,7 @@ import { writeJson, writeStdout } from "./io.js";
 import { imageFactsFromBytes } from "./image-facts.js";
 import { parseMetaFlags, validateMetaMap } from "./metadata.js";
 import { mergeDerivedMeta, nearMissMetaWarnings, validateStateValue } from "./metadata-vocab.js";
-import { readSidecarMeta } from "./sidecar.js";
+import { mergeSidecarMeta } from "./sidecar.js";
 import {
   ghAttachmentKey,
   ghBranchAttachmentKey,
@@ -931,14 +931,8 @@ async function uploadAttachmentBatch(
         const sourceName = basename(file);
         const bytes = readFileArg(file);
         // Sidecar manifest from a prior `screenshot --out` of this exact file
-        // (issue #469 lever 2): only merged under whatever metadata this
-        // upload already carries (explicit --meta/--state always win), and
-        // only when the file's current bytes still match the hash recorded
-        // at capture time.
-        const sidecarMeta = readSidecarMeta(file, bytes);
-        const baseMetadata = sidecarMeta
-          ? mergeDerivedMeta(opts.metadata ?? {}, sidecarMeta)
-          : opts.metadata;
+        // (issue #469 lever 2) — see mergeSidecarMeta.
+        const baseMetadata = mergeSidecarMeta(file, bytes, opts.metadata);
         // Same EXIF promotion uploadPreparedImage does; attach keeps its own
         // per-file tail (it builds keys differently), so it opts in here too.
         const metadata = opts.deriveImageFacts
@@ -1143,14 +1137,9 @@ export async function uploadPuts(opts: {
             : basename(file));
         const bytes = readFileArg(file);
         // Sidecar manifest from a prior `screenshot --out` of this exact file
-        // (issue #469 lever 2): only merged under whatever metadata this
-        // upload already carries (explicit --meta/--state always win), and
-        // only when the file's current bytes still match the hash recorded
-        // at capture time. Not applicable to stdin.
-        const sidecarMeta = file !== "-" ? readSidecarMeta(file, bytes) : undefined;
-        const metadata = sidecarMeta
-          ? mergeDerivedMeta(opts.metadata ?? {}, sidecarMeta)
-          : opts.metadata;
+        // (issue #469 lever 2) — see mergeSidecarMeta. Not applicable to stdin.
+        const metadata =
+          file !== "-" ? mergeSidecarMeta(file, bytes, opts.metadata) : opts.metadata;
         const { result, prepared, markdown } = await uploadPreparedImage(
           opts.client,
           bytes,
