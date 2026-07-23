@@ -347,6 +347,11 @@ export interface UsageResult {
   uploadsRemaining?: number;
   /** File scopes of the presented token (servers ≥ this field's release). */
   scopes?: Array<TokenScope>;
+  /**
+   * Workspace plan catalog id (`free` | `pro`). Present on API workers that
+   * ship plan-aware usage; omitted on older servers.
+   */
+  plan?: string;
 }
 
 export interface ReconcileResult {

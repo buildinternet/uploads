@@ -21,6 +21,8 @@ export type UsageSnapshotLike = {
   storageRemainingBytes?: number;
   maxUploadsPerPeriod?: number;
   uploadsRemaining?: number;
+  /** Catalog plan id when the API reports it (`free` | `pro`). */
+  plan?: string;
 };
 
 export type FormatUsageOptions = {
@@ -116,6 +118,14 @@ export function formatUsageTimestamp(iso: string, timeZone?: string): string {
   }
 }
 
+/** Display label for a paid plan id; free/unknown stay hidden. */
+export function paidPlanLabel(plan: string | undefined): string | null {
+  if (!plan || plan === "free") return null;
+  if (plan === "pro") return "Pro";
+  // Future paid tiers: title-case the id rather than hiding them.
+  return plan.charAt(0).toUpperCase() + plan.slice(1);
+}
+
 /** Human-readable lines for `uploads usage` (not JSON). */
 export function formatUsageHuman(
   result: UsageSnapshotLike,
@@ -125,6 +135,9 @@ export function formatUsageHuman(
   const color = opts.color === true;
   const metered = isUsageMetered(result);
   const lines: string[] = [`workspace: ${result.workspace}`];
+
+  const planLabel = paidPlanLabel(result.plan);
+  if (planLabel) lines.push(`plan:      ${planLabel}`);
 
   const storagePct = usagePct(result.bytes, result.maxStorageBytes);
   if (storagePct !== null && result.maxStorageBytes != null) {

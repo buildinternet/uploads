@@ -148,4 +148,35 @@ describe("formatUsageHuman", () => {
       "note:      unmetered — no storage or upload quotas on this workspace",
     ]);
   });
+
+  it("shows plan on paid workspaces only", () => {
+    const pro = formatUsageHuman(
+      {
+        workspace: "acme",
+        bytes: 10,
+        objects: 1,
+        uploadsInPeriod: 2,
+        periodStart: "2026-07",
+        updatedAt: "2026-07-11T00:00:00.000Z",
+        plan: "pro",
+      },
+      { timeZone: "UTC" },
+    );
+    expect(pro[0]).toBe("workspace: acme");
+    expect(pro[1]).toBe("plan:      Pro");
+
+    const free = formatUsageHuman(
+      {
+        workspace: "acme",
+        bytes: 10,
+        objects: 1,
+        uploadsInPeriod: 2,
+        periodStart: "2026-07",
+        updatedAt: "2026-07-11T00:00:00.000Z",
+        plan: "free",
+      },
+      { timeZone: "UTC" },
+    );
+    expect(free.some((l) => l.startsWith("plan:"))).toBe(false);
+  });
 });

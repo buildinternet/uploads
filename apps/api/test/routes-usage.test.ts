@@ -60,6 +60,8 @@ describe("GET /v1/:workspace/usage + put/delete metering", () => {
       periodStart: usagePeriodStart(),
       // Legacy KV-hash token (this suite's TOKEN) → full file-scope set.
       scopes: ["files:read", "files:write", "files:delete"],
+      // Catalog plan id for CLI labeling (free when unset on the record).
+      plan: "free",
     });
   });
 

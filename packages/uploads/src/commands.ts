@@ -3011,8 +3011,9 @@ Show workspace storage and monthly upload counters.
 
 When the API reports workspace quotas (typical on uploads.sh cloud /
 self-serve plans), human output includes progress bars toward those caps.
-Self-hosted or unlimited operator workspaces get usage totals only, plus a
-short unmetered note — no invented limits.
+Paid workspaces also show their plan (e.g. Pro). Self-hosted or unlimited
+operator workspaces get usage totals only, plus a short unmetered note —
+no invented limits.
 
 Examples:
   uploads --env-file .env usage

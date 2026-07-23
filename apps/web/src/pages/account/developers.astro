@@ -22,6 +22,17 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
     <div id="cli-setup-status" class="ul-callout" data-state="muted" role="status">
       Checking for a CLI sign-in…
     </div>
+    <div id="cli-upgrade" class="ul-callout cli-upgrade" hidden role="status">
+      <span class="ul-callout__title">CLI update</span>
+      <p id="cli-upgrade-msg" class="cli-upgrade__msg"></p>
+      <div class="cli-upgrade__actions">
+        <div class="command">
+          <code id="cli-upgrade-cmd"></code>
+          <button type="button" id="cli-upgrade-copy" data-copy="" aria-live="polite">copy</button>
+        </div>
+        <button type="button" class="text-btn" id="cli-upgrade-dismiss">Dismiss</button>
+      </div>
+    </div>
     <div class="cli-steps" id="cli-steps">
       <div class="command" id="cli-install-cmd">
         <code>npm install -g @buildinternet/uploads</code>
@@ -72,9 +83,36 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
     </div>
   </section>
 
+  <style>
+    .cli-upgrade {
+      margin: 10px 0 0;
+    }
+    .cli-upgrade__msg {
+      margin: 0 0 10px;
+    }
+    .cli-upgrade__actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 14px;
+    }
+    .cli-upgrade .command {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+    }
+  </style>
+
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
-    import { listSessions } from "../../lib/auth-client";
+    import { listSessions, type AuthSession } from "../../lib/auth-client";
+    import {
+      bestCliVersion,
+      dismissUpgrade,
+      isUpgradeDismissed,
+      resolveUpgradePrompt,
+    } from "../../lib/cli-upgrade";
     import { resolveCliSetupState } from "../../lib/cli-setup-state";
 
     onAstroPageLoad(() => {
@@ -87,12 +125,24 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
         "click",
         (event) => {
           void (async () => {
+            const dismiss = (event.target as HTMLElement).closest<HTMLButtonElement>(
+              "#cli-upgrade-dismiss",
+            );
+            if (dismiss) {
+              const box = requireElement<HTMLElement>("#cli-upgrade", "developers");
+              const latest = box.dataset.latest;
+              if (latest) dismissUpgrade(latest, sessionStorage);
+              box.hidden = true;
+              return;
+            }
             const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
-              "button[data-copy]",
+              "button[data-copy], #cli-upgrade-copy",
             );
             if (!button) return;
+            const text = button.dataset.copy ?? "";
+            if (!text) return;
             try {
-              await navigator.clipboard.writeText(button.dataset.copy ?? "");
+              await navigator.clipboard.writeText(text);
               const previous = button.textContent;
               button.textContent = "copied ✓";
               setTimeout(() => {
@@ -104,6 +154,36 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
           })();
         },
       );
+
+      async function maybeShowCliUpgrade(sessions: AuthSession[] | null): Promise<void> {
+        const box = requireElement<HTMLElement>("#cli-upgrade", "developers");
+        box.hidden = true;
+        if (!sessions?.length) return;
+
+        const current = bestCliVersion(sessions);
+        if (!current) return;
+
+        let latest: string | undefined;
+        try {
+          const res = await fetch("/cli-version.json", { credentials: "same-origin" });
+          if (!res.ok) return;
+          const body = (await res.json()) as { latest?: unknown };
+          if (typeof body.latest === "string") latest = body.latest;
+        } catch {
+          return;
+        }
+
+        const prompt = resolveUpgradePrompt(current, latest);
+        if (!prompt || isUpgradeDismissed(prompt.latest, sessionStorage)) return;
+
+        requireElement<HTMLElement>("#cli-upgrade-msg", "developers").textContent = prompt.message;
+        requireElement<HTMLElement>("#cli-upgrade-cmd", "developers").textContent =
+          prompt.installCmd;
+        requireElement<HTMLButtonElement>("#cli-upgrade-copy", "developers").dataset.copy =
+          prompt.installCmd;
+        box.dataset.latest = prompt.latest;
+        box.hidden = false;
+      }
 
       function applyCliSetup(
         sessions: Awaited<ReturnType<typeof listSessions>>,
@@ -131,6 +211,8 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
         steps.hidden = kind === "ready";
         installCmd.hidden = kind === "reconnect";
         note.hidden = kind === "ready" || kind === "reconnect";
+
+        if (loaded) void maybeShowCliUpgrade(sessions);
       }
 
       onSession((user) => {
