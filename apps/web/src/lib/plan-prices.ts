@@ -39,11 +39,17 @@ function isPlanPrice(value: unknown): value is PlanPrice {
  * price, or a thrown fetch (network error, CSP block) — every failure mode
  * collapses to the same "unknown price" state so callers never have to
  * special-case them.
+ *
+ * Deliberately *not* `credentials: "include"` — this endpoint's CORS
+ * (apps/auth/src/index.ts's `billingPricesCors`) is intentionally
+ * non-credentialed (public price info, no cookies involved). Sending
+ * credentials on a non-credentialed CORS response makes the browser reject
+ * it outright, which silently produced this exact "Pro card never shows a
+ * price" bug.
  */
 export async function fetchProPrice(authOrigin: string): Promise<PlanPrice | null> {
   try {
     const res = await fetch(`${authOrigin.replace(/\/$/, "")}/billing/prices`, {
-      credentials: "include",
       cache: "no-store",
     });
     if (!res.ok) return null;
