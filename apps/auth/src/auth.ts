@@ -24,6 +24,7 @@ import { deviceWorkspacePlugin } from "./device-workspace";
 import { sendAuthEmail } from "./email";
 import { localDemoEnabled, localDemoPlugin } from "./local-demo";
 import * as schema from "./schema";
+import { stripePluginOrNone } from "./stripe-plugin";
 import { authTrustedOrigins, isTrustedOrigin } from "./trusted-origins";
 import {
   applyWorkspaceChoice,
@@ -289,6 +290,13 @@ export type AuthEnv = GitHubCredentialsEnv &
     AUTH_RATE_LIMIT_DISABLED?: string;
     /** Ephemeral flag passed only by `pnpm dev:stack`; never configure in prod. */
     LOCAL_STACK?: string;
+    /** Stripe phase 2 (task 5): gates stripePluginOrNone (src/stripe-plugin.ts)
+     * and feeds this file's memoization key so a rotated secret or a newly
+     * configured price id doesn't keep serving a stale (unmounted/mounted)
+     * instance. See env.d.ts for the ambient Env declarations these mirror. */
+    STRIPE_SECRET_KEY?: string;
+    STRIPE_WEBHOOK_SECRET?: string;
+    STRIPE_PRO_PRICE_ID?: string;
   };
 
 export type BetterAuthInstance = ReturnType<typeof buildAuth>;
@@ -476,6 +484,11 @@ function buildAuth(
           },
         },
       }),
+      // Stripe phase 2 (task 5): dormant unless both STRIPE_SECRET_KEY and
+      // STRIPE_WEBHOOK_SECRET resolve — see src/stripe-plugin.ts. Ordered
+      // right after organization() since it depends on org membership for
+      // authorizeReference and on the org as the billing entity.
+      ...stripePluginOrNone(env, db),
       // Issue #224, Lane A: signs the OAuth provider's access tokens as JWTs
       // and serves JWKS at /api/auth/jwks. MUST precede oauthProvider() below
       // — the plugin looks up the jwt() config at registration time.
@@ -653,6 +666,9 @@ function cacheKey(
     trustedOriginsEnv: env.BETTER_AUTH_TRUSTED_ORIGINS,
     rateLimitDisabled: env.AUTH_RATE_LIMIT_DISABLED,
     localStack: env.LOCAL_STACK,
+    stripeSecretKey: env.STRIPE_SECRET_KEY,
+    stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET,
+    stripeProPriceId: env.STRIPE_PRO_PRICE_ID,
     signingSecret,
     githubClientId: github?.clientId ?? null,
     githubClientSecret: github?.clientSecret ?? null,
