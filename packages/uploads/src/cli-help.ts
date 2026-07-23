@@ -26,6 +26,7 @@ const ESSENTIAL_ORDER = [
   "delete",
   "doctor",
   "install",
+  "update",
 ] as const;
 
 /** Day-to-day commands shown on bare `uploads` / `uploads help`. */
