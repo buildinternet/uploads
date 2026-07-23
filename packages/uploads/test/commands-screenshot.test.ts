@@ -522,6 +522,40 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
     });
   });
 
+  it("with --out, both auto-stages the upload AND writes a sidecar manifest (issue #473 x #469)", async () => {
+    const { client, puts } = fakeClient();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-screenshot-staged-sidecar-"));
+    const out = join(dir, "shot.png");
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com/settings", "--out", out, "--state", "after"],
+      false,
+      stagingRunner(staged),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    // Auto-staged upload: branch-keyed, gh.* branch metadata present.
+    expect(puts[0]?.key).toBe("gh/o/r/branch/feature-thing/example-com.png");
+    expect(puts[0]?.metadata).toMatchObject({
+      "gh.repo": "o/r",
+      "gh.kind": "branch",
+      "gh.branch": "feature/thing",
+      path: "/settings",
+      state: "after",
+    });
+    // Sidecar written alongside --out carries only the derived/explicit
+    // facts (no gh.* — those get resolved fresh at attach/promote time).
+    const sidecarPath = `${out}.uploads.json`;
+    expect(existsSync(sidecarPath)).toBe(true);
+    const manifest = JSON.parse(readFileSync(sidecarPath, "utf8"));
+    expect(manifest.meta).toMatchObject({
+      url: "https://example.com/settings",
+      path: "/settings",
+      state: "after",
+    });
+    expect(manifest.meta["gh.branch"]).toBeUndefined();
+  });
+
   it("does not auto-stage on the default branch", async () => {
     const { client, puts } = fakeClient();
     const code = await runScreenshot(
