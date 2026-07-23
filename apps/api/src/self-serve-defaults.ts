@@ -42,10 +42,14 @@ export function selfServeWorkspaceRecord(args: {
     selfServe: true,
     createdByUserId: args.userId,
     createdAt: args.now.toISOString(),
-    maxStorageBytes: SELF_SERVE_LIMITS.maxStorageBytes,
-    maxUploadsPerPeriod: SELF_SERVE_LIMITS.maxUploadsPerPeriod,
-    maxUploadBytes: SELF_SERVE_LIMITS.maxUploadBytes,
-    maxVideoUploadBytes: SELF_SERVE_LIMITS.maxVideoUploadBytes,
+    // Plan drives limit resolution (issue #412) — the explicit budget
+    // fields are deliberately NOT stamped here (same reasoning as
+    // `maxMembers`/#450 below): stamping them would beat the plan default
+    // forever, including after an upgrade to Pro (issue #454). Free's
+    // numbers still come from `PLANS.free.defaultLimits` via
+    // `resolveEffectiveLimits` (packages/billing/src/resolve.ts), so
+    // provisioning and plan resolution cannot drift.
+    plan: "free",
     allowedKeyPrefixes: [...SELF_SERVE_LIMITS.allowedKeyPrefixes],
     maxKeyDepth: SELF_SERVE_LIMITS.maxKeyDepth,
   };

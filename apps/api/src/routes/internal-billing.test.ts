@@ -132,13 +132,15 @@ describe("POST /internal/billing/plan", () => {
     expect(JSON.parse(store.get("ws:acme")!).plan).toBe("pro");
   });
 
-  it("204s and preserves other fields, including explicit limit overrides", async () => {
+  it("204s and preserves other fields, including custom explicit limit overrides", async () => {
     const { env, store } = envWith({
       secret: SECRET,
       record: {
         provider: "r2",
         bucket: "b",
         prefix: "acme/",
+        // Not self-serve — and neither value matches a plan default at any
+        // rate, so both must survive untouched regardless.
         maxStorageBytes: 123_456,
         maxUploadsPerPeriod: 42,
         githubCommentLinkToFilePage: true,
@@ -160,6 +162,60 @@ describe("POST /internal/billing/plan", () => {
       githubCommentLinkToFilePage: true,
       plan: "pro",
     });
+  });
+
+  it("issue #454: clears a self-serve record's explicit overrides that exactly equal the OLD (free) plan defaults on upgrade", async () => {
+    const { env, store } = envWith({
+      secret: SECRET,
+      record: {
+        provider: "r2",
+        bucket: "b",
+        prefix: "acme/",
+        selfServe: true,
+        // Pre-backfill self-serve record: still carries the old
+        // selfServeWorkspaceRecord-stamped free defaults.
+        maxStorageBytes: 250_000_000,
+        maxUploadsPerPeriod: 3000,
+        maxUploadBytes: 25_000_000,
+        maxVideoUploadBytes: 8_000_000,
+      },
+    });
+    const res = await post(
+      { workspace: "acme", plan: "pro" },
+      { "x-internal-billing-key": SECRET },
+      env,
+    );
+    expect(res.status).toBe(204);
+    const stored = JSON.parse(store.get("ws:acme")!);
+    expect(stored.plan).toBe("pro");
+    expect(stored).not.toHaveProperty("maxStorageBytes");
+    expect(stored).not.toHaveProperty("maxUploadsPerPeriod");
+    expect(stored).not.toHaveProperty("maxUploadBytes");
+    expect(stored).not.toHaveProperty("maxVideoUploadBytes");
+  });
+
+  it("issue #454: preserves a self-serve record's genuinely custom override (comped, doesn't match a plan default)", async () => {
+    const { env, store } = envWith({
+      secret: SECRET,
+      record: {
+        provider: "r2",
+        bucket: "b",
+        prefix: "acme/",
+        selfServe: true,
+        maxStorageBytes: 999_000_000, // comped — doesn't match free's default
+        maxUploadsPerPeriod: 3000, // matches free's default — gets cleared
+      },
+    });
+    const res = await post(
+      { workspace: "acme", plan: "pro" },
+      { "x-internal-billing-key": SECRET },
+      env,
+    );
+    expect(res.status).toBe(204);
+    const stored = JSON.parse(store.get("ws:acme")!);
+    expect(stored.plan).toBe("pro");
+    expect(stored.maxStorageBytes).toBe(999_000_000);
+    expect(stored).not.toHaveProperty("maxUploadsPerPeriod");
   });
 });
 

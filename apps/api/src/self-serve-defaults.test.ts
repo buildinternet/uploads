@@ -19,14 +19,23 @@ describe("selfServeWorkspaceRecord", () => {
       selfServe: true,
       createdByUserId: "u1",
       createdAt: "2026-07-14T00:00:00.000Z",
-      maxStorageBytes: PLANS.free.defaultLimits.maxStorageBytes,
-      maxUploadsPerPeriod: PLANS.free.defaultLimits.maxUploadsPerPeriod,
-      maxUploadBytes: PLANS.free.defaultLimits.maxUploadBytes,
-      maxVideoUploadBytes: PLANS.free.defaultLimits.maxVideoUploadBytes,
+      plan: "free",
       allowedKeyPrefixes: ["f", "screenshots", "gh"],
       maxKeyDepth: 8,
     });
     expect(record.tokens).toBeUndefined(); // tokens are minted via POST /v1/tokens, never seeded
+  });
+
+  it("does not stamp explicit per-limit fields (issue #412/#454) — plan drives resolution", () => {
+    const record = selfServeWorkspaceRecord({
+      name: "zachbot",
+      userId: "u1",
+      now: new Date("2026-07-14T00:00:00Z"),
+    });
+    expect(record).not.toHaveProperty("maxStorageBytes");
+    expect(record).not.toHaveProperty("maxUploadsPerPeriod");
+    expect(record).not.toHaveProperty("maxUploadBytes");
+    expect(record).not.toHaveProperty("maxVideoUploadBytes");
   });
   it("returns a fresh allowedKeyPrefixes array per call", () => {
     const a = selfServeWorkspaceRecord({ name: "a", userId: "u", now: new Date(0) });
