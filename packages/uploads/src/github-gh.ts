@@ -246,7 +246,15 @@ function findManagedComment(
   ]);
   const comments = JSON.parse(raw) as GhComment[];
   const hits = comments.filter((c) => typeof c.body === "string" && c.body.includes(marker));
-  if (hits.length > 0) return { comment: hits[0], extras: hits.slice(1) };
+  if (hits.length > 0) {
+    // In legacy mode (no workspace to namespace with) our "exact" marker IS
+    // the shared one, so a second hit is not our own duplicate — it may be
+    // another workspace's comment. Adopt the oldest and never delete: the
+    // adopt-only contract is about the marker being ambiguous, which is just
+    // as true when it is the marker we are hunting on.
+    const extras = marker === ATTACHMENTS_MARKER ? undefined : hits.slice(1);
+    return { comment: hits[0], extras };
+  }
   if (marker === ATTACHMENTS_MARKER) return {};
   const legacyHit = comments.find(
     (c) => typeof c.body === "string" && c.body.includes(ATTACHMENTS_MARKER),

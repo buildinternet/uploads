@@ -301,6 +301,27 @@ describe("upsertAttachmentsComment", () => {
     expect(calls.some((c) => c.args.includes("DELETE"))).toBe(true);
   });
 
+  it("in legacy mode (no workspace) never deletes a second legacy comment", () => {
+    // With the shared legacy marker there is no workspace dimension, so a
+    // second hit may belong to a different workspace rather than being our
+    // own duplicate. Adopt the oldest; delete nothing.
+    const { run, calls } = fakeRunner({
+      gh: (args) => {
+        if (args[1]?.includes("/comments?per_page=100")) {
+          return JSON.stringify([
+            { id: 20, body: `${ATTACHMENTS_MARKER}\nfirst` },
+            { id: 21, body: `${ATTACHMENTS_MARKER}\ncould be another workspace` },
+          ]);
+        }
+        return JSON.stringify({ id: 20 });
+      },
+    });
+    const result = upsertAttachmentsComment(target, `${ATTACHMENTS_MARKER}\nnew body`, run);
+    expect(result).toEqual({ action: "updated" });
+    expect(calls.some((c) => c.args.includes("DELETE"))).toBe(false);
+    expect(calls[1].args).toContain("repos/o/r/issues/comments/20");
+  });
+
   it("never deletes another workspace's namespaced marker comment while deduping", () => {
     const marker = attachmentsMarker("acme");
     const otherMarker = attachmentsMarker("acme-2");
