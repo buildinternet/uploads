@@ -1,5 +1,21 @@
 # @buildinternet/uploads
 
+## 0.28.0
+
+### Minor Changes
+
+- 733e206: Add `uploads update`. It upgrades the globally installed CLI, then re-runs
+  `uploads install` so the agent skills and the MCP registration match the new
+  version. When the CLI is already current it still refreshes them, because they
+  drift on their own. The upgrade step detects npm, pnpm, and bun global
+  installs, and refuses to overwrite a workspace checkout or an npx cache. The
+  existing update hint and help banner now name `uploads update`.
+
+### Patch Changes
+
+- 52da4d8: The local-`gh` fallback for the managed attachments comment (used when the GitHub App bot path is unavailable or unauthorized) now collapses duplicate marker comments the same way the bot path does: it collects every comment carrying the workspace's exact namespaced marker, patches the oldest, and best-effort deletes the rest, swallowing delete failures. Previously this path only ever patched the first match it found, so a duplicate left by a concurrent-create race (two `uploads attach` runs racing before either found an existing comment) never healed. Legacy unnamespaced marker comments are still adopt-only and are never deleted.
+- a6b1ae2: `uploads comment` (and the `comment` MCP tool) now always hunts for the managed comment's marker instead of patching its cached comment id, so a duplicate comment left by a create race is collapsed on the next explicit resync rather than surviving until the id cache expires. Attach and screenshot syncs keep the cached-id fast path.
+
 ## 0.27.0
 
 ### Minor Changes
