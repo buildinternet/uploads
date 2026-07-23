@@ -7,9 +7,8 @@ import { rise, typed, typedEnd } from "./helpers";
 export const TerminalFrame: React.FC<{
   width?: number;
   children: React.ReactNode;
-  title?: string;
   branch?: string;
-}> = ({ width = 880, children, title = "agent — zsh", branch }) => (
+}> = ({ width = 880, children, branch }) => (
   <div
     style={{
       width,
@@ -40,16 +39,6 @@ export const TerminalFrame: React.FC<{
           }}
         />
       ))}
-      <div
-        style={{
-          marginLeft: 10,
-          fontFamily: T.mono,
-          fontSize: 20,
-          color: T.muted,
-        }}
-      >
-        {title}
-      </div>
     </div>
     <div
       style={{

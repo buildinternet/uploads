@@ -1,14 +1,14 @@
 import React from "react";
-import { useCurrentFrame, useVideoConfig } from "remotion";
-import { fall, rise } from "./helpers";
+import { useCurrentFrame } from "remotion";
+import { rise } from "./helpers";
 
 /*
- * Seamless-loop seam: content blinks through the page ground at the boundary.
- * First and last frames are both near-invisible, so end→start cuts cleanly.
+ * Loop restart: the video ends on the full assembled frame (never blank —
+ * players and thumbnails show real content), and each pass opens with a
+ * quick fade-in, so the end→start cut reads as an intentional restart.
  */
 export const Loop: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
   return (
     <div
       style={{
@@ -17,7 +17,7 @@ export const Loop: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         alignItems: "center",
         gap: 44,
         width: "100%",
-        opacity: Math.min(rise(frame, 0, 7), fall(frame, durationInFrames - 9, 7)),
+        opacity: rise(frame, 0, 7),
       }}
     >
       {children}
