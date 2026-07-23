@@ -3,6 +3,7 @@
  * binding from apps/api (see src/internal.ts's isInternalRequest guard,
  * applied in src/index.ts before this router is even reached).
  */
+import { isStripeBackingStatus } from "@uploads/billing";
 import { drizzle } from "drizzle-orm/d1";
 import { and, count, countDistinct, eq, gt, isNull, max } from "drizzle-orm";
 import { Hono } from "hono";
@@ -460,6 +461,57 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
         and(eq(schema.invitation.organizationId, org.id), eq(schema.invitation.status, "pending")),
       );
     return c.json({ invites: rows });
+  })
+  // Issue #445 (task 1/2): the Stripe subscription (if any) backing an org's
+  // plan, for apps/api's /me billing surface and the admin panel's
+  // subscription view. `referenceId` on the `subscription` table (Task 1's
+  // schema, stripe-plugin.ts's `organization: { enabled: true }`) is the org
+  // id — a Better Auth org can in principle have accumulated more than one
+  // subscription row across its lifetime (upgrade/downgrade/re-subscribe), so
+  // this picks the single most relevant one rather than assuming exactly one
+  // row: an active/trialing/past_due row wins over a terminal one (those are
+  // the statuses stripe-plugin.ts's `desiredPlanForStatus` still treats as
+  // "pro"), and ties within a priority bucket break on the latest
+  // `periodEnd` (falling back to `trialEnd`, since a trialing row may have no
+  // `periodEnd` yet).
+  .get("/orgs/:slug/subscription", async (c) => {
+    const slug = c.req.param("slug");
+    const db = drizzle(c.env.DB, { schema });
+    const [org] = await db
+      .select({ id: schema.organization.id })
+      .from(schema.organization)
+      .where(eq(schema.organization.slug, slug))
+      .limit(1);
+    if (!org) {
+      return c.json(errorJson("organization_not_found", "no organization with that slug"), 404);
+    }
+
+    const rows = await db
+      .select()
+      .from(schema.subscription)
+      .where(eq(schema.subscription.referenceId, org.id));
+
+    const rank = (status: string | null) => (isStripeBackingStatus(status) ? 0 : 1);
+    const sortKey = (row: (typeof rows)[number]) =>
+      row.periodEnd?.getTime() ?? row.trialEnd?.getTime() ?? 0;
+    const best = rows.sort((a, b) => {
+      const rankDiff = rank(a.status) - rank(b.status);
+      if (rankDiff !== 0) return rankDiff;
+      return sortKey(b) - sortKey(a);
+    })[0];
+
+    if (!best) {
+      return c.json({ subscription: null });
+    }
+    return c.json({
+      subscription: {
+        status: best.status ?? "incomplete",
+        periodEnd: best.periodEnd ? best.periodEnd.toISOString() : null,
+        cancelAtPeriodEnd: Boolean(best.cancelAtPeriodEnd),
+        stripeCustomerId: best.stripeCustomerId ?? null,
+        plan: best.plan,
+      },
+    });
   })
   // Task 1 (#275): admin/owner-authorized revocation of a pending invite,
   // used by the workspace people tab's pending-invite management.

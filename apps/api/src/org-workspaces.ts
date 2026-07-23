@@ -260,6 +260,48 @@ export async function orgForWorkspace(env: Env, workspaceName: string): Promise<
   return body?.organization ?? null;
 }
 
+/** Stripe subscription state for an org, as surfaced by AUTH's internal API. */
+export interface AuthSubscription {
+  status: string;
+  periodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  /** Never returned to /me — admin-ui-only field (deep link to Stripe dashboard). */
+  stripeCustomerId: string | null;
+  plan: string;
+}
+
+/**
+ * The Stripe subscription (if any) backing a workspace's org, or `null` when
+ * there is none — or when the auth lookup itself fails. Issue #445: this is
+ * the shared source both `/me/workspaces/:name/billing`'s `planSource`/
+ * `subscription` fields and the admin panel's subscription view are built
+ * from (see workspace-plan.ts's `planSourceFor`, which issue #388's
+ * reconciliation sweep can also reuse).
+ *
+ * Deliberately never throws: a subscription lookup is enrichment, not the
+ * authoritative plan (the KV workspace record still is — see
+ * billing-bridge.ts's sync). An AUTH outage degrades to `null` here so
+ * callers can fail soft to a "none"-equivalent response instead of a 500;
+ * contrast with `orgForWorkspace` above, whose failures propagate because a
+ * broken org lookup means the caller can't even resolve the workspace.
+ */
+export async function subscriptionForOrg(env: Env, slug: string): Promise<AuthSubscription | null> {
+  try {
+    const response = await env.AUTH.fetch(
+      `${INTERNAL_ORIGIN}/internal/orgs/${encodeURIComponent(slug)}/subscription`,
+      { headers: internalHeaders() },
+    );
+    if (!response.ok) return null;
+    const body = (await response.json().catch(() => null)) as {
+      subscription?: AuthSubscription;
+    } | null;
+    return body?.subscription ?? null;
+  } catch (error) {
+    console.error(`subscriptionForOrg: failed for workspace ${slug}`, error);
+    return null;
+  }
+}
+
 /**
  * Workspace names an org grants access to. Today: exactly `[org.slug]` (1:1)
  * — this is intentionally NOT `[orgIdOrSlug]` verbatim, since the input may

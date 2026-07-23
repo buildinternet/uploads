@@ -382,6 +382,17 @@ export interface WorkspaceBillingLimits {
   maxVideoUploadBytes: number | null;
 }
 
+/** Issue #445: "stripe" when an active Stripe subscription backs the plan,
+ * "admin" when the plan is paid but comped/admin-set with no such
+ * subscription, "none" on free with no subscription. */
+export type WorkspacePlanSource = "stripe" | "admin" | "none";
+
+export interface WorkspaceSubscription {
+  status: string;
+  periodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+}
+
 export interface WorkspaceBilling {
   workspace: string;
   organization: { id: string; slug: string; name: string };
@@ -390,7 +401,9 @@ export interface WorkspaceBilling {
   planApplied: boolean;
   limits: WorkspaceBillingLimits;
   usage: Record<string, unknown> | null;
-  subscription: null;
+  /** Issue #445: additive fields — see GET /me/workspaces/:name/billing. */
+  planSource: WorkspacePlanSource;
+  subscription: WorkspaceSubscription | null;
 }
 
 export type WorkspaceBillingResult =
@@ -439,7 +452,19 @@ export async function getWorkspaceBilling(
         maxVideoUploadBytes: numOrNull(rawLimits.maxVideoUploadBytes),
       },
       usage: (body.usage as Record<string, unknown> | null) ?? null,
-      subscription: null,
+      planSource:
+        body.planSource === "stripe" || body.planSource === "admin" || body.planSource === "none"
+          ? body.planSource
+          : "none",
+      subscription: (() => {
+        const raw = body.subscription as Record<string, unknown> | null | undefined;
+        if (!raw || typeof raw.status !== "string") return null;
+        return {
+          status: raw.status,
+          periodEnd: typeof raw.periodEnd === "string" ? raw.periodEnd : null,
+          cancelAtPeriodEnd: raw.cancelAtPeriodEnd === true,
+        };
+      })(),
     },
   };
 }

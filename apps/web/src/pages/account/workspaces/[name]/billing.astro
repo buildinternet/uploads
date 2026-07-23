@@ -36,6 +36,15 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         <div id="ws-plan-card" class="ul-callout">
           <p><strong id="ws-plan-name"></strong></p>
           <p class="muted" id="ws-plan-blurb"></p>
+          <p id="ws-subscription-status" role="status" hidden></p>
+        </div>
+
+        <div class="settings-section">
+          <h3>Plans</h3>
+          <div id="ws-plan-cards" class="plan-cards"></div>
+          <p class="muted" id="ws-manage-billing-note" hidden>
+            To cancel or downgrade, use “Manage billing” below to open the billing portal.
+          </p>
         </div>
 
         <div id="ws-limits" class="settings-section">
@@ -44,7 +53,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         </div>
 
         <div class="settings-section">
-          <button type="button" id="ws-upgrade-btn" disabled>Upgrade</button>
+          <button type="button" id="ws-manage-billing-btn" hidden>Manage billing</button>
           <p class="muted" id="ws-billing-error" role="alert" hidden></p>
         </div>
       </div>
@@ -52,7 +61,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
   </div>
 
   <script>
-    import { PLANS } from "@uploads/billing";
+    import { PLANS, type PlanDefinition } from "@uploads/billing";
     import {
       getPageVisit,
       isCurrentPageVisit,
@@ -66,7 +75,9 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       upgradeOrganizationSubscription,
     } from "../../../../lib/auth-client";
     import { resolveBillingCta } from "../../../../lib/billing-cta";
-    import { formatBytes } from "../../../../lib/workspace-ui";
+    import { fetchProPrice, formatPrice } from "../../../../lib/plan-prices";
+    import { resolveSubscriptionCopy } from "../../../../lib/subscription-copy";
+    import { escapeHtml, formatBytes } from "../../../../lib/workspace-ui";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
 
     onAstroPageLoad(() => {
@@ -98,7 +109,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const planNameEl = requireElement<HTMLElement>("#ws-plan-name", page);
       const planBlurbEl = requireElement<HTMLElement>("#ws-plan-blurb", page);
       const limitsListEl = requireElement<HTMLElement>("#ws-limits-list", page);
-      const upgradeBtn = requireElement<HTMLButtonElement>("#ws-upgrade-btn", page);
+      const planCardsEl = requireElement<HTMLElement>("#ws-plan-cards", page);
+      const manageBillingNoteEl = requireElement<HTMLElement>("#ws-manage-billing-note", page);
+      const manageBillingBtn = requireElement<HTMLButtonElement>("#ws-manage-billing-btn", page);
+      const subscriptionStatusEl = requireElement<HTMLElement>("#ws-subscription-status", page);
       const billingErrorEl = requireElement<HTMLElement>("#ws-billing-error", page);
 
       function showError(message: string, retry = true): void {
@@ -152,30 +166,121 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         limitsListEl.innerHTML = rows.join("");
       }
 
-      let organizationId = "";
-
-      function paintUpgradeButton(billing: WorkspaceBilling): void {
-        organizationId = billing.organization.id;
-        billingErrorEl.hidden = true;
-        billingErrorEl.textContent = "";
-
-        const cta = resolveBillingCta({ proAvailable: PLANS.pro.available, plan: billing.plan });
-        upgradeBtn.dataset.cta = cta.kind;
-        if (cta.kind === "unavailable") {
-          upgradeBtn.textContent = "Upgrade — coming soon";
-          upgradeBtn.disabled = true;
-        } else if (cta.kind === "upgrade") {
-          upgradeBtn.textContent = "Upgrade to Pro";
-          upgradeBtn.disabled = false;
+      /** Paints (or hides) the subscription status line inside the
+       * current-plan card — issue #445's remaining billing-tab surface.
+       * `resolveSubscriptionCopy` is the pure state→copy mapping
+       * (subscription-copy.ts); this is just the DOM glue. */
+      function paintSubscriptionStatus(billing: WorkspaceBilling, proPriceCopy: string | null): void {
+        const state = resolveSubscriptionCopy({
+          planSource: billing.planSource,
+          subscription: billing.subscription,
+          priceText: proPriceCopy,
+        });
+        if (!state) {
+          subscriptionStatusEl.hidden = true;
+          subscriptionStatusEl.textContent = "";
+          subscriptionStatusEl.removeAttribute("data-state");
+          subscriptionStatusEl.removeAttribute("role");
+          return;
+        }
+        subscriptionStatusEl.hidden = false;
+        subscriptionStatusEl.textContent = state.text;
+        subscriptionStatusEl.className = "muted";
+        if (state.tone === "alert") {
+          subscriptionStatusEl.dataset.state = "error";
+          subscriptionStatusEl.setAttribute("role", "alert");
         } else {
-          upgradeBtn.textContent = "Manage billing";
-          upgradeBtn.disabled = false;
+          subscriptionStatusEl.removeAttribute("data-state");
+          subscriptionStatusEl.setAttribute("role", "status");
         }
       }
 
-      async function handleUpgradeClick(): Promise<void> {
-        const cta = upgradeBtn.dataset.cta;
-        if (cta !== "upgrade" && cta !== "manage") return;
+      let organizationId = "";
+
+      /** Marketed limits for a plan card — storage + max file size for every
+       * plan, plus free's separate video ceiling (see plans.ts's comment:
+       * on pro the video ceiling equals the upload ceiling, so it isn't
+       * worth a separate line there). `maxUploadsPerPeriod` is an internal
+       * abuse guard and is deliberately never marketed here. */
+      function planCardLimitRows(plan: PlanDefinition): string {
+        const { defaultLimits } = plan;
+        const rows = [
+          `<li>${
+            defaultLimits.maxStorageBytes === undefined
+              ? "Unlimited storage"
+              : `${formatBytes(defaultLimits.maxStorageBytes)} storage`
+          }</li>`,
+          `<li>${
+            defaultLimits.maxUploadBytes === undefined
+              ? "Unlimited file size"
+              : `Files up to ${formatBytes(defaultLimits.maxUploadBytes)}`
+          }</li>`,
+        ];
+        // A separate video line only when the plan actually carves a distinct
+        // video ceiling out of its upload cap — catalog-driven, not per-plan.
+        if (
+          defaultLimits.maxVideoUploadBytes !== undefined &&
+          defaultLimits.maxVideoUploadBytes !== defaultLimits.maxUploadBytes
+        ) {
+          rows.push(`<li>Videos up to ${formatBytes(defaultLimits.maxVideoUploadBytes)}</li>`);
+        }
+        return rows.join("");
+      }
+
+      function planCardPriceLine(plan: PlanDefinition, proPriceCopy: string | null): string {
+        if (plan.id === "free") return "$0";
+        // Live price fetched from the auth origin; omitted gracefully (no
+        // placeholder, no "$NaN") until it's known.
+        return proPriceCopy ?? "";
+      }
+
+      /** Renders one card per catalog plan that's `available`, plus the
+       * workspace's current plan even if it's since been marked
+       * unavailable (e.g. a legacy/custom plan) so the tab never hides
+       * where the workspace actually stands. */
+      function renderPlanCards(billing: WorkspaceBilling, proPriceCopy: string | null): void {
+        const currentPlanId = billing.plan;
+        const cardPlans = Object.values(PLANS).filter(
+          (plan) => plan.available || plan.id === currentPlanId,
+        );
+
+        const cta = resolveBillingCta({ proAvailable: PLANS.pro.available, plan: billing.plan });
+
+        const cardsHtml = cardPlans
+          .map((plan) => {
+            const isCurrent = plan.id === currentPlanId;
+            const priceLine = planCardPriceLine(plan, proPriceCopy);
+            let footer = "";
+            if (isCurrent) {
+              footer = `<button type="button" class="plan-card__cta" disabled>Current plan</button>`;
+            } else if (plan.id === "pro") {
+              footer =
+                cta.kind === "unavailable"
+                  ? `<button type="button" class="plan-card__cta" disabled>Coming soon</button>`
+                  : `<button type="button" class="plan-card__cta" data-cta="upgrade" data-plan="pro">Upgrade to Pro</button>`;
+            }
+            return `
+              <div class="plan-card${isCurrent ? " is-current" : ""}" data-plan="${plan.id}">
+                ${isCurrent ? `<span class="plan-card__badge">Current plan</span>` : ""}
+                <p class="plan-card__name">${escapeHtml(plan.name)}</p>
+                ${priceLine ? `<p class="plan-card__price">${escapeHtml(priceLine)}</p>` : ""}
+                <p class="muted plan-card__blurb">${escapeHtml(plan.blurb)}</p>
+                <ul class="plan-card__limits muted">${planCardLimitRows(plan)}</ul>
+                ${footer}
+              </div>`;
+          })
+          .join("");
+
+        planCardsEl.innerHTML = cardsHtml;
+
+        // "Manage billing" (also the downgrade/cancel path) only makes sense
+        // once the workspace is actually on a paid plan.
+        manageBillingBtn.hidden = cta.kind !== "manage";
+        manageBillingBtn.disabled = false;
+        manageBillingNoteEl.hidden = cta.kind !== "manage";
+      }
+
+      async function handleBillingActionClick(cta: "upgrade" | "manage"): Promise<void> {
         if (!organizationId) {
           billingErrorEl.hidden = false;
           billingErrorEl.textContent = "upgrade failed — try again";
@@ -184,7 +289,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
         billingErrorEl.hidden = true;
         billingErrorEl.textContent = "";
-        upgradeBtn.disabled = true;
+        for (const btn of planCardsEl.querySelectorAll<HTMLButtonElement>("[data-cta]")) {
+          btn.disabled = true;
+        }
+        manageBillingBtn.disabled = true;
 
         const result =
           cta === "upgrade"
@@ -201,7 +309,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
         if (!stillHere()) return;
         if (!result.ok) {
-          upgradeBtn.disabled = false;
+          for (const btn of planCardsEl.querySelectorAll<HTMLButtonElement>("[data-cta]")) {
+            btn.disabled = false;
+          }
+          manageBillingBtn.disabled = false;
           billingErrorEl.hidden = false;
           billingErrorEl.textContent =
             cta === "upgrade" ? "upgrade failed — try again" : "couldn’t open billing — try again";
@@ -219,7 +330,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         retryBtn.hidden = true;
         appEl.hidden = true;
 
-        const result = await getWorkspaceBilling(apiOrigin, workspaceName);
+        // The price fetch never throws (see plan-prices.ts) and its failure
+        // must never block the rest of the page from rendering.
+        const [result, proPrice] = await Promise.all([
+          getWorkspaceBilling(apiOrigin, workspaceName),
+          fetchProPrice(authOrigin),
+        ]);
         if (!stillHere()) return;
         if (result.kind === "unavailable") {
           if (result.reason === "not_found") {
@@ -231,6 +347,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         }
 
         const { billing } = result;
+        organizationId = billing.organization.id;
         planNameEl.textContent = `${planLabel(billing.plan)} plan`;
         // Honest copy: a record with no plan actually applied isn't on
         // free-tier marketing caps — it's running whatever `limits` says.
@@ -240,7 +357,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             : "This plan isn’t available for self-serve upgrade yet."
           : "No plan has been applied yet — limits below reflect what's currently enforced.";
         paintLimits(billing);
-        paintUpgradeButton(billing);
+        billingErrorEl.hidden = true;
+        billingErrorEl.textContent = "";
+        const proPriceCopy = formatPrice(proPrice);
+        renderPlanCards(billing, proPriceCopy);
+        paintSubscriptionStatus(billing, proPriceCopy);
 
         statusEl.hidden = true;
         appEl.hidden = false;
@@ -255,8 +376,16 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         void loadBillingPage();
       });
 
-      upgradeBtn.addEventListener("click", () => {
-        void handleUpgradeClick();
+      planCardsEl.addEventListener("click", (event) => {
+        const target = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>(
+          "[data-cta='upgrade']",
+        );
+        if (!target || target.disabled) return;
+        void handleBillingActionClick("upgrade");
+      });
+
+      manageBillingBtn.addEventListener("click", () => {
+        void handleBillingActionClick("manage");
       });
 
       onSession(() => {

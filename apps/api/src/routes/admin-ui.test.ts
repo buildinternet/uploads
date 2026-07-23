@@ -702,6 +702,8 @@ describe("workspace plan editing", () => {
         maxVideoUploadBytes: null,
       },
       overrides: [],
+      planSource: "none",
+      subscription: null,
     });
   });
 
@@ -721,6 +723,52 @@ describe("workspace plan editing", () => {
         maxVideoUploadBytes: 8_000_000,
       },
       overrides: [],
+      planSource: "none",
+      subscription: null,
+    });
+  });
+
+  it("GET reports planSource 'admin' for a pro plan with no org/subscription resolvable (auth lookup returns 404)", async () => {
+    const { env } = planEnv(ADMIN_USER, { ...REC, plan: "pro" });
+    const res = await app().request("/admin-ui/workspaces/acme/plan", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { planSource: string; subscription: unknown };
+    expect(body.planSource).toBe("admin");
+    expect(body.subscription).toBeNull();
+  });
+
+  it("GET reports planSource 'stripe' and includes stripeCustomerId when an active subscription backs a pro plan", async () => {
+    const registry = fakeRegistry({ acme: { ...REC, plan: "pro" } });
+    const base = stubEnv(ADMIN_USER, (path) => {
+      if (path === "/internal/orgs/acme") {
+        return Response.json({ organization: { id: "org1", slug: "acme", name: "acme" } });
+      }
+      if (path === "/internal/orgs/acme/subscription") {
+        return Response.json({
+          subscription: {
+            status: "trialing",
+            periodEnd: null,
+            cancelAtPeriodEnd: false,
+            stripeCustomerId: "cus_456",
+            plan: "pro",
+          },
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    const env = { ...base, REGISTRY: registry } as unknown as Env;
+    const res = await app().request("/admin-ui/workspaces/acme/plan", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      planSource: string;
+      subscription: Record<string, unknown> | null;
+    };
+    expect(body.planSource).toBe("stripe");
+    expect(body.subscription).toEqual({
+      status: "trialing",
+      periodEnd: null,
+      cancelAtPeriodEnd: false,
+      stripeCustomerId: "cus_456",
     });
   });
 

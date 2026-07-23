@@ -32,6 +32,7 @@ export const prerender = false;
 
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
+    import { formatDate } from "../../lib/subscription-copy";
     import {
       clearExpandGroups,
       escapeHtml,
@@ -85,6 +86,16 @@ export const prerender = false;
       usage: { bytes: number; uploads: number } | null;
     }
 
+    // Issue #445: subscription enrichment, additive to the plan
+    // GET/PATCH response shape (see apps/api/src/routes/admin-ui.ts's
+    // adminSubscriptionInfo). `stripeCustomerId` is admin-ui-only — never
+    // sent to /me — and only present when a subscription row exists.
+    interface AdminSubscription {
+      status: string;
+      periodEnd: string | null;
+      cancelAtPeriodEnd: boolean;
+      stripeCustomerId: string | null;
+    }
     interface PlanResponse {
       workspace: string;
       plan: "free" | "pro";
@@ -92,12 +103,20 @@ export const prerender = false;
       planApplied: boolean;
       limits: Limits;
       overrides: string[];
+      planSource: "stripe" | "admin" | "none";
+      subscription: AdminSubscription | null;
     }
 
     const PLAN_OPTIONS: { id: "free" | "pro"; label: string }[] = [
       { id: "free", label: "Free" },
       { id: "pro", label: "Pro (unavailable to self-serve)" },
     ];
+
+    const PLAN_SOURCE_LABEL: Record<PlanResponse["planSource"], string> = {
+      stripe: "Stripe-backed",
+      admin: "Admin-set (comped)",
+      none: "None",
+    };
 
     function renderPlanSelector(host: HTMLElement, workspace: string, data: PlanResponse): void {
       const options = PLAN_OPTIONS.map(
@@ -109,9 +128,24 @@ export const prerender = false;
         ? ""
         : `<p class="muted plan-unapplied">No plan applied (legacy) — limits shown are the enforcement truth (explicit-or-unlimited), not this plan's defaults.</p>`;
 
+      const sub = data.subscription;
+      const stripeLink = sub?.stripeCustomerId
+        ? `<a href="https://dashboard.stripe.com/customers/${encodeURIComponent(sub.stripeCustomerId)}" target="_blank" rel="noopener noreferrer">View in Stripe</a>`
+        : "";
+      const periodEndText = sub ? formatDate(sub.periodEnd) : null;
+      const subscriptionLine = sub
+        ? `<p class="muted plan-subscription">
+            Subscription: ${escapeHtml(sub.status)}${sub.cancelAtPeriodEnd ? " (cancels at period end)" : ""}
+            ${periodEndText ? ` · renews/ends ${escapeHtml(periodEndText)}` : ""}
+            ${stripeLink ? ` · ${stripeLink}` : ""}
+          </p>`
+        : "";
+
       host.innerHTML = `
         <h4 class="plan-heading">Plan</h4>
         <p class="muted plan-availability">${data.available ? "Available" : "Not available for self-serve upgrade"}</p>
+        <p class="muted plan-source">Source: ${escapeHtml(PLAN_SOURCE_LABEL[data.planSource])}</p>
+        ${subscriptionLine}
         ${appliedNote}
         <form class="plan-form">
           <select class="plan-select" aria-label="Plan">${options}</select>

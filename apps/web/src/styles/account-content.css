@@ -1,5 +1,61 @@
 /* Content styles for /account/* cards (profile kv, workspace list, developer list). */
 
+/* Billing tab — plan comparison cards. */
+.plan-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin: 4px 0 14px;
+}
+.plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.plan-card.is-current {
+  border-color: var(--fg);
+}
+.plan-card__badge {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.plan-card__name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.plan-card__price {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.plan-card__blurb {
+  margin: 0;
+  font-size: 13px;
+}
+.plan-card__limits {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+.plan-card__cta {
+  margin-top: auto;
+  align-self: flex-start;
+}
+
 /* Settings pages: one card, hairline sections — no stacked cards / nested boxes. */
 section.card.settings-page {
   padding: 20px 22px 8px;

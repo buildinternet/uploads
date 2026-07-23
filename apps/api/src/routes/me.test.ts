@@ -270,8 +270,12 @@ function memberEnv(opts: {
   db: unknown;
   bucket?: FakeR2Bucket;
   record?: unknown;
+  /** Issue #445: the auth-side subscription (or null) GET
+   * /internal/orgs/:slug/subscription should answer with. Omitted = no
+   * subscription row (matches the auth fixture's default `subscription: null`). */
+  subscription?: unknown;
 }): Env {
-  const { workspace, role = "member", db, bucket, record } = opts;
+  const { workspace, role = "member", db, bucket, record, subscription = null } = opts;
   const auth = stubAuth((req) => {
     const url = new URL(req.url);
     if (url.pathname === "/api/auth/get-session") {
@@ -289,6 +293,9 @@ function memberEnv(opts: {
     }
     if (url.pathname === `/internal/orgs/${workspace}`) {
       return Response.json({ organization: { id: "org1", slug: workspace, name: workspace } });
+    }
+    if (url.pathname === `/internal/orgs/${workspace}/subscription`) {
+      return Response.json({ subscription });
     }
     return new Response(null, { status: 404 });
   });
@@ -391,6 +398,7 @@ describe("GET /me/workspaces/:name/billing", () => {
       available: boolean;
       planApplied: boolean;
       limits: Record<string, number | null>;
+      planSource: string;
       subscription: null;
     };
     expect(body.workspace).toBe("acme");
@@ -398,6 +406,7 @@ describe("GET /me/workspaces/:name/billing", () => {
     expect(body.available).toBe(true);
     expect(body.planApplied).toBe(false);
     expect(body.limits.maxStorageBytes).toBeNull();
+    expect(body.planSource).toBe("none");
     expect(body.subscription).toBeNull();
   });
 
@@ -451,6 +460,48 @@ describe("GET /me/workspaces/:name/billing", () => {
     expect(body.available).toBe(true);
     expect(body.planApplied).toBe(true);
     expect(body.limits.maxStorageBytes).toBe(10_000_000_000);
+  });
+
+  it("reports planSource 'admin' for a pro workspace with no backing Stripe subscription", async () => {
+    const db = new UsageFakeD1();
+    const env = memberEnv({
+      workspace: "acme",
+      db,
+      record: { ...R2_RECORD, plan: "pro" },
+      subscription: null,
+    });
+    const res = await app().request("/me/workspaces/acme/billing", {}, env);
+    const body = (await res.json()) as { planSource: string; subscription: unknown };
+    expect(body.planSource).toBe("admin");
+    expect(body.subscription).toBeNull();
+  });
+
+  it("reports planSource 'stripe' and the subscription fields (never stripeCustomerId) for a pro workspace backed by an active Stripe subscription", async () => {
+    const db = new UsageFakeD1();
+    const env = memberEnv({
+      workspace: "acme",
+      db,
+      record: { ...R2_RECORD, plan: "pro" },
+      subscription: {
+        status: "active",
+        periodEnd: "2026-08-15T00:00:00.000Z",
+        cancelAtPeriodEnd: true,
+        stripeCustomerId: "cus_123",
+        plan: "pro",
+      },
+    });
+    const res = await app().request("/me/workspaces/acme/billing", {}, env);
+    const body = (await res.json()) as {
+      planSource: string;
+      subscription: Record<string, unknown> | null;
+    };
+    expect(body.planSource).toBe("stripe");
+    expect(body.subscription).toEqual({
+      status: "active",
+      periodEnd: "2026-08-15T00:00:00.000Z",
+      cancelAtPeriodEnd: true,
+    });
+    expect(body.subscription).not.toHaveProperty("stripeCustomerId");
   });
 });
 

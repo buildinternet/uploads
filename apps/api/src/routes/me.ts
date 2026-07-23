@@ -9,7 +9,6 @@
  * (`workspace_not_found`) rather than 403ing, so membership can't be probed
  * for workspace existence any more precisely than for any other workspace.
  */
-import { NullBillingProvider } from "@uploads/billing";
 import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
@@ -31,6 +30,7 @@ import {
   membershipsForUser,
   removeMember,
   revokeInvite,
+  subscriptionForOrg,
   updateMemberRole,
   workspacesFromMembership,
   type Membership,
@@ -41,13 +41,9 @@ import { objectPublicUrls, publicUrl, storage, storageConfig } from "../storage"
 import { getWorkspaceUsage } from "../usage";
 import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
 import { loadWorkspaceRecord } from "../workspace";
-import { planResponse } from "../workspace-plan";
+import { planResponse, planSourceFor } from "../workspace-plan";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-// No live billing yet — see @uploads/billing's NullBillingProvider doc
-// comment. Swapping in a real provider later only changes this line.
-const billingProvider = new NullBillingProvider();
 
 interface MyWorkspace {
   workspace: string;
@@ -236,16 +232,24 @@ export const me = new Hono<SessionVars>()
   })
 
   // Plan metadata, resolved effective limits, usage, and subscription state
-  // (always null today) for the account billing tab — 404s unless the
-  // caller is a member. `plan`/`available`/`planApplied`/`limits` reuse
-  // workspace-plan.ts's `planResponse` — the same attribution contract the
-  // admin plan surface uses (Task 5's Critical fix): a record with no
-  // `plan` field must never display free-plan default caps it isn't
-  // actually enforcing, so `planApplied` is `false` and `limits` mirrors
-  // enforcement (explicit-or-unlimited) rather than the plan defaults.
-  // Response shape is stable across the future Stripe iteration: adding a
-  // real subscription only changes `subscription` from null to a
-  // populated object.
+  // for the account billing tab — 404s unless the caller is a member.
+  // `plan`/`available`/`planApplied`/`limits` reuse workspace-plan.ts's
+  // `planResponse` — the same attribution contract the admin plan surface
+  // uses (Task 5's Critical fix): a record with no `plan` field must never
+  // display free-plan default caps it isn't actually enforcing, so
+  // `planApplied` is `false` and `limits` mirrors enforcement
+  // (explicit-or-unlimited) rather than the plan defaults.
+  //
+  // `planSource`/`subscription` (issue #445, purely additive to the shape
+  // above — a billing-tab lane builds its UI against this) are sourced from
+  // the auth D1 `subscription` table over the AUTH service binding
+  // (org-workspaces.ts's `subscriptionForOrg`), the same internal-bridge
+  // pattern as every other org lookup here. `subscriptionForOrg` never
+  // throws — an AUTH outage degrades to `subscription: null` +
+  // `planSource: "none"`-or-"admin" (whichever `planSourceFor` derives with a
+  // null subscription) rather than a 500. `stripeCustomerId` is deliberately
+  // dropped here — it's an admin-ui-only field (see routes/admin-ui.ts's
+  // plan surface), never exposed to the member-facing /me API.
   .get("/workspaces/:name/billing", async (c) => {
     const name = c.req.param("name");
     const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
@@ -257,12 +261,21 @@ export const me = new Hono<SessionVars>()
 
     const { plan, available, planApplied, limits } = planResponse(name, record);
 
-    const [usage, subscription] = await Promise.all([
+    const [usage, authSubscription] = await Promise.all([
       getWorkspaceUsage(c.env.DB, name)
         .then((raw) => usageWithLimits(raw, record))
         .catch(() => null),
-      billingProvider.getSubscription(name),
+      subscriptionForOrg(c.env, ws.organization.slug),
     ]);
+
+    const planSource = planSourceFor(record, authSubscription);
+    const subscription = authSubscription
+      ? {
+          status: authSubscription.status,
+          periodEnd: authSubscription.periodEnd,
+          cancelAtPeriodEnd: authSubscription.cancelAtPeriodEnd,
+        }
+      : null;
 
     return c.json({
       workspace: ws.workspace,
@@ -272,6 +285,7 @@ export const me = new Hono<SessionVars>()
       planApplied,
       limits,
       usage,
+      planSource,
       subscription,
     });
   })

@@ -7,6 +7,7 @@ import {
   orgForWorkspace,
   removeMember,
   revokeInvite,
+  subscriptionForOrg,
   updateMemberRole,
   workspacesForOrg,
 } from "./org-workspaces";
@@ -72,6 +73,52 @@ describe("workspacesForOrg", () => {
     const auth = stubAuth(() => new Response(null, { status: 404 }));
     const result = await workspacesForOrg(envWith(auth), "unknown");
     expect(result).toEqual([]);
+  });
+});
+
+describe("subscriptionForOrg (issue #445)", () => {
+  it("resolves the subscription for a known org slug, calling the internal endpoint", async () => {
+    const auth = stubAuth((req) => {
+      expect(req.url).toBe("https://auth.internal/internal/orgs/acme/subscription");
+      expect(req.headers.get("x-uploads-internal")).toBe("1");
+      return Response.json({
+        subscription: {
+          status: "active",
+          periodEnd: "2026-08-15T00:00:00.000Z",
+          cancelAtPeriodEnd: false,
+          stripeCustomerId: "cus_123",
+          plan: "pro",
+        },
+      });
+    });
+    const result = await subscriptionForOrg(envWith(auth), "acme");
+    expect(result).toEqual({
+      status: "active",
+      periodEnd: "2026-08-15T00:00:00.000Z",
+      cancelAtPeriodEnd: false,
+      stripeCustomerId: "cus_123",
+      plan: "pro",
+    });
+  });
+
+  it("returns null when there's no subscription row", async () => {
+    const auth = stubAuth(() => Response.json({ subscription: null }));
+    const result = await subscriptionForOrg(envWith(auth), "acme");
+    expect(result).toBeNull();
+  });
+
+  it("fails soft to null (never throws) on a non-ok response", async () => {
+    const auth = stubAuth(() => new Response(null, { status: 500 }));
+    await expect(subscriptionForOrg(envWith(auth), "acme")).resolves.toBeNull();
+  });
+
+  it("fails soft to null (never throws) when the fetch itself rejects", async () => {
+    const auth: Pick<Fetcher, "fetch"> = {
+      fetch: (async () => {
+        throw new Error("network down");
+      }) as Fetcher["fetch"],
+    };
+    await expect(subscriptionForOrg(envWith(auth), "acme")).resolves.toBeNull();
   });
 });
 

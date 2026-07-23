@@ -23,6 +23,12 @@ export type BillingCtaState = { kind: "unavailable" } | { kind: "upgrade" } | { 
  * - pro not yet available (today): unchanged disabled "coming soon" button.
  * - pro available and the workspace isn't on it: "Upgrade to Pro".
  * - pro available and the workspace is on it: "Manage billing" (portal).
+ *
+ * Doubles as the plan-comparison cards' state map (billing.astro): "upgrade"
+ * and "unavailable" render on the Pro card's CTA when the workspace is on
+ * free; "manage" renders as a standalone "Manage billing" button (the
+ * downgrade/cancel path lives in the Stripe portal, not a card CTA) shown
+ * alongside the Pro card once the workspace is on it.
  */
 export function resolveBillingCta(input: { proAvailable: boolean; plan: string }): BillingCtaState {
   if (!input.proAvailable) return { kind: "unavailable" };

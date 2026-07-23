@@ -443,6 +443,73 @@ describe("DB-backed behavior", () => {
     });
   });
 
+  describe("GET /internal/orgs/:slug/subscription", () => {
+    it("404s for an unknown slug", async () => {
+      const res = await app().request("/internal/orgs/does-not-exist/subscription", {}, dbEnv());
+      expect(res.status).toBe(404);
+    });
+
+    it("returns subscription: null when the org has no subscription row", async () => {
+      const org = await seedOrg();
+      const res = await app().request(`/internal/orgs/${org.slug}/subscription`, {}, dbEnv());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ subscription: null });
+    });
+
+    it("returns the subscription row, mapping periodEnd to an ISO string", async () => {
+      const org = await seedOrg();
+      const periodEnd = new Date("2026-08-15T00:00:00.000Z");
+      await orm.insert(schema.subscription).values({
+        id: crypto.randomUUID(),
+        plan: "pro",
+        referenceId: org.id,
+        stripeCustomerId: "cus_123",
+        stripeSubscriptionId: "sub_123",
+        status: "active",
+        periodEnd,
+        cancelAtPeriodEnd: false,
+      });
+
+      const res = await app().request(`/internal/orgs/${org.slug}/subscription`, {}, dbEnv());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        subscription: {
+          status: "active",
+          periodEnd: periodEnd.toISOString(),
+          cancelAtPeriodEnd: false,
+          stripeCustomerId: "cus_123",
+          plan: "pro",
+        },
+      });
+    });
+
+    it("prefers an active/trialing/past_due row over a terminal one", async () => {
+      const org = await seedOrg();
+      await orm.insert(schema.subscription).values([
+        {
+          id: crypto.randomUUID(),
+          plan: "pro",
+          referenceId: org.id,
+          status: "canceled",
+          periodEnd: new Date("2026-09-01T00:00:00.000Z"),
+          cancelAtPeriodEnd: false,
+        },
+        {
+          id: crypto.randomUUID(),
+          plan: "pro",
+          referenceId: org.id,
+          status: "active",
+          periodEnd: new Date("2026-07-01T00:00:00.000Z"),
+          cancelAtPeriodEnd: true,
+        },
+      ]);
+
+      const res = await app().request(`/internal/orgs/${org.slug}/subscription`, {}, dbEnv());
+      const body = (await res.json()) as { subscription: { status: string } };
+      expect(body.subscription.status).toBe("active");
+    });
+  });
+
   describe("GET /internal/orgs/summaries", () => {
     it("returns every org with aggregated member and pending-invite counts", async () => {
       const acme = await seedOrg({ slug: "acme", name: "Acme" });
