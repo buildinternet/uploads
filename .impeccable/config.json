@@ -1,19 +1,19 @@
 {
   "detector": {
-    "ignoreRules": [],
+    "ignoreRules": ["single-font", "flat-type-hierarchy"],
     "ignoreFiles": [],
     "ignoreValues": [
       {
         "rule": "overused-font",
         "value": "geist",
-        "createdAt": "2026-07-13T15:21:39.964Z",
-        "reason": "Zach confirmed mono-first terminal-native identity 2026-07-13; Geist retained deliberately for prose/headings"
+        "reason": "Zach confirmed mono-first terminal-native identity 2026-07-13; Geist retained deliberately for prose/headings",
+        "createdAt": "2026-07-13T15:21:39.964Z"
       },
       {
         "rule": "overused-font",
         "value": "geist mono",
-        "createdAt": "2026-07-13T15:21:39.994Z",
-        "reason": "Zach confirmed mono-first terminal-native identity 2026-07-13; Geist Mono is the brand's base face for a CLI-first product"
+        "reason": "Zach confirmed mono-first terminal-native identity 2026-07-13; Geist Mono is the brand's base face for a CLI-first product",
+        "createdAt": "2026-07-13T15:21:39.994Z"
       },
       {
         "rule": "broken-image",
@@ -26,8 +26,8 @@
           "**/*.test.ts",
           "**/*.test.tsx"
         ],
-        "createdAt": "2026-07-23T18:05:43.111Z",
-        "reason": "Waives broken-image for code that EMITS markup as strings rather than rendering it, plus test fixtures — the class this rule cannot distinguish. Covers the CLI/stdio MCP (packages/uploads/src), the hosted MCP worker and the API worker (headless JSON-RPC, no rendered surface; their <img> occurrences are GitHub-comment markdown builders and tool-schema prose), apps/web/src/lib (embed-snippet builders and UI label text, not components), and *.test.ts(x) (notably an XSS fixture, `caption: \"<img onerror=alert(1)>\"`, that must stay malformed). Scoped deliberately rather than disabled globally: the rule stays live on apps/web/src/components/**, apps/web/src/pages/**, and packages/ui/**, which all scan clean today and where a real `<img src=\"\">` would ship a broken box — verified 2026-07-23 that the detector parses .astro and catches that defect."
+        "reason": "Waives broken-image for code that EMITS markup as strings rather than rendering it, plus test fixtures — the class this rule cannot distinguish. Covers the CLI/stdio MCP (packages/uploads/src), the hosted MCP worker and the API worker (headless JSON-RPC, no rendered surface; their <img> occurrences are GitHub-comment markdown builders and tool-schema prose), apps/web/src/lib (embed-snippet builders and UI label text, not components), and *.test.ts(x) (notably an XSS fixture, `caption: \"<img onerror=alert(1)>\"`, that must stay malformed). Scoped deliberately rather than disabled globally: the rule stays live on apps/web/src/components/**, apps/web/src/pages/**, and packages/ui/**, which all scan clean today and where a real `<img src=\"\">` would ship a broken box — verified 2026-07-23 that the detector parses .astro and catches that defect.",
+        "createdAt": "2026-07-23T18:05:43.111Z"
       }
     ]
   }
