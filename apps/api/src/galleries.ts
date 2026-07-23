@@ -382,6 +382,57 @@ export async function listGalleryItems(
   return result.results;
 }
 
+/** Item counts for many galleries in one query (avoids N+1 on the account list). */
+export async function countItemsForGalleries(
+  db: D1Database,
+  workspace: string,
+  galleryIds: string[],
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (!galleryIds.length) return counts;
+  const placeholders = galleryIds.map(() => "?").join(", ");
+  const result = await db
+    .prepare(
+      `SELECT i.gallery_id AS gallery_id, COUNT(*) AS n
+       FROM gallery_items i
+       JOIN galleries g ON g.id = i.gallery_id
+       WHERE g.workspace = ? AND g.deleted_at IS NULL AND i.gallery_id IN (${placeholders})
+       GROUP BY i.gallery_id`,
+    )
+    .bind(workspace, ...galleryIds)
+    .all<{ gallery_id: string; n: number }>();
+  for (const row of result.results) counts.set(row.gallery_id, Number(row.n) || 0);
+  return counts;
+}
+
+/** External references for many galleries in one query, ordered by created_at. */
+export async function listExternalReferencesForGalleries(
+  db: D1Database,
+  workspace: string,
+  galleryIds: string[],
+): Promise<Map<string, GalleryExternalReferenceRecord[]>> {
+  const byGallery = new Map<string, GalleryExternalReferenceRecord[]>();
+  if (!galleryIds.length) return byGallery;
+  const placeholders = galleryIds.map(() => "?").join(", ");
+  const result = await db
+    .prepare(
+      `SELECT r.id, r.gallery_id, r.provider, r.resource_type, r.normalized_key, r.locator_json,
+              r.canonical_url, r.created_at, r.updated_at
+       FROM gallery_external_references r
+       JOIN galleries g ON g.id = r.gallery_id
+       WHERE g.workspace = ? AND g.deleted_at IS NULL AND r.gallery_id IN (${placeholders})
+       ORDER BY r.created_at, r.id`,
+    )
+    .bind(workspace, ...galleryIds)
+    .all<GalleryExternalReferenceRecord>();
+  for (const row of result.results) {
+    const list = byGallery.get(row.gallery_id) ?? [];
+    list.push(row);
+    byGallery.set(row.gallery_id, list);
+  }
+  return byGallery;
+}
+
 /** Persistence primitive: callers must first verify objectKey exists and has a public URL. */
 export async function addGalleryItem(
   db: D1Database,

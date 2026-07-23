@@ -187,6 +187,13 @@ async function fetchWorkspaceList<T>(
   return Array.isArray(list) ? list.filter(isValid) : [];
 }
 
+export interface GalleryReferenceSummary {
+  provider: string;
+  resourceType: string;
+  coordinate: string;
+  canonicalUrl: string | null;
+}
+
 export interface GallerySummary {
   id: string;
   url: string;
@@ -195,12 +202,35 @@ export interface GallerySummary {
   coverItemId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Omitted on older API deployments. */
+  itemCount?: number;
+  references?: GalleryReferenceSummary[];
+}
+
+function isGalleryReferenceSummary(value: unknown): value is GalleryReferenceSummary {
+  if (!value || typeof value !== "object") return false;
+  const r = value as Record<string, unknown>;
+  return (
+    typeof r.provider === "string" &&
+    typeof r.resourceType === "string" &&
+    typeof r.coordinate === "string" &&
+    (r.canonicalUrl === null || typeof r.canonicalUrl === "string")
+  );
 }
 
 function isGallerySummary(value: unknown): value is GallerySummary {
   if (!value || typeof value !== "object") return false;
   const g = value as Record<string, unknown>;
-  return typeof g.id === "string" && typeof g.url === "string" && typeof g.title === "string";
+  if (typeof g.id !== "string" || typeof g.url !== "string" || typeof g.title !== "string") {
+    return false;
+  }
+  if (g.itemCount !== undefined && typeof g.itemCount !== "number") return false;
+  if (g.references !== undefined) {
+    if (!Array.isArray(g.references) || !g.references.every(isGalleryReferenceSummary)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /** GET /me/workspaces/:name/galleries. See {@link fetchWorkspaceList}. */

@@ -13,6 +13,8 @@ import {
   type GalleryRecord,
   type MutationResult,
   type PublicGallery,
+  countItemsForGalleries,
+  listExternalReferencesForGalleries,
   projectPublicGallery,
 } from "./galleries";
 import { resolveTitles, withPublicTitleBudget, type TitleInfo } from "./github-titles";
@@ -88,6 +90,12 @@ export interface GallerySummaryDto {
   version: number;
   createdAt: string;
   updatedAt: string;
+}
+
+/** List-row summary: base fields plus item count and linked PR/issue refs. */
+export interface GalleryListSummaryDto extends GallerySummaryDto {
+  itemCount: number;
+  references: ExternalReferenceDto[];
 }
 export type PublicGalleryDto = PublicGallery & {
   items: PublicGalleryItemDto[];
@@ -319,6 +327,25 @@ export function gallerySummary(env: Env, record: GalleryRecord): GallerySummaryD
     createdAt: record.created_at,
     updatedAt: record.updated_at,
   };
+}
+
+/** Attach item counts and external refs via two batch queries. */
+export async function galleryListSummaries(
+  env: Env,
+  workspace: string,
+  records: GalleryRecord[],
+): Promise<GalleryListSummaryDto[]> {
+  if (!records.length) return [];
+  const ids = records.map((record) => record.id);
+  const [itemCounts, refsByGallery] = await Promise.all([
+    countItemsForGalleries(env.DB, workspace, ids),
+    listExternalReferencesForGalleries(env.DB, workspace, ids),
+  ]);
+  return records.map((record) => ({
+    ...gallerySummary(env, record),
+    itemCount: itemCounts.get(record.id) ?? 0,
+    references: (refsByGallery.get(record.id) ?? []).map(referenceDto),
+  }));
 }
 
 export async function hydrateOwnerGallery(

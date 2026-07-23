@@ -22,7 +22,7 @@ import {
 } from "../file-metadata";
 import { badKey, listObjects, setObjectVisibility } from "../files-core";
 import { listGalleries } from "../galleries";
-import { gallerySummary } from "../gallery-service";
+import { galleryListSummaries } from "../gallery-service";
 import { resolveTitles } from "../github-titles";
 import { allowWrite } from "../guards";
 import {
@@ -339,7 +339,7 @@ export const me = new Hono<SessionVars>()
     await memberWorkspaceOr404(c.env, requireUserId(c), name);
     const page = await listGalleries(c.env.DB, name, { limit: 50 });
     return c.json({
-      galleries: page.galleries.map((gallery) => gallerySummary(c.env, gallery)),
+      galleries: await galleryListSummaries(c.env, name, page.galleries),
     });
   })
 
