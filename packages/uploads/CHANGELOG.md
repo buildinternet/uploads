@@ -1,5 +1,22 @@
 # @buildinternet/uploads
 
+## 0.27.0
+
+### Minor Changes
+
+- ee057cc: `meta set` refreshes the managed PR/issue comment when it changes `path` or `state` on a `gh/…`-keyed attachment, so backfilled metadata shows up without waiting for the next attach. If the bot endpoint is unavailable it prints a `uploads comment` hint instead of failing the write. The server side also self-heals duplicate managed comments left by a create race: the oldest is kept and updated, extras are deleted on the next sync (issue #470).
+- 5fbf612: `uploads screenshot` (CLI and local MCP) now stages against the current git branch by default when run on a non-default branch with no `--pr`/`--issue`/`--branch` target — same key and metadata as `attach --branch`, so derived facts (`path`/`url`/`env`/`viewport`, plus `--state`) survive through to the PR once it opens instead of being lost at attach time. Opt out with `--no-git`, or an explicit `--ref`/`--prefix`/`--destination`.
+
+  `attach` and `put --pr`/`put --issue` now print a `tip: add --meta path=/route so this shot is findable by page` (stderr, plus a JSON `hint` field) when an uploaded image ends up with no `path` metadata. Respects `--quiet`.
+
+- 5d29337: `uploads screenshot --out` now also writes a sidecar manifest (`<file>.uploads.json`) recording the capture's derived metadata (path/url/env/viewport, plus `--state` if given) with a content hash. A later `uploads put`/`attach` of that exact file automatically picks the metadata back up — explicit `--meta`/`--state` still win, and a regenerated or edited file silently loses its sidecar. Disable with `--no-sidecar`.
+
+### Patch Changes
+
+- 14edc6f: Docs: document the managed-comment self-heal dedupe and the `meta set`
+  comment re-sync (path/state) added in #471, in the CLI README, the
+  uploads-cli skill, and the GitHub App docs page.
+
 ## 0.26.1
 
 ### Patch Changes
