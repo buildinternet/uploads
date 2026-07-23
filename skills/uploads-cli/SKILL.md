@@ -404,20 +404,21 @@ explicit executable.
 
 Key options (`uploads screenshot --help` for all):
 
-| Flag                                                 | Purpose                                                                                                                                                                                                  |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--via auto\|local\|remote`                          | Capture backend (default: `auto`, or `UPLOADS_SCREENSHOT_VIA`).                                                                                                                                          |
-| `--browser <path>`                                   | Explicit local browser executable (or `UPLOADS_CHROME_PATH` / `CHROME_PATH`).                                                                                                                            |
-| `--cdp <endpoint>`                                   | Attach to a running Chrome via CDP instead of launching one (local backend only).                                                                                                                        |
-| `--viewport <WxH[@Sx]>`                              | Size + device scale factor (default: `1280x800@2`).                                                                                                                                                      |
-| `--selector <css>`                                   | Capture one element instead of the viewport.                                                                                                                                                             |
-| `--full-page`                                        | Capture the full scrollable page.                                                                                                                                                                        |
-| `--dark` / `--light`                                 | Emulate `prefers-color-scheme` (full media-query emulation on `--via local` only — `--via remote` only sets the CSS `color-scheme` property, so a page's own `prefers-color-scheme` queries won't flip). |
-| `--wait <load\|domcontentloaded\|networkidle\|ms>`   | Settle strategy (default: `load`); a millisecond count is local-only.                                                                                                                                    |
-| `--out <file>`                                       | Also write the PNG to a local file.                                                                                                                                                                      |
-| `--no-upload`                                        | Skip hosting; requires `--out` (local file only).                                                                                                                                                        |
-| `--key` / `--pr` / `--issue` / `--comment`           | Same destination and attachment options as `put` (see above); `--pr`/`--issue` also give a stable, hash-free key.                                                                                        |
-| `--frame` / `--no-optimize` / `--gallery` / `--meta` | Same as `put` — reused from the shared upload pipeline.                                                                                                                                                  |
+| Flag                                                 | Purpose                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--via auto\|local\|remote`                          | Capture backend (default: `auto`, or `UPLOADS_SCREENSHOT_VIA`).                                                                                                                                                                                                                                                                                       |
+| `--browser <path>`                                   | Explicit local browser executable (or `UPLOADS_CHROME_PATH` / `CHROME_PATH`).                                                                                                                                                                                                                                                                         |
+| `--cdp <endpoint>`                                   | Attach to a running Chrome via CDP instead of launching one (local backend only).                                                                                                                                                                                                                                                                     |
+| `--viewport <WxH[@Sx]>`                              | Size + device scale factor (default: `1280x800@2`).                                                                                                                                                                                                                                                                                                   |
+| `--selector <css>`                                   | Capture one element instead of the viewport.                                                                                                                                                                                                                                                                                                          |
+| `--full-page`                                        | Capture the full scrollable page.                                                                                                                                                                                                                                                                                                                     |
+| `--dark` / `--light`                                 | Emulate `prefers-color-scheme` (full media-query emulation on `--via local` only — `--via remote` only sets the CSS `color-scheme` property, so a page's own `prefers-color-scheme` queries won't flip).                                                                                                                                              |
+| `--wait <load\|domcontentloaded\|networkidle\|ms>`   | Settle strategy (default: `load`); a millisecond count is local-only.                                                                                                                                                                                                                                                                                 |
+| `--out <file>`                                       | Also write the PNG to a local file, plus a sidecar manifest (`<file>.uploads.json`) with this capture's derived metadata (`path`/`url`/`env`/`viewport`, plus `--state` if given) and a content hash. A later `put`/`attach` of that exact file picks the metadata back up automatically — explicit `--meta`/`--state` still win. See `--no-sidecar`. |
+| `--no-sidecar`                                       | Don't write the `<file>.uploads.json` sidecar alongside `--out`.                                                                                                                                                                                                                                                                                      |
+| `--no-upload`                                        | Skip hosting; requires `--out` (local file only).                                                                                                                                                                                                                                                                                                     |
+| `--key` / `--pr` / `--issue` / `--comment`           | Same destination and attachment options as `put` (see above); `--pr`/`--issue` also give a stable, hash-free key.                                                                                                                                                                                                                                     |
+| `--frame` / `--no-optimize` / `--gallery` / `--meta` | Same as `put` — reused from the shared upload pipeline.                                                                                                                                                                                                                                                                                               |
 
 **Errors and hints:** a local capture with no usable browser fails with
 `BROWSER_NOT_FOUND` (exit `2`) — hint: try `--via remote`, or install a
@@ -481,6 +482,14 @@ uploads find path=/settings state=after        # what it was all for
 - **`uploads put`/`attach`** read the image's own EXIF _before_ the optimizer
   strips it, promoting an allowlist: `viewport` (from pixel dimensions and DPI),
   `device`, `software`, `captured`.
+- **`uploads put`/`attach` also read a sidecar manifest** left by a prior
+  `screenshot --out` of that exact file (`<file>.uploads.json`, content-hash
+  guarded — a regenerated/edited file silently loses it) and merge in its
+  derived metadata. This closes the capture-then-attach gap where a shot is
+  taken before a PR exists: `uploads screenshot ... --out shot.png --state after`
+  now, `uploads attach shot.png --pr 123` later, still gets `path`/`url`/`env`/
+  `viewport`/`state` on the PR-keyed object. Disable writing it with
+  `--no-sidecar`.
 
 `env` is only ever `local`. It is never set to `prod` — inferring that from "not
 localhost" would mislabel every staging and preview URL, and wrong metadata is
@@ -492,8 +501,9 @@ comments. Note the flip side: `device` and `software` were previously discarded
 and now become queryable metadata that renders on the public `/f/` page.
 
 **Precedence:** explicit `--meta`/`--state`/`--app` > screenshot capture facts >
-EXIF > unset. Derived keys are also dropped first if the 24-key cap is reached —
-your own keys are never dropped, and a full key budget never fails an upload.
+sidecar manifest > EXIF > unset. Derived keys are also dropped first if the
+24-key cap is reached — your own keys are never dropped, and a full key
+budget never fails an upload.
 
 Turn the whole derived tier off with `--no-auto` or `UPLOADS_NO_AUTO_META=1`.
 

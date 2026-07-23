@@ -32,6 +32,7 @@ import { writeJson, writeStdout } from "./io.js";
 import { imageFactsFromBytes } from "./image-facts.js";
 import { parseMetaFlags, validateMetaMap } from "./metadata.js";
 import { mergeDerivedMeta, nearMissMetaWarnings, validateStateValue } from "./metadata-vocab.js";
+import { readSidecarMeta } from "./sidecar.js";
 import {
   ghAttachmentKey,
   ghBranchAttachmentKey,
@@ -119,6 +120,12 @@ upload as-is, or --keep-exif when image metadata matters for the discussion.
 
 Optional --frame wraps the image in a device/browser chrome before optimize
 (default off). See: uploads put --help frames
+
+If the file has a sidecar manifest (<file>.uploads.json, written by
+"screenshot --out") and its content hash still matches this file, that
+capture's derived metadata (path/url/env/viewport/state) is merged in
+automatically — explicit --meta/--state always win. A regenerated or edited
+file loses its sidecar silently (hash no longer matches).
 
 Uploads are public. --pr/--issue keys include the repo, number, and filename and
 remain public even for private/internal GitHub repositories. Upload only media
@@ -794,6 +801,12 @@ URL and every embed hot-swap. Human mode prints ">> replaced existing object
 Still images are optimized to WebP by default (same as put). Use --no-optimize
 to upload originals. Optional --frame wraps images in device/browser chrome.
 
+If a file has a sidecar manifest (<file>.uploads.json, written by
+"screenshot --out") and its content hash still matches, that capture's
+derived metadata (path/url/env/viewport/state) is merged in automatically —
+explicit --meta/--state always win. A regenerated or edited file loses its
+sidecar silently (hash no longer matches).
+
 Branch staging (pre-PR): --branch [name] stages files against a git branch
 before a pull request exists, e.g. for a coding agent working a branch that
 hasn't opened a PR yet. Key: gh/<owner>/<repo>/branch/<branch>/<filename>
@@ -917,11 +930,20 @@ async function uploadAttachmentBatch(
       try {
         const sourceName = basename(file);
         const bytes = readFileArg(file);
+        // Sidecar manifest from a prior `screenshot --out` of this exact file
+        // (issue #469 lever 2): only merged under whatever metadata this
+        // upload already carries (explicit --meta/--state always win), and
+        // only when the file's current bytes still match the hash recorded
+        // at capture time.
+        const sidecarMeta = readSidecarMeta(file, bytes);
+        const baseMetadata = sidecarMeta
+          ? mergeDerivedMeta(opts.metadata ?? {}, sidecarMeta)
+          : opts.metadata;
         // Same EXIF promotion uploadPreparedImage does; attach keeps its own
         // per-file tail (it builds keys differently), so it opts in here too.
         const metadata = opts.deriveImageFacts
-          ? await mergeImageFacts(bytes, opts.metadata)
-          : opts.metadata;
+          ? await mergeImageFacts(bytes, baseMetadata)
+          : baseMetadata;
         const prepared = await prepareImageForUpload(bytes, sourceName, {
           ...opts.frame,
           optimize: opts.optimize,
@@ -1119,9 +1141,19 @@ export async function uploadPuts(opts: {
               ? basename(opts.explicitKey)
               : "stdin.bin"
             : basename(file));
+        const bytes = readFileArg(file);
+        // Sidecar manifest from a prior `screenshot --out` of this exact file
+        // (issue #469 lever 2): only merged under whatever metadata this
+        // upload already carries (explicit --meta/--state always win), and
+        // only when the file's current bytes still match the hash recorded
+        // at capture time. Not applicable to stdin.
+        const sidecarMeta = file !== "-" ? readSidecarMeta(file, bytes) : undefined;
+        const metadata = sidecarMeta
+          ? mergeDerivedMeta(opts.metadata ?? {}, sidecarMeta)
+          : opts.metadata;
         const { result, prepared, markdown } = await uploadPreparedImage(
           opts.client,
-          readFileArg(file),
+          bytes,
           sourceName,
           {
             frame: opts.frame,
@@ -1136,7 +1168,7 @@ export async function uploadPuts(opts: {
             contentType: opts.contentType,
             dryRun: opts.dryRun,
             replace: opts.replace,
-            metadata: opts.metadata,
+            metadata,
             deriveImageFacts: opts.deriveImageFacts,
             provenanceClient: opts.provenanceClient,
             alt: () => opts.alt ?? basename(sourceName),

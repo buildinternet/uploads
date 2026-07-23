@@ -36,6 +36,7 @@ import { ghBranchAttachmentKey, ghMetadataForBranch } from "../github.js";
 import { safeCaptureFacts } from "../capture-facts.js";
 import { parseMetaFlags, validateMetaMap } from "../metadata.js";
 import { mergeDerivedMeta } from "../metadata-vocab.js";
+import { writeSidecarMeta } from "../sidecar.js";
 import { writeJson, writeStdout } from "../io.js";
 import {
   assertHideSelector,
@@ -83,7 +84,12 @@ Options:
                             on --via remote — neutralizes animations via injected CSS)
   --eval <js>               Run JS in the page after settle, before capture (--via local only)
   --init-script <file>      Inject a JS file before navigation (--via local only)
-  --out <file>              Also write the PNG to a local file
+  --out <file>              Also write the PNG to a local file. Also writes a sidecar manifest,
+                            <file>.uploads.json, recording this capture's derived metadata
+                            (path/url/env/viewport, plus --state if given) with a content hash; a
+                            later \`put\`/\`attach\` of this exact file picks the metadata back up
+                            automatically (explicit --meta/--state still win). See --no-sidecar.
+  --no-sidecar              Don't write the <file>.uploads.json sidecar alongside --out
   --no-upload                Skip hosting; requires --out (local file only)
   --destination <id>        Typed root: screenshots | gh | f
   --prefix <path>           Key prefix (default: screenshots, or UPLOADS_DEFAULT_PREFIX)
@@ -214,6 +220,8 @@ export async function runScreenshot(
   const outFile = flagString(parsed.flags, "--out");
   const noUpload = flagBool(parsed.flags, "--no-upload");
   if (noUpload && !outFile) throw new UsageError("--no-upload requires --out");
+  const noSidecar = flagBool(parsed.flags, "--no-sidecar");
+  if (noSidecar && !outFile) throw new UsageError("--no-sidecar requires --out");
 
   const keyHint = flagString(parsed.flags, "--key");
   const destFlag = flagString(parsed.flags, "--destination");
@@ -324,6 +332,7 @@ export async function runScreenshot(
   if (outFile) {
     writeFileSync(outFile, captured.png);
     if (logHuman) process.stderr.write(`>> wrote ${outFile}\n`);
+    if (!noSidecar) writeSidecarMeta(outFile, captured.png, withFacts);
   }
 
   if (noUpload) {
