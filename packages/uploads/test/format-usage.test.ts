@@ -97,8 +97,9 @@ describe("formatUsageHuman", () => {
       { timeZone: "America/New_York" },
     );
     expect(lines[0]).toBe("workspace: default");
+    // Caps use SI marketed units (2.5 GB, not binary ~2.3 GB).
     expect(lines[1]).toMatch(
-      /^storage:   \[█░░░░░░░░░░░░░░░░░░░\]\s+0\.1%\s+1\.5 MB \/ 2\.3 GB \(2\.3 GB free\)$/,
+      /^storage:   \[█░░░░░░░░░░░░░░░░░░░\]\s+0\.1%\s+1\.6 MB \/ 2\.5 GB \(2\.5 GB free\)$/,
     );
     expect(lines[2]).toBe("objects:   63");
     expect(lines[3]).toMatch(
@@ -187,8 +188,8 @@ describe("formatUsageHuman", () => {
       { timeZone: "UTC" },
     );
     expect(free[1]).toBe("plan:      Free");
-    expect(free.find((l) => l.startsWith("storage:"))).toMatch(/\[/);
-    expect(free.find((l) => l.startsWith("storage:"))).toMatch(/MB/);
+    // Marketed free cap is 250_000_000 → "250 MB", not binary "238.4 MB".
+    expect(free.find((l) => l.startsWith("storage:"))).toMatch(/1 MB \/ 250 MB \(249 MB free\)/);
     expect(free.some((l) => l.startsWith("note:"))).toBe(false);
   });
 

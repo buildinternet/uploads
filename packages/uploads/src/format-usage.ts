@@ -7,7 +7,7 @@
  * and operator workspaces usually omit them (unlimited). Progress bars only
  * appear for fields that have a positive cap — never invent a budget.
  */
-import { formatByteSize } from "./format-bytes.js";
+import { formatByteSize, formatMarketedBytes } from "./format-bytes.js";
 import { BRAND, type Rgb } from "./cli-brand.js";
 
 export type UsageSnapshotLike = {
@@ -148,10 +148,13 @@ export function formatUsageHuman(
 
   const storagePct = usagePct(result.bytes, result.maxStorageBytes);
   if (storagePct !== null && result.maxStorageBytes != null) {
+    // Caps (and remaining-against-cap) use SI marketed formatting so Free's
+    // 250_000_000 reads as "250 MB", not binary "238.4 MB". Used bytes share
+    // the same base on this line so the three numbers stay coherent.
     const detail =
-      `${formatByteSize(result.bytes)} / ${formatByteSize(result.maxStorageBytes)}` +
+      `${formatMarketedBytes(result.bytes)} / ${formatMarketedBytes(result.maxStorageBytes)}` +
       (result.storageRemainingBytes != null
-        ? ` (${formatByteSize(result.storageRemainingBytes)} free)`
+        ? ` (${formatMarketedBytes(result.storageRemainingBytes)} free)`
         : "");
     const bar = formatProgressBar(storagePct, { width, color });
     lines.push(`storage:   ${bar}  ${detail}`);
