@@ -74,6 +74,7 @@ export const SCREENSHOT_FLAGS: readonly string[] = [
   "--light",
   "--wait",
   "--out",
+  "--no-sidecar",
   "--no-upload",
   "--destination",
   "--prefix",

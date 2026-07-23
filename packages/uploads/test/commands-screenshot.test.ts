@@ -239,6 +239,75 @@ describe("runScreenshot upload tail", () => {
     expect(existsSync(out)).toBe(true);
   });
 
+  it("--out writes a sidecar manifest with derived metadata and a content hash", async () => {
+    const { client } = fakeClient();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-screenshot-"));
+    const out = join(dir, "shot.png");
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com/settings", "--out", out, "--state", "after"],
+      false,
+      noRun,
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    const sidecarPath = `${out}.uploads.json`;
+    expect(existsSync(sidecarPath)).toBe(true);
+    const manifest = JSON.parse(readFileSync(sidecarPath, "utf8"));
+    expect(manifest.version).toBe(1);
+    expect(typeof manifest.sha256).toBe("string");
+    expect(manifest.sha256).toHaveLength(64);
+    expect(manifest.meta).toMatchObject({
+      url: "https://example.com/settings",
+      path: "/settings",
+      state: "after",
+    });
+    expect(manifest.meta.viewport).toBeDefined();
+  });
+
+  it("--no-sidecar skips writing the sidecar manifest", async () => {
+    const { client } = fakeClient();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-screenshot-"));
+    const out = join(dir, "shot.png");
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com/settings", "--out", out, "--no-sidecar"],
+      false,
+      noRun,
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(existsSync(`${out}.uploads.json`)).toBe(false);
+  });
+
+  it("--no-sidecar requires --out", async () => {
+    const { client } = fakeClient();
+    await expect(
+      runScreenshot(
+        ctxWith(client),
+        ["https://example.com", "--no-sidecar"],
+        false,
+        noRun,
+        fakeCapture(),
+      ),
+    ).rejects.toThrow(UsageError);
+  });
+
+  it("does not write a sidecar when there is no derived metadata to store", async () => {
+    const { client } = fakeClient();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-screenshot-"));
+    const out = join(dir, "card.png");
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["./card.html", "--out", out, "--no-auto"],
+      false,
+      noRun,
+      fakeCapture("local"),
+    );
+    void code;
+    expect(existsSync(`${out}.uploads.json`)).toBe(false);
+  });
+
   it("--destination screenshots sets the key prefix", async () => {
     const { client, puts } = fakeClient();
     const code = await runScreenshot(

@@ -4,6 +4,7 @@ import { UploadsError } from "../src/errors.js";
 import type { GithubRepoLinkResult, UploadsClient } from "../src/client.js";
 import { runPut, stateAppMetaFromFlags, type CliContext } from "../src/commands.js";
 import type { CommandRunner } from "../src/github-gh.js";
+import { writeSidecarMeta } from "../src/sidecar.js";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1772,5 +1773,68 @@ describe("put promotes EXIF facts", () => {
     const byName = new Map(puts.map((p) => [p.filename, p.metadata]));
     expect(byName.get("retina.webp")?.viewport).toBe("812x577@2x");
     expect(byName.get("plain.webp")?.viewport).toBeUndefined();
+  });
+});
+
+describe("runPut sidecar manifest (issue #469)", () => {
+  it("merges a matching sidecar's derived metadata onto the upload", async () => {
+    const { client, puts } = fakeClient();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-put-sidecar-"));
+    const file = join(dir, "shot.png");
+    const bytes = Buffer.from("not-really-a-png");
+    writeFileSync(file, bytes);
+    writeSidecarMeta(file, bytes, {
+      path: "/settings",
+      url: "https://app.test/settings",
+      env: "local",
+      viewport: "1280x800@2x",
+    });
+    await runPut(ctxWith(client), [file, "--no-git", "--no-auto"], false, noRun);
+    expect(puts[0]?.metadata).toMatchObject({
+      path: "/settings",
+      url: "https://app.test/settings",
+      env: "local",
+      viewport: "1280x800@2x",
+    });
+  });
+
+  it("lets explicit --meta/--state win over the sidecar for the same key", async () => {
+    const { client, puts } = fakeClient();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-put-sidecar-"));
+    const file = join(dir, "shot.png");
+    const bytes = Buffer.from("not-really-a-png");
+    writeFileSync(file, bytes);
+    writeSidecarMeta(file, bytes, { path: "/from-sidecar", state: "before" });
+    await runPut(
+      ctxWith(client),
+      [file, "--no-git", "--no-auto", "--meta", "path=/from-flag", "--state", "after"],
+      false,
+      noRun,
+    );
+    expect(puts[0]?.metadata?.path).toBe("/from-flag");
+    expect(puts[0]?.metadata?.state).toBe("after");
+  });
+
+  it("ignores a sidecar whose hash no longer matches the file", async () => {
+    const { client, puts } = fakeClient();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-put-sidecar-"));
+    const file = join(dir, "shot.png");
+    const original = Buffer.from("original-bytes");
+    writeFileSync(file, original);
+    writeSidecarMeta(file, original, { path: "/stale" });
+    writeFileSync(file, Buffer.from("different-bytes"));
+    await runPut(ctxWith(client), [file, "--no-git", "--no-auto"], false, noRun);
+    expect(puts[0]?.metadata?.path).toBeUndefined();
+  });
+
+  it("ignores a malformed sidecar file silently", async () => {
+    const { client, puts } = fakeClient();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-put-sidecar-"));
+    const file = join(dir, "shot.png");
+    writeFileSync(file, Buffer.from("bytes"));
+    writeFileSync(`${file}.uploads.json`, "{ not valid json");
+    const code = await runPut(ctxWith(client), [file, "--no-git", "--no-auto"], false, noRun);
+    expect(code).toBe(0);
+    expect(puts[0]?.metadata).toBeUndefined();
   });
 });
