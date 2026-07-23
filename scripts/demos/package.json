@@ -1,0 +1,23 @@
+{
+  "name": "@uploads/demos",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Remotion demo loops for introducing uploads.sh (social video, not part of the product build)",
+  "scripts": {
+    "dev": "remotion studio --no-open",
+    "render": "remotion render"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.496",
+    "@remotion/fonts": "^4.0.496",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "^4.0.496",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^7.0.2"
+  }
+}

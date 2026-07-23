@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - scripts/demos
 allowBuilds:
   esbuild: true
   sharp: true
