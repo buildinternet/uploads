@@ -45,12 +45,16 @@ type OutboxEnv = AuthEnv & Pick<Env, "API" | "BILLING_INTERNAL_KEY">;
 const DRAIN_BATCH = 50;
 
 /**
- * Give up after this many failed attempts. At the backoff below that is a bit
- * over a day of retrying, which comfortably outlives a deploy, a bad secret,
- * or an apps/api outage. A row at the cap stays in the table (it is the
- * operator's record of what never landed) but is no longer retried.
+ * Give up after this many failed attempts. With the backoff below, the first
+ * seven tries cover 3,840s and every try after that adds the 3,600s ceiling,
+ * so 30 attempts is 3,840 + 23×3,600 = 86,640s — just over 24 hours. That is
+ * the window this is sized for: long enough to outlive a deploy, a bad secret,
+ * or an apps/api outage without an operator watching.
+ *
+ * A row at the cap stays in the table — it is the operator's record of what
+ * never landed — but is no longer retried.
  */
-export const MAX_ATTEMPTS = 12;
+export const MAX_ATTEMPTS = 30;
 
 /** Exponential backoff, capped at an hour: 1m, 2m, 4m … 60m. */
 export function backoffSeconds(attempts: number): number {

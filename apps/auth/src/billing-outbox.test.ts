@@ -64,6 +64,18 @@ describe("backoffSeconds", () => {
     expect(backoffSeconds(3)).toBe(240);
     expect(backoffSeconds(99)).toBe(3600);
   });
+
+  it("gives a total retry window of just over 24 hours", () => {
+    // Pins the number MAX_ATTEMPTS' doc comment claims, so tuning either the
+    // cap or the curve can't silently leave that comment wrong: the initial
+    // wait after enqueue, plus one wait per failed attempt up to the cap.
+    let total = backoffSeconds(1);
+    for (let attempts = 1; attempts < MAX_ATTEMPTS; attempts += 1) {
+      total += backoffSeconds(attempts);
+    }
+    expect(total).toBe(86_640);
+    expect(total / 3600).toBeGreaterThan(24);
+  });
 });
 
 describe("desiredPlanFor", () => {
