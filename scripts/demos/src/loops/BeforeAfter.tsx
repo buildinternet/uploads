@@ -28,15 +28,15 @@ export const BeforeAfter: React.FC = () => {
   return (
     <Scene>
       <Loop>
-        <Caption text="Matching stems pair automatically." />
+        <Caption text="Two uploads, one comparison." />
         <TerminalFrame>
-          <Cmd text="uploads put hero-before.png" start={10} caretUntil={44} />
+          <Cmd text="uploads put settings-before.png" start={10} caretUntil={44} />
           <Out start={46} color={T.muted}>
-            ✓ uploads.sh/zach/hero-before.png
+            ✓ uploads.sh/zach/settings-before.png
           </Out>
-          <Cmd text="uploads put hero-after.png" start={58} caretUntil={92} />
+          <Cmd text="uploads put settings-after.png" start={58} caretUntil={92} />
           <Out start={94} color={T.muted}>
-            ✓ uploads.sh/zach/hero-after.png
+            ✓ uploads.sh/zach/settings-after.png
           </Out>
         </TerminalFrame>
         <div style={{ position: "relative", width: W, height: H + 40 }}>
@@ -57,7 +57,7 @@ export const BeforeAfter: React.FC = () => {
                 translate: `${(1 - solo) * 60}px ${(1 - rise(frame, 50, 12)) * 16}px`,
               }}
             >
-              <Shot variant={1} width={300} height={H - 60} label="hero-before" dim />
+              <Shot variant={0} width={300} height={H - 60} label="settings-before" dim sparse />
             </div>
             <div
               style={{
@@ -65,7 +65,7 @@ export const BeforeAfter: React.FC = () => {
                 translate: `${(1 - solo) * -60}px ${(1 - rise(frame, 98, 12)) * 16}px`,
               }}
             >
-              <Shot variant={0} width={300} height={H - 60} label="hero-after" />
+              <Shot variant={0} width={300} height={H - 60} label="settings-after" />
             </div>
           </div>
           {/* the paired card */}
@@ -90,7 +90,7 @@ export const BeforeAfter: React.FC = () => {
               }}
             >
               <div style={{ position: "absolute", inset: 0 }}>
-                <Shot variant={1} width={W} height={H} dim />
+                <Shot variant={0} width={W} height={H} dim sparse />
               </div>
               <div
                 style={{

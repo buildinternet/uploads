@@ -2,24 +2,23 @@ import React from "react";
 import { T } from "../tokens";
 
 /*
- * A fake "screenshot" — an abstract mini-UI so the loops need no real assets.
- * Variants shuffle the block layout so multiple shots read as different pages.
+ * A fake "screenshot" — an abstract app UI (title + list rows + status
+ * pills) so the loops need no real assets. `sparse` renders the same page
+ * half-finished: muted title, one row, dashed placeholders — the "before"
+ * or early-draft state.
  */
-const PALETTES: string[][] = [
-  [T.accent, T.line, T.line],
-  [T.line, T.green, T.line],
-  [T.line, T.line, T.accent],
-];
-
 export const Shot: React.FC<{
   variant?: 0 | 1 | 2;
   width?: number;
   height?: number;
   label?: string;
   dim?: boolean;
-}> = ({ variant = 0, width = 300, height = 200, label, dim = false }) => {
-  const pal = PALETTES[variant];
-  const bar = (i: number) => 0.35 + ((variant * 7 + i * 3) % 5) * 0.13;
+  sparse?: boolean;
+}> = ({ variant = 0, width = 300, height = 200, label, dim = false, sparse = false }) => {
+  const accent = variant === 1 ? T.green : T.accent;
+  const hl = variant % 3;
+  const chrome = Math.max(20, height * 0.16);
+  const rowH = Math.max(10, Math.min(16, height * 0.09));
   return (
     <div
       style={{
@@ -45,7 +44,8 @@ export const Shot: React.FC<{
       >
         <div
           style={{
-            height: height * 0.16,
+            height: chrome,
+            flexShrink: 0,
             borderBottom: `1px solid ${T.line}`,
             display: "flex",
             alignItems: "center",
@@ -71,40 +71,61 @@ export const Shot: React.FC<{
             padding: 12,
             display: "flex",
             flexDirection: "column",
-            gap: 8,
+            gap: 9,
+            overflow: "hidden",
           }}
         >
+          {/* Page title */}
           <div
             style={{
-              width: "52%",
-              height: 12,
+              width: "46%",
+              height: rowH,
               borderRadius: 4,
-              background: pal[0],
+              background: sparse ? T.line : accent,
             }}
           />
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "flex-end",
-              gap: 8,
-            }}
-          >
-            {[0, 1, 2, 3, 4].map((i) => (
+          {/* List rows */}
+          {[0, 1, 2].map((i) =>
+            sparse && i > 0 ? (
               <div
                 key={i}
                 style={{
-                  flex: 1,
-                  height: `${bar(i) * 100}%`,
-                  borderRadius: 3,
-                  background:
-                    i === (variant * 2) % 5
-                      ? pal[variant === 1 ? 1 : variant === 2 ? 2 : 0]
-                      : T.line,
+                  height: rowH + 4,
+                  borderRadius: 4,
+                  border: `1.5px dashed ${T.line}`,
                 }}
               />
-            ))}
-          </div>
+            ) : (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div
+                  style={{
+                    width: rowH + 2,
+                    height: rowH + 2,
+                    borderRadius: 4,
+                    background: T.line,
+                    flexShrink: 0,
+                  }}
+                />
+                <div
+                  style={{
+                    flex: 1,
+                    height: Math.max(7, rowH - 5),
+                    borderRadius: 4,
+                    background: T.line,
+                  }}
+                />
+                <div
+                  style={{
+                    width: width * 0.13,
+                    height: rowH - 1,
+                    borderRadius: 999,
+                    background: !sparse && i === hl ? accent : T.line,
+                    flexShrink: 0,
+                  }}
+                />
+              </div>
+            ),
+          )}
         </div>
       </div>
       {label ? (

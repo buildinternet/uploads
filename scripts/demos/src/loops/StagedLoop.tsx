@@ -10,13 +10,19 @@ import { Comment } from "../kit/Comment";
 
 /*
  * Loop 2 — the signature flow (~10s).
- * Three puts stage onto the branch as work progresses; `gh pr create`
- * promotes everything into one attachments comment.
+ * Screenshots save onto the branch as the agent works — including revising
+ * one it already saved — then `gh pr create` promotes everything into one
+ * attachments comment.
  */
-const SHOTS = [
-  { file: "shot-1.png", cmd: 15, out: 42, thumb: 50 },
-  { file: "shot-2.png", cmd: 75, out: 102, thumb: 110 },
-  { file: "shot-3.png", cmd: 135, out: 162, thumb: 170 },
+const EVENTS = [
+  { file: "cart.png", cmd: 15, out: 42, thumb: 50, update: false },
+  { file: "checkout.png", cmd: 75, out: 102, thumb: 110, update: false },
+  { file: "cart.png", cmd: 135, out: 162, thumb: 170, update: true },
+] as const;
+
+const RAIL = [
+  { file: "cart.png", variant: 0, thumb: 50, updatedAt: 170 },
+  { file: "checkout.png", variant: 1, thumb: 110 },
 ] as const;
 
 export const StagedLoop: React.FC = () => {
@@ -27,8 +33,8 @@ export const StagedLoop: React.FC = () => {
     <Scene>
       <Loop>
         <Caption
-          text="Staged while the agent works."
-          swap={{ at: 230, text: "The PR opens already furnished." }}
+          text="Saved as the agent works."
+          swap={{ at: 230, text: "Ready when the PR opens." }}
         />
         <div style={{ position: "relative", width: 920, height: 640 }}>
           {/* Phase A: branch rail + terminal */}
@@ -63,7 +69,7 @@ export const StagedLoop: React.FC = () => {
                   gap: 8,
                 }}
               >
-                <span style={{ color: T.accent }}>⎇</span> feat/gallery
+                <span style={{ color: T.accent }}>⎇</span> feat/checkout
               </div>
               <div
                 style={{
@@ -74,38 +80,58 @@ export const StagedLoop: React.FC = () => {
                   gap: 16,
                 }}
               >
-                {SHOTS.map((s, i) => (
-                  <div
-                    key={s.file}
-                    style={{
-                      opacity: rise(frame, s.thumb, 10),
-                      translate: `${(1 - rise(frame, s.thumb, 10)) * -14}px 0px`,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 6,
-                    }}
-                  >
-                    <Shot variant={(i % 3) as 0 | 1 | 2} width={168} height={104} />
+                {RAIL.map((s) => {
+                  const updated = "updatedAt" in s && frame >= s.updatedAt;
+                  const pulse =
+                    "updatedAt" in s
+                      ? Math.min(rise(frame, s.updatedAt, 6), fall(frame, s.updatedAt + 22, 12))
+                      : 0;
+                  return (
                     <div
+                      key={s.file}
                       style={{
-                        fontFamily: T.mono,
-                        fontSize: 17,
-                        color: T.green,
-                        whiteSpace: "nowrap",
+                        opacity: rise(frame, s.thumb, 10),
+                        translate: `${(1 - rise(frame, s.thumb, 10)) * -14}px 0px`,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 6,
                       }}
                     >
-                      ✓ {s.file}
+                      <div
+                        style={{
+                          borderRadius: T.radiusMd,
+                          boxShadow: pulse > 0 ? `0 0 0 2.5px ${T.accent}` : undefined,
+                          opacity: pulse > 0 ? undefined : 1,
+                        }}
+                      >
+                        <Shot
+                          variant={s.variant}
+                          width={168}
+                          height={104}
+                          sparse={"updatedAt" in s && !updated}
+                        />
+                      </div>
+                      <div
+                        style={{
+                          fontFamily: T.mono,
+                          fontSize: 17,
+                          color: updated ? T.accent : T.green,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {updated ? "↻" : "✓"} {s.file}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
             <TerminalFrame width={620}>
-              {SHOTS.map((s) => (
-                <React.Fragment key={s.file}>
-                  <Cmd text={`uploads put ${s.file}`} start={s.cmd} caretUntil={s.out} />
-                  <Out start={s.out} color={T.muted}>
-                    staged → feat/gallery
+              {EVENTS.map((e, i) => (
+                <React.Fragment key={i}>
+                  <Cmd text={`uploads put ${e.file}`} start={e.cmd} caretUntil={e.out} />
+                  <Out start={e.out} color={T.muted}>
+                    {e.update ? "updated on feat/checkout" : "saved on feat/checkout"}
                   </Out>
                 </React.Fragment>
               ))}
@@ -124,9 +150,9 @@ export const StagedLoop: React.FC = () => {
               translate: `0px ${(1 - phaseB) * 30}px`,
             }}
           >
-            <Comment width={860} meta="attachments · 3 files">
-              <div style={{ display: "flex", gap: 20, justifyContent: "center" }}>
-                {SHOTS.map((s, i) => (
+            <Comment width={860} meta="attachments · 2 files">
+              <div style={{ display: "flex", gap: 24, justifyContent: "center" }}>
+                {RAIL.map((s, i) => (
                   <div
                     key={s.file}
                     style={{
@@ -134,7 +160,7 @@ export const StagedLoop: React.FC = () => {
                       scale: String(0.92 + rise(frame, 236 + i * 7, 9) * 0.08),
                     }}
                   >
-                    <Shot variant={(i % 3) as 0 | 1 | 2} width={244} height={158} label={s.file} />
+                    <Shot variant={s.variant} width={290} height={182} label={s.file} />
                   </div>
                 ))}
               </div>

@@ -18,12 +18,12 @@ export const PutUrl: React.FC = () => {
       <Loop>
         <Caption text="One command to host it." />
         <TerminalFrame>
-          <Cmd text="uploads put after.png" start={12} caretUntil={40} />
+          <Cmd text="uploads put screenshot.png" start={12} caretUntil={40} />
           <Out start={42} color={T.green}>
-            ✓ uploaded · 148 kB
+            ✓ uploaded
           </Out>
           <Out start={50} color={T.accent}>
-            https://uploads.sh/zach/after.png
+            https://uploads.sh/zach/screenshot.png
           </Out>
         </TerminalFrame>
         <div
@@ -49,7 +49,7 @@ export const PutUrl: React.FC = () => {
               padding: "8px 20px",
             }}
           >
-            <span style={{ color: T.accent }}>↗</span> uploads.sh/zach/after.png
+            <span style={{ color: T.accent }}>↗</span> uploads.sh/zach/screenshot.png
           </div>
         </div>
       </Loop>
