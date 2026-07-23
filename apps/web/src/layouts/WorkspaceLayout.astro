@@ -4,6 +4,7 @@
  * Section links live in the sidebar switcher; tab routes only wrap content.
  * Rail data is filled by `initWorkspaceRail` (connected work / usage / details).
  */
+import { GITHUB_APP_INSTALL_URL } from "../lib/github-app";
 import AccountLayout from "./AccountLayout.astro";
 
 interface Props {
@@ -50,6 +51,17 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
           <span class="ws-rail__rule"></span>
         </div>
         <div class="ws-rail__actions">
+          {/* Shown unconditionally — there is no session-authed way to tell
+              whether this workspace already has the App (the health endpoint is
+              workspace-token auth). Kept deliberately light for that reason. */}
+          <a
+            class="ws-rail__cta"
+            href={GITHUB_APP_INSTALL_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            install github app<span class="ws-rail__cta-go" aria-hidden="true">→</span>
+          </a>
           <a class="ws-rail__invite" href={invitePath}>invite teammate</a>
         </div>
       </section>
@@ -157,7 +169,35 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
   /* Quick actions — server-rendered, static. */
   .ws-rail__actions {
     display: grid;
-    gap: 8px;
+    gap: 10px;
+    justify-items: start;
+  }
+  /* Carries more weight than the plain invite link below it, but stays a rail
+     item rather than a banner — it also shows to workspaces that already
+     installed the App. */
+  .ws-rail__cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    color: var(--fg);
+    text-decoration: none;
+    font-size: 12px;
+  }
+  .ws-rail__cta:hover,
+  .ws-rail__cta:focus-visible {
+    border-color: var(--accent);
+    color: var(--accent);
+    outline: none;
+  }
+  .ws-rail__cta-go {
+    color: var(--muted);
+  }
+  .ws-rail__cta:hover .ws-rail__cta-go,
+  .ws-rail__cta:focus-visible .ws-rail__cta-go {
+    color: var(--accent);
   }
   .ws-rail__invite {
     color: var(--muted);

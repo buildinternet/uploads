@@ -37,6 +37,7 @@ const COLUMNS: FooterColumn[] = [
     title: "Product",
     links: [
       { label: "Docs", href: "/docs" },
+      { label: "GitHub App", href: "/docs/github-app" },
       { label: "Agent guide", href: "/github-screenshots" },
       { label: "Sign in", href: "/login" },
     ],
@@ -44,7 +45,10 @@ const COLUMNS: FooterColumn[] = [
   {
     title: "Project",
     links: [
-      { label: "GitHub", href: REPO },
+      // "Source", not "GitHub" — it sits a column away from "GitHub App" and
+      // the two read as the same destination otherwise. Matches the compact
+      // variant below, which already says "source".
+      { label: "Source", href: REPO },
       { label: "Status", href: STATUS_URL },
       { label: "Terms", href: "/terms" },
       { label: "Privacy", href: "/privacy" },
