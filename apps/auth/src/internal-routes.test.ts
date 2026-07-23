@@ -130,6 +130,7 @@ describe("DB-backed behavior", () => {
       banReason: overrides.banReason ?? null,
       banExpires: overrides.banExpires ?? null,
       cliOnboardedAt: overrides.cliOnboardedAt ?? null,
+      stripeCustomerId: overrides.stripeCustomerId ?? null,
     };
     await orm.insert(schema.user).values(user);
     return user;
@@ -145,6 +146,7 @@ describe("DB-backed behavior", () => {
       logo: overrides.logo ?? null,
       createdAt: overrides.createdAt ?? new Date(),
       metadata: overrides.metadata ?? null,
+      stripeCustomerId: overrides.stripeCustomerId ?? null,
     };
     await orm.insert(schema.organization).values(org);
     return org;

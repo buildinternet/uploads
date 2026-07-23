@@ -15,10 +15,12 @@
   "dependencies": {
     "@better-auth/infra": "^0.3.6",
     "@better-auth/oauth-provider": "^1.6.23",
+    "@better-auth/stripe": "^1.6.23",
     "@uploads/email": "workspace:^",
     "better-auth": "^1.6.23",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.12.28"
+    "hono": "^4.12.28",
+    "stripe": "^22.3.2"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",
