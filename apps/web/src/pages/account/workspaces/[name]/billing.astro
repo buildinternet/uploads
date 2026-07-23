@@ -50,6 +50,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
         <div class="settings-section">
           <button type="button" id="ws-manage-billing-btn" hidden>Manage billing</button>
+          <p class="muted" id="ws-comped-note" hidden>
+            This plan is comped for your workspace, so there’s no self-serve billing to manage.
+            Contact support to make changes.
+          </p>
           <p class="muted" id="ws-billing-error" role="alert" hidden></p>
         </div>
       </div>
@@ -108,6 +112,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const planCardsEl = requireElement<HTMLElement>("#ws-plan-cards", page);
       const manageBillingNoteEl = requireElement<HTMLElement>("#ws-manage-billing-note", page);
       const manageBillingBtn = requireElement<HTMLButtonElement>("#ws-manage-billing-btn", page);
+      const compedNoteEl = requireElement<HTMLElement>("#ws-comped-note", page);
       const subscriptionStatusEl = requireElement<HTMLElement>("#ws-subscription-status", page);
       const billingErrorEl = requireElement<HTMLElement>("#ws-billing-error", page);
 
@@ -236,7 +241,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           (plan) => plan.available || plan.id === currentPlanId,
         );
 
-        const cta = resolveBillingCta({ proAvailable: PLANS.pro.available, plan: billing.plan });
+        const cta = resolveBillingCta({
+          proAvailable: PLANS.pro.available,
+          plan: billing.plan,
+          planSource: billing.planSource,
+        });
 
         const cardsHtml = cardPlans
           .map((plan) => {
@@ -266,10 +275,13 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         planCardsEl.innerHTML = cardsHtml;
 
         // "Manage billing" (also the downgrade/cancel path) only makes sense
-        // once the workspace is actually on a paid plan.
+        // once a live Stripe subscription backs the plan. A comped/admin plan
+        // has no Stripe customer, so the portal 404s — show the comped note
+        // instead of a button that can only error.
         manageBillingBtn.hidden = cta.kind !== "manage";
         manageBillingBtn.disabled = false;
         manageBillingNoteEl.hidden = cta.kind !== "manage";
+        compedNoteEl.hidden = cta.kind !== "comped";
       }
 
       async function handleBillingActionClick(cta: "upgrade" | "manage"): Promise<void> {
