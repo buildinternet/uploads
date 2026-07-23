@@ -242,10 +242,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           .map((plan) => {
             const isCurrent = plan.id === currentPlanId;
             const priceLine = planCardPriceLine(plan, proPriceCopy);
+            // The current card already carries the "Current plan" badge —
+            // no footer button, so the label doesn't appear twice.
             let footer = "";
-            if (isCurrent) {
-              footer = `<button type="button" class="plan-card__cta" disabled>Current plan</button>`;
-            } else if (plan.id === "pro") {
+            if (!isCurrent && plan.id === "pro") {
               footer =
                 cta.kind === "unavailable"
                   ? `<button type="button" class="plan-card__cta" disabled>Coming soon</button>`
@@ -343,11 +343,23 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         planNameEl.textContent = `${planLabel(billing.plan)} plan`;
         // Honest copy: a record with no plan actually applied isn't on
         // free-tier marketing caps — it's running whatever `limits` says.
+        // When a subscription status line will render ("Included with your
+        // workspace." / "Renews on …"), it already says the plan is active,
+        // so the generic blurb stays empty rather than repeating it.
+        const hasStatusLine =
+          resolveSubscriptionCopy({
+            planSource: billing.planSource,
+            subscription: billing.subscription,
+            priceText: null,
+          }) !== null;
         planBlurbEl.textContent = billing.planApplied
           ? billing.available
-            ? "This plan is active on your workspace."
+            ? hasStatusLine
+              ? ""
+              : "This plan is active on your workspace."
             : "This plan isn’t available for self-serve upgrade yet."
           : "Your current limits are shown below.";
+        planBlurbEl.hidden = planBlurbEl.textContent === "";
         paintFileLimits(billing);
         billingErrorEl.hidden = true;
         billingErrorEl.textContent = "";

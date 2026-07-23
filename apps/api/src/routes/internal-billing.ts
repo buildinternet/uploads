@@ -31,14 +31,21 @@
  * in CI without `.dev.vars`. See the `.dev.vars.example` entry and the comment
  * in wrangler.jsonc for how to provision it.
  */
-import { memberCapMessage, PLAN_IDS, resolveMemberCap, type PlanId } from "@uploads/billing";
+import {
+  getPlan,
+  memberCapMessage,
+  PLAN_IDS,
+  resolveMemberCap,
+  type PlanId,
+} from "@uploads/billing";
 import { UnauthorizedError, ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { jsonBody } from "./json-body";
+import { LIMIT_FIELDS } from "../workspace-limits";
 import { hexToBytes, loadWorkspaceRecord, sha256Hex } from "../workspace";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
-import type { WorkspaceVars } from "../workspace";
+import type { WorkspaceRecord, WorkspaceVars } from "../workspace";
 
 export const internalBilling = new Hono<WorkspaceVars>();
 
@@ -81,9 +88,34 @@ internalBilling.post("/plan", async (c) => {
 
   // mutateWorkspaceRecord throws NotFoundError for an unknown or
   // non-serving (soft-deleted) workspace — propagates to respondError as 404.
-  await mutateWorkspaceRecord(c.env, workspace, (record) => ({ ...record, plan }), {
-    requireServing: true,
-  });
+  await mutateWorkspaceRecord(
+    c.env,
+    workspace,
+    (record) => {
+      if (!record.selfServe) return { ...record, plan };
+
+      // Self-serve hardening (issue #454): pre-backfill self-serve records
+      // still carry `selfServeWorkspaceRecord`'s old explicit per-limit
+      // numbers (issue #412 stopped stamping them going forward, but this
+      // route runs on records created before that change too). An explicit
+      // override always wins over a plan default (resolveEffectiveLimits),
+      // so without this, upgrading one of those records to Pro would leave
+      // it capped at free's 250MB/25MB forever. Clear only the fields that
+      // exactly equal the OLD plan's default — a genuinely custom override
+      // (e.g. a comped higher limit) never matches the plan default and is
+      // preserved untouched, same as today.
+      const oldDefaults = getPlan(record.plan).defaultLimits;
+      const next: WorkspaceRecord = { ...record, plan };
+      for (const field of LIMIT_FIELDS) {
+        const current = record[field as keyof WorkspaceRecord];
+        if (typeof current === "number" && current === oldDefaults[field]) {
+          delete next[field as keyof WorkspaceRecord];
+        }
+      }
+      return next;
+    },
+    { requireServing: true },
+  );
 
   return c.body(null, 204);
 });

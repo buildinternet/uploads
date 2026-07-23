@@ -22,6 +22,7 @@ import {
 } from "../auth-db";
 import { deriveWebOrigin, inviteLinkUrl as inviteMagicLink } from "../invite-links";
 import { reencryptRegistryCredentials } from "../reencrypt-registry";
+import { backfillSelfServePlans } from "../self-serve-plan-backfill";
 import { storage } from "../storage";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { teardownWorkspace } from "../workspace-teardown";
@@ -443,6 +444,29 @@ export const admin = new Hono<{ Bindings: Env }>()
       c.req.query("dry_run") === "1";
     try {
       const result = await reencryptRegistryCredentials(c.env, { dryRun });
+      return c.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new ValidationError(message, { cause: err });
+    }
+  })
+
+  /**
+   * One-time backfill for issue #412/#454: self-serve workspace records
+   * created before `selfServeWorkspaceRecord` set `plan: "free"` instead of
+   * stamping explicit budget numbers. For every `ws:` record with
+   * `selfServe: true`, sets `plan: "free"` if absent and clears the four
+   * budget override fields that exactly equal free's defaults. Admin/
+   * operator workspaces (no `selfServe`) are never touched. Query:
+   * ?dryRun=1
+   */
+  .post("/self-serve/backfill-plan", async (c) => {
+    const dryRun =
+      c.req.query("dryRun") === "1" ||
+      c.req.query("dryRun") === "true" ||
+      c.req.query("dry_run") === "1";
+    try {
+      const result = await backfillSelfServePlans(c.env, { dryRun });
       return c.json(result);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
