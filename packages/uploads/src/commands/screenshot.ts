@@ -25,6 +25,7 @@ import {
   resolvePutStagingTarget,
   putStagingNoteText,
   resolveStageBindingWarning,
+  mergeStagingMeta,
   type BranchTarget,
 } from "../commands.js";
 import { resolvePutDefaults } from "../config.js";
@@ -36,7 +37,7 @@ import {
   resolveRepo,
   type CommandRunner,
 } from "../github-gh.js";
-import { ghBranchAttachmentKey, ghMetadataForBranch } from "../github.js";
+import { ghBranchAttachmentKey } from "../github.js";
 import { safeCaptureFacts } from "../capture-facts.js";
 import { parseMetaFlags, validateMetaMap } from "../metadata.js";
 import { mergeDerivedMeta } from "../metadata-vocab.js";
@@ -339,8 +340,7 @@ export async function runScreenshot(
     metadata = { ...withFacts, ...ghMetadataFromTargetWithTitle(ghTarget, run) };
     validateMetaMap(metadata);
   } else if (stagingTarget !== undefined) {
-    metadata = { ...withFacts, ...ghMetadataForBranch(stagingTarget.repo, stagingTarget.branch) };
-    validateMetaMap(metadata);
+    metadata = mergeStagingMeta(withFacts, stagingTarget);
   } else if (Object.keys(withFacts).length > 0) {
     validateMetaMap(withFacts);
   }

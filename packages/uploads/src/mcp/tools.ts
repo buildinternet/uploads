@@ -10,6 +10,7 @@ import { createUploadsClient, type UploadsClient } from "../client.js";
 import {
   buildDoctorReport,
   makeGhTarget,
+  mergeStagingMeta,
   resolvePutStagingTarget,
   resolveStaged,
   syncAttachmentsComment,
@@ -26,12 +27,7 @@ import {
   type UploadsClientConfig,
 } from "../config.js";
 import { resolvePutPrefix } from "../destinations.js";
-import {
-  ghBranchAttachmentKey,
-  ghKeyPrefix,
-  ghMetadataForBranch,
-  type GhTarget,
-} from "../github.js";
+import { ghBranchAttachmentKey, ghKeyPrefix, type GhTarget } from "../github.js";
 import { safeCaptureFacts } from "../capture-facts.js";
 import { validateMetaMap } from "../metadata.js";
 import { mergeDerivedMeta } from "../metadata-vocab.js";
@@ -521,16 +517,7 @@ export function createUploadsMcpTools(opts: {
           repoArg: optString(args, "repo") ?? defaults.repo,
           run,
         });
-        const putMetadata = stagingTarget
-          ? (() => {
-              const merged = {
-                ...metadata,
-                ...ghMetadataForBranch(stagingTarget.repo, stagingTarget.branch),
-              };
-              validateMetaMap(merged); // same builder, same contract as attach --branch
-              return merged;
-            })()
-          : metadata;
+        const putMetadata = stagingTarget ? mergeStagingMeta(metadata, stagingTarget) : metadata;
 
         const putShared = {
           client,
@@ -869,14 +856,7 @@ export function createUploadsMcpTools(opts: {
         // way (matches attach --branch/bare put); otherwise capture-derived +
         // explicit only.
         const metadataWithCaptureFacts = stagingTarget
-          ? (() => {
-              const merged = {
-                ...metadataBase,
-                ...ghMetadataForBranch(stagingTarget.repo, stagingTarget.branch),
-              };
-              validateMetaMap(merged); // same builder, same contract as attach --branch
-              return merged;
-            })()
+          ? mergeStagingMeta(metadataBase, stagingTarget)
           : metadataBase;
         let captured: Awaited<ReturnType<typeof screenshotModule.captureScreenshot>>;
         try {

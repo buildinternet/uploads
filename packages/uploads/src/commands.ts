@@ -1424,7 +1424,7 @@ export async function runAttach(
       const ref = ghMetadataFromTarget(target)["gh.ref"];
       process.stderr.write(`>> find these later: uploads find gh.ref=${ref}\n`);
     }
-    if (!ctx.quiet && pathHint) process.stderr.write(`${pathHint}\n`);
+    if (pathHint) process.stderr.write(`${pathHint}\n`);
   }
   return failures.length === 0 ? 0 : 1;
 }
@@ -1772,6 +1772,22 @@ export function resolvePutStagingTarget(opts: {
 }
 
 /**
+ * Merges a staging target's `gh.*` branch metadata over `base` and validates
+ * the result (same builder, same contract as `attach --branch`) — the one
+ * merge+validate step shared by every staging call site: `runPut`,
+ * `runScreenshot`, and both the local stdio MCP `put` and `screenshot`
+ * tools.
+ */
+export function mergeStagingMeta(
+  base: Record<string, string> | undefined,
+  target: BranchTarget,
+): Record<string, string> {
+  const merged = { ...base, ...ghMetadataForBranch(target.repo, target.branch) };
+  validateMetaMap(merged);
+  return merged;
+}
+
+/**
  * The bare-put staging note's wording (issue #403): replaces the #393 nudge
  * for the (now default) case where a bare put on a non-default branch stages
  * to the branch prefix instead of landing on the dated layout. Used verbatim
@@ -2106,12 +2122,7 @@ export async function runPut(
     metadata = merged;
     attachedRef = merged["gh.ref"];
   } else if (stagingTarget) {
-    const merged = {
-      ...userMeta,
-      ...ghMetadataForBranch(stagingTarget.repo, stagingTarget.branch),
-    };
-    validateMetaMap(merged); // matches attach --branch's unwrapped call — same builder, same contract
-    metadata = merged;
+    metadata = mergeStagingMeta(userMeta, stagingTarget);
   } else {
     // gh.* additionally needs git, which the shared derived gate ignores.
     if (!noGit && derivedMetaEnabled(parsed.flags, defaults)) {
@@ -2321,7 +2332,7 @@ export async function runPut(
       if (nudge) process.stderr.write(`${nudge}\n`);
       if (stagingNote) process.stderr.write(`${stagingNote}\n`);
       if (bindingWarning) process.stderr.write(`${bindingWarning}\n`);
-      if (!ctx.quiet && pathHint) process.stderr.write(`${pathHint}\n`);
+      if (pathHint) process.stderr.write(`${pathHint}\n`);
     }
     return failures.length === 0 && !galleryHadError ? 0 : 1;
   }
@@ -2382,7 +2393,7 @@ export async function runPut(
   if (nudge && format !== "json") process.stderr.write(`${nudge}\n`);
   if (stagingNote && format !== "json") process.stderr.write(`${stagingNote}\n`);
   if (bindingWarning && format !== "json") process.stderr.write(`${bindingWarning}\n`);
-  if (!ctx.quiet && pathHint && format !== "json") process.stderr.write(`${pathHint}\n`);
+  if (pathHint && format !== "json") process.stderr.write(`${pathHint}\n`);
 
   return gallery?.error ? 1 : 0;
 }
