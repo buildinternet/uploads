@@ -25,6 +25,8 @@ const REPO = "https://github.com/buildinternet/uploads";
 // rel omits "noreferrer" so releases.sh sees the referral traffic (mirrors
 // how its footer links to uploads.sh).
 const RELEASES_URL = "https://releases.sh";
+// Better Stack public status page for the uploads.sh workers + site.
+const STATUS_URL = "https://status.uploads.sh/";
 
 type FooterLink = { label: string; href: string };
 type FooterColumn = { title: string; links: FooterLink[] };
@@ -43,6 +45,7 @@ const COLUMNS: FooterColumn[] = [
     title: "Project",
     links: [
       { label: "GitHub", href: REPO },
+      { label: "Status", href: STATUS_URL },
       { label: "Terms", href: "/terms" },
       { label: "Privacy", href: "/privacy" },
     ],
@@ -55,7 +58,8 @@ const COLUMNS: FooterColumn[] = [
     <footer class="site-footer compact">
       <div class="site-footer__inner">
         a <a href="https://buildinternet.com">Build Internet</a> project · <a href={REPO}>source</a>{" "}
-        · <a href="/docs">docs</a> · <a href="/terms">terms</a> · <a href="/privacy">privacy</a>
+        · <a href="/docs">docs</a> · <a href={STATUS_URL}>status</a> · <a href="/terms">terms</a> ·{" "}
+        <a href="/privacy">privacy</a>
       </div>
     </footer>
   ) : (
