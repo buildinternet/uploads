@@ -22,7 +22,7 @@ describe("fetchProPrice", () => {
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://auth.uploads.sh/billing/prices",
-      expect.objectContaining({ credentials: "include" }),
+      expect.not.objectContaining({ credentials: "include" }),
     );
   });
 

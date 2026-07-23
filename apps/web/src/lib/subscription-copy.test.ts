@@ -88,10 +88,10 @@ describe("resolveSubscriptionCopy", () => {
     });
   });
 
-  it("renders muted 'applied by an operator' copy for admin-comped plans, ignoring any subscription", () => {
+  it("renders muted 'included with your workspace' copy for admin-comped plans, ignoring any subscription", () => {
     expect(
       resolveSubscriptionCopy({ planSource: "admin", subscription: null, priceText: null }),
-    ).toEqual({ text: "Applied by an operator — no Stripe subscription.", tone: "muted" });
+    ).toEqual({ text: "Included with your workspace.", tone: "muted" });
 
     expect(
       resolveSubscriptionCopy({
@@ -103,7 +103,7 @@ describe("resolveSubscriptionCopy", () => {
         },
         priceText: "$10.00 per month",
       }),
-    ).toEqual({ text: "Applied by an operator — no Stripe subscription.", tone: "muted" });
+    ).toEqual({ text: "Included with your workspace.", tone: "muted" });
   });
 
   it("returns null for an unrecognized status", () => {

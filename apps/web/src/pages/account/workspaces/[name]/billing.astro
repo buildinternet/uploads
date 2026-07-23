@@ -36,6 +36,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         <div id="ws-plan-card" class="ul-callout">
           <p><strong id="ws-plan-name"></strong></p>
           <p class="muted" id="ws-plan-blurb"></p>
+          <p class="muted" id="ws-plan-file-limits"></p>
           <p id="ws-subscription-status" role="status" hidden></p>
         </div>
 
@@ -45,11 +46,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           <p class="muted" id="ws-manage-billing-note" hidden>
             To cancel or downgrade, use “Manage billing” below to open the billing portal.
           </p>
-        </div>
-
-        <div id="ws-limits" class="settings-section">
-          <h3>Limits &amp; usage</h3>
-          <dl class="ws-rail__kv" id="ws-limits-list"></dl>
         </div>
 
         <div class="settings-section">
@@ -108,7 +104,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const slugEl = requireElement<HTMLElement>("#ws-slug", page);
       const planNameEl = requireElement<HTMLElement>("#ws-plan-name", page);
       const planBlurbEl = requireElement<HTMLElement>("#ws-plan-blurb", page);
-      const limitsListEl = requireElement<HTMLElement>("#ws-limits-list", page);
+      const planFileLimitsEl = requireElement<HTMLElement>("#ws-plan-file-limits", page);
       const planCardsEl = requireElement<HTMLElement>("#ws-plan-cards", page);
       const manageBillingNoteEl = requireElement<HTMLElement>("#ws-manage-billing-note", page);
       const manageBillingBtn = requireElement<HTMLButtonElement>("#ws-manage-billing-btn", page);
@@ -128,42 +124,27 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         return plan.charAt(0).toUpperCase() + plan.slice(1);
       }
 
-      function paintLimits(billing: WorkspaceBilling): void {
-        const usage = billing.usage as
-          | { bytes?: number; objects?: number; uploadsInPeriod?: number }
-          | null;
+      /**
+       * The current-plan card's one line that isn't already covered by the
+       * workspace rail (which shows storage + uploads-this-month usage) —
+       * the enforced max file/video size, so that information isn't lost
+       * when the standalone "Limits & usage" section is removed.
+       */
+      function paintFileLimits(billing: WorkspaceBilling): void {
         const { limits } = billing;
-        const rows: string[] = [];
+        const parts: string[] = [];
 
-        const storageUsed = usage?.bytes ?? 0;
-        rows.push(
-          `<dt>Storage</dt><dd>${formatBytes(storageUsed)} of ${
-            limits.maxStorageBytes === null ? "unlimited" : formatBytes(limits.maxStorageBytes)
-          }</dd>`,
-        );
+        if (limits.maxUploadBytes !== null) {
+          parts.push(`files up to ${formatBytes(limits.maxUploadBytes)}`);
+        }
+        if (
+          limits.maxVideoUploadBytes !== null &&
+          limits.maxVideoUploadBytes !== limits.maxUploadBytes
+        ) {
+          parts.push(`videos up to ${formatBytes(limits.maxVideoUploadBytes)}`);
+        }
 
-        const uploadsUsed = usage?.uploadsInPeriod ?? 0;
-        rows.push(
-          `<dt>Uploads this month</dt><dd>${uploadsUsed} of ${
-            limits.maxUploadsPerPeriod === null ? "unlimited" : limits.maxUploadsPerPeriod
-          }</dd>`,
-        );
-
-        rows.push(
-          `<dt>Max file size</dt><dd>${
-            limits.maxUploadBytes === null ? "unlimited" : formatBytes(limits.maxUploadBytes)
-          }</dd>`,
-        );
-
-        rows.push(
-          `<dt>Max video size</dt><dd>${
-            limits.maxVideoUploadBytes === null
-              ? "unlimited"
-              : formatBytes(limits.maxVideoUploadBytes)
-          }</dd>`,
-        );
-
-        limitsListEl.innerHTML = rows.join("");
+        planFileLimitsEl.textContent = parts.length ? `Max upload size: ${parts.join(", ")}.` : "";
       }
 
       /** Paints (or hides) the subscription status line inside the
@@ -366,8 +347,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           ? billing.available
             ? "This plan is active on your workspace."
             : "This plan isn’t available for self-serve upgrade yet."
-          : "No plan has been applied yet — limits below reflect what's currently enforced.";
-        paintLimits(billing);
+          : "Your current limits are shown below.";
+        paintFileLimits(billing);
         billingErrorEl.hidden = true;
         billingErrorEl.textContent = "";
         const proPriceCopy = formatPrice(proPrice);
