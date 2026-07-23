@@ -93,19 +93,19 @@ force-deletes any whose slug has no `ws:<slug>` KV key at all, or only a
 purged tombstone — the multi-member orgs left behind by hard/finalized
 workspace teardown (see "Auth org deletion" in `docs/deletion.md`). A
 soft-deleted workspace still inside its grace window is never treated as an
-orphan. An AUTH outage or a single org's delete failure is isolated (logged, sweep
-continues) rather than failing the run. Results roll up into the sweep's
-`orgsSwept` field.
+orphan. The sweep isolates an AUTH outage or a single org's delete failure
+(logged, sweep continues) rather than failing the run. Results roll up into the
+sweep's `orgsSwept` field.
 
 ## Workspace deletion, restore, and finalization
 
 `DELETE /admin/workspaces/:name` is **soft by default** (#247): it stamps
 `deletedAt`/`purgeAt` (14-day grace window, `WORKSPACE_DELETE_GRACE_DAYS`) on
-the KV record and puts it back. Access denies at the record layer — every
-auth/serving path treats a `deletedAt` record as not found — subject to the
-60-second KV `cacheTtl` on workspace reads, so token auth may keep succeeding
-for up to a minute after deletion (see `docs/deletion.md`). R2 objects,
-file metadata, and galleries are untouched. Deleting an already-soft-deleted
+the KV record and puts it back. Access denies at the record layer: every
+auth/serving path treats a `deletedAt` record as not found. This is subject to
+the 60-second KV `cacheTtl` on workspace reads, so token auth may keep
+succeeding for up to a minute after deletion (see `docs/deletion.md`). It leaves
+R2 objects, file metadata, and galleries untouched. Deleting an already-soft-deleted
 workspace 409s `already_deleted` with the existing `purgeAt`.
 
 ```bash
@@ -144,8 +144,8 @@ signed-in owner the same soft-delete/restore surface as the admin path
 above, session-authed (browser cookie) instead of `ADMIN_TOKEN`. Ownership
 gate: the record must have `selfServe === true`, and the caller must be
 either the record creator (`createdByUserId` match) or hold org role
-`owner` (not `admin`) in that workspace's org (#265, via `isWorkspaceOwner`
-— same membership lookup the #262 governance gates use) — anything else
+`owner` (not `admin`) in that workspace's org (#265, via `isWorkspaceOwner` —
+the same membership lookup the #262 governance gates use). Anything else
 403s `not_owner`. Semantics are otherwise identical to the
 admin soft-delete/restore path (409 `already_deleted` / `not_deleted`, 410
 `grace_expired`, never hard, never frees the slug) via a shared stamp helper

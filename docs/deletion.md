@@ -9,10 +9,10 @@ Follow-up to the admin workspace delete (#244) and the soft-delete evaluation
 
 **Member-facing deletes are soft; break-glass and finalization are hard.**
 
-Anything a workspace member (or admin acting routinely) can trigger should be
-reversible for a grace window. Hard deletion happens only as an explicit
-break-glass action or as the automated finalization of an already-expired soft
-delete.
+Any delete a workspace member (or an admin acting routinely) can trigger must be
+reversible for a grace window. A hard delete happens only in two cases: an
+explicit break-glass action, or the automated finalization of an already-expired
+soft delete.
 
 ## Per-surface policy
 
@@ -32,8 +32,8 @@ delete.
 
 - Soft delete stamps `deletedAt` and `purgeAt = deletedAt + 14 days` on the
   workspace KV record.
-- Access denial is immediate at the record layer (lookups treat soft-deleted
-  workspaces as not found), subject to two propagation tails:
+- The record layer denies access immediately (a lookup treats a soft-deleted
+  workspace as not found), subject to two propagation tails:
   - workspace record reads use a 60s KV `cacheTtl`, so token auth may succeed
     for up to a minute after deletion;
   - already-cached public bytes can keep serving from the edge/Camo for up to
@@ -53,11 +53,10 @@ teardown, no ability to free a slug. `DELETE /v1/workspaces/:name` and
 `POST /v1/workspaces/:name/restore` are session-authed and require
 `selfServe === true`; the caller is authorized as either the record creator
 (`createdByUserId`) or the org `owner` (not `admin`) for that workspace
-(#265, extending the original creator-only gate from #249). Org role is resolved via the same membership
-lookup as the #262 governance gates (`isWorkspaceOwner` in
-`apps/api/src/routes/me.ts`); a platform-admin role never bypasses this,
-since operators already have `/admin/workspaces/:name` for break-glass
-deletion. Deliberately session-only: a `workspace:manage`-scoped bearer
+(#265, extending the original creator-only gate from #249). The same membership
+lookup as the #262 governance gates resolves org role (`isWorkspaceOwner` in
+`apps/api/src/routes/me.ts`). A platform-admin role never bypasses this, since
+operators already have `/admin/workspaces/:name` for break-glass deletion. Deliberately session-only: a `workspace:manage`-scoped bearer
 token (see #262) is never accepted here, keeping this destructive action
 attributable to an interactive session. They share the admin path's
 stamp/grace logic (`stampSoftDelete`, `isPastGrace`, `stampRestore` in
@@ -69,9 +68,9 @@ The daily retention sweep (`apps/api/src/retention-sweep.ts`) also lists
 every auth-side org (`GET /internal/orgs` on the auth worker) and deletes
 (force) any whose slug has no `ws:<slug>` KV key at all, or only a purged
 tombstone. A soft-deleted-but-still-in-grace workspace is NOT an orphan —
-restore must bring the org back intact, so it's left alone. An AUTH-fetch
-failure or a per-org delete failure is isolated (logged, sweep continues) rather than
-failing the whole run. Results land in the sweep's `orgsSwept` array and log
+restore must bring the org back intact, so the sweep leaves it alone. The sweep
+isolates an AUTH-fetch failure or a per-org delete failure (logged, sweep
+continues) rather than failing the whole run. Results land in the sweep's `orgsSwept` array and log
 line.
 
 ## Name-reclaim policy (#252)

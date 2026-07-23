@@ -78,36 +78,37 @@ curl -XDELETE https://api.uploads.sh/admin/tokens \
 Better-auth admins can also mint their own workspace tokens with opt-in
 `operator:read` / `operator:write` scopes via the session-authed `POST /v1/tokens`
 (no `ADMIN_TOKEN` involved). `operator:write` is a superset of `operator:read`.
-Tokens carrying either scope are accepted by `/admin/*` alongside
-`ADMIN_TOKEN`, and are revoked or listed the same way as any other token —
-via the `GET`/`DELETE /admin/tokens` endpoints above. Although an operator
-token is minted against (and stored under) a specific workspace, the
-`operator:read` / `operator:write` scopes themselves grant global operator
-authority across all of `/admin/*` — the same reach as `ADMIN_TOKEN` — not
-just operator access scoped to that one workspace; the workspace only anchors
-where the token is stored and which workspace's token list it appears
-under for revocation.
+`/admin/*` accepts a token carrying either scope alongside `ADMIN_TOKEN`. You
+revoke or list it the same way as any other token, via the
+`GET`/`DELETE /admin/tokens` endpoints above.
 
-Note that a token minted with an operator scope gets **no** file-route access,
-even if file scopes were also requested alongside it — scope parsing on the
-file routes fails the whole scope array when it contains any non-file
-scope. Mint a separate files-only token for file operations and a
-dedicated operator token for `/admin/*`.
+The workspace an operator token is minted against does not bound its authority.
+The `operator:read` / `operator:write` scopes grant global operator authority
+across all of `/admin/*` — the same reach as `ADMIN_TOKEN`. They do not grant
+operator access scoped to that one workspace. The workspace only anchors two
+things: where the token is stored, and which workspace's token list shows it
+for revocation.
+
+A token minted with an operator scope gets **no** file-route access, even if
+you request file scopes alongside it. Scope parsing on the file routes fails
+the whole scope array when it contains any non-file scope. So mint a separate
+files-only token for file operations, and a dedicated operator token for
+`/admin/*`.
 
 ## Workspace-governance scopes
 
-Org admins/owners can also mint tokens with opt-in `workspace:invite` /
-`workspace:manage` scopes via the same session-authed `POST /v1/tokens` —
-requesting either scope requires the minting session user to hold org role
-`admin` or `owner` in the target workspace (platform-admin/operator status
-does not bypass this check); otherwise the mint request is rejected with
+Org admins and owners can also mint tokens with the opt-in `workspace:invite` /
+`workspace:manage` scopes, via the same session-authed `POST /v1/tokens`. To
+request either scope, the minting session user must hold org role `admin` or
+`owner` in the target workspace; platform-admin or operator status does not
+bypass this check. Otherwise the API rejects the mint request with
 `400 invalid_scopes`. Unlike operator scopes, workspace-governance scopes are
 strictly **workspace-bounded**: a token only authorizes actions on the
 workspace embedded in it (`up_<workspace>_…`), never any other workspace.
 
-Like operator tokens, a workspace-governance token gets **zero** file-route
-access, even if file scopes are requested alongside it — scope parsing on the
-file routes fails the whole array when it contains any non-file scope. Mint a
+Like an operator token, a workspace-governance token gets **zero** file-route
+access, even if you request file scopes alongside it. Scope parsing on the file
+routes fails the whole array when it contains any non-file scope. Mint a
 separate files-only token for file operations.
 
 - `workspace:invite` authorizes `POST /v1/workspaces/:name/invites` — sends an
