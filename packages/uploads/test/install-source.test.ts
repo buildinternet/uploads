@@ -73,17 +73,11 @@ describe("detectInstallSource", () => {
     expect(source.manager).toBe("npm");
   });
 
-  it("normalizes Windows separators", () => {
+  // Windows npm installs globally to <prefix>\node_modules with no `lib` segment,
+  // so this covers both the separator normalization and the Windows-only marker.
+  it("classifies a Windows npm global install, normalizing separators", () => {
     const source = detectInstallSource(
       "C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\@buildinternet\\uploads\\dist\\cli.js",
-    );
-    expect(source.kind).toBe("global");
-    expect(source.manager).toBe("npm");
-  });
-
-  it("classifies a Windows npm global install", () => {
-    const source = detectInstallSource(
-      "C:/Users/dev/AppData/Roaming/npm/node_modules/@buildinternet/uploads/dist/cli.js",
     );
     expect(source.kind).toBe("global");
     expect(source.manager).toBe("npm");

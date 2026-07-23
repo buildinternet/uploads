@@ -70,8 +70,8 @@ describe("uploads update", () => {
     expect(calls[1]).toEqual(["uploads", "install"]);
   });
 
-  it("skips the upgrade when already current but still refreshes in process", async () => {
-    captureStreams();
+  it("skips the upgrade when already current, reports the version, and refreshes in process", async () => {
+    const { out } = captureStreams();
     const { run, calls } = fakeRunner();
     const code = await runUpdate([], {
       globals: GLOBALS,
@@ -80,6 +80,7 @@ describe("uploads update", () => {
       check: current,
     });
     expect(code).toBe(0);
+    expect(out.join("")).toMatch(/CLI already at 0\.10\.0/);
     expect(calls.some((c) => c[0] === "npm")).toBe(false);
     // In-process runInstall reaches the same runner with the install steps.
     expect(calls.some((c) => c[0] === "npx" && c.includes("skills"))).toBe(true);
@@ -100,18 +101,6 @@ describe("uploads update", () => {
     // fake runner's "ok" output surfacing here is the observable effect of
     // --verbose reaching runInstall through the empty-args refresh call.
     expect(out.join("")).toMatch(/^ {2}ok$/m);
-  });
-
-  it("reports the current version when nothing to upgrade", async () => {
-    const { out } = captureStreams();
-    const { run } = fakeRunner();
-    await runUpdate([], {
-      globals: GLOBALS,
-      runner: run,
-      source: GLOBAL_SOURCE,
-      check: current,
-    });
-    expect(out.join("")).toMatch(/CLI already at 0\.10\.0/);
   });
 
   it("refuses the upgrade outside a global install but still refreshes", async () => {
