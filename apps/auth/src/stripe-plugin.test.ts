@@ -21,20 +21,22 @@ function dbEnv(overrides: Partial<TestEnv> = {}): TestEnv {
   };
 }
 
-const BOTH_SECRETS = {
+const ALL_BRIDGE_DEPS = {
   STRIPE_SECRET_KEY: "sk_test_123",
   STRIPE_WEBHOOK_SECRET: "whsec_123",
+  API: { fetch: async () => new Response(null, { status: 204 }) } as unknown as Fetcher,
+  BILLING_INTERNAL_KEY: "shh-its-secret",
 };
 
 describe("stripePluginOrNone", () => {
   it("returns [] when STRIPE_SECRET_KEY is missing", () => {
-    const env = dbEnv({ STRIPE_WEBHOOK_SECRET: "whsec_123" });
+    const env = dbEnv({ ...ALL_BRIDGE_DEPS, STRIPE_SECRET_KEY: undefined });
     const db = drizzle(env.DB, { schema });
     expect(stripePluginOrNone(env, db)).toEqual([]);
   });
 
   it("returns [] when STRIPE_WEBHOOK_SECRET is missing", () => {
-    const env = dbEnv({ STRIPE_SECRET_KEY: "sk_test_123" });
+    const env = dbEnv({ ...ALL_BRIDGE_DEPS, STRIPE_WEBHOOK_SECRET: undefined });
     const db = drizzle(env.DB, { schema });
     expect(stripePluginOrNone(env, db)).toEqual([]);
   });
@@ -45,8 +47,20 @@ describe("stripePluginOrNone", () => {
     expect(stripePluginOrNone(env, db)).toEqual([]);
   });
 
-  it("returns exactly one plugin when both secrets are present", () => {
-    const env = dbEnv({ ...BOTH_SECRETS });
+  it("returns [] when the API service binding is missing", () => {
+    const env = dbEnv({ ...ALL_BRIDGE_DEPS, API: undefined });
+    const db = drizzle(env.DB, { schema });
+    expect(stripePluginOrNone(env, db)).toEqual([]);
+  });
+
+  it("returns [] when BILLING_INTERNAL_KEY is missing", () => {
+    const env = dbEnv({ ...ALL_BRIDGE_DEPS, BILLING_INTERNAL_KEY: undefined });
+    const db = drizzle(env.DB, { schema });
+    expect(stripePluginOrNone(env, db)).toEqual([]);
+  });
+
+  it("returns exactly one plugin when all bridge deps are present", () => {
+    const env = dbEnv({ ...ALL_BRIDGE_DEPS });
     const db = drizzle(env.DB, { schema });
     const plugins = stripePluginOrNone(env, db);
     expect(plugins).toHaveLength(1);

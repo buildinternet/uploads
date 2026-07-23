@@ -1,9 +1,13 @@
 /**
- * Stripe phase 2, task 5: mounts `@better-auth/stripe`, gated on both
- * STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET resolving — until then,
+ * Stripe phase 2, task 5: mounts `@better-auth/stripe`, gated on ALL of the
+ * bridge's prerequisites resolving — STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+ * the `API` service binding, and BILLING_INTERNAL_KEY. Until then,
  * `stripePluginOrNone` returns `[]` and the plugin (and its `subscription`
  * table writes, webhook route, etc.) is entirely absent from the Better Auth
- * instance. `stripePlans(env)` (Task 2) itself degrades to `[]` when
+ * instance. A checkout that can't sync the resulting plan to the workspace
+ * record (billing-bridge.ts) must not be sellable in the first place — hence
+ * gating on the bridge deps too, not just the two Stripe secrets.
+ * `stripePlans(env)` (Task 2) itself degrades to `[]` when
  * STRIPE_PRO_PRICE_ID is unset, so a secrets-only-partial deploy still mounts
  * a plugin with zero purchasable plans rather than throwing.
  *
@@ -62,12 +66,20 @@ export async function isOrgBillingAdmin(
 }
 
 /**
- * `[]` unless both `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` resolve —
- * otherwise a single configured `stripe()` plugin. Spread into auth.ts's
- * `plugins` array right after `organization()`.
+ * `[]` unless `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, the `API` service
+ * binding, and `BILLING_INTERNAL_KEY` all resolve — otherwise a single
+ * configured `stripe()` plugin. Spread into auth.ts's `plugins` array right
+ * after `organization()`.
  */
 export function stripePluginOrNone(env: StripePluginEnv, db: Db) {
-  if (!env.STRIPE_SECRET_KEY || !env.STRIPE_WEBHOOK_SECRET) return [];
+  if (
+    !env.STRIPE_SECRET_KEY ||
+    !env.STRIPE_WEBHOOK_SECRET ||
+    !env.API ||
+    !env.BILLING_INTERNAL_KEY
+  ) {
+    return [];
+  }
 
   const stripeClient = new Stripe(env.STRIPE_SECRET_KEY, {
     apiVersion: "2026-06-24.dahlia",

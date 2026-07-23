@@ -123,4 +123,21 @@ describe("syncWorkspacePlan", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("resolves (never rejects) and logs when the org-slug lookup itself throws", async () => {
+    const env = dbEnv({ BILLING_INTERNAL_KEY: "shh-its-secret" });
+    const orgId = await seedOrganization(env, "acme");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    env.API = { fetch: fetchMock } as unknown as Fetcher;
+
+    const brokenOrm = {
+      select: () => {
+        throw new Error("D1 is down");
+      },
+    } as unknown as ReturnType<typeof drizzle<typeof schema>>;
+
+    await expect(syncWorkspacePlan(env, brokenOrm, orgId, "pro")).resolves.toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+  });
 });

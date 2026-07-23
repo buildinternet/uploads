@@ -6,10 +6,17 @@
  * `x-internal-billing-key` secret.
  *
  * Deliberately never throws: a webhook handler calling this must not 500
- * because the KV bridge hiccuped. Stripe retries the webhook on failure, and
- * the `subscription` table (Task 1's schema) remains the source of truth
- * regardless of whether this sync landed — so every failure path here is
- * `console.error` + return, not a thrown error.
+ * because the KV bridge hiccuped. The entire body — including the org-slug
+ * lookup — runs inside a single try/catch so a D1 failure can't escape as a
+ * rejected promise either. Every failure path here is `console.error` +
+ * return, not a thrown error.
+ *
+ * Because failures are swallowed, the webhook returns 2xx and Stripe will
+ * NOT retry a failed sync. That's a deliberate tradeoff, not an oversight:
+ * the auth-side `subscription` table (Task 1's schema) remains the source of
+ * truth regardless of whether this sync landed, and an operator can re-run
+ * the sync via the idempotent internal route. A persistent outbox/
+ * reconciliation job is deferred until real traffic justifies it (#388).
  */
 import { eq } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
@@ -30,27 +37,27 @@ export async function syncWorkspacePlan(
   referenceId: string,
   plan: "free" | "pro",
 ): Promise<void> {
-  const rows = await db
-    .select({ slug: schema.organization.slug })
-    .from(schema.organization)
-    .where(eq(schema.organization.id, referenceId))
-    .limit(1);
-  const slug = rows[0]?.slug;
-  if (!slug) {
-    console.error(`syncWorkspacePlan: unknown organization id ${referenceId}`);
-    return;
-  }
-
-  if (!env.API) {
-    console.error("syncWorkspacePlan: env.API service binding is not configured");
-    return;
-  }
-  if (!env.BILLING_INTERNAL_KEY) {
-    console.error("syncWorkspacePlan: BILLING_INTERNAL_KEY is not configured");
-    return;
-  }
-
   try {
+    const rows = await db
+      .select({ slug: schema.organization.slug })
+      .from(schema.organization)
+      .where(eq(schema.organization.id, referenceId))
+      .limit(1);
+    const slug = rows[0]?.slug;
+    if (!slug) {
+      console.error(`syncWorkspacePlan: unknown organization id ${referenceId}`);
+      return;
+    }
+
+    if (!env.API) {
+      console.error("syncWorkspacePlan: env.API service binding is not configured");
+      return;
+    }
+    if (!env.BILLING_INTERNAL_KEY) {
+      console.error("syncWorkspacePlan: BILLING_INTERNAL_KEY is not configured");
+      return;
+    }
+
     const response = await env.API.fetch("https://internal/internal/billing/plan", {
       method: "POST",
       headers: {
@@ -65,9 +72,6 @@ export async function syncWorkspacePlan(
       );
     }
   } catch (error) {
-    console.error(
-      `syncWorkspacePlan: POST /internal/billing/plan for workspace ${slug} threw`,
-      error,
-    );
+    console.error(`syncWorkspacePlan: failed for organization ${referenceId}`, error);
   }
 }
