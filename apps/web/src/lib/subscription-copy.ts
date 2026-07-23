@@ -46,8 +46,8 @@ export function formatDate(iso: string | null): string | null {
  *
  * - No subscription at all (free, or `planSource: "none"`) → `null`, no line.
  * - `planSource: "admin"` (comped paid plan, no Stripe subscription behind
- *   it) → muted "applied by an operator" copy, never a renewal date (there
- *   is nothing to renew).
+ *   it) → muted "included with your workspace" copy, never a renewal date
+ *   (there is nothing to renew).
  * - `status: "past_due"` → alert-toned copy pointing at the billing portal,
  *   regardless of `cancelAtPeriodEnd` (a past-due sub isn't safely "renewing").
  * - `cancelAtPeriodEnd: true` (still active) → honest "ends on <date>" copy
@@ -64,7 +64,7 @@ export function resolveSubscriptionCopy(
   const { planSource, subscription, priceText } = input;
 
   if (planSource === "admin") {
-    return { text: "Applied by an operator — no Stripe subscription.", tone: "muted" };
+    return { text: "Included with your workspace.", tone: "muted" };
   }
 
   if (planSource !== "stripe" || !subscription) return null;
