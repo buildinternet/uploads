@@ -36,6 +36,7 @@ import { runInvite } from "./commands/invite.js";
 import { runAdmin } from "./commands/admin-enrollment.js";
 import { runMcp } from "./commands/mcp.js";
 import { runInstall } from "./commands/install.js";
+import { runUpdate } from "./commands/update.js";
 import { runCompletion } from "./commands/completion.js";
 import { runLogout, runWhoami } from "./commands/session.js";
 import { runTelemetry } from "./commands/telemetry.js";
@@ -340,6 +341,9 @@ export async function runCli(argv: string[]): Promise<number> {
         break;
       case "install":
         code = await runInstall(cmdArgs, { globals: parsed.globals, json }, showHelp);
+        break;
+      case "update":
+        code = await runUpdate(cmdArgs, { globals: parsed.globals }, showHelp);
         break;
       case "completion":
       case "completions":

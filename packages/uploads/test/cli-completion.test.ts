@@ -67,6 +67,10 @@ describe("generateCompletionScript", () => {
     // put/attach still get their own flags, without screenshot in that group.
     expect(fish).toMatch(/__fish_seen_subcommand_from put attach' -l name/);
   });
+
+  it("includes the update command", () => {
+    expect(ROOT_COMMANDS.map((c) => c.name)).toContain("update");
+  });
 });
 
 describe("runCompletion", () => {
