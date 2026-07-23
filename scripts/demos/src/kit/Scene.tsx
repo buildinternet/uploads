@@ -1,7 +1,7 @@
 import React from "react";
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { T } from "../tokens";
-import { rise } from "./helpers";
+import { CAPTION_CPF, typed, typedEnd } from "./helpers";
 
 /** The uploads.sh pixel mark (favicon chevrons). */
 const Mark: React.FC<{ size?: number }> = ({ size = 32 }) => (
@@ -25,17 +25,26 @@ const Mark: React.FC<{ size?: number }> = ({ size = 32 }) => (
 export const Scene: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <AbsoluteFill
     style={{
-      background: `radial-gradient(100% 72% at 50% 30%, #111015 0%, ${T.bg} 68%)`,
+      background: `radial-gradient(110% 80% at 50% 24%, #16111f 0%, ${T.bg} 66%)`,
     }}
   >
+    {/* Session frame — hairline inset that reads as a terminal session border. */}
+    <div
+      style={{
+        position: "absolute",
+        inset: 36,
+        border: "1px solid rgba(194,126,255,.14)",
+        borderRadius: 12,
+      }}
+    />
     <AbsoluteFill
       style={{
-        padding: "100px 80px",
+        padding: "160px 80px 110px",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: 44,
+        gap: 48,
       }}
     >
       {children}
@@ -43,8 +52,8 @@ export const Scene: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     <div
       style={{
         position: "absolute",
-        bottom: 42,
-        right: 48,
+        bottom: 64,
+        right: 78,
         display: "flex",
         alignItems: "center",
         gap: 13,
@@ -59,7 +68,11 @@ export const Scene: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   </AbsoluteFill>
 );
 
-/** Headline slot. Swaps text as each `swaps` entry's frame is reached. */
+/*
+ * Headline slot — a typed mono line with a block caret, pinned to the top of
+ * the frame rather than flowing with the content column. Each `swaps` entry
+ * retypes from scratch at its frame instead of cross-fading.
+ */
 export const Caption: React.FC<{
   text: string;
   start?: number;
@@ -74,22 +87,50 @@ export const Caption: React.FC<{
       key = s.at;
     }
   }
+  const visible = typed(active, frame, key, CAPTION_CPF);
+  /*
+   * Caret sells the typing, then gets out of the way — a cursor parked under a
+   * static headline just pulls the eye off the terminal. It also stays hidden
+   * before the first character lands: the untyped tail holds full width, so a
+   * caret with nothing typed yet floats alone at the far right of the row.
+   */
+  const done = frame >= typedEnd(active, key, CAPTION_CPF);
+  const caretOn = visible.length > 0 && !done;
   return (
     <div
       style={{
-        fontFamily: T.sans,
-        fontWeight: 560,
-        fontSize: 56,
-        letterSpacing: "-0.02em",
-        color: T.fg,
-        textAlign: "center",
-        whiteSpace: "nowrap",
-        opacity: rise(frame, key, 10),
-        translate: `0px ${(1 - rise(frame, key, 10)) * 10}px`,
-        minHeight: 70,
+        position: "absolute",
+        top: 72,
+        left: 0,
+        right: 0,
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "baseline",
+        gap: 16,
       }}
     >
-      {active}
+      <div
+        style={{
+          fontFamily: T.mono,
+          fontSize: 44,
+          letterSpacing: "0.04em",
+          color: T.fg,
+          whiteSpace: "pre",
+        }}
+      >
+        {visible}
+        {/* Untyped tail holds its width so the centered row never reflows. */}
+        <span style={{ visibility: "hidden" }}>{active.slice(visible.length)}</span>
+      </div>
+      <div
+        style={{
+          width: 20,
+          height: 38,
+          background: T.accent,
+          opacity: caretOn ? 1 : 0,
+          transform: "translateY(4px)",
+        }}
+      />
     </div>
   );
 };

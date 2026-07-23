@@ -7,6 +7,115 @@ import { T } from "../tokens";
  * half-finished: muted title, one row, dashed placeholders — the "before"
  * or early-draft state.
  */
+/*
+ * A legible fake screenshot, for the loops where the shot *is* the payoff and
+ * the abstract skeleton below reads as noise. Designed at 470 wide; every
+ * dimension scales from there.
+ */
+export const CheckoutShot: React.FC<{
+  width?: number;
+  label?: string;
+  labelOpacity?: number;
+}> = ({ width = 470, label, labelOpacity = 1 }) => {
+  const s = width / 470;
+  const px = (n: number) => Math.round(n * s);
+  const row = (name: string, price: string) => (
+    <div
+      key={name}
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        fontSize: px(17),
+        borderBottom: `1px solid ${T.line}`,
+        paddingBottom: px(10),
+      }}
+    >
+      <span style={{ color: T.body }}>{name}</span>
+      <span style={{ color: T.fg }}>{price}</span>
+    </div>
+  );
+  return (
+    <div style={{ width, display: "flex", flexDirection: "column", gap: px(8) }}>
+      <div
+        style={{
+          width,
+          background: "#17171a",
+          border: `1px solid ${T.line}`,
+          borderRadius: T.radiusMd,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            height: px(44),
+            borderBottom: `1px solid ${T.line}`,
+            display: "flex",
+            alignItems: "center",
+            gap: px(8),
+            padding: `0 ${px(16)}px`,
+          }}
+        >
+          <div style={{ width: px(8), height: px(8), borderRadius: 999, background: T.line }} />
+          <div style={{ width: px(8), height: px(8), borderRadius: 999, background: T.line }} />
+          <span
+            style={{
+              marginLeft: px(10),
+              fontFamily: T.mono,
+              fontSize: px(15),
+              color: T.muted,
+            }}
+          >
+            shop.dev/checkout
+          </span>
+        </div>
+        <div
+          style={{
+            padding: `${px(18)}px ${px(20)}px ${px(20)}px`,
+            fontFamily: T.sans,
+            display: "flex",
+            flexDirection: "column",
+            gap: px(12),
+          }}
+        >
+          <div style={{ fontSize: px(22), fontWeight: 650, color: T.fg }}>Checkout</div>
+          {row("Canvas tote", "$48")}
+          {row("Enamel mug", "$22")}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <span style={{ fontSize: px(16), color: T.muted }}>Total</span>
+            <span style={{ fontSize: px(19), fontWeight: 650, color: T.fg }}>$70</span>
+          </div>
+          <div
+            style={{
+              background: T.accent,
+              color: T.bg,
+              fontSize: px(17),
+              fontWeight: 650,
+              borderRadius: px(7),
+              padding: `${px(10)}px 0`,
+              textAlign: "center",
+            }}
+          >
+            Place order
+          </div>
+        </div>
+      </div>
+      {label ? (
+        <div
+          style={{
+            fontFamily: T.mono,
+            fontSize: px(19),
+            color: T.muted,
+            textAlign: "center",
+            opacity: labelOpacity,
+          }}
+        >
+          {label}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 export const Shot: React.FC<{
   variant?: 0 | 1 | 2;
   width?: number;
