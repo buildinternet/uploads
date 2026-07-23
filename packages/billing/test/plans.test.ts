@@ -19,6 +19,15 @@ describe("PLANS catalog", () => {
     expect(PLANS.pro.name.length).toBeGreaterThan(0);
   });
 
+  it("defines pro with the decided simplified limits (2026-07-22)", () => {
+    expect(PLANS.pro.defaultLimits).toEqual({
+      maxStorageBytes: 10_000_000_000,
+      maxUploadsPerPeriod: 100_000,
+      maxUploadBytes: 100_000_000,
+      maxVideoUploadBytes: 100_000_000,
+    });
+  });
+
   it("every plan's id matches its catalog key", () => {
     for (const [key, plan] of Object.entries(PLANS)) {
       expect(plan.id).toBe(key);

@@ -69,7 +69,7 @@ describe("planResponse", () => {
     expect(result.plan).toBe("pro");
     expect(result.available).toBe(false);
     expect(result.planApplied).toBe(true);
-    expect(result.limits.maxStorageBytes).toBe(25_000_000_000);
+    expect(result.limits.maxStorageBytes).toBe(10_000_000_000);
   });
 
   it("fails open to free for an unrecognized stored plan string, but still applies plan-aware resolution", () => {
