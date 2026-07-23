@@ -21,9 +21,13 @@ export const fall = (frame: number, start: number, dur = 12) =>
 /** Typing speed for `Cmd` lines, in characters per frame. */
 const CPF = 1.3;
 
+/** Typing speed for the headline caption — slower, ~25 chars/s at 30fps. */
+export const CAPTION_CPF = 0.85;
+
 /** Characters visible for a line that starts typing at `start`. */
-export const typed = (text: string, frame: number, start: number) =>
-  text.slice(0, Math.max(0, Math.floor((frame - start) * CPF)));
+export const typed = (text: string, frame: number, start: number, cpf = CPF) =>
+  text.slice(0, Math.max(0, Math.floor((frame - start) * cpf)));
 
 /** Frame at which typing that starts at `start` finishes. */
-export const typedEnd = (text: string, start: number) => start + Math.ceil(text.length / CPF);
+export const typedEnd = (text: string, start: number, cpf = CPF) =>
+  start + Math.ceil(text.length / cpf);

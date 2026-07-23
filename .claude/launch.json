@@ -39,6 +39,16 @@
       "port": 8787
     },
     {
+      "name": "demos",
+      "runtimeExecutable": "zsh",
+      "runtimeArgs": [
+        "-c",
+        "export NVM_DIR=\"${NVM_DIR:-$HOME/.nvm}\"; [ -s \"$NVM_DIR/nvm.sh\" ] && . \"$NVM_DIR/nvm.sh\" && nvm use --silent; pnpm --filter @uploads/demos exec remotion studio --no-open --port ${PORT:-3010}"
+      ],
+      "port": 3010,
+      "autoPort": true
+    },
+    {
       "name": "web-preview",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@uploads/web", "preview", "--port", "4322"],

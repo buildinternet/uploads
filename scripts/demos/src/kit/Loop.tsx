@@ -1,26 +1,22 @@
 import React from "react";
-import { useCurrentFrame } from "remotion";
-import { rise } from "./helpers";
 
 /*
- * Loop restart: the video ends on the full assembled frame (never blank —
- * players and thumbnails show real content), and each pass opens with a
- * quick fade-in, so the end→start cut reads as an intentional restart.
+ * Loop restart: the video ends on the full assembled frame and restarts on the
+ * bare scaffold — terminal chrome, PR card — with every dynamic line animating
+ * itself back in. Deliberately NO container-level fade here: each child already
+ * rises on its own, so a wrapper fade only hid the scaffold and left frame 0
+ * blank, which players and thumbnails happily use as the poster.
  */
-export const Loop: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const frame = useCurrentFrame();
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 44,
-        width: "100%",
-        opacity: rise(frame, 0, 7),
-      }}
-    >
-      {children}
-    </div>
-  );
-};
+export const Loop: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div
+    style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 48,
+      width: "100%",
+    }}
+  >
+    {children}
+  </div>
+);

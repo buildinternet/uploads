@@ -32,11 +32,11 @@ export const BeforeAfter: React.FC = () => {
         <TerminalFrame branch="feat/settings">
           <Cmd text="uploads put settings-before.png" start={12} caretUntil={46} />
           <Out start={48} color={T.muted}>
-            ✓ …/settings-before.png
+            ✓ …/feat-settings/settings-before.png
           </Out>
           <Cmd text="uploads put settings-after.png" start={66} caretUntil={100} />
           <Out start={102} color={T.muted}>
-            ✓ …/settings-after.png
+            ✓ …/feat-settings/settings-after.png
           </Out>
         </TerminalFrame>
         <div style={{ position: "relative", width: W, height: H + 40 }}>

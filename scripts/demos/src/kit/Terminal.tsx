@@ -102,18 +102,24 @@ const Caret: React.FC<{ on: boolean }> = ({ on }) => (
   />
 );
 
-/** Output line fading in at `start`. */
+/*
+ * Output line fading in at `start` — including the payoff URL lines. A
+ * selection-style highlight sweep was tried on those and cut: against real
+ * output it read as noise rather than emphasis.
+ */
 export const Out: React.FC<{
   start: number;
   color?: string;
+  fontSize?: number;
   children: React.ReactNode;
-}> = ({ start, color = T.body, children }) => {
+}> = ({ start, color = T.body, fontSize, children }) => {
   const frame = useCurrentFrame();
   return (
     <div
       style={{
         whiteSpace: "pre",
         color,
+        fontSize,
         opacity: rise(frame, start, 8),
         translate: `0px ${(1 - rise(frame, start, 8)) * 8}px`,
       }}

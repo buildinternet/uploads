@@ -5,7 +5,7 @@ import { fall, rise } from "../kit/helpers";
 import { Cmd, Out, TerminalFrame } from "../kit/Terminal";
 import { Caption, Scene } from "../kit/Scene";
 import { Loop } from "../kit/Loop";
-import { Shot } from "../kit/Shot";
+import { CheckoutShot } from "../kit/Shot";
 
 /*
  * Loop 4 — problem framing (~8s).
@@ -14,7 +14,9 @@ import { Shot } from "../kit/Shot";
  */
 export const Why: React.FC = () => {
   const frame = useCurrentFrame();
-  const placeholder = Math.min(rise(frame, 30, 10), fall(frame, 140, 8));
+  // Present from frame 0 — the empty state IS the premise, so it should be
+  // whole in the poster frame rather than fading in after the loop starts.
+  const placeholder = fall(frame, 140, 8);
   const termUp = rise(frame, 56, 14);
   const markdown = rise(frame, 132, 10);
   const rendered = rise(frame, 146, 12);
@@ -78,7 +80,6 @@ export const Why: React.FC = () => {
                   height: 12,
                   borderRadius: 4,
                   background: T.line,
-                  opacity: rise(frame, 6 + i * 6, 8),
                 }}
               />
             ))}
@@ -101,15 +102,18 @@ export const Why: React.FC = () => {
                 <div
                   style={{
                     fontFamily: T.mono,
-                    fontSize: 21,
+                    fontSize: 18,
                     color: T.accent,
                     opacity: markdown,
+                    whiteSpace: "pre",
                   }}
                 >
-                  ![onboarding](storage.uploads.sh/zach/onboarding.png)
+                  {"![onboarding](storage.uploads.sh/zach/"}
+                  <span style={{ fontWeight: 600 }}>fix-onboarding</span>
+                  {"/onboarding.png)"}
                 </div>
                 <div style={{ opacity: rendered, scale: String(0.95 + rendered * 0.05) }}>
-                  <Shot variant={0} width={330} height={128} />
+                  <CheckoutShot width={400} />
                 </div>
               </>
             ) : (
@@ -138,8 +142,10 @@ export const Why: React.FC = () => {
         >
           <TerminalFrame width={880} branch="fix/onboarding">
             <Cmd text="uploads put onboarding.png" start={66} caretUntil={100} />
-            <Out start={102} color={T.accent}>
-              storage.uploads.sh/zach/onboarding.png
+            <Out start={102} color={T.accent} fontSize={25}>
+              {"storage.uploads.sh/zach/"}
+              <span style={{ fontWeight: 600 }}>fix-onboarding</span>
+              {"/onboarding.png"}
             </Out>
           </TerminalFrame>
         </div>
