@@ -34,11 +34,19 @@ export interface FileBrowserProps {
   ) => React.ReactNode;
 }
 
+/** Decimal SI sizes — matches account/billing and CLI (250 MB free, not 238 MB). */
 const formatBytes = (bytes: number): string => {
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / 1024 ** exponent).toFixed(exponent === 0 ? 0 : 1)} ${units[exponent]}`;
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  if (bytes < 1000) return `${Math.round(bytes)} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1000;
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  const rounded = value >= 10 ? Math.round(value) : Math.round(value * 10) / 10;
+  return `${rounded} ${units[unit]}`;
 };
 
 const crumbsOf = (prefix: string, delimiter: string) => {

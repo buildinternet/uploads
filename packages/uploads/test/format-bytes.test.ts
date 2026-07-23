@@ -5,17 +5,16 @@ describe("formatByteSize", () => {
   it("keeps small values in bytes", () => {
     expect(formatByteSize(0)).toBe("0 B");
     expect(formatByteSize(512)).toBe("512 B");
-    expect(formatByteSize(1023)).toBe("1023 B");
+    expect(formatByteSize(999)).toBe("999 B");
   });
 
-  it("formats KB and MB with one decimal (1024-based)", () => {
-    expect(formatByteSize(1024)).toBe("1.0 KB");
-    expect(formatByteSize(96412)).toBe("94.2 KB");
-    expect(formatByteSize(421337)).toBe("411.5 KB");
-    expect(formatByteSize(1024 * 1024)).toBe("1.0 MB");
-    expect(formatByteSize(1.5 * 1024 * 1024)).toBe("1.5 MB");
-    // Plan free cap would look wrong with binary units:
-    expect(formatByteSize(250_000_000)).toBe("238.4 MB");
+  it("formats KB and MB with decimal SI units", () => {
+    expect(formatByteSize(1000)).toBe("1 KB");
+    expect(formatByteSize(1500)).toBe("1.5 KB");
+    expect(formatByteSize(1_500_000)).toBe("1.5 MB");
+    expect(formatByteSize(1_000_000)).toBe("1 MB");
+    // Free plan cap must read as marketed 250 MB, not binary 238.4 MB.
+    expect(formatByteSize(250_000_000)).toBe("250 MB");
   });
 
   it("handles non-finite input", () => {
