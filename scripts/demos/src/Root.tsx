@@ -13,6 +13,6 @@ export const Root: React.FC = () => (
     <Composition id="put-url" component={PutUrl} durationInFrames={210} {...SIZE} />
     <Composition id="staged-loop" component={StagedLoop} durationInFrames={330} {...SIZE} />
     <Composition id="before-after" component={BeforeAfter} durationInFrames={240} {...SIZE} />
-    <Composition id="why" component={Why} durationInFrames={300} {...SIZE} />
+    <Composition id="why" component={Why} durationInFrames={240} {...SIZE} />
   </>
 );

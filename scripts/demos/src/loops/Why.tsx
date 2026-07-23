@@ -8,28 +8,22 @@ import { Loop } from "../kit/Loop";
 import { Shot } from "../kit/Shot";
 
 /*
- * Loop 4 — problem framing (~9s).
- * An agent's PR arrives all text, no visuals. Collecting screenshots today
- * is an end-of-task scramble (checking out main just to capture a before);
- * `uploads put` lets the agent show its work instead.
+ * Loop 4 — problem framing (~8s).
+ * An agent's PR arrives all text, no visuals. One `uploads put` and the
+ * screenshot renders in the PR body — the agent shows its work.
  */
 export const Why: React.FC = () => {
   const frame = useCurrentFrame();
-  const placeholder = Math.min(rise(frame, 30, 10), fall(frame, 212, 8));
+  const placeholder = Math.min(rise(frame, 30, 10), fall(frame, 140, 8));
   const termUp = rise(frame, 56, 14);
-  const scramble = Math.min(termUp, fall(frame, 152, 10));
-  const fix = rise(frame, 160, 10);
-  const markdown = rise(frame, 216, 10);
-  const rendered = rise(frame, 230, 12);
+  const markdown = rise(frame, 132, 10);
+  const rendered = rise(frame, 146, 12);
   return (
     <Scene>
       <Loop>
         <Caption
-          text="Agent PRs: no screenshots."
-          swaps={[
-            { at: 70, text: "The screenshot scramble." },
-            { at: 164, text: "Agents show their work." },
-          ]}
+          text="Agent PRs: no screenshots"
+          swaps={[{ at: 118, text: "Agents show their work" }]}
         />
         {/* The agent's PR — all text, no visuals */}
         <div
@@ -135,37 +129,19 @@ export const Why: React.FC = () => {
             )}
           </div>
         </div>
-        {/* Terminal: the scramble, then the fix */}
-        <div style={{ position: "relative", width: 880, height: 314 }}>
-          <div
-            style={{
-              position: "absolute",
-              inset: "0 0 auto 0",
-              opacity: scramble,
-              translate: `0px ${(1 - termUp) * 40}px`,
-            }}
-          >
-            <TerminalFrame width={880} branch="fix/onboarding">
-              <Cmd text="git checkout main" start={64} caretUntil={88} cpf={2.2} />
-              <Cmd text="playwright screenshot before.png" start={88} caretUntil={118} cpf={2.2} />
-              <Cmd text="git checkout fix/onboarding" start={118} caretUntil={152} cpf={2.2} />
-            </TerminalFrame>
-          </div>
-          <div
-            style={{
-              position: "absolute",
-              inset: "0 0 auto 0",
-              opacity: fix,
-              translate: `0px ${(1 - fix) * 24}px`,
-            }}
-          >
-            <TerminalFrame width={880} branch="fix/onboarding">
-              <Cmd text="uploads put onboarding.png" start={166} caretUntil={200} />
-              <Out start={202} color={T.accent}>
-                storage.uploads.sh/zach/onboarding.png
-              </Out>
-            </TerminalFrame>
-          </div>
+        {/* Terminal: one put is the whole fix */}
+        <div
+          style={{
+            opacity: termUp,
+            translate: `0px ${(1 - termUp) * 40}px`,
+          }}
+        >
+          <TerminalFrame width={880} branch="fix/onboarding">
+            <Cmd text="uploads put onboarding.png" start={66} caretUntil={100} />
+            <Out start={102} color={T.accent}>
+              storage.uploads.sh/zach/onboarding.png
+            </Out>
+          </TerminalFrame>
         </div>
       </Loop>
     </Scene>

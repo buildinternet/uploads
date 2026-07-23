@@ -26,7 +26,7 @@ export const PutUrl: React.FC = () => {
               height: 36,
             }}
           >
-            for coding agents.
+            for coding agents
           </div>
         </div>
         <TerminalFrame>

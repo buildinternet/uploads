@@ -32,10 +32,7 @@ export const StagedLoop: React.FC = () => {
   return (
     <Scene>
       <Loop>
-        <Caption
-          text="Saved as it works."
-          swaps={[{ at: 256, text: "Ready when the PR opens." }]}
-        />
+        <Caption text="Saved as it works" swaps={[{ at: 256, text: "Ready when the PR opens" }]} />
         <div style={{ position: "relative", width: 920, height: 640 }}>
           {/* Phase A: branch rail + terminal */}
           <div

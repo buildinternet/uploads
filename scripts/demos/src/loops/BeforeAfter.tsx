@@ -28,7 +28,7 @@ export const BeforeAfter: React.FC = () => {
   return (
     <Scene>
       <Loop>
-        <Caption text="Automatic before / after." />
+        <Caption text="Auto before + after" />
         <TerminalFrame branch="feat/settings">
           <Cmd text="uploads put settings-before.png" start={12} caretUntil={46} />
           <Out start={48} color={T.muted}>
