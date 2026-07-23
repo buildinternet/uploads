@@ -126,6 +126,32 @@ export async function desiredPlanFor(db: Db, referenceId: string): Promise<"free
   return rows.some((row) => isStripeBackingStatus(row.status)) ? "pro" : "free";
 }
 
+/**
+ * Run one finalization write (the delete-on-success or update-on-failure that
+ * closes out a drained row), absorbing a D1 error so one bad write can't abort
+ * the rest of the batch. Returns whether the write went through.
+ */
+async function finalize(
+  write: () => Promise<unknown>,
+  referenceId: string,
+  kind: "delete" | "update",
+): Promise<boolean> {
+  try {
+    await write();
+    return true;
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        message: "billing_outbox_finalize_failed",
+        referenceId,
+        kind,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    return false;
+  }
+}
+
 export interface OutboxDrainResult {
   /** Rows that were due and attempted this pass. */
   attempted: number;
@@ -220,24 +246,47 @@ export async function runPlanSyncOutbox(
       failure = error instanceof Error ? error.message : String(error);
     }
 
+    // Both finalization writes are guarded on the `updatedAt` this row was
+    // read with, and both are wrapped so a D1 error finishes this row rather
+    // than aborting the rest of the batch.
+    //
+    // The guard matters because `enqueuePlanSync` can land between this row's
+    // SELECT and its write: a genuinely new failure for the same org resets
+    // the row, and an unguarded delete would drop that fresh intent (or an
+    // unguarded update would clobber its reset attempt count). A no-op write
+    // leaves the newer row alone for the next pass, which is the safe way to
+    // lose the race.
+    const unchanged = and(
+      eq(schema.billingPlanOutbox.referenceId, row.referenceId),
+      eq(schema.billingPlanOutbox.updatedAt, row.updatedAt),
+    );
+
     if (failure === null) {
-      await db
-        .delete(schema.billingPlanOutbox)
-        .where(eq(schema.billingPlanOutbox.referenceId, row.referenceId));
-      result.synced += 1;
+      const finalized = await finalize(
+        () => db.delete(schema.billingPlanOutbox).where(unchanged),
+        row.referenceId,
+        "delete",
+      );
+      if (finalized) result.synced += 1;
       continue;
     }
 
     const attempts = row.attempts + 1;
-    await db
-      .update(schema.billingPlanOutbox)
-      .set({
-        attempts,
-        lastError: failure,
-        nextAttemptAt: new Date(now.getTime() + backoffSeconds(attempts) * 1000),
-        updatedAt: now,
-      })
-      .where(eq(schema.billingPlanOutbox.referenceId, row.referenceId));
+    const finalized = await finalize(
+      () =>
+        db
+          .update(schema.billingPlanOutbox)
+          .set({
+            attempts,
+            lastError: failure,
+            nextAttemptAt: new Date(now.getTime() + backoffSeconds(attempts) * 1000),
+            updatedAt: now,
+          })
+          .where(unchanged),
+      row.referenceId,
+      "update",
+    );
+    if (!finalized) continue;
 
     if (attempts >= MAX_ATTEMPTS) {
       result.exhausted += 1;

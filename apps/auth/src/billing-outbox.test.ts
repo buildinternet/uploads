@@ -312,6 +312,76 @@ describe("runPlanSyncOutbox", () => {
     expect(JSON.parse(init.body as string)).toEqual({ workspace: "acme", plan: "pro" });
   });
 
+  it("keeps a fresh re-enqueue that lands mid-drain", async () => {
+    // enqueuePlanSync can run between this row's SELECT and its delete — a
+    // genuinely new failure for the same org. The delete is guarded on the
+    // updatedAt the row was read with, so it no-ops rather than dropping that
+    // fresh intent.
+    const env = dbEnv();
+    const orm_ = orm(env);
+    const orgId = await seedOrganization(env, "acme");
+    await seedSubscription(env, orgId, "active");
+    await enqueuePlanSync(orm_, orgId, "status 500", NOW);
+
+    const later = new Date(NOW.getTime() + 300_000);
+    env.API = {
+      fetch: vi.fn(async () => {
+        await enqueuePlanSync(orm_, orgId, "newer failure", later);
+        return new Response(null, { status: 204 });
+      }),
+    } as unknown as Fetcher;
+
+    const result = await runPlanSyncOutbox(env, orm_, new Date(NOW.getTime() + 120_000));
+
+    // The POST landed, so the pass counts as synced...
+    expect(result.synced).toBe(1);
+    // ...but the newer intent survives for the next pass.
+    const rows = await outboxRows(env);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].lastError).toBe("newer failure");
+    expect(rows[0].attempts).toBe(0);
+  });
+
+  it("finishes the batch when a finalization write fails", async () => {
+    const env = dbEnv();
+    const realDb = orm(env);
+    const orgA = await seedOrganization(env, "acme");
+    const orgB = await seedOrganization(env, "beta");
+    await seedSubscription(env, orgA, "active");
+    await seedSubscription(env, orgB, "active");
+    await enqueuePlanSync(realDb, orgA, "status 500", NOW);
+    await enqueuePlanSync(realDb, orgB, "status 500", NOW);
+
+    let deletes = 0;
+    const flakyDb = new Proxy(realDb, {
+      get(target, prop, receiver) {
+        if (prop === "delete") {
+          deletes += 1;
+          if (deletes === 1) {
+            return () => {
+              throw new Error("D1 write failed");
+            };
+          }
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+
+    env.API = { fetch: okFetch() } as unknown as Fetcher;
+
+    const result = await runPlanSyncOutbox(
+      env,
+      flakyDb as typeof realDb,
+      new Date(NOW.getTime() + 120_000),
+    );
+
+    // Both rows were attempted — the failed write didn't abort the batch.
+    expect(result.attempted).toBe(2);
+    expect(result.synced).toBe(1);
+    // The row whose delete failed is still queued, so it retries next pass.
+    expect(await outboxRows(env)).toHaveLength(1);
+  });
+
   it("drops a row whose organization no longer exists", async () => {
     const env = dbEnv();
     await enqueuePlanSync(orm(env), "org-that-vanished", "status 500", NOW);
