@@ -49,6 +49,11 @@ export const user = sqliteTable("user", {
   banExpires: integer("ban_expires", { mode: "timestamp" }),
   /** First CLI device-flow session; sticky. */
   cliOnboardedAt: integer("cli_onboarded_at", { mode: "timestamp" }),
+  /** `@better-auth/stripe`'s `user` schema addition (dormant until the
+   * plugin is mounted — see docs/superpowers/plans/2026-07-22-stripe-phase2-
+   * better-auth-plugin.md). Paired migration:
+   * `migrations/20260722190000_stripe_subscription.sql`. */
+  stripeCustomerId: text("stripe_customer_id"),
 });
 
 /**
@@ -165,6 +170,10 @@ export const organization = sqliteTable("organization", {
   logo: text("logo"),
   createdAt: timestampCol("created_at"),
   metadata: text("metadata"),
+  /** `@better-auth/stripe`'s `organization` schema addition (dormant until
+   * the plugin is mounted). Paired migration:
+   * `migrations/20260722190000_stripe_subscription.sql`. */
+  stripeCustomerId: text("stripe_customer_id"),
 });
 
 /**
@@ -409,6 +418,39 @@ export const oauthWorkspaceChoice = sqliteTable("oauth_workspace_choice", {
 });
 
 /**
+ * `@better-auth/stripe`'s `subscription` model (Stripe phase 2, see
+ * docs/superpowers/plans/2026-07-22-stripe-phase2-better-auth-plugin.md).
+ * Dormant: the plugin only mounts when `STRIPE_SECRET_KEY` and
+ * `STRIPE_WEBHOOK_SECRET` are both set (src/auth.ts), so this table stays
+ * unwritten until then. Field set is mandated by the installed plugin
+ * version — reconciled against `@better-auth/stripe@1.6.23`'s
+ * `dist/index.mjs` `subscriptions` schema export, NOT the phase-2 plan's
+ * example (which omits `cancelAt`/`canceledAt`/`endedAt`/`billingInterval`/
+ * `stripeScheduleId`).
+ *
+ * Paired migration: `migrations/20260722190000_stripe_subscription.sql`.
+ */
+export const subscription = sqliteTable("subscription", {
+  id: text("id").primaryKey(),
+  plan: text("plan").notNull(),
+  referenceId: text("reference_id").notNull(),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  status: text("status").default("incomplete"),
+  periodStart: integer("period_start", { mode: "timestamp" }),
+  periodEnd: integer("period_end", { mode: "timestamp" }),
+  trialStart: integer("trial_start", { mode: "timestamp" }),
+  trialEnd: integer("trial_end", { mode: "timestamp" }),
+  cancelAtPeriodEnd: integer("cancel_at_period_end", { mode: "boolean" }).default(false),
+  cancelAt: integer("cancel_at", { mode: "timestamp" }),
+  canceledAt: integer("canceled_at", { mode: "timestamp" }),
+  endedAt: integer("ended_at", { mode: "timestamp" }),
+  seats: integer("seats"),
+  billingInterval: text("billing_interval"),
+  stripeScheduleId: text("stripe_schedule_id"),
+});
+
+/**
  * Drizzle relations for Better Auth `experimental.joins` (adapter needs these
  * on the same schema object as the tables). No SQL/migration impact.
  *
@@ -486,3 +528,4 @@ export type AuthInvitation = typeof invitation.$inferSelect;
 export type AuthDeviceCode = typeof deviceCode.$inferSelect;
 export type AuthOauthClient = typeof oauthClient.$inferSelect;
 export type AuthOauthWorkspaceChoice = typeof oauthWorkspaceChoice.$inferSelect;
+export type AuthSubscription = typeof subscription.$inferSelect;

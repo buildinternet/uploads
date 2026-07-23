@@ -17,6 +17,10 @@
     // token source for public-repo reads.
     "GITHUB_APP_HOME_INSTALLATION_ID": "147814297",
   },
+  // BILLING_INTERNAL_KEY (Stripe phase 2, task 3): shared secret gating
+  // POST /internal/billing/plan (routes/internal-billing.ts), set via
+  // `wrangler secret put` like ADMIN_TOKEN/GITHUB_APP_WEBHOOK_SECRET —
+  // never a plaintext var. Fail-closed: unset means the route always 401s.
   "routes": [
     {
       "pattern": "api.uploads.sh",

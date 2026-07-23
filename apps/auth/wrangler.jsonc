@@ -82,6 +82,19 @@
   // Magic-link delivery. uploads.sh is onboarded for Cloudflare Email Sending;
   // all auth mail comes from noreply@uploads.sh (D7).
   "send_email": [{ "name": "EMAIL", "allowed_sender_addresses": ["noreply@uploads.sh"] }],
+  // Service binding to apps/api (Stripe phase 2, task 4): lets
+  // src/billing-bridge.ts POST /internal/billing/plan over the binding when
+  // a Stripe webhook changes an org's subscription, mirroring apps/api's own
+  // AUTH binding back to this worker. Local-dev caveat: this only resolves
+  // when BOTH `wrangler dev` sessions (apps/auth and apps/api) are running
+  // concurrently — a solo `wrangler dev` here leaves env.API undefined, and
+  // billing-bridge.ts treats that as a no-op (logs, doesn't throw).
+  "services": [
+    {
+      "binding": "API",
+      "service": "uploads-api",
+    },
+  ],
   // Better Auth's own database-backed rate limiter (storage: "database" in
   // src/auth.ts) covers /api/auth/* abuse; this namespace is reserved for a
   // future edge-level limiter in front of it, following apps/api's and

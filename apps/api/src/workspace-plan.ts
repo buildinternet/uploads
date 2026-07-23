@@ -8,7 +8,7 @@
 import {
   getPlan,
   PLAN_IDS,
-  resolvePlanLimits,
+  resolveEffectiveLimits,
   type PlanId,
   type WorkspacePlanLimits,
 } from "@uploads/billing";
@@ -44,7 +44,8 @@ export function validatePlanPatch(body: unknown): { plan: PlanId } {
  * `false` means `limits` reflects raw overrides only (unlimited where
  * unset, mirroring the null-for-unlimited convention `limitsResponse`
  * uses above); `true` means `limits` reflects plan-aware resolution via
- * `resolvePlanLimits` (overrides layered onto the plan's defaults).
+ * the shared `resolveEffectiveLimits` seam (overrides layered onto the
+ * plan's defaults — see `@uploads/billing`'s `resolve.ts`; issue #388).
  */
 export function planResponse(name: string, record: WorkspaceRecord) {
   const definition = getPlan(record.plan);
@@ -52,15 +53,11 @@ export function planResponse(name: string, record: WorkspaceRecord) {
     (field) => record[field as keyof WorkspacePlanLimits] !== undefined,
   );
   const planApplied = record.plan !== undefined;
+  const resolved = resolveEffectiveLimits(record);
   const limits = planApplied
-    ? resolvePlanLimits(
-        record.plan,
-        Object.fromEntries(
-          LIMIT_FIELDS.map((field) => [field, record[field as keyof WorkspacePlanLimits]]),
-        ),
-      )
+    ? resolved
     : Object.fromEntries(
-        LIMIT_FIELDS.map((field) => [field, record[field as keyof WorkspacePlanLimits] ?? null]),
+        LIMIT_FIELDS.map((field) => [field, resolved[field as keyof WorkspacePlanLimits] ?? null]),
       );
   return {
     workspace: name,

@@ -45,12 +45,14 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
         <div class="settings-section">
           <button type="button" id="ws-upgrade-btn" disabled>Upgrade — coming soon</button>
+          <p class="muted" id="ws-billing-error" role="alert" hidden></p>
         </div>
       </div>
     </section>
   </div>
 
   <script>
+    import { PLANS } from "@uploads/billing";
     import {
       getPageVisit,
       isCurrentPageVisit,
@@ -59,6 +61,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       requireElement,
     } from "../../../../lib/account-shell";
     import { getWorkspaceBilling, type WorkspaceBilling } from "../../../../lib/api-client";
+    import {
+      openOrganizationBillingPortal,
+      upgradeOrganizationSubscription,
+    } from "../../../../lib/auth-client";
+    import { resolveBillingCta } from "../../../../lib/billing-cta";
     import { formatBytes } from "../../../../lib/workspace-ui";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
 
@@ -70,13 +77,19 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const stillHere = (): boolean => isCurrentPageVisit(visit);
       const w = window as unknown as {
         __UPLOADS_API_ORIGIN__: string;
+        __UPLOADS_AUTH_ORIGIN__: string;
         __UPLOADS_ACTIVE_WORKSPACE__: string;
       };
       const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+      const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
       const workspaceName = resolveActiveWorkspace(
         window.location.pathname,
         w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
       );
+      // Strip a stray `?upgraded=1` (Stripe checkout successUrl round-trip)
+      // before building the CTA's own successUrl/cancelUrl/returnUrl so a
+      // second upgrade attempt doesn't chain query params.
+      const billingTabUrl = `${window.location.origin}${window.location.pathname}`;
 
       const statusEl = requireElement<HTMLElement>("#ws-status", page);
       const retryBtn = requireElement<HTMLButtonElement>("#ws-retry", page);
@@ -85,6 +98,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const planNameEl = requireElement<HTMLElement>("#ws-plan-name", page);
       const planBlurbEl = requireElement<HTMLElement>("#ws-plan-blurb", page);
       const limitsListEl = requireElement<HTMLElement>("#ws-limits-list", page);
+      const upgradeBtn = requireElement<HTMLButtonElement>("#ws-upgrade-btn", page);
+      const billingErrorEl = requireElement<HTMLElement>("#ws-billing-error", page);
 
       function showError(message: string, retry = true): void {
         if (!stillHere()) return;
@@ -137,6 +152,65 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         limitsListEl.innerHTML = rows.join("");
       }
 
+      let organizationId = "";
+
+      function paintUpgradeButton(billing: WorkspaceBilling): void {
+        organizationId = billing.organization.id;
+        billingErrorEl.hidden = true;
+        billingErrorEl.textContent = "";
+
+        const cta = resolveBillingCta({ proAvailable: PLANS.pro.available, plan: billing.plan });
+        upgradeBtn.dataset.cta = cta.kind;
+        if (cta.kind === "unavailable") {
+          upgradeBtn.textContent = "Upgrade — coming soon";
+          upgradeBtn.disabled = true;
+        } else if (cta.kind === "upgrade") {
+          upgradeBtn.textContent = "Upgrade to Pro";
+          upgradeBtn.disabled = false;
+        } else {
+          upgradeBtn.textContent = "Manage billing";
+          upgradeBtn.disabled = false;
+        }
+      }
+
+      async function handleUpgradeClick(): Promise<void> {
+        const cta = upgradeBtn.dataset.cta;
+        if (cta !== "upgrade" && cta !== "manage") return;
+        if (!organizationId) {
+          billingErrorEl.hidden = false;
+          billingErrorEl.textContent = "upgrade failed — try again";
+          return;
+        }
+
+        billingErrorEl.hidden = true;
+        billingErrorEl.textContent = "";
+        upgradeBtn.disabled = true;
+
+        const result =
+          cta === "upgrade"
+            ? await upgradeOrganizationSubscription(authOrigin, {
+                plan: "pro",
+                referenceId: organizationId,
+                successUrl: `${billingTabUrl}?upgraded=1`,
+                cancelUrl: billingTabUrl,
+              })
+            : await openOrganizationBillingPortal(authOrigin, {
+                referenceId: organizationId,
+                returnUrl: billingTabUrl,
+              });
+
+        if (!stillHere()) return;
+        if (!result.ok) {
+          upgradeBtn.disabled = false;
+          billingErrorEl.hidden = false;
+          billingErrorEl.textContent =
+            cta === "upgrade" ? "upgrade failed — try again" : "couldn’t open billing — try again";
+          return;
+        }
+
+        location.href = result.url;
+      }
+
       async function loadBillingPage(): Promise<void> {
         if (!stillHere()) return;
         statusEl.hidden = false;
@@ -166,6 +240,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             : "This plan isn’t available for self-serve upgrade yet."
           : "No plan has been applied yet — limits below reflect what's currently enforced.";
         paintLimits(billing);
+        paintUpgradeButton(billing);
 
         statusEl.hidden = true;
         appEl.hidden = false;
@@ -178,6 +253,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
       retryBtn.addEventListener("click", () => {
         void loadBillingPage();
+      });
+
+      upgradeBtn.addEventListener("click", () => {
+        void handleUpgradeClick();
       });
 
       onSession(() => {

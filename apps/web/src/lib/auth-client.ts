@@ -747,6 +747,75 @@ export async function revokeSession(origin: string, token: string): Promise<bool
 }
 
 /**
+ * Stripe phase 2, task 6: organization-subscription wrappers for the
+ * workspace billing tab. Plain `fetch()` against the `@better-auth/stripe`
+ * plugin's REST endpoints (`/subscription/upgrade`, `/subscription/billing-
+ * portal`) rather than pulling in `better-auth/client` + `@better-auth/
+ * stripe/client` — this file's top-of-file doc explains why apps/web stays
+ * off the client-bundle SDK, and that reasoning applies here too: two POSTs
+ * with a JSON `{ url }` response don't need a client library. Both
+ * endpoints reply `{ url, redirect }` on success (server never itself
+ * redirects); callers navigate to `url` themselves.
+ */
+export type SubscriptionActionResult = { ok: true; url: string } | { ok: false; message: string };
+
+async function postSubscriptionAction(
+  origin: string,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<SubscriptionActionResult> {
+  try {
+    const res = await fetch(`${authOrigin(origin)}${path}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => null)) as {
+      url?: string;
+      message?: string;
+      code?: string;
+      error?: { message?: string };
+    } | null;
+    if (!res.ok || typeof data?.url !== "string") {
+      return {
+        ok: false,
+        message: data?.error?.message ?? data?.message ?? "Something went wrong. Try again.",
+      };
+    }
+    return { ok: true, url: data.url };
+  } catch {
+    return { ok: false, message: "Couldn't reach the auth service. Try again." };
+  }
+}
+
+/** POST /api/auth/subscription/upgrade for an organization reference. */
+export function upgradeOrganizationSubscription(
+  origin: string,
+  opts: { plan: string; referenceId: string; successUrl: string; cancelUrl: string },
+): Promise<SubscriptionActionResult> {
+  return postSubscriptionAction(origin, "/api/auth/subscription/upgrade", {
+    plan: opts.plan,
+    referenceId: opts.referenceId,
+    customerType: "organization",
+    successUrl: opts.successUrl,
+    cancelUrl: opts.cancelUrl,
+  });
+}
+
+/** POST /api/auth/subscription/billing-portal for an organization reference. */
+export function openOrganizationBillingPortal(
+  origin: string,
+  opts: { referenceId: string; returnUrl: string },
+): Promise<SubscriptionActionResult> {
+  return postSubscriptionAction(origin, "/api/auth/subscription/billing-portal", {
+    referenceId: opts.referenceId,
+    customerType: "organization",
+    returnUrl: opts.returnUrl,
+  });
+}
+
+/**
  * OAuth AS client metadata (issue #224, Lane B): fields the `/oauth/consent`
  * page reads off `@better-auth/oauth-provider`'s public-client response.
  * `client_uri`/`logo_uri` are attacker-controlled (any registered DCR
