@@ -1,7 +1,7 @@
 /**
- * Plan catalog for workspace subscription plans (free-plan era, spec
- * 2026-07-22). `free` is available in perpetuity today; `pro` is defined for
- * display purposes only (`available: false`) — no checkout path exists yet.
+ * Plan catalog for workspace subscription plans (spec 2026-07-22). `free`
+ * is available in perpetuity; `pro` is purchasable via Stripe Checkout
+ * through the @better-auth/stripe plugin on apps/auth.
  *
  * Free `defaultLimits` are the single source of truth for self-serve
  * provisioning: `apps/api/src/self-serve-defaults.ts` imports
@@ -48,8 +48,8 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
   pro: {
     id: "pro",
     name: "Pro",
-    blurb: "10 GB of storage and files up to 100 MB — coming soon.",
-    available: false,
+    blurb: "10 GB of storage and files up to 100 MB.",
+    available: true,
     // Decided 2026-07-22 (first-paid-plan memo): two marketed meters —
     // storage and one unified file cap (video ceiling = upload ceiling on
     // pro; only free carves video out). maxUploadsPerPeriod is an internal

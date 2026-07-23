@@ -64,10 +64,10 @@ describe("planResponse", () => {
     expect(result.limits.maxUploadsPerPeriod).toBe(3000);
   });
 
-  it("reports pro as unavailable when a workspace is set to it", () => {
+  it("reports pro as available when a workspace is set to it", () => {
     const result = planResponse("acme", { provider: "r2", bucket: "b", plan: "pro" });
     expect(result.plan).toBe("pro");
-    expect(result.available).toBe(false);
+    expect(result.available).toBe(true);
     expect(result.planApplied).toBe(true);
     expect(result.limits.maxStorageBytes).toBe(10_000_000_000);
   });

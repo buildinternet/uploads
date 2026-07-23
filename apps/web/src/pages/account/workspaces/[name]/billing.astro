@@ -1,9 +1,9 @@
 ---
 /**
- * Workspace billing tab — current plan, resolved limits vs usage, and a
- * disabled "Upgrade — coming soon" affordance (spec 2026-07-22, billing
- * infrastructure). No live billing exists yet: no invoices, no payment
- * method, no real upgrade flow — honest copy only. When the backend hasn't
+ * Workspace billing tab — current plan, resolved limits vs usage, and the
+ * upgrade/manage-billing CTA (resolveBillingCta). Upgrade goes through
+ * Stripe Checkout via the @better-auth/stripe plugin on apps/auth; "Manage
+ * billing" opens the Stripe customer portal. When the backend hasn't
  * actually applied a plan (`planApplied === false`), limits are rendered as
  * whatever `limits` says (often unlimited/custom) rather than free-tier
  * marketing caps — see apps/api/src/routes/me.ts's billing route.
@@ -44,7 +44,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         </div>
 
         <div class="settings-section">
-          <button type="button" id="ws-upgrade-btn" disabled>Upgrade — coming soon</button>
+          <button type="button" id="ws-upgrade-btn" disabled>Upgrade</button>
           <p class="muted" id="ws-billing-error" role="alert" hidden></p>
         </div>
       </div>

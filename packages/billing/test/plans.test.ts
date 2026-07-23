@@ -12,8 +12,8 @@ describe("PLANS catalog", () => {
     });
   });
 
-  it("defines pro as unavailable display metadata", () => {
-    expect(PLANS.pro.available).toBe(false);
+  it("defines pro as an available paid plan", () => {
+    expect(PLANS.pro.available).toBe(true);
     expect(PLANS.pro.id).toBe("pro");
     expect(typeof PLANS.pro.name).toBe("string");
     expect(PLANS.pro.name.length).toBeGreaterThan(0);
