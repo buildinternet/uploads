@@ -247,6 +247,82 @@ describe("upsertAttachmentsComment", () => {
     expect(patch.args).toContain("repos/o/r/issues/comments/42");
     expect(patch.args).toContain("PATCH");
   });
+
+  it("collapses duplicate marker comments: patches the oldest, deletes the extras (issue #486)", () => {
+    const marker = attachmentsMarker("acme");
+    const { run, calls } = fakeRunner({
+      gh: (args) => {
+        if (args[1]?.includes("/comments?per_page=100")) {
+          // Oldest-first, as GitHub returns them.
+          return JSON.stringify([
+            { id: 1, body: "unrelated" },
+            { id: 10, body: `${marker}\nold body` },
+            { id: 11, body: `${marker}\nduplicate from a create race` },
+            { id: 12, body: `${marker}\nanother duplicate` },
+          ]);
+        }
+        return JSON.stringify({ id: 10 });
+      },
+    });
+    const result = upsertAttachmentsComment(target, `${marker}\nnew body`, run, marker);
+    expect(result).toEqual({ action: "updated" });
+
+    // Patches the oldest hit.
+    const patch = calls[1];
+    expect(patch.args).toEqual(
+      expect.arrayContaining(["repos/o/r/issues/comments/10", "-X", "PATCH", "-F", "body=@-"]),
+    );
+
+    // Best-effort deletes the extras, oldest-hit excluded.
+    const deletes = calls.slice(2);
+    expect(deletes).toHaveLength(2);
+    expect(deletes[0].args).toEqual(["api", "repos/o/r/issues/comments/11", "-X", "DELETE"]);
+    expect(deletes[1].args).toEqual(["api", "repos/o/r/issues/comments/12", "-X", "DELETE"]);
+  });
+
+  it("still reports success when a duplicate delete fails (best-effort, swallowed)", () => {
+    const marker = attachmentsMarker("acme");
+    const { run, calls } = fakeRunner({
+      gh: (args) => {
+        if (args[1]?.includes("/comments?per_page=100")) {
+          return JSON.stringify([
+            { id: 10, body: `${marker}\nold body` },
+            { id: 11, body: `${marker}\nduplicate` },
+          ]);
+        }
+        if (args.includes("DELETE")) {
+          throw new Error("gh: 403 Forbidden");
+        }
+        return JSON.stringify({ id: 10 });
+      },
+    });
+    const result = upsertAttachmentsComment(target, `${marker}\nnew body`, run, marker);
+    expect(result).toEqual({ action: "updated" });
+    expect(calls.some((c) => c.args.includes("DELETE"))).toBe(true);
+  });
+
+  it("never deletes a legacy (unnamespaced) comment even when adopting it", () => {
+    const marker = attachmentsMarker("acme");
+    const { run, calls } = fakeRunner({
+      gh: (args) => {
+        if (args[1]?.includes("/comments?per_page=100")) {
+          // Only a legacy hit exists — no namespaced marker at all, so this
+          // must be adopted (patched), never deleted, and no other comment
+          // should be touched.
+          return JSON.stringify([
+            { id: 7, body: `${ATTACHMENTS_MARKER}\nold body` },
+            { id: 8, body: "unrelated comment, also unnamespaced but no marker at all" },
+          ]);
+        }
+        return JSON.stringify({ id: 7 });
+      },
+    });
+    const result = upsertAttachmentsComment(target, `${marker}\nnew body`, run, marker);
+    expect(result).toEqual({ action: "updated" });
+    expect(calls.some((c) => c.args.includes("DELETE"))).toBe(false);
+    const patch = calls[1];
+    expect(patch.args).toContain("repos/o/r/issues/comments/7");
+  });
 });
 
 describe("resolveGhTitle", () => {
