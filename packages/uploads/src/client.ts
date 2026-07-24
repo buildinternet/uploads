@@ -106,13 +106,22 @@ export interface PutResult {
    */
   wouldRefuse?: boolean;
   /**
-   * The object's R2 **provenance** bag (`client`, `source-name`,
-   * `content-sha256`, `uploaded-at`) — NOT the queryable `--meta` tags this
-   * put sent, which the API does not echo here. Reading it as the latter is
-   * what made the path-meta tip fire on every image (PR #509). To confirm
-   * what landed in the queryable tier, call `getMetadata(key)`
-   * (`GET …/files/:key?metadata=1`); the same field name means the queryable
-   * tags there, on `patchMetadata`, and on `list({ metadata: true })`.
+   * The object's R2 provenance bag (`client`, `source-name`,
+   * `content-sha256`) — what the upload was made *by*, not the tags it was
+   * tagged *with*. Absent on a dry run, and on API deployments older than the
+   * split that gave this bag its own name.
+   */
+  provenance?: Record<string, string>;
+  /**
+   * The queryable metadata (D1) this put stored, including server-derived
+   * pairs the client never sent (`gh.uploader`). Absent when the put carried
+   * no metadata — that case leaves any existing tags untouched, so the server
+   * reports nothing rather than implying an empty set. Means the same thing
+   * on `getMetadata`, `patchMetadata`, and `list({ metadata: true })`.
+   *
+   * An API older than the split returns the provenance bag here instead, so a
+   * client that must work against both reads `path`-style tags defensively —
+   * see `pathMetaHintFor` in commands.ts, which prefers what it sent.
    */
   metadata?: Record<string, string>;
 }
@@ -141,8 +150,12 @@ export interface HeadResult {
   size: number;
   contentType: string;
   uploaded?: string;
-  /** Same R2 provenance bag as `PutResult.metadata` — see the note there. */
-  metadata?: Record<string, string>;
+  /**
+   * The object's R2 provenance bag — see `PutResult.provenance`. A plain head
+   * returns no queryable metadata at all: that tier lives in a separate store
+   * and takes a separate read, so call `getMetadata(key)` for it.
+   */
+  provenance?: Record<string, string>;
 }
 
 export interface DeleteResult {
@@ -927,6 +940,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
         size: number;
         contentType: string;
         replaced?: boolean;
+        provenance?: Record<string, string>;
         metadata?: Record<string, string>;
       }>("PUT", `${filesBase(config)}/${encodeKeyPath(key)}`, {
         body,

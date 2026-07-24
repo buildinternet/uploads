@@ -132,9 +132,23 @@ Never send tokens, workspace secrets, or PII.
 **Server-only:** every put also stores `content-sha256` (lowercase hex SHA-256 of
 the **final stored body**). Client-supplied `content-sha256` headers are ignored.
 
-Put and head responses always include `metadata` with at least `content-sha256`.
-The CLI/`uploads mcp` set the client fields automatically from optimize/frame
-options.
+Put and head responses always include `provenance` with at least
+`content-sha256`. The CLI/`uploads mcp` set the client fields automatically from
+optimize/frame options.
+
+**Two bags, two names.** `provenance` is this R2 bag. `metadata` always means
+the queryable tier described below — on put, on `?metadata=1`, on `PATCH`, and
+on a `?metadata=1` listing. Before this split, put and head called the
+provenance bag `metadata`, which no client could tell apart from the queryable
+tags. Read `provenance` for the upload's own labels and `metadata` for the tags
+you set.
+
+A put response reports `metadata` only when that put wrote tags: a put with no
+`X-Uploads-Meta-*` header of its own leaves any existing tags untouched, so the
+server omits the field rather than implying an empty set. The reported set
+includes server-derived pairs the client never sent, such as `gh.uploader`. A
+plain head returns no `metadata` at all — the queryable tier is a separate
+store, so it takes a separate read (`?metadata=1`).
 
 ### Usage ledger and budgets
 

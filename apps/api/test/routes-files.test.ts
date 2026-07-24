@@ -312,19 +312,26 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
       },
     });
     expect(res.status).toBe(201);
-    const json = (await res.json()) as { metadata?: Record<string, string> };
-    expect(json.metadata).toMatchObject({
+    const json = (await res.json()) as {
+      provenance?: Record<string, string>;
+      metadata?: Record<string, string>;
+    };
+    expect(json.provenance).toMatchObject({
       client: "uploads-cli",
       "client-version": "0.3.0",
       optimized: "1",
       frame: "phone",
     });
-    expect(json.metadata?.["content-sha256"]).toMatch(/^[0-9a-f]{64}$/);
-    expect(json.metadata?.["content-sha256"]).not.toBe("0".repeat(64));
+    expect(json.provenance?.["content-sha256"]).toMatch(/^[0-9a-f]{64}$/);
+    expect(json.provenance?.["content-sha256"]).not.toBe("0".repeat(64));
+    // The two bags never mix: the non-allowlisted header is queryable
+    // metadata, and no provenance key leaks into it.
+    expect(json.metadata).toEqual({ secret: "custom-not-provenance" });
+    expect(json.metadata).not.toHaveProperty("client");
     // R2 bag is provenance plus server-only keys (uploaded-at); put/head JSON
     // still returns the allowlisted provenance subset only.
     const storedMeta = bucket.store.get("default/screenshots/shot.png")?.customMetadata;
-    expect(storedMeta).toMatchObject(json.metadata!);
+    expect(storedMeta).toMatchObject(json.provenance!);
     expect(storedMeta?.["uploaded-at"]).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
     const head = await app.request(
@@ -335,13 +342,16 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
     expect(head.status).toBe(200);
     const headJson = (await head.json()) as {
       contentType: string;
+      provenance?: Record<string, string>;
       metadata?: Record<string, string>;
       key: string;
     };
     expect(headJson.key).toBe("screenshots/shot.png");
     expect(headJson.contentType).toBe("image/png");
-    expect(headJson.metadata).toEqual(json.metadata);
-    expect(headJson.metadata).not.toHaveProperty("uploaded-at");
+    expect(headJson.provenance).toEqual(json.provenance);
+    expect(headJson.provenance).not.toHaveProperty("uploaded-at");
+    // A plain head reads R2 only — the queryable tier needs `?metadata=1`.
+    expect(headJson).not.toHaveProperty("metadata");
   });
 
   it("stores private visibility from the upload header and surfaces it on authed head", async () => {
@@ -372,8 +382,8 @@ describe("PUT /v1/:workspace/files upload guardrails", () => {
     const { env } = await makeEnv();
     const res = await putShot(env);
     expect(res.status).toBe(201);
-    const json = (await res.json()) as { metadata?: Record<string, string> };
-    expect(json.metadata?.["content-sha256"]).toMatch(/^[0-9a-f]{64}$/);
+    const json = (await res.json()) as { provenance?: Record<string, string> };
+    expect(json.provenance?.["content-sha256"]).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 
@@ -605,9 +615,15 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
     });
     expect(res.status).toBe(201);
 
-    const json = (await res.json()) as { metadata?: Record<string, string> };
-    expect(json.metadata?.client).toBe("cli");
-    expect(json.metadata?.app).toBeUndefined();
+    const json = (await res.json()) as {
+      provenance?: Record<string, string>;
+      metadata?: Record<string, string>;
+    };
+    expect(json.provenance?.client).toBe("cli");
+    expect(json.provenance?.app).toBeUndefined();
+    // The echo names the tier each pair landed in — `app` is queryable, not provenance.
+    expect(json.metadata?.app).toBe("web");
+    expect(json.metadata?.client).toBeUndefined();
     expect(bucket.store.get("default/screenshots/shot.png")?.customMetadata?.app).toBeUndefined();
 
     await expect(
@@ -680,8 +696,8 @@ describe("PUT /v1/:workspace/files custom metadata capture + cascade", () => {
     const { env, bucket } = await makeEnv();
     const res = await putShot(env, { headers: { "X-Uploads-Meta-Client": "" } });
     expect(res.status).toBe(201);
-    const json = (await res.json()) as { metadata?: Record<string, string> };
-    expect(json.metadata?.client).toBeUndefined();
+    const json = (await res.json()) as { provenance?: Record<string, string> };
+    expect(json.provenance?.client).toBeUndefined();
     expect(bucket.store.has("default/screenshots/shot.png")).toBe(true);
   });
 
@@ -1346,6 +1362,10 @@ describe("PUT /v1/:workspace/files uploader attribution (issue #340)", () => {
       expect(meta["gh.uploader"]).toBe("octocat");
       expect(meta["gh.uploader-id"]).toBe("user-1");
       expect(meta["gh.repo"]).toBe("acme/web");
+      // The put echo reports the stored set, so a client learns the
+      // server-derived identity without a second round trip.
+      const json = (await res.json()) as { metadata?: Record<string, string> };
+      expect(json.metadata).toEqual(meta);
     } finally {
       restore();
     }

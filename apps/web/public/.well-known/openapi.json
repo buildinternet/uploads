@@ -79,7 +79,9 @@
           }
         },
         "responses": {
-          "200": { "description": "Uploaded; body includes key, url, size, contentType" },
+          "200": {
+            "description": "Uploaded; body includes key, url, size, contentType, provenance (R2 upload labels), and metadata (the queryable tags this put stored, when it stored any)"
+          },
           "401": { "description": "Missing or invalid workspace token" },
           "413": { "description": "Payload too large" }
         }
@@ -89,7 +91,9 @@
         "summary": "Object metadata",
         "security": [{ "bearerAuth": [] }],
         "responses": {
-          "200": { "description": "Metadata JSON (includes public url when configured)" },
+          "200": {
+            "description": "Object metadata JSON (includes public url when configured, and provenance; add ?metadata=1 for the queryable tags instead)"
+          },
           "401": { "description": "Missing or invalid workspace token" },
           "404": { "description": "Not found" }
         }
