@@ -123,7 +123,7 @@ describe("auth routes", () => {
       {
         method: "POST",
         headers: { Authorization: "Bearer admin-secret", "Content-Type": "application/json" },
-        body: JSON.stringify({ label: "x".repeat(101) }),
+        body: JSON.stringify({ workspace: "default", label: "x".repeat(101) }),
       },
       env(),
     );
@@ -138,6 +138,7 @@ describe("auth routes", () => {
         method: "POST",
         headers: { Authorization: "Bearer admin-secret", "Content-Type": "application/json" },
         body: JSON.stringify({
+          workspace: "default",
           label: "remote-mcp-smoke",
           scopes: ["files:read", "files:write", "files:delete"],
         }),
@@ -157,7 +158,7 @@ describe("auth routes", () => {
       {
         method: "POST",
         headers: { Authorization: "Bearer admin-secret", "Content-Type": "application/json" },
-        body: JSON.stringify({ label: "routine-agent" }),
+        body: JSON.stringify({ workspace: "default", label: "routine-agent" }),
       },
       env(),
     );
@@ -175,7 +176,7 @@ describe("auth routes", () => {
       {
         method: "POST",
         headers: { Authorization: "Bearer admin-secret", "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "adopter@example.com" }),
+        body: JSON.stringify({ workspace: "default", email: "adopter@example.com" }),
       },
       env({ emailOutbox }),
     );
@@ -197,7 +198,7 @@ describe("auth routes", () => {
       {
         method: "POST",
         headers: { Authorization: "Bearer admin-secret", "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "adopter@example.com" }),
+        body: JSON.stringify({ workspace: "default", email: "adopter@example.com" }),
       },
       env({ emailOutbox: [], emailThrows: true }),
     );
@@ -213,7 +214,7 @@ describe("auth routes", () => {
       {
         method: "POST",
         headers: { Authorization: "Bearer admin-secret", "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "not-an-email" }),
+        body: JSON.stringify({ workspace: "default", email: "not-an-email" }),
       },
       env({ emailOutbox: [] }),
     );
@@ -228,7 +229,7 @@ describe("auth routes", () => {
       {
         method: "POST",
         headers: { Authorization: "Bearer admin-secret", "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "Adopter@Example.com" }),
+        body: JSON.stringify({ workspace: "default", email: "Adopter@Example.com" }),
       },
       env({ emailOutbox: [], inviteAllowed: false, inviteKeys }),
     );

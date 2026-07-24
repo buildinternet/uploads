@@ -29,15 +29,7 @@ Direct minting is retained for CI, migration, and break-glass use. Everyday
 setup should use `uploads login` instead (see [enrollment](enrollment.md)) —
 end users mint their own token that way, with no `ADMIN_TOKEN` involved.
 
-Defaults to the `default` workspace:
-
-```bash
-curl -XPOST https://api.uploads.sh/admin/tokens \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
-# → { "workspace": "default", "token": "up_default_…", "label": null }
-```
-
-A specific workspace, with an optional label:
+`workspace` is required, with an optional label:
 
 ```bash
 curl -XPOST https://api.uploads.sh/admin/tokens \
@@ -45,6 +37,13 @@ curl -XPOST https://api.uploads.sh/admin/tokens \
   -H "Content-Type: application/json" \
   -d '{"workspace":"acme","label":"ci"}'
 ```
+
+Omitting it is a `400 workspace_required` rather than a fallback. These routes
+used to default to the communal `default` workspace, which meant a forgotten
+field silently issued a credential against the shared tenant — and since
+enrollment redemption mints a token without creating an org membership, the
+recipient would not show up in any member list while still reading and writing
+that workspace's files. Naming `default` explicitly is still allowed.
 
 The token is shown once. Minting appends — a workspace can hold several valid
 tokens.

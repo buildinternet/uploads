@@ -12,7 +12,7 @@ non-secret page URL plus a code you share separately). The legacy
 
 Options:
   --admin-token <token>  Or ADMIN_TOKEN (UPLOADS_ADMIN_TOKEN is a legacy alias)
-  --workspace <name>     Default: default
+  --workspace <name>     Required — the workspace the invite grants access to
   --label <label>
   --expires-in <seconds> Default: server policy
   --token-expires-in <seconds>  Upload token lifetime (default: server policy)
@@ -90,7 +90,15 @@ export async function runAdmin(
   if (!adminToken) throw new UsageError("ADMIN_TOKEN is required for admin enrollment creation");
   const apiUrl = flagString(parsed.flags, "--api-url") ?? opts.apiUrl ?? "https://api.uploads.sh";
   const webUrl = flagString(parsed.flags, "--web-url");
-  const workspace = flagString(parsed.flags, "--workspace") ?? "default";
+  // No default. An invite grants files:read/files:write on the workspace it
+  // names, so omitting the flag used to silently target the shared `default`
+  // workspace — and enrollment redemption mints a token without an org
+  // membership, so the recipient would not appear in any member list while
+  // still reading and writing its files.
+  const workspace = flagString(parsed.flags, "--workspace");
+  if (!workspace) {
+    throw new UsageError("--workspace is required (the workspace the invite grants access to)");
+  }
   const label = flagString(parsed.flags, "--label");
   const email = flagString(parsed.flags, "--email");
   const result = await createEnrollment(apiUrl, adminToken, {
