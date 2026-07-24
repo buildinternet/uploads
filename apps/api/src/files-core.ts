@@ -338,7 +338,18 @@ export async function putObject(
   contentType: string;
   /** True when this put overwrote an existing key (messaging only; no confirm). */
   replaced: boolean;
-  metadata?: ProvenanceMap;
+  /**
+   * The object's R2 provenance bag (`client`, `source-name`, `content-sha256`).
+   * One bag, one name: `metadata` below always means the queryable tier.
+   */
+  provenance?: ProvenanceMap;
+  /**
+   * The queryable metadata (D1 `file_metadata`) this put stored, including any
+   * server-derived pairs the caller did not send (`gh.uploader`). Omitted —
+   * not empty — when the put carried no `metadata` at all, since that case
+   * leaves whatever rows already existed untouched and reads nothing back.
+   */
+  metadata?: Record<string, string>;
   visibility?: Visibility;
 }> {
   const finalKey = finalizeUploadKey(key, ws);
@@ -503,7 +514,8 @@ export async function putObject(
     size: newSize,
     contentType: inspection.contentType,
     replaced,
-    metadata: provenance,
+    provenance,
+    ...(opts?.metadata ? { metadata: opts.metadata } : {}),
     ...(storedVisibility ? { visibility: storedVisibility } : {}),
   };
 }
@@ -634,7 +646,12 @@ function storedMetaJson(meta: { size?: number; type?: string; lastModified?: num
   };
 }
 
-/** Shape HEAD/list-friendly metadata for API JSON. */
+/**
+ * Shape HEAD/list-friendly metadata for API JSON. The object's R2 provenance
+ * comes back as `provenance`; the queryable tier is a separate store and a
+ * separate read, so it is served by `?metadata=1` on the same route rather
+ * than costing every plain HEAD a D1 query.
+ */
 export function headObjectJson(
   key: string,
   meta: {
@@ -653,7 +670,7 @@ export function headObjectJson(
     ...storedMetaJson(meta),
     url,
     embedUrl,
-    ...(provenance ? { metadata: provenance } : {}),
+    ...(provenance ? { provenance } : {}),
     ...(visibility ? { visibility } : {}),
   };
 }
