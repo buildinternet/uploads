@@ -160,6 +160,48 @@ describe("getMyWorkspaces", () => {
       ["byo", undefined],
     ]);
   });
+
+  it("trusts the api's communal flag and falls back to the slug only when it is absent", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          workspaces: [
+            {
+              workspace: "acme",
+              organization: { id: "org1", slug: "acme", name: "Acme Inc" },
+              role: "owner",
+              communal: true,
+            },
+            {
+              // The api's own answer wins even for the communal slug.
+              workspace: "default",
+              organization: { id: "org2", slug: "default", name: "default" },
+              role: "member",
+              communal: false,
+            },
+            {
+              // Older api response, no communal field: fall back to the slug
+              // so the auto-open skip can't silently stop working.
+              workspace: "default",
+              organization: { id: "org3", slug: "default", name: "default" },
+              role: "member",
+            },
+            {
+              workspace: "byo",
+              organization: { id: "org4", slug: "byo", name: "BYO Inc" },
+              role: "member",
+            },
+          ],
+        }),
+      ),
+    );
+
+    const result = await getMyWorkspaces("http://127.0.0.1:8787");
+    expect(result.kind).toBe("success");
+    if (result.kind !== "success") throw new Error("expected success");
+    expect(result.workspaces.map((ws) => ws.communal)).toEqual([true, false, true, false]);
+  });
 });
 
 describe("setFileVisibility", () => {

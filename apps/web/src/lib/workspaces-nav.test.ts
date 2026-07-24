@@ -55,12 +55,14 @@ const sample: MyWorkspace[] = [
     organization: { id: "1", slug: "buildinternet", name: "buildinternet" },
     role: "admin",
     hasPublicUrl: true,
+    communal: false,
   },
   {
     workspace: "side",
     organization: { id: "2", slug: "side", name: "Side Project" },
     role: "member",
     hasPublicUrl: false,
+    communal: false,
   },
 ];
 
@@ -226,18 +228,21 @@ describe("isManageRequest", () => {
 });
 
 describe("resolveDefaultWorkspace", () => {
-  const multi = [{ workspace: "buildinternet" }, { workspace: "side" }];
+  const multi = [
+    { workspace: "buildinternet", communal: false },
+    { workspace: "side", communal: false },
+  ];
 
   it("picks the only membership, else a valid last-used", () => {
-    expect(resolveDefaultWorkspace([{ workspace: "solo" }], "other")).toBe("solo");
+    expect(resolveDefaultWorkspace([{ workspace: "solo", communal: false }], "other")).toBe("solo");
     expect(resolveDefaultWorkspace(multi, "side")).toBe("side");
   });
 
   it("falls back to the first owned workspace when no last-used is stored", () => {
     const roles = [
-      { workspace: "invited", role: "member" },
-      { workspace: "mine", role: "owner" },
-      { workspace: "other", role: "owner" },
+      { workspace: "invited", role: "member", communal: false },
+      { workspace: "mine", role: "owner", communal: false },
+      { workspace: "other", role: "owner", communal: false },
     ];
     expect(resolveDefaultWorkspace(roles, "")).toBe("mine");
     // A stale slug the user is no longer a member of takes the same path.
@@ -246,8 +251,8 @@ describe("resolveDefaultWorkspace", () => {
 
   it("prefers an administered workspace when none is owned", () => {
     const roles = [
-      { workspace: "invited", role: "member" },
-      { workspace: "runs-it", role: "admin" },
+      { workspace: "invited", role: "member", communal: false },
+      { workspace: "runs-it", role: "admin", communal: false },
     ];
     expect(resolveDefaultWorkspace(roles, "")).toBe("runs-it");
   });
@@ -257,32 +262,43 @@ describe("resolveDefaultWorkspace", () => {
     expect(
       resolveDefaultWorkspace(
         [
-          { workspace: "one", role: "member" },
-          { workspace: "two", role: "member" },
+          { workspace: "one", role: "member", communal: false },
+          { workspace: "two", role: "member", communal: false },
         ],
         "",
       ),
     ).toBe("one");
   });
 
-  it("skips the communal default so an owner there still lands in their own workspace", () => {
-    const roles = [
-      { workspace: "default", role: "owner" },
-      { workspace: "buildinternet", role: "admin" },
-    ];
-    expect(resolveDefaultWorkspace(roles, "")).toBe("buildinternet");
+  // The skip keys off the server-supplied `communal` flag, never the slug —
+  // these fixtures name the workspace "shared" precisely to prove that.
+  const communalPair = [
+    { workspace: "shared", role: "owner", communal: true },
+    { workspace: "buildinternet", role: "admin", communal: false },
+  ];
+
+  it("skips a communal workspace so an owner there still lands in their own workspace", () => {
+    expect(resolveDefaultWorkspace(communalPair, "")).toBe("buildinternet");
   });
 
-  it("still opens the communal default when it is the only membership", () => {
-    expect(resolveDefaultWorkspace([{ workspace: "default", role: "owner" }], "")).toBe("default");
+  it("still opens the communal workspace when it is the only membership", () => {
+    expect(
+      resolveDefaultWorkspace([{ workspace: "shared", role: "owner", communal: true }], ""),
+    ).toBe("shared");
   });
 
-  it("honours an explicit last-used default over the skip", () => {
+  it("honours an explicit last-used communal workspace over the skip", () => {
+    expect(resolveDefaultWorkspace(communalPair, "shared")).toBe("shared");
+  });
+
+  it("does not skip the communal slug when the flag says otherwise", () => {
+    // An entry named `default` that the api did not mark communal is an
+    // ordinary workspace here — the client no longer reads the slug.
     const roles = [
-      { workspace: "default", role: "owner" },
-      { workspace: "buildinternet", role: "admin" },
+      { workspace: "default", role: "owner", communal: false },
+      { workspace: "buildinternet", role: "member", communal: false },
     ];
-    expect(resolveDefaultWorkspace(roles, "default")).toBe("default");
+    expect(resolveDefaultWorkspace(roles, "")).toBe("default");
   });
 
   it("returns null only when there are no memberships", () => {

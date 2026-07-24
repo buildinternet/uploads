@@ -1,14 +1,10 @@
 {
-  "name": "@uploads/email",
+  "name": "@uploads/workspace",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts"
-  },
-  "dependencies": {
-    "@uploads/workspace": "workspace:^"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

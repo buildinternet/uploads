@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { fileURLToPath, URL as NodeURL } from "node:url";
+import { COMMUNAL_WORKSPACE } from "@uploads/workspace";
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { respondError } from "../error-response";
@@ -77,9 +78,30 @@ describe("GET /me/workspaces", () => {
         workspace: "acme",
         organization: { id: "org1", slug: "acme", name: "Acme Inc" },
         role: "owner",
+        communal: false,
         hasPublicUrl: false,
         plan: "free",
       },
+    ]);
+  });
+
+  it("marks the communal workspace so the account UI doesn't infer it from the slug", async () => {
+    const env = stubEnv(USER, (path) => {
+      if (path === "/internal/memberships") {
+        return Response.json(
+          ownedMemberships([
+            [COMMUNAL_WORKSPACE, "owner"],
+            ["acme", "owner"],
+          ]),
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+    const res = await app().request("/me/workspaces", {}, env);
+    const body = (await res.json()) as { workspaces: { workspace: string; communal: boolean }[] };
+    expect(body.workspaces.map((ws) => [ws.workspace, ws.communal])).toEqual([
+      [COMMUNAL_WORKSPACE, true],
+      ["acme", false],
     ]);
   });
 
@@ -182,7 +204,7 @@ describe("GET /me/workspaces", () => {
     expect(await quotaFor(env)).toEqual({ used: 2, cap: 3, allowed: true });
   });
 
-  it("treats a workspace named 'default' as an ordinary workspace", async () => {
+  it("loads the communal workspace's record like any other — the flag is not a short-circuit", async () => {
     const env = stubEnv(USER, (path) => {
       if (path === "/internal/memberships") {
         return Response.json([
@@ -206,6 +228,7 @@ describe("GET /me/workspaces", () => {
         workspace: "default",
         organization: { id: "org2", slug: "default", name: "Default" },
         role: "member",
+        communal: true,
         hasPublicUrl: false,
         plan: "free",
       },

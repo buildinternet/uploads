@@ -170,6 +170,7 @@ function mkWorkspace(workspace: string, overrides: Partial<MyWorkspace> = {}): M
     organization: { id: "1", slug: workspace, name: workspace },
     role: "member",
     hasPublicUrl: false,
+    communal: false,
     ...overrides,
   };
 }

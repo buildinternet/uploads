@@ -6,6 +6,7 @@
  * rather than rendering an outage as an empty account; less central detail
  * helpers retain their defensive null/[] fallbacks.
  */
+import { isCommunalWorkspace } from "@uploads/workspace";
 import { fetchWithTimeout, type RequestFailure } from "./request";
 import { buildSearchQuery, type MetaFilter } from "./workspace-search-url";
 
@@ -33,12 +34,24 @@ export interface MyWorkspace {
    * "pro". Undefined only against an older api build that omits the field.
    */
   plan?: string;
+  /**
+   * True for the shared/communal tenant every account belongs to. Server-
+   * supplied (`/me/workspaces`) so the UI reads a business rule rather than
+   * matching a slug; `mapMyWorkspace` falls back to the slug only for an
+   * older api build that predates the field.
+   */
+  communal: boolean;
 }
 
-// `hasPublicUrl`/`plan` are intentionally NOT required here: web and
-// api deploy independently, so an older api may omit them. We accept the
-// entry and coerce a missing/other value to a safe default in the mapper below.
-function isMyWorkspaceCore(value: unknown): value is Omit<MyWorkspace, "hasPublicUrl" | "plan"> {
+/**
+ * The fields every api build has always sent. `hasPublicUrl`/`plan`/`communal`
+ * are deliberately excluded: web and api deploy independently, so an older api
+ * may omit them — the entry is still accepted and `mapMyWorkspace` coerces each
+ * missing value to a safe default.
+ */
+type MyWorkspaceCore = Omit<MyWorkspace, "hasPublicUrl" | "plan" | "communal">;
+
+function isMyWorkspaceCore(value: unknown): value is MyWorkspaceCore {
   if (!value || typeof value !== "object") return false;
   const ws = value as Record<string, unknown>;
   const org = ws.organization as Record<string, unknown> | null | undefined;
@@ -52,12 +65,23 @@ function isMyWorkspaceCore(value: unknown): value is Omit<MyWorkspace, "hasPubli
   );
 }
 
-/** Coerce optional/legacy fields; shared by list + summary mappers. */
-function mapMyWorkspace(ws: Omit<MyWorkspace, "hasPublicUrl" | "plan">): MyWorkspace {
-  const raw = ws as Omit<MyWorkspace, "hasPublicUrl" | "plan"> & {
+/**
+ * Coerce optional/legacy fields; shared by list + summary mappers.
+ *
+ * `communal` is the one field with a non-constant fallback: it is a rule the
+ * api owns, but an api build older than the field would omit it, and reading
+ * that absence as "not communal" would silently un-skip the shared workspace
+ * in `resolveDefaultWorkspace`. So a missing flag — and only a missing flag —
+ * falls back to the shared slug constant. This is the sole place in the web
+ * app that knows the communal slug at all; everything downstream reads the
+ * boolean.
+ */
+function mapMyWorkspace(ws: MyWorkspaceCore): MyWorkspace {
+  const raw = ws as MyWorkspaceCore & {
     hasPublicUrl?: unknown;
     publicBaseUrl?: unknown;
     plan?: unknown;
+    communal?: unknown;
   };
   return {
     workspace: raw.workspace,
@@ -66,6 +90,7 @@ function mapMyWorkspace(ws: Omit<MyWorkspace, "hasPublicUrl" | "plan">): MyWorks
     hasPublicUrl: raw.hasPublicUrl === true,
     publicBaseUrl: typeof raw.publicBaseUrl === "string" ? raw.publicBaseUrl : undefined,
     plan: typeof raw.plan === "string" ? raw.plan : undefined,
+    communal: typeof raw.communal === "boolean" ? raw.communal : isCommunalWorkspace(raw.workspace),
   };
 }
 
