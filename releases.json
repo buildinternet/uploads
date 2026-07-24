@@ -2,7 +2,5 @@
   "$schema": "https://releases.sh/schemas/releases.json",
   "version": 2,
   "product": { "name": "uploads", "slug": "uploads" },
-  "releases": [
-    { "github": "self", "canonical": true }
-  ]
+  "releases": [{ "github": "self", "canonical": true }]
 }
