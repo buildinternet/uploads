@@ -9,13 +9,13 @@
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import opentype from "opentype.js";
+import opentype, { type OpenTypeFont } from "opentype.js";
 
 const FONT_URL = new URL("../../assets/Excalifont-Regular.ttf", import.meta.url);
 
-let cachedFont: opentype.Font | undefined;
+let cachedFont: OpenTypeFont | undefined;
 
-function loadFont(): opentype.Font {
+function loadFont(): OpenTypeFont {
   if (!cachedFont) {
     const buf = readFileSync(fileURLToPath(FONT_URL));
     const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
