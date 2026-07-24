@@ -61,7 +61,7 @@ Claude Code plugin (bundles the skills, the hosted MCP server, and the /uploads:
 
 ## Legal
 
-- [Terms of Service](https://uploads.sh/terms): access, acceptable use, and takedowns
+- [Terms of Service](https://uploads.sh/terms): access, plans and payment, acceptable use, and takedowns
 - [Privacy Policy](https://uploads.sh/privacy): what data the service collects and retains
 - Operated by [Build Internet](https://buildinternet.com)
 

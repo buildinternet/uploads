@@ -4,11 +4,11 @@ import LegalLayout from "../layouts/LegalLayout.astro";
 
 <LegalLayout
   title="Privacy Policy"
-  description="How uploads.sh handles data from the API, CLI, MCP server, invitations, and website."
+  description="How uploads.sh handles data from the API, CLI, MCP server, invitations, payments, and website."
   path="/privacy"
 >
   <h1>Privacy Policy</h1>
-  <p class="effective">Effective July 11, 2026</p>
+  <p class="effective">Effective July 24, 2026</p>
 
   <p>
     This page explains what data uploads.sh collects when you use the website, the API, the <a href="https://github.com/buildinternet/uploads">open-source CLI</a>, or the MCP server, and
@@ -19,17 +19,32 @@ import LegalLayout from "../layouts/LegalLayout.astro";
 
   <h3>Website</h3>
   <p>
-    The site does not run analytics scripts, does not use advertising trackers, and does not set
-    cookies. The invitation page reads its one-time code from the URL fragment, which your browser
-    never sends to a server.
+    The site does not run analytics scripts, does not use advertising trackers, and loads no
+    third-party scripts. Fonts are served from our own domain. The site sets one cookie: your
+    session cookie, once you sign in. That cookie is shared across the uploads.sh subdomains, so a
+    single sign-in covers the website, the API, and the auth service. It is strictly necessary to
+    keep you signed in, we do not use it to track you, and signing out clears it.
+  </p>
+  <p>
+    The invitation page reads its one-time code from the URL fragment, which your browser never
+    sends to a server.
+  </p>
+
+  <h3>Accounts</h3>
+  <p>
+    You sign in with a magic link sent to your email address, or with GitHub. We store your email
+    address, your display name, and your avatar URL. Connecting GitHub also stores your GitHub
+    account identity, which is what lets the service attribute uploads and post pull-request
+    comments on your behalf. We never use your email address for marketing.
   </p>
 
   <h3>Invitations</h3>
   <p>
-    If an administrator invites you by email, your email address is used to deliver the invitation
-    and to rate-limit invitation sending. It appears in short-lived operational logs but is not
-    stored in the service's database, and we never use it for marketing. Invitation emails are sent
-    through Cloudflare's email-sending service.
+    If an administrator invites you to a workspace by email, we store your email address on the
+    invitation record, together with the role you were offered, the invitation's status, and its
+    expiry. We use the address to deliver the invitation and to rate-limit invitation sending, and
+    never for marketing. Revoking a pending invitation deletes its record. Invitation emails are
+    sent through Cloudflare's email-sending service.
   </p>
 
   <h3>Workspaces and tokens</h3>
@@ -41,6 +56,28 @@ import LegalLayout from "../layouts/LegalLayout.astro";
   <p>
     Invitation codes are single-use, short-lived, and redeemed atomically; the service stores what
     it needs to validate and expire them, never the plaintext secrets.
+  </p>
+
+  <h3>Plans and payment</h3>
+  <p>
+    Card details never reach our servers. When you upgrade a workspace, we send you to Stripe's own
+    checkout page, and Stripe collects your payment method and billing details there. What we store
+    on our side is the subscription record behind your plan:
+  </p>
+  <ul>
+    <li>The Stripe customer id for your workspace, and for you as the buyer.</li>
+    <li>
+      The plan, the subscription's status and billing interval, and the dates that go with it —
+      period start and end, and any trial, cancellation, or end date.
+    </li>
+  </ul>
+  <p>
+    Stripe holds the payment method, the billing address, any tax details the sale requires, and
+    the invoice history. Stripe uses that data as its own controller for payment processing, fraud
+    prevention, and its legal obligations, under <a href="https://stripe.com/privacy">Stripe's
+    privacy policy</a>. You can reach your invoices
+    and payment method through <strong>Manage billing</strong> in the workspace's billing tab, which
+    opens the Stripe customer portal.
   </p>
 
   <h3>Uploaded files</h3>
@@ -70,6 +107,7 @@ import LegalLayout from "../layouts/LegalLayout.astro";
   <ul>
     <li>To store and serve the files you upload.</li>
     <li>To deliver invitations and authenticate workspace tokens.</li>
+    <li>To take payment for a paid plan and manage the subscription behind it.</li>
     <li>To enforce rate limits and prevent abuse.</li>
     <li>To diagnose errors and operate the service.</li>
     <li>To respond to your questions and takedown requests.</li>
@@ -85,6 +123,15 @@ import LegalLayout from "../layouts/LegalLayout.astro";
       <strong>Cloudflare</strong> — hosts the API, MCP server, and website; stores the database
       and uploaded files (R2); and sends invitation email. Request metadata passes through
       Cloudflare as part of normal routing and logging.
+    </li>
+    <li>
+      <strong>Stripe</strong> — processes payments for paid plans, hosts the checkout page and the
+      billing portal, and stores your payment method and billing details. We send Stripe the
+      workspace and account identifiers needed to attach a subscription to your workspace.
+    </li>
+    <li>
+      <strong>GitHub</strong> — authenticates you if you sign in with GitHub or connect a GitHub
+      account, under GitHub's own privacy policy.
     </li>
     <li>
       <strong>Your own storage</strong> — workspaces can bring their own bucket (for example an
@@ -107,12 +154,19 @@ import LegalLayout from "../layouts/LegalLayout.astro";
     <li>Workspace and token records: kept while the workspace is active; tokens expire and can be revoked.</li>
     <li>Invitation codes: expire automatically (hours, not days) and are unusable after redemption.</li>
     <li>Request and delivery logs: short-lived, retained for operational purposes only.</li>
+    <li>
+      Billing and tax records: kept after a workspace is deleted, for as long as tax and accounting
+      law requires. Stripe retains the invoice history on its side under its own schedule.
+    </li>
   </ul>
 
   <h2>Your rights</h2>
   <p>
     To delete your files, use the CLI or API. To delete a workspace and the records tied to it, or
     to ask what data we hold about you, email <a href="mailto:privacy@uploads.sh">privacy@uploads.sh</a>.
+    Cancel a paid plan first, through <strong>Manage billing</strong> in the workspace's billing
+    tab. Deleting a workspace does not clear the billing and tax records described under
+    <strong>Retention</strong>.
   </p>
 
   <h2>Changes</h2>
@@ -130,6 +184,12 @@ import LegalLayout from "../layouts/LegalLayout.astro";
 
   <h2>Revision history</h2>
   <ul>
+    <li>
+      <strong>July 24, 2026</strong> — Described payment data and named Stripe as a service
+      provider, for the Pro plan. Added an accounts section. Corrected two statements that had
+      gone stale: the site does set a session cookie, and an invitation record does store the
+      invited email address.
+    </li>
     <li><strong>July 11, 2026</strong> — Initial version published.</li>
   </ul>
 </LegalLayout>
