@@ -213,6 +213,11 @@ export function initWorkspaceRail(
     if (detailsEl && details) {
       detailsEl.innerHTML = renderDetailsHtml(details);
       detailsEl.toggleAttribute("data-stale", stale);
+      // The <dl> carries `aria-busy` itself (see WorkspaceLayout.astro) and
+      // survives the innerHTML swap, so it must be cleared by hand. The usage
+      // section needs no equivalent: its `aria-busy` lives on markup the swap
+      // replaces outright.
+      detailsEl.removeAttribute("aria-busy");
     }
     if (usageEl && usage) {
       usageEl.innerHTML = renderUsageHtml(usage);
@@ -257,7 +262,14 @@ export function initWorkspaceRail(
         // `usage: null`). A section with nothing warm to keep must not be
         // left sitting in Tier 0's skeleton (including its `aria-busy="true"`)
         // forever — fall back to the error string there instead.
-        if (!cached && detailsEl) detailsEl.textContent = "Details unavailable.";
+        if (!cached && detailsEl) {
+          detailsEl.textContent = "Details unavailable.";
+          // `textContent` swaps the <dl>'s children, not the <dl>, so its own
+          // `aria-busy` outlives the write — an error that still announces as
+          // loading. The usage section needs no such clear: its `aria-busy`
+          // lives on a child that `textContent` destroys.
+          detailsEl.removeAttribute("aria-busy");
+        }
         if (!cached?.usage && usageEl) usageEl.textContent = "Usage unavailable.";
         return;
       }

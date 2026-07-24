@@ -44,7 +44,18 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
           <span class="ws-rail__label">details</span>
           <span class="ws-rail__rule"></span>
         </div>
-        <dl class="ws-rail__kv" data-rail-details set:html={renderDetailsPlaceholderHtml()} />
+        {/* `aria-busy` sits on the <dl> itself, not inside the placeholder like
+            the usage section's does: `innerHTML` replaces this element's
+            children but not the element, so the attribute survives the repaint
+            and `paint()` has to clear it explicitly. Without it the skeleton
+            bars are `aria-hidden`, so a screen reader would meet two empty
+            <dd>s with no indication anything is still loading. */}
+        <dl
+          class="ws-rail__kv"
+          data-rail-details
+          aria-busy="true"
+          set:html={renderDetailsPlaceholderHtml()}
+        />
       </section>
 
       <section class="ws-rail__section">
