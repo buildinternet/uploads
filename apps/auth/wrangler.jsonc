@@ -18,6 +18,13 @@
     // email template both derive from this.
     "WEB_ORIGIN": "https://uploads.sh",
     "ENVIRONMENT": "production",
+    // Makes Stripe Checkout require a Terms of Service checkbox before it
+    // takes payment. Safe only because the Stripe Dashboard's Terms of
+    // service URL is set (confirmed 2026-07-24) — Stripe rejects the whole
+    // Checkout Session without it, which would break every upgrade. If that
+    // Dashboard field is ever cleared, remove this var in the same change.
+    // See packages/billing/src/stripe-checkout.ts.
+    "STRIPE_CHECKOUT_TOS_CONSENT": "true",
   },
   "routes": [
     {
