@@ -181,6 +181,29 @@ export function parseCommandArgs(args: string[]): CommandFlags {
  * `--repo a --repo b` → `"b"`). Genuinely repeatable flags should use
  * `flagValues` instead.
  */
+/**
+ * Rewrites short aliases (e.g. `-o` -> `--out`) before `parseCommandArgs`,
+ * which only understands `--long` flags — a bare short flag would otherwise
+ * land in positionals.
+ */
+export function expandFlagAliases(args: string[], aliases: Record<string, string>): string[] {
+  return args.map((a) => aliases[a] ?? a);
+}
+
+/**
+ * Pulls a `--flag -` pair (the stdin convention) out of `args` before the
+ * generic parse: `parseCommandArgs` treats a bare `-` as a flag boundary, so
+ * it can never be consumed as a flag's value.
+ */
+export function extractDashValue(args: string[], flag: string): { args: string[]; dash: boolean } {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag && args[i + 1] === "-") {
+      return { args: [...args.slice(0, i), ...args.slice(i + 2)], dash: true };
+    }
+  }
+  return { args, dash: false };
+}
+
 export function flagString(flags: CommandFlags["flags"], name: string): string | undefined {
   const value = flags.get(name);
   if (typeof value === "string") return value;

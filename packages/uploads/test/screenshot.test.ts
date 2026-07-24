@@ -153,7 +153,7 @@ describe("captureScreenshot backend selection", () => {
       token: "t",
       captureLocalImpl: async () => {
         usedLocal = true;
-        return png;
+        return { png };
       },
     });
     expect(usedLocal).toBe(true);
@@ -276,7 +276,7 @@ describe("captureScreenshot backend selection", () => {
       captureLocalImpl: async (opts) => {
         usedLocal = true;
         seenDetectResult = opts.detectResult;
-        return png;
+        return { png };
       },
     });
     expect(usedLocal).toBe(true);
@@ -295,7 +295,7 @@ describe("captureScreenshot backend selection", () => {
       token: "t",
       captureLocalImpl: async (opts) => {
         seenDetectResult = opts.detectResult;
-        return png;
+        return { png };
       },
     });
     expect(seenDetectResult).toBeUndefined();
@@ -353,7 +353,7 @@ describe("captureScreenshot backend selection", () => {
       token: "t",
       captureLocalImpl: async (opts) => {
         seenWait = opts.waitUntil;
-        return png;
+        return { png };
       },
     });
     expect(seenWait).toBe(500);
@@ -369,7 +369,7 @@ describe("captureScreenshot backend selection", () => {
       token: "t",
       captureLocalImpl: async (opts) => {
         seenHide = opts.hide;
-        return png;
+        return { png };
       },
     });
     expect(seenHide).toEqual([...DEV_TOOLBAR_SELECTORS]);
@@ -384,7 +384,7 @@ describe("captureScreenshot backend selection", () => {
       token: "t",
       captureLocalImpl: async (opts) => {
         seenHide = opts.hide;
-        return png;
+        return { png };
       },
     });
     expect(seenHide).toEqual([]);
@@ -401,7 +401,7 @@ describe("captureScreenshot backend selection", () => {
       token: "t",
       captureLocalImpl: async (opts) => {
         seenHide = opts.hide;
-        return png;
+        return { png };
       },
     });
     expect(seenHide).toEqual([".banner"]);
@@ -417,7 +417,7 @@ describe("captureScreenshot backend selection", () => {
       token: "t",
       captureLocalImpl: async (opts) => {
         seenHide = opts.hide;
-        return png;
+        return { png };
       },
     });
     expect(seenHide).toEqual([".banner", ...DEV_TOOLBAR_SELECTORS]);
@@ -431,7 +431,7 @@ describe("captureScreenshot backend selection", () => {
         hide: ["ok", "evil}{body{display:none"],
         apiUrl: "https://api.uploads.sh",
         token: "t",
-        captureLocalImpl: async () => png,
+        captureLocalImpl: async () => ({ png }),
       }),
     ).rejects.toMatchObject({ code: "USAGE" });
   });
@@ -444,7 +444,7 @@ describe("captureScreenshot backend selection", () => {
         hide: ["@import url(http://127.0.0.1);*"],
         apiUrl: "https://api.uploads.sh",
         token: "t",
-        captureLocalImpl: async () => png,
+        captureLocalImpl: async () => ({ png }),
       }),
     ).rejects.toMatchObject({ code: "USAGE" });
   });
@@ -533,13 +533,13 @@ describe("captureScreenshot backend selection", () => {
     });
   });
 
-  it("captureLocalImpl may still return bare bytes (no measures) when selectors aren't requested", async () => {
+  it("captureLocalImpl without measures leaves result.measures undefined", async () => {
     const result = await captureScreenshot({
       target: "https://example.com",
       via: "local",
       apiUrl: "https://api.uploads.sh",
       token: "t",
-      captureLocalImpl: async () => png,
+      captureLocalImpl: async () => ({ png }),
     });
     expect(result.png).toEqual(png);
     expect(result.measures).toBeUndefined();

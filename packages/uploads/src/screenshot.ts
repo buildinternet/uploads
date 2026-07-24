@@ -239,7 +239,7 @@ export interface CaptureScreenshotOptions {
     detectRoots?: DetectRoots;
     /** Pre-computed detection result from auto-routing, to avoid a second fs scan. */
     detectResult?: import("./screenshot-local.js").DetectResult;
-  }) => Promise<Uint8Array | { png: Uint8Array; measures?: Record<string, MeasuredBox> }>;
+  }) => Promise<{ png: Uint8Array; measures?: Record<string, MeasuredBox> }>;
   /** Injectable for tests: replaces the remote capture implementation. */
   captureRemoteImpl?: typeof captureRemote;
 }
@@ -390,9 +390,7 @@ export async function captureScreenshot(
       detectRoots: opts.detectRoots,
       detectResult: detected,
     });
-    const png = localResult instanceof Uint8Array ? localResult : localResult.png;
-    const measures = localResult instanceof Uint8Array ? undefined : localResult.measures;
-    return { png, filename, backend, measures };
+    return { png: localResult.png, filename, backend, measures: localResult.measures };
   }
 
   if (target.kind === "html-file") {

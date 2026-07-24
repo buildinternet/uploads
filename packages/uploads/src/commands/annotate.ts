@@ -1,9 +1,16 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join, dirname } from "node:path";
 import sharp from "sharp";
-import { flagInt, flagString, parseCommandArgs, UsageError } from "../cli-args.js";
+import {
+  expandFlagAliases,
+  extractDashValue,
+  flagInt,
+  flagString,
+  parseCommandArgs,
+  UsageError,
+} from "../cli-args.js";
 import { writeCommandHelp } from "../cli-style.js";
-import { writeJson, writeStdout } from "../io.js";
+import { readStdin, writeJson, writeStdout } from "../io.js";
 
 const ANNOTATE_HELP = `uploads annotate <image> --spec <file|-> [options]
 
@@ -30,15 +37,6 @@ Examples:
   uploads annotate ./shot.png --spec ./callouts.json --out ./shot.marked.png
 `;
 
-/** Reads all of stdin as a UTF-8 string. Injectable for tests. */
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
-
 function defaultOutPath(imagePath: string): string {
   const ext = extname(imagePath);
   const stem = ext ? basename(imagePath, ext) : basename(imagePath);
@@ -55,21 +53,10 @@ export async function runAnnotate(
     writeCommandHelp(ANNOTATE_HELP);
     return 0;
   }
-  // parseCommandArgs treats a bare "-" as a flag boundary (it starts with
-  // "-"), so it can't be consumed as --spec's value generically. Pull
-  // `--spec -` out by hand before the generic parse, same idea as the
-  // put/attach "-" (stdin) convention elsewhere in this CLI.
-  let specFromDash = false;
-  // parseCommandArgs only understands --long flags; translate the documented
-  // -o alias before the generic parse or it lands in positionals.
-  const preArgs = args.map((a) => (a === "-o" ? "--out" : a));
-  for (let i = 0; i < preArgs.length; i++) {
-    if (preArgs[i] === "--spec" && preArgs[i + 1] === "-") {
-      specFromDash = true;
-      preArgs.splice(i, 2);
-      break;
-    }
-  }
+  const { args: preArgs, dash: specFromDash } = extractDashValue(
+    expandFlagAliases(args, { "-o": "--out" }),
+    "--spec",
+  );
 
   const parsed = parseCommandArgs(preArgs);
   if (parsed.help) {

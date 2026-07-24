@@ -93,6 +93,18 @@ type Box = { x: number; y: number; w: number; h: number };
 
 const GEOMETRIC_TYPES = new Set(["box", "arrow", "label", "redact"]);
 
+/**
+ * Default placement offsets used when a spec omits an explicit position —
+ * kept together so "where things land by default" has one home. Units are
+ * image pixels; `labelAt` is additionally multiplied by the render scale.
+ */
+export const DEFAULT_PLACEMENT = {
+  /** Selector-only arrow: tail offset from the target center (resolveSelectors). */
+  arrowFrom: [120, -120] as const,
+  /** Label with a target but no `at`: bubble offset above-right (renderLabel). */
+  labelAt: [30, -90] as const,
+};
+
 function isFiniteNumber(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v);
 }
@@ -140,29 +152,25 @@ function validateAnnotation(raw: unknown, index: number, errors: SpecError[]): v
     return;
   }
 
+  const requireBoxFields = () => {
+    if (hasSelector) return;
+    if (
+      !isFiniteNumber(a.x) ||
+      !isFiniteNumber(a.y) ||
+      !isFiniteNumber(a.w) ||
+      !isFiniteNumber(a.h)
+    ) {
+      fail(`${type} requires finite x, y, w, h (or a selector)`);
+    }
+  };
+
   switch (type) {
     case "box": {
-      if (hasSelector) break;
-      if (
-        !isFiniteNumber(a.x) ||
-        !isFiniteNumber(a.y) ||
-        !isFiniteNumber(a.w) ||
-        !isFiniteNumber(a.h)
-      ) {
-        fail("box requires finite x, y, w, h (or a selector)");
-      }
+      requireBoxFields();
       break;
     }
     case "redact": {
-      if (hasSelector) break;
-      if (
-        !isFiniteNumber(a.x) ||
-        !isFiniteNumber(a.y) ||
-        !isFiniteNumber(a.w) ||
-        !isFiniteNumber(a.h)
-      ) {
-        fail("redact requires finite x, y, w, h (or a selector)");
-      }
+      requireBoxFields();
       if (hasOwn(a, "style") && a.style !== "blur" && a.style !== "solid") {
         fail('redact style must be "blur" or "solid"');
       }
@@ -281,7 +289,12 @@ export function resolveSelectors(spec: AnnotationSpec, boxes: Record<string, Box
         const to = center(box);
         // A selector-only arrow points at the element from its upper right;
         // the renderer clamps if that lands outside the image.
-        const from = rest.from ?? ([to[0] + 120, to[1] - 120] as Point);
+        const from =
+          rest.from ??
+          ([
+            to[0] + DEFAULT_PLACEMENT.arrowFrom[0],
+            to[1] + DEFAULT_PLACEMENT.arrowFrom[1],
+          ] as Point);
         return { ...rest, from, to };
       }
       case "label": {

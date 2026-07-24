@@ -35,43 +35,6 @@ interface Box {
   h: number;
 }
 
-function geometryBox(a: Annotation): Box | null {
-  switch (a.type) {
-    case "box":
-    case "redact":
-      return { x: a.x, y: a.y, w: a.w, h: a.h };
-    case "arrow": {
-      const xs = [a.from[0], a.to[0]];
-      const ys = [a.from[1], a.to[1]];
-      return {
-        x: Math.min(...xs),
-        y: Math.min(...ys),
-        w: Math.max(...xs) - Math.min(...xs),
-        h: Math.max(...ys) - Math.min(...ys),
-      };
-    }
-    case "label": {
-      const at = a.at ?? a.target;
-      if (!at) return null;
-      return { x: at[0], y: at[1], w: 1, h: 1 };
-    }
-    case "draw": {
-      const xs = a.points.map((p) => p[0]);
-      const ys = a.points.map((p) => p[1]);
-      return {
-        x: Math.min(...xs),
-        y: Math.min(...ys),
-        w: Math.max(...xs) - Math.min(...xs),
-        h: Math.max(...ys) - Math.min(...ys),
-      };
-    }
-    case "svg":
-      return null;
-    default:
-      return null;
-  }
-}
-
 function clampBox(box: Box, width: number, height: number): { box: Box; clamped: boolean } {
   const x = Math.max(0, Math.min(box.x, width));
   const y = Math.max(0, Math.min(box.y, height));
@@ -127,8 +90,6 @@ function clampAnnotation(
 export function clampReport(spec: AnnotationSpec, width: number, height: number): string[] {
   const warnings: string[] = [];
   spec.annotations.forEach((a, index) => {
-    const box = geometryBox(a);
-    if (!box) return;
     const { clamped } = clampAnnotation(a, width, height);
     if (clamped) {
       warnings.push(`annotations[${index}]: geometry out of bounds, clamped to image size`);
@@ -190,26 +151,28 @@ export async function renderAnnotations(
   const scale = scaleFor(width, opts);
   const ctx = { seed, scale };
 
-  const compositeOps: Array<{ input: Buffer; left: number; top: number }> = [];
+  const clamped = spec.annotations.map((a) => clampAnnotation(a, width, height).annotation);
 
   // Blur redactions are applied as a pre-pass (extract -> blur -> composite
-  // back) BEFORE the sketchy overlay pass, per the house style.
-  for (const raw of spec.annotations) {
-    const { annotation } = clampAnnotation(raw, width, height);
-    if (annotation.type === "redact" && (annotation.style ?? "solid") === "blur") {
-      const layer = await redactBlurLayer(
-        base,
-        { x: annotation.x, y: annotation.y, w: annotation.w, h: annotation.h },
-        width,
-        height,
-      );
-      if (layer) compositeOps.push(layer);
-    }
-  }
+  // back) BEFORE the sketchy overlay pass, per the house style. The blurs are
+  // independent reads of the same immutable base, so they run concurrently.
+  const compositeOps = (
+    await Promise.all(
+      clamped.map((annotation) =>
+        annotation.type === "redact" && (annotation.style ?? "solid") === "blur"
+          ? redactBlurLayer(
+              base,
+              { x: annotation.x, y: annotation.y, w: annotation.w, h: annotation.h },
+              width,
+              height,
+            )
+          : Promise.resolve(null),
+      ),
+    )
+  ).filter((layer): layer is { input: Buffer; left: number; top: number } => layer !== null);
 
   const overlayParts: string[] = [];
-  for (const raw of spec.annotations) {
-    const { annotation } = clampAnnotation(raw, width, height);
+  for (const annotation of clamped) {
     switch (annotation.type) {
       case "box":
         overlayParts.push(renderBox(annotation, ctx));

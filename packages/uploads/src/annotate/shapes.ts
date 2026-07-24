@@ -9,6 +9,7 @@ import { getStroke } from "perfect-freehand";
 import rough from "roughjs/bundled/rough.esm.js";
 import type { Drawable } from "roughjs/bundled/core.js";
 import type { RoughGenerator } from "roughjs/bundled/generator.js";
+import { DEFAULT_PLACEMENT } from "./spec.js";
 import type {
   ArrowAnnotation,
   BoxAnnotation,
@@ -30,15 +31,6 @@ export const HOUSE_STYLE = {
   redactBlurSigma: 18,
   labelPadding: 8,
 } as const;
-
-function escapeXml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
 
 function pathsToSvg(gen: RoughGenerator, drawable: Drawable): string {
   return gen
@@ -98,11 +90,16 @@ export function renderLabel(a: LabelAnnotation, ctx: RenderCtx): string {
   const color = a.color ?? HOUSE_STYLE.stroke;
   const fontSize = 28 * ctx.scale;
   const padding = HOUSE_STYLE.labelPadding * ctx.scale;
-  // With no explicit `at`, offset the bubble above-right of its target so it
+  // With no explicit `at`, offset the bubble away from its target so it
   // doesn't sit on top of the thing it labels (clamped to stay on-image).
   const at =
     a.at ??
-    (a.target ? [a.target[0] + 30 * ctx.scale, Math.max(8, a.target[1] - 90 * ctx.scale)] : [0, 0]);
+    (a.target
+      ? [
+          a.target[0] + DEFAULT_PLACEMENT.labelAt[0] * ctx.scale,
+          Math.max(8, a.target[1] + DEFAULT_PLACEMENT.labelAt[1] * ctx.scale),
+        ]
+      : [0, 0]);
   const [atX, atY] = at;
 
   const metrics = measureText(a.text, fontSize);
@@ -172,8 +169,4 @@ export function renderRedactSolid(a: RedactAnnotation): string {
 
 export function renderSvg(a: SvgAnnotation): string {
   return `<g>${a.fragment}</g>`;
-}
-
-export function xmlEscape(text: string): string {
-  return escapeXml(text);
 }

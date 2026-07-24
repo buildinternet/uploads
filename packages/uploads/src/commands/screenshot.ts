@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import {
+  extractDashValue,
   flagBool,
   flagInt,
   flagString,
@@ -42,7 +43,7 @@ import { safeCaptureFacts } from "../capture-facts.js";
 import { parseMetaFlags, validateMetaMap } from "../metadata.js";
 import { mergeDerivedMeta } from "../metadata-vocab.js";
 import { writeSidecarMeta } from "../sidecar.js";
-import { writeJson, writeStdout } from "../io.js";
+import { readStdin, writeJson, writeStdout } from "../io.js";
 import {
   assertHideSelector,
   captureScreenshot,
@@ -69,15 +70,6 @@ export type AnnotateModule = Pick<
   | "clampReport"
   | "AnnotateSpecError"
 >;
-
-/** Reads all of stdin as a UTF-8 string. Injectable for tests. */
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
 
 const SCREENSHOT_HELP = `uploads screenshot <target> [options]
 
@@ -221,19 +213,7 @@ export async function runScreenshot(
     writeCommandHelp(SCREENSHOT_HELP);
     return 0;
   }
-  // parseCommandArgs treats a bare "-" as a flag boundary, so it can't be
-  // consumed as --annotate's value generically. Pull `--annotate -` out by
-  // hand before the generic parse — same convention as `uploads annotate
-  // --spec -` (commands/annotate.ts) and put/attach's stdin "-".
-  let annotateFromDash = false;
-  const preArgs = [...args];
-  for (let i = 0; i < preArgs.length; i++) {
-    if (preArgs[i] === "--annotate" && preArgs[i + 1] === "-") {
-      annotateFromDash = true;
-      preArgs.splice(i, 2);
-      break;
-    }
-  }
+  const { args: preArgs, dash: annotateFromDash } = extractDashValue(args, "--annotate");
   const parsed = parseCommandArgs(preArgs);
   if (parsed.help) {
     writeCommandHelp(SCREENSHOT_HELP);

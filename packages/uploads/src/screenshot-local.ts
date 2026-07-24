@@ -352,33 +352,39 @@ export interface MeasuredBox {
 
 /** Minimal page shape this needs — matches playwright-core's `Page.evaluate`. */
 interface EvaluatablePage {
-  evaluate<T>(fn: (selector: string) => T, arg: string): Promise<T>;
+  evaluate<T>(fn: (selectors: string[]) => T, arg: string[]): Promise<T>;
 }
 
 /**
- * Measures each selector's getBoundingClientRect on the page, scaling CSS
- * pixels to device (raster) pixels so the resulting boxes line up with the
- * captured PNG. Throws `UploadsError` naming any selector that matches no
- * element — never silently skipped.
+ * Measures each selector's getBoundingClientRect on the page in a single
+ * `page.evaluate` round-trip, scaling CSS pixels to device (raster) pixels so
+ * the resulting boxes line up with the captured PNG. Throws `UploadsError`
+ * naming any selector that matches no element — never silently skipped.
  */
 export async function measureSelectorBoxes(
   page: EvaluatablePage,
   selectors: readonly string[],
   scale: number,
 ): Promise<Record<string, MeasuredBox>> {
+  if (selectors.length === 0) return {};
+  const boxes = await page.evaluate(
+    (sels) =>
+      sels.map((selector) => {
+        const el = document.querySelector(selector);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: r.x, y: r.y, w: r.width, h: r.height };
+      }),
+    [...selectors],
+  );
   const measures: Record<string, MeasuredBox> = {};
-  for (const sel of selectors) {
-    const box = await page.evaluate((selector) => {
-      const el = document.querySelector(selector);
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return { x: r.x, y: r.y, w: r.width, h: r.height };
-    }, sel);
+  selectors.forEach((sel, i) => {
+    const box = boxes[i];
     if (!box) {
       throw new UploadsError(`--annotate selector matched no element: ${sel}`, "USAGE");
     }
     measures[sel] = { x: box.x * scale, y: box.y * scale, w: box.w * scale, h: box.h * scale };
-  }
+  });
   return measures;
 }
 

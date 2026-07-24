@@ -165,10 +165,9 @@ describe("detectLocalBrowser", () => {
 describe("measureSelectorBoxes", () => {
   function fakePage(boxes: Record<string, { x: number; y: number; w: number; h: number }>) {
     return {
-      evaluate: async <T>(fn: (selector: string) => T, arg: string): Promise<T> => {
+      evaluate: async <T>(fn: (selectors: string[]) => T, arg: string[]): Promise<T> => {
         void fn;
-        const box = boxes[arg];
-        return (box ?? null) as T;
+        return arg.map((sel) => boxes[sel] ?? null) as T;
       },
     };
   }
