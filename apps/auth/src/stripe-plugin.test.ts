@@ -5,7 +5,12 @@ import { drizzle } from "drizzle-orm/d1";
 import { describe, expect, it } from "vitest";
 import type { AuthEnv } from "./auth";
 import * as schema from "./schema";
-import { desiredPlanForStatus, isOrgBillingAdmin, stripePluginOrNone } from "./stripe-plugin";
+import {
+  checkoutSessionParamsFor,
+  desiredPlanForStatus,
+  isOrgBillingAdmin,
+  stripePluginOrNone,
+} from "./stripe-plugin";
 import { createFakeD1 } from "./test/fake-d1";
 
 type TestEnv = AuthEnv & Pick<Env, "API" | "BILLING_INTERNAL_KEY">;
@@ -65,6 +70,20 @@ describe("stripePluginOrNone", () => {
     const plugins = stripePluginOrNone(env, db);
     expect(plugins).toHaveLength(1);
     expect(plugins[0]?.id).toBe("stripe");
+  });
+});
+
+describe("checkoutSessionParamsFor", () => {
+  it("adds nothing to the checkout session by default", () => {
+    // The paid path must behave exactly as it does today until an operator
+    // sets the Stripe Dashboard Terms URL and flips the flag.
+    expect(checkoutSessionParamsFor({})).toEqual({ params: {} });
+  });
+
+  it("requires the Terms checkbox once the flag is on", () => {
+    expect(checkoutSessionParamsFor({ STRIPE_CHECKOUT_TOS_CONSENT: "true" })).toEqual({
+      params: { consent_collection: { terms_of_service: "required" } },
+    });
   });
 });
 

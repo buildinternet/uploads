@@ -27,14 +27,20 @@ import { stripe } from "@better-auth/stripe";
 import Stripe from "stripe";
 import { and, eq } from "drizzle-orm";
 import type { drizzle } from "drizzle-orm/d1";
-import { stripePlans } from "@uploads/billing";
+import {
+  checkoutConsentParams,
+  stripePlans,
+  type CheckoutConsentEnv,
+  type CheckoutConsentParams,
+} from "@uploads/billing";
 import * as schema from "./schema";
 import { syncWorkspacePlan } from "./billing-bridge";
 import type { AuthEnv } from "./auth";
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
 type StripePluginEnv = AuthEnv &
-  Pick<Env, "STRIPE_SECRET_KEY" | "STRIPE_WEBHOOK_SECRET" | "API" | "BILLING_INTERNAL_KEY">;
+  Pick<Env, "STRIPE_SECRET_KEY" | "STRIPE_WEBHOOK_SECRET" | "API" | "BILLING_INTERNAL_KEY"> &
+  Pick<Env, "STRIPE_CHECKOUT_TOS_CONSENT">;
 
 /**
  * Downgrade/upgrade decision for a `subscription.update` webhook: `active`
@@ -44,6 +50,21 @@ type StripePluginEnv = AuthEnv &
  */
 export function desiredPlanForStatus(status: string): "pro" | "free" {
   return status === "active" || status === "trialing" ? "pro" : "free";
+}
+
+/**
+ * The plugin's `getCheckoutSessionParams` return shape, whose `params` are
+ * merged into `checkout.sessions.create`. Carries only the Terms-checkbox
+ * consent block today, and only when enabled — see
+ * `@uploads/billing`'s stripe-checkout.ts for why that is gated.
+ *
+ * Exported so the wiring is directly testable: the configured plugin object
+ * does not expose its subscription options for inspection.
+ */
+export function checkoutSessionParamsFor(env: CheckoutConsentEnv): {
+  params: CheckoutConsentParams;
+} {
+  return { params: checkoutConsentParams(env) };
 }
 
 /**
@@ -100,6 +121,12 @@ export function stripePluginOrNone(env: StripePluginEnv, db: Db) {
         plans: stripePlans(env),
         authorizeReference: async ({ user, referenceId }) =>
           isOrgBillingAdmin(db, user.id, referenceId),
+        // Merged into `checkout.sessions.create` by the plugin. Empty unless
+        // STRIPE_CHECKOUT_TOS_CONSENT is "true" — see stripe-checkout.ts for
+        // why this is gated rather than simply on (it needs a Dashboard field
+        // set first, or Stripe rejects the session and the upgrade button
+        // dies).
+        getCheckoutSessionParams: () => checkoutSessionParamsFor(env),
         onSubscriptionComplete: async ({ subscription }) => {
           await syncWorkspacePlan(env, db, subscription.referenceId, "pro");
         },
