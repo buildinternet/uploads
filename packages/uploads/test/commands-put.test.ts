@@ -56,7 +56,10 @@ function fakeClient(opts?: {
         embedUrl: null,
         size: body.byteLength,
         contentType: "image/png",
-        metadata: putOpts.metadata,
+        // The API echoes the object's R2 *provenance* bag here, never the
+        // queryable metadata that was sent (PR #509) — mirroring that is
+        // what keeps the path-meta tip below honest.
+        metadata: { client: "uploads-cli", "content-sha256": "0".repeat(64) },
       };
     },
     list: async () => ({ items: [], cursor: null }),
@@ -1865,6 +1868,62 @@ describe("runPut path-meta tip (issue #469 lever 3)", () => {
       ),
     );
     expect(stderr).not.toContain("tip:");
+  });
+
+  // PR #509: the tip fired on every image because it read the API's put
+  // echo (the R2 provenance bag) instead of the metadata actually sent.
+  it("omits the JSON hint when --meta path= is given", async () => {
+    const { client, puts } = fakeClient();
+    const stdout = await captureStdout(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false, json: true },
+        [tmpFile(), "--pr", "9", "--repo", "o/r", "--meta", "path=/terms", "--state", "after"],
+        false,
+        noRun,
+      ),
+    );
+    // The pair really was sent — the tip is the only thing at issue here.
+    expect(puts[0]?.metadata).toMatchObject({ path: "/terms", state: "after" });
+    const payload = JSON.parse(stdout) as { hint?: string };
+    expect(payload.hint).toBeUndefined();
+  });
+
+  it("does not print the tip when a sidecar manifest supplies the path", async () => {
+    const { client } = fakeClient();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-put-tip-sidecar-"));
+    const file = join(dir, "shot.png");
+    const bytes = Buffer.from("not-really-a-png");
+    writeFileSync(file, bytes);
+    writeSidecarMeta(file, bytes, { path: "/settings" });
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [file, "--pr", "9", "--repo", "o/r"],
+        false,
+        noRun,
+      ),
+    );
+    expect(stderr).not.toContain("tip:");
+  });
+
+  it("still fires when only some files in a batch carry a path", async () => {
+    const { client } = fakeClient();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-put-tip-multi-"));
+    const withPath = join(dir, "a.png");
+    const withoutPath = join(dir, "b.png");
+    const bytes = Buffer.from("a-bytes");
+    writeFileSync(withPath, bytes);
+    writeFileSync(withoutPath, "b-bytes");
+    writeSidecarMeta(withPath, bytes, { path: "/settings" });
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [withPath, withoutPath, "--pr", "9", "--repo", "o/r"],
+        false,
+        noRun,
+      ),
+    );
+    expect(stderr).toContain("tip: add --meta path=/route so this shot is findable by page");
   });
 
   it("is suppressed by --quiet", async () => {

@@ -105,6 +105,15 @@ export interface PutResult {
    * non-`gh/` key, existing object, no `replace`) instead of overwriting.
    */
   wouldRefuse?: boolean;
+  /**
+   * The object's R2 **provenance** bag (`client`, `source-name`,
+   * `content-sha256`, `uploaded-at`) — NOT the queryable `--meta` tags this
+   * put sent, which the API does not echo here. Reading it as the latter is
+   * what made the path-meta tip fire on every image (PR #509). To confirm
+   * what landed in the queryable tier, call `getMetadata(key)`
+   * (`GET …/files/:key?metadata=1`); the same field name means the queryable
+   * tags there, on `patchMetadata`, and on `list({ metadata: true })`.
+   */
   metadata?: Record<string, string>;
 }
 
@@ -132,6 +141,7 @@ export interface HeadResult {
   size: number;
   contentType: string;
   uploaded?: string;
+  /** Same R2 provenance bag as `PutResult.metadata` — see the note there. */
   metadata?: Record<string, string>;
 }
 

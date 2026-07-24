@@ -68,7 +68,9 @@ function fakeClient(opts?: {
         embedUrl: null,
         size: 3,
         contentType: "image/png",
-        metadata: putOpts.metadata,
+        // Provenance echo, not the queryable pairs that were sent — see the
+        // same note in commands-put.test.ts (PR #509).
+        metadata: { client: "uploads-cli", "content-sha256": "0".repeat(64) },
       };
     },
     list,

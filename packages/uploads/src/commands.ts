@@ -547,6 +547,13 @@ export interface UploadPreparedImageResult {
   result: PutResult;
   prepared: PreparedUpload;
   markdown: string;
+  /**
+   * The queryable metadata this upload actually sent — `opts.metadata` after
+   * any derived image facts were merged in. Callers that need to reason about
+   * what was stored (see `pathMetaHintFor`) must read this, not
+   * `result.metadata`, which is the API's R2 provenance echo.
+   */
+  sentMetadata?: Record<string, string>;
 }
 
 /**
@@ -607,7 +614,7 @@ export async function uploadPreparedImage(
     alt: opts.alt(prepared),
     width: opts.width,
   });
-  return { result, prepared, markdown };
+  return { result, prepared, markdown, sentMetadata: metadata };
 }
 
 export function frameOptionsFromFlags(flags: CommandFlags["flags"]): {
@@ -886,15 +893,25 @@ Examples:
  * (same tier as `state=`), and unlike `uploads screenshot` (which derives it
  * from the captured URL), a plain `attach`/`put --pr`/`put --issue` of an
  * already-existing image has nothing to derive it from, so it's easy to
- * forget. Fires once per batch (not per file) — checks the metadata the
- * server actually stored (`PutResult.metadata`), not what was requested, so
- * a merge/validation drop still surfaces the gap. Non-image uploads (zips,
+ * forget. Fires once per batch (not per file). Non-image uploads (zips,
  * PDFs, etc.) are exempt — "findable by page" doesn't apply to them.
+ *
+ * Checks the *resolved* metadata each upload actually sent (`--meta` pairs +
+ * sidecar manifest + derived image facts, index-aligned with `uploads`) —
+ * NOT `PutResult.metadata`. That field is the API's echo of the object's R2
+ * provenance bag (`client`, `source-name`, `content-sha256`, `uploaded-at`),
+ * never the queryable D1 tags, so it can't answer this question: reading it
+ * made the tip fire on every image, including ones uploaded with an explicit
+ * `--meta path=` (PR #509).
  */
 export function pathMetaHintFor(
-  uploads: { contentType: string; metadata?: Record<string, string> }[],
+  uploads: readonly { contentType: string }[],
+  /** Index-aligned with `uploads` — see `uploadPuts`/`uploadAttachments`. */
+  sentMetadata: readonly (Record<string, string> | undefined)[],
 ): string | undefined {
-  const missingPath = uploads.some((u) => u.contentType.startsWith("image/") && !u.metadata?.path);
+  const missingPath = uploads.some(
+    (u, i) => u.contentType.startsWith("image/") && !sentMetadata[i]?.path,
+  );
   return missingPath ? "tip: add --meta path=/route so this shot is findable by page" : undefined;
 }
 
@@ -915,6 +932,21 @@ export type AttachFailure = {
   file: string;
   error: { message: string; code?: string; status?: number };
 };
+
+/** Shared shape of every prepare + put batch (`uploadPuts`/`uploadAttachments`). */
+export interface UploadBatchResult<T> {
+  uploads: T[];
+  failures: AttachFailure[];
+  /** The original cause of the first failure — for rethrowing single-file CLI paths. */
+  firstError?: unknown;
+  /**
+   * Index-aligned with `uploads`: the queryable metadata each upload actually
+   * sent (flags + sidecar + derived image facts). Kept beside the items rather
+   * than on them so it stays out of the `--format json` upload objects, which
+   * spread the item wholesale. See `pathMetaHintFor`.
+   */
+  sentMetadata: (Record<string, string> | undefined)[];
+}
 
 interface UploadAttachmentBatchOptions {
   client: UploadsClient;
@@ -944,12 +976,14 @@ interface UploadAttachmentBatchOptions {
  */
 async function uploadAttachmentBatch(
   opts: UploadAttachmentBatchOptions,
-): Promise<{ uploads: AttachUploadItem[]; failures: AttachFailure[]; firstError?: unknown }> {
+): Promise<UploadBatchResult<AttachUploadItem>> {
   if (opts.files.some((f) => f === "-")) {
     throw new UsageError("attach does not support stdin; pass one or more file paths");
   }
 
-  type Slot = { ok: true; upload: AttachUploadItem } | { ok: false; file: string; err: unknown };
+  type Slot =
+    | { ok: true; upload: AttachUploadItem; sentMetadata?: Record<string, string> }
+    | { ok: false; file: string; err: unknown };
 
   const slots = await mapBounded(
     opts.files,
@@ -985,6 +1019,7 @@ async function uploadAttachmentBatch(
         });
         return {
           ok: true,
+          sentMetadata: metadata,
           upload: {
             ...result,
             file,
@@ -1008,16 +1043,20 @@ async function uploadAttachmentBatch(
   );
 
   const uploads: AttachUploadItem[] = [];
+  const sentMetadata: (Record<string, string> | undefined)[] = [];
   const failures: AttachFailure[] = [];
   let firstError: unknown;
   for (const slot of slots) {
-    if (slot.ok) uploads.push(slot.upload);
-    else {
+    // Pushed together so the two arrays stay index-aligned across failures.
+    if (slot.ok) {
+      uploads.push(slot.upload);
+      sentMetadata.push(slot.sentMetadata);
+    } else {
       firstError ??= slot.err;
       failures.push({ file: slot.file, error: errorDetail(slot.err) });
     }
   }
-  return { uploads, failures, firstError };
+  return { uploads, failures, firstError, sentMetadata };
 }
 
 /**
@@ -1042,7 +1081,7 @@ export async function uploadAttachments(opts: {
   /** Provenance `client` field (default uploads-cli). */
   provenanceClient?: string;
   concurrency?: number;
-}): Promise<{ uploads: AttachUploadItem[]; failures: AttachFailure[]; firstError?: unknown }> {
+}): Promise<UploadBatchResult<AttachUploadItem>> {
   return uploadAttachmentBatch({
     ...opts,
     keyFor: (filename) => ghAttachmentKey(opts.target, filename),
@@ -1078,7 +1117,7 @@ export async function uploadBranchAttachments(opts: {
   deriveImageFacts?: boolean;
   provenanceClient?: string;
   concurrency?: number;
-}): Promise<{ uploads: AttachUploadItem[]; failures: AttachFailure[]; firstError?: unknown }> {
+}): Promise<UploadBatchResult<AttachUploadItem>> {
   return uploadAttachmentBatch({
     ...opts,
     keyFor: (filename) => ghBranchAttachmentKey(opts.target.repo, opts.target.branch, filename),
@@ -1138,7 +1177,7 @@ export async function uploadPuts(opts: {
   alt?: string;
   width?: number;
   concurrency?: number;
-}): Promise<{ uploads: PutUploadItem[]; failures: AttachFailure[]; firstError?: unknown }> {
+}): Promise<UploadBatchResult<PutUploadItem>> {
   if (opts.files.length > 1 && opts.files.some((f) => f === "-")) {
     throw new UsageError("stdin (-) cannot be combined with multiple file arguments");
   }
@@ -1149,7 +1188,9 @@ export async function uploadPuts(opts: {
     throw new UsageError("--name cannot be combined with multiple files");
   }
 
-  type Slot = { ok: true; upload: PutUploadItem } | { ok: false; file: string; err: unknown };
+  type Slot =
+    | { ok: true; upload: PutUploadItem; sentMetadata?: Record<string, string> }
+    | { ok: false; file: string; err: unknown };
 
   const slots = await mapBounded(
     opts.files,
@@ -1168,7 +1209,7 @@ export async function uploadPuts(opts: {
         // (issue #469 lever 2) — see mergeSidecarMeta. Not applicable to stdin.
         const metadata =
           file !== "-" ? mergeSidecarMeta(file, bytes, opts.metadata) : opts.metadata;
-        const { result, prepared, markdown } = await uploadPreparedImage(
+        const { result, prepared, markdown, sentMetadata } = await uploadPreparedImage(
           opts.client,
           bytes,
           sourceName,
@@ -1194,6 +1235,7 @@ export async function uploadPuts(opts: {
         );
         return {
           ok: true,
+          sentMetadata,
           upload: {
             ...result,
             file,
@@ -1215,16 +1257,20 @@ export async function uploadPuts(opts: {
   );
 
   const uploads: PutUploadItem[] = [];
+  const sentMetadata: (Record<string, string> | undefined)[] = [];
   const failures: AttachFailure[] = [];
   let firstError: unknown;
   for (const slot of slots) {
-    if (slot.ok) uploads.push(slot.upload);
-    else {
+    // Pushed together so the two arrays stay index-aligned across failures.
+    if (slot.ok) {
+      uploads.push(slot.upload);
+      sentMetadata.push(slot.sentMetadata);
+    } else {
       firstError ??= slot.err;
       failures.push({ file: slot.file, error: errorDetail(slot.err) });
     }
   }
-  return { uploads, failures, firstError };
+  return { uploads, failures, firstError, sentMetadata };
 }
 
 /**
@@ -1340,7 +1386,7 @@ export async function runAttach(
     process.stderr.write(`>> uploading ${n} file${n === 1 ? "" : "s"}\n`);
   }
 
-  const { uploads, failures, firstError } = await uploadAttachments({
+  const { uploads, failures, firstError, sentMetadata } = await uploadAttachments({
     client: ctx.client,
     target,
     files: parsed.positionals,
@@ -1392,7 +1438,8 @@ export async function runAttach(
   }
 
   // Lever 3 (issue #469): tip when an image lands here with no `path` meta.
-  const pathHint = uploads.length > 0 && !ctx.quiet ? pathMetaHintFor(uploads) : undefined;
+  const pathHint =
+    uploads.length > 0 && !ctx.quiet ? pathMetaHintFor(uploads, sentMetadata) : undefined;
 
   if (ctx.json) {
     await writeJson({
@@ -2197,7 +2244,7 @@ export async function runPut(
     if (attachedRef) process.stderr.write(`>> attached to ${attachedRef}\n`);
   }
 
-  const { uploads, failures, firstError } = await uploadPuts({
+  const { uploads, failures, firstError, sentMetadata } = await uploadPuts({
     client: ctx.client,
     files,
     nameOverride: nameFlag,
@@ -2236,7 +2283,9 @@ export async function runPut(
   // above (staging/auto/dated) aren't attached to a PR/issue yet, so there's
   // nothing to look up from a page later.
   const pathHint =
-    ghTarget && uploads.length > 0 && !ctx.quiet ? pathMetaHintFor(uploads) : undefined;
+    ghTarget && uploads.length > 0 && !ctx.quiet
+      ? pathMetaHintFor(uploads, sentMetadata)
+      : undefined;
   // One JSON `hint` slot, shared with the #393 nudge (mutually exclusive with
   // it — nudge is undefined whenever staging took over). When staging fires,
   // prefer the more actionable binding warning over the generic staging note
