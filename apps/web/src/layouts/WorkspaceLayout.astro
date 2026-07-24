@@ -51,11 +51,14 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
           <span class="ws-rail__rule"></span>
         </div>
         <div class="ws-rail__actions">
-          {/* Shown unconditionally — there is no session-authed way to tell
-              whether this workspace already has the App (the health endpoint is
-              workspace-token auth). Kept deliberately light for that reason. */}
+          {/* Server-rendered visible, then hidden by `initWorkspaceRail` when
+              `/me/workspaces/:name/github-status` reports the App installed
+              (issue #492). Shown on every other outcome — a workspace that has
+              it already sees one extra muted link; one that doesn't would
+              otherwise never learn the App exists. */}
           <a
             class="ws-rail__cta"
+            data-rail-github-cta
             href={GITHUB_APP_INSTALL_URL}
             target="_blank"
             rel="noopener noreferrer"
@@ -185,6 +188,11 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
     color: var(--fg);
     text-decoration: none;
     font-size: 12px;
+  }
+  /* The class sets `display`, which outranks the UA `[hidden]` rule — without
+     this, the rail's install-status suppression would have no visible effect. */
+  .ws-rail__cta[hidden] {
+    display: none;
   }
   .ws-rail__cta:hover,
   .ws-rail__cta:focus-visible {
