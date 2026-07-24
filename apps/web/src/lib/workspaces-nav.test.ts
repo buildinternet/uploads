@@ -206,6 +206,26 @@ describe("resolveDefaultWorkspace", () => {
     ).toBe("one");
   });
 
+  it("skips the communal default so an owner there still lands in their own workspace", () => {
+    const roles = [
+      { workspace: "default", role: "owner" },
+      { workspace: "buildinternet", role: "admin" },
+    ];
+    expect(resolveDefaultWorkspace(roles, "")).toBe("buildinternet");
+  });
+
+  it("still opens the communal default when it is the only membership", () => {
+    expect(resolveDefaultWorkspace([{ workspace: "default", role: "owner" }], "")).toBe("default");
+  });
+
+  it("honours an explicit last-used default over the skip", () => {
+    const roles = [
+      { workspace: "default", role: "owner" },
+      { workspace: "buildinternet", role: "admin" },
+    ];
+    expect(resolveDefaultWorkspace(roles, "default")).toBe("default");
+  });
+
   it("returns null only when there are no memberships", () => {
     expect(resolveDefaultWorkspace([], "buildinternet")).toBeNull();
   });

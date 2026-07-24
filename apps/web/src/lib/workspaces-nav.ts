@@ -149,6 +149,13 @@ export function clearCachedActiveWorkspace(): void {
 const FALLBACK_ROLES = ["owner", "admin"];
 
 /**
+ * The communal workspace. Most accounts are members of it, and many are
+ * `owner` there, so a naive role-first fallback would land almost everyone
+ * in the shared workspace instead of their own. Considered last.
+ */
+const COMMUNAL_WORKSPACE = "default";
+
+/**
  * Workspace to open from the index after login.
  *
  * One membership → that workspace. Multi → last-used if still a member.
@@ -157,6 +164,10 @@ const FALLBACK_ROLES = ["owner", "admin"];
  * administer, else the first membership — so a signed-in user lands in a
  * workspace rather than being asked to choose every time. The switcher, not
  * this page, is how you change workspaces.
+ *
+ * The communal `default` is skipped at every step of that fallback and only
+ * used when it is the sole membership, so a user who happens to be `owner`
+ * there still lands in their own workspace.
  *
  * Null only when there are no memberships at all. The index suppresses the
  * auto-open entirely when it was reached deliberately (`?manage=1`).
@@ -167,11 +178,13 @@ export function resolveDefaultWorkspace(
 ): string | null {
   if (workspaces.length === 1) return workspaces[0]!.workspace;
   if (lastActive && workspaces.some((ws) => ws.workspace === lastActive)) return lastActive;
+
+  const own = workspaces.filter((ws) => ws.workspace !== COMMUNAL_WORKSPACE);
   for (const role of FALLBACK_ROLES) {
-    const match = workspaces.find((ws) => ws.role === role);
+    const match = own.find((ws) => ws.role === role);
     if (match) return match.workspace;
   }
-  return workspaces[0]?.workspace ?? null;
+  return own[0]?.workspace ?? workspaces[0]?.workspace ?? null;
 }
 
 /**
