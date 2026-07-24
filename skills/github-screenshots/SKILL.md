@@ -253,3 +253,10 @@ handful of milestones reads better than a dumped folder.
   visibility is not an access control, and `gh/<owner>/<repo>/pull/<num>/…`
   keys are predictable. Never upload secrets, tokens, or customer PII —
   crop/redact first.
+
+## Need to point at something in the screenshot?
+
+Boxes, arrows, labels, freeform strokes, and redaction (blur/solid, for
+secrets caught in a capture) get baked onto a screenshot with `uploads
+screenshot --annotate` or `uploads annotate` — see the **annotate-screenshots**
+skill for the spec format and workflow, then come back here to attach.

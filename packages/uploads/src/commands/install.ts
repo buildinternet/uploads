@@ -12,7 +12,7 @@ import { HOOK_COMMAND, installHookManifests, type HookWriteResult } from "../hoo
 
 export const DEFAULT_MCP_URL = "https://agents.uploads.sh/mcp";
 const SKILL_SOURCE = "buildinternet/uploads";
-const SKILL_NAMES = ["uploads-cli", "github-screenshots"];
+const SKILL_NAMES = ["uploads-cli", "github-screenshots", "annotate-screenshots"];
 
 const INSTALL_HELP = `uploads install — set up agent integrations (skills + remote MCP + hooks)
 
@@ -29,7 +29,8 @@ Usage:
 
 What it does:
   skill   Agent skills (via npx skills) — github-screenshots: visuals into
-          PRs/issues; uploads-cli: full CLI reference
+          PRs/issues; uploads-cli: full CLI reference; annotate-screenshots:
+          hand-drawn callouts and redaction on screenshots
   mcp     Hosted MCP server in Claude Code — put, list, attach, galleries
   hooks   PR screenshot reminder for Grok / Cursor (user-global manifests)
 
