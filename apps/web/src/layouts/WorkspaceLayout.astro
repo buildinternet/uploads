@@ -5,6 +5,8 @@
  * Rail data is filled by `initWorkspaceRail` (connected work / usage / details).
  */
 import { GITHUB_APP_INSTALL_URL } from "../lib/github-app";
+import { renderUsagePlaceholderHtml } from "../lib/workspace-ui";
+import { renderDetailsPlaceholderHtml } from "../lib/workspace-rail";
 import AccountLayout from "./AccountLayout.astro";
 
 interface Props {
@@ -34,7 +36,7 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
           <span class="ws-rail__label">usage</span>
           <span class="ws-rail__rule"></span>
         </div>
-        <div class="ws-rail__usage" data-rail-usage>Loading usage…</div>
+        <div class="ws-rail__usage" data-rail-usage set:html={renderUsagePlaceholderHtml()} />
       </section>
 
       <section class="ws-rail__section">
@@ -42,7 +44,7 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
           <span class="ws-rail__label">details</span>
           <span class="ws-rail__rule"></span>
         </div>
-        <dl class="ws-rail__kv" data-rail-details></dl>
+        <dl class="ws-rail__kv" data-rail-details set:html={renderDetailsPlaceholderHtml()} />
       </section>
 
       <section class="ws-rail__section">

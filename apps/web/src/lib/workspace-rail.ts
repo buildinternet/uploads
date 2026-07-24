@@ -8,7 +8,9 @@
  *    synchronously, before any network round trip, so a files-tab script that
  *    races ahead of this module's session-gated fetches never calls a
  *    not-yet-defined function;
- *  - fetches `getWorkspaceSummary` → details and usage.
+ *  - paints last-known details/usage from the workspace snapshot cache
+ *    synchronously, then revalidates through the shared `loadWorkspaceSummary`
+ *    request once the session gate resolves.
  *
  * Connected-work hook contract (Task 8's files tab is the only caller):
  *   `window.__uploadsSetConnectedWork(items: GhWorkItem[], titles?: GithubTitleMap): void`
@@ -17,14 +19,11 @@
  * item; an empty array hides it. Non-files tabs never call it, so the section
  * stays hidden by construction.
  */
-import {
-  getGithubInstalled,
-  getWorkspaceSummary,
-  type GithubTitleMap,
-  type MyWorkspace,
-} from "./api-client";
+import { getGithubInstalled, type GithubTitleMap, type MyWorkspace } from "./api-client";
 import { onSession } from "./account-shell";
-import { escapeHtml, renderUsageHtml, skeletonBarHtml } from "./workspace-ui";
+import { escapeHtml, renderUsageHtml, skeletonBarHtml, type UsageSnapshot } from "./workspace-ui";
+import { readWorkspaceSnapshot } from "./workspace-cache";
+import { loadWorkspaceSummary } from "./workspace-summary-source";
 import { githubKindSvg } from "./brand-icons";
 import { applyGhTitles, githubOwnerAvatarUrl, type GhKind, type GhWorkItem } from "./gh-context";
 
@@ -201,6 +200,39 @@ export function initWorkspaceRail(
   const usageEl = root.querySelector<HTMLElement>("[data-rail-usage]");
   const githubCtaEl = root.querySelector<HTMLElement>("[data-rail-github-cta]");
 
+  const paint = (
+    details: WorkspaceRailDetails | null,
+    usage: UsageSnapshot | undefined,
+    stale: boolean,
+  ): void => {
+    if (detailsEl && details) {
+      detailsEl.innerHTML = renderDetailsHtml(details);
+      detailsEl.toggleAttribute("data-stale", stale);
+      detailsEl.removeAttribute("aria-busy");
+    }
+    if (usageEl && usage) {
+      usageEl.innerHTML = renderUsageHtml(usage);
+      usageEl.toggleAttribute("data-stale", stale);
+      usageEl.removeAttribute("aria-busy");
+    }
+  };
+
+  // Tier 1 — last known values, no network. Runs at module-eval time, before
+  // the session gate resolves. The server-rendered placeholders it overwrites
+  // occupy the same height, so this repaint moves nothing on the page.
+  const cached = readWorkspaceSnapshot(workspace);
+  if (cached) {
+    paint(
+      {
+        organization: { slug: cached.slug },
+        hasPublicUrl: cached.hasPublicUrl,
+        publicBaseUrl: cached.publicBaseUrl,
+      },
+      cached.usage,
+      true,
+    );
+  }
+
   onSession(() => {
     // Suppress the install CTA once this workspace has the App (issue #492).
     // One-way: the CTA ships visible and is only ever hidden, so an outage or
@@ -211,17 +243,19 @@ export function initWorkspaceRail(
       });
     }
 
-    void getWorkspaceSummary(apiOrigin, workspace).then((result) => {
+    void loadWorkspaceSummary(apiOrigin, workspace).then((result) => {
       if (result.kind !== "success") {
+        // A warm paint is better than an error string: the values on screen
+        // were true recently, and the failure is already surfaced by whatever
+        // the page body does with the same shared result.
+        if (cached) return;
         if (detailsEl) detailsEl.textContent = "Details unavailable.";
         if (usageEl) usageEl.textContent = "Usage unavailable.";
         return;
       }
       const ws: MyWorkspace = result.workspace;
-      if (detailsEl) detailsEl.innerHTML = renderDetailsHtml(ws);
-      if (usageEl) {
-        usageEl.innerHTML = result.usage ? renderUsageHtml(result.usage) : "Usage unavailable.";
-      }
+      paint(ws, result.usage ?? undefined, false);
+      if (usageEl && !result.usage) usageEl.textContent = "Usage unavailable.";
     });
   });
 }
