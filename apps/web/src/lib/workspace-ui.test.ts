@@ -4,7 +4,6 @@ import {
   formatGalleryDate,
   formatMarketedBytes,
   orderOrgsOldestFirst,
-  renderDetailsPlaceholderHtml,
   renderGalleriesPlaceholderHtml,
   renderGalleriesTableHtml,
   renderInvitesHtml,
@@ -305,13 +304,11 @@ describe("skeleton placeholders", () => {
     expect(html).toContain('aria-busy="true"');
   });
 
-  it("keeps the real details labels and only masks the values", () => {
-    const html = renderDetailsPlaceholderHtml();
-    // Labels are Tier 0 — they are known without any request.
-    expect(html).toContain(">slug<");
-    expect(html).toContain(">base url<");
-    expect(html).toContain("ws-rail__dt");
-    expect(html).toContain("ws-skel");
+  it("emits as many meter rows as the caller's `meters` guess", () => {
+    // A caller expecting the workspace to land on the capless single-meter
+    // shape (or any other guess) can say so instead of always assuming two.
+    expect(renderUsagePlaceholderHtml(1).match(/ul-progress__row/g)).toHaveLength(1);
+    expect(renderUsagePlaceholderHtml(3).match(/ul-progress__row/g)).toHaveLength(3);
   });
 
   it("builds a galleries placeholder with the real table chrome", () => {

@@ -24,7 +24,7 @@ import {
   type MyWorkspace,
 } from "./api-client";
 import { onSession } from "./account-shell";
-import { escapeHtml, renderUsageHtml } from "./workspace-ui";
+import { escapeHtml, renderUsageHtml, skeletonBarHtml } from "./workspace-ui";
 import { githubKindSvg } from "./brand-icons";
 import { applyGhTitles, githubOwnerAvatarUrl, type GhKind, type GhWorkItem } from "./gh-context";
 
@@ -81,6 +81,17 @@ export function renderDetailsHtml(ws: WorkspaceRailDetails): string {
   return (
     `<dt class="ws-rail__dt">slug</dt><dd class="ws-rail__dd">${escapeHtml(ws.organization.slug)}</dd>` +
     `<dt class="ws-rail__dt">base url</dt><dd class="ws-rail__dd">${baseUrlHtml}</dd>`
+  );
+}
+
+/**
+ * Rail details placeholder. The `<dt>` labels are static, so they render for
+ * real; only the `<dd>` values are masked.
+ */
+export function renderDetailsPlaceholderHtml(): string {
+  return (
+    `<dt class="ws-rail__dt">slug</dt><dd class="ws-rail__dd">${skeletonBarHtml("84px")}</dd>` +
+    `<dt class="ws-rail__dt">base url</dt><dd class="ws-rail__dd">${skeletonBarHtml("132px")}</dd>`
   );
 }
 

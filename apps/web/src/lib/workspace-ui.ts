@@ -384,8 +384,30 @@ export function skeletonBarHtml(width: string): string {
   return `<span class="ws-skel" aria-hidden="true" style="--ws-skel-w:${safe}"></span>`;
 }
 
-/** Empty meter chrome for the rail, matching `renderUsageHtml`'s two meters. */
-export function renderUsagePlaceholderHtml(): string {
+/** Label/value skeleton widths for each meter row, cycled when `meters` runs past this table. */
+const USAGE_METER_WIDTHS: Array<{ label: string; value: string }> = [
+  { label: "52px", value: "96px" }, // "Storage"
+  { label: "108px", value: "78px" }, // "Uploads this month"
+];
+
+/**
+ * Empty meter chrome for the rail, guessing at `renderUsageHtml`'s shape.
+ *
+ * The real shape is unknowable before the first response lands: depending on
+ * which caps the workspace's plan actually sets, `renderUsageHtml` renders
+ * two meters, one meter, or — when no caps are set at all — a structurally
+ * different single-line `usage-text` block. This placeholder can only guess;
+ * `meters` (default 2, the common case of both caps set) lets a caller
+ * express its best guess, same as `renderGalleriesPlaceholderHtml(rows)`.
+ *
+ * A workspace with no caps (plan never applied) still collapses once, from
+ * these meters down to the one-line text, on its first visit — that shift is
+ * not eliminated by this change, only made no worse than the two-meter
+ * assumption already was. It happens exactly once: every later visit paints
+ * from the cached snapshot instead of this placeholder, so the collapse
+ * cannot recur for that workspace.
+ */
+export function renderUsagePlaceholderHtml(meters = 2): string {
   const row = (labelWidth: string, valueWidth: string): string => `<div class="ul-progress__row">
     <div class="ul-progress__head">
       <span class="ul-progress__label">${skeletonBarHtml(labelWidth)}</span>
@@ -395,18 +417,11 @@ export function renderUsagePlaceholderHtml(): string {
       <div class="ul-progress__fill" style="width:0%"></div>
     </div>
   </div>`;
-  return `<div class="ul-progress" aria-busy="true">${row("52px", "96px")}${row("108px", "78px")}</div><div class="usage-meta">${skeletonBarHtml("64px")}</div>`;
-}
-
-/**
- * Rail details placeholder. The `<dt>` labels are static, so they render for
- * real; only the `<dd>` values are masked.
- */
-export function renderDetailsPlaceholderHtml(): string {
-  return (
-    `<dt class="ws-rail__dt">slug</dt><dd class="ws-rail__dd">${skeletonBarHtml("84px")}</dd>` +
-    `<dt class="ws-rail__dt">base url</dt><dd class="ws-rail__dd">${skeletonBarHtml("132px")}</dd>`
-  );
+  const rows = Array.from({ length: meters }, (_, i) => {
+    const w = USAGE_METER_WIDTHS[i % USAGE_METER_WIDTHS.length];
+    return row(w.label, w.value);
+  }).join("");
+  return `<div class="ul-progress" aria-busy="true">${rows}</div><div class="usage-meta">${skeletonBarHtml("64px")}</div>`;
 }
 
 /** Galleries table placeholder — same chrome as `renderGalleriesTableHtml`. */
