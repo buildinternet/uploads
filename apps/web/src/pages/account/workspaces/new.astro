@@ -53,6 +53,11 @@ export const prerender = false;
           <a data-open-workspace href="/account/workspaces">Open this workspace →</a>
         </p>
       </div>
+      <p class="muted cli-note" data-create-cap role="status" hidden>
+        <span data-cap-message></span>&#32;<a href="/account/workspaces?manage=1"
+          >Manage workspaces →</a
+        >
+      </p>
       <p class="muted cli-note" data-create-error role="alert" hidden></p>
       <p class="muted cli-note" data-create-github role="status" hidden>
         Requires a linked GitHub account.
@@ -69,8 +74,13 @@ export const prerender = false;
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../../lib/account-shell";
     import { linkGitHub, listAccounts } from "../../../lib/auth-client";
-    import { createWorkspace } from "../../../lib/api-client";
-    import { clearCachedWorkspaces } from "../../../lib/workspaces-nav";
+    import { createWorkspace, getMyWorkspaces } from "../../../lib/api-client";
+    import {
+      canCreateWorkspace,
+      clearCachedWorkspaces,
+      writeCachedWorkspaces,
+    } from "../../../lib/workspaces-nav";
+    import { workspaceCapMessage } from "@uploads/billing";
     import {
       bindCopyButtons,
       createErrorCopy,
@@ -107,6 +117,25 @@ export const prerender = false;
 
     void listAccounts(authOrigin).then((accounts) => {
       if (accounts && !accounts.some((a) => a.providerId === "github")) githubEl.hidden = false;
+    });
+
+    // This page is directly linkable, so it checks the cap itself rather
+    // than trusting that an entry point already did — turning a
+    // submit-then-403 into an up-front explanation. Fails open: an
+    // unreachable API or an older build with no quota leaves the form
+    // enabled, and POST /v1/workspaces still refuses.
+    const capEl = requireElement<HTMLElement>("[data-create-cap]", page);
+    const capMessage = requireElement<HTMLElement>("[data-cap-message]", page);
+    onSession(() => {
+      void getMyWorkspaces(apiOrigin).then((result) => {
+        if (result.kind !== "success") return;
+        writeCachedWorkspaces(result.workspaces, result.quota);
+        if (canCreateWorkspace(result.quota) || !result.quota) return;
+        capMessage.textContent = workspaceCapMessage(result.quota.cap);
+        capEl.hidden = false;
+        input.disabled = true;
+        if (submit) submit.disabled = true;
+      });
     });
 
     if (new URLSearchParams(location.search).get("error")) githubError.hidden = false;

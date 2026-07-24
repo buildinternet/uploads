@@ -71,17 +71,15 @@ describe("GET /me/workspaces", () => {
     });
     const res = await app().request("/me/workspaces", {}, env);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      workspaces: [
-        {
-          workspace: "acme",
-          organization: { id: "org1", slug: "acme", name: "Acme Inc" },
-          role: "owner",
-          hasPublicUrl: false,
-          plan: "free",
-        },
-      ],
-    });
+    expect(((await res.json()) as { workspaces: unknown[] }).workspaces).toEqual([
+      {
+        workspace: "acme",
+        organization: { id: "org1", slug: "acme", name: "Acme Inc" },
+        role: "owner",
+        hasPublicUrl: false,
+        plan: "free",
+      },
+    ]);
   });
 
   it("flags hasPublicUrl for a workspace whose storage record has a publicBaseUrl", async () => {
@@ -118,6 +116,69 @@ describe("GET /me/workspaces", () => {
     ]);
   });
 
+  /** Memberships payload for `slugs`, all owned unless a role is given. */
+  function ownedMemberships(slugs: [string, string?][]) {
+    return slugs.map(([slug, role], i) => ({
+      organizationId: `org${i + 1}`,
+      organizationSlug: slug,
+      organizationName: slug,
+      role: role ?? "owner",
+    }));
+  }
+
+  function envWithRecords(
+    memberships: ReturnType<typeof ownedMemberships>,
+    records: Record<string, unknown>,
+  ): Env {
+    const env = stubEnv(USER, (path) =>
+      path === "/internal/memberships"
+        ? Response.json(memberships)
+        : new Response(null, { status: 404 }),
+    );
+    (env as unknown as { REGISTRY: Pick<KVNamespace, "get"> }).REGISTRY = fakeKv(records);
+    return env;
+  }
+
+  async function quotaFor(env: Env) {
+    const res = await app().request("/me/workspaces", {}, env);
+    return ((await res.json()) as { workspaceCreate: unknown }).workspaceCreate;
+  }
+
+  it("reports the creation quota as allowed below the cap", async () => {
+    const env = envWithRecords(ownedMemberships([["one"], ["two"]]), {
+      "ws:one": { selfServe: true },
+      "ws:two": { selfServe: true },
+    });
+    expect(await quotaFor(env)).toEqual({ used: 2, cap: 3, allowed: true });
+  });
+
+  it("reports the creation quota as denied at the cap", async () => {
+    const env = envWithRecords(ownedMemberships([["one"], ["two"], ["three"]]), {
+      "ws:one": { selfServe: true },
+      "ws:two": { selfServe: true },
+      "ws:three": { selfServe: true },
+    });
+    expect(await quotaFor(env)).toEqual({ used: 3, cap: 3, allowed: false });
+  });
+
+  it("counts only owned workspaces toward the creation quota", async () => {
+    const env = envWithRecords(ownedMemberships([["one"], ["two", "admin"], ["three", "member"]]), {
+      "ws:one": { selfServe: true },
+      "ws:two": { selfServe: true },
+      "ws:three": { selfServe: true },
+    });
+    expect(await quotaFor(env)).toEqual({ used: 1, cap: 3, allowed: true });
+  });
+
+  it("exempts paid workspaces from the creation quota", async () => {
+    const env = envWithRecords(ownedMemberships([["one"], ["two"], ["three"]]), {
+      "ws:one": { selfServe: true },
+      "ws:two": { selfServe: true },
+      "ws:three": { selfServe: true, plan: "pro" },
+    });
+    expect(await quotaFor(env)).toEqual({ used: 2, cap: 3, allowed: true });
+  });
+
   it("treats a workspace named 'default' as an ordinary workspace", async () => {
     const env = stubEnv(USER, (path) => {
       if (path === "/internal/memberships") {
@@ -137,17 +198,15 @@ describe("GET /me/workspaces", () => {
     // than being skipped by a name-based short-circuit.
     const res = await app().request("/me/workspaces", {}, env);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      workspaces: [
-        {
-          workspace: "default",
-          organization: { id: "org2", slug: "default", name: "Default" },
-          role: "member",
-          hasPublicUrl: false,
-          plan: "free",
-        },
-      ],
-    });
+    expect(((await res.json()) as { workspaces: unknown[] }).workspaces).toEqual([
+      {
+        workspace: "default",
+        organization: { id: "org2", slug: "default", name: "Default" },
+        role: "member",
+        hasPublicUrl: false,
+        plan: "free",
+      },
+    ]);
   });
 
   it("503s when the memberships lookup fails (AUTH outage is not zero memberships)", async () => {
@@ -212,7 +271,7 @@ describe("GET /me/workspaces", () => {
     });
     const res = await app().request("/me/workspaces", {}, env);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ workspaces: [] });
+    expect(((await res.json()) as { workspaces: unknown[] }).workspaces).toEqual([]);
   });
 });
 

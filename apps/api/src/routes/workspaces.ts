@@ -13,6 +13,11 @@ import {
   RateLimitedError,
   ValidationError,
 } from "@uploads/errors";
+import {
+  MAX_SELF_SERVE_WORKSPACES,
+  resolveWorkspaceCreateQuota,
+  workspaceCapMessage,
+} from "@uploads/billing";
 import { Hono, type MiddlewareHandler } from "hono";
 import { adminWorkspaceOr403, isWorkspaceOwner } from "./me";
 import {
@@ -128,7 +133,8 @@ function requireWorkspaceName(name: string): void {
 }
 
 const MAX_BODY_BYTES = 1024;
-export const MAX_SELF_SERVE_WORKSPACES = 3;
+/** Re-exported for existing importers; the cap itself lives in @uploads/billing. */
+export { MAX_SELF_SERVE_WORKSPACES };
 
 export const workspaces = new Hono<SessionVars>().post(
   "/",
@@ -173,17 +179,20 @@ export const workspaces = new Hono<SessionVars>().post(
       });
     }
 
-    // Cap counts only self-serve workspaces the user OWNS — BYO/operator
-    // workspaces (no selfServe flag) never burn the allowance.
+    // Cap counts only FREE self-serve workspaces the user OWNS — BYO/operator
+    // workspaces (no selfServe flag) and paid ones never burn the allowance.
+    // The rule itself lives in @uploads/billing so `/me/workspaces` can tell
+    // the UI whether to offer creation without restating it. This is the only
+    // enforcement point; the UI failing open must never grant a fourth.
     const memberships = await membershipsForUser(c.env, user.id);
     const isFirstMembership = memberships.length === 0;
     const owned = memberships.filter((m) => m.role === "owner");
     const records = await Promise.all(
       owned.map((m) => loadWorkspaceRecord(c.env, m.organizationSlug)),
     );
-    const selfServeCount = records.filter((r) => r?.selfServe === true).length;
-    if (selfServeCount >= MAX_SELF_SERVE_WORKSPACES) {
-      throw new ForbiddenError(`workspace limit reached (${MAX_SELF_SERVE_WORKSPACES})`, {
+    const quota = resolveWorkspaceCreateQuota(records);
+    if (!quota.allowed) {
+      throw new ForbiddenError(workspaceCapMessage(quota.cap), {
         code: "workspace_cap_reached",
       });
     }

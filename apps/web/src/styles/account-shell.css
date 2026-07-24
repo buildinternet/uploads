@@ -175,7 +175,10 @@
 .account-shell nav.side .ws-switcher__item.is-current {
   color: var(--accent);
 }
-.account-shell nav.side .ws-switcher__item--new {
+/* Trailing switcher row — "+ new workspace", or "manage workspaces" once the
+   creation cap is reached. Same quiet treatment either way. */
+.account-shell nav.side .ws-switcher__item--new,
+.account-shell nav.side .ws-switcher__item--manage {
   color: color-mix(in srgb, var(--muted) 70%, var(--accent));
   font-size: 12px;
 }

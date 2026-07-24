@@ -12,6 +12,7 @@ import {
   switcherLabel,
   workspaceTabFromPathname,
   writeCachedActiveWorkspace,
+  readCachedQuota,
   writeCachedWorkspaces,
   WORKSPACES_CACHE_KEY,
 } from "./workspaces-nav";
@@ -68,6 +69,21 @@ describe("workspaces cache", () => {
     clearCachedWorkspaces();
     expect(readCachedWorkspaces()).toBeNull();
     expect(sessionStorage.getItem(WORKSPACES_CACHE_KEY)).toBeNull();
+  });
+
+  it("round-trips the creation quota alongside the memberships", () => {
+    installStorage();
+    writeCachedWorkspaces(sample, { used: 3, cap: 3, allowed: false });
+    expect(readCachedQuota()).toEqual({ used: 3, cap: 3, allowed: false });
+    expect(readCachedWorkspaces()).toEqual(sample);
+  });
+
+  it("reads an absent or malformed cached quota as undefined", () => {
+    const { session } = installStorage();
+    writeCachedWorkspaces(sample);
+    expect(readCachedQuota()).toBeUndefined();
+    session.set(WORKSPACES_CACHE_KEY, "{not-json");
+    expect(readCachedQuota()).toBeUndefined();
   });
 
   it("drops malformed cache payloads", () => {
@@ -153,11 +169,44 @@ describe("active workspace cache + resolveSidebarWorkspace", () => {
 describe("resolveDefaultWorkspace", () => {
   const multi = [{ workspace: "buildinternet" }, { workspace: "side" }];
 
-  it("picks the only membership, else a valid last-used, else null", () => {
+  it("picks the only membership, else a valid last-used", () => {
     expect(resolveDefaultWorkspace([{ workspace: "solo" }], "other")).toBe("solo");
     expect(resolveDefaultWorkspace(multi, "side")).toBe("side");
-    expect(resolveDefaultWorkspace(multi, "")).toBeNull();
-    expect(resolveDefaultWorkspace(multi, "gone")).toBeNull();
+  });
+
+  it("falls back to the first owned workspace when no last-used is stored", () => {
+    const roles = [
+      { workspace: "invited", role: "member" },
+      { workspace: "mine", role: "owner" },
+      { workspace: "other", role: "owner" },
+    ];
+    expect(resolveDefaultWorkspace(roles, "")).toBe("mine");
+    // A stale slug the user is no longer a member of takes the same path.
+    expect(resolveDefaultWorkspace(roles, "gone")).toBe("mine");
+  });
+
+  it("prefers an administered workspace when none is owned", () => {
+    const roles = [
+      { workspace: "invited", role: "member" },
+      { workspace: "runs-it", role: "admin" },
+    ];
+    expect(resolveDefaultWorkspace(roles, "")).toBe("runs-it");
+  });
+
+  it("falls back to the first membership when no role qualifies", () => {
+    expect(resolveDefaultWorkspace(multi, "")).toBe("buildinternet");
+    expect(
+      resolveDefaultWorkspace(
+        [
+          { workspace: "one", role: "member" },
+          { workspace: "two", role: "member" },
+        ],
+        "",
+      ),
+    ).toBe("one");
+  });
+
+  it("returns null only when there are no memberships", () => {
     expect(resolveDefaultWorkspace([], "buildinternet")).toBeNull();
   });
 });
@@ -204,6 +253,32 @@ describe("renderSwitcherMenuHtml", () => {
   it("omits the badge when plan is absent (older api, legacy workspace)", () => {
     const html = renderSwitcherMenuHtml(sample, { active: "buildinternet" });
     expect(html).not.toContain("pro-badge");
+  });
+
+  it("swaps the create row for manage workspaces at the cap", () => {
+    const html = renderSwitcherMenuHtml(sample, {
+      active: "buildinternet",
+      quota: { used: 3, cap: 3, allowed: false },
+    });
+    expect(html).toContain('href="/account/workspaces?manage=1"');
+    expect(html).toContain("manage workspaces");
+    expect(html).not.toContain('href="/account/workspaces/new"');
+    expect(html).not.toContain("+ new workspace");
+  });
+
+  it("keeps the create row below the cap", () => {
+    const html = renderSwitcherMenuHtml(sample, {
+      active: "buildinternet",
+      quota: { used: 2, cap: 3, allowed: true },
+    });
+    expect(html).toContain("+ new workspace");
+    expect(html).not.toContain("manage workspaces");
+  });
+
+  it("keeps the create row when the quota is absent (older api)", () => {
+    expect(renderSwitcherMenuHtml(sample, { active: "buildinternet" })).toContain(
+      "+ new workspace",
+    );
   });
 });
 

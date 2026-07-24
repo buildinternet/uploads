@@ -24,10 +24,12 @@ if (isBrowseWorkspace(legacyWs)) {
   <section class="card settings-page dev-page">
     <div class="settings-section">
       <h2>Workspaces</h2>
-      <p class="settings-note muted">
-        Choose a workspace, or
-        <a href="/account/workspaces/new">create one</a>.
+      <!-- `&#32;` because Astro collapses the newline between `or` and the
+           link away entirely, rendering `orcreate one`. -->
+      <p class="settings-note muted" id="orgs-intro">
+        Choose a workspace, or&#32;<a href="/account/workspaces/new">create one</a>.
       </p>
+      <p class="settings-note muted" id="orgs-cap" hidden></p>
       <div id="orgs-status" class="ws-status muted">Loading…</div>
       <button id="orgs-retry" type="button" hidden>Try again</button>
       <ul class="dev-links" id="orgs-list" hidden></ul>
@@ -38,10 +40,12 @@ if (isBrowseWorkspace(legacyWs)) {
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
     import { getMyWorkspaces } from "../../lib/api-client";
     import {
+      canCreateWorkspace,
       readCachedActiveWorkspace,
       resolveDefaultWorkspace,
       writeCachedWorkspaces,
     } from "../../lib/workspaces-nav";
+    import { workspaceCapMessage } from "@uploads/billing";
     import { shouldShowProBadge } from "../../lib/plan-badge";
     import { escapeHtml } from "../../lib/workspace-ui";
 
@@ -54,6 +58,13 @@ if (isBrowseWorkspace(legacyWs)) {
       const status = requireElement<HTMLElement>("#orgs-status", page);
       const list = requireElement<HTMLUListElement>("#orgs-list", page);
       const retry = requireElement<HTMLButtonElement>("#orgs-retry", page);
+      const intro = requireElement<HTMLElement>("#orgs-intro", page);
+      const cap = requireElement<HTMLElement>("#orgs-cap", page);
+
+      // `?manage=1` means the user came here on purpose (the switcher's
+      // "manage workspaces" row), so the auto-open below is suppressed and
+      // the list always renders.
+      const managing = new URLSearchParams(location.search).get("manage") === "1";
 
       async function loadIndex(): Promise<void> {
         status.hidden = false;
@@ -69,16 +80,26 @@ if (isBrowseWorkspace(legacyWs)) {
           return;
         }
 
-        const { workspaces } = result;
-        writeCachedWorkspaces(workspaces);
+        const { workspaces, quota } = result;
+        writeCachedWorkspaces(workspaces, quota);
 
+        // At the cap, swap the "or create one" offer for the reason it's
+        // gone. Absent quota (older API, partial response) keeps the offer —
+        // POST /v1/workspaces is the real gate.
+        const canCreate = canCreateWorkspace(quota);
+        intro.hidden = !canCreate;
+        cap.hidden = canCreate;
+        if (!canCreate && quota) cap.textContent = workspaceCapMessage(quota.cap);
+
+        // No memberships means nothing owned, so the cap can't be reached
+        // here — the offer always stands.
         if (!workspaces.length) {
           status.innerHTML =
             'No workspaces yet — <a href="/account/workspaces/new">create one</a>, or accept an invite.';
           return;
         }
 
-        const open = resolveDefaultWorkspace(workspaces, readCachedActiveWorkspace());
+        const open = managing ? null : resolveDefaultWorkspace(workspaces, readCachedActiveWorkspace());
         if (open) {
           status.textContent = "Opening…";
           location.replace(`/account/workspaces/${encodeURIComponent(open)}`);
