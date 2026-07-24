@@ -8,6 +8,7 @@ import {
   renderGalleriesTableHtml,
   renderInvitesHtml,
   renderMembersHtml,
+  renderMembersPlaceholderHtml,
   renderUsageHtml,
   renderUsagePlaceholderHtml,
   safeSameOriginPath,
@@ -326,5 +327,14 @@ describe("skeleton placeholders", () => {
 
   it("defaults to three placeholder rows", () => {
     expect(renderGalleriesPlaceholderHtml().match(/<tr>/g)).toHaveLength(4);
+  });
+
+  it("mirrors the real member row's two-column structure", () => {
+    const html = renderMembersPlaceholderHtml(2);
+    expect(html.match(/class="member-row"/g)).toHaveLength(2);
+    // Both halves present, or the flex row collapses and the swap rearranges.
+    expect(html).toContain("member-row__who");
+    expect(html).toContain("member-row__name");
+    expect(html).toContain("member-row__role");
   });
 });

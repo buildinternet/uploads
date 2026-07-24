@@ -6,6 +6,7 @@
  */
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
+import { renderMembersPlaceholderHtml } from "../../../../lib/workspace-ui";
 
 export const prerender = false;
 
@@ -15,49 +16,45 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 ---
 
 <WorkspaceLayout workspace={workspace}>
-  <div id="ws-status" class="ul-callout status" role="status">Loading…</div>
+  <div id="ws-status" class="ul-callout status" role="status" hidden></div>
   <button id="ws-retry" type="button" hidden>Try again</button>
 
-  <div id="ws-app" hidden>
-    <section class="card settings-page">
-      <div class="settings-section">
-        <div class="ws-page-header">
-          <div class="ws-title-block">
-            <h2>People</h2>
-            <p class="muted" id="ws-slug"></p>
-          </div>
-          <a class="text-btn" id="ws-back" href={`/account/workspaces/${workspace}`}>← Workspace</a>
+  <section class="card settings-page">
+    <div class="settings-section">
+      <div class="ws-page-header">
+        <div class="ws-title-block">
+          <h2>People</h2>
+          <p class="muted" id="ws-slug"></p>
         </div>
-        <div id="ws-members" class="member-list">
-          <p class="muted" id="ws-members-status" role="status">Loading people…</p>
-        </div>
+        <a class="text-btn" id="ws-back" href={`/account/workspaces/${workspace}`}>← Workspace</a>
       </div>
+      <div id="ws-members" class="member-list" aria-busy="true" set:html={renderMembersPlaceholderHtml()} />
+    </div>
 
-      <div class="settings-section" id="ws-invite-section">
-        <h2>Invite</h2>
-        <p class="settings-note muted">Accept link, then <code>uploads login</code>.</p>
-        <form class="ws-form" id="ws-invite-form">
-          <div class="input-group">
-            <label class="input-group__field">
-              <span class="sr-only">Email</span>
-              <input
-                type="email"
-                name="email"
-                required
-                autocomplete="email"
-                placeholder="teammate@example.com"
-              />
-            </label>
-            <button type="submit" class="input-group__action">Invite</button>
-          </div>
-        </form>
-        <div class="ws-messages">
-          <p class="muted cli-note" id="ws-invite-status" role="status" hidden></p>
-          <p class="muted cli-note" id="ws-invite-link" hidden></p>
+    <div class="settings-section" id="ws-invite-section" hidden>
+      <h2>Invite</h2>
+      <p class="settings-note muted">Accept link, then <code>uploads login</code>.</p>
+      <form class="ws-form" id="ws-invite-form">
+        <div class="input-group">
+          <label class="input-group__field">
+            <span class="sr-only">Email</span>
+            <input
+              type="email"
+              name="email"
+              required
+              autocomplete="email"
+              placeholder="teammate@example.com"
+            />
+          </label>
+          <button type="submit" class="input-group__action">Invite</button>
         </div>
+      </form>
+      <div class="ws-messages">
+        <p class="muted cli-note" id="ws-invite-status" role="status" hidden></p>
+        <p class="muted cli-note" id="ws-invite-link" hidden></p>
       </div>
-    </section>
-  </div>
+    </div>
+  </section>
 
   <script>
     import {
@@ -76,6 +73,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       type ManageResult,
     } from "../../../../lib/api-client";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
+    import { loadWorkspaceSummary } from "../../../../lib/workspace-summary-source";
     import {
       escapeHtml,
       isWorkspaceAdminRole,
@@ -103,7 +101,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
       const statusEl = requireElement<HTMLElement>("#ws-status", page);
       const retryBtn = requireElement<HTMLButtonElement>("#ws-retry", page);
-      const appEl = requireElement<HTMLElement>("#ws-app", page);
       const slugEl = requireElement<HTMLElement>("#ws-slug", page);
       const inviteStatus = requireElement<HTMLElement>("#ws-invite-status", page);
       const inviteLink = requireElement<HTMLElement>("#ws-invite-link", page);
@@ -123,7 +120,16 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         statusEl.hidden = false;
         statusEl.textContent = message;
         statusEl.dataset.state = "error";
-        appEl.hidden = true;
+        // The card stays on screen. A failed fetch does not invalidate the
+        // heading or the invite section's own permission-gated visibility —
+        // it just has nothing to show, so the members region is cleared and
+        // the invite section (permission unknown) stays hidden. `aria-busy`
+        // lives on `membersEl` itself, not on markup this assignment
+        // replaces, so it's cleared explicitly too: loading has concluded,
+        // even though it failed.
+        membersEl.innerHTML = "";
+        membersEl.removeAttribute("aria-busy");
+        inviteSection.hidden = true;
         retryBtn.hidden = !retry;
       }
 
@@ -136,6 +142,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           memberOpts.canManage && invites.length ? renderInvitesHtml(invites) : "";
         const html = memberHtml + inviteHtml;
         membersEl.innerHTML = html || '<p class="muted">Just you so far.</p>';
+        // Unlike the innerHTML assignments above, `aria-busy` here lives on
+        // `membersEl` itself, not on markup the assignment replaces — the
+        // placeholder puts it directly on the surviving container, so it has
+        // to be cleared explicitly once real content lands.
+        membersEl.removeAttribute("aria-busy");
       }
 
       function applyMemberOpts(result: {
@@ -149,14 +160,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         };
       }
 
-      async function loadInvitePage(): Promise<void> {
+      async function loadPeople(): Promise<void> {
         if (!stillHere()) return;
-        statusEl.hidden = false;
-        statusEl.textContent = "Loading…";
-        statusEl.removeAttribute("data-state");
-        retryBtn.hidden = true;
-        appEl.hidden = true;
-
         // One combined people payload (authz + members + invites).
         const result = await getWorkspacePeople(apiOrigin, workspaceName);
         if (!stillHere()) return;
@@ -174,15 +179,36 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         inviteSection.hidden = !canInvite;
         inviteForm.hidden = !canInvite;
         applyMemberOpts(result);
-
-        statusEl.hidden = true;
-        appEl.hidden = false;
         paintPeopleList(result.members, result.invites);
+      }
 
-        const displayName = result.organization.name || workspaceName;
+      async function loadInvitePage(): Promise<void> {
+        if (!stillHere()) return;
+        statusEl.hidden = true;
+        statusEl.removeAttribute("data-state");
+        retryBtn.hidden = true;
+
+        const result = await loadWorkspaceSummary(apiOrigin, workspaceName);
+        if (!stillHere()) return;
+        if (result.kind === "unavailable") {
+          // `not_found` from /summary is the not-a-member case: the endpoint
+          // answers membership and existence together, so a 404 here means
+          // "not yours" and is not worth a retry button.
+          if (result.reason === "not_found") {
+            showError("You don’t have access to this workspace.", false);
+            return;
+          }
+          showError("People are temporarily unavailable. Check the local stack or try again.");
+          return;
+        }
+
+        const ws = result.workspace;
+        const displayName = ws.organization.name || workspaceName;
         slugEl.textContent =
           displayName === workspaceName ? workspaceName : `${displayName} · ${workspaceName}`;
         document.title = `People · ${displayName} · uploads.sh`;
+
+        void loadPeople();
       }
 
       async function refreshPeopleLists(): Promise<void> {

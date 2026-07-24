@@ -178,6 +178,27 @@ export function renderMembersHtml(members: MemberRow[], opts: MemberRowOptions =
 }
 
 /**
+ * Member-list placeholder.
+ *
+ * Mirrors `renderMembersHtml`'s two-part row — `.member-row` is a flex with
+ * `justify-content: space-between`, so a single child would collapse to one
+ * column and the swap to real rows would visibly rearrange, not just repaint.
+ * The nested `__name` and `__role` spans also carry the font sizes the row's
+ * `align-items: baseline` height is derived from.
+ */
+export function renderMembersPlaceholderHtml(rows = 2): string {
+  const widths = ["124px", "96px"];
+  return Array.from(
+    { length: rows },
+    (_, i) =>
+      `<div class="member-row">` +
+      `<span class="member-row__who"><span class="member-row__name">${skeletonBarHtml(widths[i % widths.length])}</span></span>` +
+      `<span class="member-row__role">${skeletonBarHtml("42px")}</span>` +
+      `</div>`,
+  ).join("");
+}
+
+/**
  * Pending invites as people-list rows (same `.member-row` surface as members).
  * Status badge + revoke. `[]` → `""` (caller omits the block).
  */
