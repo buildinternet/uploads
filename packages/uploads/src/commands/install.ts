@@ -25,6 +25,10 @@ infers your workspace from the bearer token, so only the token is needed.
 Claude Code and Codex ship the same reminder via their plugins (same command:
 \`${HOOK_COMMAND}\`) — install those plugins instead of relying on this step.
 
+Safe to re-run. An MCP server already registered under this name is reported
+as \`already configured\` and left as-is — including the token it was created
+with. To point it at a new token: \`claude mcp remove <name>\` first.
+
 Usage:
   uploads install [skill|mcp|hooks|all]     (default: all)
 
@@ -59,7 +63,7 @@ Examples:
 export interface StepResult {
   command: string[];
   ok: boolean;
-  skipped?: "dry-run" | "sign-in";
+  skipped?: "dry-run" | "sign-in" | "already-configured";
   error?: string;
   output?: string;
 }
@@ -90,6 +94,17 @@ export function runStep(run: CommandRunner, command: string[]): StepResult {
 function skillCommand(skill: string): string[] {
   // -g global, -y non-interactive, -a '*' every agent (skips the multi-select TUI)
   return ["npx", "-y", "skills", "add", SKILL_SOURCE, "--skill", skill, "-g", "-y", "-a", "*"];
+}
+
+/**
+ * `claude mcp add` refuses to overwrite an existing entry and exits non-zero
+ * ("MCP server uploads already exists in local config"). That is the steady
+ * state for anyone re-running `uploads install`, not a failure — recognize it
+ * so the run stays green and the footer tells them how to re-add if they want
+ * a fresh token in the header.
+ */
+function alreadyConfigured(result: StepResult): boolean {
+  return !result.ok && /already exists/i.test(result.error ?? "");
 }
 
 function mcpCommand(name: string, url: string, bearer: string): string[] {
@@ -125,6 +140,7 @@ function printHumanSteps(
   results: Record<string, StepResult>,
   redact: (s: string) => string,
   verbose: boolean,
+  mcpName: string,
 ): void {
   for (const [step, r] of Object.entries(results)) {
     const cmd = redact(r.command.join(" "));
@@ -132,6 +148,11 @@ function printHumanSteps(
       process.stdout.write(`${step}: would run — ${cmd}\n`);
     } else if (r.skipped === "sign-in") {
       process.stdout.write(`${step}: skipped — ${redact(r.error ?? "needs sign-in")}\n`);
+    } else if (r.skipped === "already-configured") {
+      process.stdout.write(
+        `${step}: already configured — "${mcpName}" is registered in Claude Code (nothing to do)\n` +
+          `  To re-register (e.g. with a new token): claude mcp remove ${mcpName} && uploads install mcp\n`,
+      );
     } else if (r.ok) {
       process.stdout.write(`${step}: ok\n`);
       if (verbose && r.output) {
@@ -228,7 +249,12 @@ export async function runInstall(
     } else {
       const command = mcpCommand(name, url, token || "<token>");
       if (human) process.stdout.write("Installing MCP server…\n");
-      results.mcp = dryRun ? { command, ok: true, skipped: "dry-run" } : runStep(run, command);
+      const step = dryRun
+        ? { command, ok: true, skipped: "dry-run" as const }
+        : runStep(run, command);
+      results.mcp = alreadyConfigured(step)
+        ? { command, ok: true, skipped: "already-configured", output: step.error }
+        : step;
     }
   }
 
@@ -267,7 +293,7 @@ export async function runInstall(
     return failed ? 1 : 0;
   }
 
-  printHumanSteps(results, redact, verbose);
+  printHumanSteps(results, redact, verbose, name);
   // Path-level detail for hooks (printHumanSteps only shows the synthetic step).
   if (
     (target === "hooks" || target === "all") &&

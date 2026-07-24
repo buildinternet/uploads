@@ -15,7 +15,7 @@ and the exit codes, run `uploads help --all` or see
 uploads login          # sign in via browser; saves your workspace token, then runs doctor
 uploads whoami         # show the active workspace + token (alias: uploads status)
 uploads install        # skills + hosted MCP + hooks for Grok/Cursor (Claude/Codex use plugins)
-uploads update         # update the CLI, then refresh skills / MCP / hooks
+uploads update         # update the CLI, then refresh skills / hooks (MCP left as-is)
 uploads put ./shot.png # stdout: public URL + ready-to-paste markdown; stderr: human summary
 ```
 
@@ -41,8 +41,19 @@ Two things go stale independently: the npm package that provides the `uploads`
 binary, and the agent skills plus the MCP registration that `uploads install`
 writes. `uploads update` covers both. It upgrades the global package, then
 re-runs `install` against the new version. When the CLI is already current it
-still refreshes the skills and the MCP registration, because those drift on
-their own. Run `uploads update --dry-run` first to see the plan.
+still refreshes the skills, because those drift on their own. Run
+`uploads update --dry-run` first to see the plan.
+
+Re-running `install` (directly or through `update`) is safe. The skills are
+reinstalled each time; an MCP server already registered under that name is
+reported as `already configured` and left untouched, because `claude mcp add`
+never overwrites an existing entry. That also means a registration keeps the
+bearer token it was created with — after `uploads login` with a new token,
+remove and re-add it:
+
+```bash
+claude mcp remove uploads && uploads install mcp
+```
 
 The upgrade step needs a global install. Inside a checkout of this repository,
 or from an `npx` cache, `update` reports the newer version and prints the

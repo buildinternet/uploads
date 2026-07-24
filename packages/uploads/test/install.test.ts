@@ -246,6 +246,50 @@ describe("uploads install", () => {
     expect(printed).not.toContain("Bearer up_acme");
   });
 
+  it("treats an existing MCP entry as already configured, not a failure", async () => {
+    const run: CommandRunner = (cmd) => {
+      if (cmd === "claude") {
+        throw new Error(
+          "Command failed: claude mcp add --transport http uploads\nMCP server uploads already exists in local config\n",
+        );
+      }
+      return "ok\n";
+    };
+    const { out, err } = captureStreams();
+    const code = await install([], { globals: GLOBALS, runner: run });
+    expect(code).toBe(0);
+    const printed = out.join("");
+    expect(printed).toMatch(/mcp: already configured/);
+    expect(printed).toMatch(/claude mcp remove uploads/);
+    expect(printed).not.toMatch(/mcp: failed/);
+    expect(printed).not.toMatch(/Fix the MCP step above/);
+    expect(err.join("")).toBe("");
+  });
+
+  it("--name is reflected in the already-configured remove hint", async () => {
+    const run: CommandRunner = (cmd) => {
+      if (cmd === "claude") throw new Error("MCP server up already exists in local config");
+      return "ok\n";
+    };
+    const { out } = captureStreams();
+    expect(await install(["mcp", "--name", "up"], { globals: GLOBALS, runner: run })).toBe(0);
+    expect(out.join("")).toMatch(/claude mcp remove up /);
+  });
+
+  it("--json marks an existing MCP entry ok with an already-configured skip", async () => {
+    const run: CommandRunner = (cmd) => {
+      if (cmd === "claude") throw new Error("MCP server uploads already exists in local config");
+      return "ok\n";
+    };
+    const { out } = captureStreams();
+    const code = await install(["mcp"], { globals: GLOBALS, json: true, runner: run });
+    expect(code).toBe(0);
+    const parsed = JSON.parse(out.join(""));
+    expect(parsed.ok).toBe(true);
+    expect(parsed.steps.mcp.ok).toBe(true);
+    expect(parsed.steps.mcp.skipped).toBe("already-configured");
+  });
+
   it("rejects unknown targets", async () => {
     const { run } = fakeRunner();
     await expect(install(["nope"], { globals: GLOBALS, runner: run })).rejects.toThrow(
