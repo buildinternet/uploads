@@ -145,7 +145,7 @@ describe("resolveSelectors", () => {
   it("resolves an arrow selector to the element's center as `to`", () => {
     const spec = validateSpec({ version: 1, annotations: [{ type: "arrow", selector: "#a" }] });
     const resolved = resolveSelectors(spec, boxes);
-    expect(resolved.annotations[0]).toMatchObject({ to: [60, 35] });
+    expect(resolved.annotations[0]).toMatchObject({ to: [60, 35], from: [180, -85] });
   });
 
   it("resolves a label selector to the element's center as `target`", () => {

@@ -278,7 +278,11 @@ export function resolveSelectors(spec: AnnotationSpec, boxes: Record<string, Box
       }
       case "arrow": {
         const { selector: _selector, ...rest } = a;
-        return { ...rest, to: center(box) };
+        const to = center(box);
+        // A selector-only arrow points at the element from its upper right;
+        // the renderer clamps if that lands outside the image.
+        const from = rest.from ?? ([to[0] + 120, to[1] - 120] as Point);
+        return { ...rest, from, to };
       }
       case "label": {
         const { selector: _selector, ...rest } = a;

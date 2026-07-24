@@ -98,7 +98,11 @@ export function renderLabel(a: LabelAnnotation, ctx: RenderCtx): string {
   const color = a.color ?? HOUSE_STYLE.stroke;
   const fontSize = 28 * ctx.scale;
   const padding = HOUSE_STYLE.labelPadding * ctx.scale;
-  const at = a.at ?? a.target ?? [0, 0];
+  // With no explicit `at`, offset the bubble above-right of its target so it
+  // doesn't sit on top of the thing it labels (clamped to stay on-image).
+  const at =
+    a.at ??
+    (a.target ? [a.target[0] + 30 * ctx.scale, Math.max(8, a.target[1] - 90 * ctx.scale)] : [0, 0]);
   const [atX, atY] = at;
 
   const metrics = measureText(a.text, fontSize);
