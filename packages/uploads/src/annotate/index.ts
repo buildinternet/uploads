@@ -27,3 +27,4 @@ export {
   specSelectors,
   validateSpec,
 } from "./spec.js";
+export { clampReport, renderAnnotations, type RenderOptions } from "./render.js";
