@@ -1,5 +1,39 @@
 # @buildinternet/uploads
 
+## 0.30.0
+
+### Minor Changes
+
+- ffa1860: Put and head responses now name the two metadata bags apart. `provenance`
+  carries the object's R2 upload labels (`client`, `source-name`,
+  `content-sha256`) — the content that used to sit under `metadata` on these two
+  endpoints only. `metadata` now means the queryable tags everywhere, matching
+  what it already meant on `getMetadata`, `patchMetadata`, and
+  `list({ metadata: true })`.
+
+  A put echoes the tags it stored, including server-derived pairs the client
+  never sent such as `gh.uploader`, so confirming what landed no longer takes a
+  second round trip. The field is absent when the put wrote no tags of its own,
+  since that case leaves any existing tags untouched. A plain head returns no
+  queryable metadata at all — that tier is a separate store and takes a separate
+  read, so call `getMetadata(key)`.
+
+  `PutResult.provenance` and `HeadResult.provenance` are new; `HeadResult.metadata`
+  is gone. Code reading `metadata` off a put or head for provenance must move to
+  `provenance`.
+
+### Patch Changes
+
+- 0067839: The "add --meta path=/route" tip no longer fires when a `path` was in fact
+  supplied. `put --pr`/`put --issue` and `attach` decided whether to nudge by
+  reading the API's put response `metadata` field, which echoes the object's R2
+  provenance bag (`client`, `source-name`, `content-sha256`) and never the
+  queryable tags — so the tip printed on every image, including ones uploaded
+  with an explicit `--meta path=`, and the same text landed in the `hint` field
+  of `--format json`. The check now reads the metadata each upload actually sent
+  (`--meta` pairs, a `screenshot --out` sidecar manifest, and derived image
+  facts), resolved per file.
+
 ## 0.29.0
 
 ### Minor Changes
