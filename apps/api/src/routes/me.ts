@@ -23,6 +23,7 @@ import {
 import { badKey, listObjects, setObjectVisibility } from "../files-core";
 import { listGalleries } from "../galleries";
 import { galleryListSummaries } from "../gallery-service";
+import { githubInstallStatus, type GithubInstallStatus } from "../github-install-status";
 import { resolveTitles } from "../github-titles";
 import { allowWrite } from "../guards";
 import {
@@ -671,4 +672,15 @@ export const me = new Hono<SessionVars>()
 
     const titles = await resolveTitles(c.env, [...new Set(normalized)]);
     return c.json({ refs: titles });
+  })
+
+  // Whether this workspace already has the GitHub App installed (issue #492),
+  // so the rail's `install github app` CTA can stop nagging workspaces that
+  // installed it. Member-gated like the sibling `/github-titles`: the answer
+  // is derived from the workspace's repo bindings, which aren't public.
+  // Never fails — see `githubInstallStatus` for the degrade-to-false rule.
+  .get("/workspaces/:name/github-status", async (c) => {
+    const name = c.req.param("name");
+    await memberWorkspaceOr404(c.env, requireUserId(c), name);
+    return c.json<GithubInstallStatus>(await githubInstallStatus(c.env, name));
   });

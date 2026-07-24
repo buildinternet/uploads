@@ -802,6 +802,23 @@ export async function getGithubTitles(
   return map as GithubTitleMap;
 }
 
+/**
+ * Whether this workspace already has the GitHub App installed (issue #492) —
+ * `true` only on an explicit `installed: true`. Every other outcome (outage,
+ * non-2xx, malformed body, App not configured) is `false`, which keeps the
+ * rail's install CTA visible: nagging an installed workspace is cheaper than
+ * hiding the CTA from one that never installed.
+ */
+export async function getGithubInstalled(apiOrigin: string, name: string): Promise<boolean> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/github-status`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable" || !result.response.ok) return false;
+  const body = (await result.response.json().catch(() => null)) as { installed?: unknown } | null;
+  return body?.installed === true;
+}
+
 export interface WorkspaceFolderFile {
   key: string;
   url: string | null;

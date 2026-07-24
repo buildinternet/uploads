@@ -17,7 +17,12 @@
  * item; an empty array hides it. Non-files tabs never call it, so the section
  * stays hidden by construction.
  */
-import { getWorkspaceSummary, type GithubTitleMap, type MyWorkspace } from "./api-client";
+import {
+  getGithubInstalled,
+  getWorkspaceSummary,
+  type GithubTitleMap,
+  type MyWorkspace,
+} from "./api-client";
 import { onSession } from "./account-shell";
 import { escapeHtml, renderUsageHtml } from "./workspace-ui";
 import { githubKindSvg } from "./brand-icons";
@@ -183,8 +188,18 @@ export function initWorkspaceRail(
 
   const detailsEl = root.querySelector<HTMLElement>("[data-rail-details]");
   const usageEl = root.querySelector<HTMLElement>("[data-rail-usage]");
+  const githubCtaEl = root.querySelector<HTMLElement>("[data-rail-github-cta]");
 
   onSession(() => {
+    // Suppress the install CTA once this workspace has the App (issue #492).
+    // One-way: the CTA ships visible and is only ever hidden, so an outage or
+    // a slow response leaves the markup as server-rendered.
+    if (githubCtaEl) {
+      void getGithubInstalled(apiOrigin, workspace).then((installed) => {
+        if (installed) githubCtaEl.hidden = true;
+      });
+    }
+
     void getWorkspaceSummary(apiOrigin, workspace).then((result) => {
       if (result.kind !== "success") {
         if (detailsEl) detailsEl.textContent = "Details unavailable.";

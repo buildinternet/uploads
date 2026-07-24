@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  getGithubInstalled,
   getMyWorkspaces,
   getWorkspaceInvites,
   getWorkspaceMembers,
@@ -605,5 +606,44 @@ describe("inviteToWorkspace", () => {
     await expect(inviteToWorkspace("https://api.test", "acme", "new@example.com")).resolves.toEqual(
       { kind: "unavailable", reason: "forbidden" },
     );
+  });
+});
+
+describe("getGithubInstalled", () => {
+  it("reports installed only on an explicit installed:true", async () => {
+    let requested = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        requested = url;
+        return Response.json({ configured: true, installed: true, checkedRepos: 1 });
+      }),
+    );
+
+    await expect(getGithubInstalled("https://api.test", "acme")).resolves.toBe(true);
+    expect(requested).toBe("https://api.test/me/workspaces/acme/github-status");
+  });
+
+  it("keeps the CTA visible when the workspace has no install", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ configured: true, installed: false, checkedRepos: 0 })),
+    );
+
+    await expect(getGithubInstalled("https://api.test", "acme")).resolves.toBe(false);
+  });
+
+  it("degrades to shown on an outage, a non-2xx, and a malformed body", async () => {
+    for (const stub of [
+      vi.fn(async () => {
+        throw new Error("network down");
+      }),
+      vi.fn(async () => new Response(null, { status: 503 })),
+      vi.fn(async () => new Response("not json", { status: 200 })),
+      vi.fn(async () => Response.json({ installed: "yes" })),
+    ]) {
+      vi.stubGlobal("fetch", stub);
+      await expect(getGithubInstalled("https://api.test", "acme")).resolves.toBe(false);
+    }
   });
 });
