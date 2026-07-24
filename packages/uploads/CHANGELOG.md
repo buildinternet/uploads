@@ -1,5 +1,27 @@
 # @buildinternet/uploads
 
+## 0.32.0
+
+### Minor Changes
+
+- 2a5a28e: `uploads admin invite create` now requires `--workspace`. It previously defaulted
+  to the communal `default` workspace, so a forgotten flag issued an invite
+  granting `files:read`/`files:write` on the shared tenant — and because
+  enrollment redemption mints a token without creating an org membership, the
+  recipient would not have appeared in any member list while still reading and
+  writing that workspace's files. Pass the workspace explicitly; naming `default`
+  still works.
+
+### Patch Changes
+
+- ae700ca: `uploads install` no longer reports an already-registered MCP server as a
+  failure. `claude mcp add` refuses to overwrite an existing entry and exits
+  non-zero, so re-running `install` (or `update`, which re-runs it) ended with a
+  raw `Command failed: …` dump and exit 1 for anyone already set up. That case is
+  now reported as `mcp: already configured`, exits 0, and prints the
+  `claude mcp remove <name>` command needed to re-register with a new token —
+  the one thing the existing entry will not pick up on its own.
+
 ## 0.31.0
 
 ### Minor Changes
