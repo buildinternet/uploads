@@ -5,6 +5,7 @@ import BaseHead from "../components/BaseHead.astro";
 import Brand from "../components/Brand.astro";
 import Footer from "../components/Footer.astro";
 import GitHubMark from "../components/GitHubMark.astro";
+import LegalConsent from "../components/LegalConsent.astro";
 
 export const prerender = false;
 
@@ -140,6 +141,7 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
       <button type="submit" id="magic-submit">Send sign-in link</button>
     </form>
     <div class="ul-callout status" id="signin-error" data-state="error" role="alert" hidden></div>
+    <LegalConsent />
   </div>
 
   <div id="sent-state" hidden>

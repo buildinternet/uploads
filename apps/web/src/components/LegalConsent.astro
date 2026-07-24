@@ -1,0 +1,52 @@
+---
+/**
+ * Sign-in-wrap consent notice, shown directly below the sign-in controls on
+ * every surface where an account can be created: /login,
+ * /accept-invitation/[id], and the signed-out branch of /device.
+ *
+ * The Terms rely on this notice. Their opening line ("by using any of these,
+ * you agree") is browsewrap on its own, which is the form least likely to
+ * hold up; putting the same agreement in front of the action that creates the
+ * account is what makes it stick. So this component is a legal surface, not
+ * decoration — keep it visible, keep both links working, and don't move it
+ * away from the buttons it qualifies.
+ *
+ * One home for the copy: all three pages render this rather than repeating
+ * the sentence, so a wording change lands everywhere at once.
+ *
+ * NOT shown on /invite — that page creates no account, it hands off to
+ * `uploads login`, which comes back through /device or /login.
+ */
+---
+
+<p class="legal-consent">
+  By continuing, you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.
+</p>
+
+<style>
+  /* --body, not --muted: this is a disclosure whose legal weight depends on
+     being conspicuous, so it deliberately outranks the footer beneath it
+     (8.9:1 against the panel, vs 5.4:1 for muted). It still reads as
+     secondary — small, centered, and below the button it qualifies. */
+  .legal-consent {
+    margin: 18px 0 0;
+    color: var(--body);
+    font-size: 12px;
+    line-height: 1.55;
+    text-align: center;
+  }
+
+  /* Underlined rather than accent-colored: this should read as a disclosure,
+     not compete with the primary sign-in button above it. */
+  .legal-consent a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .legal-consent a:hover,
+  .legal-consent a:focus-visible {
+    color: var(--fg);
+    text-decoration-color: var(--accent);
+  }
+</style>
