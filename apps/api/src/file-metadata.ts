@@ -77,6 +77,59 @@ const VALUE_SAFE_RE = /^[\x20-\x7E]+$/;
 const encoder = new TextEncoder();
 
 /**
+ * Total UTF-8 key+value bytes — the quantity `META_MAX_TOTAL_BYTES` caps.
+ * One implementation so the validator and the cap-aware merge below can never
+ * disagree about what "metadata bytes" means.
+ */
+export function metadataByteLength(meta: Record<string, string>): number {
+  let total = 0;
+  for (const [key, value] of Object.entries(meta)) {
+    total += encoder.encode(key).byteLength + encoder.encode(value).byteLength;
+  }
+  return total;
+}
+
+/** Keys that count against `META_MAX_KEYS` — server-owned keys are exempt. */
+function countableKeys(meta: Record<string, string>): string[] {
+  // Server-owned keys don't consume the user's budget — otherwise every video
+  // upload would silently cost four of their META_MAX_KEYS slots.
+  return Object.keys(meta).filter((key) => !isServerMetaKey(key));
+}
+
+/**
+ * Merge `additions` under `base`, keeping each addition only while the result
+ * still satisfies both caps. `base` keys always win and are never dropped, and
+ * a full budget drops the overflow rather than throwing — a caller merging
+ * *derived* facts must never fail an upload over them.
+ *
+ * Deliberately the same rule as the CLI's `mergeDerivedMeta`
+ * (`packages/uploads/src/metadata-vocab.ts`), which applies it to capture-time
+ * derived metadata. Server-side inheritance (#479) and capture-time derivation
+ * are one feature to a user, so they share an overflow rule rather than each
+ * inventing one.
+ */
+export function mergeWithinMetadataCaps(
+  base: Record<string, string>,
+  additions: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = { ...base };
+  let keyCount = countableKeys(out).length;
+  let bytes = metadataByteLength(out);
+
+  for (const [key, value] of Object.entries(additions)) {
+    if (key in out) continue;
+    const addedKey = isServerMetaKey(key) ? 0 : 1;
+    const addedBytes = encoder.encode(key).byteLength + encoder.encode(value).byteLength;
+    if (keyCount + addedKey > META_MAX_KEYS) continue;
+    if (bytes + addedBytes > META_MAX_TOTAL_BYTES) continue;
+    out[key] = value;
+    keyCount += addedKey;
+    bytes += addedBytes;
+  }
+  return out;
+}
+
+/**
  * Shared validation body for `validateMetadataEntries` and
  * `validateStoredMetadataEntries`: key format, value format/length, the
  * per-map key-count cap, and the total key+value byte cap.
@@ -88,9 +141,7 @@ function validateMetadataEntriesImpl(
   opts: { allowServerKeys?: boolean },
 ): void {
   const keys = Object.keys(meta);
-  // Server-owned keys don't consume the user's budget — otherwise every video
-  // upload would silently cost four of their META_MAX_KEYS slots.
-  const countable = keys.filter((key) => !isServerMetaKey(key));
+  const countable = countableKeys(meta);
   if (countable.length > META_MAX_KEYS) {
     throw new ValidationError(`metadata must have at most ${META_MAX_KEYS} keys.`, {
       code: "file_metadata_limit_exceeded",
@@ -98,7 +149,6 @@ function validateMetadataEntriesImpl(
     });
   }
 
-  let totalBytes = 0;
   for (const key of keys) {
     if (!META_KEY_RE.test(key)) {
       throw new ValidationError(`invalid metadata key: ${key}`, {
@@ -124,9 +174,9 @@ function validateMetadataEntriesImpl(
         details: { key },
       });
     }
-    totalBytes += encoder.encode(key).byteLength + encoder.encode(value).byteLength;
   }
 
+  const totalBytes = metadataByteLength(meta);
   if (totalBytes > META_MAX_TOTAL_BYTES) {
     throw new ValidationError(`metadata exceeds ${META_MAX_TOTAL_BYTES} total bytes.`, {
       code: "file_metadata_limit_exceeded",
@@ -307,6 +357,45 @@ export async function setFileMetadata(
   }
   if (statements.length > 0) await db.batch(statements);
 
+  return next;
+}
+
+/**
+ * Add only the pairs an object does not already carry, dropping any that would
+ * breach the caps (`mergeWithinMetadataCaps`) instead of throwing.
+ *
+ * The additive-and-lossy counterpart to `setFileMetadata`, which merges with
+ * `set` winning and rejects the whole call on overflow. Callers supplying
+ * *derived* pairs — facts the server inferred rather than the user typed — want
+ * neither of those: an inferred value must never overwrite one the user stated,
+ * and must never fail a request it was only decorating.
+ *
+ * One read and one batch: the merge happens here rather than by reading, diffing
+ * outside, and handing the result to `setFileMetadata`, which would read the same
+ * row a second time.
+ *
+ * Returns the object's resulting metadata when something was written, else
+ * `undefined` so a caller can tell "nothing to do" from "wrote an empty map".
+ */
+export async function addMissingFileMetadata(
+  db: D1Database,
+  workspace: string,
+  objectKey: string,
+  candidates: Record<string, string>,
+): Promise<Record<string, string> | undefined> {
+  if (Object.keys(candidates).length === 0) return undefined;
+  validateMetadataEntries(candidates);
+
+  const current = await getFileMetadata(db, workspace, objectKey);
+  const next = mergeWithinMetadataCaps(current, candidates);
+
+  const additions: Record<string, string> = {};
+  for (const key of Object.keys(candidates)) {
+    if (!(key in current) && key in next) additions[key] = next[key]!;
+  }
+  if (Object.keys(additions).length === 0) return undefined;
+
+  await db.batch(upsertStatements(db, workspace, objectKey, additions, new Date().toISOString()));
   return next;
 }
 

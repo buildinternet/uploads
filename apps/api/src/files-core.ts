@@ -17,10 +17,16 @@ import {
 import {
   deleteFileMetadata,
   deleteServerFileMetadataKeys,
+  mergeWithinMetadataCaps,
   replaceFileMetadata,
   setServerFileMetadata,
   validateMetadataEntries,
 } from "./file-metadata";
+import {
+  applyInheritedMetaAdditively,
+  inheritableMetaForHash,
+  recordContentHash,
+} from "./content-hash";
 import { recordPrActivityFromMetadata } from "./github-pr-activity";
 import { DEFAULT_MAX_UPLOAD_BYTES, inspectUpload, resolveUploadPolicy } from "./guards";
 import { checkKeyPolicy, resolveKeyPolicy } from "./key-policy";
@@ -446,9 +452,15 @@ export async function putObject(
   // (never trust a client-supplied hash). Visibility lives alongside provenance
   // in the same custom-metadata bag but is tracked separately (not client-free-form).
   // `uploaded-at` is server-only — set on the final bag, never via sanitizeProvenance.
+  const contentSha256 = await contentSha256Hex(bytes);
+  // Started here rather than where it is consumed, so this D1 read overlaps the
+  // R2 write and usage accounting instead of adding its latency after them. Safe
+  // to leave in flight: inheritableMetaForHash never rejects (it resolves to `{}`
+  // on any failure), so an upload that throws below cannot orphan a rejection.
+  const inheritedPromise = inheritableMetaForHash(env.DB, workspaceName, contentSha256, finalKey);
   const provenance: ProvenanceMap = {
     ...sanitizeProvenance(opts?.provenance, { clientOnly: true }),
-    "content-sha256": await contentSha256Hex(bytes),
+    "content-sha256": contentSha256,
   };
   const storedVisibility = opts?.visibility === "private" ? "private" : undefined;
   const storageMetadata: Record<string, string> = {
@@ -484,14 +496,38 @@ export async function putObject(
     uploads: 0,
   });
 
+  // Derived metadata from a content-identical earlier upload in this workspace
+  // (issue #479) — rescues the paths the CLI sidecar cannot reach: the hosted
+  // MCP, CI, a second machine. Never fires in the communal workspace; see
+  // inheritableMetaForHash. Issued back at the hash, awaited here.
+  const inherited = await inheritedPromise;
+
+  // What actually landed in the queryable tier, echoed on the response (#511).
+  let storedMetadata: Record<string, string> | undefined;
+
   if (opts?.metadata) {
     // Full replace: an overwrite must not inherit a prior put's custom
     // metadata, so clear the row set before (re-)writing this request's, in
     // one atomic batch (replaceFileMetadata) rather than a delete followed
     // by a separate re-read-then-write.
-    await replaceFileMetadata(env.DB, workspaceName, finalKey, opts.metadata);
+    storedMetadata = mergeWithinMetadataCaps(opts.metadata, inherited);
+    await replaceFileMetadata(env.DB, workspaceName, finalKey, storedMetadata);
+    // Explicit metadata only, never the inherited merge: inherited keys
+    // describe the bytes, and letting them reach PR activity would attribute
+    // the donor upload's PR to this one. (`gh.*` is not inheritable, so this
+    // is belt and braces rather than the only guard.)
     await recordPrActivityFromMetadata(env.DB, workspaceName, opts.metadata);
+  } else {
+    // No `X-Uploads-Meta-*` headers: this put deliberately leaves an existing
+    // object's tags alone, so inheritance must be additive rather than a
+    // replace, which would wipe tags the caller never asked to change.
+    storedMetadata = await applyInheritedMetaAdditively(env.DB, workspaceName, finalKey, inherited);
   }
+
+  // Index this object's bytes for future inheritance. Last, and best-effort:
+  // the object is durably stored by now, so a failed index write costs a later
+  // inheritance rather than this upload.
+  await recordContentHash(env.DB, workspaceName, finalKey, contentSha256);
 
   // After the metadata replace, never before: replaceFileMetadata is
   // delete-then-insert and would wipe the server-owned video.* rows.
@@ -515,7 +551,7 @@ export async function putObject(
     contentType: inspection.contentType,
     replaced,
     provenance,
-    ...(opts?.metadata ? { metadata: opts.metadata } : {}),
+    ...(storedMetadata ? { metadata: storedMetadata } : {}),
     ...(storedVisibility ? { visibility: storedVisibility } : {}),
   };
 }
