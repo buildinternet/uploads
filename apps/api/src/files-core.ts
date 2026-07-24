@@ -478,6 +478,9 @@ export async function putObject(
       metadata: storageMetadata,
     });
   } catch (err) {
+    // Settle the in-flight donor lookup so no D1 read outlives the request. It
+    // resolves to `{}` rather than rejecting, so this only discards a result.
+    await inheritedPromise;
     // Nothing was stored — return both reservations to the budget.
     await releaseUploadsSafe(env.DB, workspaceName, 1);
     await releaseStorageBytesSafe(env.DB, workspaceName, reservedBytes);
