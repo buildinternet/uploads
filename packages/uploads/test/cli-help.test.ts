@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseArgv } from "../src/cli-args.js";
+import { ROOT_COMMANDS } from "../src/cli-catalog.js";
 import { formatRootHelp, wantsFullHelp } from "../src/cli-help.js";
 import { colorEnabled, createStyle } from "../src/cli-style.js";
 import { runCli } from "../src/cli.js";
@@ -39,6 +40,20 @@ describe("formatRootHelp", () => {
     const text = formatRootHelp({ color: false });
     expect(text).toMatch(/Essentials:/);
     expect(text).toMatch(/update/);
+  });
+
+  // Issue #491: membership used to be declared twice (the catalog's
+  // `essential` flag and cli-help's own array) and had drifted — `screenshot`
+  // was flagged essential but never rendered. The catalog is now the only
+  // source of truth; this asserts the rendered output actually agrees with it.
+  it("renders every command the catalog flags essential", () => {
+    const text = formatRootHelp({ color: false });
+    const essentials = text.slice(text.indexOf("Essentials:"));
+    const flagged = ROOT_COMMANDS.filter((c) => c.essential).map((c) => c.name);
+    expect(flagged).toContain("screenshot");
+    for (const name of flagged) {
+      expect(essentials).toMatch(new RegExp(`^\\s+${name}\\b`, "m"));
+    }
   });
 
   it("shows the full command list with full: true", () => {

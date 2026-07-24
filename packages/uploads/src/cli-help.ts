@@ -16,10 +16,18 @@ function toRow(c: (typeof ROOT_COMMANDS)[number]): CmdRow {
   return [c.usage ?? c.name, c.summary];
 }
 
-/** Preferred order for the short essentials help (subset of ROOT_COMMANDS). */
+/**
+ * Display order for the short essentials help. Membership is *not* declared
+ * here — it comes from `essential: true` in cli-catalog.ts, the one source of
+ * truth (issue #491: this array used to decide membership too, and had already
+ * drifted, silently keeping `screenshot` out of short help). This list only
+ * says what order the essential commands appear in; the check below fails the
+ * build-time module load if the two ever disagree in either direction.
+ */
 const ESSENTIAL_ORDER = [
   "put",
   "attach",
+  "screenshot",
   "login",
   "whoami",
   "list",
@@ -30,11 +38,25 @@ const ESSENTIAL_ORDER = [
 ] as const;
 
 /** Day-to-day commands shown on bare `uploads` / `uploads help`. */
-const ESSENTIALS: CmdRow[] = ESSENTIAL_ORDER.map((name) => {
-  const cmd = ROOT_COMMANDS.find((c) => c.name === name);
-  if (!cmd) throw new Error(`cli-catalog missing essential command: ${name}`);
-  return toRow(cmd);
-});
+const ESSENTIALS: CmdRow[] = (() => {
+  const essential = ROOT_COMMANDS.filter((c) => c.essential);
+  const rank = new Map<string, number>(ESSENTIAL_ORDER.map((name, i) => [name, i]));
+  const unordered = essential.filter((c) => !rank.has(c.name));
+  if (unordered.length > 0) {
+    throw new Error(
+      `cli-help ESSENTIAL_ORDER missing essential command(s): ${unordered.map((c) => c.name).join(", ")}`,
+    );
+  }
+  const names = new Set(essential.map((c) => c.name));
+  const stale = ESSENTIAL_ORDER.filter((name) => !names.has(name));
+  if (stale.length > 0) {
+    throw new Error(`cli-help ESSENTIAL_ORDER names non-essential command(s): ${stale.join(", ")}`);
+  }
+  return essential
+    .slice()
+    .sort((a, b) => rank.get(a.name)! - rank.get(b.name)!)
+    .map(toRow);
+})();
 
 /** Full catalog (same surface as before, still discoverable via help --all). */
 const ALL_COMMANDS: CmdRow[] = ROOT_COMMANDS.map(toRow);
