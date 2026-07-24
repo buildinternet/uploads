@@ -56,10 +56,13 @@ function fakeClient(opts?: {
         embedUrl: null,
         size: body.byteLength,
         contentType: "image/png",
-        // The API echoes the object's R2 *provenance* bag here, never the
-        // queryable metadata that was sent (PR #509) — mirroring that is
-        // what keeps the path-meta tip below honest.
-        metadata: { client: "uploads-cli", "content-sha256": "0".repeat(64) },
+        // Two bags, two names, as the API now returns them: `provenance` for
+        // the R2 upload labels, `metadata` for the queryable tags this put
+        // stored. Before the split both endpoints called provenance
+        // `metadata`, and a fake that echoed the sent tags there instead is
+        // what let the path-meta tip below ship broken.
+        provenance: { client: "uploads-cli", "content-sha256": "0".repeat(64) },
+        ...(putOpts.metadata ? { metadata: putOpts.metadata } : {}),
       };
     },
     list: async () => ({ items: [], cursor: null }),
@@ -1899,6 +1902,29 @@ describe("runPut path-meta tip (issue #469 lever 3)", () => {
       runPut(
         { ...ctxWith(client), quiet: false },
         [file, "--pr", "9", "--repo", "o/r"],
+        false,
+        noRun,
+      ),
+    );
+    expect(stderr).not.toContain("tip:");
+  });
+
+  // A self-hosted worker older than the provenance/metadata split answers a
+  // put with the provenance bag under `metadata` and no `provenance` at all.
+  // The tip reads what it sent, so it stays right on both server generations.
+  it("does not print the tip against a pre-split API response shape", async () => {
+    const { client } = fakeClient();
+    const modern = client.put.bind(client);
+    client.put = async (body, putOpts) => {
+      const { provenance: _dropped, ...rest } = (await modern(body, putOpts)) as Awaited<
+        ReturnType<typeof modern>
+      > & { provenance?: Record<string, string> };
+      return { ...rest, metadata: { client: "uploads-cli", "content-sha256": "0".repeat(64) } };
+    };
+    const stderr = await captureStderr(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false },
+        [tmpFile(), "--pr", "9", "--repo", "o/r", "--meta", "path=/settings"],
         false,
         noRun,
       ),
