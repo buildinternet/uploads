@@ -28,6 +28,16 @@ function goldenPath(name: string): string {
   return `${goldensDir}${name}`;
 }
 
+/**
+ * Fraction of pixels allowed to differ from the golden. Rendering is
+ * deterministic on one host (see the byte-identical seed test), but sharp's
+ * bundled librsvg anti-aliases path edges slightly differently across
+ * platforms (macOS vs Linux CI), so goldens compare pixels with a small
+ * tolerance instead of bytes.
+ */
+const GOLDEN_MAX_DIFF_FRACTION = 0.01;
+const GOLDEN_CHANNEL_TOLERANCE = 24;
+
 async function assertGolden(name: string, png: Buffer): Promise<void> {
   const path = goldenPath(name);
   if (process.env.UPDATE_GOLDENS) {
@@ -39,7 +49,32 @@ async function assertGolden(name: string, png: Buffer): Promise<void> {
     throw new Error(`missing golden ${name}; run with UPDATE_GOLDENS=1 to create it`);
   }
   const expected = readFileSync(path);
-  expect(png.equals(expected)).toBe(true);
+  if (png.equals(expected)) return;
+
+  const [a, b] = await Promise.all(
+    [png, expected].map((buf) =>
+      sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true }),
+    ),
+  );
+  expect(`${a.info.width}x${a.info.height}`).toBe(`${b.info.width}x${b.info.height}`);
+  let differing = 0;
+  for (let i = 0; i < a.data.length; i += 4) {
+    if (
+      Math.abs(a.data[i]! - b.data[i]!) > GOLDEN_CHANNEL_TOLERANCE ||
+      Math.abs(a.data[i + 1]! - b.data[i + 1]!) > GOLDEN_CHANNEL_TOLERANCE ||
+      Math.abs(a.data[i + 2]! - b.data[i + 2]!) > GOLDEN_CHANNEL_TOLERANCE
+    ) {
+      differing++;
+    }
+  }
+  const fraction = differing / (a.info.width * a.info.height);
+  if (fraction > GOLDEN_MAX_DIFF_FRACTION) {
+    throw new Error(
+      `${name} differs from its golden: ${(fraction * 100).toFixed(2)}% of pixels ` +
+        `(allowed ${(GOLDEN_MAX_DIFF_FRACTION * 100).toFixed(2)}%); ` +
+        `run with UPDATE_GOLDENS=1 if the change is intentional`,
+    );
+  }
 }
 
 describe("renderAnnotations", () => {
