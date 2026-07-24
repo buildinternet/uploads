@@ -1,5 +1,4 @@
 import { renderEnrollmentInvitationEmail } from "@uploads/email";
-import { COMMUNAL_WORKSPACE } from "@uploads/workspace";
 import {
   AppError,
   ConflictError,
@@ -85,7 +84,17 @@ function labelValue(value: unknown): string | undefined | null {
   return label.length >= 1 && label.length <= 100 ? label : null;
 }
 
+/**
+ * Omission and malformation are reported separately on purpose. These routes
+ * used to fall back to the communal workspace when `workspace` was absent, so
+ * the failure mode was a credential silently issued against the shared tenant
+ * rather than an error. A distinct `workspace_required` makes "you forgot the
+ * field" legible to an operator instead of reading as a typo'd slug.
+ */
 function requireWorkspaceName(name: string): void {
+  if (!name) {
+    throw new ValidationError("workspace is required", { code: "workspace_required" });
+  }
   if (!WS_NAME_RE.test(name)) {
     throw new ValidationError("invalid workspace", { code: "invalid_workspace" });
   }
@@ -174,7 +183,8 @@ export const admin = new Hono<{ Bindings: Env }>()
     return c.json({ created, existing });
   })
 
-  // Mint a scoped bearer token for an existing workspace (defaults to the communal one).
+  // Mint a scoped bearer token for an existing workspace. `workspace` is
+  // required — see `requireWorkspaceName` for why there is no default.
   // New credentials live in D1; legacy KV credentials remain readable/revocable.
   .post("/tokens", async (c) => {
     const body = await c.req
@@ -193,7 +203,7 @@ export const admin = new Hono<{ Bindings: Env }>()
             expiresInDays?: number;
           },
       );
-    const name = body.workspace?.trim() || COMMUNAL_WORKSPACE;
+    const name = body.workspace?.trim() ?? "";
     const label = labelValue(body.label);
     requireWorkspaceName(name);
     requireLabel(label);
@@ -258,7 +268,7 @@ export const admin = new Hono<{ Bindings: Env }>()
             email?: string;
           },
       );
-    const name = body.workspace?.trim() || COMMUNAL_WORKSPACE;
+    const name = body.workspace?.trim() ?? "";
     const label = labelValue(body.label);
     requireWorkspaceName(name);
     requireLabel(label);
@@ -344,7 +354,7 @@ export const admin = new Hono<{ Bindings: Env }>()
 
   // Lists D1 credentials and legacy KV credentials without exposing secrets.
   .get("/tokens", async (c) => {
-    const name = c.req.query("workspace")?.trim() || COMMUNAL_WORKSPACE;
+    const name = c.req.query("workspace")?.trim() ?? "";
     requireWorkspaceName(name);
     const record = await workspace(c, name);
     if (!record) {
@@ -377,7 +387,7 @@ export const admin = new Hono<{ Bindings: Env }>()
     const body = await c.req
       .json<{ workspace?: string; hashPrefix?: string; label?: string }>()
       .catch(() => ({}) as { workspace?: string; hashPrefix?: string; label?: string });
-    const name = body.workspace?.trim() || COMMUNAL_WORKSPACE;
+    const name = body.workspace?.trim() ?? "";
     const hashPrefix = body.hashPrefix?.trim();
     const label = body.label?.trim();
     requireWorkspaceName(name);

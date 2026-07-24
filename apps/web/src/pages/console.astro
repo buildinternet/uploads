@@ -2,7 +2,6 @@
 // Minimal operator console: paste a bearer token, list usage + files via the public API.
 // No server-side secrets — token stays in the browser. Scaffold toward a fuller files-sdk UI.
 import { env } from "cloudflare:workers";
-import { COMMUNAL_WORKSPACE } from "@uploads/workspace";
 import { resolveConsoleMode } from "../lib/console-mode";
 import Brand from "../components/Brand.astro";
 import BaseHead from "../components/BaseHead.astro";
@@ -185,7 +184,7 @@ const authOrigin =
       </label>
       <label>
         Workspace
-        <input id="ws" type="text" value={COMMUNAL_WORKSPACE} autocomplete="off" />
+        <input id="ws" type="text" placeholder="workspace-name" autocomplete="off" required />
       </label>
       <label>
         Bearer token
@@ -260,8 +259,6 @@ const authOrigin =
       });
     </script>
     <script>
-      import { COMMUNAL_WORKSPACE } from "@uploads/workspace";
-
       function el<T extends HTMLElement>(id: string): T {
         const node = document.getElementById(id);
         if (!node) throw new Error(`console page is missing #${id}`);
@@ -315,12 +312,19 @@ const authOrigin =
         out.textContent = "…";
         const email = el<HTMLInputElement>("invite-email").value.trim();
         const label = el<HTMLInputElement>("invite-label").value.trim();
+        // No fallback workspace. An invite grants read/write on whatever
+        // workspace it names, so a blank field must stop here rather than
+        // resolve to a shared default the operator didn't choose.
+        if (!ws) {
+          out.textContent = "Enter a workspace before creating an invite.";
+          return;
+        }
         try {
           const res = await fetch(`${api}/admin/enrollments`, {
             method: "POST",
             headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
             body: JSON.stringify({
-              workspace: ws || COMMUNAL_WORKSPACE,
+              workspace: ws,
               ...(email ? { email } : {}),
               ...(label ? { label } : {}),
             }),
@@ -341,7 +345,7 @@ const authOrigin =
           const emailedNote =
             body.emailed === undefined ? "" : body.emailed ? `\nemailed:  ${email}` : "\nemailed:  send FAILED — share the link yourself";
           out.textContent =
-            `Invite created for "${ws || COMMUNAL_WORKSPACE}" — the link below is shown once. Treat it like a password.\n\n` +
+            `Invite created for "${ws}" — the link below is shown once. Treat it like a password.\n\n` +
             `${inviteLink}\n\nexpires:  ${body.expiresAt ?? "?"}${emailedNote}`;
           copyBtn.hidden = false;
         } catch (e) {

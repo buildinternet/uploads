@@ -261,7 +261,7 @@ scaffold (behind the console-mode flag) uses it internally.
 
 ```bash
 ADMIN_TOKEN=<admin-credential> uploads admin invite create \
-  --workspace default --label early-adopter
+  --workspace acme --label early-adopter
 ```
 
 By default the command prints one **magic link** (`…/invite?id=…#code=…`): the

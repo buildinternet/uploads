@@ -748,6 +748,18 @@ describe("runLogin device flow — browser workspace selection", () => {
 });
 
 describe("admin enrollment", () => {
+  // `--workspace` used to default to the communal `default` workspace, so a
+  // forgotten flag issued an invite granting files:read/files:write on the
+  // shared tenant. Redemption mints a token without an org membership, so the
+  // recipient would not have shown up in any member list either.
+  it("requires --workspace and never falls back to a shared default", async () => {
+    process.env.ADMIN_TOKEN = "admin-secret";
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    captureOutput();
+    await expect(runAdmin(["invite", "create"], {})).rejects.toThrow(/--workspace is required/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("uses ADMIN_TOKEN and sends explicit lifetime and scopes", async () => {
     process.env.ADMIN_TOKEN = "admin-secret";
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
@@ -804,9 +816,9 @@ describe("admin enrollment", () => {
       ),
     );
     captureOutput();
-    await runAdmin(["enrollment", "create"], { json: true });
+    await runAdmin(["enrollment", "create", "--workspace", "acme"], { json: true });
     expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))).toEqual({
-      workspace: "default",
+      workspace: "acme",
     });
   });
 
@@ -825,7 +837,7 @@ describe("admin enrollment", () => {
     process.env.ADMIN_TOKEN = "admin-secret";
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(enrollmentResponse());
     const output = captureOutput();
-    expect(await runAdmin(["invite", "create"], {})).toBe(0);
+    expect(await runAdmin(["invite", "create", "--workspace", "acme"], {})).toBe(0);
     expect(output.out()).toContain(
       "https://uploads.sh/invite?id=upi_abcdefghijklmnop#code=upe_abcdefghijklmnopqrstuvwxyz012345",
     );
@@ -836,7 +848,9 @@ describe("admin enrollment", () => {
     process.env.ADMIN_TOKEN = "admin-secret";
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(enrollmentResponse());
     const output = captureOutput();
-    expect(await runAdmin(["invite", "create", "--separate-code"], {})).toBe(0);
+    expect(await runAdmin(["invite", "create", "--workspace", "acme", "--separate-code"], {})).toBe(
+      0,
+    );
     expect(output.out()).toContain(
       "Invite page: https://uploads.sh/invite?id=upi_abcdefghijklmnop",
     );
@@ -861,7 +875,12 @@ describe("admin enrollment", () => {
       ),
     );
     const output = captureOutput();
-    expect(await runAdmin(["invite", "create", "--email", "adopter@example.com"], {})).toBe(0);
+    expect(
+      await runAdmin(
+        ["invite", "create", "--workspace", "acme", "--email", "adopter@example.com"],
+        {},
+      ),
+    ).toBe(0);
     expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))).toMatchObject({
       email: "adopter@example.com",
     });
@@ -885,7 +904,12 @@ describe("admin enrollment", () => {
       ),
     );
     const output = captureOutput();
-    expect(await runAdmin(["invite", "create", "--email", "adopter@example.com"], {})).toBe(0);
+    expect(
+      await runAdmin(
+        ["invite", "create", "--workspace", "acme", "--email", "adopter@example.com"],
+        {},
+      ),
+    ).toBe(0);
     expect(output.err()).toContain("email delivery failed");
     expect(output.out()).toContain("#code=upe_abcdefghijklmnopqrstuvwxyz012345");
   });
