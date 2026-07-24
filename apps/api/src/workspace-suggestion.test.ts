@@ -8,8 +8,16 @@ import { slugFromGithubLogin, suggestWorkspaceName } from "./workspace-suggestio
  * no linked account — the real "nothing to suggest from" path, rather than
  * depending on the exact bytes of that module's private miss sentinel.
  */
-function stubEnv(opts: { login?: string | null; taken?: string[] } = {}): Env {
+function stubEnv(
+  opts: { login?: string | null; taken?: Record<string, unknown> | string[] } = {},
+): Env {
   const { login = "Octocat", taken = [] } = opts;
+  // An array is shorthand for "occupied by an ordinary record"; an object maps
+  // name → whatever blob sits at `ws:<name>`, so tests can seed a soft-deleted
+  // record or a purged tombstone.
+  const occupied: Record<string, unknown> = Array.isArray(taken)
+    ? Object.fromEntries(taken.map((n) => [n, { provider: "r2", bucket: "b" }]))
+    : taken;
   return {
     GITHUB_CACHE: {
       get: async (key: string) => (login !== null && key === "ghlogin:u-1" ? login : null),
@@ -21,7 +29,9 @@ function stubEnv(opts: { login?: string | null; taken?: string[] } = {}): Env {
     REGISTRY: {
       get: async (key: string) => {
         const name = key.startsWith("ws:") ? key.slice(3) : key;
-        return taken.includes(name) ? { provider: "r2", bucket: "b" } : null;
+        // Mirrors a raw `REGISTRY.get` with no type option: the stored blob if
+        // the key exists, null otherwise. Occupancy is what matters, not shape.
+        return name in occupied ? JSON.stringify(occupied[name]) : null;
       },
     },
   } as unknown as Env;
@@ -65,6 +75,21 @@ describe("suggestWorkspaceName", () => {
 
   it("offers nothing when the login is already a workspace", async () => {
     expect(await suggestWorkspaceName(stubEnv({ taken: ["octocat"] }), "u-1")).toBeNull();
+  });
+
+  // `loadWorkspaceRecord` hides these two, but they still hold the KV key and
+  // `POST /v1/workspaces` still 409s on them — so suggesting one would prefill
+  // a name that fails the moment the user submits it.
+  it("offers nothing when the name is held by a soft-deleted workspace", async () => {
+    const env = stubEnv({
+      taken: { octocat: { provider: "r2", bucket: "b", deletedAt: "2026-07-01T00:00:00.000Z" } },
+    });
+    expect(await suggestWorkspaceName(env, "u-1")).toBeNull();
+  });
+
+  it("offers nothing when the name is held by a purged tombstone", async () => {
+    const env = stubEnv({ taken: { octocat: { status: "purged" } } });
+    expect(await suggestWorkspaceName(env, "u-1")).toBeNull();
   });
 
   it("offers nothing for a reserved name", async () => {

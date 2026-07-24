@@ -39,6 +39,7 @@ import { sendWelcomeEmail } from "../welcome-email";
 import {
   isPastGrace,
   isPurgedTombstone,
+  isWorkspaceNameTaken,
   loadWorkspaceRecord,
   loadWorkspaceRecordRaw,
   stampRestore,
@@ -191,11 +192,10 @@ export const workspaces = new Hono<SessionVars>().post(
       });
     }
 
-    // Direct KV read (no cacheTtl) — a 60s-stale cached miss here could let a
-    // just-taken name through to the org 409 instead, which is fine, but a
-    // stale HIT must not block a genuinely free name.
-    const existing = await c.env.REGISTRY.get(`ws:${name}`);
-    if (existing !== null) {
+    // Raw occupancy, not `loadWorkspaceRecord` — soft-deleted records and
+    // purged tombstones still hold the key. Shared with the name-suggestion
+    // prefill so the two can't disagree about what "available" means.
+    if (await isWorkspaceNameTaken(c.env, name)) {
       throw new ConflictError("workspace name is taken", { code: "workspace_name_taken" });
     }
 

@@ -250,6 +250,28 @@ export async function loadWorkspaceRecord(
 }
 
 /**
+ * Whether `ws:<name>` is occupied, for the purposes of registering that name.
+ *
+ * Deliberately NOT `loadWorkspaceRecord(...) !== null`. That function collapses
+ * soft-deleted records and purged tombstones to "not found" so every auth and
+ * serving path 404s uniformly — but those records still hold the KV key, and
+ * the slug stays unregistrable (see docs/deletion.md). Anything deciding
+ * whether a name can be *taken* must ask this question instead, or it will
+ * disagree with the creation path.
+ *
+ * Both `POST /v1/workspaces` and the workspace-name suggestion (#506) gate on
+ * this, so a prefilled name can never be one creation would reject with
+ * `workspace_name_taken`.
+ *
+ * No `cacheTtl`: a 60s-stale cached miss would let a just-taken name through to
+ * the org's own uniqueness check, which is fine, but a stale HIT must not block
+ * a genuinely free name.
+ */
+export async function isWorkspaceNameTaken(env: Env, name: string): Promise<boolean> {
+  return (await env.REGISTRY.get(`ws:${name}`)) !== null;
+}
+
+/**
  * Unfiltered read of `ws:<name>` — used by admin routes and the retention
  * sweep, which need to see soft-deleted records and purged tombstones rather
  * than have them collapsed to "not found". No `cacheTtl`: these callers act

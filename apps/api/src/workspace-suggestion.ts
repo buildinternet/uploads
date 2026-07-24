@@ -18,7 +18,7 @@
  */
 import { validateSlug } from "./slug-policy";
 import { resolveUploaderLogin } from "./uploader-identity";
-import { loadWorkspaceRecord } from "./workspace";
+import { isWorkspaceNameTaken } from "./workspace";
 
 /**
  * Reduce a GitHub login to a candidate slug, or null when it cannot become
@@ -42,11 +42,18 @@ export function slugFromGithubLogin(login: string): string | null {
  *
  * Null on every one of: no linked GitHub account, a login lookup that failed
  * or was rate-limited, a login that cannot become a valid slug, a slug that is
- * reserved or blocklisted, and a slug already taken. The taken-check is
- * deliberately the *only* availability lookup exposed here and it runs against
- * a server-derived candidate, never a client-supplied string — so this cannot
- * be turned into a name-enumeration oracle. Learning that your own login is
- * taken is no more than you'd learn by trying to create it.
+ * reserved or blocklisted, and a slug already taken.
+ *
+ * "Taken" goes through `isWorkspaceNameTaken`, the same raw-occupancy check
+ * `POST /v1/workspaces` uses — NOT `loadWorkspaceRecord`, which hides
+ * soft-deleted records and purged tombstones even though they still hold the
+ * slug. Using the lenient lookup here would prefill names that creation then
+ * rejects with `workspace_name_taken`.
+ *
+ * That check is deliberately the *only* availability lookup exposed here, and
+ * it runs against a server-derived candidate, never a client-supplied string —
+ * so this cannot be turned into a name-enumeration oracle. Learning that your
+ * own login is taken is no more than you'd learn by trying to create it.
  */
 export async function suggestWorkspaceName(env: Env, userId: string): Promise<string | null> {
   // No repo hint: `resolveUploaderLogin` falls through to the unauthenticated
@@ -59,6 +66,5 @@ export async function suggestWorkspaceName(env: Env, userId: string): Promise<st
   if (!candidate) return null;
   if (!validateSlug(candidate).ok) return null;
 
-  const existing = await loadWorkspaceRecord(env, candidate);
-  return existing ? null : candidate;
+  return (await isWorkspaceNameTaken(env, candidate)) ? null : candidate;
 }
