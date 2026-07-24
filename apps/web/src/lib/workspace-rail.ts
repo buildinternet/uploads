@@ -250,10 +250,15 @@ export function initWorkspaceRail(
       if (result.kind !== "success") {
         // A warm paint is better than an error string: the values on screen
         // were true recently, and the failure is already surfaced by whatever
-        // the page body does with the same shared result.
-        if (cached) return;
-        if (detailsEl) detailsEl.textContent = "Details unavailable.";
-        if (usageEl) usageEl.textContent = "Usage unavailable.";
+        // the page body does with the same shared result. But that only holds
+        // per-section — `cached` always carries details when it exists (every
+        // field but `usage` is required), while `cached.usage` can be
+        // undefined on its own (a prior successful response had
+        // `usage: null`). A section with nothing warm to keep must not be
+        // left sitting in Tier 0's skeleton (including its `aria-busy="true"`)
+        // forever — fall back to the error string there instead.
+        if (!cached && detailsEl) detailsEl.textContent = "Details unavailable.";
+        if (!cached?.usage && usageEl) usageEl.textContent = "Usage unavailable.";
         return;
       }
       const ws: MyWorkspace = result.workspace;
