@@ -6,7 +6,6 @@
  * rather than rendering an outage as an empty account; less central detail
  * helpers retain their defensive null/[] fallbacks.
  */
-import { isCommunalWorkspace } from "@uploads/workspace";
 import { fetchWithTimeout, type RequestFailure } from "./request";
 import { buildSearchQuery, type MetaFilter } from "./workspace-search-url";
 
@@ -34,22 +33,15 @@ export interface MyWorkspace {
    * "pro". Undefined only against an older api build that omits the field.
    */
   plan?: string;
-  /**
-   * True for the shared/communal tenant every account belongs to. Server-
-   * supplied (`/me/workspaces`) so the UI reads a business rule rather than
-   * matching a slug; `mapMyWorkspace` falls back to the slug only for an
-   * older api build that predates the field.
-   */
-  communal: boolean;
 }
 
 /**
- * The fields every api build has always sent. `hasPublicUrl`/`plan`/`communal`
+ * The fields every api build has always sent. `hasPublicUrl`/`plan`
  * are deliberately excluded: web and api deploy independently, so an older api
  * may omit them — the entry is still accepted and `mapMyWorkspace` coerces each
  * missing value to a safe default.
  */
-type MyWorkspaceCore = Omit<MyWorkspace, "hasPublicUrl" | "plan" | "communal">;
+type MyWorkspaceCore = Omit<MyWorkspace, "hasPublicUrl" | "plan">;
 
 function isMyWorkspaceCore(value: unknown): value is MyWorkspaceCore {
   if (!value || typeof value !== "object") return false;
@@ -65,23 +57,12 @@ function isMyWorkspaceCore(value: unknown): value is MyWorkspaceCore {
   );
 }
 
-/**
- * Coerce optional/legacy fields; shared by list + summary mappers.
- *
- * `communal` is the one field with a non-constant fallback: it is a rule the
- * api owns, but an api build older than the field would omit it, and reading
- * that absence as "not communal" would silently un-skip the shared workspace
- * in `resolveDefaultWorkspace`. So a missing flag — and only a missing flag —
- * falls back to the shared slug constant. This is the sole place in the web
- * app that knows the communal slug at all; everything downstream reads the
- * boolean.
- */
+/** Coerce optional/legacy fields; shared by list + summary mappers. */
 function mapMyWorkspace(ws: MyWorkspaceCore): MyWorkspace {
   const raw = ws as MyWorkspaceCore & {
     hasPublicUrl?: unknown;
     publicBaseUrl?: unknown;
     plan?: unknown;
-    communal?: unknown;
   };
   return {
     workspace: raw.workspace,
@@ -90,7 +71,6 @@ function mapMyWorkspace(ws: MyWorkspaceCore): MyWorkspace {
     hasPublicUrl: raw.hasPublicUrl === true,
     publicBaseUrl: typeof raw.publicBaseUrl === "string" ? raw.publicBaseUrl : undefined,
     plan: typeof raw.plan === "string" ? raw.plan : undefined,
-    communal: typeof raw.communal === "boolean" ? raw.communal : isCommunalWorkspace(raw.workspace),
   };
 }
 
@@ -874,6 +854,26 @@ export async function getGithubInstalled(apiOrigin: string, name: string): Promi
   if (result.kind === "unavailable" || !result.response.ok) return false;
   const body = (await result.response.json().catch(() => null)) as { installed?: unknown } | null;
   return body?.installed === true;
+}
+
+/**
+ * A workspace name to prefill for an account that has none yet (issue #506),
+ * derived server-side from the user's GitHub login. Empty string for "offer
+ * nothing" — no linked GitHub account, a login that can't become a valid slug,
+ * a reserved or blocklisted name, or one already taken. Every failure mode is
+ * indistinguishable here on purpose: the caller either has a name to prefill
+ * or doesn't, and an empty field is the pre-#506 behavior.
+ */
+export async function getSuggestedWorkspaceName(apiOrigin: string): Promise<string> {
+  const result = await fetchWithTimeout(`${trimOrigin(apiOrigin)}/v1/tokens`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (result.kind === "unavailable" || !result.response.ok) return "";
+  const body = (await result.response.json().catch(() => null)) as {
+    suggestedWorkspace?: unknown;
+  } | null;
+  return typeof body?.suggestedWorkspace === "string" ? body.suggestedWorkspace : "";
 }
 
 export interface WorkspaceFolderFile {

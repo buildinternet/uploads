@@ -603,7 +603,7 @@ export interface MintWorkspaceSummary {
 export function listMintWorkspaces(
   apiUrl: string,
   accessToken: string,
-): Promise<{ workspaces: MintWorkspaceSummary[] }> {
+): Promise<{ workspaces: MintWorkspaceSummary[]; suggestedWorkspace?: string }> {
   return jsonRequest(`${apiUrl.replace(/\/$/, "")}/v1/tokens`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });

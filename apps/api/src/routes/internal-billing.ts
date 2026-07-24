@@ -39,7 +39,6 @@ import {
   type PlanId,
 } from "@uploads/billing";
 import { UnauthorizedError, ValidationError } from "@uploads/errors";
-import { isCommunalWorkspace } from "@uploads/workspace";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { jsonBody } from "./json-body";
@@ -143,15 +142,7 @@ internalBilling.get("/member-cap", async (c) => {
     throw new ValidationError("workspace is required", { code: "invalid_workspace" });
   }
 
-  // The communal workspace is exempt from the member cap, the same way it's
-  // already exempt from the other member flows (see slug-policy.ts). Today it
-  // also resolves to unlimited on its own — it's operator-provisioned, so it
-  // has neither a `plan` nor `selfServe` — but skipping the lookup means an
-  // operator stamping a plan on it can't accidentally cap the shared
-  // workspace.
-  const record = isCommunalWorkspace(workspace)
-    ? null
-    : await loadWorkspaceRecord(c.env, workspace);
+  const record = await loadWorkspaceRecord(c.env, workspace);
   const cap = record ? resolveMemberCap(record) : null;
 
   return c.json({

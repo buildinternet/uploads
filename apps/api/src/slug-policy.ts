@@ -1,25 +1,26 @@
-import { COMMUNAL_WORKSPACE } from "@uploads/workspace";
 import { WS_NAME_RE } from "./workspace";
 import { SLUG_BLOCKLIST, SLUG_BLOCKLIST_ALLOW } from "./slug-blocklist";
 
 /**
  * Names that collide with routes or subdomains.
  *
- * `COMMUNAL_WORKSPACE` is redundant with the existing-name check today (the
- * built-in communal workspace is always registered, so self-serve
- * registration would already 409 `workspace_name_taken` without this entry)
- * — but it stays reserved deliberately, not just for symmetry. Hard-delete is
- * the only path that ever frees a slug (see docs/deletion.md), and the
- * communal workspace is uniquely privileged: it's the communal/agent
- * workspace exempted from the reaper and referenced by ops tooling, docs, and
- * bootstrap scripts by name. If it were ever hard-deleted (accidentally or
- * deliberately) and this entry were removed, self-serve registration would
- * let any signed-in user reclaim the slug for an unrelated, non-communal
- * workspace — a name-squatting/confusion risk this list exists to close for
- * the other entries. Keeping it here costs nothing and closes that latent gap.
+ * `"default"` is redundant with the existing-name check today — it is a
+ * registered workspace, so self-serve registration would already 409
+ * `workspace_name_taken` without this entry. It stays reserved anyway.
+ * Hard-delete is the only path that ever frees a slug (see docs/deletion.md),
+ * and `default` is the oldest workspace: years of public
+ * `storage.uploads.sh/default/…` URLs are embedded in merged PRs, issues, and
+ * chat history. If it were ever hard-deleted and this entry were gone,
+ * self-serve registration would let any signed-in user claim the slug and
+ * start serving their own bytes at paths those links still point at. Keeping
+ * it costs nothing and closes that gap.
+ *
+ * This is the only thing left that treats `default` differently, and it is a
+ * squatting guard on a name that served public traffic — not a claim that the
+ * workspace itself is special. It isn't; see the retired communal concept.
  */
 export const RESERVED_WORKSPACE_NAMES: ReadonlySet<string> = new Set([
-  COMMUNAL_WORKSPACE,
+  "default",
   "admin",
   "api",
   "www",

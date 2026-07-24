@@ -39,8 +39,8 @@ curl -XPOST https://api.uploads.sh/admin/tokens \
 ```
 
 Omitting it is a `400 workspace_required` rather than a fallback. These routes
-used to default to the communal `default` workspace, which meant a forgotten
-field silently issued a credential against the shared tenant — and since
+used to default to the shared `default` workspace, which meant a forgotten
+field silently issued a credential against that workspace — and since
 enrollment redemption mints a token without creating an org membership, the
 recipient would not show up in any member list while still reading and writing
 that workspace's files. Naming `default` explicitly is still allowed.

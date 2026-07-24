@@ -215,7 +215,7 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
     setDeviceWorkspace,
     signInWithGitHub,
   } from "../lib/auth-client";
-  import { createWorkspace } from "../lib/api-client";
+  import { createWorkspace, getSuggestedWorkspaceName } from "../lib/api-client";
   import { resolveDeviceWorkspaceState, type DeviceWorkspaceState } from "../lib/device-workspace";
   import { createErrorCopy } from "../lib/workspace-ui";
   import { clearCachedWorkspaces } from "../lib/workspaces-nav";
@@ -393,6 +393,7 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
       wsNew.hidden = false;
       wsNote.textContent = "Your account doesn't have a workspace yet — name one to create it.";
       wsNote.hidden = false;
+      prefillWorkspaceName();
       return;
     }
     wsSelect.replaceChildren();
@@ -501,6 +502,22 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
       naDeny.disabled = false;
     })();
   });
+
+  /**
+   * Prefill the new-workspace field with the server's GitHub-derived
+   * suggestion (issue #506). Fetched at most once, and only applied while the
+   * field is still untouched, so a user who starts typing is never overwritten
+   * by a late response. Any failure leaves the field empty — the pre-#506
+   * behavior — so this never blocks or delays the approval.
+   */
+  let prefillRequested = false;
+  function prefillWorkspaceName(): void {
+    if (prefillRequested) return;
+    prefillRequested = true;
+    void getSuggestedWorkspaceName(apiOrigin).then((suggestion) => {
+      if (suggestion && !wsName.value) wsName.value = suggestion;
+    });
+  }
 
   /**
    * Resolve the workspace this approval should mint for, creating one first

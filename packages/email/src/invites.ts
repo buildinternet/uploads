@@ -1,4 +1,3 @@
-import { isCommunalWorkspace } from "@uploads/workspace";
 import { escapeHtml, renderEmailCard, strong, type RenderedEmail } from "./card";
 
 const CTA = "Accept invitation →";
@@ -37,10 +36,7 @@ export function renderOrgInvitationEmail(ctx: {
   });
 }
 
-/**
- * Token enrollment invite (console / CLI → /invite#code).
- * The communal workspace is framed as access to uploads.sh itself.
- */
+/** Token enrollment invite (console / CLI → /invite#code). */
 export function renderEnrollmentInvitationEmail(ctx: {
   workspaceName: string;
   link: string;
@@ -55,10 +51,7 @@ export function renderEnrollmentInvitationEmail(ctx: {
     timeZone: "UTC",
     timeZoneName: "short",
   });
-  const isDefault = isCommunalWorkspace(ctx.workspaceName);
-  const invitedTo = isDefault
-    ? "You've been given access to uploads.sh"
-    : `You've been invited to the ${ctx.workspaceName} workspace on uploads.sh`;
+  const invitedTo = `You've been invited to the ${ctx.workspaceName} workspace on uploads.sh`;
   let webOrigin = "https://uploads.sh";
   try {
     webOrigin = new URL(ctx.link).origin;
@@ -67,15 +60,11 @@ export function renderEnrollmentInvitationEmail(ctx: {
   }
 
   return renderEmailCard({
-    subject: isDefault
-      ? "You've been given access to uploads.sh"
-      : `You're invited to ${ctx.workspaceName} on uploads.sh`,
+    subject: `You're invited to ${ctx.workspaceName} on uploads.sh`,
     preheader: `${invitedTo} — one click to accept, link expires ${expires}.`,
     eyebrow: "Invitation",
     title: "You're invited",
-    bodyHtml: isDefault
-      ? `You've been given access to ${strong("uploads.sh")} &mdash; ${PITCH}.`
-      : `You've been invited to the ${strong(ctx.workspaceName)} workspace on uploads.sh &mdash; ${PITCH}.`,
+    bodyHtml: `You've been invited to the ${strong(ctx.workspaceName)} workspace on uploads.sh &mdash; ${PITCH}.`,
     text: [
       `${invitedTo} — ${PITCH}.`,
       "",

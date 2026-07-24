@@ -216,16 +216,27 @@ export interface DeviceLoginIo {
   write: (text: string) => void;
   /** Whether the CLI can prompt the user (a real TTY, not a script/CI pipe). */
   isTTY: boolean;
-  /** Prompt for a new workspace name when the account has zero. */
-  promptWorkspaceName: () => Promise<string>;
+  /**
+   * Prompt for a new workspace name when the account has zero. `suggestion`
+   * is a server-derived default (the user's GitHub login, when it makes a
+   * valid and available slug) offered as a bracketed default that Enter
+   * accepts; it is always overridable and never auto-submitted.
+   */
+  promptWorkspaceName: (suggestion?: string) => Promise<string>;
 }
 
-async function promptWorkspaceName(): Promise<string> {
+async function promptWorkspaceName(suggestion?: string): Promise<string> {
   const rl = createInterface({ input: stdin, output: process.stderr });
+  const hint = suggestion ? ` [${suggestion}]` : "";
   try {
-    return (
-      await rl.question("no workspaces yet — enter a name to create one (lowercase, hyphens): ")
+    const answer = (
+      await rl.question(
+        `no workspaces yet — enter a name to create one (lowercase, hyphens)${hint}: `,
+      )
     ).trim();
+    // Empty input accepts the offered default; with no suggestion it stays
+    // empty and the caller's "cancelled" guard fires as before.
+    return answer || (suggestion ?? "");
   } finally {
     rl.close();
   }
@@ -449,7 +460,7 @@ async function resolveMintWorkspace(
     );
     return created.name;
   }
-  const { workspaces } = await listMintWorkspaces(apiUrl, accessToken);
+  const { workspaces, suggestedWorkspace } = await listMintWorkspaces(apiUrl, accessToken);
   if (workspaces.length === 1) return workspaces[0]!.workspace;
   if (workspaces.length === 0) {
     if (!io.isTTY) {
@@ -457,7 +468,7 @@ async function resolveMintWorkspace(
         "your account has no workspace access yet — pass `--workspace <name> --create` to provision one, run `uploads login` interactively, or ask an administrator for an invitation",
       );
     }
-    const name = (await io.promptWorkspaceName()).trim();
+    const name = (await io.promptWorkspaceName(suggestedWorkspace)).trim();
     if (!name) throw new UsageError("workspace creation cancelled");
     const created = await createWorkspaceRequest(apiUrl, accessToken, name);
     io.write(

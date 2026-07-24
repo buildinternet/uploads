@@ -7,9 +7,6 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "dependencies": {
-    "@uploads/workspace": "workspace:^"
-  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
