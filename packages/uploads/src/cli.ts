@@ -43,6 +43,7 @@ import { runLogout, runWhoami } from "./commands/session.js";
 import { runTelemetry } from "./commands/telemetry.js";
 import { runReport } from "./commands/report.js";
 import { runScreenshot } from "./commands/screenshot.js";
+import { runAnnotate } from "./commands/annotate.js";
 import { packageVersion } from "./package-version.js";
 import { checkForUpdate, maybeHintUpdate } from "./update-check.js";
 import { maybeSyncSessionCliVersion } from "./session-cli-version.js";
@@ -353,6 +354,11 @@ export async function runCli(argv: string[]): Promise<number> {
       case "completion":
       case "completions":
         code = await runCompletion(cmdArgs, showHelp);
+        break;
+      case "annotate":
+        // No CliContext needed — annotate is a pure local pixel transform,
+        // never touches auth/client/upload.
+        code = await runAnnotate(cmdArgs, showHelp);
         break;
       case "attach":
       case "put":

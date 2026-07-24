@@ -39,7 +39,7 @@ Inside this monorepo only, `pnpm uploads …` builds the package first so you pi
 up local source; product docs and PR “how to try it” examples should use the
 global `uploads` form above.
 
-Commands: `attach`, `put`, `screenshot`, `gallery`, `comment`, `list`, `find`, `meta`, `delete`, `usage`,
+Commands: `attach`, `put`, `screenshot`, `annotate`, `gallery`, `comment`, `list`, `find`, `meta`, `delete`, `usage`,
 `reconcile`, `purge-expired`, `setup`, `install`, `login`, `whoami` (alias `status`),
 `logout`, `invite`, `admin`, `config`, `telemetry`, `report`, `doctor`, `health`, `mcp`,
 `completion`.
@@ -141,6 +141,21 @@ the key already exists).
 community art from [device-frames-media](https://github.com/jonnyjackson26/device-frames-media)
 into `~/.cache/uploads/frames` (not bundled).
 
+## Annotating screenshots
+
+Bake hand-drawn boxes, arrows, labels, freeform strokes, and redactions onto
+a screenshot before it's uploaded:
+
+```bash
+uploads screenshot http://localhost:3000 --via local --annotate ./callouts.json
+uploads annotate ./shot.png --spec ./callouts.json --out ./shot.marked.png
+```
+
+`screenshot --annotate` resolves CSS selectors against the live page (local
+capture backend only); `annotate` works on an existing image and accepts
+pixel coordinates only, no selectors. Spec format and workflow:
+[`skills/annotate-screenshots/SKILL.md`](../../skills/annotate-screenshots/SKILL.md).
+
 ## Public galleries
 
 Create an ordered gallery, then add existing uploads by key. The API returns the canonical
@@ -212,4 +227,4 @@ pnpm pack:check   # verify the npm tarball contents
 
 Maintainer release instructions: [`docs/releasing.md`](../../docs/releasing.md).
 
-Agent-oriented usage: [`skills/uploads-cli/SKILL.md`](../../skills/uploads-cli/SKILL.md) (full CLI reference) and [`skills/github-screenshots/SKILL.md`](../../skills/github-screenshots/SKILL.md) (visuals into PRs/issues). REST details: [`docs/api.md`](../../docs/api.md).
+Agent-oriented usage: [`skills/uploads-cli/SKILL.md`](../../skills/uploads-cli/SKILL.md) (full CLI reference), [`skills/github-screenshots/SKILL.md`](../../skills/github-screenshots/SKILL.md) (visuals into PRs/issues), and [`skills/annotate-screenshots/SKILL.md`](../../skills/annotate-screenshots/SKILL.md) (callouts and redaction). REST details: [`docs/api.md`](../../docs/api.md).

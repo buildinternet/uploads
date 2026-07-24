@@ -9,3 +9,12 @@ export async function writeStdout(text: string): Promise<void> {
 export async function writeJson(value: unknown): Promise<void> {
   await writeStdout(JSON.stringify(value, null, 2) + "\n");
 }
+
+/** Reads stdin to end as UTF-8 (the `--flag -` convention). */
+export async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}

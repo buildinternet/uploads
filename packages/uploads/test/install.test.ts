@@ -87,6 +87,19 @@ describe("uploads install", () => {
         "*",
       ],
       [
+        "npx",
+        "-y",
+        "skills",
+        "add",
+        "buildinternet/uploads",
+        "--skill",
+        "annotate-screenshots",
+        "-g",
+        "-y",
+        "-a",
+        "*",
+      ],
+      [
         "claude",
         "mcp",
         "add",
@@ -110,6 +123,7 @@ describe("uploads install", () => {
     expect(printed).toContain("Installing MCP server…");
     expect(printed).toMatch(/skill:uploads-cli: ok/);
     expect(printed).toMatch(/skill:github-screenshots: ok/);
+    expect(printed).toMatch(/skill:annotate-screenshots: ok/);
     expect(printed).toMatch(/mcp: ok/);
     expect(printed).toMatch(/hooks: ok/);
     // Child process noise stays out of the happy path.
@@ -130,7 +144,7 @@ describe("uploads install", () => {
   it("install skill runs only the skills step", async () => {
     const { run, calls } = fakeRunner();
     expect(await install(["skill"], { globals: GLOBALS, runner: run })).toBe(0);
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
     expect(calls.every((c) => c[0] === "npx")).toBe(true);
   });
 
@@ -204,10 +218,11 @@ describe("uploads install", () => {
       runner: run,
     });
     expect(code).toBe(1);
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
     expect(calls.every((c) => c[0] === "npx")).toBe(true);
     expect(out.join("")).toMatch(/skill:uploads-cli: ok/);
     expect(out.join("")).toMatch(/skill:github-screenshots: ok/);
+    expect(out.join("")).toMatch(/skill:annotate-screenshots: ok/);
     expect(out.join("")).toMatch(/mcp: skipped/);
     expect(out.join("")).not.toMatch(/mcp: failed/);
     expect(out.join("")).toMatch(/uploads login/);
@@ -245,7 +260,11 @@ describe("uploads install", () => {
     expect(code).toBe(0);
     const parsed = JSON.parse(out.join(""));
     expect(parsed.ok).toBe(true);
-    expect(Object.keys(parsed.steps)).toEqual(["skill:uploads-cli", "skill:github-screenshots"]);
+    expect(Object.keys(parsed.steps)).toEqual([
+      "skill:uploads-cli",
+      "skill:github-screenshots",
+      "skill:annotate-screenshots",
+    ]);
   });
 
   it("mixed skill success/failure prints closing guidance (issue #191)", async () => {

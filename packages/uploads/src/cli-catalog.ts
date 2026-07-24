@@ -73,6 +73,7 @@ export const SCREENSHOT_FLAGS: readonly string[] = [
   "--dark",
   "--light",
   "--wait",
+  "--annotate",
   "--out",
   "--no-sidecar",
   "--no-upload",
@@ -103,6 +104,17 @@ export const SCREENSHOT_FLAGS: readonly string[] = [
   "--format",
   "--workspace",
   "-w",
+  "--help",
+  "-h",
+];
+
+/** All flags `uploads annotate` actually reads (verified against commands/annotate.ts). */
+export const ANNOTATE_FLAGS: readonly string[] = [
+  "--spec",
+  "-o",
+  "--out",
+  "--seed",
+  "--format",
   "--help",
   "-h",
 ];
@@ -140,6 +152,11 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
     usage: "screenshot <target>",
     summary: "Capture a URL or .html file and host it (local browser or remote render)",
     essential: true,
+  },
+  {
+    name: "annotate",
+    usage: "annotate <image>",
+    summary: "Bake hand-drawn boxes, arrows, labels, and redactions onto an image",
   },
   {
     name: "gallery",

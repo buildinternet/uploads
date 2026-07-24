@@ -1,13 +1,14 @@
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import type { UploadsClient } from "../src/client.js";
 import type { CliContext } from "../src/commands.js";
-import { runScreenshot } from "../src/commands/screenshot.js";
+import { runScreenshot, type AnnotateModule } from "../src/commands/screenshot.js";
 import type { CommandRunner } from "../src/github-gh.js";
 import type { CaptureScreenshotResult } from "../src/screenshot.js";
+import type { AnnotationSpec, SpecError } from "../src/annotate/index.js";
 
 /** Fake client capturing put() calls; other methods throw if reached. */
 function fakeClient() {
@@ -78,8 +79,46 @@ const png = new Uint8Array([137, 80, 78, 71]); // fake PNG magic-ish bytes
 
 function fakeCapture(
   backend: "local" | "remote" = "remote",
+  measures?: Record<string, { x: number; y: number; w: number; h: number }>,
 ): (opts: unknown) => Promise<CaptureScreenshotResult> {
-  return async () => ({ png, filename: "example-com.png", backend });
+  return async () => ({ png, filename: "example-com.png", backend, measures });
+}
+
+class FakeAnnotateSpecError extends Error {
+  readonly errors: SpecError[];
+  constructor(errors: SpecError[]) {
+    super("fake annotate spec error");
+    this.name = "AnnotateSpecError";
+    this.errors = errors;
+  }
+}
+
+/**
+ * A stand-in for the real `../annotate/index.js` module (which pulls in
+ * sharp/roughjs) so CLI-layer tests can assert on the wiring — validate →
+ * (selector gate) → resolveSelectors → renderAnnotations, before upload —
+ * without rendering a real image.
+ */
+function fakeAnnotateModule(overrides: Partial<AnnotateModule> = {}): AnnotateModule {
+  const hasAnySelector = (spec: AnnotationSpec) =>
+    spec.annotations.some((a) => "selector" in a && typeof a.selector === "string");
+  return {
+    validateSpec: (json: unknown) => json as AnnotationSpec,
+    hasSelectors: hasAnySelector,
+    specSelectors: (spec: AnnotationSpec) => {
+      const seen: string[] = [];
+      for (const a of spec.annotations) {
+        const sel = "selector" in a ? a.selector : undefined;
+        if (typeof sel === "string" && !seen.includes(sel)) seen.push(sel);
+      }
+      return seen;
+    },
+    resolveSelectors: (spec: AnnotationSpec) => spec,
+    renderAnnotations: async () => Buffer.from([1, 2, 3, 4]),
+    clampReport: () => [],
+    AnnotateSpecError: FakeAnnotateSpecError as unknown as AnnotateModule["AnnotateSpecError"],
+    ...overrides,
+  };
 }
 
 describe("runScreenshot flag validation", () => {
@@ -868,3 +907,179 @@ async function captureStdout(fn: () => Promise<unknown>): Promise<string> {
     writeSpy.mockRestore();
   }
 }
+
+describe("runScreenshot --annotate", () => {
+  function writeSpec(spec: unknown): string {
+    const dir = mkdtempSync(join(tmpdir(), "uploads-annotate-spec-"));
+    const file = join(dir, "spec.json");
+    writeFileSync(file, JSON.stringify(spec));
+    return file;
+  }
+
+  it("validates the spec before capturing — invalid spec never reaches captureImpl", async () => {
+    const { client } = fakeClient();
+    const specFile = writeSpec({ version: 1, annotations: [] }); // shape irrelevant; validateSpec fails
+    let captureCalled = false;
+    const annotateModule = fakeAnnotateModule({
+      validateSpec: () => {
+        throw new (fakeAnnotateModule().AnnotateSpecError)([
+          { index: null, message: "annotations must be a non-empty array" },
+        ]);
+      },
+    });
+    await expect(
+      runScreenshot(
+        ctxWith(client),
+        ["https://example.com", "--annotate", specFile],
+        false,
+        noRun,
+        async () => {
+          captureCalled = true;
+          return { png, filename: "x.png", backend: "remote" };
+        },
+        undefined,
+        async () => annotateModule,
+      ),
+    ).rejects.toThrow(UsageError);
+    expect(captureCalled).toBe(false);
+  });
+
+  it("rejects a selector-bearing spec combined with an explicit --via remote, before capturing", async () => {
+    const { client } = fakeClient();
+    const specFile = writeSpec({
+      version: 1,
+      annotations: [{ type: "box", selector: "h1" }],
+    });
+    let captureCalled = false;
+    await expect(
+      runScreenshot(
+        ctxWith(client),
+        ["https://example.com", "--via", "remote", "--annotate", specFile],
+        false,
+        noRun,
+        async () => {
+          captureCalled = true;
+          return { png, filename: "x.png", backend: "remote" };
+        },
+        undefined,
+        async () => fakeAnnotateModule(),
+      ),
+    ).rejects.toThrow(/--via local/);
+    expect(captureCalled).toBe(false);
+  });
+
+  it("rejects a selector-bearing spec when the resolved backend is remote (auto fallback)", async () => {
+    const { client } = fakeClient();
+    const specFile = writeSpec({
+      version: 1,
+      annotations: [{ type: "box", selector: "h1" }],
+    });
+    await expect(
+      runScreenshot(
+        ctxWith(client),
+        ["https://example.com", "--annotate", specFile],
+        false,
+        noRun,
+        fakeCapture("remote"), // captureImpl resolved to remote (e.g. auto fallback)
+        undefined,
+        async () => fakeAnnotateModule(),
+      ),
+    ).rejects.toThrow(/--via local/);
+  });
+
+  it("resolves selectors against measured boxes and renders before upload (end to end, local backend)", async () => {
+    const { client, puts } = fakeClient();
+    const specFile = writeSpec({
+      version: 1,
+      annotations: [{ type: "box", selector: "h1" }],
+    });
+    const rendered = Buffer.from([9, 9, 9, 9, 9]);
+    let resolvedWith: unknown;
+    const annotateModule = fakeAnnotateModule({
+      resolveSelectors: (spec, boxes) => {
+        resolvedWith = boxes;
+        return spec;
+      },
+      renderAnnotations: async () => rendered,
+    });
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--annotate", specFile],
+      false,
+      noRun,
+      fakeCapture("local", { h1: { x: 1, y: 2, w: 3, h: 4 } }),
+      undefined,
+      async () => annotateModule,
+    );
+    expect(code).toBe(0);
+    expect(resolvedWith).toEqual({ h1: { x: 1, y: 2, w: 3, h: 4 } });
+    expect(puts).toHaveLength(1);
+    expect(puts[0]?.body).toEqual(rendered);
+  });
+
+  it("renders a pixel-only spec (no selectors) regardless of backend", async () => {
+    const { client, puts } = fakeClient();
+    const specFile = writeSpec({
+      version: 1,
+      annotations: [{ type: "box", x: 0, y: 0, w: 10, h: 10 }],
+    });
+    const rendered = Buffer.from([7, 7, 7]);
+    const annotateModule = fakeAnnotateModule({
+      renderAnnotations: async () => rendered,
+    });
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--annotate", specFile],
+      false,
+      noRun,
+      fakeCapture("remote"),
+      undefined,
+      async () => annotateModule,
+    );
+    expect(code).toBe(0);
+    expect(puts).toHaveLength(1);
+    expect(puts[0]?.body).toEqual(rendered);
+  });
+
+  it("--annotate - reads the spec from stdin", async () => {
+    const { client, puts } = fakeClient();
+    const rendered = Buffer.from([5, 5, 5]);
+    const annotateModule = fakeAnnotateModule({ renderAnnotations: async () => rendered });
+    const spec = { version: 1, annotations: [{ type: "box", x: 0, y: 0, w: 1, h: 1 }] };
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--annotate", "-"],
+      false,
+      noRun,
+      fakeCapture("remote"),
+      async () => JSON.stringify(spec),
+      async () => annotateModule,
+    );
+    expect(code).toBe(0);
+    expect(puts).toHaveLength(1);
+    expect(puts[0]?.body).toEqual(rendered);
+  });
+
+  it("also annotates the local --out file, not just the uploaded bytes", async () => {
+    const { client } = fakeClient();
+    const dir = mkdtempSync(join(tmpdir(), "uploads-screenshot-"));
+    const out = join(dir, "shot.png");
+    const specFile = writeSpec({
+      version: 1,
+      annotations: [{ type: "box", x: 0, y: 0, w: 1, h: 1 }],
+    });
+    const rendered = Buffer.from([3, 3, 3]);
+    const annotateModule = fakeAnnotateModule({ renderAnnotations: async () => rendered });
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--no-upload", "--out", out, "--annotate", specFile],
+      false,
+      noRun,
+      fakeCapture("remote"),
+      undefined,
+      async () => annotateModule,
+    );
+    expect(code).toBe(0);
+    expect(readFileSync(out)).toEqual(Buffer.from(rendered));
+  });
+});

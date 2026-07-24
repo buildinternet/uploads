@@ -13,6 +13,28 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { UploadsError } from "./errors.js";
 
+/**
+ * `measureSelectorBoxes` below passes a closure to `page.evaluate`, which
+ * playwright-core serializes and runs inside the browser page — never in
+ * Node. `document` is a DOM global there, but this package's tsconfig is
+ * Node-only (`"lib": ["ES2023"]`, no "dom"), so it's declared ambiently and
+ * minimally right here instead of pulling in the full dom lib for the whole
+ * package. Module-scoped (this file has imports/exports), so it doesn't
+ * leak into any other file's type-checking.
+ */
+declare const document: {
+  querySelectorAll(selector: string): {
+    length: number;
+    [index: number]: { getBoundingClientRect(): DOMRectLike };
+  };
+};
+interface DOMRectLike {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export type BrowserCandidateSource = "env" | "system" | "playwright-cache" | "puppeteer-cache";
 
 export interface BrowserCandidate {
@@ -306,6 +328,13 @@ export interface LocalCaptureOptions {
   evalJs?: string;
   /** JS injected via addInitScript before navigation. */
   initScript?: string;
+  /**
+   * CSS selectors to measure (getBoundingClientRect, scaled to device pixels)
+   * after settle, before capture — for resolving annotation-spec selectors.
+   * Every selector must match exactly one element; a miss throws naming the
+   * selector (no silent skips).
+   */
+  measureSelectors?: string[];
   timeoutMs?: number;
   detectRoots?: DetectRoots;
   /**
@@ -314,6 +343,59 @@ export interface LocalCaptureOptions {
    * `detectLocalBrowser` a second time for the same capture.
    */
   detectResult?: DetectResult;
+}
+
+/** A measured element box in device (raster) pixels — CSS pixels × deviceScaleFactor. */
+export interface MeasuredBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Minimal page shape this needs — matches playwright-core's `Page.evaluate`. */
+interface EvaluatablePage {
+  evaluate<T>(fn: (selectors: string[]) => T, arg: string[]): Promise<T>;
+}
+
+/**
+ * Measures each selector's getBoundingClientRect on the page in a single
+ * `page.evaluate` round-trip, scaling CSS pixels to device (raster) pixels so
+ * the resulting boxes line up with the captured PNG. Throws `UploadsError`
+ * naming any selector that matches zero elements or more than one — an
+ * ambiguous selector would silently measure the first match and place the
+ * annotation confidently in the wrong spot.
+ */
+export async function measureSelectorBoxes(
+  page: EvaluatablePage,
+  selectors: readonly string[],
+  scale: number,
+): Promise<Record<string, MeasuredBox>> {
+  if (selectors.length === 0) return {};
+  const boxes = await page.evaluate(
+    (sels) =>
+      sels.map((selector) => {
+        const matches = document.querySelectorAll(selector);
+        if (matches.length !== 1) return { count: matches.length };
+        const r = matches[0]!.getBoundingClientRect();
+        return { x: r.x, y: r.y, w: r.width, h: r.height };
+      }),
+    [...selectors],
+  );
+  const measures: Record<string, MeasuredBox> = {};
+  selectors.forEach((sel, i) => {
+    const box = boxes[i]!;
+    if ("count" in box) {
+      throw new UploadsError(
+        box.count === 0
+          ? `--annotate selector matched no element: ${sel}`
+          : `--annotate selector is ambiguous (${box.count} matches): ${sel}`,
+        "USAGE",
+      );
+    }
+    measures[sel] = { x: box.x * scale, y: box.y * scale, w: box.w * scale, h: box.h * scale };
+  });
+  return measures;
 }
 
 type PlaywrightCoreModule = typeof import("playwright-core");
@@ -379,7 +461,9 @@ async function launchLocalBrowser(
 }
 
 /** Capture a PNG screenshot using a local (already-installed) browser. */
-export async function captureLocal(opts: LocalCaptureOptions): Promise<Uint8Array> {
+export async function captureLocal(
+  opts: LocalCaptureOptions,
+): Promise<{ png: Uint8Array; measures?: Record<string, MeasuredBox> }> {
   const { chromium } = await loadPlaywrightCore();
 
   let browser: import("playwright-core").Browser;
@@ -446,11 +530,16 @@ export async function captureLocal(opts: LocalCaptureOptions): Promise<Uint8Arra
     }
     if (opts.evalJs) await page.evaluate(opts.evalJs);
 
+    const measures =
+      opts.measureSelectors && opts.measureSelectors.length > 0
+        ? await measureSelectorBoxes(page, opts.measureSelectors, opts.viewport.deviceScaleFactor)
+        : undefined;
+
     const png = opts.selector
       ? await page.locator(opts.selector).screenshot({ timeout: opts.timeoutMs ?? 30_000 })
       : await page.screenshot({ fullPage: opts.fullPage === true });
     // Buffer extends Uint8Array — return it as-is rather than copying.
-    return png;
+    return { png, measures };
   } finally {
     await browser.close();
   }

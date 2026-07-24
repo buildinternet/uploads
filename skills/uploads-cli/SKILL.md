@@ -449,6 +449,22 @@ limits) — renders and puts share one monthly counter.
 `uploads doctor` reports which local browser (if any) was detected and which
 backend `--via auto` would currently pick.
 
+### Baking in callouts: `--annotate`
+
+`--annotate <file|->` bakes hand-drawn boxes, arrows, labels, freeform
+strokes, and redactions onto the capture before it's uploaded (JSON spec, a
+file path or `-` for stdin). Selectors resolve against the live page — the
+local backend only in v1, so a selector-bearing spec on `--via remote` is
+rejected up front:
+
+```bash
+uploads screenshot http://localhost:3000 --via local --annotate ./callouts.json
+```
+
+For the spec format and an existing-image equivalent (`uploads annotate
+<image> --spec <file|->`, pixel-only, no selectors), see the
+**annotate-screenshots** skill.
+
 ## Custom metadata & search
 
 Every object can carry queryable key-value metadata (distinct from optimize/frame

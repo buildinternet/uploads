@@ -180,6 +180,14 @@ export function classifyTarget(target: string): ScreenshotTarget {
   return { kind: "html-file", path: abs, html: readFileSync(abs, "utf8") };
 }
 
+/** A measured element box in device (raster) pixels — CSS pixels × deviceScaleFactor. */
+export interface MeasuredBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface CaptureScreenshotOptions {
   target: string;
   via: ScreenshotBackend;
@@ -203,6 +211,12 @@ export interface CaptureScreenshotOptions {
   evalJs?: string;
   /** Inject this JS as an init script before navigation (local backend only). */
   initScript?: string;
+  /**
+   * CSS selectors to measure (getBoundingClientRect, scaled to device pixels)
+   * before capture, for resolving annotation-spec selectors. Local backend
+   * only — throws if the resolved backend is remote.
+   */
+  measureSelectors?: string[];
   apiUrl: string;
   token: string;
   /** Injectable for tests; forwarded to detectLocalBrowser. */
@@ -221,10 +235,11 @@ export interface CaptureScreenshotOptions {
     reducedMotion?: boolean;
     evalJs?: string;
     initScript?: string;
+    measureSelectors?: string[];
     detectRoots?: DetectRoots;
     /** Pre-computed detection result from auto-routing, to avoid a second fs scan. */
     detectResult?: import("./screenshot-local.js").DetectResult;
-  }) => Promise<Uint8Array>;
+  }) => Promise<{ png: Uint8Array; measures?: Record<string, MeasuredBox> }>;
   /** Injectable for tests: replaces the remote capture implementation. */
   captureRemoteImpl?: typeof captureRemote;
 }
@@ -233,6 +248,8 @@ export interface CaptureScreenshotResult {
   png: Uint8Array;
   filename: string;
   backend: "local" | "remote";
+  /** Present when `measureSelectors` was given and the local backend ran. */
+  measures?: Record<string, MeasuredBox>;
 }
 
 /** Derives a filename from a URL (host+path) or the source .html filename. */
@@ -341,6 +358,14 @@ export async function captureScreenshot(
     throw new UploadsError("--eval and --init-script are local-only — use --via local", "USAGE");
   }
 
+  // Selector-based annotation measurement needs a live local page — the
+  // remote render endpoint has no eval escape hatch to run
+  // getBoundingClientRect. Covers both explicit --via remote and auto
+  // resolving to remote.
+  if (backend === "remote" && opts.measureSelectors && opts.measureSelectors.length > 0) {
+    throw new UploadsError("selector annotations need --via local in v1", "USAGE");
+  }
+
   if (backend === "local") {
     const captureLocalImpl =
       opts.captureLocalImpl ??
@@ -348,7 +373,7 @@ export async function captureScreenshot(
         const { captureLocal } = await import("./screenshot-local.js");
         return captureLocal(localOpts);
       });
-    const png = await captureLocalImpl({
+    const localResult = await captureLocalImpl({
       url: target.kind === "html-file" ? pathToFileURL(target.path).href : target.url,
       browserPath: opts.browserPath,
       cdp: opts.cdp,
@@ -361,10 +386,11 @@ export async function captureScreenshot(
       reducedMotion: opts.reducedMotion,
       evalJs: opts.evalJs,
       initScript: opts.initScript,
+      measureSelectors: opts.measureSelectors,
       detectRoots: opts.detectRoots,
       detectResult: detected,
     });
-    return { png, filename, backend };
+    return { png: localResult.png, filename, backend, measures: localResult.measures };
   }
 
   if (target.kind === "html-file") {
