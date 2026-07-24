@@ -9,7 +9,7 @@ import { getStroke } from "perfect-freehand";
 import rough from "roughjs/bundled/rough.esm.js";
 import type { Drawable } from "roughjs/bundled/core.js";
 import type { RoughGenerator } from "roughjs/bundled/generator.js";
-import { DEFAULT_PLACEMENT } from "./spec.js";
+import { AnnotateSpecError, DEFAULT_PLACEMENT, unsafeSvgFragmentReason } from "./spec.js";
 import type {
   ArrowAnnotation,
   BoxAnnotation,
@@ -181,5 +181,9 @@ export function renderRedactSolid(a: RedactAnnotation): string {
 }
 
 export function renderSvg(a: SvgAnnotation): string {
+  // Defense in depth: validateSpec already rejects unsafe fragments, but a
+  // caller could hand renderAnnotations a hand-built spec that skipped it.
+  const unsafe = unsafeSvgFragmentReason(a.fragment);
+  if (unsafe) throw new AnnotateSpecError([{ index: null, message: unsafe }]);
   return `<g>${a.fragment}</g>`;
 }

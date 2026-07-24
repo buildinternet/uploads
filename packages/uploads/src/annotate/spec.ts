@@ -105,6 +105,21 @@ export const DEFAULT_PLACEMENT = {
   labelAt: [30, -90] as const,
 };
 
+/**
+ * Returns a rejection reason if a raw `svg` fragment is unsafe, else null.
+ * Shared by `validateSpec` and the renderer (defense in depth — the renderer
+ * re-checks in case a caller bypasses validation): `<script` is an obvious
+ * injection, and librsvg resolves href/xlink:href and CSS url() references,
+ * which has been an arbitrary-file-read vector (e.g. CVE-2023-38633).
+ */
+export function unsafeSvgFragmentReason(fragment: string): string | null {
+  if (/<script/i.test(fragment)) return "svg fragment must not contain <script";
+  if (/\bhref\s*=|\burl\s*\(/i.test(fragment)) {
+    return "svg fragment must not reference external resources (href= or url())";
+  }
+  return null;
+}
+
 function isFiniteNumber(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v);
 }
@@ -208,13 +223,9 @@ function validateAnnotation(raw: unknown, index: number, errors: SpecError[]): v
     case "svg": {
       if (typeof a.fragment !== "string" || a.fragment.length === 0) {
         fail("svg requires a non-empty fragment");
-      } else if (/<script/i.test(a.fragment)) {
-        fail("svg fragment must not contain <script");
-      } else if (/\bhref\s*=|\burl\s*\(/i.test(a.fragment)) {
-        // librsvg resolves href/xlink:href and CSS url() references, which
-        // has been an arbitrary-file-read vector (e.g. CVE-2023-38633) —
-        // reject external/local references outright in the escape hatch.
-        fail("svg fragment must not reference external resources (href= or url())");
+      } else {
+        const unsafe = unsafeSvgFragmentReason(a.fragment);
+        if (unsafe) fail(unsafe);
       }
       break;
     }
