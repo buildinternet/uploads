@@ -73,6 +73,7 @@ export const SCREENSHOT_FLAGS: readonly string[] = [
   "--dark",
   "--light",
   "--wait",
+  "--annotate",
   "--out",
   "--no-sidecar",
   "--no-upload",

@@ -506,4 +506,84 @@ describe("captureScreenshot backend selection", () => {
     ).rejects.toMatchObject({ code: "BROWSER_NOT_FOUND" });
     expect(usedRemote).toBe(false);
   });
+
+  it("measureSelectors round-trips through captureLocalImpl into result.measures", async () => {
+    let seenMeasureSelectors: string[] | undefined;
+    const result = await captureScreenshot({
+      target: "https://example.com",
+      via: "local",
+      measureSelectors: ["h1", ".hero"],
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureLocalImpl: async (opts) => {
+        seenMeasureSelectors = opts.measureSelectors;
+        return {
+          png,
+          measures: {
+            h1: { x: 10, y: 20, w: 100, h: 40 },
+            ".hero": { x: 0, y: 0, w: 1280, h: 200 },
+          },
+        };
+      },
+    });
+    expect(seenMeasureSelectors).toEqual(["h1", ".hero"]);
+    expect(result.measures).toEqual({
+      h1: { x: 10, y: 20, w: 100, h: 40 },
+      ".hero": { x: 0, y: 0, w: 1280, h: 200 },
+    });
+  });
+
+  it("captureLocalImpl may still return bare bytes (no measures) when selectors aren't requested", async () => {
+    const result = await captureScreenshot({
+      target: "https://example.com",
+      via: "local",
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureLocalImpl: async () => png,
+    });
+    expect(result.png).toEqual(png);
+    expect(result.measures).toBeUndefined();
+  });
+
+  it("rejects measureSelectors on an explicit --via remote before any request", async () => {
+    let usedRemote = false;
+    await expect(
+      captureScreenshot({
+        target: "https://example.com",
+        via: "remote",
+        measureSelectors: ["h1"],
+        apiUrl: "https://api.uploads.sh",
+        token: "t",
+        captureRemoteImpl: async () => {
+          usedRemote = true;
+          return png;
+        },
+      }),
+    ).rejects.toMatchObject({ code: "USAGE" });
+    expect(usedRemote).toBe(false);
+  });
+
+  it("rejects measureSelectors when auto resolves to remote (no local browser)", async () => {
+    let usedRemote = false;
+    await expect(
+      captureScreenshot({
+        target: "https://example.com",
+        via: "auto",
+        measureSelectors: ["h1"],
+        apiUrl: "https://api.uploads.sh",
+        token: "t",
+        detectRoots: {
+          env: {},
+          systemCandidates: [],
+          playwrightCacheDir: "/nonexistent/ms-playwright",
+          puppeteerCacheDir: "/nonexistent/puppeteer",
+        },
+        captureRemoteImpl: async () => {
+          usedRemote = true;
+          return png;
+        },
+      }),
+    ).rejects.toMatchObject({ code: "USAGE" });
+    expect(usedRemote).toBe(false);
+  });
 });

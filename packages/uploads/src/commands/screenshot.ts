@@ -51,6 +51,34 @@ import {
   type ScreenshotBackend,
 } from "../screenshot.js";
 
+/**
+ * The slice of `../annotate/index.js` this command needs. Typed against the
+ * real module (so signatures stay honest) but loaded only via dynamic
+ * `import()` — never statically — to keep sharp/roughjs out of any bundle
+ * that pulls in commands/screenshot.ts. Injectable for tests as
+ * `loadAnnotateModule`, mirroring the `captureLocalImpl`-style seams
+ * elsewhere in this file's tests.
+ */
+export type AnnotateModule = Pick<
+  typeof import("../annotate/index.js"),
+  | "validateSpec"
+  | "hasSelectors"
+  | "specSelectors"
+  | "resolveSelectors"
+  | "renderAnnotations"
+  | "clampReport"
+  | "AnnotateSpecError"
+>;
+
+/** Reads all of stdin as a UTF-8 string. Injectable for tests. */
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 const SCREENSHOT_HELP = `uploads screenshot <target> [options]
 
 Capture a URL or a local .html file and host it — a hosted, PR-embeddable
@@ -98,6 +126,12 @@ Options:
                             on --via remote — neutralizes animations via injected CSS)
   --eval <js>               Run JS in the page after settle, before capture (--via local only)
   --init-script <file>      Inject a JS file before navigation (--via local only)
+  --annotate <file|->       Bake hand-drawn boxes, arrows, labels, and redactions from a JSON
+                            annotation spec onto the capture before upload (file path or - for
+                            stdin; see the annotate-screenshots skill for the spec format). Specs
+                            that target a CSS selector instead of pixel coordinates need a live
+                            page to resolve, so they require --via local (or auto resolving to
+                            local) — a selector spec on the remote backend is rejected up front.
   --out <file>              Also write the PNG to a local file. Also writes a sidecar manifest,
                             <file>.uploads.json, recording this capture's derived metadata
                             (path/url/env/viewport, plus --state if given) with a content hash; a
@@ -147,6 +181,7 @@ Examples:
   uploads screenshot https://uploads.sh --pr 128 --comment
   uploads screenshot ./card.html --no-upload --out ./card.png
   uploads screenshot https://app.example/settings --branch
+  uploads screenshot http://localhost:3000 --via local --annotate ./callouts.json
 `;
 
 function colorSchemeFromFlags(
@@ -177,12 +212,29 @@ export async function runScreenshot(
   run: CommandRunner = execRunner,
   /** Injectable for tests — avoids launching a real browser or hitting the network. */
   captureImpl: typeof captureScreenshot = captureScreenshot,
+  /** Injectable for tests — avoids depending on a real stdin stream. */
+  readStdinImpl: () => Promise<string> = readStdin,
+  /** Injectable for tests — avoids depending on sharp/roughjs. */
+  loadAnnotateModule: () => Promise<AnnotateModule> = () => import("../annotate/index.js"),
 ): Promise<number> {
   if (help) {
     writeCommandHelp(SCREENSHOT_HELP);
     return 0;
   }
-  const parsed = parseCommandArgs(args);
+  // parseCommandArgs treats a bare "-" as a flag boundary, so it can't be
+  // consumed as --annotate's value generically. Pull `--annotate -` out by
+  // hand before the generic parse — same convention as `uploads annotate
+  // --spec -` (commands/annotate.ts) and put/attach's stdin "-".
+  let annotateFromDash = false;
+  const preArgs = [...args];
+  for (let i = 0; i < preArgs.length; i++) {
+    if (preArgs[i] === "--annotate" && preArgs[i + 1] === "-") {
+      annotateFromDash = true;
+      preArgs.splice(i, 2);
+      break;
+    }
+  }
+  const parsed = parseCommandArgs(preArgs);
   if (parsed.help) {
     writeCommandHelp(SCREENSHOT_HELP);
     return 0;
@@ -228,6 +280,47 @@ export async function runScreenshot(
       throw new UsageError(
         `could not read --init-script ${initScriptPath}: ${err instanceof Error ? err.message : String(err)}`,
       );
+    }
+  }
+
+  // Parse + validate the annotation spec (if any) before capturing anything —
+  // fail fast rather than burning a browser launch / render-endpoint budget
+  // hit on a spec that was never going to work.
+  const annotateArg = annotateFromDash ? "-" : flagString(parsed.flags, "--annotate");
+  let annotateModule: AnnotateModule | undefined;
+  let annotateSpec: Awaited<ReturnType<AnnotateModule["validateSpec"]>> | undefined;
+  let annotateSelectors: string[] = [];
+  if (annotateArg !== undefined) {
+    annotateModule = await loadAnnotateModule();
+    const specText =
+      annotateArg === "-" ? await readStdinImpl() : readFileSync(annotateArg, "utf8");
+    let specJson: unknown;
+    try {
+      specJson = JSON.parse(specText);
+    } catch (err) {
+      throw new UsageError(
+        `--annotate spec is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    try {
+      annotateSpec = annotateModule.validateSpec(specJson);
+    } catch (err) {
+      if (err instanceof annotateModule.AnnotateSpecError) {
+        const lines = err.errors.map((e) =>
+          e.index === null ? e.message : `annotations[${e.index}]: ${e.message}`,
+        );
+        throw new UsageError(`--annotate spec is invalid: ${lines.join("; ")}`);
+      }
+      throw err;
+    }
+    annotateSelectors = annotateModule.specSelectors(annotateSpec);
+    // The remote render endpoint has no eval escape hatch to measure a live
+    // selector — fail fast on an explicit --via remote rather than let the
+    // capture succeed and only then discover the annotation step can't
+    // resolve. (auto resolving to remote is caught below, after capture,
+    // once the actual backend is known.)
+    if (annotateSelectors.length > 0 && via === "remote") {
+      throw new UsageError("selector annotations need --via local in v1");
     }
   }
 
@@ -363,21 +456,47 @@ export async function runScreenshot(
     reducedMotion,
     evalJs,
     initScript,
+    measureSelectors: annotateSelectors.length > 0 ? annotateSelectors : undefined,
     apiUrl: ctx.config.apiUrl,
     token: ctx.config.token,
   });
 
   if (logHuman) process.stderr.write(`>> captured via ${captured.backend} backend\n`);
 
+  // Resolve selectors + render annotations before the frame/optimize/upload
+  // pipeline runs — everything downstream (the --out write, the sidecar
+  // hash, and the upload itself) should see the annotated bytes.
+  let finalPng: Uint8Array = captured.png;
+  if (annotateModule && annotateSpec) {
+    let resolvedSpec = annotateSpec;
+    if (annotateSelectors.length > 0) {
+      // Covers auto-routing landing on remote: the explicit --via remote
+      // case already failed fast above, before capture.
+      if (captured.backend !== "local") {
+        throw new UsageError("selector annotations need --via local in v1");
+      }
+      try {
+        resolvedSpec = annotateModule.resolveSelectors(annotateSpec, captured.measures ?? {});
+      } catch (err) {
+        if (err instanceof annotateModule.AnnotateSpecError) {
+          throw new UsageError(`--annotate: ${err.errors.map((e) => e.message).join("; ")}`);
+        }
+        throw err;
+      }
+    }
+    finalPng = await annotateModule.renderAnnotations(captured.png, resolvedSpec);
+    if (logHuman) process.stderr.write(">> annotated\n");
+  }
+
   if (outFile) {
-    writeFileSync(outFile, captured.png);
+    writeFileSync(outFile, finalPng);
     if (logHuman) process.stderr.write(`>> wrote ${outFile}\n`);
-    if (!noSidecar) writeSidecarMeta(outFile, captured.png, withFacts);
+    if (!noSidecar) writeSidecarMeta(outFile, finalPng, withFacts);
   }
 
   if (noUpload) {
     if (ctx.json) {
-      await writeJson({ file: outFile, backend: captured.backend, size: captured.png.byteLength });
+      await writeJson({ file: outFile, backend: captured.backend, size: finalPng.byteLength });
     } else {
       await writeStdout(`FILE: ${outFile}\n`);
     }
@@ -394,7 +513,7 @@ export async function runScreenshot(
   const alt = altFlag ?? basename(captured.filename);
   const { result, prepared, markdown } = await uploadPreparedImage(
     ctx.client,
-    captured.png,
+    finalPng,
     captured.filename,
     {
       frame: frameOpts,
