@@ -5,3 +5,4 @@ export * from "./resolve";
 export * from "./subscription-status";
 export * from "./workspace-cap";
 export * from "./stripe-plans";
+export * from "./stripe-checkout";

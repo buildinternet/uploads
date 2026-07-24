@@ -30,6 +30,14 @@ interface Env {
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   STRIPE_PRO_PRICE_ID?: string;
+  /**
+   * Exactly `"true"` makes Stripe Checkout require a Terms of Service
+   * checkbox before it takes payment. Off by default, and deliberately so:
+   * Stripe rejects the session unless a Terms URL is set in the Dashboard
+   * first, which would break every upgrade. See
+   * packages/billing/src/stripe-checkout.ts for the enable order.
+   */
+  STRIPE_CHECKOUT_TOS_CONSENT?: string;
   /** Shared secret for POST /internal/billing/plan (see apps/api's
    * routes/internal-billing.ts and wrangler.jsonc comment there). Fail-closed
    * when unset: billing-bridge.ts no-ops rather than sending an empty header. */
