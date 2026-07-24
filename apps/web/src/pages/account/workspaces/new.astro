@@ -1,5 +1,6 @@
 ---
 import AccountLayout from "../../../layouts/AccountLayout.astro";
+import { MANAGE_WORKSPACES_HREF } from "../../../lib/workspaces-nav";
 
 export const prerender = false;
 ---
@@ -53,6 +54,11 @@ export const prerender = false;
           <a data-open-workspace href="/account/workspaces">Open this workspace →</a>
         </p>
       </div>
+      <p class="muted cli-note" data-create-cap role="status" hidden>
+        <span data-cap-message></span>&#32;<a href={MANAGE_WORKSPACES_HREF}
+          >Manage workspaces →</a
+        >
+      </p>
       <p class="muted cli-note" data-create-error role="alert" hidden></p>
       <p class="muted cli-note" data-create-github role="status" hidden>
         Requires a linked GitHub account.
@@ -69,8 +75,14 @@ export const prerender = false;
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../../lib/account-shell";
     import { linkGitHub, listAccounts } from "../../../lib/auth-client";
-    import { createWorkspace } from "../../../lib/api-client";
-    import { clearCachedWorkspaces } from "../../../lib/workspaces-nav";
+    import { createWorkspace, type WorkspaceCreateQuota } from "../../../lib/api-client";
+    import {
+      canCreateWorkspace,
+      clearCachedWorkspaces,
+      loadWorkspaces,
+      readCachedQuota,
+    } from "../../../lib/workspaces-nav";
+    import { workspaceCapMessage } from "@uploads/billing";
     import {
       bindCopyButtons,
       createErrorCopy,
@@ -107,6 +119,36 @@ export const prerender = false;
 
     void listAccounts(authOrigin).then((accounts) => {
       if (accounts && !accounts.some((a) => a.providerId === "github")) githubEl.hidden = false;
+    });
+
+    // This page is directly linkable, so it checks the cap itself rather
+    // than trusting that an entry point already did — turning a
+    // submit-then-403 into an up-front explanation. Fails open: no quota
+    // (older build, unreachable API) leaves the form enabled, and POST
+    // /v1/workspaces still refuses.
+    const capEl = requireElement<HTMLElement>("[data-create-cap]", page);
+    const capMessage = requireElement<HTMLElement>("[data-cap-message]", page);
+
+    // Symmetric on purpose: the cached paint below can be stale in either
+    // direction, so revalidation has to be able to LIFT the cap as well as
+    // apply it — otherwise a user who just upgraded stares at a disabled
+    // form until they reload.
+    function applyQuota(quota: WorkspaceCreateQuota | undefined): void {
+      const capped = !!quota && !canCreateWorkspace(quota);
+      if (capped) capMessage.textContent = workspaceCapMessage(quota.cap);
+      capEl.hidden = !capped;
+      input.disabled = capped;
+      if (submit) submit.disabled = capped;
+    }
+
+    // Cached value paints immediately; `loadWorkspaces` then revalidates,
+    // sharing the one request the account shell is already making for the
+    // switcher rather than issuing a second.
+    applyQuota(readCachedQuota());
+    onSession(() => {
+      void loadWorkspaces(apiOrigin).then((result) => {
+        if (result.kind === "success") applyQuota(result.quota);
+      });
     });
 
     if (new URLSearchParams(location.search).get("error")) githubError.hidden = false;

@@ -69,9 +69,40 @@ function mapMyWorkspace(ws: Omit<MyWorkspace, "hasPublicUrl" | "plan">): MyWorks
   };
 }
 
+/**
+ * Whether this user may create another workspace (spec 2026-07-24). Purely
+ * advisory — `POST /v1/workspaces` is the enforcement point, so the UI is
+ * free to fail open when this is missing.
+ */
+export interface WorkspaceCreateQuota {
+  used: number;
+  cap: number;
+  allowed: boolean;
+}
+
 export type WorkspacesResult =
-  | { kind: "success"; workspaces: MyWorkspace[] }
+  | { kind: "success"; workspaces: MyWorkspace[]; quota?: WorkspaceCreateQuota }
   | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
+
+/**
+ * Parse `workspaceCreate` from a `/me/workspaces` body.
+ *
+ * Returns `undefined` for anything unrecognized — an older API build that
+ * omits the field, a partial response, a garbage value. Every consumer
+ * treats `undefined` as "creation allowed", so a stale worker degrades to
+ * the pre-cap behaviour (create offered, server still refusing at the cap)
+ * rather than locking a user out of a workspace they are entitled to.
+ */
+export function parseWorkspaceCreateQuota(value: unknown): WorkspaceCreateQuota | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const { used, cap, allowed } = raw;
+  if (typeof used !== "number" || typeof cap !== "number" || typeof allowed !== "boolean") {
+    return undefined;
+  }
+  if (!Number.isFinite(used) || !Number.isFinite(cap)) return undefined;
+  return { used, cap, allowed };
+}
 
 /** GET /me/workspaces, preserving an outage rather than rendering it as an empty account. */
 export async function getMyWorkspaces(apiOrigin: string): Promise<WorkspacesResult> {
@@ -83,12 +114,13 @@ export async function getMyWorkspaces(apiOrigin: string): Promise<WorkspacesResu
   const { response } = result;
   if (!response.ok) return { kind: "unavailable", reason: "server" };
   const body = (await response.json().catch(() => undefined)) as
-    | { workspaces?: unknown[] }
+    | { workspaces?: unknown[]; workspaceCreate?: unknown }
     | undefined;
   if (!body || !Array.isArray(body.workspaces)) return { kind: "unavailable", reason: "malformed" };
   return {
     kind: "success",
     workspaces: body.workspaces.filter(isMyWorkspaceCore).map(mapMyWorkspace),
+    quota: parseWorkspaceCreateQuota(body.workspaceCreate),
   };
 }
 

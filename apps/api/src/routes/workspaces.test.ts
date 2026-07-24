@@ -224,6 +224,37 @@ describe("POST /v1/workspaces", () => {
     expect(res.status).toBe(201);
   });
 
+  it("does not count paid owned workspaces toward the cap", async () => {
+    const memberships = [
+      { organizationId: "o1", organizationSlug: "one", role: "owner" },
+      { organizationId: "o2", organizationSlug: "two", role: "owner" },
+      { organizationId: "o3", organizationSlug: "three", role: "owner" },
+    ];
+    const kvRecords = {
+      one: { selfServe: true },
+      two: { selfServe: true },
+      // Upgrading frees a slot immediately — the cap is a free-tier gate.
+      three: { selfServe: true, plan: "pro" },
+    };
+    const res = await post(stubEnv({ memberships, kvRecords }), { name: "zachbot" });
+    expect(res.status).toBe(201);
+  });
+
+  it("counts self-serve workspaces the user only belongs to as exempt", async () => {
+    const memberships = [
+      { organizationId: "o1", organizationSlug: "one", role: "owner" },
+      { organizationId: "o2", organizationSlug: "two", role: "admin" },
+      { organizationId: "o3", organizationSlug: "three", role: "member" },
+    ];
+    const kvRecords = {
+      one: { selfServe: true },
+      two: { selfServe: true },
+      three: { selfServe: true },
+    };
+    const res = await post(stubEnv({ memberships, kvRecords }), { name: "zachbot" });
+    expect(res.status).toBe(201);
+  });
+
   it("409s code workspace_name_taken when the KV record exists", async () => {
     const res = await post(stubEnv({ kvRecords: { zachbot: { provider: "r2", bucket: "b" } } }), {
       name: "zachbot",

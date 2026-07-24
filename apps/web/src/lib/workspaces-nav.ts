@@ -9,7 +9,13 @@
  * session). Last-used workspace lives in localStorage so it survives
  * sign-out and drives the index auto-open after login.
  */
-import { getMyWorkspaces, type MyWorkspace } from "./api-client";
+import {
+  getMyWorkspaces,
+  parseWorkspaceCreateQuota,
+  type MyWorkspace,
+  type WorkspaceCreateQuota,
+  type WorkspacesResult,
+} from "./api-client";
 import { onSession } from "./account-shell";
 import { isBrowseWorkspace, workspaceFromPathname } from "./workspace-browse-url";
 import { shouldShowProBadge } from "./plan-badge";
@@ -37,9 +43,60 @@ export const WORKSPACE_NAV_TABS: {
 export type WorkspacesNavOptions = {
   active?: string;
   activeTab?: WorkspaceNavTab | "";
+  /** Creation quota; absent means allowed (see `parseWorkspaceCreateQuota`). */
+  quota?: WorkspaceCreateQuota;
 };
 
-type CachePayload = { workspaces: MyWorkspace[] };
+/**
+ * The workspace index normally auto-opens a workspace. This param is how a
+ * link says "the user asked for the list itself" — kept next to the href
+ * that sets it and the predicate that reads it, so the three can't drift.
+ */
+const MANAGE_PARAM = "manage";
+
+/** Where the workspace index is reachable on purpose, without auto-opening. */
+export const MANAGE_WORKSPACES_HREF = `/account/workspaces?${MANAGE_PARAM}=1`;
+
+/** Whether `search` (e.g. `location.search`) asked for the list itself. */
+export function isManageRequest(search: string): boolean {
+  return new URLSearchParams(search).get(MANAGE_PARAM) === "1";
+}
+
+/** Advisory: may this user create another workspace? Absent quota → yes. */
+export function canCreateWorkspace(quota?: WorkspaceCreateQuota): boolean {
+  return quota ? quota.allowed : true;
+}
+
+/** In-flight `/me/workspaces` request, shared by everything on the page. */
+let inFlightWorkspaces: Promise<WorkspacesResult> | null = null;
+
+/**
+ * Fetch `/me/workspaces` once per page load, however many surfaces ask.
+ *
+ * The account shell loads this on every page for the switcher, and
+ * individual pages (the index, the create form) need the same payload for
+ * their own rendering. Without this, each surface fired its own request for
+ * a response the others had just received. Concurrent callers share one
+ * promise; the slot clears on settle so a later navigation or an explicit
+ * retry still revalidates.
+ *
+ * Writes the cache on success so callers don't each have to remember to.
+ */
+export function loadWorkspaces(apiOrigin: string): Promise<WorkspacesResult> {
+  if (!inFlightWorkspaces) {
+    inFlightWorkspaces = getMyWorkspaces(apiOrigin)
+      .then((result) => {
+        if (result.kind === "success") writeCachedWorkspaces(result.workspaces, result.quota);
+        return result;
+      })
+      .finally(() => {
+        inFlightWorkspaces = null;
+      });
+  }
+  return inFlightWorkspaces;
+}
+
+type CachePayload = { workspaces: MyWorkspace[]; quota?: WorkspaceCreateQuota };
 
 function storeGet(store: Storage, key: string): string | null {
   try {
@@ -65,27 +122,44 @@ function storeRemove(store: Storage, key: string): void {
   }
 }
 
-export function readCachedWorkspaces(): MyWorkspace[] | null {
+/** The cache blob, parsed once. Null for absent or unparseable. */
+function readCachePayload(): CachePayload | null {
   const raw = storeGet(sessionStorage, WORKSPACES_CACHE_KEY);
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as CachePayload;
-    if (!parsed || !Array.isArray(parsed.workspaces)) return null;
-    return parsed.workspaces.filter(
-      (ws) =>
-        ws &&
-        typeof ws.workspace === "string" &&
-        typeof ws.role === "string" &&
-        ws.organization &&
-        typeof ws.organization.name === "string",
-    );
+    return JSON.parse(raw) as CachePayload;
   } catch {
     return null;
   }
 }
 
-export function writeCachedWorkspaces(workspaces: MyWorkspace[]): void {
-  storeSet(sessionStorage, WORKSPACES_CACHE_KEY, JSON.stringify({ workspaces }));
+export function readCachedWorkspaces(): MyWorkspace[] | null {
+  const parsed = readCachePayload();
+  if (!parsed || !Array.isArray(parsed.workspaces)) return null;
+  return parsed.workspaces.filter(
+    (ws) =>
+      ws &&
+      typeof ws.workspace === "string" &&
+      typeof ws.role === "string" &&
+      ws.organization &&
+      typeof ws.organization.name === "string",
+  );
+}
+
+export function writeCachedWorkspaces(
+  workspaces: MyWorkspace[],
+  quota?: WorkspaceCreateQuota,
+): void {
+  storeSet(sessionStorage, WORKSPACES_CACHE_KEY, JSON.stringify({ workspaces, quota }));
+}
+
+/**
+ * Cached creation quota, so the optimistic first paint doesn't flash the
+ * wrong switcher row before revalidation. `undefined` (no cache, older
+ * payload, garbage) reads as "allowed" everywhere downstream.
+ */
+export function readCachedQuota(): WorkspaceCreateQuota | undefined {
+  return parseWorkspaceCreateQuota(readCachePayload()?.quota);
 }
 
 export function clearCachedWorkspaces(): void {
@@ -112,18 +186,46 @@ export function clearCachedActiveWorkspace(): void {
   storeRemove(sessionStorage, ACTIVE_WORKSPACE_CACHE_KEY);
 }
 
+/** Role preference for the cold-start fallback below. */
+const FALLBACK_ROLES = ["owner", "admin"];
+
+/**
+ * The communal workspace. Most accounts are members of it, and many are
+ * `owner` there, so a naive role-first fallback would land almost everyone
+ * in the shared workspace instead of their own. Considered last.
+ */
+const COMMUNAL_WORKSPACE = "default";
+
 /**
  * Workspace to open from the index after login.
+ *
  * One membership → that workspace. Multi → last-used if still a member.
- * Otherwise null (show the picker).
+ * Failing both (a fresh browser, cleared storage, a first visit after being
+ * invited), the first workspace the user owns, else the first they
+ * administer, else the first membership — so a signed-in user lands in a
+ * workspace rather than being asked to choose every time. The switcher, not
+ * this page, is how you change workspaces.
+ *
+ * The communal `default` is skipped at every step of that fallback and only
+ * used when it is the sole membership, so a user who happens to be `owner`
+ * there still lands in their own workspace.
+ *
+ * Null only when there are no memberships at all. The index suppresses the
+ * auto-open entirely when it was reached deliberately (`?manage=1`).
  */
 export function resolveDefaultWorkspace(
-  workspaces: readonly { workspace: string }[],
+  workspaces: readonly { workspace: string; role?: string }[],
   lastActive = "",
 ): string | null {
   if (workspaces.length === 1) return workspaces[0]!.workspace;
   if (lastActive && workspaces.some((ws) => ws.workspace === lastActive)) return lastActive;
-  return null;
+
+  const own = workspaces.filter((ws) => ws.workspace !== COMMUNAL_WORKSPACE);
+  for (const role of FALLBACK_ROLES) {
+    const match = own.find((ws) => ws.role === role);
+    if (match) return match.workspace;
+  }
+  return own[0]?.workspace ?? workspaces[0]?.workspace ?? null;
 }
 
 /**
@@ -180,11 +282,15 @@ export function renderSwitcherMenuHtml(
     })
     .join("");
 
-  return (
-    rows +
-    (rows ? `<div class="ws-switcher__sep"></div>` : "") +
-    `<a href="/account/workspaces/new" class="ws-switcher__item ws-switcher__item--new">+ new workspace</a>`
-  );
+  // One trailing row, never both: the fast path to creating while the user
+  // has an allowance left, and once they're at the cap a link to the index
+  // — which carries the explanation — instead of an offer that would be
+  // refused. Absent quota keeps the create row (fail open).
+  const trailer = canCreateWorkspace(options.quota)
+    ? `<a href="/account/workspaces/new" class="ws-switcher__item ws-switcher__item--new">+ new workspace</a>`
+    : `<a href="${MANAGE_WORKSPACES_HREF}" class="ws-switcher__item ws-switcher__item--manage">manage workspaces</a>`;
+
+  return rows + (rows ? `<div class="ws-switcher__sep"></div>` : "") + trailer;
 }
 
 /** Section links under the switcher. Empty when no workspace is active. */
@@ -231,7 +337,7 @@ function paint(els: SwitcherEls, workspaces: MyWorkspace[], opts: WorkspacesNavO
   const activeTab = opts.activeTab || "";
 
   els.label.textContent = switcherLabel(workspaces, active);
-  els.menu.innerHTML = renderSwitcherMenuHtml(workspaces, { active });
+  els.menu.innerHTML = renderSwitcherMenuHtml(workspaces, { active, quota: opts.quota });
 
   if (active) {
     els.section.hidden = false;
@@ -296,15 +402,15 @@ export function initWorkspacesNav(apiOrigin: string, options: WorkspacesNavOptio
   const opts: WorkspacesNavOptions = {
     active: resolveSidebarWorkspace(location.pathname, options.active ?? ""),
     activeTab: options.activeTab || workspaceTabFromPathname(location.pathname),
+    quota: options.quota ?? readCachedQuota(),
   };
 
   paint(els, readCachedWorkspaces() ?? [], opts);
 
   onSession(() => {
-    void getMyWorkspaces(apiOrigin).then((result) => {
+    void loadWorkspaces(apiOrigin).then((result) => {
       if (result.kind !== "success") return;
-      writeCachedWorkspaces(result.workspaces);
-      paint(els, result.workspaces, opts);
+      paint(els, result.workspaces, { ...opts, quota: result.quota });
     });
   });
 }

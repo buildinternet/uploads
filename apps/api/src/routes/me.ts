@@ -9,6 +9,7 @@
  * (`workspace_not_found`) rather than 403ing, so membership can't be probed
  * for workspace existence any more precisely than for any other workspace.
  */
+import { resolveWorkspaceCreateQuota } from "@uploads/billing";
 import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
@@ -185,20 +186,30 @@ export const me = new Hono<SessionVars>()
     const userId = c.get("sessionUser")?.id;
     if (!userId) throw new NotFoundError("no session user", { code: "workspace_not_found" });
     const workspaces = await myWorkspaces(c.env, userId);
-    const withPublicUrl = await Promise.all(
+    const loaded = await Promise.all(
       workspaces.map(async (ws) => {
         const record = await loadWorkspaceRecord(c.env, ws.workspace);
         const publicBaseUrl = record?.publicBaseUrl;
         const plan = record ? planResponse(ws.workspace, record).plan : "free";
         // `hasPublicUrl` kept alongside the URL itself for existing consumers.
-        return Object.assign({}, ws, {
-          hasPublicUrl: Boolean(publicBaseUrl),
-          publicBaseUrl,
-          plan,
-        });
+        return {
+          record,
+          entry: Object.assign({}, ws, {
+            hasPublicUrl: Boolean(publicBaseUrl),
+            publicBaseUrl,
+            plan,
+          }),
+        };
       }),
     );
-    return c.json({ workspaces: withPublicUrl });
+    // Creation quota (spec 2026-07-24) so the account UI can stop offering a
+    // create affordance the API would refuse. Free rider on the records this
+    // handler already loaded — no extra KV reads. Advisory only: `POST
+    // /v1/workspaces` remains the enforcement point.
+    const quota = resolveWorkspaceCreateQuota(
+      loaded.filter(({ entry }) => entry.role === "owner").map(({ record }) => record),
+    );
+    return c.json({ workspaces: loaded.map(({ entry }) => entry), workspaceCreate: quota });
   })
 
   // Usage + limits for one workspace — 404s unless the caller is a member.

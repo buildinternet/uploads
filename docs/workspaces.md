@@ -188,10 +188,26 @@ blocklist itself is not part of this doc).
 
 ### Cap and errors
 
-Each user may own at most **3 self-serve workspaces** (owner-role,
-`selfServe`-flagged records only — BYO-bucket or operator-created workspaces
-you belong to don't count against the cap). Deleting a self-serve workspace,
-like any workspace, remains admin-only.
+Each user may own at most **3 free self-serve workspaces**. A record counts
+against the allowance only when all three hold: the user's role is `owner`,
+the record is `selfServe`-flagged, and it resolves to the free plan. So
+BYO-bucket and operator-created workspaces never count, neither do
+workspaces you merely belong to, and **paid workspaces are exempt**.
+Invitations are unaffected — a user may be a member of any number of
+workspaces. Deleting a self-serve workspace, like any workspace, remains
+admin-only.
+
+The rule lives in `packages/billing/src/workspace-cap.ts`
+(`resolveWorkspaceCreateQuota`), shared by the `POST /v1/workspaces` guard
+and the `workspaceCreate` block on `GET /me/workspaces` that tells the
+account UI whether to offer creation. The POST is the only enforcement
+point; the UI fails open when the field is missing.
+
+Two consequences, both deliberate. Upgrading a workspace to Pro frees a slot
+immediately. A downgrade can leave a user _over_ the cap — nothing is
+deleted, disabled, or reclaimed; they simply can't create another until
+they're back under. To comp an exception, edit the workspace record: clear
+`selfServe`, or apply a plan.
 
 `POST /v1/workspaces` error codes:
 
@@ -200,7 +216,7 @@ like any workspace, remains admin-only.
 | 400    | `invalid_workspace_name`  | Fails the name pattern, or blocklisted                                                                                                   |
 | 400    | `reserved_workspace_name` | Collides with a reserved name                                                                                                            |
 | 403    | `github_required`         | Account has no linked GitHub identity                                                                                                    |
-| 403    | `workspace_cap_reached`   | Caller already owns 3 self-serve workspaces                                                                                              |
+| 403    | `workspace_cap_reached`   | Caller already owns 3 free self-serve workspaces (paid ones exempt)                                                                      |
 | 409    | `workspace_name_taken`    | Name already registered                                                                                                                  |
 | 429    | —                         | Rate-limited (dedicated creation limiter, 3 attempts per minute per user, checked before the GitHub gate — not the shared write limiter) |
 

@@ -30,6 +30,37 @@ describe("getMyWorkspaces", () => {
     });
   });
 
+  it("parses the creation quota when the API sends one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ workspaces: [], workspaceCreate: { used: 3, cap: 3, allowed: false } }),
+      ),
+    );
+
+    const result = await getMyWorkspaces("http://127.0.0.1:8787");
+    expect(result).toMatchObject({ quota: { used: 3, cap: 3, allowed: false } });
+  });
+
+  it("leaves the quota undefined when the API omits or mangles it", async () => {
+    for (const body of [
+      { workspaces: [] },
+      { workspaces: [], workspaceCreate: null },
+      { workspaces: [], workspaceCreate: "nope" },
+      { workspaces: [], workspaceCreate: { used: 3, cap: 3 } },
+      { workspaces: [], workspaceCreate: { used: "3", cap: 3, allowed: false } },
+    ]) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json(body)),
+      );
+      const result = await getMyWorkspaces("http://127.0.0.1:8787");
+      // Absent means allowed — a stale worker must never lock a user out.
+      expect(result).toMatchObject({ kind: "success" });
+      expect((result as { quota?: unknown }).quota).toBeUndefined();
+    }
+  });
+
   it("does not render an API outage as an empty account", async () => {
     vi.stubGlobal(
       "fetch",
