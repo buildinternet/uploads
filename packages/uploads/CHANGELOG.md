@@ -1,5 +1,21 @@
 # @buildinternet/uploads
 
+## 0.29.0
+
+### Minor Changes
+
+- c27f85c: Add `uploads hook pre-pr-screenshot` for the shared pre-PR screenshot reminder. Claude and Codex plugins run it; `uploads install hooks` wires Grok and Cursor.
+
+### Patch Changes
+
+- 817429d: Short `uploads --help` now lists every command the catalog marks essential.
+  Membership had two sources of truth — the `essential` flag in the command
+  catalog and a separate hardcoded array in the help renderer — and they had
+  drifted, so `screenshot` was flagged essential but never appeared. The catalog
+  is now the only source of truth; the array orders the list and nothing more,
+  and a mismatch in either direction fails loudly instead of silently hiding a
+  command.
+
 ## 0.28.0
 
 ### Minor Changes
