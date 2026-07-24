@@ -72,6 +72,17 @@ describe("runAnnotate", () => {
     expect(existsSync(outPath)).toBe(true);
   });
 
+  it("accepts -o as an alias for --out", async () => {
+    const specPath = join(dir, "spec.json");
+    writeFileSync(specPath, specJson());
+    const outPath = join(dir, "alias.png");
+
+    const code = await runAnnotate([imagePath, "--spec", specPath, "-o", outPath]);
+
+    expect(code).toBe(0);
+    expect(existsSync(outPath)).toBe(true);
+  });
+
   it("reads the spec from stdin when --spec -", async () => {
     const spec = specJson();
     const readStdin = vi.fn(async () => spec);

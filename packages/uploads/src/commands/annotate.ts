@@ -60,7 +60,9 @@ export async function runAnnotate(
   // `--spec -` out by hand before the generic parse, same idea as the
   // put/attach "-" (stdin) convention elsewhere in this CLI.
   let specFromDash = false;
-  const preArgs = [...args];
+  // parseCommandArgs only understands --long flags; translate the documented
+  // -o alias before the generic parse or it lands in positionals.
+  const preArgs = args.map((a) => (a === "-o" ? "--out" : a));
   for (let i = 0; i < preArgs.length; i++) {
     if (preArgs[i] === "--spec" && preArgs[i + 1] === "-") {
       specFromDash = true;
@@ -88,7 +90,7 @@ export async function runAnnotate(
   if (!specArg) {
     throw new UsageError("--spec is required (a file path or - for stdin)");
   }
-  const outFlag = flagString(parsed.flags, "-o") ?? flagString(parsed.flags, "--out");
+  const outFlag = flagString(parsed.flags, "--out");
   const seed = flagInt(parsed.flags, "--seed", "--seed");
   const format = flagString(parsed.flags, "--format");
   if (format && format !== "human" && format !== "json") {
