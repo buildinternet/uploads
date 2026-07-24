@@ -2,7 +2,8 @@
 /**
  * Workspaces index.
  * Legacy `?ws=` deep links redirect to `/account/workspaces/<name>`.
- * Opens the last-used (or only) membership; otherwise shows a flat picker.
+ * Auto-opens a workspace (last-used, else first owned) so a signed-in user
+ * lands somewhere; `?manage=1` asks for the list itself instead.
  */
 import AccountLayout from "../../layouts/AccountLayout.astro";
 import { isBrowseWorkspace } from "../../lib/workspace-browse-url";
@@ -38,12 +39,12 @@ if (isBrowseWorkspace(legacyWs)) {
 
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
-    import { getMyWorkspaces } from "../../lib/api-client";
     import {
       canCreateWorkspace,
+      isManageRequest,
+      loadWorkspaces,
       readCachedActiveWorkspace,
       resolveDefaultWorkspace,
-      writeCachedWorkspaces,
     } from "../../lib/workspaces-nav";
     import { workspaceCapMessage } from "@uploads/billing";
     import { shouldShowProBadge } from "../../lib/plan-badge";
@@ -61,10 +62,10 @@ if (isBrowseWorkspace(legacyWs)) {
       const intro = requireElement<HTMLElement>("#orgs-intro", page);
       const cap = requireElement<HTMLElement>("#orgs-cap", page);
 
-      // `?manage=1` means the user came here on purpose (the switcher's
-      // "manage workspaces" row), so the auto-open below is suppressed and
-      // the list always renders.
-      const managing = new URLSearchParams(location.search).get("manage") === "1";
+      // The switcher's "manage workspaces" row marks the request as
+      // deliberate, which suppresses the auto-open below so the list always
+      // renders.
+      const managing = isManageRequest(location.search);
 
       async function loadIndex(): Promise<void> {
         status.hidden = false;
@@ -72,7 +73,7 @@ if (isBrowseWorkspace(legacyWs)) {
         retry.hidden = true;
         status.textContent = "Loading…";
 
-        const result = await getMyWorkspaces(apiOrigin);
+        const result = await loadWorkspaces(apiOrigin);
         if (result.kind === "unavailable") {
           status.textContent =
             "Workspaces are temporarily unavailable. Check the local stack or try again.";
@@ -81,7 +82,6 @@ if (isBrowseWorkspace(legacyWs)) {
         }
 
         const { workspaces, quota } = result;
-        writeCachedWorkspaces(workspaces, quota);
 
         // At the cap, swap the "or create one" offer for the reason it's
         // gone. Absent quota (older API, partial response) keeps the offer —

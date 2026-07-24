@@ -5,6 +5,9 @@ import {
   clearCachedWorkspaces,
   readCachedActiveWorkspace,
   readCachedWorkspaces,
+  isManageRequest,
+  loadWorkspaces,
+  MANAGE_WORKSPACES_HREF,
   renderSwitcherMenuHtml,
   renderWorkspaceSectionNavHtml,
   resolveDefaultWorkspace,
@@ -163,6 +166,62 @@ describe("active workspace cache + resolveSidebarWorkspace", () => {
   it("returns empty when nothing is known", () => {
     installStorage();
     expect(resolveSidebarWorkspace("/account/profile", "")).toBe("");
+  });
+});
+
+describe("loadWorkspaces", () => {
+  it("shares one request between concurrent callers and caches the result", async () => {
+    installStorage();
+    const fetchMock = vi.fn(async () =>
+      Response.json({ workspaces: [], workspaceCreate: { used: 3, cap: 3, allowed: false } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const [a, b] = await Promise.all([
+      loadWorkspaces("http://127.0.0.1:8787"),
+      loadWorkspaces("http://127.0.0.1:8787"),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(a).toBe(b);
+    // Cache written once, so later paints don't need their own fetch.
+    expect(readCachedQuota()).toEqual({ used: 3, cap: 3, allowed: false });
+  });
+
+  it("revalidates on a later call once the first has settled", async () => {
+    installStorage();
+    const fetchMock = vi.fn(async () => Response.json({ workspaces: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await loadWorkspaces("http://127.0.0.1:8787");
+    await loadWorkspaces("http://127.0.0.1:8787");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not poison the cache with a failed load", async () => {
+    installStorage();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 503 })),
+    );
+    await loadWorkspaces("http://127.0.0.1:8787");
+    expect(readCachedQuota()).toBeUndefined();
+    expect(readCachedWorkspaces()).toBeNull();
+  });
+});
+
+describe("isManageRequest", () => {
+  it("recognizes only the deliberate-list marker", () => {
+    expect(isManageRequest("?manage=1")).toBe(true);
+    expect(isManageRequest("?next=/x&manage=1")).toBe(true);
+    expect(isManageRequest("")).toBe(false);
+    expect(isManageRequest("?manage=0")).toBe(false);
+    expect(isManageRequest("?managed=1")).toBe(false);
+  });
+
+  it("matches the href the switcher renders", () => {
+    expect(isManageRequest(new URL(MANAGE_WORKSPACES_HREF, "https://x").search)).toBe(true);
   });
 });
 

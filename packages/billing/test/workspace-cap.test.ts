@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  countCapEligibleWorkspaces,
   MAX_SELF_SERVE_WORKSPACES,
   resolveWorkspaceCreateQuota,
   workspaceCapMessage,
@@ -13,36 +12,6 @@ const free: WorkspaceCapRecord = { selfServe: true };
 const pro: WorkspaceCapRecord = { selfServe: true, plan: "pro" };
 /** Operator-provisioned, no self-serve flag — exempt. */
 const legacy: WorkspaceCapRecord = {};
-
-describe("countCapEligibleWorkspaces", () => {
-  it("counts free self-serve workspaces", () => {
-    expect(countCapEligibleWorkspaces([free, free, free])).toBe(3);
-  });
-
-  it("exempts paid workspaces", () => {
-    expect(countCapEligibleWorkspaces([free, free, pro])).toBe(2);
-  });
-
-  it("exempts legacy/operator-provisioned workspaces", () => {
-    expect(countCapEligibleWorkspaces([legacy, legacy, free])).toBe(1);
-  });
-
-  it("counts a self-serve record with an explicit free plan", () => {
-    expect(countCapEligibleWorkspaces([{ selfServe: true, plan: "free" }])).toBe(1);
-  });
-
-  it("counts a self-serve record with an unrecognized plan (fails open to free)", () => {
-    expect(countCapEligibleWorkspaces([{ selfServe: true, plan: "enterprise" }])).toBe(1);
-  });
-
-  it("skips records that could not be loaded", () => {
-    expect(countCapEligibleWorkspaces([free, null, undefined, free])).toBe(2);
-  });
-
-  it("counts nothing for a user who owns nothing", () => {
-    expect(countCapEligibleWorkspaces([])).toBe(0);
-  });
-});
 
 describe("resolveWorkspaceCreateQuota", () => {
   it("allows creation below the cap", () => {
@@ -59,6 +28,33 @@ describe("resolveWorkspaceCreateQuota", () => {
       cap: MAX_SELF_SERVE_WORKSPACES,
       allowed: false,
     });
+  });
+
+  it("exempts legacy/operator-provisioned workspaces", () => {
+    expect(resolveWorkspaceCreateQuota([legacy, legacy, legacy, free])).toMatchObject({
+      used: 1,
+      allowed: true,
+    });
+  });
+
+  it("counts a self-serve record whose plan is explicitly free", () => {
+    expect(resolveWorkspaceCreateQuota([{ selfServe: true, plan: "free" }])).toMatchObject({
+      used: 1,
+    });
+  });
+
+  it("counts a self-serve record with an unrecognized plan (fails open to free)", () => {
+    expect(resolveWorkspaceCreateQuota([{ selfServe: true, plan: "enterprise" }])).toMatchObject({
+      used: 1,
+    });
+  });
+
+  it("skips records that could not be loaded", () => {
+    expect(resolveWorkspaceCreateQuota([free, null, undefined, free])).toMatchObject({ used: 2 });
+  });
+
+  it("counts nothing for a user who owns nothing", () => {
+    expect(resolveWorkspaceCreateQuota([])).toMatchObject({ used: 0, allowed: true });
   });
 
   it("frees a slot when one workspace is on a paid plan", () => {

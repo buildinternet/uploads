@@ -52,18 +52,9 @@ function isCapEligible(record: WorkspaceCapRecord | null | undefined): boolean {
 }
 
 /**
- * How many of `records` count against the allowance. Callers pass records
- * for workspaces the user **owns** — the role filter stays at the call
- * site, where membership data lives.
- */
-export function countCapEligibleWorkspaces(
-  records: readonly (WorkspaceCapRecord | null | undefined)[],
-): number {
-  return records.filter(isCapEligible).length;
-}
-
-/**
- * Whether the owner of `ownedRecords` may create another workspace.
+ * Whether the owner of `ownedRecords` may create another workspace. Callers
+ * pass records for workspaces the user **owns** — the role filter stays at
+ * the call site, where membership data lives.
  *
  * `used` can exceed `cap` — three free workspaces plus a lapsed Pro is four
  * owned free workspaces. Nothing is deleted, disabled, or reclaimed in that
@@ -73,7 +64,7 @@ export function countCapEligibleWorkspaces(
 export function resolveWorkspaceCreateQuota(
   ownedRecords: readonly (WorkspaceCapRecord | null | undefined)[],
 ): WorkspaceCreateQuota {
-  const used = countCapEligibleWorkspaces(ownedRecords);
+  const used = ownedRecords.filter(isCapEligible).length;
   return { used, cap: MAX_SELF_SERVE_WORKSPACES, allowed: used < MAX_SELF_SERVE_WORKSPACES };
 }
 

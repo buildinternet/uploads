@@ -14,6 +14,7 @@ import {
   parseWorkspaceCreateQuota,
   type MyWorkspace,
   type WorkspaceCreateQuota,
+  type WorkspacesResult,
 } from "./api-client";
 import { onSession } from "./account-shell";
 import { isBrowseWorkspace, workspaceFromPathname } from "./workspace-browse-url";
@@ -46,12 +47,53 @@ export type WorkspacesNavOptions = {
   quota?: WorkspaceCreateQuota;
 };
 
+/**
+ * The workspace index normally auto-opens a workspace. This param is how a
+ * link says "the user asked for the list itself" — kept next to the href
+ * that sets it and the predicate that reads it, so the three can't drift.
+ */
+const MANAGE_PARAM = "manage";
+
 /** Where the workspace index is reachable on purpose, without auto-opening. */
-export const MANAGE_WORKSPACES_HREF = "/account/workspaces?manage=1";
+export const MANAGE_WORKSPACES_HREF = `/account/workspaces?${MANAGE_PARAM}=1`;
+
+/** Whether `search` (e.g. `location.search`) asked for the list itself. */
+export function isManageRequest(search: string): boolean {
+  return new URLSearchParams(search).get(MANAGE_PARAM) === "1";
+}
 
 /** Advisory: may this user create another workspace? Absent quota → yes. */
 export function canCreateWorkspace(quota?: WorkspaceCreateQuota): boolean {
   return quota ? quota.allowed : true;
+}
+
+/** In-flight `/me/workspaces` request, shared by everything on the page. */
+let inFlightWorkspaces: Promise<WorkspacesResult> | null = null;
+
+/**
+ * Fetch `/me/workspaces` once per page load, however many surfaces ask.
+ *
+ * The account shell loads this on every page for the switcher, and
+ * individual pages (the index, the create form) need the same payload for
+ * their own rendering. Without this, each surface fired its own request for
+ * a response the others had just received. Concurrent callers share one
+ * promise; the slot clears on settle so a later navigation or an explicit
+ * retry still revalidates.
+ *
+ * Writes the cache on success so callers don't each have to remember to.
+ */
+export function loadWorkspaces(apiOrigin: string): Promise<WorkspacesResult> {
+  if (!inFlightWorkspaces) {
+    inFlightWorkspaces = getMyWorkspaces(apiOrigin)
+      .then((result) => {
+        if (result.kind === "success") writeCachedWorkspaces(result.workspaces, result.quota);
+        return result;
+      })
+      .finally(() => {
+        inFlightWorkspaces = null;
+      });
+  }
+  return inFlightWorkspaces;
 }
 
 type CachePayload = { workspaces: MyWorkspace[]; quota?: WorkspaceCreateQuota };
@@ -80,23 +122,28 @@ function storeRemove(store: Storage, key: string): void {
   }
 }
 
-export function readCachedWorkspaces(): MyWorkspace[] | null {
+/** The cache blob, parsed once. Null for absent or unparseable. */
+function readCachePayload(): CachePayload | null {
   const raw = storeGet(sessionStorage, WORKSPACES_CACHE_KEY);
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as CachePayload;
-    if (!parsed || !Array.isArray(parsed.workspaces)) return null;
-    return parsed.workspaces.filter(
-      (ws) =>
-        ws &&
-        typeof ws.workspace === "string" &&
-        typeof ws.role === "string" &&
-        ws.organization &&
-        typeof ws.organization.name === "string",
-    );
+    return JSON.parse(raw) as CachePayload;
   } catch {
     return null;
   }
+}
+
+export function readCachedWorkspaces(): MyWorkspace[] | null {
+  const parsed = readCachePayload();
+  if (!parsed || !Array.isArray(parsed.workspaces)) return null;
+  return parsed.workspaces.filter(
+    (ws) =>
+      ws &&
+      typeof ws.workspace === "string" &&
+      typeof ws.role === "string" &&
+      ws.organization &&
+      typeof ws.organization.name === "string",
+  );
 }
 
 export function writeCachedWorkspaces(
@@ -112,13 +159,7 @@ export function writeCachedWorkspaces(
  * payload, garbage) reads as "allowed" everywhere downstream.
  */
 export function readCachedQuota(): WorkspaceCreateQuota | undefined {
-  const raw = storeGet(sessionStorage, WORKSPACES_CACHE_KEY);
-  if (!raw) return undefined;
-  try {
-    return parseWorkspaceCreateQuota((JSON.parse(raw) as CachePayload).quota);
-  } catch {
-    return undefined;
-  }
+  return parseWorkspaceCreateQuota(readCachePayload()?.quota);
 }
 
 export function clearCachedWorkspaces(): void {
@@ -367,9 +408,8 @@ export function initWorkspacesNav(apiOrigin: string, options: WorkspacesNavOptio
   paint(els, readCachedWorkspaces() ?? [], opts);
 
   onSession(() => {
-    void getMyWorkspaces(apiOrigin).then((result) => {
+    void loadWorkspaces(apiOrigin).then((result) => {
       if (result.kind !== "success") return;
-      writeCachedWorkspaces(result.workspaces, result.quota);
       paint(els, result.workspaces, { ...opts, quota: result.quota });
     });
   });

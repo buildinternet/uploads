@@ -24,6 +24,7 @@ function stubEnv(
   user: typeof USER | null,
   onInternal: (path: string, req: Request) => Response | Promise<Response>,
   db: unknown = new UsageFakeD1(),
+  kvRecords: Record<string, unknown> = {},
 ): Env {
   const auth = stubAuth((req) => {
     const url = new URL(req.url);
@@ -32,7 +33,7 @@ function stubEnv(
     }
     return onInternal(url.pathname, req);
   });
-  return { AUTH: auth, DB: db, REGISTRY: fakeKv({}) } as unknown as Env;
+  return { AUTH: auth, DB: db, REGISTRY: fakeKv(kvRecords) } as unknown as Env;
 }
 
 function fakeKv(records: Record<string, unknown>): Pick<KVNamespace, "get"> {
@@ -130,13 +131,15 @@ describe("GET /me/workspaces", () => {
     memberships: ReturnType<typeof ownedMemberships>,
     records: Record<string, unknown>,
   ): Env {
-    const env = stubEnv(USER, (path) =>
-      path === "/internal/memberships"
-        ? Response.json(memberships)
-        : new Response(null, { status: 404 }),
+    return stubEnv(
+      USER,
+      (path) =>
+        path === "/internal/memberships"
+          ? Response.json(memberships)
+          : new Response(null, { status: 404 }),
+      new UsageFakeD1(),
+      records,
     );
-    (env as unknown as { REGISTRY: Pick<KVNamespace, "get"> }).REGISTRY = fakeKv(records);
-    return env;
   }
 
   async function quotaFor(env: Env) {

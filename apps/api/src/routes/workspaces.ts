@@ -13,11 +13,7 @@ import {
   RateLimitedError,
   ValidationError,
 } from "@uploads/errors";
-import {
-  MAX_SELF_SERVE_WORKSPACES,
-  resolveWorkspaceCreateQuota,
-  workspaceCapMessage,
-} from "@uploads/billing";
+import { resolveWorkspaceCreateQuota, workspaceCapMessage } from "@uploads/billing";
 import { Hono, type MiddlewareHandler } from "hono";
 import { adminWorkspaceOr403, isWorkspaceOwner } from "./me";
 import {
@@ -133,8 +129,6 @@ function requireWorkspaceName(name: string): void {
 }
 
 const MAX_BODY_BYTES = 1024;
-/** Re-exported for existing importers; the cap itself lives in @uploads/billing. */
-export { MAX_SELF_SERVE_WORKSPACES };
 
 export const workspaces = new Hono<SessionVars>().post(
   "/",
