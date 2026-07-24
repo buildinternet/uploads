@@ -12,6 +12,7 @@
 import { resolveWorkspaceCreateQuota } from "@uploads/billing";
 import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
+import { isCommunalWorkspace } from "@uploads/workspace";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
 import { throwForInviteError } from "../invite-error";
@@ -52,11 +53,20 @@ interface MyWorkspace {
   workspace: string;
   organization: { id: string; slug: string; name: string };
   role: string;
+  /**
+   * True for the shared tenant every account belongs to. Sent so clients
+   * don't have to re-derive a privileged-workspace rule from the slug: the
+   * account UI skips the communal workspace when picking which workspace to
+   * auto-open, and that is a server-owned fact, not a naming convention the
+   * browser should be pattern-matching. Free to compute — no extra lookup.
+   */
+  communal: boolean;
 }
 
 function myWorkspaceFromMembership(membership: Membership, workspace: string): MyWorkspace {
   return {
     workspace,
+    communal: isCommunalWorkspace(workspace),
     organization: {
       id: membership.organizationId,
       slug: membership.organizationSlug,
@@ -181,7 +191,9 @@ export const me = new Hono<SessionVars>()
   // without a per-workspace billing round trip. Both fields are loaded here
   // (not in `myWorkspaces`, which every member-gated route calls for
   // authorization) so the extra KV read per workspace stays confined to this
-  // one listing endpoint.
+  // one listing endpoint. `communal` rides along from `myWorkspaces` — it
+  // costs no lookup, and it's what keeps the account UI from inferring the
+  // shared-tenant rule from the slug.
   .get("/workspaces", async (c) => {
     const userId = c.get("sessionUser")?.id;
     if (!userId) throw new NotFoundError("no session user", { code: "workspace_not_found" });
@@ -250,6 +262,7 @@ export const me = new Hono<SessionVars>()
       workspace: ws.workspace,
       organization: ws.organization,
       role: ws.role,
+      communal: ws.communal,
       hasPublicUrl: Boolean(publicBaseUrl),
       publicBaseUrl,
       usage,

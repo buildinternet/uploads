@@ -13,6 +13,7 @@
     "@uploads/web",
     "@uploads/storage",
     "@uploads/auth",
-    "@uploads/billing"
+    "@uploads/billing",
+    "@uploads/workspace"
   ]
 }

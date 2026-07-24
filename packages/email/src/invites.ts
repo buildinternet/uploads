@@ -1,3 +1,4 @@
+import { isCommunalWorkspace } from "@uploads/workspace";
 import { escapeHtml, renderEmailCard, strong, type RenderedEmail } from "./card";
 
 const CTA = "Accept invitation →";
@@ -38,7 +39,7 @@ export function renderOrgInvitationEmail(ctx: {
 
 /**
  * Token enrollment invite (console / CLI → /invite#code).
- * "default" is framed as access to uploads.sh itself.
+ * The communal workspace is framed as access to uploads.sh itself.
  */
 export function renderEnrollmentInvitationEmail(ctx: {
   workspaceName: string;
@@ -54,7 +55,7 @@ export function renderEnrollmentInvitationEmail(ctx: {
     timeZone: "UTC",
     timeZoneName: "short",
   });
-  const isDefault = ctx.workspaceName === "default";
+  const isDefault = isCommunalWorkspace(ctx.workspaceName);
   const invitedTo = isDefault
     ? "You've been given access to uploads.sh"
     : `You've been invited to the ${ctx.workspaceName} workspace on uploads.sh`;

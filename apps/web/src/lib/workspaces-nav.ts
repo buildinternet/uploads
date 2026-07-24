@@ -190,13 +190,6 @@ export function clearCachedActiveWorkspace(): void {
 const FALLBACK_ROLES = ["owner", "admin"];
 
 /**
- * The communal workspace. Most accounts are members of it, and many are
- * `owner` there, so a naive role-first fallback would land almost everyone
- * in the shared workspace instead of their own. Considered last.
- */
-const COMMUNAL_WORKSPACE = "default";
-
-/**
  * Workspace to open from the index after login.
  *
  * One membership → that workspace. Multi → last-used if still a member.
@@ -206,21 +199,27 @@ const COMMUNAL_WORKSPACE = "default";
  * workspace rather than being asked to choose every time. The switcher, not
  * this page, is how you change workspaces.
  *
- * The communal `default` is skipped at every step of that fallback and only
- * used when it is the sole membership, so a user who happens to be `owner`
- * there still lands in their own workspace.
+ * A communal workspace (`communal`, set by the api — most accounts belong to
+ * the shared one and many are `owner` there, so a naive role-first fallback
+ * would land almost everyone in it) is skipped at every step of that fallback
+ * and only used when it is the sole membership, so a user who happens to be
+ * `owner` there still lands in their own workspace. The flag comes from the
+ * server precisely so this file doesn't encode which slug that is.
  *
  * Null only when there are no memberships at all. The index suppresses the
  * auto-open entirely when it was reached deliberately (`?manage=1`).
  */
 export function resolveDefaultWorkspace(
-  workspaces: readonly { workspace: string; role?: string }[],
+  // `communal` is required, not optional: an optional flag would let a future
+  // caller omit it and silently un-skip the shared workspace with no type
+  // error — exactly the drift this stopped inferring from the slug to avoid.
+  workspaces: readonly { workspace: string; role?: string; communal: boolean }[],
   lastActive = "",
 ): string | null {
   if (workspaces.length === 1) return workspaces[0]!.workspace;
   if (lastActive && workspaces.some((ws) => ws.workspace === lastActive)) return lastActive;
 
-  const own = workspaces.filter((ws) => ws.workspace !== COMMUNAL_WORKSPACE);
+  const own = workspaces.filter((ws) => !ws.communal);
   for (const role of FALLBACK_ROLES) {
     const match = own.find((ws) => ws.role === role);
     if (match) return match.workspace;
