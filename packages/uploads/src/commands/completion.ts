@@ -285,6 +285,11 @@ function fishScript(): string {
     );
   }
   for (const flag of ANNOTATE_FLAGS) {
+    if (flag === "-o") continue; // folded into --out's paired completion below
+    if (flag === "--out") {
+      lines.push(`complete -c uploads -n '__fish_seen_subcommand_from annotate' -s o -l out`);
+      continue;
+    }
     if (!flag.startsWith("--")) continue;
     lines.push(`complete -c uploads -n '__fish_seen_subcommand_from annotate' -l ${flag.slice(2)}`);
   }

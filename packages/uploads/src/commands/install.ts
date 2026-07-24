@@ -16,7 +16,8 @@ const SKILL_NAMES = ["uploads-cli", "github-screenshots", "annotate-screenshots"
 
 const INSTALL_HELP = `uploads install — set up agent integrations (skills + remote MCP + hooks)
 
-Installs the github-screenshots and uploads-cli agent skills, registers the
+Installs the github-screenshots, uploads-cli, and annotate-screenshots agent
+skills, registers the
 hosted MCP server with Claude Code, and installs the PR screenshot reminder
 hook for Grok / Cursor when those tools are present. The remote MCP endpoint
 infers your workspace from the bearer token, so only the token is needed.

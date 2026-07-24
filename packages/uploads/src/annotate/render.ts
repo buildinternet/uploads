@@ -73,7 +73,10 @@ function clampAnnotation(
       const cy = Math.max(0, Math.min(at[1], height));
       const clamped = cx !== at[0] || cy !== at[1];
       if (!clamped) return { annotation: a, clamped: false };
-      return { annotation: a.at ? { ...a, at: [cx, cy] } : a, clamped };
+      return {
+        annotation: a.at ? { ...a, at: [cx, cy] } : { ...a, target: [cx, cy] },
+        clamped,
+      };
     }
     case "draw":
     case "svg":

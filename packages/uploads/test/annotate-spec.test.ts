@@ -33,7 +33,9 @@ describe("validateSpec", () => {
   });
 
   it("rejects the wrong version", () => {
-    expect(() => validateSpec({ version: 2, annotations: [] })).toThrow(AnnotateSpecError);
+    expect(() =>
+      validateSpec({ version: 2, annotations: [{ type: "box", x: 1, y: 1, w: 1, h: 1 }] }),
+    ).toThrow(AnnotateSpecError);
   });
 
   it("rejects an unknown annotation type with its index", () => {
@@ -146,6 +148,23 @@ describe("resolveSelectors", () => {
     const spec = validateSpec({ version: 1, annotations: [{ type: "arrow", selector: "#a" }] });
     const resolved = resolveSelectors(spec, boxes);
     expect(resolved.annotations[0]).toMatchObject({ to: [60, 35], from: [180, -85] });
+  });
+
+  it("keeps an explicit arrow `from` alongside a selector (tail override)", () => {
+    const spec = validateSpec({
+      version: 1,
+      annotations: [{ type: "arrow", from: [10, 10], selector: "#a" }],
+    });
+    const resolved = resolveSelectors(spec, boxes);
+    expect(resolved.annotations[0]).toMatchObject({ from: [10, 10], to: [60, 35] });
+  });
+
+  it("rejects svg fragments referencing external resources", () => {
+    for (const fragment of ['<use href="file:///etc/passwd"/>', '<rect style="fill:url(#x)"/>']) {
+      expect(() => validateSpec({ version: 1, annotations: [{ type: "svg", fragment }] })).toThrow(
+        /external resources/,
+      );
+    }
   });
 
   it("resolves a label selector to the element's center as `target`", () => {

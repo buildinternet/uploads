@@ -272,8 +272,18 @@ export async function runScreenshot(
   let annotateSelectors: string[] = [];
   if (annotateArg !== undefined) {
     annotateModule = await loadAnnotateModule();
-    const specText =
-      annotateArg === "-" ? await readStdinImpl() : readFileSync(annotateArg, "utf8");
+    let specText: string;
+    if (annotateArg === "-") {
+      specText = await readStdinImpl();
+    } else {
+      try {
+        specText = readFileSync(annotateArg, "utf8");
+      } catch (err) {
+        throw new UsageError(
+          `could not read --annotate ${annotateArg}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     let specJson: unknown;
     try {
       specJson = JSON.parse(specText);
@@ -301,6 +311,15 @@ export async function runScreenshot(
     // once the actual backend is known.)
     if (annotateSelectors.length > 0 && via === "remote") {
       throw new UsageError("selector annotations need --via local in v1");
+    }
+    // An element capture (--selector) crops the PNG to the element, but the
+    // annotation boxes are measured in viewport coordinates (and playwright
+    // may scroll the element into view first) — the two coordinate systems
+    // don't line up, so annotations would land in the wrong place.
+    if (annotateSelectors.length > 0 && selector) {
+      throw new UsageError(
+        "--annotate with selector targets cannot combine with --selector element capture; use pixel coordinates or capture the full viewport",
+      );
     }
   }
 

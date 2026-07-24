@@ -32,12 +32,25 @@ export const HOUSE_STYLE = {
   labelPadding: 8,
 } as const;
 
+/**
+ * Escapes a user-controlled string for use inside an SVG attribute value —
+ * `color` comes straight from agent-authored spec JSON, and an unescaped `"`
+ * would break out of the attribute and inject markup into the overlay SVG.
+ */
+function escapeAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 function pathsToSvg(gen: RoughGenerator, drawable: Drawable): string {
   return gen
     .toPaths(drawable)
     .map(
       (p) =>
-        `<path d="${p.d}" fill="${p.fill ?? "none"}" stroke="${p.stroke ?? "none"}" stroke-width="${p.strokeWidth ?? 1}"/>`,
+        `<path d="${p.d}" fill="${escapeAttr(p.fill ?? "none")}" stroke="${escapeAttr(p.stroke ?? "none")}" stroke-width="${p.strokeWidth ?? 1}"/>`,
     )
     .join("");
 }
@@ -159,7 +172,7 @@ export function renderDraw(a: DrawAnnotation, ctx: RenderCtx): string {
     { size: 4 * ctx.scale, smoothing: 0.6, streamline: 0.4 },
   );
   const d = strokeToPath(stroke);
-  return `<path d="${d}" fill="${color}" opacity="0.9"/>`;
+  return `<path d="${d}" fill="${escapeAttr(color)}" opacity="0.9"/>`;
 }
 
 /** Redact overlay drawn into the SVG pass (solid style only; blur is a sharp pre-pass). */

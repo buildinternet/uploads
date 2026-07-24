@@ -58,8 +58,8 @@ Annotation types:
 | `arrow`  | `from, to` points (or `selector`)                                 | `to` = element center when resolved from a selector; `from` defaults to an offset above-right if omitted |
 | `label`  | `text`, plus `target` or `at` point (or `selector`)               | a callout bubble with a leader line to `target`                                                          |
 | `draw`   | `points` (>= 2 `[x, y]` pairs)                                    | freeform stroke, pixel-only, no selector support                                                         |
-| `redact` | `x, y, w, h` (or `selector`), optional `style: "blur" \| "solid"` | hides a region (default `blur`)                                                                          |
-| `svg`    | `fragment` (raw SVG, no `<script`)                                | escape hatch, injected verbatim                                                                          |
+| `redact` | `x, y, w, h` (or `selector`), optional `style: "blur" \| "solid"` | hides a region (default `solid`; always `solid` for secrets)                                             |
+| `svg`    | `fragment` (raw SVG; no `<script`, `href=`, or `url()`)           | escape hatch, injected verbatim                                                                          |
 
 Rules: a geometric annotation (`box`/`arrow`/`label`/`redact`) takes **either**
 pixel geometry **or** `selector`, never both — supplying both is rejected as
@@ -77,7 +77,7 @@ API key, then capture and annotate in one call:
   "annotations": [
     { "type": "box", "selector": "#save-button" },
     { "type": "label", "text": "New: bulk save", "selector": "#save-button" },
-    { "type": "redact", "selector": "[data-testid=api-key]", "style": "blur" }
+    { "type": "redact", "selector": "[data-testid=api-key]", "style": "solid" }
   ]
 }
 ```
@@ -132,8 +132,10 @@ cat ./callouts.json | uploads annotate ./shot.png --spec -
 Every uploads.sh object is public once uploaded — see the github-screenshots
 skill's "Cautions" section. Before capturing or attaching a screenshot that
 shows an API key, token, password, session cookie, or other secret, add a
-`redact` annotation over it (`style: "solid"` for a fully opaque cover,
-`style: "blur"` when the surrounding shape should stay legible). Do this at
+`redact` annotation with `style: "solid"` over it. Always use `solid` for
+secrets — blurred text can be recoverable, so reserve `style: "blur"` for
+non-sensitive visual cleanup where the surrounding shape should stay
+legible, never for credentials. Do this at
 capture time with `screenshot --annotate` when possible — it's one less
 chance to forget before the image goes anywhere public.
 

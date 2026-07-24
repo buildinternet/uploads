@@ -163,11 +163,17 @@ describe("detectLocalBrowser", () => {
 });
 
 describe("measureSelectorBoxes", () => {
-  function fakePage(boxes: Record<string, { x: number; y: number; w: number; h: number }>) {
+  function fakePage(
+    boxes: Record<string, { x: number; y: number; w: number; h: number }>,
+    counts: Record<string, number> = {},
+  ) {
     return {
       evaluate: async <T>(fn: (selectors: string[]) => T, arg: string[]): Promise<T> => {
         void fn;
-        return arg.map((sel) => boxes[sel] ?? null) as T;
+        return arg.map((sel) => {
+          if (sel in counts) return { count: counts[sel] };
+          return boxes[sel] ?? { count: 0 };
+        }) as T;
       },
     };
   }
@@ -194,5 +200,12 @@ describe("measureSelectorBoxes", () => {
     const page = fakePage({ a: { x: 0, y: 0, w: 1, h: 1 } });
     await expect(measureSelectorBoxes(page, ["a", "b.missing"], 1)).rejects.toThrow(UploadsError);
     await expect(measureSelectorBoxes(page, ["a", "b.missing"], 1)).rejects.toThrow(/b\.missing/);
+  });
+
+  it("throws on an ambiguous selector instead of measuring the first match", async () => {
+    const page = fakePage({ a: { x: 0, y: 0, w: 1, h: 1 } }, { ".card": 3 });
+    await expect(measureSelectorBoxes(page, ["a", ".card"], 1)).rejects.toThrow(
+      /ambiguous \(3 matches\): \.card/,
+    );
   });
 });

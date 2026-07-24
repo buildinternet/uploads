@@ -85,7 +85,18 @@ export async function runAnnotate(
   }
   const wantJson = format === "json";
 
-  const specText = specArg === "-" ? await readStdinImpl() : readFileSync(specArg, "utf8");
+  let specText: string;
+  if (specArg === "-") {
+    specText = await readStdinImpl();
+  } else {
+    try {
+      specText = readFileSync(specArg, "utf8");
+    } catch (err) {
+      throw new UsageError(
+        `could not read --spec ${specArg}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 
   const { validateSpec, hasSelectors, renderAnnotations, clampReport, AnnotateSpecError } =
     await import("../annotate/index.js");

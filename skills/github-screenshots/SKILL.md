@@ -256,7 +256,8 @@ handful of milestones reads better than a dumped folder.
 
 ## Need to point at something in the screenshot?
 
-Boxes, arrows, labels, freeform strokes, and redaction (blur/solid, for
-secrets caught in a capture) get baked onto a screenshot with `uploads
+Boxes, arrows, labels, freeform strokes, and redaction (solid for secrets
+caught in a capture — blurred text can be recoverable) get baked onto a
+screenshot with `uploads
 screenshot --annotate` or `uploads annotate` — see the **annotate-screenshots**
 skill for the spec format and workflow, then come back here to attach.

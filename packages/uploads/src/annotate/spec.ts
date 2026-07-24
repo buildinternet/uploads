@@ -138,8 +138,11 @@ function validateAnnotation(raw: unknown, index: number, errors: SpecError[]): v
       case "box":
       case "redact":
         return hasOwn(a, "x") || hasOwn(a, "y") || hasOwn(a, "w") || hasOwn(a, "h");
+      // `from` is deliberately allowed alongside a selector: the selector
+      // resolves the arrow's head (`to`), and an explicit `from` overrides
+      // the default tail placement (see resolveSelectors).
       case "arrow":
-        return hasOwn(a, "to") || hasOwn(a, "from");
+        return hasOwn(a, "to");
       case "label":
         return hasOwn(a, "target");
       default:
@@ -207,6 +210,11 @@ function validateAnnotation(raw: unknown, index: number, errors: SpecError[]): v
         fail("svg requires a non-empty fragment");
       } else if (/<script/i.test(a.fragment)) {
         fail("svg fragment must not contain <script");
+      } else if (/\bhref\s*=|\burl\s*\(/i.test(a.fragment)) {
+        // librsvg resolves href/xlink:href and CSS url() references, which
+        // has been an arbitrary-file-read vector (e.g. CVE-2023-38633) —
+        // reject external/local references outright in the escape hatch.
+        fail("svg fragment must not reference external resources (href= or url())");
       }
       break;
     }

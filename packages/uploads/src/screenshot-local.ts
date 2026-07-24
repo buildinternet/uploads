@@ -23,7 +23,10 @@ import { UploadsError } from "./errors.js";
  * leak into any other file's type-checking.
  */
 declare const document: {
-  querySelector(selector: string): { getBoundingClientRect(): DOMRectLike } | null;
+  querySelectorAll(selector: string): {
+    length: number;
+    [index: number]: { getBoundingClientRect(): DOMRectLike };
+  };
 };
 interface DOMRectLike {
   x: number;
@@ -359,7 +362,9 @@ interface EvaluatablePage {
  * Measures each selector's getBoundingClientRect on the page in a single
  * `page.evaluate` round-trip, scaling CSS pixels to device (raster) pixels so
  * the resulting boxes line up with the captured PNG. Throws `UploadsError`
- * naming any selector that matches no element — never silently skipped.
+ * naming any selector that matches zero elements or more than one — an
+ * ambiguous selector would silently measure the first match and place the
+ * annotation confidently in the wrong spot.
  */
 export async function measureSelectorBoxes(
   page: EvaluatablePage,
@@ -370,18 +375,23 @@ export async function measureSelectorBoxes(
   const boxes = await page.evaluate(
     (sels) =>
       sels.map((selector) => {
-        const el = document.querySelector(selector);
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
+        const matches = document.querySelectorAll(selector);
+        if (matches.length !== 1) return { count: matches.length };
+        const r = matches[0]!.getBoundingClientRect();
         return { x: r.x, y: r.y, w: r.width, h: r.height };
       }),
     [...selectors],
   );
   const measures: Record<string, MeasuredBox> = {};
   selectors.forEach((sel, i) => {
-    const box = boxes[i];
-    if (!box) {
-      throw new UploadsError(`--annotate selector matched no element: ${sel}`, "USAGE");
+    const box = boxes[i]!;
+    if ("count" in box) {
+      throw new UploadsError(
+        box.count === 0
+          ? `--annotate selector matched no element: ${sel}`
+          : `--annotate selector is ambiguous (${box.count} matches): ${sel}`,
+        "USAGE",
+      );
     }
     measures[sel] = { x: box.x * scale, y: box.y * scale, w: box.w * scale, h: box.h * scale };
   });
