@@ -1,0 +1,16 @@
+{
+  "$schema": "https://releases.sh/schemas/releases.json",
+  "version": 2,
+  "name": "uploads",
+  "description": "The missing upload command for coding agents — a lightweight file-hosting service that stages screenshots and recordings into agent PRs.",
+  "category": "developer-tools",
+  "tags": ["cli", "developer-tools", "agents", "file-hosting"],
+  "social": { "github": "buildinternet" },
+  "releases": [
+    {
+      "title": "@buildinternet/uploads",
+      "github": "buildinternet/uploads",
+      "canonical": true
+    }
+  ]
+}

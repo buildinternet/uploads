@@ -8,6 +8,7 @@
   Link: </auth.md>; rel="describedby"; type="text/markdown"
   Link: </.well-known/mcp/server-card.json>; rel="alternate"; type="application/json"
   Link: </.well-known/agent-skills/index.json>; rel="alternate"; type="application/json"
+  Link: </.well-known/releases.json>; rel="alternate"; type="application/json"
   Link: <https://api.uploads.sh/.well-known/oauth-protected-resource>; rel="oauth-protected-resource"; type="application/json"
   Link: <https://agents.uploads.sh/.well-known/oauth-protected-resource>; rel="oauth-protected-resource"; type="application/json"
   Link: </sitemap.xml>; rel="sitemap"; type="application/xml"
@@ -86,6 +87,12 @@
   Access-Control-Allow-Origin: *
 
 /.well-known/mcp/server-card.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=300
+  Access-Control-Allow-Origin: *
+
+# releases.sh listing — where uploads publishes release notes (GitHub Releases).
+/.well-known/releases.json
   Content-Type: application/json; charset=utf-8
   Cache-Control: public, max-age=300
   Access-Control-Allow-Origin: *
