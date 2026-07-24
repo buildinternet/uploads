@@ -22,7 +22,7 @@
       "skills": ["./skills/github-screenshots", "./skills/uploads-cli"],
       "commands": "./plugins/claude/uploads/commands",
       "mcpServers": "./plugins/claude/uploads/.mcp.json",
-      "hooks": "./plugins/claude/uploads/hooks/hooks.json"
+      "hooks": "./hooks/hooks.json"
     }
   ]
 }

@@ -36,6 +36,7 @@ import { runInvite } from "./commands/invite.js";
 import { runAdmin } from "./commands/admin-enrollment.js";
 import { runMcp } from "./commands/mcp.js";
 import { runInstall } from "./commands/install.js";
+import { runHook } from "./commands/hook.js";
 import { runUpdate } from "./commands/update.js";
 import { runCompletion } from "./commands/completion.js";
 import { runLogout, runWhoami } from "./commands/session.js";
@@ -341,6 +342,10 @@ export async function runCli(argv: string[]): Promise<number> {
         break;
       case "install":
         code = await runInstall(cmdArgs, { globals: parsed.globals, json }, showHelp);
+        break;
+      case "hook":
+        // Fail-open harness hooks — no token required, no telemetry noise.
+        code = await runHook(cmdArgs, showHelp);
         break;
       case "update":
         code = await runUpdate(cmdArgs, { globals: parsed.globals }, showHelp);

@@ -1,0 +1,15 @@
+{
+  "name": "uploads",
+  "version": "0.2.0",
+  "description": "Host screenshots, GIFs, recordings, and files on uploads.sh and embed them in GitHub PRs and issues.",
+  "author": {
+    "name": "Build Internet",
+    "url": "https://uploads.sh"
+  },
+  "homepage": "https://uploads.sh",
+  "repository": "https://github.com/buildinternet/uploads",
+  "license": "Apache-2.0",
+  "keywords": ["uploads", "screenshots", "github", "file-hosting", "images", "mcp"],
+  "skills": ["./skills/github-screenshots", "./skills/uploads-cli"],
+  "hooks": "./hooks/hooks.json"
+}

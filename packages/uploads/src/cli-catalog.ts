@@ -196,12 +196,23 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
   { name: "setup", summary: "Inspect/configure advanced CLI settings" },
   {
     name: "install",
-    summary: "Install the agent skills + register the remote MCP server",
+    summary: "Install agent skills, remote MCP, and harness hooks",
     essential: true,
     subcommands: [
       { name: "skill", summary: "Install the agent skills only" },
       { name: "mcp", summary: "Register the remote MCP server only" },
-      { name: "all", summary: "Install skills and MCP (default)" },
+      { name: "hooks", summary: "Install PR screenshot hooks for Grok/Cursor" },
+      { name: "all", summary: "Install skills, MCP, and hooks (default)" },
+    ],
+  },
+  {
+    name: "hook",
+    summary: "Agent harness hook handlers (stdin → advisory JSON)",
+    subcommands: [
+      {
+        name: "pre-pr-screenshot",
+        summary: "Remind to stage screenshots before gh pr create",
+      },
     ],
   },
   {

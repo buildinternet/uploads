@@ -214,10 +214,9 @@ ${section(style, "Examples:")}
   ${style.command("uploads logout")}
   ${style.command("uploads --version")}
 
-${section(style, "Agent/MCP:")} ${style.body("`uploads install` sets up the agent skills and the hosted MCP server")}
-${style.body("(https://agents.uploads.sh/mcp, workspace inferred from the token). Run")}
-${style.body("`uploads mcp` for local stdio, or use createUploadsWorkerFileTools()")}
-${style.body("from @buildinternet/uploads/agent on the Worker.")}
+${section(style, "Agent/MCP:")} ${style.body("`uploads install` sets up skills, hosted MCP, and hooks for")}
+${style.body("Grok/Cursor. Claude and Codex use their plugins for the same PR-screenshot")}
+${style.body("hook. Run `uploads mcp` for local stdio.")}
 
 ${style.muted("Tip: uploads help          essentials only")}
 ${style.muted("     uploads help --all    this full listing")}

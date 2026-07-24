@@ -134,21 +134,23 @@ routes are in [docs/api.md](docs/api.md).
 
 ## What's in this repo
 
-| Path                         | What                                                      |
-| ---------------------------- | --------------------------------------------------------- |
-| `apps/api/`                  | Hono worker — REST API, deploys to `api.uploads.sh`       |
-| `apps/auth/`                 | Better Auth worker — sessions, enrollment, device flow    |
-| `apps/mcp/`                  | Remote MCP server                                         |
-| `apps/web/`                  | Astro site — uploads.sh, account and admin UI             |
-| `packages/storage/`          | `@uploads/storage` — files-sdk adapter factory            |
-| `packages/uploads/`          | `@buildinternet/uploads` — CLI + client, publishes to npm |
-| `packages/ui/`               | `@uploads/ui` — shared design system                      |
-| `packages/billing/`          | `@uploads/billing` — plans and limit resolution           |
-| `packages/email/`            | `@uploads/email` — transactional email templates          |
-| `packages/errors/`           | `@uploads/errors` — shared error codes and wire format    |
-| `skills/github-screenshots/` | Workflow skill — visuals into PRs/issues/share links      |
-| `skills/uploads-cli/`        | Agent skill for driving the CLI                           |
-| `plugins/claude/`            | Claude Code plugin — skills, MCP, pre-PR screenshot hook  |
+| Path                         | What                                                                                |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| `apps/api/`                  | Hono worker — REST API, deploys to `api.uploads.sh`                                 |
+| `apps/auth/`                 | Better Auth worker — sessions, enrollment, device flow                              |
+| `apps/mcp/`                  | Remote MCP server                                                                   |
+| `apps/web/`                  | Astro site — uploads.sh, account and admin UI                                       |
+| `packages/storage/`          | `@uploads/storage` — files-sdk adapter factory                                      |
+| `packages/uploads/`          | `@buildinternet/uploads` — CLI + client, publishes to npm                           |
+| `packages/ui/`               | `@uploads/ui` — shared design system                                                |
+| `packages/billing/`          | `@uploads/billing` — plans and limit resolution                                     |
+| `packages/email/`            | `@uploads/email` — transactional email templates                                    |
+| `packages/errors/`           | `@uploads/errors` — shared error codes and wire format                              |
+| `skills/github-screenshots/` | Workflow skill — visuals into PRs/issues/share links                                |
+| `skills/uploads-cli/`        | Agent skill for driving the CLI                                                     |
+| `hooks/`                     | Shared pre-PR screenshot hook (`uploads hook pre-pr-screenshot`) for Claude + Codex |
+| `plugins/claude/`            | Claude Code plugin config (skills path, MCP, commands)                              |
+| `.codex-plugin/`             | Codex plugin manifest — same skills + shared hook                                   |
 
 The workers and web app are separate deployables. All storage access goes
 through `createStorage()` in `packages/storage` — adding a provider is one new
