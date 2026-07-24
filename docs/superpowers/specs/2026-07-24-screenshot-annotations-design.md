@@ -15,9 +15,9 @@ Let agents (and scripts) add annotations — boxes, arrows, labeled callouts, fr
 
 ## Architecture
 
-### `packages/annotate` (`@uploads/annotate`) — new workspace package
+### `packages/uploads/src/annotate/` — self-contained renderer module
 
-Narrow public API so the renderer can be swapped later (tldraw, server-side `/v1/render`, …) without CLI changes:
+Amended from the original `packages/annotate` workspace package: the published CLI must not depend on private workspace packages (plain tsc build, no bundler — see the `src/public-urls.ts` header comment). The module keeps the same narrow boundary — only its `index.ts` is imported from outside — so the renderer stays swappable. Narrow public API so the renderer can be swapped later (tldraw, server-side `/v1/render`, …) without CLI changes:
 
 - `AnnotationSpec` — versioned JSON contract:
   ```jsonc
