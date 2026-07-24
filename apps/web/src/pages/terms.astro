@@ -4,11 +4,11 @@ import LegalLayout from "../layouts/LegalLayout.astro";
 
 <LegalLayout
   title="Terms of Service"
-  description="Access, acceptable use, content rules, and takedown policy for the uploads.sh API, CLI, MCP server, and website."
+  description="Access, plans and payment, acceptable use, content rules, and takedown policy for the uploads.sh API, CLI, MCP server, and website."
   path="/terms"
 >
   <h1>Terms of Service</h1>
-  <p class="effective">Effective July 11, 2026</p>
+  <p class="effective">Effective July 24, 2026</p>
 
   <p>
     These terms cover use of the uploads.sh website, the API, the remote MCP server, and the
@@ -24,16 +24,19 @@ import LegalLayout from "../layouts/LegalLayout.astro";
   </p>
   <p>
     The service is provided as-is while it is in active development. We may change, rate-limit,
-    suspend, or discontinue any part of it at any time, and we reserve the right to introduce
-    paid plans or change what is included at any tier of access.
+    suspend, or discontinue any part of it at any time, and we may change what is included at any
+    tier of access. If we discontinue something a paid plan includes, the <strong>Plans and
+    payment</strong> section below covers what happens to the period you already paid for.
   </p>
 
   <h2>Access and credentials</h2>
   <ul>
     <li>
-      Access comes from creating your own workspace after signing in, or from an invitation to
-      an existing one. An invitation link contains a single-use code — treat it like a
-      password. Either way, sign-in issues a scoped, expiring workspace token.
+      You sign in with a magic link sent to your email address, or with GitHub. Access then comes
+      from creating your own workspace, or from an invitation to an existing one. Creating a
+      workspace also requires a connected GitHub account. An invitation link contains a
+      single-use code — treat it like a password. Either way, sign-in issues a scoped, expiring
+      workspace token.
     </li>
     <li>
       You are responsible for keeping your invitation links and workspace tokens confidential,
@@ -45,6 +48,50 @@ import LegalLayout from "../layouts/LegalLayout.astro";
       users, or for violations of these terms.
     </li>
   </ul>
+
+  <h2>Plans and payment</h2>
+  <p>
+    The free plan is available in perpetuity. Pro is a paid subscription that raises your
+    workspace's storage and file-size limits. An owner or admin of the workspace can subscribe
+    from the workspace's billing tab.
+  </p>
+  <ul>
+    <li>
+      <strong>A subscription renews automatically.</strong> You pay the price shown at checkout
+      for each billing period. The subscription renews at that price every period until you
+      cancel it. We add tax where we are required to collect it.
+    </li>
+    <li>
+      <strong>Stripe processes payments.</strong> You enter your card details on Stripe's own
+      checkout page. We never receive or store your card number.
+    </li>
+    <li>
+      <strong>You can cancel at any time.</strong> Use <strong>Manage billing</strong> in the
+      workspace's billing tab, which opens the Stripe customer portal. The cancellation takes
+      effect at the end of the period you already paid for. Your workspace stays on Pro until
+      then. We don't refund the remainder of a period you cancel partway through.
+    </li>
+    <li>
+      <strong>A failed payment downgrades the workspace.</strong> If a renewal payment doesn't go
+      through, we mark the subscription past due and ask you to update your payment method. The
+      workspace returns to the free plan if the payment isn't resolved.
+    </li>
+    <li>
+      <strong>We give notice before a price change.</strong> A new price applies from your next
+      renewal, never to a period you are already in.
+    </li>
+  </ul>
+  <p>
+    <strong>A downgrade never deletes your files.</strong> Whether you cancel or a payment fails,
+    your files stay where they are and their links keep working. If the workspace holds more than
+    the free plan's storage limit, we refuse new uploads until you delete enough to get back
+    under it.
+  </p>
+  <p>
+    If we discontinue Pro, or materially reduce what it includes, your workspace keeps its current
+    plan and limits until the end of the period you already paid for. We do not refund fees if we
+    terminate your access for a violation of these terms.
+  </p>
 
   <h2>Your content</h2>
   <p>
@@ -84,14 +131,14 @@ import LegalLayout from "../layouts/LegalLayout.astro";
   <p>
     Uploads and other mutating operations are rate-limited per workspace, and upload size and
     content-type limits apply. Agents and integrations should handle rate-limit responses with
-    exponential backoff. If you need higher limits for a legitimate use, email <a href="mailto:hi@uploads.sh">hi@uploads.sh</a>.
+    exponential backoff. The Pro plan raises the storage and file-size limits. If you need more
+    than it offers for a legitimate use, email <a href="mailto:hi@uploads.sh">hi@uploads.sh</a>.
   </p>
 
   <h2>Takedowns</h2>
   <p>
     If content hosted on uploads.sh infringes your rights or otherwise shouldn't be here, use
-    <strong>Report a problem</strong> on the public file page, or email
-    <a href="mailto:abuse@uploads.sh">abuse@uploads.sh</a> with the file URL, your relationship to
+    <strong>Report a problem</strong> on the public file page, or email <a href="mailto:abuse@uploads.sh">abuse@uploads.sh</a> with the file URL, your relationship to
     the content, and a brief reason. We review takedown requests and honor reasonable ones, even
     when not legally required to.
   </p>
@@ -128,6 +175,11 @@ import LegalLayout from "../layouts/LegalLayout.astro";
 
   <h2>Revision history</h2>
   <ul>
+    <li>
+      <strong>July 24, 2026</strong> — Added <strong>Plans and payment</strong> for the Pro
+      subscription: renewal, cancellation, refunds, and what a downgrade does to your files.
+      Described how you sign in.
+    </li>
     <li>
       <strong>July 22, 2026</strong> — Corrected a stale description of the service as
       invitation-only; self-serve workspace creation is available. No change to any term.
