@@ -470,6 +470,80 @@ describe("runLogin device flow", () => {
     expect(loadConfigFile(path).UPLOADS_TOKEN).toBe(token);
   });
 
+  // Issue #506: the API offers a name derived from the user's GitHub login
+  // when the account has no workspace yet. It is a prefill, never a decision —
+  // the prompt still runs and the user can override or ignore it.
+  it("passes the api's suggested workspace to the prompt as a default", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    const token = "up_octocat_abcdefghijklmnopqrstuvwxyz";
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode())
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      )
+      .mockResolvedValueOnce(response({ workspaces: [], suggestedWorkspace: "octocat" }))
+      .mockResolvedValueOnce(
+        response(
+          {
+            workspace: {
+              name: "octocat",
+              publicBaseUrl: "https://storage.uploads.sh/octocat",
+              selfServe: true,
+            },
+          },
+          201,
+        ),
+      )
+      .mockResolvedValueOnce(
+        response(
+          { token, workspace: "octocat", scopes: ["files:read"], label: "host", expiresAt: null },
+          201,
+        ),
+      );
+    captureOutput();
+
+    let offered: string | undefined = "NOT CALLED";
+    expect(
+      await runLogin(["--path", path, "--no-check"], { json: true }, false, {
+        ...silentIo,
+        isTTY: true,
+        promptWorkspaceName: async (suggestion?: string) => {
+          offered = suggestion;
+          // Simulate the user accepting the offered default.
+          return suggestion ?? "";
+        },
+      }),
+    ).toBe(0);
+
+    expect(offered).toBe("octocat");
+    expect(loadConfigFile(path).UPLOADS_WORKSPACE).toBe("octocat");
+  });
+
+  it("offers no default when the api sends no suggestion", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(deviceCode())
+      .mockResolvedValueOnce(
+        response({ access_token: "sess-tok", token_type: "Bearer", expires_in: 3600, scope: "" }),
+      )
+      .mockResolvedValueOnce(response({ workspaces: [] }));
+    captureOutput();
+
+    let offered: string | undefined = "NOT CALLED";
+    // Accepting nothing with no suggestion must still cancel, exactly as before.
+    await expect(
+      runLogin(["--path", path, "--no-check"], { json: true }, false, {
+        ...silentIo,
+        isTTY: true,
+        promptWorkspaceName: async (suggestion?: string) => {
+          offered = suggestion;
+          return "";
+        },
+      }),
+    ).rejects.toThrow(/workspace creation cancelled/);
+    expect(offered).toBeUndefined();
+  });
+
   it("points at account/profile when workspace creation requires GitHub", async () => {
     const path = join(mkdtempSync(join(tmpdir(), "uploads-login-")), "config");
     vi.spyOn(globalThis, "fetch")

@@ -13,7 +13,6 @@
  * Design: `.context/479-content-hash-inheritance.md`.
  */
 
-import { isCommunalWorkspace } from "@uploads/workspace";
 import { addMissingFileMetadata, getFileMetadata } from "./file-metadata";
 
 /**
@@ -22,8 +21,8 @@ import { addMissingFileMetadata, getFileMetadata } from "./file-metadata";
  *
  * Restated rather than imported, and deliberately so. The vocabulary lives in
  * `@buildinternet/uploads`, which is **published** and carries no `@uploads/*`
- * workspace dependencies — extracting the list to a shared private package (the
- * `@uploads/workspace` pattern from #504) would make the published package
+ * workspace dependencies — extracting the list to a shared private package
+ * would make the published package
  * depend on a private one, and importing the CLI package here would invert the
  * dependency and drag CLI deps toward a Worker bundle. This follows the other
  * in-repo precedent instead: `packages/billing/src/workspace-cap.ts`, which
@@ -88,14 +87,14 @@ export async function recordContentHash(
  * Derived metadata to inherit for `contentSha256`, or `{}` when there is
  * nothing to inherit.
  *
- * Returns `{}` unconditionally for the communal workspace. `default` is the one
- * shared tenant every account belongs to (`packages/workspace`), so
- * same-workspace — the boundary issue #479 originally proposed — would let one
- * user's `path=/admin/billing` land on an unrelated user's upload of the same
- * bytes. Applied in both cloud and self-hosted: inheriting across unrelated
- * members of a shared tenant is surprising in either deployment, and a
- * trust rule that differs per deployment is one every future cross-tenant
- * feature would have to reason about twice.
+ * Workspace membership is the trust boundary, with no workspace excluded.
+ * Issue #479 originally carved out `default` because it was the communal
+ * tenant every account belonged to, where "same workspace" said nothing about
+ * whether two uploaders were related. That concept is retired (#505): every
+ * workspace is now an ordinary one whose members are there deliberately. Since
+ * members can already read each other's files, inheriting metadata from a file
+ * the caller could simply open discloses nothing new — so the rule is uniform,
+ * in both cloud and self-hosted.
  */
 export async function inheritableMetaForHash(
   db: D1Database,
@@ -103,8 +102,6 @@ export async function inheritableMetaForHash(
   contentSha256: string,
   selfKey: string,
 ): Promise<Record<string, string>> {
-  if (isCommunalWorkspace(workspace)) return {};
-
   // Fail-soft, deliberately. This runs *after* the bytes are durably stored, so
   // a D1 blip here must cost the convenience (metadata the caller can re-state)
   // rather than the upload (bytes the caller would have to re-send). The same

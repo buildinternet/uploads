@@ -160,16 +160,16 @@ describe("renderOrgInvitationEmail", () => {
 });
 
 describe("renderEnrollmentInvitationEmail", () => {
-  it("special-cases the default workspace subject and body", () => {
+  it("names `default` like any other workspace — no special casing", () => {
     const link = "https://uploads.sh/invite?id=upi_x#code=secret";
     const out = renderEnrollmentInvitationEmail({
       workspaceName: "default",
       link,
       expiresAt: "2030-01-15T12:00:00.000Z",
     });
-    expect(out.subject).toBe("You've been given access to uploads.sh");
+    expect(out.subject).toBe("You're invited to default on uploads.sh");
     expect(out.text).toContain("#code=secret");
-    expect(out.html).toContain("You've been given access");
+    expect(out.text).toContain("You've been invited to the default workspace on uploads.sh");
     expect(out.html).toContain("laptop");
     expect(parseJsonLd(out.html)?.potentialAction).toEqual({
       "@type": "ViewAction",

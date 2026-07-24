@@ -182,9 +182,13 @@ Examples:
   if (workspace) keys.UPLOADS_WORKSPACE = workspace;
   if (token) keys.UPLOADS_TOKEN = token;
 
+  // Seed only the API URL. A `UPLOADS_WORKSPACE` written here outranks the
+  // workspace encoded in the token itself (see `resolveConfig`'s precedence),
+  // so seeding one would pin every later `uploads login` to whatever this
+  // wrote — historically `default` — no matter which workspace the user's
+  // token was actually minted for.
   if (Object.keys(keys).length === 0) {
     keys.UPLOADS_API_URL = DEFAULT_API_URL;
-    keys.UPLOADS_WORKSPACE = DEFAULT_WORKSPACE;
   }
 
   try {

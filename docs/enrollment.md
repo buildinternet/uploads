@@ -59,7 +59,10 @@ admins a workspace, or an **enrollment code** shared out-of-band.
 Any signed-in user with a **GitHub-linked account** can create a workspace
 without an invitation or `ADMIN_TOKEN` — `/account/workspaces` has a "Create a
 workspace" form, and `uploads login` offers the same prompt when your account
-has no workspaces yet. Scripted or agent logins can skip the prompt with
+has no workspaces yet. Both suggest a name based on your GitHub login when that
+makes a valid, unclaimed workspace name; edit or replace it freely. When no name
+can be derived — no linked GitHub account, or the name is reserved or already
+taken — nothing is prefilled. Scripted or agent logins can skip the prompt with
 `uploads login --workspace <name> --create`, which provisions the workspace
 during login when the account doesn't already have it (browser device approval
 is still required once). You become the owner of a new organization and a

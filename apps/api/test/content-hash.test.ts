@@ -1,4 +1,3 @@
-import { COMMUNAL_WORKSPACE } from "@uploads/workspace";
 import { describe, expect, it } from "vitest";
 import {
   applyInheritedMetaAdditively,
@@ -68,18 +67,17 @@ describe("inheritableMetaForHash", () => {
     }
   });
 
-  it("never inherits in the communal workspace, even on an exact byte match", async () => {
+  it("inherits in `default` like any other workspace", async () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     try {
-      // `default` is the one shared tenant every account belongs to, so a byte
-      // match there says nothing about the two uploads being related.
-      await seedDonor(sqlite, COMMUNAL_WORKSPACE, "f/one.png", HASH_A, {
-        path: "/admin/billing",
-      });
+      // `default` was excluded while it was the communal tenant every account
+      // belonged to. That concept is retired (#505) — it is an ordinary
+      // workspace, so the ordinary rule applies.
+      await seedDonor(sqlite, "default", "f/one.png", HASH_A, { path: "/admin/billing" });
 
       expect(
-        await inheritableMetaForHash(database(sqlite), COMMUNAL_WORKSPACE, HASH_A, "f/two.png"),
-      ).toEqual({});
+        await inheritableMetaForHash(database(sqlite), "default", HASH_A, "f/two.png"),
+      ).toEqual({ path: "/admin/billing" });
     } finally {
       sqlite.close();
     }

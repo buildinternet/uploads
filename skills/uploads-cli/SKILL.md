@@ -197,6 +197,12 @@ uploads login          # opens a browser to approve sign-in, saves config, runs 
 uploads login --workspace acme   # only needed if your account can access more than one
 ```
 
+If the account has no workspace yet, `login` prompts for a name and offers one
+derived from your GitHub login as a bracketed default — press Enter to take it,
+or type your own. Nothing is prefilled when no valid, unclaimed name can be
+derived. `--workspace <name> --create` skips the prompt entirely, which is the
+form to use in scripts.
+
 That's a one-time, human-in-the-loop step (device sign-in needs a browser); once the
 config file is written, every later `uploads` invocation — including from a
 non-interactive agent — just reads the saved token. Routine agents never need
@@ -792,8 +798,13 @@ uploads config show                              # effective settings (token red
 uploads config path                              # resolved config file path
 uploads config set UPLOADS_DEFAULT_REPO myorg/myapp
 uploads config set UPLOADS_DEFAULT_WIDTH 700
-uploads config init --api-url http://localhost:8787 --workspace default --token up_default_…
+uploads config init --api-url http://localhost:8787 --workspace acme --token up_acme_…
 ```
+
+`init` writes only the keys you pass. With no flags it seeds `UPLOADS_API_URL`
+alone and deliberately sets no workspace: a `UPLOADS_WORKSPACE` in the config
+file outranks the workspace encoded in your token, so seeding one would pin
+every later `uploads login` to it. Pass `--workspace` when you want it fixed.
 
 Recognized keys: `UPLOADS_API_URL`, `UPLOADS_WORKSPACE`, `UPLOADS_TOKEN`,
 `UPLOADS_DEFAULT_PREFIX`, `UPLOADS_DEFAULT_REPO`, `UPLOADS_DEFAULT_REF`,

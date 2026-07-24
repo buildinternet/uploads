@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getGithubInstalled,
   getMyWorkspaces,
+  getSuggestedWorkspaceName,
   getWorkspaceInvites,
   getWorkspaceMembers,
   inviteToWorkspace,
@@ -159,48 +160,6 @@ describe("getMyWorkspaces", () => {
       ["acme", "pro"],
       ["byo", undefined],
     ]);
-  });
-
-  it("trusts the api's communal flag and falls back to the slug only when it is absent", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        Response.json({
-          workspaces: [
-            {
-              workspace: "acme",
-              organization: { id: "org1", slug: "acme", name: "Acme Inc" },
-              role: "owner",
-              communal: true,
-            },
-            {
-              // The api's own answer wins even for the communal slug.
-              workspace: "default",
-              organization: { id: "org2", slug: "default", name: "default" },
-              role: "member",
-              communal: false,
-            },
-            {
-              // Older api response, no communal field: fall back to the slug
-              // so the auto-open skip can't silently stop working.
-              workspace: "default",
-              organization: { id: "org3", slug: "default", name: "default" },
-              role: "member",
-            },
-            {
-              workspace: "byo",
-              organization: { id: "org4", slug: "byo", name: "BYO Inc" },
-              role: "member",
-            },
-          ],
-        }),
-      ),
-    );
-
-    const result = await getMyWorkspaces("http://127.0.0.1:8787");
-    expect(result.kind).toBe("success");
-    if (result.kind !== "success") throw new Error("expected success");
-    expect(result.workspaces.map((ws) => ws.communal)).toEqual([true, false, true, false]);
   });
 });
 
@@ -718,5 +677,43 @@ describe("getGithubInstalled", () => {
       vi.stubGlobal("fetch", stub);
       await expect(getGithubInstalled("https://api.test", "acme")).resolves.toBe(false);
     }
+  });
+});
+
+describe("getSuggestedWorkspaceName", () => {
+  it("returns the api's suggestion", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ workspaces: [], suggestedWorkspace: "octocat" })),
+    );
+    expect(await getSuggestedWorkspaceName("http://127.0.0.1:8787")).toBe("octocat");
+  });
+
+  it("returns an empty string when the api offers nothing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ workspaces: [] })),
+    );
+    expect(await getSuggestedWorkspaceName("http://127.0.0.1:8787")).toBe("");
+  });
+
+  // Every failure collapses to "no prefill" — an empty field is the behavior
+  // this feature replaced, so it is always a safe answer.
+  it("returns an empty string on a non-ok response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 401 })),
+    );
+    expect(await getSuggestedWorkspaceName("http://127.0.0.1:8787")).toBe("");
+  });
+
+  it("returns an empty string when the api is unreachable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network down");
+      }),
+    );
+    expect(await getSuggestedWorkspaceName("http://127.0.0.1:8787")).toBe("");
   });
 });

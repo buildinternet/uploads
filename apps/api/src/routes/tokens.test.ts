@@ -43,6 +43,8 @@ interface EnvOpts {
   db?: D1Database;
   /** When set, the WRITE_LIMITER binding reports this success value. */
   writeLimitOk?: boolean;
+  /** Seeds the `ghlogin:<userId>` cache the workspace suggestion reads. */
+  githubLogin?: string;
 }
 
 function stubEnv(opts: EnvOpts = {}): Env {
@@ -53,6 +55,7 @@ function stubEnv(opts: EnvOpts = {}): Env {
     workspaces = { acme: { provider: "r2", bucket: "b" } },
     db = captureDb().db,
     writeLimitOk,
+    githubLogin,
   } = opts;
 
   const auth = stubAuth((req) => {
@@ -80,7 +83,18 @@ function stubEnv(opts: EnvOpts = {}): Env {
   const WRITE_LIMITER =
     writeLimitOk === undefined ? undefined : { limit: async () => ({ success: writeLimitOk }) };
 
-  return { AUTH: auth, REGISTRY: registry, DB: db, WRITE_LIMITER } as unknown as Env;
+  const GITHUB_CACHE = {
+    get: async (key: string) => (githubLogin && key === `ghlogin:${USER.id}` ? githubLogin : null),
+    put: async () => {},
+  };
+
+  return {
+    AUTH: auth,
+    REGISTRY: registry,
+    DB: db,
+    WRITE_LIMITER,
+    GITHUB_CACHE,
+  } as unknown as Env;
 }
 
 function app() {
@@ -214,6 +228,37 @@ describe("GET /v1/tokens (workspace listing)", () => {
       stubEnv({ user: null }),
     );
     expect(res.status).toBe(401);
+  });
+
+  // Issue #506: a name to prefill, offered only to an account with nothing to
+  // pick from. It is a hint — nothing is created and no name is claimed.
+  it("suggests a workspace derived from the GitHub login when the account has none", async () => {
+    const env = stubEnv({ memberships: [], workspaces: {}, githubLogin: "Octocat" });
+    const res = await app().request("/v1/tokens", { headers: { authorization: "Bearer s" } }, env);
+    expect(await res.json()).toEqual({ workspaces: [], suggestedWorkspace: "octocat" });
+  });
+
+  it("omits the suggestion when the derived name is already taken", async () => {
+    const env = stubEnv({
+      memberships: [],
+      workspaces: { octocat: { provider: "r2", bucket: "b" } },
+      githubLogin: "Octocat",
+    });
+    const res = await app().request("/v1/tokens", { headers: { authorization: "Bearer s" } }, env);
+    expect(await res.json()).toEqual({ workspaces: [] });
+  });
+
+  it("omits the suggestion when no GitHub login resolves", async () => {
+    const env = stubEnv({ memberships: [], workspaces: {} });
+    const res = await app().request("/v1/tokens", { headers: { authorization: "Bearer s" } }, env);
+    expect(await res.json()).toEqual({ workspaces: [] });
+  });
+
+  it("does not suggest for an account that already has a workspace", async () => {
+    const env = stubEnv({ githubLogin: "Octocat" });
+    const res = await app().request("/v1/tokens", { headers: { authorization: "Bearer s" } }, env);
+    const body = (await res.json()) as { suggestedWorkspace?: string };
+    expect(body.suggestedWorkspace).toBeUndefined();
   });
 
   it("lists memberships whose workspace still exists in KV", async () => {

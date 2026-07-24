@@ -75,7 +75,11 @@ export const prerender = false;
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../../lib/account-shell";
     import { linkGitHub, listAccounts } from "../../../lib/auth-client";
-    import { createWorkspace, type WorkspaceCreateQuota } from "../../../lib/api-client";
+    import {
+      createWorkspace,
+      getSuggestedWorkspaceName,
+      type WorkspaceCreateQuota,
+    } from "../../../lib/api-client";
     import {
       canCreateWorkspace,
       clearCachedWorkspaces,
@@ -213,10 +217,16 @@ export const prerender = false;
     bindCopyButtons(requireElement<HTMLElement>("#create", page));
 
     onSession((user) => {
-      if (!input.value) {
-        const suggestion = suggestedWorkspaceName(user.email);
-        if (suggestion) input.value = suggestion;
-      }
+      if (input.value) return;
+      // Email local-part first so the field is never empty while the network
+      // call is in flight; the GitHub-derived name (issue #506) is the better
+      // guess, so it replaces the heuristic when it arrives — but only if the
+      // user hasn't started typing in the meantime.
+      const heuristic = suggestedWorkspaceName(user.email);
+      if (heuristic) input.value = heuristic;
+      void getSuggestedWorkspaceName(apiOrigin).then((suggestion) => {
+        if (suggestion && (!input.value || input.value === heuristic)) input.value = suggestion;
+      });
     });
     });
   </script>

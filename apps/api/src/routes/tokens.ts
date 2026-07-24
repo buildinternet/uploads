@@ -31,6 +31,7 @@ import {
   type SessionVars,
 } from "../session-auth";
 import { loadWorkspaceRecord, WS_NAME_RE } from "../workspace";
+import { suggestWorkspaceName } from "../workspace-suggestion";
 
 const MAX_BODY_BYTES = 4096;
 const MAX_LABEL_LEN = 200;
@@ -139,7 +140,20 @@ export const tokens = new Hono<SessionVars>()
         }),
       )
     ).filter((w): w is { workspace: string; role: string } => w !== null);
-    return c.json({ workspaces });
+
+    // Name to prefill when this account is about to create its first
+    // workspace (#506). Only computed when there is nothing to pick from —
+    // a user who already has a workspace is not being asked to name one, so
+    // the GitHub round-trip would be wasted. Omitted entirely when no clean
+    // candidate exists; the field being absent means "offer nothing", which
+    // is the pre-#506 behavior.
+    const suggestedWorkspace =
+      workspaces.length === 0 ? await suggestWorkspaceName(c.env, user.id) : null;
+
+    return c.json({
+      workspaces,
+      ...(suggestedWorkspace ? { suggestedWorkspace } : {}),
+    });
   })
   .post("/", sessionAuth, requireSessionUser, async (c) => {
     const contentLength = Number(c.req.header("Content-Length") ?? 0);

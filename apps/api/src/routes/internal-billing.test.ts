@@ -1,4 +1,3 @@
-import { COMMUNAL_WORKSPACE } from "@uploads/workspace";
 import { Hono } from "hono";
 import { beforeAll, describe, expect, it } from "vitest";
 import { fakeRegistry } from "../../test/fake-kv";
@@ -281,12 +280,25 @@ describe("GET /internal/billing/member-cap", () => {
     expect(body.message).toBeNull();
   });
 
-  it("exempts the communal workspace even if a plan is stamped on it", async () => {
+  // `default` used to be exempt from the member cap as the communal tenant.
+  // That exemption is gone (#505): it is capped by whatever plan it carries,
+  // like any other workspace. Its live record carries no plan and no
+  // `selfServe`, so it still resolves to unlimited on its own — but a plan
+  // stamped on it now applies, which is the behavior change this pins.
+  it("applies the cap to `default` when a plan is stamped on it — no exemption", async () => {
     const registry = fakeRegistry({
-      [COMMUNAL_WORKSPACE]: { provider: "r2", bucket: "b", plan: "free", selfServe: true },
+      default: { provider: "r2", bucket: "b", plan: "free", selfServe: true },
     });
     const env = { REGISTRY: registry, BILLING_INTERNAL_KEY: SECRET } as unknown as Env;
-    const res = await get(COMMUNAL_WORKSPACE, { "x-internal-billing-key": SECRET }, env);
+    const res = await get("default", { "x-internal-billing-key": SECRET }, env);
+    expect(res.status).toBe(200);
+    expect((await res.json()) as { cap: number | null }).toMatchObject({ cap: 3 });
+  });
+
+  it("leaves `default` unlimited with no plan stamped — matching its live record", async () => {
+    const registry = fakeRegistry({ default: { provider: "r2", bucket: "b" } });
+    const env = { REGISTRY: registry, BILLING_INTERNAL_KEY: SECRET } as unknown as Env;
+    const res = await get("default", { "x-internal-billing-key": SECRET }, env);
     expect(res.status).toBe(200);
     expect((await res.json()) as { cap: number | null }).toMatchObject({ cap: null });
   });
