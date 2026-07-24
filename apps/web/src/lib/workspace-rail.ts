@@ -200,6 +200,11 @@ export function initWorkspaceRail(
   const usageEl = root.querySelector<HTMLElement>("[data-rail-usage]");
   const githubCtaEl = root.querySelector<HTMLElement>("[data-rail-github-cta]");
 
+  // `data-stale` is a diagnostic marker, not a user-facing affordance: nothing
+  // in the app styles or reads it. It exists so warm-paint behavior (this
+  // file's whole point) can be verified in the browser — inspect the rail
+  // elements after a Tier 1 paint and confirm the attribute is set, then
+  // confirm it clears once Tier 2 repaints with fresh data.
   const paint = (
     details: WorkspaceRailDetails | null,
     usage: UsageSnapshot | undefined,
@@ -208,12 +213,10 @@ export function initWorkspaceRail(
     if (detailsEl && details) {
       detailsEl.innerHTML = renderDetailsHtml(details);
       detailsEl.toggleAttribute("data-stale", stale);
-      detailsEl.removeAttribute("aria-busy");
     }
     if (usageEl && usage) {
       usageEl.innerHTML = renderUsageHtml(usage);
       usageEl.toggleAttribute("data-stale", stale);
-      usageEl.removeAttribute("aria-busy");
     }
   };
 
@@ -255,7 +258,16 @@ export function initWorkspaceRail(
       }
       const ws: MyWorkspace = result.workspace;
       paint(ws, result.usage ?? undefined, false);
-      if (usageEl && !result.usage) usageEl.textContent = "Usage unavailable.";
+      // `result.usage: null` is a genuinely reachable success shape (e.g. a
+      // plan with no usage record yet) — `paint` above already skips the
+      // usage section for it, leaving whatever Tier 1 warm-painted, if
+      // anything, on screen untouched (including its `data-stale`, which
+      // stays honest: the displayed value is still the cached one). Only
+      // fall back to the error string when there was no cached usage to
+      // fall back to, matching the failure branch's same warm-value rule.
+      if (usageEl && !result.usage && !cached?.usage) {
+        usageEl.textContent = "Usage unavailable.";
+      }
     });
   });
 }

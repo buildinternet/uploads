@@ -403,9 +403,12 @@ const USAGE_METER_WIDTHS: Array<{ label: string; value: string }> = [
  * A workspace with no caps (plan never applied) still collapses once, from
  * these meters down to the one-line text, on its first visit — that shift is
  * not eliminated by this change, only made no worse than the two-meter
- * assumption already was. It happens exactly once: every later visit paints
- * from the cached snapshot instead of this placeholder, so the collapse
- * cannot recur for that workspace.
+ * assumption already was. Most later visits paint from the cached snapshot
+ * (`workspace-cache.ts`) instead of this placeholder, so the collapse is
+ * uncommon after the first — but it is bounded, not impossible: the cache
+ * expires (`WORKSPACE_SNAPSHOT_TTL_MS`, 24h), gets invalidated wholesale on a
+ * `WORKSPACE_SNAPSHOT_VERSION` bump, and is cleared on sign-out
+ * (`clearWorkspaceSnapshots`), any of which sends the next visit back here.
  */
 export function renderUsagePlaceholderHtml(meters = 2): string {
   const row = (labelWidth: string, valueWidth: string): string => `<div class="ul-progress__row">
