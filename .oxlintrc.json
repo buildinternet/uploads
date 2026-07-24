@@ -20,6 +20,9 @@
     "unicorn/no-null": "off",
     "unicorn/no-array-reduce": "off",
     "unicorn/no-await-expression-member": "off",
+    "unicorn/prefer-set-has": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/no-array-reverse": "off",
 
     "typescript/await-thenable": "error",
     "typescript/consistent-return": "off",
@@ -93,8 +96,7 @@
       "files": ["**/*.test.ts", "packages/storage/test/**", "packages/uploads/test/**"],
       "rules": {
         "typescript/no-floating-promises": "off",
-        "typescript/await-thenable": "off",
-        "unicorn/no-array-sort": "off"
+        "typescript/await-thenable": "off"
       }
     }
   ],
