@@ -1,5 +1,5 @@
 ---
-"uploads": patch
+"@buildinternet/uploads": patch
 ---
 
 `uploads install` no longer reports an already-registered MCP server as a
