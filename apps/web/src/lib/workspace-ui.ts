@@ -354,3 +354,86 @@ export function bindCopyButtons(root: Node, selector = "button[data-copy]"): voi
     })();
   });
 }
+
+/**
+ * Loading placeholders.
+ *
+ * These live beside the real builders on purpose. Their whole job is to
+ * occupy the *exact* height the real markup will occupy, so when data lands
+ * nothing on the page moves — and the only way to keep that true over time is
+ * for both versions of a given block to be edited in the same file, in view of
+ * each other. A placeholder that drifts from its counterpart is worse than no
+ * placeholder at all, because it reintroduces the shift it was added to remove.
+ *
+ * Deliberately unanimated: a placeholder is only ever seen on a first visit to
+ * a workspace, and a pulse at that moment reads as noise rather than progress.
+ */
+
+/**
+ * One masked bar. `width` drives `--ws-skel-w`.
+ *
+ * The value lands in a `style` attribute, which is a CSS context — HTML
+ * escaping would not make an attacker-controlled value safe there. Every call
+ * site passes a literal, so rather than rely on that staying true, anything
+ * that isn't a plain CSS length is dropped for the default.
+ */
+const CSS_LENGTH = /^\d+(\.\d+)?(px|%|em|rem|ch)$/;
+
+export function skeletonBarHtml(width: string): string {
+  const safe = CSS_LENGTH.test(width) ? width : "100%";
+  return `<span class="ws-skel" aria-hidden="true" style="--ws-skel-w:${safe}"></span>`;
+}
+
+/** Empty meter chrome for the rail, matching `renderUsageHtml`'s two meters. */
+export function renderUsagePlaceholderHtml(): string {
+  const row = (labelWidth: string, valueWidth: string): string => `<div class="ul-progress__row">
+    <div class="ul-progress__head">
+      <span class="ul-progress__label">${skeletonBarHtml(labelWidth)}</span>
+      <span class="ul-progress__value">${skeletonBarHtml(valueWidth)}</span>
+    </div>
+    <div class="ul-progress__track">
+      <div class="ul-progress__fill" style="width:0%"></div>
+    </div>
+  </div>`;
+  return `<div class="ul-progress" aria-busy="true">${row("52px", "96px")}${row("108px", "78px")}</div><div class="usage-meta">${skeletonBarHtml("64px")}</div>`;
+}
+
+/**
+ * Rail details placeholder. The `<dt>` labels are static, so they render for
+ * real; only the `<dd>` values are masked.
+ */
+export function renderDetailsPlaceholderHtml(): string {
+  return (
+    `<dt class="ws-rail__dt">slug</dt><dd class="ws-rail__dd">${skeletonBarHtml("84px")}</dd>` +
+    `<dt class="ws-rail__dt">base url</dt><dd class="ws-rail__dd">${skeletonBarHtml("132px")}</dd>`
+  );
+}
+
+/** Galleries table placeholder — same chrome as `renderGalleriesTableHtml`. */
+export function renderGalleriesPlaceholderHtml(rows = 3): string {
+  // Varying widths so the block reads as a list of distinct rows rather than
+  // a solid slab.
+  const widths = ["68%", "54%", "76%"];
+  const body = Array.from({ length: rows }, (_, i) => {
+    const w = widths[i % widths.length];
+    return `<tr>
+  <td>${skeletonBarHtml(w)}</td>
+  <td class="num">${skeletonBarHtml("24px")}</td>
+  <td>${skeletonBarHtml("92px")}</td>
+  <td class="ws-gallery-updated">${skeletonBarHtml("72px")}</td>
+</tr>`;
+  }).join("");
+  return `<div class="ws-table-wrap" aria-busy="true">
+<table class="ws-table" aria-label="Galleries">
+  <thead>
+    <tr>
+      <th scope="col">Name</th>
+      <th scope="col" class="num">Items</th>
+      <th scope="col">Linked</th>
+      <th scope="col">Updated</th>
+    </tr>
+  </thead>
+  <tbody>${body}</tbody>
+</table>
+</div>`;
+}

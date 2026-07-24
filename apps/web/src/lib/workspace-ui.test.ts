@@ -4,11 +4,15 @@ import {
   formatGalleryDate,
   formatMarketedBytes,
   orderOrgsOldestFirst,
+  renderDetailsPlaceholderHtml,
+  renderGalleriesPlaceholderHtml,
   renderGalleriesTableHtml,
   renderInvitesHtml,
   renderMembersHtml,
   renderUsageHtml,
+  renderUsagePlaceholderHtml,
   safeSameOriginPath,
+  skeletonBarHtml,
 } from "./workspace-ui";
 
 describe("formatBytes / formatMarketedBytes (decimal SI)", () => {
@@ -268,5 +272,62 @@ describe("renderGalleriesTableHtml", () => {
     expect(html).toContain("org/repo#3");
     expect(html).not.toContain("org/repo#4");
     expect(html).toContain("+2");
+  });
+});
+
+describe("skeleton placeholders", () => {
+  it("marks bars decorative so screen readers skip them", () => {
+    const html = skeletonBarHtml("60%");
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain("ws-skel");
+    expect(html).toContain("--ws-skel-w:60%");
+  });
+
+  it("drops a width that is not a plain CSS length", () => {
+    // The value lands in a style attribute — a CSS context, where HTML
+    // escaping would not help. Anything unrecognised falls back to the default.
+    const html = skeletonBarHtml('60px;background:url("http://evil.test")');
+    expect(html).toContain("--ws-skel-w:100%");
+    expect(html).not.toContain("evil.test");
+  });
+
+  it("builds the usage placeholder from the same meter chrome as real usage", () => {
+    const html = renderUsagePlaceholderHtml();
+    // Same wrapper + row + track classes renderUsageHtml emits, so the swap
+    // to real data cannot change the section's height.
+    expect(html).toContain("ul-progress");
+    expect(html).toContain("ul-progress__row");
+    expect(html).toContain("ul-progress__track");
+    // Two meters, matching renderUsageHtml's storage + uploads pair.
+    expect(html.match(/ul-progress__row/g)).toHaveLength(2);
+    // Empty track: no width to animate from a wrong starting point.
+    expect(html).toContain("width:0%");
+    expect(html).toContain('aria-busy="true"');
+  });
+
+  it("keeps the real details labels and only masks the values", () => {
+    const html = renderDetailsPlaceholderHtml();
+    // Labels are Tier 0 — they are known without any request.
+    expect(html).toContain(">slug<");
+    expect(html).toContain(">base url<");
+    expect(html).toContain("ws-rail__dt");
+    expect(html).toContain("ws-skel");
+  });
+
+  it("builds a galleries placeholder with the real table chrome", () => {
+    const html = renderGalleriesPlaceholderHtml(3);
+    expect(html).toContain("ws-table-wrap");
+    expect(html).toContain('class="ws-table"');
+    // Same four column headers renderGalleriesTableHtml emits.
+    expect(html).toContain(">Name<");
+    expect(html).toContain(">Items<");
+    expect(html).toContain(">Linked<");
+    expect(html).toContain(">Updated<");
+    expect(html.match(/<tr>/g)).toHaveLength(4); // 1 head + 3 body
+    expect(html).toContain('aria-busy="true"');
+  });
+
+  it("defaults to three placeholder rows", () => {
+    expect(renderGalleriesPlaceholderHtml().match(/<tr>/g)).toHaveLength(4);
   });
 });

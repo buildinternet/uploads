@@ -273,3 +273,18 @@
     display: none;
   }
 }
+
+/* Loading placeholder. Sized by `--ws-skel-w` from the builder so one class
+   covers every call site. `min-height: 1em` plus `vertical-align: middle`
+   makes a bar occupy exactly the line box its text will occupy, which is what
+   keeps the swap to real content free of layout shift. */
+.ws-skel {
+  display: inline-block;
+  width: var(--ws-skel-w, 100%);
+  min-height: 1em;
+  vertical-align: middle;
+  border-radius: 3px;
+  background: var(--panel);
+  /* Purely decorative and aria-hidden — nothing here should be selectable. */
+  user-select: none;
+}
