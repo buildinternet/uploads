@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  escapeHtml,
   formatBytes,
   formatGalleryDate,
   formatMarketedBytes,
   orderOrgsOldestFirst,
+  renderGalleriesEmptyHtml,
   renderGalleriesPlaceholderHtml,
   renderGalleriesTableHtml,
   renderInvitesHtml,
@@ -336,5 +338,31 @@ describe("skeleton placeholders", () => {
     expect(html).toContain("member-row__who");
     expect(html).toContain("member-row__name");
     expect(html).toContain("member-row__role");
+  });
+});
+
+describe("renderGalleriesEmptyHtml", () => {
+  const cmd = 'uploads gallery create --title "Release screenshots"';
+
+  it("leads with the state, not with instructions", () => {
+    const html = renderGalleriesEmptyHtml(cmd);
+    const headlineAt = html.indexOf("No galleries yet");
+    const commandAt = html.indexOf("ws-empty__command");
+    expect(headlineAt).toBeGreaterThanOrEqual(0);
+    expect(commandAt).toBeGreaterThan(headlineAt);
+  });
+
+  it("carries the create command as the single primary action", () => {
+    const html = renderGalleriesEmptyHtml(cmd);
+    // `cmd` embeds double quotes (`--title "..."`), so the *safe* HTML must
+    // entity-escape them — left raw, `data-copy="${cmd}"` would terminate at
+    // the first embedded quote and corrupt the attribute. Assert on the
+    // escaped form rather than the raw string.
+    expect(html).toContain(escapeHtml(cmd));
+    expect(html.match(/data-copy=/g)).toHaveLength(1);
+  });
+
+  it("escapes a command containing markup", () => {
+    expect(renderGalleriesEmptyHtml('a<b>"c"')).not.toContain("<b>");
   });
 });

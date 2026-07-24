@@ -26,23 +26,24 @@ const createCmd = 'uploads gallery create --title "Release screenshots"';
         <div class="ws-title-block">
           <h2>Galleries</h2>
           <p class="settings-note muted">
-            Ordered sets of screenshots and media with one public link. Link a gallery to
-            pull requests or issues so a managed comment can surface the whole set.
+            Ordered sets of media behind one public link, linkable to a pull request or issue.
           </p>
         </div>
       </div>
 
-      <div class="command">
-        <code>{createCmd}</code>
-        <button type="button" data-copy={createCmd} aria-live="polite">copy</button>
-      </div>
-      <p class="muted cli-note">
-        Add files with <code>uploads put ./shot.png --gallery &lt;id&gt;</code> or
-        <code>uploads gallery add &lt;id&gt; &lt;key&gt;</code>. Link a PR with
-        <code>uploads gallery link &lt;id&gt; --github owner/repo#123</code>.
-      </p>
-
       <div id="ws-galleries" set:html={renderGalleriesPlaceholderHtml()} />
+
+      <details class="ws-gallery-help">
+        <summary>Working with galleries</summary>
+        <div class="command">
+          <code>{createCmd}</code>
+          <button type="button" data-copy={createCmd} aria-live="polite">copy</button>
+        </div>
+        <p class="muted cli-note">
+          Add files with <code>uploads put ./shot.png --gallery &lt;id&gt;</code>. Link a PR with
+          <code>uploads gallery link &lt;id&gt; --github owner/repo#123</code>.
+        </p>
+      </details>
     </div>
   </section>
 
@@ -59,6 +60,7 @@ const createCmd = 'uploads gallery create --title "Release screenshots"';
     import { loadWorkspaceSummary } from "../../../../lib/workspace-summary-source";
     import {
       bindCopyButtons,
+      renderGalleriesEmptyHtml,
       renderGalleriesTableHtml,
     } from "../../../../lib/workspace-ui";
 
@@ -108,7 +110,9 @@ const createCmd = 'uploads gallery create --title "Release screenshots"';
         // is no separate busy flag to clear on `galleriesEl` itself (it never
         // carried the attribute; the placeholder's child did).
         if (!galleries.length) {
-          galleriesEl.innerHTML = `<p class="ws-empty">No galleries yet. Create one with the command above.</p>`;
+          galleriesEl.innerHTML = renderGalleriesEmptyHtml(
+            'uploads gallery create --title "Release screenshots"',
+          );
           return;
         }
         galleriesEl.innerHTML = renderGalleriesTableHtml(galleries);

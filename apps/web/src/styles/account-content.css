@@ -1595,3 +1595,48 @@ button.wft-card__name:focus-visible {
   font-weight: 500;
   color: var(--muted);
 }
+
+/* Galleries empty state — the primary element when a workspace has none. */
+.ws-empty-state {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding: 20px 0 8px;
+}
+.ws-empty-state__title {
+  margin: 0;
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+.ws-empty-state__body {
+  margin: 0;
+  max-width: 46ch;
+  color: var(--muted);
+  font-size: 13px;
+}
+.ws-empty-state .command {
+  width: 100%;
+}
+
+/* Reference commands, demoted out of the primary reading path. */
+.ws-gallery-help {
+  margin-top: 20px;
+}
+.ws-gallery-help summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.ws-gallery-help summary::-webkit-details-marker {
+  display: none;
+}
+.ws-gallery-help summary:hover,
+.ws-gallery-help summary:focus-visible {
+  color: var(--fg);
+  outline: none;
+}

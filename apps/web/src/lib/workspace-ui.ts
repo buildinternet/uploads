@@ -448,6 +448,25 @@ export function renderUsagePlaceholderHtml(meters = 2): string {
   return `<div class="ul-progress" aria-busy="true">${rows}</div><div class="usage-meta">${skeletonBarHtml("64px")}</div>`;
 }
 
+/**
+ * Galleries empty state.
+ *
+ * Built as the page's primary element rather than a muted footnote: when a
+ * workspace has no galleries, "you have none, here is how to make one" *is*
+ * the content, and burying it under a command block inverted the hierarchy.
+ */
+export function renderGalleriesEmptyHtml(createCmd: string): string {
+  const safe = escapeHtml(createCmd);
+  return `<div class="ws-empty-state">
+  <p class="ws-empty-state__title">No galleries yet</p>
+  <p class="ws-empty-state__body">A gallery collects screenshots behind one public link you can drop in a pull request.</p>
+  <div class="command ws-empty__command">
+    <code>${safe}</code>
+    <button type="button" data-copy="${safe}" aria-live="polite">copy</button>
+  </div>
+</div>`;
+}
+
 /** Galleries table placeholder — same chrome as `renderGalleriesTableHtml`. */
 export function renderGalleriesPlaceholderHtml(rows = 3): string {
   // Varying widths so the block reads as a list of distinct rows rather than
