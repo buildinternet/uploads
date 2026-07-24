@@ -7,8 +7,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/pr-screenshot-reminder.sh",
-            "timeout": 15
+            "command": "uploads hook pre-pr-screenshot",
+            "timeout": 15,
+            "statusMessage": "Checking staged screenshots"
           }
         ]
       }

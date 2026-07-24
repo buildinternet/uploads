@@ -37,11 +37,11 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
   </section>
 
   <section id="plugin">
-    <h2>Claude Code plugin <a class="anchor" href="#plugin" aria-label="Link to this section">#</a></h2>
+    <h2>Claude Code &amp; Codex plugins <a class="anchor" href="#plugin" aria-label="Link to this section">#</a></h2>
     <p>
       On Claude Code you can install everything as one plugin — both agent skills, an
-      MCP server, and an <code>/uploads:attach</code> command — from the uploads
-      marketplace. Add the marketplace, then install:
+      MCP server, an <code>/uploads:attach</code> command, and a pre-PR screenshot
+      reminder hook — from the uploads marketplace. Add the marketplace, then install:
     </p>
     <div class="cmd slash">
       <span class="text">/plugin marketplace add buildinternet/uploads</span>
@@ -52,10 +52,11 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
       <button type="button" data-copy="/plugin install uploads@uploads" aria-live="polite">copy</button>
     </div>
     <p>
-      The bundled MCP server runs the local <code>uploads mcp</code> over stdio and
-      reads the token <code>uploads login</code> already stored, so once you've signed
-      in there's nothing else to wire up — just make sure the <code>uploads</code> CLI
-      is on your <code>PATH</code>.
+      Codex uses the same repo as a plugin (<code>.codex-plugin/plugin.json</code>):
+      skills plus the same pre-PR hook. After enabling it, open <code>/hooks</code> once
+      and trust the hook if Codex asks. Both plugins run
+      <code>uploads hook pre-pr-screenshot</code>, so keep the <code>uploads</code> CLI
+      on your <code>PATH</code> and run <code>uploads login</code> once.
     </p>
   </section>
 
@@ -121,33 +122,22 @@ staged files are promoted into the PR's attachments comment automatically.</pre>
   </section>
 
   <section id="pre-pr-reminder">
-    <h2>Optional: remind before the PR opens <a class="anchor" href="#pre-pr-reminder" aria-label="Link to this section">#</a></h2>
+    <h2>Pre-PR screenshot reminder <a class="anchor" href="#pre-pr-reminder" aria-label="Link to this section">#</a></h2>
     <p>
-      A useful backstop is a check at <code>gh pr create</code> time: is anything staged
-      for this branch? If your runtime supports pre-command hooks — or you wrap&#32;
-      <code>gh pr create</code> yourself — it's a few lines of shell.&#32;
-      <strong>Keep it fail-open</strong> — a broken check should never block a PR from being
-      created.
+      Before <code>gh pr create</code>, agents can get a non-blocking nudge when the
+      branch touches UI files and nothing is staged on uploads.sh. The handler is
+      <code>uploads hook pre-pr-screenshot</code> — fail-open, never blocks the PR.
+      Disable with <code>UPLOADS_HOOK_DISABLE=1</code>.
     </p>
-    <div class="block" aria-label="Generic pre-PR reminder script">
-      <pre>#!/bin/sh
-# Run before `gh pr create` (wrapper, or your agent's pre-command hook).
-# Fails open: any error here just skips the reminder, never blocks the PR.
-set -u
-# --format json always prints a valid document, even with zero files staged —
-# no empty-stdout special case to handle here.
-staged=$(uploads staged --format json 2>/dev/null) || exit 0
-case "$staged" in
-  *'"files": []'*)
-    echo "note: nothing staged for this branch — if this PR touches UI," >&2
-    echo "consider 'uploads put ./shot.png' first" >&2
-    ;;
-esac
-exit 0</pre>
-    </div>
+    <ul>
+      <li><strong>Claude Code</strong> and <strong>Codex</strong> — bundled in the
+        <a href="#plugin">plugin</a> (Codex: trust once via <code>/hooks</code>).</li>
+      <li><strong>Grok</strong> and <strong>Cursor</strong> —
+        <code>uploads install hooks</code> writes a user-global manifest when those
+        tools are present (included in plain <code>uploads install</code>).</li>
+    </ul>
     <p>
-      The <a href="#plugin">Claude Code plugin</a> ships this reminder as a bundled hook.
-      And no reminder is required at all — <code>uploads attach --promote</code> (no file
+      No reminder is required — <code>uploads attach --promote</code> (no file
       arguments) right after opening a PR picks up everything staged against the branch
       and posts or refreshes the attachments comment; it exits <code>0</code> even if
       nothing was staged.

@@ -8,30 +8,37 @@ import {
 import { resolveConfig } from "../config.js";
 import { execRunner, type CommandRunner } from "../github-gh.js";
 import { writeCommandHelp } from "../cli-style.js";
+import { HOOK_COMMAND, installHookManifests, type HookWriteResult } from "../hooks-install.js";
 
 export const DEFAULT_MCP_URL = "https://agents.uploads.sh/mcp";
 const SKILL_SOURCE = "buildinternet/uploads";
 const SKILL_NAMES = ["uploads-cli", "github-screenshots"];
 
-const INSTALL_HELP = `uploads install — set up agent integrations (skills + remote MCP)
+const INSTALL_HELP = `uploads install — set up agent integrations (skills + remote MCP + hooks)
 
-Installs the github-screenshots and uploads-cli agent skills and registers
-the hosted MCP server with Claude Code. The remote MCP endpoint infers your
-workspace from the bearer token, so only the token is needed.
+Installs the github-screenshots and uploads-cli agent skills, registers the
+hosted MCP server with Claude Code, and installs the PR screenshot reminder
+hook for Grok / Cursor when those tools are present. The remote MCP endpoint
+infers your workspace from the bearer token, so only the token is needed.
+
+Claude Code and Codex ship the same reminder via their plugins (same command:
+\`${HOOK_COMMAND}\`) — install those plugins instead of relying on this step.
 
 Usage:
-  uploads install [skill|mcp|all]     (default: all)
+  uploads install [skill|mcp|hooks|all]     (default: all)
 
 What it does:
   skill   Agent skills (via npx skills) — github-screenshots: visuals into
           PRs/issues; uploads-cli: full CLI reference
   mcp     Hosted MCP server in Claude Code — put, list, attach, galleries
+  hooks   PR screenshot reminder for Grok / Cursor (user-global manifests)
 
 What runs under the hood:
   skill   npx -y skills add ${SKILL_SOURCE} --skill <name> -g -y -a '*'
           (once per skill: ${SKILL_NAMES.join(", ")})
   mcp     claude mcp add --transport http uploads ${DEFAULT_MCP_URL} \\
             --header "Authorization: Bearer <token>"
+  hooks   write/merge ~/.grok/hooks/… and ~/.cursor/hooks.json when present
 
 Options:
   --url <endpoint>    Remote MCP endpoint (default: ${DEFAULT_MCP_URL})
@@ -43,6 +50,7 @@ Examples:
   uploads install
   uploads install skill
   uploads install mcp
+  uploads install hooks
   uploads install --dry-run
 `;
 
@@ -149,9 +157,28 @@ function printSuccessFooter(steps: string[], signedIn: boolean): void {
   }
 }
 
+function printHookResults(writes: HookWriteResult[]): void {
+  if (writes.length === 0) {
+    process.stdout.write(
+      "hooks: nothing to do (no ~/.grok or ~/.cursor; Claude/Codex use their plugins)\n",
+    );
+    return;
+  }
+  for (const w of writes) {
+    if (w.error) process.stderr.write(`hooks:${w.path}: skipped — ${w.error}\n`);
+    else process.stdout.write(`hooks:${w.path}: ${w.action}\n`);
+  }
+}
+
 export async function runInstall(
   args: string[],
-  opts: { globals: GlobalFlags; json?: boolean; runner?: CommandRunner },
+  opts: {
+    globals: GlobalFlags;
+    json?: boolean;
+    runner?: CommandRunner;
+    /** Override home for hook installs (tests). */
+    home?: string;
+  },
   help = false,
 ): Promise<number> {
   const parsed = parseCommandArgs(args);
@@ -161,8 +188,8 @@ export async function runInstall(
   }
 
   const target = parsed.positionals[0] ?? "all";
-  if (!["skill", "mcp", "all"].includes(target)) {
-    throw new UsageError(`unknown install target: ${target} (expected skill, mcp, or all)`);
+  if (!["skill", "mcp", "hooks", "all"].includes(target)) {
+    throw new UsageError(`unknown install target: ${target} (expected skill, mcp, hooks, or all)`);
   }
 
   const url = flagString(parsed.flags, "--url") ?? DEFAULT_MCP_URL;
@@ -176,6 +203,7 @@ export async function runInstall(
   const signedIn = Boolean(token);
   const redact = redactor(token);
   const results: Record<string, StepResult> = {};
+  let hookWrites: HookWriteResult[] = [];
 
   if (target === "skill" || target === "all") {
     if (human) process.stdout.write("Installing skills…\n");
@@ -202,6 +230,22 @@ export async function runInstall(
     }
   }
 
+  if (target === "hooks" || target === "all") {
+    if (human) process.stdout.write("Installing agent hooks…\n");
+    hookWrites = installHookManifests({ home: opts.home, dryRun });
+    // Surface as a synthetic step so --json / failure accounting stay simple.
+    const hookErrors = hookWrites.filter((w) => w.error);
+    results.hooks = {
+      command: [HOOK_COMMAND],
+      ok: hookErrors.length === 0,
+      skipped: dryRun ? "dry-run" : undefined,
+      output: hookWrites
+        .map((w) => `${w.path}: ${w.action}${w.error ? ` (${w.error})` : ""}`)
+        .join("\n"),
+      error: hookErrors.length > 0 ? hookErrors.map((w) => w.error).join("; ") : undefined,
+    };
+  }
+
   const failed = Object.values(results).some((r) => !r.ok);
 
   if (opts.json) {
@@ -222,6 +266,13 @@ export async function runInstall(
   }
 
   printHumanSteps(results, redact, verbose);
+  // Path-level detail for hooks (printHumanSteps only shows the synthetic step).
+  if (
+    (target === "hooks" || target === "all") &&
+    (dryRun || (human && (verbose || hookWrites.some((w) => w.action !== "skipped"))))
+  ) {
+    printHookResults(hookWrites);
+  }
 
   const skillResults = Object.entries(results)
     .filter(([step]) => step.startsWith("skill:"))

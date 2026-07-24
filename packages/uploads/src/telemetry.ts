@@ -30,6 +30,7 @@ const NESTED_COMMANDS = new Set([
   "completions",
   "config",
   "gallery",
+  "hook",
   "install",
   "meta",
   "telemetry",

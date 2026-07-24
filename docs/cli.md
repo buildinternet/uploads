@@ -14,8 +14,8 @@ and the exit codes, run `uploads help --all` or see
 ```bash
 uploads login          # sign in via browser; saves your workspace token, then runs doctor
 uploads whoami         # show the active workspace + token (alias: uploads status)
-uploads install        # install the agent skills + register the hosted MCP server
-uploads update         # update the CLI, then refresh the skills + MCP registration
+uploads install        # skills + hosted MCP + hooks for Grok/Cursor (Claude/Codex use plugins)
+uploads update         # update the CLI, then refresh skills / MCP / hooks
 uploads put ./shot.png # stdout: public URL + ready-to-paste markdown; stderr: human summary
 ```
 
@@ -50,24 +50,25 @@ command to run by hand, rather than overwriting your build.
 
 ## Command overview
 
-| Command                 | What it does                                              |
-| ----------------------- | --------------------------------------------------------- |
-| `attach <file…>`        | Attach media to the current PR (stable URLs + comment)    |
-| `put <file>`            | Upload one file → public URL + GitHub markdown            |
-| `comment`               | Create/update a PR/issue attachments comment (via `gh`)   |
-| `list` / `find k=v`     | List objects, optionally filtered by queryable metadata   |
-| `meta get` / `meta set` | Read or merge-set an object's queryable metadata          |
-| `gallery …`             | Create and organize public media galleries                |
-| `delete <key>`          | Delete an object                                          |
-| `usage`                 | Workspace storage / upload counters                       |
-| `install`               | Install the agent skills + register the remote MCP server |
-| `update`                | Update the CLI, then refresh the skills and MCP           |
-| `login` / `logout`      | Sign in (browser or enrollment code) / clear saved token  |
-| `whoami` (`status`)     | Show the active workspace and token                       |
-| `invite`                | Invite a teammate to a workspace (workspace admin)        |
-| `doctor` / `health`     | Health + auth + workspace checks / API liveness           |
-| `setup` / `config`      | Inspect and configure CLI settings                        |
-| `mcp`                   | Serve MCP over stdio (tools mirror the CLI)               |
+| Command                 | What it does                                                            |
+| ----------------------- | ----------------------------------------------------------------------- |
+| `attach <file…>`        | Attach media to the current PR (stable URLs + comment)                  |
+| `put <file>`            | Upload one file → public URL + GitHub markdown                          |
+| `comment`               | Create/update a PR/issue attachments comment (via `gh`)                 |
+| `list` / `find k=v`     | List objects, optionally filtered by queryable metadata                 |
+| `meta get` / `meta set` | Read or merge-set an object's queryable metadata                        |
+| `gallery …`             | Create and organize public media galleries                              |
+| `delete <key>`          | Delete an object                                                        |
+| `usage`                 | Workspace storage / upload counters                                     |
+| `install`               | Skills + remote MCP + hooks (Grok/Cursor); see plugins for Claude/Codex |
+| `hook`                  | Agent harness handlers (e.g. pre-PR screenshot reminder)                |
+| `update`                | Update the CLI, then refresh skills / MCP / hooks                       |
+| `login` / `logout`      | Sign in (browser or enrollment code) / clear saved token                |
+| `whoami` (`status`)     | Show the active workspace and token                                     |
+| `invite`                | Invite a teammate to a workspace (workspace admin)                      |
+| `doctor` / `health`     | Health + auth + workspace checks / API liveness                         |
+| `setup` / `config`      | Inspect and configure CLI settings                                      |
+| `mcp`                   | Serve MCP over stdio (tools mirror the CLI)                             |
 
 Run `uploads <command> --help` for a command's flags.
 
@@ -224,16 +225,23 @@ doesn't change gallery identity or visibility.
 > GitHub or repository visibility. Removing or deleting a gallery doesn't delete
 > its uploaded media or exempt it from retention.
 
-## Agent skills
+## Agent skills and hooks
 
 For agent runtimes, install the checked-in skills too (`uploads install` does
 this for you):
 
 ```bash
 npx skills add buildinternet/uploads
+# or: uploads install
 ```
 
 [`skills/github-screenshots/SKILL.md`](../skills/github-screenshots/SKILL.md) is
 the workflow skill — screenshots and recordings into PRs and issues.
 [`skills/uploads-cli/SKILL.md`](../skills/uploads-cli/SKILL.md) is the full CLI
 reference it defers to. See [api.md](api.md) for the REST routes.
+
+The same install step also wires a fail-open pre-PR screenshot reminder for
+**Grok** and **Cursor** when those tools are present. **Claude Code** and
+**Codex** get that reminder from their plugins instead (both run
+`uploads hook pre-pr-screenshot`). Public walkthrough:
+[uploads.sh/docs/agents](https://uploads.sh/docs/agents).

@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommandRunner } from "../src/github-gh.js";
 import { runInstall, DEFAULT_MCP_URL } from "../src/commands/install.js";
@@ -27,7 +30,18 @@ function captureStreams() {
 
 const GLOBALS = { apiUrl: "https://x.test", token: "up_acme_secret" };
 
+/** Isolated home so hook install never touches the real ~/.grok etc. */
+let emptyHome: string;
+
+function install(
+  args: string[],
+  opts: Parameters<typeof runInstall>[1],
+): ReturnType<typeof runInstall> {
+  return runInstall(args, { home: emptyHome, ...opts });
+}
+
 beforeEach(() => {
+  emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), "uploads-install-home-"));
   vi.stubEnv("BUILDINTERNET_CONFIG", "/nonexistent/uploads-install-test-config");
   vi.stubEnv("UPLOADS_TOKEN", "");
   vi.stubEnv("UPLOADS_WORKSPACE", "");
@@ -35,14 +49,15 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  fs.rmSync(emptyHome, { recursive: true, force: true });
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
 describe("uploads install", () => {
-  it("runs both steps by default: npx skills add and claude mcp add", async () => {
+  it("runs skill + mcp by default (hooks is a no-op without harness dirs)", async () => {
     const { run, calls } = fakeRunner();
-    const code = await runInstall([], { globals: GLOBALS, runner: run });
+    const code = await install([], { globals: GLOBALS, runner: run });
     expect(code).toBe(0);
     expect(calls).toEqual([
       [
@@ -88,7 +103,7 @@ describe("uploads install", () => {
   it("prints step progress and suppresses child output on success", async () => {
     const { run } = fakeRunner();
     const { out, err } = captureStreams();
-    const code = await runInstall([], { globals: GLOBALS, runner: run });
+    const code = await install([], { globals: GLOBALS, runner: run });
     expect(code).toBe(0);
     const printed = out.join("");
     expect(printed).toContain("Installing skills…");
@@ -96,6 +111,7 @@ describe("uploads install", () => {
     expect(printed).toMatch(/skill:uploads-cli: ok/);
     expect(printed).toMatch(/skill:github-screenshots: ok/);
     expect(printed).toMatch(/mcp: ok/);
+    expect(printed).toMatch(/hooks: ok/);
     // Child process noise stays out of the happy path.
     expect(printed).not.toContain("multi-line child output");
     expect(printed).not.toContain("claude mcp add");
@@ -107,13 +123,13 @@ describe("uploads install", () => {
   it("--verbose includes child output on success", async () => {
     const { run } = fakeRunner();
     const { out } = captureStreams();
-    expect(await runInstall(["--verbose"], { globals: GLOBALS, runner: run })).toBe(0);
+    expect(await install(["--verbose"], { globals: GLOBALS, runner: run })).toBe(0);
     expect(out.join("")).toContain("multi-line child output");
   });
 
   it("install skill runs only the skills step", async () => {
     const { run, calls } = fakeRunner();
-    expect(await runInstall(["skill"], { globals: GLOBALS, runner: run })).toBe(0);
+    expect(await install(["skill"], { globals: GLOBALS, runner: run })).toBe(0);
     expect(calls).toHaveLength(2);
     expect(calls.every((c) => c[0] === "npx")).toBe(true);
   });
@@ -121,15 +137,15 @@ describe("uploads install", () => {
   it("skill-only success still nudges login when unsigned", async () => {
     const { run } = fakeRunner();
     const { out } = captureStreams();
-    expect(
-      await runInstall(["skill"], { globals: { apiUrl: "https://x.test" }, runner: run }),
-    ).toBe(0);
+    expect(await install(["skill"], { globals: { apiUrl: "https://x.test" }, runner: run })).toBe(
+      0,
+    );
     expect(out.join("")).toMatch(/uploads login/);
   });
 
   it("install mcp honors --url and --name", async () => {
     const { run, calls } = fakeRunner();
-    const code = await runInstall(["mcp", "--url", "https://mcp.uploads.sh/mcp", "--name", "up"], {
+    const code = await install(["mcp", "--url", "https://mcp.uploads.sh/mcp", "--name", "up"], {
       globals: GLOBALS,
       runner: run,
     });
@@ -138,21 +154,36 @@ describe("uploads install", () => {
     expect(calls[0]).toContain("up");
   });
 
+  it("install hooks writes manifests when harness dirs exist", async () => {
+    fs.mkdirSync(path.join(emptyHome, ".grok"));
+    const { run, calls } = fakeRunner();
+    const { out } = captureStreams();
+    const code = await install(["hooks"], { globals: GLOBALS, runner: run });
+    expect(code).toBe(0);
+    expect(calls).toEqual([]);
+    expect(
+      fs.existsSync(path.join(emptyHome, ".grok", "hooks", "uploads-pre-pr-screenshot.json")),
+    ).toBe(true);
+    expect(out.join("")).toMatch(/hooks:/);
+  });
+
   it("--dry-run runs nothing and never prints the token", async () => {
     const { run, calls } = fakeRunner();
     const { out } = captureStreams();
-    const code = await runInstall(["--dry-run"], { globals: GLOBALS, json: true, runner: run });
+    const code = await install(["--dry-run"], { globals: GLOBALS, json: true, runner: run });
     expect(code).toBe(0);
     expect(calls).toEqual([]);
     const printed = out.join("");
     expect(printed).not.toContain("up_acme_secret");
     expect(printed).toContain("Bearer ***");
+    const parsed = JSON.parse(printed);
+    expect(parsed.steps.hooks).toBeDefined();
   });
 
   it("install mcp without a token skips with a login nudge (no crash, not 'failed')", async () => {
     const { run, calls } = fakeRunner();
     const { out, err } = captureStreams();
-    const code = await runInstall(["mcp"], {
+    const code = await install(["mcp"], {
       globals: { apiUrl: "https://x.test" },
       runner: run,
     });
@@ -168,7 +199,7 @@ describe("uploads install", () => {
   it("install all without a token still installs the skill, then nudges login for MCP", async () => {
     const { run, calls } = fakeRunner();
     const { out, err } = captureStreams();
-    const code = await runInstall(["all"], {
+    const code = await install(["all"], {
       globals: { apiUrl: "https://x.test" },
       runner: run,
     });
@@ -191,7 +222,7 @@ describe("uploads install", () => {
       throw err;
     };
     const { err } = captureStreams();
-    const code = await runInstall(["mcp"], { globals: GLOBALS, runner: enoent });
+    const code = await install(["mcp"], { globals: GLOBALS, runner: enoent });
     expect(code).toBe(1);
     const printed = err.join("");
     expect(printed).toContain("claude not found on PATH");
@@ -202,7 +233,7 @@ describe("uploads install", () => {
 
   it("rejects unknown targets", async () => {
     const { run } = fakeRunner();
-    await expect(runInstall(["nope"], { globals: GLOBALS, runner: run })).rejects.toThrow(
+    await expect(install(["nope"], { globals: GLOBALS, runner: run })).rejects.toThrow(
       /unknown install target/,
     );
   });
@@ -210,7 +241,7 @@ describe("uploads install", () => {
   it("--json reports each skill step under its own key", async () => {
     const { run } = fakeRunner();
     const { out } = captureStreams();
-    const code = await runInstall(["skill"], { globals: GLOBALS, json: true, runner: run });
+    const code = await install(["skill"], { globals: GLOBALS, json: true, runner: run });
     expect(code).toBe(0);
     const parsed = JSON.parse(out.join(""));
     expect(parsed.ok).toBe(true);
@@ -228,7 +259,7 @@ describe("uploads install", () => {
       return "mcp ok\n";
     };
     const { out, err } = captureStreams();
-    const code = await runInstall(["skill"], { globals: GLOBALS, runner: run });
+    const code = await install(["skill"], { globals: GLOBALS, runner: run });
     expect(code).toBe(1);
     expect(out.join("")).toMatch(/skill:uploads-cli: ok/);
     expect(err.join("")).toMatch(/skill:github-screenshots: failed/);
