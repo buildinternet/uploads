@@ -10,9 +10,10 @@ import { runInstall, runStep } from "./install.js";
 const UPDATE_HELP = `uploads update — update the CLI and refresh agent integrations
 
 Upgrades the globally installed npm package, then re-runs \`uploads install\` so
-the agent skills and the MCP registration match the new version. Skills and the
-MCP registration drift on their own, so this refreshes them even when the CLI is
-already current.
+the agent skills match the new version. Skills drift on their own, so this
+refreshes them even when the CLI is already current. An MCP server already
+registered is left as-is (\`already configured\`) — \`claude mcp add\` never
+overwrites an existing entry.
 
 Usage:
   uploads update [options]
