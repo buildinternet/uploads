@@ -51,6 +51,26 @@ import { planResponse, planSourceFor } from "../workspace-plan";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Max characters accepted in a `?name=` filename search term. */
+const SEARCH_NAME_MAX = 128;
+
+/**
+ * Validate and normalize a `?name=` term. Lowercased here so the substring
+ * comparison against object keys needs no per-row casing work. Always passed
+ * to files-sdk as a `substring` pattern, never `glob` or `regex`: glob would
+ * make `*` and `?` silently meaningful in a box where people type filenames,
+ * and a user-supplied regex would be a denial-of-service vector.
+ */
+function normalizeSearchName(raw: string): string {
+  const term = raw.trim();
+  if (term.length === 0 || term.length > SEARCH_NAME_MAX) {
+    throw new ValidationError("name must be 1–128 characters", {
+      code: "file_search_invalid_name",
+    });
+  }
+  return term.toLowerCase();
+}
+
 interface MyWorkspace {
   workspace: string;
   organization: { id: string; slug: string; name: string };
@@ -411,11 +431,15 @@ export const me = new Hono<SessionVars>()
 
     const query = c.req.query();
     const metaParamKeys = Object.keys(query).filter((k) => k.startsWith("meta."));
-    if (metaParamKeys.length === 0) {
-      throw new ValidationError("at least one meta.* filter is required", {
+    const rawName = c.req.query("name");
+    const nameTerm = rawName === undefined ? undefined : normalizeSearchName(rawName);
+
+    if (metaParamKeys.length === 0 && nameTerm === undefined) {
+      throw new ValidationError("at least one meta.* filter or name is required", {
         code: "file_metadata_invalid_key",
       });
     }
+
     const filters: Record<string, string> = {};
     for (const param of metaParamKeys) {
       const key = param.slice("meta.".length);
@@ -428,16 +452,40 @@ export const me = new Hono<SessionVars>()
       }
       filters[key] = values[0] ?? query[param];
     }
-    validateMetadataFilters(filters);
+    if (metaParamKeys.length > 0) validateMetadataFilters(filters);
 
     const SEARCH_LIMIT = 100;
-    const [cfg, matches] = await Promise.all([
-      storageConfig(c.env, record),
-      findObjectsByMetadata(c.env.DB, name, filters, {
+    const cfg = await storageConfig(c.env, record);
+
+    // Two paths. With metadata filters the D1 index is the selective one and
+    // already caps at SEARCH_LIMIT, so a name term narrows those rows in
+    // memory and storage is never walked. Name alone has no index to use, so
+    // it walks via files-sdk `search()` — `maxResults` stops the walk as soon
+    // as the cap is reached rather than traversing the whole workspace.
+    let matches: Array<{ key: string; metadata: Record<string, string> }>;
+    if (metaParamKeys.length > 0) {
+      const found = await findObjectsByMetadata(c.env.DB, name, filters, {
         prefix: query.prefix,
         limit: SEARCH_LIMIT + 1,
-      }),
-    ]);
+      });
+      matches = nameTerm
+        ? found.filter((match) => match.key.toLowerCase().includes(nameTerm))
+        : found;
+    } else {
+      const store = await storage(c.env, record);
+      const keys: string[] = [];
+      for await (const file of store.search(nameTerm!, {
+        match: "substring",
+        caseInsensitive: true,
+        maxResults: SEARCH_LIMIT + 1,
+        ...(query.prefix ? { prefix: query.prefix } : {}),
+      })) {
+        keys.push(file.key);
+      }
+      const metaByKey = await getMetadataForKeys(c.env.DB, name, keys);
+      matches = keys.map((key) => ({ key, metadata: metaByKey.get(key) ?? {} }));
+    }
+
     const truncated = matches.length > SEARCH_LIMIT;
     const page = truncated ? matches.slice(0, SEARCH_LIMIT) : matches;
     return c.json({

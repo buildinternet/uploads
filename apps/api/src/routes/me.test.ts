@@ -1668,6 +1668,75 @@ describe("GET /me/workspaces/:name/files/search", () => {
     const res = await app().request("/me/workspaces/other/files/search?meta.app=web", {}, env);
     expect(res.status).toBe(404);
   });
+
+  it("matches filenames case-insensitively by substring with ?name=", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/screenshots/Hero-Shot.png", "x");
+    await bucket.put("acme/screenshots/footer.png", "x");
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), bucket, record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/search?name=hero", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: { key: string }[]; truncated: boolean };
+    expect(body.items.map((i) => i.key)).toEqual(["screenshots/Hero-Shot.png"]);
+    expect(body.truncated).toBe(false);
+  });
+
+  it("treats the term as a literal substring, not a glob", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/report.png", "x");
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), bucket, record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/search?name=re*ort", {}, env);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { items: unknown[] }).items).toEqual([]);
+  });
+
+  it("narrows metadata results by name without walking storage", async () => {
+    const db = metadataDb([
+      { workspace: "acme", key: "f/hero.png", meta: { app: "web" } },
+      { workspace: "acme", key: "f/footer.png", meta: { app: "web" } },
+    ]);
+    // The bucket is empty: these two keys exist only in D1. If this path
+    // walked storage instead of filtering the metadata results, it would
+    // return nothing.
+    const env = memberEnv({ workspace: "acme", db, bucket: new FakeR2Bucket(), record: R2_RECORD });
+    const res = await app().request(
+      "/me/workspaces/acme/files/search?meta.app=web&name=hero",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: { key: string }[] };
+    expect(body.items.map((i) => i.key)).toEqual(["f/hero.png"]);
+  });
+
+  it("caps name results at 100 and flags truncation", async () => {
+    const bucket = new FakeR2Bucket();
+    for (let i = 0; i < 120; i++) await bucket.put(`acme/shot-${i}.png`, "x");
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), bucket, record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/search?name=shot", {}, env);
+    const body = (await res.json()) as { items: unknown[]; truncated: boolean };
+    expect(body.items).toHaveLength(100);
+    expect(body.truncated).toBe(true);
+  });
+
+  it("rejects a blank name with file_search_invalid_name", async () => {
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/search?name=%20%20", {}, env);
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "file_search_invalid_name" },
+    });
+  });
+
+  it("rejects a name longer than 128 characters", async () => {
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), record: R2_RECORD });
+    const res = await app().request(
+      `/me/workspaces/acme/files/search?name=${"a".repeat(129)}`,
+      {},
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
 });
 
 describe("GET /me/workspaces/:name/files/facets", () => {
