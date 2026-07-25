@@ -169,6 +169,15 @@ records; any future global secrets go through `wrangler secret put` (prod) or
   / `pnpm format`. CI runs the same gate in the **Lint & Format** job
   (`.github/workflows/ci.yml`), after `pnpm types` so gitignored
   `worker-configuration.d.ts` files exist for type-aware rules.
+- Three `unicorn` rules are off in `.oxlintrc.json` because their **autofixes**
+  are wrong here, not because their advice is: `prefer-set-has` rewrites an
+  array literal to `new Set(...)` without touching the variable's type
+  annotation, which stops compiling; `no-array-sort` and `no-array-reverse`
+  fire on this codebase's `[...arr].sort(...)` idiom, which already copies, so
+  their `toSorted`/`toReversed` rewrite just adds a second copy. oxlint's
+  `--fix` flags are global, so there is no way to keep a rule's diagnostic
+  while suppressing only its fix. If you re-enable any of them, re-check that
+  `pnpm lint:fix` still leaves a clean tree.
 - A Husky pre-commit hook runs `pnpm types` then `lint-staged` (oxlint + oxfmt
   on staged files); it's installed via the `prepare` script on `pnpm install`.
 - TypeScript strict, ESM only, `lib: ["ES2022"]` (no DOM — the Workers types

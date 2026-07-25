@@ -44,6 +44,9 @@
   /* Text */
   --fg: #ececea; /* headings / high-emphasis */
   --body: #b3b3ad; /* body copy */
+  /* Changing this? `.ul-select`'s caret in styles.css bakes in this literal
+     hex — a data-URI SVG renders in its own document scope and cannot resolve
+     custom properties, so the two only stay in sync by hand. */
   --muted: #8a8a83; /* metadata, footnotes, placeholders */
 
   /* Accents */

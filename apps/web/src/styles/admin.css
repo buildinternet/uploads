@@ -342,12 +342,18 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
+/*
+ * `select` deliberately dropped from these lists: .invite-role (the only
+ * <select> in an .admin-inline-form) is now styled by .ul-select
+ * .ul-select--sm, and a class+type rule here would out-specificity
+ * .ul-select's own declarations (background/border/padding/font) and clobber
+ * them. No .admin-stack-form <select> exists today either — leaving `select`
+ * out of both lists keeps the box available for .ul-select if one shows up.
+ */
 .admin-inline-form input,
-.admin-inline-form select,
 .admin-stack-form input[type="text"],
 .admin-stack-form input[type="url"],
 .admin-stack-form textarea,
-.admin-stack-form select,
 .users-ban-form input {
   background: var(--bg);
   border: 1px solid var(--line);
@@ -360,15 +366,12 @@
 }
 .admin-stack-form input[type="text"],
 .admin-stack-form input[type="url"],
-.admin-stack-form textarea,
-.admin-stack-form select {
+.admin-stack-form textarea {
   background: var(--panel);
 }
 .admin-inline-form input:focus-visible,
-.admin-inline-form select:focus-visible,
 .admin-stack-form input:focus-visible,
 .admin-stack-form textarea:focus-visible,
-.admin-stack-form select:focus-visible,
 .users-ban-form input:focus-visible {
   outline: none;
   border-color: var(--accent);

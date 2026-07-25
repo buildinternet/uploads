@@ -165,7 +165,7 @@ export function renderMembersHtml(members: MemberRow[], opts: MemberRowOptions =
       const sub = m.name ? `<span class="member-row__email">${escapeHtml(m.email)}</span>` : "";
       const controls = canManageMemberRow(m, opts)
         ? `<span class="member-row__actions">` +
-          `<select class="member-row__role-select" data-member-id="${escapeHtml(m.id!)}" aria-label="Role for ${escapeHtml(m.email)}">` +
+          `<select class="member-row__role-select ul-select ul-select--sm" data-member-id="${escapeHtml(m.id!)}" aria-label="Role for ${escapeHtml(m.email)}">` +
           `<option value="member"${m.role === "member" ? " selected" : ""}>member</option>` +
           `<option value="admin"${m.role === "admin" ? " selected" : ""}>admin</option>` +
           `</select>` +
@@ -175,6 +175,27 @@ export function renderMembersHtml(members: MemberRow[], opts: MemberRowOptions =
       return `<div class="member-row"><span class="member-row__who"><span class="member-row__name">${escapeHtml(lead)}</span>${sub}</span>${controls}</div>`;
     })
     .join("");
+}
+
+/**
+ * Member-list placeholder.
+ *
+ * Mirrors `renderMembersHtml`'s two-part row — `.member-row` is a flex with
+ * `justify-content: space-between`, so a single child would collapse to one
+ * column and the swap to real rows would visibly rearrange, not just repaint.
+ * The nested `__name` and `__role` spans also carry the font sizes the row's
+ * `align-items: baseline` height is derived from.
+ */
+export function renderMembersPlaceholderHtml(rows = 2): string {
+  const widths = ["124px", "96px"];
+  return Array.from(
+    { length: rows },
+    (_, i) =>
+      `<div class="member-row">` +
+      `<span class="member-row__who"><span class="member-row__name">${skeletonBarHtml(widths[i % widths.length])}</span></span>` +
+      `<span class="member-row__role">${skeletonBarHtml("42px")}</span>` +
+      `</div>`,
+  ).join("");
 }
 
 /**
@@ -353,4 +374,124 @@ export function bindCopyButtons(root: Node, selector = "button[data-copy]"): voi
       }
     })();
   });
+}
+
+/**
+ * Loading placeholders.
+ *
+ * These live beside the real builders on purpose. Their whole job is to
+ * occupy the *exact* height the real markup will occupy, so when data lands
+ * nothing on the page moves — and the only way to keep that true over time is
+ * for both versions of a given block to be edited in the same file, in view of
+ * each other. A placeholder that drifts from its counterpart is worse than no
+ * placeholder at all, because it reintroduces the shift it was added to remove.
+ *
+ * Deliberately unanimated: a placeholder is only ever seen on a first visit to
+ * a workspace, and a pulse at that moment reads as noise rather than progress.
+ */
+
+/**
+ * One masked bar. `width` drives `--ws-skel-w`.
+ *
+ * The value lands in a `style` attribute, which is a CSS context — HTML
+ * escaping would not make an attacker-controlled value safe there. Every call
+ * site passes a literal, so rather than rely on that staying true, anything
+ * that isn't a plain CSS length is dropped for the default.
+ */
+const CSS_LENGTH = /^\d+(\.\d+)?(px|%|em|rem|ch)$/;
+
+export function skeletonBarHtml(width: string): string {
+  const safe = CSS_LENGTH.test(width) ? width : "100%";
+  return `<span class="ws-skel" aria-hidden="true" style="--ws-skel-w:${safe}"></span>`;
+}
+
+/** Label/value skeleton widths for each meter row, cycled when `meters` runs past this table. */
+const USAGE_METER_WIDTHS: Array<{ label: string; value: string }> = [
+  { label: "52px", value: "96px" }, // "Storage"
+  { label: "108px", value: "78px" }, // "Uploads this month"
+];
+
+/**
+ * Empty meter chrome for the rail, guessing at `renderUsageHtml`'s shape.
+ *
+ * The real shape is unknowable before the first response lands: depending on
+ * which caps the workspace's plan actually sets, `renderUsageHtml` renders
+ * two meters, one meter, or — when no caps are set at all — a structurally
+ * different single-line `usage-text` block. This placeholder can only guess;
+ * `meters` (default 2, the common case of both caps set) lets a caller
+ * express its best guess, same as `renderGalleriesPlaceholderHtml(rows)`.
+ *
+ * A workspace with no caps (plan never applied) still collapses once, from
+ * these meters down to the one-line text, on its first visit — that shift is
+ * not eliminated by this change, only made no worse than the two-meter
+ * assumption already was. Most later visits paint from the cached snapshot
+ * (`workspace-cache.ts`) instead of this placeholder, so the collapse is
+ * uncommon after the first — but it is bounded, not impossible: the cache
+ * expires (`WORKSPACE_SNAPSHOT_TTL_MS`, 24h), gets invalidated wholesale on a
+ * `WORKSPACE_SNAPSHOT_VERSION` bump, and is cleared on sign-out
+ * (`clearWorkspaceSnapshots`), any of which sends the next visit back here.
+ */
+export function renderUsagePlaceholderHtml(meters = 2): string {
+  const row = (labelWidth: string, valueWidth: string): string => `<div class="ul-progress__row">
+    <div class="ul-progress__head">
+      <span class="ul-progress__label">${skeletonBarHtml(labelWidth)}</span>
+      <span class="ul-progress__value">${skeletonBarHtml(valueWidth)}</span>
+    </div>
+    <div class="ul-progress__track">
+      <div class="ul-progress__fill" style="width:0%"></div>
+    </div>
+  </div>`;
+  const rows = Array.from({ length: meters }, (_, i) => {
+    const w = USAGE_METER_WIDTHS[i % USAGE_METER_WIDTHS.length];
+    return row(w.label, w.value);
+  }).join("");
+  return `<div class="ul-progress" aria-busy="true">${rows}</div><div class="usage-meta">${skeletonBarHtml("64px")}</div>`;
+}
+
+/**
+ * Galleries empty state.
+ *
+ * Built as the page's primary element rather than a muted footnote: when a
+ * workspace has no galleries, "you have none, here is how to make one" *is*
+ * the content, and burying it under a command block inverted the hierarchy.
+ */
+export function renderGalleriesEmptyHtml(createCmd: string): string {
+  const safe = escapeHtml(createCmd);
+  return `<div class="ws-empty-state">
+  <p class="ws-empty-state__title">No galleries yet</p>
+  <p class="ws-empty-state__body">A gallery collects screenshots behind one public link you can drop in a pull request.</p>
+  <div class="command ws-empty__command">
+    <code>${safe}</code>
+    <button type="button" data-copy="${safe}" aria-live="polite">copy</button>
+  </div>
+</div>`;
+}
+
+/** Galleries table placeholder — same chrome as `renderGalleriesTableHtml`. */
+export function renderGalleriesPlaceholderHtml(rows = 3): string {
+  // Varying widths so the block reads as a list of distinct rows rather than
+  // a solid slab.
+  const widths = ["68%", "54%", "76%"];
+  const body = Array.from({ length: rows }, (_, i) => {
+    const w = widths[i % widths.length];
+    return `<tr>
+  <td>${skeletonBarHtml(w)}</td>
+  <td class="num">${skeletonBarHtml("24px")}</td>
+  <td>${skeletonBarHtml("92px")}</td>
+  <td class="ws-gallery-updated">${skeletonBarHtml("72px")}</td>
+</tr>`;
+  }).join("");
+  return `<div class="ws-table-wrap" aria-busy="true">
+<table class="ws-table" aria-label="Galleries">
+  <thead>
+    <tr>
+      <th scope="col">Name</th>
+      <th scope="col" class="num">Items</th>
+      <th scope="col">Linked</th>
+      <th scope="col">Updated</th>
+    </tr>
+  </thead>
+  <tbody>${body}</tbody>
+</table>
+</div>`;
 }

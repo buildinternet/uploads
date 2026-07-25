@@ -281,6 +281,51 @@
   opacity: 0.55;
   cursor: default;
 }
+/*
+ * `appearance: none` hands us the whole box — that's also what makes the
+ * `<select>`-vs-`<button>` height mismatch disappear (a browser form-control
+ * quirk in "auto" height for the two elements otherwise). We draw the caret
+ * ourselves as a background-image data URI so the box stays pixel-identical
+ * to `.ul-input`. CSP: pages that ship `img-src data:` (signed-in, auth,
+ * device) allow this — `background-image` is governed by `img-src`, and we
+ * never fetch the caret from a URL. The stroke is `--muted`'s literal hex
+ * (#8a8a83), not a live `var()` — the SVG renders as an external resource
+ * with its own document scope, so it can't resolve the host page's custom
+ * properties; baking in the value keeps it in the same idiom instead.
+ */
+.ul-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-color: var(--bg);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M2.75 4.5L6 7.75L9.25 4.5' stroke='%238a8a83' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--fg);
+  padding: 10px 34px 10px 12px;
+  font: 14px var(--mono);
+  width: 100%;
+}
+.ul-select:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+.ul-select:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+/* Compact variant — matches .text-btn's box (account-content.css) so a
+   member row's height converges on its own Remove button without a pin. */
+.ul-select--sm {
+  font: 12px var(--mono);
+  padding: 5px 22px 5px 9px;
+  border-radius: 6px;
+  background-position: right 8px center;
+  background-size: 10px 10px;
+}
 .ul-field__hint {
   color: var(--muted);
   font: 11px var(--mono);

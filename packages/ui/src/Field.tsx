@@ -21,6 +21,24 @@ export function Input({ className, ...rest }: InputProps) {
   return <input className={["ul-input", className].filter(Boolean).join(" ")} {...rest} />;
 }
 
+export interface SelectProps extends ComponentPropsWithoutRef<"select"> {}
+
+/**
+ * A single dark `<select>` in the monospace console idiom — same box as `Input`,
+ * with a drawn caret standing in for native browser chrome. Usually composed
+ * inside `Field`, but valid on its own. Pass `className="ul-select--sm"` for
+ * the compact variant used in dense rows and tables.
+ *
+ * @example
+ * <Select defaultValue="member">
+ *   <option value="member">member</option>
+ *   <option value="admin">admin</option>
+ * </Select>
+ */
+export function Select({ className, ...rest }: SelectProps) {
+  return <select className={["ul-select", className].filter(Boolean).join(" ")} {...rest} />;
+}
+
 export interface LabelProps extends ComponentPropsWithoutRef<"label"> {
   children?: ReactNode;
 }

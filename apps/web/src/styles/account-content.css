@@ -1551,10 +1551,24 @@ button.wft-card__name:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A row's height must not depend on which of three shapes its role cell
+   happens to render: a plain label (read-only viewer), a <select>
+   (manageable viewer, styled via .ul-select--sm below), or, via
+   .member-row__actions below, a Remove/Revoke .text-btn (also a
+   manageable/pending viewer). .member-row__role mirrors .text-btn's own box
+   (font/padding/border, account-content.css:513) — the same box
+   .ul-select--sm mirrors — rather than a measured number, so all three
+   converge on whatever that rule computes to and stay correct if it ever
+   changes. letter-spacing/text-transform/color stay label-specific — neither
+   affects box height. Can't just apply .ul-select--sm here: this is a plain
+   <span>, not a <select>, so the caret/background-image would be wrong. */
 .member-row__role {
   flex: none;
+  font: 12px var(--mono);
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
   color: var(--muted);
-  font-size: 10.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1584,9 +1598,19 @@ button.wft-card__name:focus-visible {
   align-items: center;
   gap: 8px;
 }
+/* Styling now comes from .ul-select .ul-select--sm (markup in workspace-ui.ts)
+   — that primitive's `appearance: none` takes full control of the box, which
+   turns out to be exactly what removes the old <select>-vs-<button> height
+   quirk (a previous attempt pinned `height: 27.5px` here because plain
+   box-matching CSS left a <select> rendering 2px taller than a <button> no
+   matter how closely font/padding/border/line-height/box-sizing were copied;
+   `appearance: none` plus a drawn-in caret doesn't have that quirk — see
+   packages/ui/src/styles.css). `.member-row__role-select` itself is now only
+   a JS hook (people.astro); the one thing it still needs is `width: auto` —
+   .ul-select defaults to 100% for stacked fields, but this select sits in the
+   flex .member-row__actions row next to the Remove button. */
 .member-row__role-select {
-  font: inherit;
-  padding: 2px 6px;
+  width: auto;
 }
 .member-row__role--pending {
   color: var(--accent);
@@ -1594,4 +1618,49 @@ button.wft-card__name:focus-visible {
 .member-row--pending .member-row__name {
   font-weight: 500;
   color: var(--muted);
+}
+
+/* Galleries empty state — the primary element when a workspace has none. */
+.ws-empty-state {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding: 20px 0 8px;
+}
+.ws-empty-state__title {
+  margin: 0;
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+.ws-empty-state__body {
+  margin: 0;
+  max-width: 46ch;
+  color: var(--muted);
+  font-size: 13px;
+}
+.ws-empty-state .command {
+  width: 100%;
+}
+
+/* Reference commands, demoted out of the primary reading path. */
+.ws-gallery-help {
+  margin-top: 20px;
+}
+.ws-gallery-help summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.ws-gallery-help summary::-webkit-details-marker {
+  display: none;
+}
+.ws-gallery-help summary:hover,
+.ws-gallery-help summary:focus-visible {
+  color: var(--fg);
+  outline: none;
 }

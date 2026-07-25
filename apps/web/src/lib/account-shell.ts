@@ -16,6 +16,7 @@ import {
   type SessionUser,
 } from "./auth-client";
 import { markPageLoad } from "./page-visit";
+import { clearWorkspaceSnapshots } from "./workspace-cache";
 
 export { getPageVisit, isCurrentPageVisit } from "./page-visit";
 
@@ -57,6 +58,7 @@ export function clearCachedSessionUser(): void {
     // localStorage-only so it survives sign-out for the next login.
     sessionStorage.removeItem("uploads:myWorkspaces");
     sessionStorage.removeItem("uploads:activeWorkspace");
+    clearWorkspaceSnapshots();
   } catch {
     // ignore
   }

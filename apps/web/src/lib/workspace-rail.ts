@@ -8,7 +8,9 @@
  *    synchronously, before any network round trip, so a files-tab script that
  *    races ahead of this module's session-gated fetches never calls a
  *    not-yet-defined function;
- *  - fetches `getWorkspaceSummary` → details and usage.
+ *  - paints last-known details/usage from the workspace snapshot cache
+ *    synchronously, then revalidates through the shared `loadWorkspaceSummary`
+ *    request once the session gate resolves.
  *
  * Connected-work hook contract (Task 8's files tab is the only caller):
  *   `window.__uploadsSetConnectedWork(items: GhWorkItem[], titles?: GithubTitleMap): void`
@@ -17,14 +19,11 @@
  * item; an empty array hides it. Non-files tabs never call it, so the section
  * stays hidden by construction.
  */
-import {
-  getGithubInstalled,
-  getWorkspaceSummary,
-  type GithubTitleMap,
-  type MyWorkspace,
-} from "./api-client";
+import { getGithubInstalled, type GithubTitleMap, type MyWorkspace } from "./api-client";
 import { onSession } from "./account-shell";
-import { escapeHtml, renderUsageHtml } from "./workspace-ui";
+import { escapeHtml, renderUsageHtml, skeletonBarHtml, type UsageSnapshot } from "./workspace-ui";
+import { readWorkspaceSnapshot } from "./workspace-cache";
+import { loadWorkspaceSummary } from "./workspace-summary-source";
 import { githubKindSvg } from "./brand-icons";
 import { applyGhTitles, githubOwnerAvatarUrl, type GhKind, type GhWorkItem } from "./gh-context";
 
@@ -81,6 +80,17 @@ export function renderDetailsHtml(ws: WorkspaceRailDetails): string {
   return (
     `<dt class="ws-rail__dt">slug</dt><dd class="ws-rail__dd">${escapeHtml(ws.organization.slug)}</dd>` +
     `<dt class="ws-rail__dt">base url</dt><dd class="ws-rail__dd">${baseUrlHtml}</dd>`
+  );
+}
+
+/**
+ * Rail details placeholder. The `<dt>` labels are static, so they render for
+ * real; only the `<dd>` values are masked.
+ */
+export function renderDetailsPlaceholderHtml(): string {
+  return (
+    `<dt class="ws-rail__dt">slug</dt><dd class="ws-rail__dd">${skeletonBarHtml("84px")}</dd>` +
+    `<dt class="ws-rail__dt">base url</dt><dd class="ws-rail__dd">${skeletonBarHtml("132px")}</dd>`
   );
 }
 
@@ -190,6 +200,47 @@ export function initWorkspaceRail(
   const usageEl = root.querySelector<HTMLElement>("[data-rail-usage]");
   const githubCtaEl = root.querySelector<HTMLElement>("[data-rail-github-cta]");
 
+  // `data-stale` is a diagnostic marker, not a user-facing affordance: nothing
+  // in the app styles or reads it. It exists so warm-paint behavior (this
+  // file's whole point) can be verified in the browser — inspect the rail
+  // elements after a Tier 1 paint and confirm the attribute is set, then
+  // confirm it clears once Tier 2 repaints with fresh data.
+  const paint = (
+    details: WorkspaceRailDetails | null,
+    usage: UsageSnapshot | undefined,
+    stale: boolean,
+  ): void => {
+    if (detailsEl && details) {
+      detailsEl.innerHTML = renderDetailsHtml(details);
+      detailsEl.toggleAttribute("data-stale", stale);
+      // The <dl> carries `aria-busy` itself (see WorkspaceLayout.astro) and
+      // survives the innerHTML swap, so it must be cleared by hand. The usage
+      // section needs no equivalent: its `aria-busy` lives on markup the swap
+      // replaces outright.
+      detailsEl.removeAttribute("aria-busy");
+    }
+    if (usageEl && usage) {
+      usageEl.innerHTML = renderUsageHtml(usage);
+      usageEl.toggleAttribute("data-stale", stale);
+    }
+  };
+
+  // Tier 1 — last known values, no network. Runs at module-eval time, before
+  // the session gate resolves. The server-rendered placeholders it overwrites
+  // occupy the same height, so this repaint moves nothing on the page.
+  const cached = readWorkspaceSnapshot(workspace);
+  if (cached) {
+    paint(
+      {
+        organization: { slug: cached.slug },
+        hasPublicUrl: cached.hasPublicUrl,
+        publicBaseUrl: cached.publicBaseUrl,
+      },
+      cached.usage,
+      true,
+    );
+  }
+
   onSession(() => {
     // Suppress the install CTA once this workspace has the App (issue #492).
     // One-way: the CTA ships visible and is only ever hidden, so an outage or
@@ -200,16 +251,39 @@ export function initWorkspaceRail(
       });
     }
 
-    void getWorkspaceSummary(apiOrigin, workspace).then((result) => {
+    void loadWorkspaceSummary(apiOrigin, workspace).then((result) => {
       if (result.kind !== "success") {
-        if (detailsEl) detailsEl.textContent = "Details unavailable.";
-        if (usageEl) usageEl.textContent = "Usage unavailable.";
+        // A warm paint is better than an error string: the values on screen
+        // were true recently, and the failure is already surfaced by whatever
+        // the page body does with the same shared result. But that only holds
+        // per-section — `cached` always carries details when it exists (every
+        // field but `usage` is required), while `cached.usage` can be
+        // undefined on its own (a prior successful response had
+        // `usage: null`). A section with nothing warm to keep must not be
+        // left sitting in Tier 0's skeleton (including its `aria-busy="true"`)
+        // forever — fall back to the error string there instead.
+        if (!cached && detailsEl) {
+          detailsEl.textContent = "Details unavailable.";
+          // `textContent` swaps the <dl>'s children, not the <dl>, so its own
+          // `aria-busy` outlives the write — an error that still announces as
+          // loading. The usage section needs no such clear: its `aria-busy`
+          // lives on a child that `textContent` destroys.
+          detailsEl.removeAttribute("aria-busy");
+        }
+        if (!cached?.usage && usageEl) usageEl.textContent = "Usage unavailable.";
         return;
       }
       const ws: MyWorkspace = result.workspace;
-      if (detailsEl) detailsEl.innerHTML = renderDetailsHtml(ws);
-      if (usageEl) {
-        usageEl.innerHTML = result.usage ? renderUsageHtml(result.usage) : "Usage unavailable.";
+      paint(ws, result.usage ?? undefined, false);
+      // `result.usage: null` is a genuinely reachable success shape (e.g. a
+      // plan with no usage record yet) — `paint` above already skips the
+      // usage section for it, leaving whatever Tier 1 warm-painted, if
+      // anything, on screen untouched (including its `data-stale`, which
+      // stays honest: the displayed value is still the cached one). Only
+      // fall back to the error string when there was no cached usage to
+      // fall back to, matching the failure branch's same warm-value rule.
+      if (usageEl && !result.usage && !cached?.usage) {
+        usageEl.textContent = "Usage unavailable.";
       }
     });
   });

@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  escapeHtml,
   formatBytes,
   formatGalleryDate,
   formatMarketedBytes,
   orderOrgsOldestFirst,
+  renderGalleriesEmptyHtml,
+  renderGalleriesPlaceholderHtml,
   renderGalleriesTableHtml,
   renderInvitesHtml,
   renderMembersHtml,
+  renderMembersPlaceholderHtml,
   renderUsageHtml,
+  renderUsagePlaceholderHtml,
   safeSameOriginPath,
+  skeletonBarHtml,
 } from "./workspace-ui";
 
 describe("formatBytes / formatMarketedBytes (decimal SI)", () => {
@@ -268,5 +274,95 @@ describe("renderGalleriesTableHtml", () => {
     expect(html).toContain("org/repo#3");
     expect(html).not.toContain("org/repo#4");
     expect(html).toContain("+2");
+  });
+});
+
+describe("skeleton placeholders", () => {
+  it("marks bars decorative so screen readers skip them", () => {
+    const html = skeletonBarHtml("60%");
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).toContain("ws-skel");
+    expect(html).toContain("--ws-skel-w:60%");
+  });
+
+  it("drops a width that is not a plain CSS length", () => {
+    // The value lands in a style attribute — a CSS context, where HTML
+    // escaping would not help. Anything unrecognised falls back to the default.
+    const html = skeletonBarHtml('60px;background:url("http://evil.test")');
+    expect(html).toContain("--ws-skel-w:100%");
+    expect(html).not.toContain("evil.test");
+  });
+
+  it("builds the usage placeholder from the same meter chrome as real usage", () => {
+    const html = renderUsagePlaceholderHtml();
+    // Same wrapper + row + track classes renderUsageHtml emits, so the swap
+    // to real data cannot change the section's height.
+    expect(html).toContain("ul-progress");
+    expect(html).toContain("ul-progress__row");
+    expect(html).toContain("ul-progress__track");
+    // Two meters, matching renderUsageHtml's storage + uploads pair.
+    expect(html.match(/ul-progress__row/g)).toHaveLength(2);
+    // Empty track: no width to animate from a wrong starting point.
+    expect(html).toContain("width:0%");
+    expect(html).toContain('aria-busy="true"');
+  });
+
+  it("emits as many meter rows as the caller's `meters` guess", () => {
+    // A caller expecting the workspace to land on the capless single-meter
+    // shape (or any other guess) can say so instead of always assuming two.
+    expect(renderUsagePlaceholderHtml(1).match(/ul-progress__row/g)).toHaveLength(1);
+    expect(renderUsagePlaceholderHtml(3).match(/ul-progress__row/g)).toHaveLength(3);
+  });
+
+  it("builds a galleries placeholder with the real table chrome", () => {
+    const html = renderGalleriesPlaceholderHtml(3);
+    expect(html).toContain("ws-table-wrap");
+    expect(html).toContain('class="ws-table"');
+    // Same four column headers renderGalleriesTableHtml emits.
+    expect(html).toContain(">Name<");
+    expect(html).toContain(">Items<");
+    expect(html).toContain(">Linked<");
+    expect(html).toContain(">Updated<");
+    expect(html.match(/<tr>/g)).toHaveLength(4); // 1 head + 3 body
+    expect(html).toContain('aria-busy="true"');
+  });
+
+  it("defaults to three placeholder rows", () => {
+    expect(renderGalleriesPlaceholderHtml().match(/<tr>/g)).toHaveLength(4);
+  });
+
+  it("mirrors the real member row's two-column structure", () => {
+    const html = renderMembersPlaceholderHtml(2);
+    expect(html.match(/class="member-row"/g)).toHaveLength(2);
+    // Both halves present, or the flex row collapses and the swap rearranges.
+    expect(html).toContain("member-row__who");
+    expect(html).toContain("member-row__name");
+    expect(html).toContain("member-row__role");
+  });
+});
+
+describe("renderGalleriesEmptyHtml", () => {
+  const cmd = 'uploads gallery create --title "Release screenshots"';
+
+  it("leads with the state, not with instructions", () => {
+    const html = renderGalleriesEmptyHtml(cmd);
+    const headlineAt = html.indexOf("No galleries yet");
+    const commandAt = html.indexOf("ws-empty__command");
+    expect(headlineAt).toBeGreaterThanOrEqual(0);
+    expect(commandAt).toBeGreaterThan(headlineAt);
+  });
+
+  it("carries the create command as the single primary action", () => {
+    const html = renderGalleriesEmptyHtml(cmd);
+    // `cmd` embeds double quotes (`--title "..."`), so the *safe* HTML must
+    // entity-escape them — left raw, `data-copy="${cmd}"` would terminate at
+    // the first embedded quote and corrupt the attribute. Assert on the
+    // escaped form rather than the raw string.
+    expect(html).toContain(escapeHtml(cmd));
+    expect(html.match(/data-copy=/g)).toHaveLength(1);
+  });
+
+  it("escapes a command containing markup", () => {
+    expect(renderGalleriesEmptyHtml('a<b>"c"')).not.toContain("<b>");
   });
 });
