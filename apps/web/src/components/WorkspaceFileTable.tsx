@@ -1,15 +1,13 @@
 /**
  * The 3A workspace files tab — filter bar, chips ↔ breadcrumbs, a conditional
  * exact-PR-match banner, and the file listing (list or grid view: thumbnail,
- * size, type, visibility, `⋯` actions). Replaces `WorkspaceFiles` +
- * `AccountFileBrowser` + `MetadataSearchResults` as the single island mounted
- * by `pages/account/workspaces/[name].astro`. See
- * `.superpowers/sdd/task-8-brief.md` for the row / thumbnail / chip spec.
+ * size, type, visibility, `⋯` actions). The single island mounted by
+ * `pages/account/workspaces/[name].astro`.
  *
- * Data source: `listWorkspaceFolder` when no filters are active (folder
+ * Data source: `listWorkspaceFolder` when nothing is being filtered (folder
  * browse, URL-synced via `workspace-browse-url`), `searchWorkspaceFiles` when
- * one or more metadata filters are active (URL-synced via
- * `workspace-search-url`) — same split as the components this replaces.
+ * a name term or one or more metadata filters are active (URL-synced via
+ * `workspace-search-url`).
  * After every listing/search resolves, the current row set is pushed to the
  * right-rail "connected work" section (Task 7's
  * `window.__uploadsSetConnectedWork` hook) and checked for an exact
@@ -479,8 +477,9 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
     return () => {
       cancelled = true;
     };
-    // filtersKey stands in for `filters` (serialized) — same convention as
-    // the MetadataSearchResults component this replaces.
+    // filtersKey stands in for `filters` (serialized): the array identity
+    // changes on every render, so depending on it directly would refetch in a
+    // loop. The serialized key changes only when a filter actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiOrigin, workspace, info, filtered, filtersKey, nameTerm, prefix]);
 
