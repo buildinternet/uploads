@@ -17,8 +17,11 @@ import { usageWithLimits } from "../budget";
 import { throwForInviteError } from "../invite-error";
 import { parseExternalReference } from "../external-references";
 import {
+  facetKeys,
+  facetValues,
   findObjectsByMetadata,
   getMetadataForKeys,
+  META_KEY_RE,
   validateMetadataFilters,
 } from "../file-metadata";
 import { badKey, listObjects, setObjectVisibility } from "../files-core";
@@ -444,6 +447,29 @@ export const me = new Hono<SessionVars>()
       }),
       truncated,
     });
+  })
+
+  // Facet discovery for the files-tab filter bar: which metadata keys this
+  // workspace actually contains, and (with `?key=`) that key's values. The
+  // filter bar cannot otherwise tell a user what is filterable — keys are
+  // user- and agent-defined, not a schema. Member-gated exactly as the
+  // sibling search route is.
+  .get("/workspaces/:name/files/facets", async (c) => {
+    const name = c.req.param("name");
+    await memberWorkspaceOr404(c.env, requireUserId(c), name);
+
+    const key = c.req.query("key");
+    if (key === undefined) {
+      return c.json(await facetKeys(c.env.DB, name));
+    }
+    if (!META_KEY_RE.test(key)) {
+      throw new ValidationError(`invalid metadata key: ${key}`, {
+        code: "file_metadata_invalid_key",
+        details: { key },
+      });
+    }
+    const { values, truncated } = await facetValues(c.env.DB, name, key);
+    return c.json({ key, values, truncated });
   })
 
   // Resolve a selected browser item to a usable URL, by storage capability

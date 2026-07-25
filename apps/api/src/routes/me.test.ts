@@ -1669,3 +1669,56 @@ describe("GET /me/workspaces/:name/files/search", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("GET /me/workspaces/:name/files/facets", () => {
+  it("lists the workspace's metadata keys with counts", async () => {
+    const db = metadataDb([
+      { workspace: "acme", key: "a.png", meta: { "gh.repo": "o/r", app: "web" } },
+      { workspace: "acme", key: "b.png", meta: { "gh.repo": "o/r" } },
+    ]);
+    const env = memberEnv({ workspace: "acme", db, record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/facets", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      keys: [
+        { key: "gh.repo", count: 2, distinctValues: 1 },
+        { key: "app", count: 1, distinctValues: 1 },
+      ],
+      truncated: false,
+    });
+  });
+
+  it("lists one key's values when ?key= is given", async () => {
+    const db = metadataDb([
+      { workspace: "acme", key: "a.png", meta: { app: "web" } },
+      { workspace: "acme", key: "b.png", meta: { app: "web" } },
+      { workspace: "acme", key: "c.png", meta: { app: "api" } },
+    ]);
+    const env = memberEnv({ workspace: "acme", db, record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/facets?key=app", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      key: "app",
+      values: [
+        { value: "web", count: 2 },
+        { value: "api", count: 1 },
+      ],
+      truncated: false,
+    });
+  });
+
+  it("rejects a malformed key with file_metadata_invalid_key", async () => {
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/facets?key=BadKey", {}, env);
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "file_metadata_invalid_key" },
+    });
+  });
+
+  it("404s for a workspace the caller is not a member of", async () => {
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), record: R2_RECORD });
+    const res = await app().request("/me/workspaces/other/files/facets", {}, env);
+    expect(res.status).toBe(404);
+  });
+});
