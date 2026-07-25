@@ -50,20 +50,6 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
       text-transform: uppercase;
       margin-bottom: 6px;
     }
-    .ws select {
-      width: 100%;
-      font: 14px var(--mono);
-      color: var(--fg);
-      background: var(--bg);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-sm);
-      padding: 9px 11px;
-      appearance: none;
-    }
-    .ws select:focus-visible {
-      border-color: var(--accent);
-      outline: none;
-    }
     .ws .fixed {
       font: 14px var(--mono);
       color: var(--fg);
@@ -154,7 +140,7 @@ applyAuthSecurityHeaders(Astro.response.headers, devicePageCsp(authOrigin, apiOr
 
     <div class="ws" id="ws-block" hidden>
       <label for="ws-select">Workspace</label>
-      <select id="ws-select"></select>
+      <select id="ws-select" class="ul-select"></select>
       <div class="fixed" id="ws-fixed" hidden></div>
       <p class="note" id="ws-note" hidden></p>
       <div class="ws-new" id="ws-new" hidden>

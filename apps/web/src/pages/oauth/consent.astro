@@ -32,8 +32,6 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     .client-host :global(a){color:inherit}
     .workspace-picker{margin:0 0 20px}
     .workspace-picker label{display:block;color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px}
-    .workspace-picker select{width:100%;font:14px var(--mono);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:9px 11px;appearance:none}
-    .workspace-picker select:focus-visible{border-color:var(--accent);outline:none}
     .scopes{list-style:none;margin:0 0 22px;padding:0;display:grid;gap:10px}
     .scopes :global(li){display:flex;align-items:baseline;gap:10px;padding:10px 12px;background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-md)}
     .scopes :global(.dot){width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none;margin-top:6px}
@@ -104,7 +102,7 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
     <div class="client-host" id="client-host" hidden></div>
     <div class="workspace-picker" id="workspace-picker" hidden>
       <label for="workspace-select">Workspace</label>
-      <select id="workspace-select"></select>
+      <select id="workspace-select" class="ul-select"></select>
     </div>
     <ul class="scopes" id="scope-list"></ul>
     <div class="actions">

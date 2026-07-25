@@ -149,7 +149,7 @@ export const prerender = false;
         ${subscriptionLine}
         ${appliedNote}
         <form class="plan-form">
-          <select class="plan-select" aria-label="Plan">${options}</select>
+          <select class="plan-select ul-select ul-select--sm" aria-label="Plan">${options}</select>
           <button type="submit">Save plan</button>
           <div class="plan-status" role="status" aria-live="polite" hidden></div>
         </form>`;
@@ -244,7 +244,7 @@ export const prerender = false;
             <div class="limit-row" data-field="${f.key}" data-byte="1">
               <label>${f.label}</label>
               <input type="number" min="1" step="1" class="limit-value" value="${split.value}" ${unlimited ? "disabled" : ""} />
-              <select class="limit-unit" ${unlimited ? "disabled" : ""}>${options}</select>
+              <select class="limit-unit ul-select ul-select--sm" ${unlimited ? "disabled" : ""}>${options}</select>
               <label class="limit-unlimited"><input type="checkbox" class="limit-unlim" ${unlimited ? "checked" : ""} /> Unlimited</label>
             </div>`;
         }
@@ -426,7 +426,7 @@ export const prerender = false;
                 ? `<form class="invite-form admin-inline-form admin-detail-block" data-workspace="${escapeHtml(ws.workspace)}">
                     <label>Email<input type="email" required class="invite-email" placeholder="you@example.com" /></label>
                     <label>Role
-                      <select class="invite-role">
+                      <select class="invite-role ul-select ul-select--sm">
                         <option value="member">member</option>
                         <option value="admin">admin</option>
                       </select>

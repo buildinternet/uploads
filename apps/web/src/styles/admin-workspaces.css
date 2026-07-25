@@ -13,9 +13,7 @@
   gap: 8px;
   align-items: center;
 }
-.workspace .plan-select,
-.workspace .limit-value,
-.workspace .limit-unit {
+.workspace .limit-value {
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -23,8 +21,18 @@
   padding: 4px 6px;
   font: 12px var(--mono);
 }
-.workspace .plan-select {
-  padding: 7px 9px;
+/* .plan-select, .limit-unit, and .invite-role are styled by .ul-select
+   .ul-select--sm (markup in admin/index.astro) instead of bespoke box CSS.
+   All three need width: auto — .ul-select defaults to 100% for a stacked
+   field, but each of these sits in a flex row (.plan-form next to "Save
+   plan"; the invite-role <label> inside the flex-wrap .admin-inline-form)
+   or, for .limit-unit, reads clearer pinned to content width like the
+   sibling .limit-value input even though its 70px grid column would also
+   work with the 100% default. */
+.workspace .plan-select,
+.workspace .limit-unit,
+.workspace .invite-role {
+  width: auto;
 }
 .workspace .plan-status,
 .workspace .limit-status,
@@ -62,8 +70,8 @@
   font-size: 13px;
   color: var(--body);
 }
-.workspace .limit-value:disabled,
-.workspace .limit-unit:disabled {
+/* .limit-unit's disabled treatment now comes from .ul-select:disabled. */
+.workspace .limit-value:disabled {
   opacity: 0.5;
 }
 .workspace .limit-unlimited {

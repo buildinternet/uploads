@@ -17,8 +17,8 @@ export type { ButtonProps } from "./Button";
 export { Panel } from "./Panel";
 export type { PanelProps } from "./Panel";
 
-export { Field, Input, Label } from "./Field";
-export type { FieldProps, InputProps, LabelProps } from "./Field";
+export { Field, Input, Label, Select } from "./Field";
+export type { FieldProps, InputProps, LabelProps, SelectProps } from "./Field";
 
 export { Callout } from "./Callout";
 export type { CalloutProps } from "./Callout";

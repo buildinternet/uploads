@@ -1553,12 +1553,15 @@ button.wft-card__name:focus-visible {
 }
 /* A row's height must not depend on which of three shapes its role cell
    happens to render: a plain label (read-only viewer), a <select>
-   (manageable viewer), or, via .member-row__actions below, a Remove/Revoke
-   .text-btn (also a manageable/pending viewer). .member-row__role mirrors
-   .text-btn's own box (font/padding/border, account-content.css:513) rather
-   than a measured number, so the label converges on whatever that rule
-   computes to and stays correct if it ever changes. letter-spacing/
-   text-transform/color stay label-specific — neither affects box height. */
+   (manageable viewer, styled via .ul-select--sm below), or, via
+   .member-row__actions below, a Remove/Revoke .text-btn (also a
+   manageable/pending viewer). .member-row__role mirrors .text-btn's own box
+   (font/padding/border, account-content.css:513) — the same box
+   .ul-select--sm mirrors — rather than a measured number, so all three
+   converge on whatever that rule computes to and stay correct if it ever
+   changes. letter-spacing/text-transform/color stay label-specific — neither
+   affects box height. Can't just apply .ul-select--sm here: this is a plain
+   <span>, not a <select>, so the caret/background-image would be wrong. */
 .member-row__role {
   flex: none;
   font: 12px var(--mono);
@@ -1595,23 +1598,19 @@ button.wft-card__name:focus-visible {
   align-items: center;
   gap: 8px;
 }
+/* Styling now comes from .ul-select .ul-select--sm (markup in workspace-ui.ts)
+   — that primitive's `appearance: none` takes full control of the box, which
+   turns out to be exactly what removes the old <select>-vs-<button> height
+   quirk (a previous attempt pinned `height: 27.5px` here because plain
+   box-matching CSS left a <select> rendering 2px taller than a <button> no
+   matter how closely font/padding/border/line-height/box-sizing were copied;
+   `appearance: none` plus a drawn-in caret doesn't have that quirk — see
+   packages/ui/src/styles.css). `.member-row__role-select` itself is now only
+   a JS hook (people.astro); the one thing it still needs is `width: auto` —
+   .ul-select defaults to 100% for stacked fields, but this select sits in the
+   flex .member-row__actions row next to the Remove button. */
 .member-row__role-select {
-  /* Same box-convergence rule as .member-row__role above — mirrors
-     .text-btn's font/padding/border rather than a measured number. That
-     alone isn't sufficient for <select>, though: measured live with every
-     other property byte-identical to .text-btn (font, padding, border,
-     line-height "normal", box-sizing border-box), a <select> still renders
-     2px taller than a <button> (29.5px vs. 27.5px) — a browser form-control
-     quirk in how "auto" height is computed for the two elements, not
-     anything expressible via matching CSS declarations. `height` pins it
-     to .text-btn's own measured 27.5px so the row's height genuinely can't
-     depend on the viewer's permission; re-measure this value if .text-btn's
-     box (account-content.css:513) or --mono ever changes. */
-  font: 12px var(--mono);
-  padding: 5px 9px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  height: 27.5px;
+  width: auto;
 }
 .member-row__role--pending {
   color: var(--accent);
