@@ -19,7 +19,7 @@
  */
 import { Callout } from "@uploads/ui";
 import "@uploads/ui/styles.css";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ConnectedWorkSetter } from "../lib/workspace-rail";
 import { applyGhTitles, connectedWork, exactPrMatch, type GhWorkItem } from "../lib/gh-context";
 import {
@@ -66,6 +66,7 @@ import {
   buildSuggestions,
   clampActiveIndex,
   firstSelectableIndex,
+  isSelectableSuggestion,
   parseDraft,
   stepActiveIndex,
   type Suggestion,
@@ -781,81 +782,99 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
   const renderSuggestionMenu = () => {
     const suggestions = currentSuggestions();
     if (suggestions.length === 0) return null;
+    // A listbox may only own options (or groups) — the static hint/loading/
+    // empty-facets/truncated rows carry no `role="option"` and don't belong
+    // inside `role="listbox"`, or they're exposed to assistive tech as bare,
+    // unexplained list items (see review finding). So the `<ul>` here holds
+    // only real options; the static rows render as siblings in the
+    // surrounding `.wft-suggest` container. `buildSuggestions` always groups
+    // its output as `[...options, ...staticRows]`, so splitting by
+    // `isSelectableSuggestion` and rendering options first, then static rows,
+    // reproduces the exact original order — static rows read as footers below
+    // the options, or stand alone when there are no options at all.
+    const staticRow = (id: string, content: ReactNode) => (
+      <div className="wft-suggest__hint" key={id} id={id} aria-disabled="true">
+        {content}
+      </div>
+    );
     return (
-      <ul className="wft-suggest" id="wft-suggest" role="listbox" aria-label="Filter suggestions">
+      <div className="wft-suggest">
+        <ul
+          id="wft-suggest"
+          role="listbox"
+          aria-label="Filter suggestions"
+          className="wft-suggest__list"
+        >
+          {suggestions.map((suggestion, index) => {
+            if (!isSelectableSuggestion(suggestion)) return null;
+            const id = `wft-suggest-${index}`;
+            const unique =
+              suggestion.kind === "key" && suggestion.count === suggestion.distinctValues;
+            return (
+              <li
+                key={id}
+                id={id}
+                role="option"
+                aria-selected={index === effectiveActiveIndex}
+                className={`wft-suggest__row${index === effectiveActiveIndex ? " is-active" : ""}`}
+                onMouseDown={(e) => {
+                  e.preventDefault(); // keep focus so onBlur doesn't close first
+                  applySuggestion(suggestion);
+                }}
+                onMouseEnter={() => setActiveIndex(index)}
+              >
+                {suggestion.kind === "name" ? (
+                  <>
+                    <span className="wft-suggest__label">name contains “{suggestion.term}”</span>
+                  </>
+                ) : suggestion.kind === "key" ? (
+                  <>
+                    <span className="wft-suggest__label">{suggestion.key}</span>
+                    <span className="wft-suggest__meta">
+                      {pluralCount(suggestion.count, "file")} ·{" "}
+                      {unique ? "unique per file" : pluralCount(suggestion.distinctValues, "value")}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="wft-suggest__label">{suggestion.value}</span>
+                    <span className="wft-suggest__meta">
+                      {pluralCount(suggestion.count, "file")}
+                    </span>
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ul>
         {suggestions.map((suggestion, index) => {
           const id = `wft-suggest-${index}`;
-          // Every row gets an `id`, selectable or not: `aria-activedescendant`
-          // must always resolve to a real element when it's set (it never points
-          // at one of these non-option rows, since `effectiveActiveIndex` only
-          // ever lands on a selectable index — but the id still needs to exist
-          // as a defensive invariant).
           if (suggestion.kind === "hint") {
-            return (
-              <li className="wft-suggest__hint" key={id} id={id} aria-disabled="true">
+            return staticRow(
+              id,
+              <>
                 or type <code>key=value</code> to filter directly
-              </li>
+              </>,
             );
           }
           if (suggestion.kind === "loading") {
-            return (
-              <li className="wft-suggest__hint" key={id} id={id} aria-disabled="true">
-                Loading values…
-              </li>
-            );
+            return staticRow(id, "Loading values…");
           }
           if (suggestion.kind === "empty-facets") {
-            return (
-              <li className="wft-suggest__hint" key={id} id={id} aria-disabled="true">
+            return staticRow(
+              id,
+              <>
                 No metadata yet — filters appear once files are uploaded with tags.{" "}
                 <a href="/docs/attach-pull-request-images">How to tag uploads</a>
-              </li>
+              </>,
             );
           }
           if (suggestion.kind === "truncated") {
-            return (
-              <li className="wft-suggest__hint" key={id} id={id} aria-disabled="true">
-                Showing the first 50 — type to narrow.
-              </li>
-            );
+            return staticRow(id, "Showing the first 50 — type to narrow.");
           }
-          const unique =
-            suggestion.kind === "key" && suggestion.count === suggestion.distinctValues;
-          return (
-            <li
-              key={id}
-              id={id}
-              role="option"
-              aria-selected={index === effectiveActiveIndex}
-              className={`wft-suggest__row${index === effectiveActiveIndex ? " is-active" : ""}`}
-              onMouseDown={(e) => {
-                e.preventDefault(); // keep focus so onBlur doesn't close first
-                applySuggestion(suggestion);
-              }}
-              onMouseEnter={() => setActiveIndex(index)}
-            >
-              {suggestion.kind === "name" ? (
-                <>
-                  <span className="wft-suggest__label">name contains “{suggestion.term}”</span>
-                </>
-              ) : suggestion.kind === "key" ? (
-                <>
-                  <span className="wft-suggest__label">{suggestion.key}</span>
-                  <span className="wft-suggest__meta">
-                    {pluralCount(suggestion.count, "file")} ·{" "}
-                    {unique ? "unique per file" : pluralCount(suggestion.distinctValues, "value")}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span className="wft-suggest__label">{suggestion.value}</span>
-                  <span className="wft-suggest__meta">{pluralCount(suggestion.count, "file")}</span>
-                </>
-              )}
-            </li>
-          );
+          return null;
         })}
-      </ul>
+      </div>
     );
   };
 

@@ -69,7 +69,7 @@ trigger — see "Why not an object index in D1".
 One session-authed route in `apps/api/src/routes/me.ts`, member-gated exactly
 as the sibling search route is, in two shapes:
 
-```
+```text
 GET /me/workspaces/:name/files/facets
   → { keys: [{ key: "gh.repo", count: 84, distinctValues: 6 }, …],
       truncated: false }
@@ -127,14 +127,16 @@ It walks `listAll` and matches keys client-side, so it runs on every adapter
 with no index and no per-provider capability check. The walk pages lazily and
 `maxResults` stops it early, so a query with many matches costs a page or two
 rather than a full traversal. The `Files` instance is already workspace-scoped
-(`createStorage` applies the prefix), so the walk cannot cross a tenant
+(`createStorage` applies the prefix), so the walk cannot cross a workspace
 boundary.
 
-**Results are complete, not partial.** Unlike a hand-rolled bounded scan, this
-never returns a truncated view of the workspace and needs no `scanCapped` flag:
-the only ceiling is the existing 100-result cap with its `truncated` flag, which
-metadata search already has. What grows with workspace size is latency, not
-correctness.
+**Name-only results are complete, not partial.** Unlike a hand-rolled bounded
+scan, `store.search()` walks the full object list rather than sampling a
+window, so a `name`-only query never returns a truncated view of the workspace
+and needs no `scanCapped` flag: the only ceiling is the existing 100-result cap
+with its `truncated` flag, which metadata search already has. What grows with
+workspace size is latency, not correctness. Combining `name` with `meta.*`
+changes this — see the completeness note under "The query" below.
 
 #### Why not an object index in D1
 
@@ -176,7 +178,7 @@ merely stale, and no amount of write-through fixes that.
 `GET /me/workspaces/:name/files/search` accepts a new `name` parameter,
 alongside or instead of `meta.*`:
 
-```
+```text
 GET /me/workspaces/:name/files/search?name=hero
 GET /me/workspaces/:name/files/search?name=hero&meta.app=web
 ```
@@ -196,8 +198,16 @@ first, so adding a metadata filter always makes a name search faster — which i
 also the advice the UI gives when results are truncated.
 
 Results cap at 100 with the existing `truncated` flag, as metadata search
-already does. There is no partial-scan flag, because neither path returns a
-partial view.
+already does. There is no silent truncation on either path — a cap that is hit
+is always reported — but the two paths differ in what that flag means. The
+`name`-only path is genuinely complete up to its cap: `store.search()` walks
+every object, so `truncated` only fires once results already exceed 100. The
+combined path is not: `findObjectsByMetadata` caps its candidate window at
+`SEARCH_LIMIT + 1` rows ordered by `object_key` _before_ the name filter runs,
+so the name filter narrows a capped window rather than the full match set.
+`truncated` correctly reports when that window is exceeded, so nothing is
+silently dropped, but the combined path is a bounded view of the candidate
+space, not a complete one — only the `name`-only path can claim that.
 
 The existing rule that at least one filter is required stays, with `name` now
 satisfying it. A request with neither `name` nor `meta.*` still 400s.
@@ -216,7 +226,7 @@ suggestion menu.
 **Empty input, on focus** — the workspace's own keys, with how many files carry
 each and how many distinct values it has:
 
-```
+```text
 gh.repo    84 files    6 values
 path      212 files  212 values
 app        40 files    3 values
@@ -338,12 +348,12 @@ keeps deliberately unqueryable and server-controlled. The user-facing tags
 Filtering on them would require mirroring the D1 tier into R2 on every upload,
 inverting the separation #511 established.
 
-**Tenancy would become procedural.** Uploads share one bucket with
-per-workspace prefixes, so a single AI Search instance spans every tenant, and
-isolation would rest on every query carrying a correct filter — over a corpus
-that includes private files. Today's search is workspace-scoped in SQL behind a
-member gate, and fails closed. Per-workspace instances would restore that
-property and are the shape any future exploration should start from.
+**Workspace isolation would become procedural.** Uploads share one bucket with
+per-workspace prefixes, so a single AI Search instance spans every workspace,
+and isolation would rest on every query carrying a correct filter — over a
+corpus that includes private files. Today's search is workspace-scoped in SQL
+behind a member gate, and fails closed. Per-workspace instances would restore
+that property and are the shape any future exploration should start from.
 
 **Cost scales with uploads.** Two Workers AI invocations per indexed image,
 against a free tier permitting 10,000 uploads a month.
@@ -353,6 +363,6 @@ and indexing latency is undocumented — awkward for a loop where a file is
 uploaded and referenced seconds later.
 
 None of this rules it out as a _separate_ feature: semantic screenshot search,
-likely paid-tier, on per-workspace instances, with tenant isolation reviewed
+likely paid-tier, on per-workspace instances, with workspace isolation reviewed
 before any code. It is orthogonal to facets, filename search, and the typeahead,
 and solves none of the three problems this spec addresses.

@@ -1014,12 +1014,20 @@ section.card .ws-messages .command {
   z-index: 20;
   margin: 4px 0 0;
   padding: 4px;
-  list-style: none;
   max-height: 20rem;
   overflow-y: auto;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 2px;
+}
+/* The listbox itself: only `role="option"` rows live here (see review
+ * finding on non-option rows inside `role="listbox"`), so it carries no
+ * visual chrome of its own — `.wft-suggest` (its wrapper) owns the scroll,
+ * border, and padding. */
+.wft-suggest__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 .wft-suggest__row {
   display: flex;

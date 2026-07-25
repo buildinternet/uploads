@@ -25,6 +25,9 @@ export type Suggestion =
   /** Non-selectable footer shown when the list just rendered was capped server-side. */
   | { kind: "truncated" };
 
+/** The selectable subset of {@link Suggestion} — rows `isSelectableSuggestion` accepts. */
+export type SelectableSuggestion = Extract<Suggestion, { kind: "name" | "key" | "value" }>;
+
 /**
  * Split a `key=value` draft. Only the first `=` separates, so values may
  * contain `=`. Returns null for bare text (no separator) or an empty key,
@@ -82,9 +85,16 @@ export function buildSuggestions(input: SuggestionInput): Suggestion[] {
     return valuesTruncated ? [...valueRows, ...truncatedFooter] : valueRows;
   }
 
+  const nameRow: Suggestion[] = trimmed ? [{ kind: "name", term: trimmed }] : [];
+
   // Facets unavailable — the bar still works, so teach the syntax and stop.
-  if (facets === null) return [{ kind: "hint" }];
-  if (facets.length === 0) return [{ kind: "empty-facets" }];
+  // The bare-text name row must survive this early return: it's the only
+  // usable search while facets are loading (see review finding: filename
+  // search disappeared exactly where it mattered most).
+  if (facets === null) return [...nameRow, { kind: "hint" }];
+  // No metadata at all — filename search is the *only* useful search here,
+  // so the name row must lead even though there are no keys to show.
+  if (facets.length === 0) return [...nameRow, { kind: "empty-facets" }];
 
   const available = facets.filter((row) => !activeKeys.includes(row.key));
   const needle = trimmed.toLowerCase();
@@ -100,7 +110,7 @@ export function buildSuggestions(input: SuggestionInput): Suggestion[] {
   // Bare text: filename search leads, matching keys follow. No trailing hint —
   // the user is mid-thought and the row set already shows both options.
   if (trimmed) {
-    return [{ kind: "name", term: trimmed }, ...keyRows, ...(keysTruncated ? truncatedFooter : [])];
+    return [...nameRow, ...keyRows, ...(keysTruncated ? truncatedFooter : [])];
   }
 
   // Empty input: the workspace's keys, the syntax hint, then the truncation
@@ -115,7 +125,7 @@ export function buildSuggestions(input: SuggestionInput): Suggestion[] {
 // review finding: aria-activedescendant pointed at non-existent/non-option ids).
 
 /** `name` / `key` / `value` rows are selectable; the rest are informational. */
-export function isSelectableSuggestion(suggestion: Suggestion): boolean {
+export function isSelectableSuggestion(suggestion: Suggestion): suggestion is SelectableSuggestion {
   return suggestion.kind === "name" || suggestion.kind === "key" || suggestion.kind === "value";
 }
 

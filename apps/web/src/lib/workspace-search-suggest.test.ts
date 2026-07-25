@@ -154,6 +154,53 @@ describe("buildSuggestions", () => {
     expect(out).toEqual([{ kind: "name", term: "hero.png" }]);
   });
 
+  // Review finding: filename search disappeared exactly where it mattered
+  // most, because the facets-state early returns fired before the bare-text
+  // `name` row was ever produced. These four cases pin the fixed behaviour.
+  it("offers name search alongside the hint while facets are still loading", () => {
+    const out = buildSuggestions({
+      draft: "hero",
+      facets: null,
+      values: null,
+      selectedKey: null,
+      activeKeys: [],
+    });
+    expect(out).toEqual([{ kind: "name", term: "hero" }, { kind: "hint" }]);
+  });
+
+  it("shows only the hint while facets are loading and the draft is empty", () => {
+    const out = buildSuggestions({
+      draft: "",
+      facets: null,
+      values: null,
+      selectedKey: null,
+      activeKeys: [],
+    });
+    expect(out).toEqual([{ kind: "hint" }]);
+  });
+
+  it("offers name search alongside empty-facets when the workspace has no metadata", () => {
+    const out = buildSuggestions({
+      draft: "hero",
+      facets: [],
+      values: null,
+      selectedKey: null,
+      activeKeys: [],
+    });
+    expect(out).toEqual([{ kind: "name", term: "hero" }, { kind: "empty-facets" }]);
+  });
+
+  it("shows only empty-facets when the workspace has no metadata and the draft is empty", () => {
+    const out = buildSuggestions({
+      draft: "",
+      facets: [],
+      values: null,
+      selectedKey: null,
+      activeKeys: [],
+    });
+    expect(out).toEqual([{ kind: "empty-facets" }]);
+  });
+
   it("appends the truncated row after the key list when the key list was capped", () => {
     const out = buildSuggestions({
       draft: "",
