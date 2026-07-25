@@ -1154,7 +1154,8 @@ git commit -m "feat(web): add filter-bar suggestion logic"
 
 **Interfaces:**
 
-- Consumes: `getWorkspaceFacets`, `getWorkspaceFacetValues`, `searchWorkspaceFiles` (Task 4); `buildSuggestions`, `parseDraft`, `Suggestion` (Task 5).
+- Consumes: `getWorkspaceFacets`, `getWorkspaceFacetValues`, `searchWorkspaceFiles` (Task 4); `buildSuggestions`, `parseDraft`, `Suggestion` (Task 5). `isValidMetaKey` already exists in `../lib/workspace-search-url` and is already imported by this component.
+- The `Suggestion` union has five variants: `name`, `key`, `value` (all selectable) and `hint`, `empty-facets`, `loading` (all non-selectable). `loading` is returned while a selected key's values are in flight — rendering it as a row rather than an empty menu is what stops the menu flickering closed on every key selection.
 - Produces: no exports; this is the leaf.
 
 This task has no unit tests — the component cannot be rendered in a node-only
@@ -1238,7 +1239,12 @@ Replace the `<form className="wft-filterbar input-group">` block (lines 659–67
     e.preventDefault();
     const suggestions = currentSuggestions();
     const active = suggestions[activeIndex];
-    if (active && active.kind !== "hint" && active.kind !== "empty-facets") {
+    if (
+      active &&
+      active.kind !== "hint" &&
+      active.kind !== "empty-facets" &&
+      active.kind !== "loading"
+    ) {
       applySuggestion(active);
       return;
     }
@@ -1265,7 +1271,9 @@ Replace the `<form className="wft-filterbar input-group">` block (lines 659–67
         setActiveIndex(0);
         setMenuOpen(true);
         const parsed = parseDraft(e.currentTarget.value);
-        if (parsed) void loadFacetValues(parsed.key);
+        // isValidMetaKey guard: the API rejects non-lowercase keys, so a draft
+        // like `GH.REPO=` would fire a request that can only 400.
+        if (parsed && isValidMetaKey(parsed.key)) void loadFacetValues(parsed.key);
       }}
       onKeyDown={(e) => {
         const suggestions = currentSuggestions();
@@ -1341,6 +1349,13 @@ const renderSuggestionMenu = () => {
           return (
             <li className="wft-suggest__hint" key={id} aria-disabled="true">
               or type <code>key=value</code> to filter directly
+            </li>
+          );
+        }
+        if (suggestion.kind === "loading") {
+          return (
+            <li className="wft-suggest__hint" key={id} aria-disabled="true">
+              Loading values…
             </li>
           );
         }
