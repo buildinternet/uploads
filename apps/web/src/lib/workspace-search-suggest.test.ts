@@ -91,6 +91,28 @@ describe("buildSuggestions", () => {
     expect(out).toEqual([{ kind: "value", key: "app", value: "web", count: 40 }]);
   });
 
+  it("shows the loading row when a selected key's values have not loaded yet", () => {
+    const out = buildSuggestions({
+      draft: "app=",
+      facets: FACETS,
+      values: null,
+      selectedKey: "app",
+      activeKeys: [],
+    });
+    expect(out).toEqual([{ kind: "loading" }]);
+  });
+
+  it("does not show the loading row once values load to genuinely none", () => {
+    const out = buildSuggestions({
+      draft: "app=",
+      facets: FACETS,
+      values: [],
+      selectedKey: "app",
+      activeKeys: [],
+    });
+    expect(out).toEqual([]);
+  });
+
   it("shows the empty-facets row when the workspace has no metadata", () => {
     const out = buildSuggestions({
       draft: "",

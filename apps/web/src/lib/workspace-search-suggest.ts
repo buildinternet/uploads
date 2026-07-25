@@ -19,7 +19,9 @@ export type Suggestion =
   /** Non-selectable footer teaching the `key=value` syntax. */
   | { kind: "hint" }
   /** Non-selectable row shown when the workspace carries no metadata at all. */
-  | { kind: "empty-facets" };
+  | { kind: "empty-facets" }
+  /** Non-selectable row shown while a selected key's values are still loading. */
+  | { kind: "loading" };
 
 /**
  * Split a `key=value` draft. Only the first `=` separates, so values may
@@ -47,6 +49,12 @@ export interface SuggestionInput {
   activeKeys: string[];
 }
 
+/**
+ * Ordering is not this function's job: keys and values are returned in
+ * whatever order they arrive in `facets`/`values`, which the `/files/facets`
+ * route guarantees is `count DESC, name ASC`. This function preserves that
+ * input order rather than re-sorting.
+ */
 export function buildSuggestions(input: SuggestionInput): Suggestion[] {
   const { draft, facets, values, selectedKey, activeKeys } = input;
   const trimmed = draft.trim();
@@ -55,7 +63,7 @@ export function buildSuggestions(input: SuggestionInput): Suggestion[] {
   if (selectedKey) {
     const parsed = parseDraft(draft);
     const partial = parsed?.value.toLowerCase() ?? "";
-    if (!values) return [];
+    if (!values) return [{ kind: "loading" }];
     return values
       .filter((row) => row.value.toLowerCase().includes(partial))
       .map((row) => ({
