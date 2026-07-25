@@ -59,10 +59,10 @@ matching so bare text does something useful, and a typeahead that puts both in
 front of the user without taking `key=value` away from anyone who already knows
 it.
 
-Filename matching carries a fourth, structural piece — an object index in D1 —
-because R2 cannot answer the question and scanning it per query would put a
-permanent ceiling on the feature. That index is cheaper than it sounds: the
-write path and the repair walk both already exist.
+No new storage is introduced. Facets read the `file_metadata` table that already
+exists; name matching goes through `files-sdk`'s `search()`, already a
+dependency. An indexed object table was designed and deferred with an explicit
+trigger — see "Why not an object index in D1".
 
 ### 1. Facets API
 
@@ -109,97 +109,67 @@ ascending. Each response carries `truncated`, and the menu renders it as
 are excluded from facets: they are not user-settable, so offering them as
 filters would advertise a filter the user cannot reproduce on upload.
 
-### 2. Filename matching, on an object index
+### 2. Filename matching
 
 `file_metadata` holds rows only for files that have metadata, so a name search
-run against it would silently miss every untagged file. R2 itself cannot help:
-`list()` offers lexicographic prefix pagination and nothing else. Object stores
-have no search, and every system that searches one maintains a separate index —
-S3 with Event Notifications into DynamoDB, GCS with Pub/Sub, R2 with
-[Event Notifications into Queues](https://developers.cloudflare.com/r2/buckets/event-notifications/).
+run against it would silently miss every untagged file. R2 itself cannot help
+directly: `list()` offers lexicographic prefix pagination and nothing else.
 
-Scanning R2 per query was considered and rejected. It would have meant a
-5,000-object ceiling, partial results on large workspaces, and a `scanCapped`
-flag in the UI — a permanent cap accepted to avoid building an index that this
-codebase is already 90% set up for.
+Name matching uses [`files-sdk`'s `search()`](https://files-sdk.dev/docs/api/search),
+already a dependency of `packages/storage` (pinned `2.1.0` with a local patch)
+and already the layer every storage call in this codebase goes through:
 
-#### The `file_objects` table
-
-A new D1 table, modelled directly on `file_content_hash`
-(`apps/api/migrations/20260724140000_file_content_hash.sql`) — the existing
-`(workspace, object_key)`-keyed index maintained on the upload path:
-
-```sql
-CREATE TABLE file_objects (
-  workspace     TEXT NOT NULL,
-  object_key    TEXT NOT NULL,
-  leaf_name     TEXT NOT NULL,  -- lowercased basename, for matching
-  size          INTEGER NOT NULL,
-  content_type  TEXT,
-  updated_at    TEXT NOT NULL,
-  PRIMARY KEY (workspace, object_key)
-);
-
-CREATE INDEX file_objects_name_idx ON file_objects (workspace, leaf_name);
+```ts
+store.search(term, { match: "substring", caseInsensitive: true, maxResults: 101 });
 ```
 
-`leaf_name` is stored lowercased so matching needs no `LOWER()` on the column
-and stays index-eligible for prefix queries. Substring queries
-(`leaf_name LIKE '%hero%'`) scan the workspace's rows — bounded by one
-workspace's object count, not the account's, and cheap at any plausible size.
-FTS5 is available in D1 if ranking is ever wanted, but it is not needed here and
-is not specced.
+It walks `listAll` and matches keys client-side, so it runs on every adapter
+with no index and no per-provider capability check. The walk pages lazily and
+`maxResults` stops it early, so a query with many matches costs a page or two
+rather than a full traversal. The `Files` instance is already workspace-scoped
+(`createStorage` applies the prefix), so the walk cannot cross a tenant
+boundary.
 
-#### Keeping it in sync
+**Results are complete, not partial.** Unlike a hand-rolled bounded scan, this
+never returns a truncated view of the workspace and needs no `scanCapped` flag:
+the only ceiling is the existing 100-result cap with its `truncated` flag, which
+metadata search already has. What grows with workspace size is latency, not
+correctness.
 
-Three layers, in descending order of how much work they do:
+#### Why not an object index in D1
 
-**Write-through** is the primary path. Every write already touches D1:
-`putObject` writes `file_metadata` and `file_content_hash`
-(`apps/api/src/files-core.ts:517`, `:531`), and `deleteObject` deletes
-`file_metadata` (`apps/api/src/files-core.ts:813`). The index row is written
-and deleted in exactly those two places, plus
-`deleteFileMetadataForWorkspace`'s sibling in `workspace-teardown.ts:71`.
+An indexed `file_objects` table — write-through on the upload path, modelled on
+the existing `file_content_hash` index — was designed and rejected for now.
 
-Writes are best-effort and wrapped, exactly as `recordContentHash` is: a failed
-index write must degrade to a stale index, never to a failed upload. Unlike the
-content-hash index, staleness here is visible to users — which is what the next
-layer is for.
+The write-through half is genuinely cheap: roughly twenty lines mirroring
+`recordContentHash`, at the two sites that already write `file_metadata`. The
+repair half is not. Repair would lean on `reconcileWorkspaceUsage`
+(`apps/api/src/reconcile.ts:29`), which walks every object and rewrites a D1
+ledger — but nothing runs it for most workspaces. The daily cron runs
+`runRetentionSweep`, which reaches reconcile only for workspaces with retention
+configured (`apps/api/src/retention.ts:94`); everything else is reconciled only
+when the usage route is called by hand. Making repair universal means walking
+every object of every workspace daily, which costs more than the scan it would
+replace.
 
-**Repair** reuses `reconcileWorkspaceUsage`
-(`apps/api/src/reconcile.ts:29`). It already walks every object under a
-workspace prefix with `listAll()` and rewrites a D1 ledger from
-storage-as-source-of-truth. The same walk rewrites the index: rows for keys
-seen, deletion of rows for keys absent. This is both the backfill for existing
-workspaces and the ongoing drift repair, and it is already wired into retention
-and exposed as a tool. No new walk is written.
+So the index would add a second source of truth about which objects exist,
+whose drift is repaired on no schedule. A scan's cost is bounded and visible —
+a slow query. An index's cost is unbounded and invisible — a file missing from
+search, reported weeks later. At current scale the insurance is not worth the
+premium.
 
-**Drift detection** — R2 Event Notifications into a Queue with an idempotent
-consumer — is **deliberately deferred**. It earns its place only when writes can
-bypass the API: BYO-storage, or direct S3 credentials. Neither exists today, so
-a consumer would be infrastructure with no drift to catch. Recorded here so the
-deferral is a decision rather than an oversight.
+**When to revisit.** The trigger is latency, and it is observable: when the
+largest workspace approaches ~10,000 objects, a full walk crosses roughly ten
+sequential `list()` pages and name search starts to feel slow. At that point
+build `file_objects` _and_ its scheduled repair together, costing both — not the
+write-through alone.
 
-#### Why not `files-sdk` `search()`
-
-[`files-sdk` ships a `search()`](https://files-sdk.dev/docs/api/search) that
-matches object keys by glob, regex, substring, or exact pattern, and this repo
-already depends on it (`packages/storage`, pinned at `2.1.0` with a local
-patch). It is built on `listAll` with client-side matching, so it works on every
-adapter and needs no index.
-
-It is not used for the search hot path, for the same reason the R2 scan was
-rejected: it walks every object per query. The pattern syntax is nicer than a
-hand-rolled scan, but the cost profile is identical to the design this spec
-replaces.
-
-It is, however, the correct **fallback for storage this index cannot see**. When
-BYO-storage lands, objects can arrive in a user's bucket without passing through
-this API, so `file_objects` would be structurally incomplete rather than merely
-stale — and no amount of write-through fixes that. `search()` is the answer
-there, already in the dependency tree, already adapter-agnostic. That is what
-makes deferring event notifications safe: the fallback exists before the
-scenario does.
+Two things make that later change cheap rather than a rewrite. The route
+contract does not change: `?name=` in, the same result shape out, so only the
+resolver behind it is swapped. And `search()` remains the correct path for
+BYO-storage whenever it lands — objects arriving in a user's own bucket never
+touch this API, so an index would be structurally incomplete there rather than
+merely stale, and no amount of write-through fixes that.
 
 #### The query
 
@@ -211,24 +181,32 @@ GET /me/workspaces/:name/files/search?name=hero
 GET /me/workspaces/:name/files/search?name=hero&meta.app=web
 ```
 
-Matching is case-insensitive substring against `leaf_name`.
+Matching is a case-insensitive substring test against the object key.
 
-**Composition.** With both `name` and `meta.*`, the two are joined in one
-statement — `file_metadata` INTERSECT legs joined to `file_objects` on
-`(workspace, object_key)` — rather than filtered in application code. One query,
-one round trip.
+**Composition.** Two short paths rather than one query shape, which is the price
+of not having an index:
 
-There is no scan ceiling and no `scanCapped` flag. Results cap at 100 with the
-existing `truncated` flag, as metadata search already does.
+- `name` alone → `store.search(...)` with `maxResults` at the result cap + 1.
+- `name` with `meta.*` → the existing `findObjectsByMetadata` runs first, and
+  its results are substring-filtered in memory. The D1 filter is the selective
+  one and caps at 100 rows, so this never walks storage at all.
+
+Both paths return the same shape. The second is strictly cheaper than the
+first, so adding a metadata filter always makes a name search faster — which is
+also the advice the UI gives when results are truncated.
+
+Results cap at 100 with the existing `truncated` flag, as metadata search
+already does. There is no partial-scan flag, because neither path returns a
+partial view.
 
 The existing rule that at least one filter is required stays, with `name` now
 satisfying it. A request with neither `name` nor `meta.*` still 400s.
 
-**Index freshness.** A best-effort write means a file can occasionally be
-missing from name results while present in folder browse. Folder browse reads
-R2 directly and is unaffected, so the file is never invisible — only
-occasionally unsearchable until the next reconcile. This is the accepted
-trade for never failing an upload on index maintenance.
+**Validation.** `name` is trimmed, capped at 128 characters, and rejected when
+empty after trimming. It is passed to `search()` as a `substring` pattern, never
+as `glob` or `regex` — a user-supplied regex would be a denial-of-service
+vector, and glob would make `*` and `?` silently meaningful in a box where
+people type filenames.
 
 ### 3. The typeahead
 
@@ -306,16 +284,12 @@ Vitest with in-process fakes, per the repo's runner.
 the 50-key and 50-value caps and their `truncated` flags; `video.*` exclusion;
 workspace scoping (one workspace's facets never leak into another's).
 
-**Name search.** Case-insensitivity, substring rather than prefix, composition
-with `meta.*` in one statement, the unchanged 400 when no filter is given at
-all.
-
-**Index maintenance.** A put inserts a row and an overwrite updates it in place
-rather than accumulating a second; a delete removes it; workspace teardown
-removes all of a workspace's rows; a failing index write does not fail the
-upload; `reconcileWorkspaceUsage` both backfills rows for objects it finds and
-deletes rows for keys no longer in storage. The reconcile test is the one that
-matters most — it is the whole drift story.
+**Name search.** Case-insensitivity; substring rather than prefix or glob
+(`re*ort` matches nothing, `report` matches `weekly-report.png`); the
+`maxResults` early stop yields the cap without exhausting the walk; the
+`name`-plus-`meta.*` path filters D1 results without touching storage; the
+unchanged 400 when no filter is given at all; `name` validation (trimmed,
+length-capped, empty rejected).
 
 **Client.** `searchWorkspaceFiles` with `name`, alone and combined; facets
 fetch and its malformed-body and outage paths.
@@ -334,7 +308,10 @@ before and after, including a workspace with no metadata.
 - Ranking or relevance ordering; D1 supports FTS5 if that changes
 - Facets on the token-authed `/v1` route; this is a web-UI affordance
 - Saved searches
-- R2 Event Notifications → Queue consumer (see "Keeping it in sync")
+- A `file_objects` D1 index and its scheduled repair — designed, deferred, with
+  a stated trigger (see "Why not an object index in D1")
+- R2 Event Notifications → Queue consumer; it belongs with the index, and only
+  once writes can bypass this API
 
 ### Cloudflare AI Search — evaluated, set aside
 
