@@ -96,3 +96,53 @@ export function buildSuggestions(input: SuggestionInput): Suggestion[] {
   // Empty input: the workspace's keys, plus the syntax hint as a footer.
   return [...keyRows, { kind: "hint" }];
 }
+
+// ── Keyboard-navigation helpers ────────────────────────────────────────────
+// `hint` / `loading` / `empty-facets` rows are informational only — arrow
+// keys must skip them and `aria-activedescendant` must never point at one,
+// or it references a DOM id that isn't a listbox option (see WorkspaceFileTable
+// review finding: aria-activedescendant pointed at non-existent/non-option ids).
+
+/** `name` / `key` / `value` rows are selectable; the rest are informational. */
+export function isSelectableSuggestion(suggestion: Suggestion): boolean {
+  return suggestion.kind === "name" || suggestion.kind === "key" || suggestion.kind === "value";
+}
+
+function selectableIndices(suggestions: Suggestion[]): number[] {
+  const out: number[] = [];
+  suggestions.forEach((suggestion, index) => {
+    if (isSelectableSuggestion(suggestion)) out.push(index);
+  });
+  return out;
+}
+
+/**
+ * Keep `index` pointing at a selectable row for the given suggestion list.
+ * Returns the same index when it's already selectable, the first selectable
+ * index when it isn't (e.g. the list changed under it), or -1 when nothing
+ * in the list is selectable.
+ */
+export function clampActiveIndex(suggestions: Suggestion[], index: number): number {
+  const selectable = selectableIndices(suggestions);
+  if (selectable.length === 0) return -1;
+  return selectable.includes(index) ? index : selectable[0];
+}
+
+/** First selectable row, or -1 when the list has none (all hint/loading/empty-facets). */
+export function firstSelectableIndex(suggestions: Suggestion[]): number {
+  return selectableIndices(suggestions)[0] ?? -1;
+}
+
+/** Move `current` to the next/previous selectable row, clamping at either end. */
+export function stepActiveIndex(
+  suggestions: Suggestion[],
+  current: number,
+  direction: 1 | -1,
+): number {
+  const selectable = selectableIndices(suggestions);
+  if (selectable.length === 0) return -1;
+  const pos = selectable.indexOf(current);
+  if (pos === -1) return direction > 0 ? selectable[0] : selectable[selectable.length - 1];
+  const nextPos = Math.min(Math.max(pos + direction, 0), selectable.length - 1);
+  return selectable[nextPos];
+}

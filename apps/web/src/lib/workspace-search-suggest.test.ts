@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildSuggestions, parseDraft } from "./workspace-search-suggest";
+import {
+  buildSuggestions,
+  clampActiveIndex,
+  firstSelectableIndex,
+  isSelectableSuggestion,
+  parseDraft,
+  stepActiveIndex,
+  type Suggestion,
+} from "./workspace-search-suggest";
 
 // Already ordered count-desc, as the facets route returns them. `buildSuggestions`
 // deliberately preserves input order rather than re-sorting — ordering is the
@@ -144,5 +152,64 @@ describe("buildSuggestions", () => {
       activeKeys: [],
     });
     expect(out).toEqual([{ kind: "name", term: "hero.png" }]);
+  });
+});
+
+describe("isSelectableSuggestion", () => {
+  it("treats name/key/value rows as selectable", () => {
+    expect(isSelectableSuggestion({ kind: "name", term: "x" })).toBe(true);
+    expect(isSelectableSuggestion({ kind: "key", key: "app", count: 1, distinctValues: 1 })).toBe(
+      true,
+    );
+    expect(isSelectableSuggestion({ kind: "value", key: "app", value: "web", count: 1 })).toBe(
+      true,
+    );
+  });
+
+  it("treats hint/loading/empty-facets rows as non-selectable", () => {
+    expect(isSelectableSuggestion({ kind: "hint" })).toBe(false);
+    expect(isSelectableSuggestion({ kind: "loading" })).toBe(false);
+    expect(isSelectableSuggestion({ kind: "empty-facets" })).toBe(false);
+  });
+});
+
+describe("firstSelectableIndex / clampActiveIndex / stepActiveIndex", () => {
+  const mixed: Suggestion[] = [
+    { kind: "hint" },
+    { kind: "key", key: "app", count: 1, distinctValues: 1 },
+    { kind: "key", key: "gh.repo", count: 1, distinctValues: 1 },
+  ];
+  const noneSelectable: Suggestion[] = [{ kind: "loading" }];
+
+  it("finds the first selectable row, skipping leading hints", () => {
+    expect(firstSelectableIndex(mixed)).toBe(1);
+  });
+
+  it("returns -1 when nothing is selectable", () => {
+    expect(firstSelectableIndex(noneSelectable)).toBe(-1);
+    expect(clampActiveIndex(noneSelectable, 0)).toBe(-1);
+    expect(stepActiveIndex(noneSelectable, 0, 1)).toBe(-1);
+  });
+
+  it("clamp keeps an already-selectable index as-is", () => {
+    expect(clampActiveIndex(mixed, 2)).toBe(2);
+  });
+
+  it("clamp redirects a non-selectable or out-of-range index to the first selectable row", () => {
+    expect(clampActiveIndex(mixed, 0)).toBe(1);
+    expect(clampActiveIndex(mixed, 99)).toBe(1);
+    expect(clampActiveIndex(mixed, -1)).toBe(1);
+  });
+
+  it("step moves forward/backward across selectable rows only", () => {
+    expect(stepActiveIndex(mixed, 1, 1)).toBe(2);
+    expect(stepActiveIndex(mixed, 2, 1)).toBe(2); // clamps at the end
+    expect(stepActiveIndex(mixed, 2, -1)).toBe(1);
+    expect(stepActiveIndex(mixed, 1, -1)).toBe(1); // clamps at the start
+  });
+
+  it("step from a non-selectable current index snaps to an end based on direction", () => {
+    expect(stepActiveIndex(mixed, 0, 1)).toBe(1);
+    expect(stepActiveIndex(mixed, 0, -1)).toBe(2);
   });
 });
