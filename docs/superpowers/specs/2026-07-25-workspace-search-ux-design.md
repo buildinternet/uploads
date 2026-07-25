@@ -294,10 +294,17 @@ length-capped, empty rejected).
 **Client.** `searchWorkspaceFiles` with `name`, alone and combined; facets
 fetch and its malformed-body and outage paths.
 
-**Component.** Menu opens on focus and lists keys; key selection drills to
-values; bare text offers name search first; `key=value` still commits without
-touching the menu; empty-facets state renders the docs line; facets failure
-degrades without breaking the input; keyboard navigation commits and dismisses.
+**Suggestion logic.** The repo's Vitest setup is node-only — no jsdom, no
+`@testing-library/react` — so React components cannot be rendered in a test.
+Every menu decision therefore lives in a pure `workspace-search-suggest.ts`
+module, following the existing `workspace-file-row.ts` /
+`workspace-search-url.ts` pattern, and is unit-tested there: which rows an
+empty draft produces, bare text offering name search ahead of matching keys,
+`key=` drilling to that key's values, already-filtered keys never offered
+twice, the empty-facets row, and the degraded row set when facets fail to load.
+
+The component keeps only focus, fetching, and keyboard wiring — thin enough
+that browser verification covers it.
 
 **Manual.** Browser verification of the bar against the `default` workspace,
 before and after, including a workspace with no metadata.
