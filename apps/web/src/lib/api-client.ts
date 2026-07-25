@@ -782,21 +782,19 @@ export async function searchWorkspaceFiles(
   if (result.kind === "unavailable") return result;
   const { response } = result;
   if (!response.ok) return { kind: "unavailable", reason: "server" };
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    return { kind: "unavailable", reason: "malformed" };
-  }
-  const b = body as { items?: unknown; truncated?: unknown };
+  const body = (await response.json().catch(() => null)) as {
+    items?: unknown;
+    truncated?: unknown;
+  } | null;
   if (
-    !Array.isArray(b.items) ||
-    typeof b.truncated !== "boolean" ||
-    !b.items.every(isSearchFileItem)
+    !body ||
+    !Array.isArray(body.items) ||
+    typeof body.truncated !== "boolean" ||
+    !body.items.every(isSearchFileItem)
   ) {
     return { kind: "unavailable", reason: "malformed" };
   }
-  return { kind: "ok", items: b.items, truncated: b.truncated };
+  return { kind: "ok", items: body.items, truncated: body.truncated };
 }
 
 /** One metadata key present in a workspace, with its file and value counts. */
@@ -848,17 +846,19 @@ export async function getWorkspaceFacets(
   const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files/facets`;
   const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
   if (result.kind === "unavailable" || !result.response.ok) return { kind: "unavailable" };
-  let body: unknown;
-  try {
-    body = await result.response.json();
-  } catch {
+  const body = (await result.response.json().catch(() => null)) as {
+    keys?: unknown;
+    truncated?: unknown;
+  } | null;
+  if (
+    !body ||
+    !Array.isArray(body.keys) ||
+    typeof body.truncated !== "boolean" ||
+    !body.keys.every(isFacetKey)
+  ) {
     return { kind: "unavailable" };
   }
-  const b = body as { keys?: unknown; truncated?: unknown };
-  if (!Array.isArray(b.keys) || typeof b.truncated !== "boolean" || !b.keys.every(isFacetKey)) {
-    return { kind: "unavailable" };
-  }
-  return { kind: "ok", keys: b.keys, truncated: b.truncated };
+  return { kind: "ok", keys: body.keys, truncated: body.truncated };
 }
 
 /** GET /me/workspaces/:name/files/facets?key= — one key's values. */
@@ -870,21 +870,19 @@ export async function getWorkspaceFacetValues(
   const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files/facets?key=${encodeURIComponent(key)}`;
   const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
   if (result.kind === "unavailable" || !result.response.ok) return { kind: "unavailable" };
-  let body: unknown;
-  try {
-    body = await result.response.json();
-  } catch {
-    return { kind: "unavailable" };
-  }
-  const b = body as { values?: unknown; truncated?: unknown };
+  const body = (await result.response.json().catch(() => null)) as {
+    values?: unknown;
+    truncated?: unknown;
+  } | null;
   if (
-    !Array.isArray(b.values) ||
-    typeof b.truncated !== "boolean" ||
-    !b.values.every(isFacetValue)
+    !body ||
+    !Array.isArray(body.values) ||
+    typeof body.truncated !== "boolean" ||
+    !body.values.every(isFacetValue)
   ) {
     return { kind: "unavailable" };
   }
-  return { kind: "ok", values: b.values, truncated: b.truncated };
+  return { kind: "ok", values: body.values, truncated: body.truncated };
 }
 
 export interface GithubTitleInfo {
