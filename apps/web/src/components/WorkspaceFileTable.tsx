@@ -1,15 +1,13 @@
 /**
  * The 3A workspace files tab — filter bar, chips ↔ breadcrumbs, a conditional
  * exact-PR-match banner, and the file listing (list or grid view: thumbnail,
- * size, type, visibility, `⋯` actions). Replaces `WorkspaceFiles` +
- * `AccountFileBrowser` + `MetadataSearchResults` as the single island mounted
- * by `pages/account/workspaces/[name].astro`. See
- * `.superpowers/sdd/task-8-brief.md` for the row / thumbnail / chip spec.
+ * size, type, visibility, `⋯` actions). The single island mounted by
+ * `pages/account/workspaces/[name].astro`.
  *
- * Data source: `listWorkspaceFolder` when no filters are active (folder
+ * Data source: `listWorkspaceFolder` when nothing is being filtered (folder
  * browse, URL-synced via `workspace-browse-url`), `searchWorkspaceFiles` when
- * one or more metadata filters are active (URL-synced via
- * `workspace-search-url`) — same split as the components this replaces.
+ * a name term or one or more metadata filters are active (URL-synced via
+ * `workspace-search-url`).
  * After every listing/search resolves, the current row set is pushed to the
  * right-rail "connected work" section (Task 7's
  * `window.__uploadsSetConnectedWork` hook) and checked for an exact
@@ -21,16 +19,20 @@
  */
 import { Callout } from "@uploads/ui";
 import "@uploads/ui/styles.css";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ConnectedWorkSetter } from "../lib/workspace-rail";
 import { applyGhTitles, connectedWork, exactPrMatch, type GhWorkItem } from "../lib/gh-context";
 import {
   GITHUB_TITLES_MAX_REFS,
   getGithubTitles,
   getMyWorkspaces,
+  getWorkspaceFacetValues,
+  getWorkspaceFacets,
   listWorkspaceFolder,
   searchWorkspaceFiles,
   setFileVisibility,
+  type FacetKey,
+  type FacetValue,
   type FileVisibility,
   type GithubTitleMap,
 } from "../lib/api-client";
@@ -56,9 +58,19 @@ import {
   isValidMetaKey,
   isValidMetaValue,
   readSearchFilters,
+  readSearchName,
   replaceSearchLocation,
   type MetaFilter,
 } from "../lib/workspace-search-url";
+import {
+  buildSuggestions,
+  clampActiveIndex,
+  firstSelectableIndex,
+  isSelectableSuggestion,
+  parseDraft,
+  stepActiveIndex,
+  type Suggestion,
+} from "../lib/workspace-search-suggest";
 import { fetchWithTimeout } from "../lib/request";
 import { onSession } from "../lib/account-shell";
 
@@ -360,6 +372,15 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
   );
   const [draft, setDraft] = useState("");
   const [filterError, setFilterError] = useState<string | null>(null);
+  const [nameTerm, setNameTerm] = useState<string>(
+    () => readSearchName(window.location.search) ?? "",
+  );
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [facets, setFacets] = useState<FacetKey[] | null>(null);
+  const [facetsTruncated, setFacetsTruncated] = useState(false);
+  const [facetValues, setFacetValues] = useState<Record<string, FacetValue[]>>({});
+  const [facetValuesTruncated, setFacetValuesTruncated] = useState<Record<string, boolean>>({});
   const [state, setState] = useState<ListingState>({ status: "loading" });
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
   const [togglingKeys, setTogglingKeys] = useState<ReadonlySet<string>>(new Set());
@@ -367,6 +388,14 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
   const [githubTitles, setGithubTitles] = useState<GithubTitleMap | null>(null);
   const [view, setView] = useState<FilesView>(() => resolveFilesView(window.location.search));
   const githubTitlesGeneration = useRef(0);
+  // In-flight guards (refs, not state — must not trigger re-renders) so a
+  // second call issued while the first is still pending (every keystroke on
+  // a `key=` draft, or a rapid blur/refocus) doesn't re-request the same key.
+  const facetsInFlightRef = useRef(false);
+  const facetValuesInFlightRef = useRef<Set<string>>(new Set());
+  // Tracks the pending `onBlur` close so a quick refocus can cancel it —
+  // otherwise the earlier timeout still fires and closes the reopened menu.
+  const blurTimeoutRef = useRef<number | null>(null);
 
   const setFilesView = (next: FilesView) => {
     setView(next);
@@ -375,7 +404,36 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
   };
 
   const filtersKey = filters.map((f) => `${f.key}=${f.value}`).join("&");
-  const filtered = filters.length > 0;
+  const filtered = filters.length > 0 || nameTerm.length > 0;
+
+  // Fetched lazily on first focus rather than on mount: most visits to this tab
+  // browse folders and never open the menu, and the query is pure overhead for
+  // them. Cached for the session — `facets` is only ever set once.
+  const loadFacets = async () => {
+    if (facets !== null || facetsInFlightRef.current) return;
+    facetsInFlightRef.current = true;
+    try {
+      const result = await getWorkspaceFacets(apiOrigin, workspace);
+      setFacets(result.kind === "ok" ? result.keys : null);
+      setFacetsTruncated(result.kind === "ok" && result.truncated);
+    } finally {
+      facetsInFlightRef.current = false;
+    }
+  };
+
+  const loadFacetValues = async (key: string) => {
+    if (facetValues[key] || facetValuesInFlightRef.current.has(key)) return;
+    facetValuesInFlightRef.current.add(key);
+    try {
+      const result = await getWorkspaceFacetValues(apiOrigin, workspace, key);
+      if (result.kind === "ok") {
+        setFacetValues((prev) => ({ ...prev, [key]: result.values }));
+        setFacetValuesTruncated((prev) => ({ ...prev, [key]: result.truncated }));
+      }
+    } finally {
+      facetValuesInFlightRef.current.delete(key);
+    }
+  };
 
   // Resolve workspace-level facts once (public-domain-configured),
   // gated behind the layout's session resolution like the rail (workspace-rail.ts).
@@ -403,7 +461,9 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
     setState({ status: "loading" });
     async function run() {
       if (filtered) {
-        const result = await searchWorkspaceFiles(apiOrigin, workspace, filters);
+        const result = await searchWorkspaceFiles(apiOrigin, workspace, filters, {
+          name: nameTerm || undefined,
+        });
         if (cancelled) return;
         setState(
           result.kind === "ok"
@@ -427,10 +487,11 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
     return () => {
       cancelled = true;
     };
-    // filtersKey stands in for `filters` (serialized) — same convention as
-    // the MetadataSearchResults component this replaces.
+    // filtersKey stands in for `filters` (serialized): the array identity
+    // changes on every render, so depending on it directly would refetch in a
+    // loop. The serialized key changes only when a filter actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiOrigin, workspace, info, filtered, filtersKey, prefix]);
+  }, [apiOrigin, workspace, info, filtered, filtersKey, nameTerm, prefix]);
 
   // Resolve connected-work titles once per listing. The generation guard keeps
   // a slower, superseded listing from repainting the current banner or rail.
@@ -463,6 +524,13 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
     setter?.(connectedWork(state.files), githubTitles ?? undefined);
   }, [githubTitles, state]);
 
+  // The blur-close timeout must not outlive the component.
+  useEffect(() => {
+    return () => {
+      if (blurTimeoutRef.current !== null) window.clearTimeout(blurTimeoutRef.current);
+    };
+  }, []);
+
   // Close the open `⋯` menu on outside click / Escape.
   useEffect(() => {
     if (!openMenuKey) return;
@@ -484,7 +552,12 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
 
   const commitFilters = (next: MetaFilter[]) => {
     setFilters(next);
-    replaceSearchLocation(workspace, next);
+    replaceSearchLocation(workspace, next, nameTerm || undefined);
+  };
+
+  const commitNameTerm = (next: string) => {
+    setNameTerm(next);
+    replaceSearchLocation(workspace, filters, next || undefined);
   };
 
   const navigate = (nextPrefix: string) => {
@@ -654,27 +727,261 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
     return parts.join(" · ");
   })();
 
+  const parsedDraft = parseDraft(draft);
+  // Only treat the parsed key as "selected" once it's a valid (lowercase) key —
+  // otherwise `buildSuggestions` would sit in its `loading` branch forever,
+  // since a request for an invalid key is never fired (see the `onChange`
+  // handler below).
+  const selectedKey = parsedDraft && isValidMetaKey(parsedDraft.key) ? parsedDraft.key : null;
+
+  const currentSuggestions = (): Suggestion[] =>
+    buildSuggestions({
+      draft,
+      facets,
+      values: selectedKey ? (facetValues[selectedKey] ?? null) : null,
+      selectedKey,
+      activeKeys: filters.map((f) => f.key),
+      keysTruncated: facetsTruncated,
+      valuesTruncated: selectedKey ? (facetValuesTruncated[selectedKey] ?? false) : false,
+    });
+
+  // The stored `activeIndex` can point at a non-selectable row (hint/loading/
+  // empty-facets) or past the end of a list that shrank while the menu was
+  // closed. Every render re-derives the row that's actually safe to highlight
+  // and reference from `aria-activedescendant`, rather than trusting the raw
+  // state — see review findings on aria-activedescendant and stale activeIndex.
+  const effectiveActiveIndex = clampActiveIndex(currentSuggestions(), activeIndex);
+
+  /** Commit a highlighted row: a name row searches, a key row drills in, a value row filters. */
+  const applySuggestion = (suggestion: Suggestion) => {
+    if (suggestion.kind === "name") {
+      commitNameTerm(suggestion.term);
+      setDraft("");
+      setMenuOpen(false);
+      return;
+    }
+    if (suggestion.kind === "key") {
+      // Drill in rather than commit: `key=` alone is not a filter, and this is
+      // the step that loads the key's values for the next menu.
+      setDraft(`${suggestion.key}=`);
+      setActiveIndex(0);
+      void loadFacetValues(suggestion.key);
+      return;
+    }
+    if (suggestion.kind === "value") {
+      setFilterError(null);
+      setDraft("");
+      setMenuOpen(false);
+      commitFilters([...filters, { key: suggestion.key, value: suggestion.value }]);
+    }
+  };
+
+  // A plain function, not a nested component: declaring a component inside
+  // another creates a new component type on every render, which would remount
+  // the menu (and drop its DOM state) on every keystroke.
+  const renderSuggestionMenu = () => {
+    const suggestions = currentSuggestions();
+    if (suggestions.length === 0) return null;
+    // A listbox may only own options (or groups) — the static hint/loading/
+    // empty-facets/truncated rows carry no `role="option"` and don't belong
+    // inside `role="listbox"`, or they're exposed to assistive tech as bare,
+    // unexplained list items (see review finding). So the `<ul>` here holds
+    // only real options; the static rows render as siblings in the
+    // surrounding `.wft-suggest` container. `buildSuggestions` always groups
+    // its output as `[...options, ...staticRows]`, so splitting by
+    // `isSelectableSuggestion` and rendering options first, then static rows,
+    // reproduces the exact original order — static rows read as footers below
+    // the options, or stand alone when there are no options at all.
+    const staticRow = (id: string, content: ReactNode) => (
+      <div className="wft-suggest__hint" key={id} id={id} aria-disabled="true">
+        {content}
+      </div>
+    );
+    return (
+      <div className="wft-suggest">
+        <ul
+          id="wft-suggest"
+          role="listbox"
+          aria-label="Filter suggestions"
+          className="wft-suggest__list"
+        >
+          {suggestions.map((suggestion, index) => {
+            if (!isSelectableSuggestion(suggestion)) return null;
+            const id = `wft-suggest-${index}`;
+            const unique =
+              suggestion.kind === "key" && suggestion.count === suggestion.distinctValues;
+            return (
+              <li
+                key={id}
+                id={id}
+                role="option"
+                aria-selected={index === effectiveActiveIndex}
+                className={`wft-suggest__row${index === effectiveActiveIndex ? " is-active" : ""}`}
+                onMouseDown={(e) => {
+                  e.preventDefault(); // keep focus so onBlur doesn't close first
+                  applySuggestion(suggestion);
+                }}
+                onMouseEnter={() => setActiveIndex(index)}
+              >
+                {suggestion.kind === "name" ? (
+                  <>
+                    <span className="wft-suggest__label">name contains “{suggestion.term}”</span>
+                  </>
+                ) : suggestion.kind === "key" ? (
+                  <>
+                    <span className="wft-suggest__label">{suggestion.key}</span>
+                    <span className="wft-suggest__meta">
+                      {pluralCount(suggestion.count, "file")} ·{" "}
+                      {unique ? "unique per file" : pluralCount(suggestion.distinctValues, "value")}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="wft-suggest__label">{suggestion.value}</span>
+                    <span className="wft-suggest__meta">
+                      {pluralCount(suggestion.count, "file")}
+                    </span>
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        {suggestions.map((suggestion, index) => {
+          const id = `wft-suggest-${index}`;
+          if (suggestion.kind === "hint") {
+            return staticRow(
+              id,
+              <>
+                or type <code>key=value</code> to filter directly
+              </>,
+            );
+          }
+          if (suggestion.kind === "loading") {
+            return staticRow(id, "Loading values…");
+          }
+          if (suggestion.kind === "empty-facets") {
+            return staticRow(
+              id,
+              <>
+                No metadata yet — filters appear once files are uploaded with tags.{" "}
+                <a href="/docs/attach-pull-request-images">How to tag uploads</a>
+              </>,
+            );
+          }
+          if (suggestion.kind === "truncated") {
+            return staticRow(id, "Showing the first 50 — type to narrow.");
+          }
+          return null;
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="wft">
-      <form
-        className="wft-filterbar input-group"
-        onSubmit={(e) => {
-          e.preventDefault();
-          addFilter();
-        }}
-      >
-        <span className="input-group__field">
-          <input
-            aria-label="Metadata filter"
-            placeholder="filter key=value  (e.g. gh.repo=uploads)"
-            value={draft}
-            onChange={(e) => setDraft(e.currentTarget.value)}
-          />
-        </span>
-        <button type="submit" className="input-group__action">
-          add
-        </button>
-      </form>
+      <div className="wft-filter">
+        <form
+          className="wft-filterbar input-group"
+          onSubmit={(e) => {
+            e.preventDefault();
+            // `effectiveActiveIndex` is already guaranteed to be either -1 or a
+            // selectable (name/key/value) row, so no `kind` check is needed here.
+            const active =
+              effectiveActiveIndex >= 0 ? currentSuggestions()[effectiveActiveIndex] : undefined;
+            if (active) {
+              applySuggestion(active);
+              return;
+            }
+            addFilter();
+          }}
+        >
+          <span className="input-group__field">
+            <input
+              role="combobox"
+              aria-expanded={menuOpen}
+              aria-controls="wft-suggest"
+              aria-autocomplete="list"
+              aria-activedescendant={
+                menuOpen && effectiveActiveIndex >= 0
+                  ? `wft-suggest-${effectiveActiveIndex}`
+                  : undefined
+              }
+              aria-label="Filter files"
+              placeholder="Filter by name, or key=value…"
+              value={draft}
+              onFocus={() => {
+                // Cancel a still-armed blur-close from a quick refocus — otherwise
+                // it fires ~120ms later and closes the menu we just reopened.
+                if (blurTimeoutRef.current !== null) {
+                  window.clearTimeout(blurTimeoutRef.current);
+                  blurTimeoutRef.current = null;
+                }
+                setMenuOpen(true);
+                setActiveIndex(firstSelectableIndex(currentSuggestions()));
+                void loadFacets();
+              }}
+              onBlur={() => {
+                blurTimeoutRef.current = window.setTimeout(() => {
+                  blurTimeoutRef.current = null;
+                  setMenuOpen(false);
+                }, 120);
+              }}
+              onChange={(e) => {
+                const value = e.currentTarget.value;
+                setDraft(value);
+                setMenuOpen(true);
+                const parsed = parseDraft(value);
+                if (parsed && !isValidMetaKey(parsed.key)) {
+                  // Case/format mismatch (e.g. `GH.repo=`): the API requires a
+                  // lowercase key, so fetching would only 400 and the menu would be
+                  // stuck showing "Loading values…" forever. Surface the same
+                  // guidance `addFilter` gives for a bad key instead.
+                  setFilterError(
+                    "Key must be lowercase letters/digits/._- and start with a letter.",
+                  );
+                } else {
+                  setFilterError(null);
+                  if (parsed) void loadFacetValues(parsed.key);
+                }
+                const nextSelectedKey = parsed && isValidMetaKey(parsed.key) ? parsed.key : null;
+                const nextSuggestions = buildSuggestions({
+                  draft: value,
+                  facets,
+                  values: nextSelectedKey ? (facetValues[nextSelectedKey] ?? null) : null,
+                  selectedKey: nextSelectedKey,
+                  activeKeys: filters.map((f) => f.key),
+                  keysTruncated: facetsTruncated,
+                  valuesTruncated: nextSelectedKey
+                    ? (facetValuesTruncated[nextSelectedKey] ?? false)
+                    : false,
+                });
+                setActiveIndex(firstSelectableIndex(nextSuggestions));
+              }}
+              onKeyDown={(e) => {
+                const suggestions = currentSuggestions();
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setActiveIndex((i) =>
+                    stepActiveIndex(suggestions, clampActiveIndex(suggestions, i), 1),
+                  );
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setActiveIndex((i) =>
+                    stepActiveIndex(suggestions, clampActiveIndex(suggestions, i), -1),
+                  );
+                } else if (e.key === "Escape") {
+                  setMenuOpen(false);
+                }
+              }}
+            />
+          </span>
+          <button type="submit" className="input-group__action">
+            add
+          </button>
+        </form>
+        {menuOpen && renderSuggestionMenu()}
+      </div>
       {filterError && (
         <p className="wft-error" role="alert">
           {filterError}
@@ -715,6 +1022,21 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
 
       {filtered ? (
         <div className="wft-chips">
+          {nameTerm && (
+            <span className="wft-chip">
+              <span className="wft-chip__key">name</span>
+              <span className="wft-chip__eq">~</span>
+              <span className="wft-chip__value">{nameTerm}</span>
+              <button
+                type="button"
+                className="wft-chip__remove"
+                aria-label="Remove name filter"
+                onClick={() => commitNameTerm("")}
+              >
+                ×
+              </button>
+            </span>
+          )}
           {filters.map((f) => {
             const kind = chipKind(f.key);
             return (
@@ -741,7 +1063,14 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
           })}
           <span className="wft-clearall">
             metadata search ·{" "}
-            <button type="button" onClick={() => commitFilters([])}>
+            <button
+              type="button"
+              onClick={() => {
+                setNameTerm("");
+                setFilters([]);
+                replaceSearchLocation(workspace, [], undefined);
+              }}
+            >
               clear all
             </button>
           </span>

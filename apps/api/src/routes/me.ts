@@ -17,8 +17,11 @@ import { usageWithLimits } from "../budget";
 import { throwForInviteError } from "../invite-error";
 import { parseExternalReference } from "../external-references";
 import {
+  facetKeys,
+  facetValues,
   findObjectsByMetadata,
   getMetadataForKeys,
+  META_KEY_RE,
   validateMetadataFilters,
 } from "../file-metadata";
 import { badKey, listObjects, setObjectVisibility } from "../files-core";
@@ -47,6 +50,26 @@ import { loadWorkspaceRecord } from "../workspace";
 import { planResponse, planSourceFor } from "../workspace-plan";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Max characters accepted in a `?name=` filename search term. */
+const SEARCH_NAME_MAX = 128;
+
+/**
+ * Validate and normalize a `?name=` term. Lowercased here so the substring
+ * comparison against object keys needs no per-row casing work. Always passed
+ * to files-sdk as a `substring` pattern, never `glob` or `regex`: glob would
+ * make `*` and `?` silently meaningful in a box where people type filenames,
+ * and a user-supplied regex would be a denial-of-service vector.
+ */
+function normalizeSearchName(raw: string): string {
+  const term = raw.trim();
+  if (term.length === 0 || term.length > SEARCH_NAME_MAX) {
+    throw new ValidationError("name must be 1–128 characters", {
+      code: "file_search_invalid_name",
+    });
+  }
+  return term.toLowerCase();
+}
 
 interface MyWorkspace {
   workspace: string;
@@ -408,11 +431,15 @@ export const me = new Hono<SessionVars>()
 
     const query = c.req.query();
     const metaParamKeys = Object.keys(query).filter((k) => k.startsWith("meta."));
-    if (metaParamKeys.length === 0) {
-      throw new ValidationError("at least one meta.* filter is required", {
+    const rawName = c.req.query("name");
+    const nameTerm = rawName === undefined ? undefined : normalizeSearchName(rawName);
+
+    if (metaParamKeys.length === 0 && nameTerm === undefined) {
+      throw new ValidationError("at least one meta.* filter or name is required", {
         code: "file_metadata_invalid_key",
       });
     }
+
     const filters: Record<string, string> = {};
     for (const param of metaParamKeys) {
       const key = param.slice("meta.".length);
@@ -425,17 +452,51 @@ export const me = new Hono<SessionVars>()
       }
       filters[key] = values[0] ?? query[param];
     }
-    validateMetadataFilters(filters);
+    if (metaParamKeys.length > 0) validateMetadataFilters(filters);
 
     const SEARCH_LIMIT = 100;
-    const [cfg, matches] = await Promise.all([
-      storageConfig(c.env, record),
-      findObjectsByMetadata(c.env.DB, name, filters, {
+    const cfg = await storageConfig(c.env, record);
+
+    // Two paths. With metadata filters the D1 index is the selective one and
+    // already caps at SEARCH_LIMIT, so a name term narrows those rows in
+    // memory and storage is never walked. Name alone has no index to use, so
+    // it walks via files-sdk `search()` — `maxResults` stops the walk as soon
+    // as the cap is reached rather than traversing the whole workspace.
+    //
+    // `truncated` must reflect whether the *underlying* query hit its cap,
+    // not the post-filter match count: on the metadata path, a `?name=` term
+    // narrows the D1 result set in memory, and a cap hit there can still
+    // leave a name-matching count at or below SEARCH_LIMIT even though rows
+    // beyond the D1 window (in object_key order) were never fetched at all.
+    let matches: Array<{ key: string; metadata: Record<string, string> }>;
+    let truncated: boolean;
+    if (metaParamKeys.length > 0) {
+      const found = await findObjectsByMetadata(c.env.DB, name, filters, {
         prefix: query.prefix,
         limit: SEARCH_LIMIT + 1,
-      }),
-    ]);
-    const truncated = matches.length > SEARCH_LIMIT;
+      });
+      // The name-filtered set is a subset of `found`, which is capped at
+      // SEARCH_LIMIT + 1, so this subsumes checking the post-filter count.
+      truncated = found.length > SEARCH_LIMIT;
+      matches = nameTerm
+        ? found.filter((match) => match.key.toLowerCase().includes(nameTerm))
+        : found;
+    } else {
+      const store = await storage(c.env, record);
+      const keys: string[] = [];
+      for await (const file of store.search(nameTerm!, {
+        match: "substring",
+        caseInsensitive: true,
+        maxResults: SEARCH_LIMIT + 1,
+        ...(query.prefix ? { prefix: query.prefix } : {}),
+      })) {
+        keys.push(file.key);
+      }
+      const metaByKey = await getMetadataForKeys(c.env.DB, name, keys);
+      matches = keys.map((key) => ({ key, metadata: metaByKey.get(key) ?? {} }));
+      truncated = matches.length > SEARCH_LIMIT;
+    }
+
     const page = truncated ? matches.slice(0, SEARCH_LIMIT) : matches;
     return c.json({
       items: page.map((match) => {
@@ -444,6 +505,37 @@ export const me = new Hono<SessionVars>()
       }),
       truncated,
     });
+  })
+
+  // Facet discovery for the files-tab filter bar: which metadata keys this
+  // workspace actually contains, and (with `?key=`) that key's values. The
+  // filter bar cannot otherwise tell a user what is filterable — keys are
+  // user- and agent-defined, not a schema. Member-gated exactly as the
+  // sibling search route is, and gated the same way on the workspace record
+  // so a soft-deleted (or tombstoned) workspace 404s here too, even though
+  // this route reads only D1 — the record load is the deletion gate, not a
+  // storage-config lookup.
+  .get("/workspaces/:name/files/facets", async (c) => {
+    const name = c.req.param("name");
+    await memberWorkspaceOr404(c.env, requireUserId(c), name);
+
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
+
+    const key = c.req.query("key");
+    if (key === undefined) {
+      return c.json(await facetKeys(c.env.DB, name));
+    }
+    if (!META_KEY_RE.test(key)) {
+      throw new ValidationError(`invalid metadata key: ${key}`, {
+        code: "file_metadata_invalid_key",
+        details: { key },
+      });
+    }
+    const { values, truncated } = await facetValues(c.env.DB, name, key);
+    return c.json({ key, values, truncated });
   })
 
   // Resolve a selected browser item to a usable URL, by storage capability

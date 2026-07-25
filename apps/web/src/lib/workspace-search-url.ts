@@ -1,10 +1,12 @@
 /**
  * Query-param sync for the account file browser's metadata search mode:
  *   /account/workspaces/<workspace>?meta.gh.repo=owner/name&meta.app=web
+ *   /account/workspaces/<workspace>?name=screenshot
  *
  * Sibling to workspace-browse-url.ts (which owns folder `path`). Search mode
- * replaces `path` with one or more `meta.*` pairs. Validation mirrors the
- * API's META_KEY_RE / META_VALUE_MAX so bad input is caught before a request.
+ * replaces `path` with a `name` term and/or one or more `meta.*` pairs.
+ * Validation mirrors the API's META_KEY_RE / META_VALUE_MAX / SEARCH_NAME_MAX
+ * so bad input is caught before a request.
  */
 import { isBrowseWorkspace, workspaceFromPathname } from "./workspace-browse-url";
 
@@ -19,6 +21,8 @@ const META_KEY_RE = /^[a-z][a-z0-9._-]{0,63}$/;
 const META_VALUE_MAX = 512;
 /** Mirrors apps/api's META_MAX_KEYS — caps a hand-crafted deep link at the API's own limit. */
 const META_MAX_FILTERS = 24;
+/** Mirrors apps/api's SEARCH_NAME_MAX (routes/me.ts) — same 1–128 char cap the API enforces. */
+const SEARCH_NAME_MAX = 128;
 
 export function isValidMetaKey(key: string): boolean {
   return META_KEY_RE.test(key);
@@ -31,6 +35,12 @@ export function isValidMetaValue(value: string): boolean {
     if (code < 0x20 || code > 0x7e) return false; // printable ASCII only
   }
   return true;
+}
+
+/** Mirrors the API's normalizeSearchName length check: 1–128 chars after trimming. */
+export function isValidSearchName(name: string): boolean {
+  const trimmed = name.trim();
+  return trimmed.length > 0 && trimmed.length <= SEARCH_NAME_MAX;
 }
 
 /** Parse `meta.*` params; first value wins per key, invalid pairs dropped. */
@@ -50,25 +60,40 @@ export function readSearchFilters(search: string): MetaFilter[] {
   return out;
 }
 
-/** Serialize filters to `meta.key=value&…` (no leading `?`). */
-export function buildSearchQuery(filters: MetaFilter[]): string {
+/** Parse the `name` param; missing, empty/whitespace-only, or overlong values are dropped. */
+export function readSearchName(search: string): string | undefined {
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  const params = new URLSearchParams(raw);
+  const name = params.get("name");
+  if (name === null) return undefined;
+  return isValidSearchName(name) ? name : undefined;
+}
+
+/** Serialize filters (and an optional name term) to `meta.key=value&…` (no leading `?`). */
+export function buildSearchQuery(filters: MetaFilter[], name?: string): string {
   const params = new URLSearchParams();
+  if (name !== undefined && isValidSearchName(name)) params.set("name", name);
   for (const { key, value } of filters) params.set(`meta.${key}`, value);
   return params.toString();
 }
 
 /**
- * Write `meta.*` into the address bar (no history entry). Clears `path`
- * (search and folder-browse are mutually exclusive) and all prior `meta.*`
- * params. Workspace identity prefers the path-based route; legacy `?ws=` is
- * stripped when the pathname already carries the slug.
+ * Write `name` and `meta.*` into the address bar (no history entry). Clears
+ * `path` (search and folder-browse are mutually exclusive) and all prior
+ * `name`/`meta.*` params. Workspace identity prefers the path-based route;
+ * legacy `?ws=` is stripped when the pathname already carries the slug.
  */
-export function replaceSearchLocation(workspace: string, filters: MetaFilter[]): void {
+export function replaceSearchLocation(
+  workspace: string,
+  filters: MetaFilter[],
+  name?: string,
+): void {
   if (typeof window === "undefined") return;
   const next = new URL(window.location.href);
   for (const param of Array.from(next.searchParams.keys())) {
     if (param.startsWith("meta.")) next.searchParams.delete(param);
   }
+  next.searchParams.delete("name");
   next.searchParams.delete("path");
   const ws = isBrowseWorkspace(workspace) ? workspace : "";
   if (ws) {
@@ -79,6 +104,7 @@ export function replaceSearchLocation(workspace: string, filters: MetaFilter[]):
   } else {
     next.searchParams.delete("ws");
   }
+  if (name !== undefined && isValidSearchName(name)) next.searchParams.set("name", name);
   for (const { key, value } of filters) {
     if (isValidMetaKey(key) && isValidMetaValue(value)) next.searchParams.set(`meta.${key}`, value);
   }

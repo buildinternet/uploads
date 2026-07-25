@@ -989,11 +989,71 @@ section.card .ws-messages .command {
   gap: 8px;
   justify-items: start;
 }
-.wft-filterbar {
+/*
+ * `.wft-filterbar` shares its element with `.input-group`, whose `overflow:
+ * hidden` clips the joined input+button to its rounded corners. The
+ * suggestion menu is absolutely positioned and must NOT live inside that
+ * overflow-hidden box, or it renders fully in the DOM (correct rect,
+ * visible/opacity/z-index all fine) but is clipped away and never seen. So
+ * `.wft-filter` — an unclipped wrapper one level up — is the positioning
+ * context instead; `.wft-filterbar` itself keeps no position/overflow rules.
+ */
+.wft-filter {
   max-width: 460px;
+  position: relative;
 }
 .wft-filterbar .input-group__field input {
   font-size: 12.5px;
+}
+
+.wft-suggest {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 4px 0 0;
+  padding: 4px;
+  max-height: 20rem;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+/* The listbox itself: only `role="option"` rows live here (see review
+ * finding on non-option rows inside `role="listbox"`), so it carries no
+ * visual chrome of its own — `.wft-suggest` (its wrapper) owns the scroll,
+ * border, and padding. */
+.wft-suggest__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.wft-suggest__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.wft-suggest__row.is-active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.wft-suggest__label {
+  font: 12px var(--mono);
+  color: var(--fg);
+}
+.wft-suggest__meta {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.wft-suggest__hint {
+  padding: 6px 8px;
+  color: var(--muted);
+  font-size: 11px;
 }
 .wft-error {
   margin: 8px 0 0;

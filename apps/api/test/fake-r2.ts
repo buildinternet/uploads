@@ -15,6 +15,9 @@ interface StoredObject {
 
 export class FakeR2Bucket {
   store = new Map<string, StoredObject>();
+  /** Test helper: incremented on every `list()` call, so tests can assert
+   * storage was (or wasn't) walked. */
+  listCalls = 0;
 
   private meta(key: string, obj: StoredObject) {
     return {
@@ -108,6 +111,7 @@ export class FakeR2Bucket {
   }
 
   async list(opts?: { prefix?: string; delimiter?: string }) {
+    this.listCalls++;
     const prefix = opts?.prefix ?? "";
     // oxlint-disable-next-line unicorn/no-array-sort -- mirror R2's ordered listing in an ES2022 test fake
     const keys = [...this.store.keys()].filter((k) => k.startsWith(prefix)).sort();

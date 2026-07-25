@@ -1668,4 +1668,191 @@ describe("GET /me/workspaces/:name/files/search", () => {
     const res = await app().request("/me/workspaces/other/files/search?meta.app=web", {}, env);
     expect(res.status).toBe(404);
   });
+
+  it("matches filenames case-insensitively by substring with ?name=", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/screenshots/Hero-Shot.png", "x");
+    await bucket.put("acme/screenshots/footer.png", "x");
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), bucket, record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/search?name=hero", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: { key: string }[]; truncated: boolean };
+    expect(body.items.map((i) => i.key)).toEqual(["screenshots/Hero-Shot.png"]);
+    expect(body.truncated).toBe(false);
+  });
+
+  it("treats the term as a literal substring, not a glob", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put("acme/report.png", "x");
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), bucket, record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/search?name=re*ort", {}, env);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { items: unknown[] }).items).toEqual([]);
+  });
+
+  it("narrows metadata results by name without walking storage", async () => {
+    const db = metadataDb([
+      { workspace: "acme", key: "f/hero.png", meta: { app: "web" } },
+      { workspace: "acme", key: "f/footer.png", meta: { app: "web" } },
+    ]);
+    // The bucket is empty: these two keys exist only in D1. If this path
+    // walked storage instead of filtering the metadata results, it would
+    // return nothing.
+    const bucket = new FakeR2Bucket();
+    const env = memberEnv({ workspace: "acme", db, bucket, record: R2_RECORD });
+    const res = await app().request(
+      "/me/workspaces/acme/files/search?meta.app=web&name=hero",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: { key: string }[] };
+    expect(body.items.map((i) => i.key)).toEqual(["f/hero.png"]);
+    // Prove the "without walking storage" claim directly rather than
+    // relying on the bucket being empty.
+    expect(bucket.listCalls).toBe(0);
+  });
+
+  it("flags truncation when a name term narrows a capped metadata result set", async () => {
+    // 150 objects all match meta.app=web — well past SEARCH_LIMIT + 1 (101),
+    // the D1 window `findObjectsByMetadata` fetches (ordered by object_key).
+    // The handful matching `?name=hero` are the *last* three keys by sort
+    // order, so they fall outside that 101-row window and are never fetched
+    // at all. If `truncated` were computed from the post-name-filter match
+    // count (0, since none of the fetched keys survive the name filter),
+    // this would wrongly report `truncated: false` — the fix must derive
+    // `truncated` from the D1 query's own cap instead.
+    const rows = [];
+    for (let i = 0; i < 147; i++) {
+      rows.push({
+        workspace: "acme",
+        key: `f/aaa-${String(i).padStart(3, "0")}.png`,
+        meta: { app: "web" },
+      });
+    }
+    rows.push({ workspace: "acme", key: "f/zzz-147-hero.png", meta: { app: "web" } });
+    rows.push({ workspace: "acme", key: "f/zzz-148-hero.png", meta: { app: "web" } });
+    rows.push({ workspace: "acme", key: "f/zzz-149-hero.png", meta: { app: "web" } });
+    const db = metadataDb(rows);
+    const env = memberEnv({ workspace: "acme", db, bucket: new FakeR2Bucket(), record: R2_RECORD });
+    const res = await app().request(
+      "/me/workspaces/acme/files/search?meta.app=web&name=hero",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: { key: string }[]; truncated: boolean };
+    expect(body.items).toEqual([]);
+    expect(body.truncated).toBe(true);
+  });
+
+  it("caps name results at 100 and flags truncation", async () => {
+    const bucket = new FakeR2Bucket();
+    for (let i = 0; i < 120; i++) await bucket.put(`acme/shot-${i}.png`, "x");
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), bucket, record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/search?name=shot", {}, env);
+    const body = (await res.json()) as { items: unknown[]; truncated: boolean };
+    expect(body.items).toHaveLength(100);
+    expect(body.truncated).toBe(true);
+  });
+
+  it("rejects a blank name with file_search_invalid_name", async () => {
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/search?name=%20%20", {}, env);
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "file_search_invalid_name" },
+    });
+  });
+
+  it("rejects a name longer than 128 characters", async () => {
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), record: R2_RECORD });
+    const res = await app().request(
+      `/me/workspaces/acme/files/search?name=${"a".repeat(129)}`,
+      {},
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("GET /me/workspaces/:name/files/facets", () => {
+  it("lists the workspace's metadata keys with counts", async () => {
+    const db = metadataDb([
+      { workspace: "acme", key: "a.png", meta: { "gh.repo": "o/r", app: "web" } },
+      { workspace: "acme", key: "b.png", meta: { "gh.repo": "o/r" } },
+    ]);
+    const env = memberEnv({ workspace: "acme", db, record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/facets", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      keys: [
+        { key: "gh.repo", count: 2, distinctValues: 1 },
+        { key: "app", count: 1, distinctValues: 1 },
+      ],
+      truncated: false,
+    });
+  });
+
+  it("lists one key's values when ?key= is given", async () => {
+    const db = metadataDb([
+      { workspace: "acme", key: "a.png", meta: { app: "web" } },
+      { workspace: "acme", key: "b.png", meta: { app: "web" } },
+      { workspace: "acme", key: "c.png", meta: { app: "api" } },
+    ]);
+    const env = memberEnv({ workspace: "acme", db, record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/facets?key=app", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      key: "app",
+      values: [
+        { value: "web", count: 2 },
+        { value: "api", count: 1 },
+      ],
+      truncated: false,
+    });
+  });
+
+  it("rejects a malformed key with file_metadata_invalid_key", async () => {
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/facets?key=BadKey", {}, env);
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "file_metadata_invalid_key" },
+    });
+  });
+
+  it("404s for a workspace the caller is not a member of", async () => {
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), record: R2_RECORD });
+    const res = await app().request("/me/workspaces/other/files/facets", {}, env);
+    expect(res.status).toBe(404);
+  });
+
+  it("404s for a soft-deleted workspace even when the caller is still a member (keys shape)", async () => {
+    const db = metadataDb([{ workspace: "acme", key: "a.png", meta: { app: "web" } }]);
+    const env = memberEnv({
+      workspace: "acme",
+      db,
+      record: { ...R2_RECORD, deletedAt: "2026-07-01T00:00:00.000Z" },
+    });
+    const res = await app().request("/me/workspaces/acme/files/facets", {}, env);
+    expect(res.status).toBe(404);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "workspace_not_found" },
+    });
+  });
+
+  it("404s for a soft-deleted workspace even when the caller is still a member (values shape)", async () => {
+    const db = metadataDb([{ workspace: "acme", key: "a.png", meta: { app: "web" } }]);
+    const env = memberEnv({
+      workspace: "acme",
+      db,
+      record: { ...R2_RECORD, deletedAt: "2026-07-01T00:00:00.000Z" },
+    });
+    const res = await app().request("/me/workspaces/acme/files/facets?key=app", {}, env);
+    expect(res.status).toBe(404);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "workspace_not_found" },
+    });
+  });
 });
