@@ -559,6 +559,16 @@ Replace the body of the `files/search` route in `apps/api/src/routes/me.ts` (lin
     const SEARCH_LIMIT = 100;
     const cfg = await storageConfig(c.env, record);
 
+    // NOTE (post-execution correction): the two-path block below was found in
+    // review to under-report `truncated`. `findObjectsByMetadata` caps at
+    // SEARCH_LIMIT + 1 ordered by object_key, so filtering its results by name
+    // in memory and then computing `truncated` from the filtered count reports
+    // `false` while silently omitting name-matching objects beyond the D1
+    // window. Truncation must be computed PER PATH from that path's own cap:
+    // `found.length > SEARCH_LIMIT` on the metadata path (before the name
+    // filter), `matches.length > SEARCH_LIMIT` on the name-only path. The
+    // shipped code in apps/api/src/routes/me.ts is the corrected version.
+
     // Two paths. With metadata filters the D1 index is the selective one and
     // already caps at SEARCH_LIMIT, so a name term narrows those rows in
     // memory and storage is never walked. Name alone has no index to use, so
