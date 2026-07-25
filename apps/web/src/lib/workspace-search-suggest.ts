@@ -21,7 +21,9 @@ export type Suggestion =
   /** Non-selectable row shown when the workspace carries no metadata at all. */
   | { kind: "empty-facets" }
   /** Non-selectable row shown while a selected key's values are still loading. */
-  | { kind: "loading" };
+  | { kind: "loading" }
+  /** Non-selectable footer shown when the list just rendered was capped server-side. */
+  | { kind: "truncated" };
 
 /**
  * Split a `key=value` draft. Only the first `=` separates, so values may
@@ -47,6 +49,10 @@ export interface SuggestionInput {
   selectedKey: string | null;
   /** Keys already committed as filters — never offered twice. */
   activeKeys: string[];
+  /** Whether the workspace's facet-key list was capped server-side. */
+  keysTruncated?: boolean;
+  /** Whether `values` (for `selectedKey`) was capped server-side. */
+  valuesTruncated?: boolean;
 }
 
 /**
@@ -56,15 +62,16 @@ export interface SuggestionInput {
  * input order rather than re-sorting.
  */
 export function buildSuggestions(input: SuggestionInput): Suggestion[] {
-  const { draft, facets, values, selectedKey, activeKeys } = input;
+  const { draft, facets, values, selectedKey, activeKeys, keysTruncated, valuesTruncated } = input;
   const trimmed = draft.trim();
+  const truncatedFooter: Suggestion[] = [{ kind: "truncated" }];
 
   // `key=…` — browsing one key's values.
   if (selectedKey) {
     const parsed = parseDraft(draft);
     const partial = parsed?.value.toLowerCase() ?? "";
     if (!values) return [{ kind: "loading" }];
-    return values
+    const valueRows = values
       .filter((row) => row.value.toLowerCase().includes(partial))
       .map((row) => ({
         kind: "value" as const,
@@ -72,6 +79,7 @@ export function buildSuggestions(input: SuggestionInput): Suggestion[] {
         value: row.value,
         count: row.count,
       }));
+    return valuesTruncated ? [...valueRows, ...truncatedFooter] : valueRows;
   }
 
   // Facets unavailable — the bar still works, so teach the syntax and stop.
@@ -91,10 +99,13 @@ export function buildSuggestions(input: SuggestionInput): Suggestion[] {
 
   // Bare text: filename search leads, matching keys follow. No trailing hint —
   // the user is mid-thought and the row set already shows both options.
-  if (trimmed) return [{ kind: "name", term: trimmed }, ...keyRows];
+  if (trimmed) {
+    return [{ kind: "name", term: trimmed }, ...keyRows, ...(keysTruncated ? truncatedFooter : [])];
+  }
 
-  // Empty input: the workspace's keys, plus the syntax hint as a footer.
-  return [...keyRows, { kind: "hint" }];
+  // Empty input: the workspace's keys, the syntax hint, then the truncation
+  // footer last — it always anchors the end of the menu.
+  return [...keyRows, { kind: "hint" }, ...(keysTruncated ? truncatedFooter : [])];
 }
 
 // ── Keyboard-navigation helpers ────────────────────────────────────────────

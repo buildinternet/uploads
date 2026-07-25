@@ -65,6 +65,21 @@ describe("facetKeys", () => {
     ]);
   });
 
+  it("flags truncation when more keys exist than the cap", async () => {
+    const result = await facetKeys(
+      db([
+        {
+          workspace: "acme",
+          key: "a.png",
+          meta: Object.fromEntries(Array.from({ length: 55 }, (_, i) => [`k${i}`, "v"])),
+        },
+      ]),
+      "acme",
+    );
+    expect(result.keys).toHaveLength(50);
+    expect(result.truncated).toBe(true);
+  });
+
   it("excludes server-owned video.* keys", async () => {
     const result = await facetKeys(
       db([{ workspace: "acme", key: "v.mp4", meta: { "video.poster": "x", app: "web" } }]),

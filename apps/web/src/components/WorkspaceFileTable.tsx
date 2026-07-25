@@ -374,7 +374,9 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [facets, setFacets] = useState<FacetKey[] | null>(null);
+  const [facetsTruncated, setFacetsTruncated] = useState(false);
   const [facetValues, setFacetValues] = useState<Record<string, FacetValue[]>>({});
+  const [facetValuesTruncated, setFacetValuesTruncated] = useState<Record<string, boolean>>({});
   const [state, setState] = useState<ListingState>({ status: "loading" });
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
   const [togglingKeys, setTogglingKeys] = useState<ReadonlySet<string>>(new Set());
@@ -409,6 +411,7 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
     try {
       const result = await getWorkspaceFacets(apiOrigin, workspace);
       setFacets(result.kind === "ok" ? result.keys : null);
+      setFacetsTruncated(result.kind === "ok" && result.truncated);
     } finally {
       facetsInFlightRef.current = false;
     }
@@ -419,7 +422,10 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
     facetValuesInFlightRef.current.add(key);
     try {
       const result = await getWorkspaceFacetValues(apiOrigin, workspace, key);
-      if (result.kind === "ok") setFacetValues((prev) => ({ ...prev, [key]: result.values }));
+      if (result.kind === "ok") {
+        setFacetValues((prev) => ({ ...prev, [key]: result.values }));
+        setFacetValuesTruncated((prev) => ({ ...prev, [key]: result.truncated }));
+      }
     } finally {
       facetValuesInFlightRef.current.delete(key);
     }
@@ -726,6 +732,8 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
       values: selectedKey ? (facetValues[selectedKey] ?? null) : null,
       selectedKey,
       activeKeys: filters.map((f) => f.key),
+      keysTruncated: facetsTruncated,
+      valuesTruncated: selectedKey ? (facetValuesTruncated[selectedKey] ?? false) : false,
     });
 
   // The stored `activeIndex` can point at a non-selectable row (hint/loading/
@@ -792,7 +800,14 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
             return (
               <li className="wft-suggest__hint" key={id} id={id} aria-disabled="true">
                 No metadata yet — filters appear once files are uploaded with tags.{" "}
-                <a href="/docs/cli">How to tag uploads</a>
+                <a href="/docs/attach-pull-request-images">How to tag uploads</a>
+              </li>
+            );
+          }
+          if (suggestion.kind === "truncated") {
+            return (
+              <li className="wft-suggest__hint" key={id} id={id} aria-disabled="true">
+                Showing the first 50 — type to narrow.
               </li>
             );
           }
@@ -819,14 +834,14 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
                 <>
                   <span className="wft-suggest__label">{suggestion.key}</span>
                   <span className="wft-suggest__meta">
-                    {suggestion.count} files ·{" "}
-                    {unique ? "unique per file" : `${suggestion.distinctValues} values`}
+                    {pluralCount(suggestion.count, "file")} ·{" "}
+                    {unique ? "unique per file" : pluralCount(suggestion.distinctValues, "value")}
                   </span>
                 </>
               ) : (
                 <>
                   <span className="wft-suggest__label">{suggestion.value}</span>
-                  <span className="wft-suggest__meta">{suggestion.count} files</span>
+                  <span className="wft-suggest__meta">{pluralCount(suggestion.count, "file")}</span>
                 </>
               )}
             </li>
@@ -909,6 +924,10 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
                   values: nextSelectedKey ? (facetValues[nextSelectedKey] ?? null) : null,
                   selectedKey: nextSelectedKey,
                   activeKeys: filters.map((f) => f.key),
+                  keysTruncated: facetsTruncated,
+                  valuesTruncated: nextSelectedKey
+                    ? (facetValuesTruncated[nextSelectedKey] ?? false)
+                    : false,
                 });
                 setActiveIndex(firstSelectableIndex(nextSuggestions));
               }}

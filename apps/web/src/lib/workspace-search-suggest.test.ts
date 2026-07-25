@@ -153,6 +153,71 @@ describe("buildSuggestions", () => {
     });
     expect(out).toEqual([{ kind: "name", term: "hero.png" }]);
   });
+
+  it("appends the truncated row after the key list when the key list was capped", () => {
+    const out = buildSuggestions({
+      draft: "",
+      facets: FACETS,
+      values: null,
+      selectedKey: null,
+      activeKeys: [],
+      keysTruncated: true,
+    });
+    expect(out[out.length - 1]).toEqual({ kind: "truncated" });
+  });
+
+  it("appends the truncated row after the value list when the value list was capped", () => {
+    const out = buildSuggestions({
+      draft: "app=",
+      facets: FACETS,
+      values: [{ value: "web", count: 40 }],
+      selectedKey: "app",
+      activeKeys: [],
+      valuesTruncated: true,
+    });
+    expect(out).toEqual([
+      { kind: "value", key: "app", value: "web", count: 40 },
+      { kind: "truncated" },
+    ]);
+  });
+
+  it("does not show the truncated row when nothing was capped", () => {
+    const keyList = buildSuggestions({
+      draft: "",
+      facets: FACETS,
+      values: null,
+      selectedKey: null,
+      activeKeys: [],
+      keysTruncated: false,
+    });
+    expect(keyList.some((s) => s.kind === "truncated")).toBe(false);
+
+    const valueList = buildSuggestions({
+      draft: "app=",
+      facets: FACETS,
+      values: [{ value: "web", count: 40 }],
+      selectedKey: "app",
+      activeKeys: [],
+      valuesTruncated: false,
+    });
+    expect(valueList.some((s) => s.kind === "truncated")).toBe(false);
+  });
+
+  it("the truncated row is not selectable", () => {
+    expect(isSelectableSuggestion({ kind: "truncated" })).toBe(false);
+  });
+
+  it("the truncated row sits at the very end even with the bare-text name+key list", () => {
+    const out = buildSuggestions({
+      draft: "gh",
+      facets: FACETS,
+      values: null,
+      selectedKey: null,
+      activeKeys: [],
+      keysTruncated: true,
+    });
+    expect(out[out.length - 1]).toEqual({ kind: "truncated" });
+  });
 });
 
 describe("isSelectableSuggestion", () => {
