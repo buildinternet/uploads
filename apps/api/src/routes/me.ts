@@ -462,12 +462,22 @@ export const me = new Hono<SessionVars>()
     // memory and storage is never walked. Name alone has no index to use, so
     // it walks via files-sdk `search()` — `maxResults` stops the walk as soon
     // as the cap is reached rather than traversing the whole workspace.
+    //
+    // `truncated` must reflect whether the *underlying* query hit its cap,
+    // not the post-filter match count: on the metadata path, a `?name=` term
+    // narrows the D1 result set in memory, and a cap hit there can still
+    // leave a name-matching count at or below SEARCH_LIMIT even though rows
+    // beyond the D1 window (in object_key order) were never fetched at all.
     let matches: Array<{ key: string; metadata: Record<string, string> }>;
+    let truncated: boolean;
     if (metaParamKeys.length > 0) {
       const found = await findObjectsByMetadata(c.env.DB, name, filters, {
         prefix: query.prefix,
         limit: SEARCH_LIMIT + 1,
       });
+      // The name-filtered set is a subset of `found`, which is capped at
+      // SEARCH_LIMIT + 1, so this subsumes checking the post-filter count.
+      truncated = found.length > SEARCH_LIMIT;
       matches = nameTerm
         ? found.filter((match) => match.key.toLowerCase().includes(nameTerm))
         : found;
@@ -484,9 +494,9 @@ export const me = new Hono<SessionVars>()
       }
       const metaByKey = await getMetadataForKeys(c.env.DB, name, keys);
       matches = keys.map((key) => ({ key, metadata: metaByKey.get(key) ?? {} }));
+      truncated = matches.length > SEARCH_LIMIT;
     }
 
-    const truncated = matches.length > SEARCH_LIMIT;
     const page = truncated ? matches.slice(0, SEARCH_LIMIT) : matches;
     return c.json({
       items: page.map((match) => {

@@ -1698,7 +1698,8 @@ describe("GET /me/workspaces/:name/files/search", () => {
     // The bucket is empty: these two keys exist only in D1. If this path
     // walked storage instead of filtering the metadata results, it would
     // return nothing.
-    const env = memberEnv({ workspace: "acme", db, bucket: new FakeR2Bucket(), record: R2_RECORD });
+    const bucket = new FakeR2Bucket();
+    const env = memberEnv({ workspace: "acme", db, bucket, record: R2_RECORD });
     const res = await app().request(
       "/me/workspaces/acme/files/search?meta.app=web&name=hero",
       {},
@@ -1707,6 +1708,42 @@ describe("GET /me/workspaces/:name/files/search", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { items: { key: string }[] };
     expect(body.items.map((i) => i.key)).toEqual(["f/hero.png"]);
+    // Prove the "without walking storage" claim directly rather than
+    // relying on the bucket being empty.
+    expect(bucket.listCalls).toBe(0);
+  });
+
+  it("flags truncation when a name term narrows a capped metadata result set", async () => {
+    // 150 objects all match meta.app=web — well past SEARCH_LIMIT + 1 (101),
+    // the D1 window `findObjectsByMetadata` fetches (ordered by object_key).
+    // The handful matching `?name=hero` are the *last* three keys by sort
+    // order, so they fall outside that 101-row window and are never fetched
+    // at all. If `truncated` were computed from the post-name-filter match
+    // count (0, since none of the fetched keys survive the name filter),
+    // this would wrongly report `truncated: false` — the fix must derive
+    // `truncated` from the D1 query's own cap instead.
+    const rows = [];
+    for (let i = 0; i < 147; i++) {
+      rows.push({
+        workspace: "acme",
+        key: `f/aaa-${String(i).padStart(3, "0")}.png`,
+        meta: { app: "web" },
+      });
+    }
+    rows.push({ workspace: "acme", key: "f/zzz-147-hero.png", meta: { app: "web" } });
+    rows.push({ workspace: "acme", key: "f/zzz-148-hero.png", meta: { app: "web" } });
+    rows.push({ workspace: "acme", key: "f/zzz-149-hero.png", meta: { app: "web" } });
+    const db = metadataDb(rows);
+    const env = memberEnv({ workspace: "acme", db, bucket: new FakeR2Bucket(), record: R2_RECORD });
+    const res = await app().request(
+      "/me/workspaces/acme/files/search?meta.app=web&name=hero",
+      {},
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: { key: string }[]; truncated: boolean };
+    expect(body.items).toEqual([]);
+    expect(body.truncated).toBe(true);
   });
 
   it("caps name results at 100 and flags truncation", async () => {
