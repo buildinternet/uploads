@@ -768,14 +768,16 @@ function isSearchFileItem(value: unknown): value is SearchFileItem {
   );
 }
 
-/** GET /me/workspaces/:name/files/search — session-authed metadata search. */
+/** GET /me/workspaces/:name/files/search — session-authed metadata + name search. */
 export async function searchWorkspaceFiles(
   apiOrigin: string,
   name: string,
   filters: MetaFilter[],
+  opts: { name?: string } = {},
 ): Promise<SearchFilesResult> {
-  const query = buildSearchQuery(filters);
-  const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files/search?${query}`;
+  const params = new URLSearchParams(buildSearchQuery(filters));
+  if (opts.name) params.set("name", opts.name);
+  const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files/search?${params.toString()}`;
   const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -795,6 +797,94 @@ export async function searchWorkspaceFiles(
     return { kind: "unavailable", reason: "malformed" };
   }
   return { kind: "ok", items: b.items, truncated: b.truncated };
+}
+
+/** One metadata key present in a workspace, with its file and value counts. */
+export interface FacetKey {
+  key: string;
+  count: number;
+  distinctValues: number;
+}
+
+/** One value of a metadata key, with how many files carry it. */
+export interface FacetValue {
+  value: string;
+  count: number;
+}
+
+export type FacetKeysResult =
+  | { kind: "ok"; keys: FacetKey[]; truncated: boolean }
+  | { kind: "unavailable" };
+
+export type FacetValuesResult =
+  | { kind: "ok"; values: FacetValue[]; truncated: boolean }
+  | { kind: "unavailable" };
+
+function isFacetKey(value: unknown): value is FacetKey {
+  const row = value as Record<string, unknown>;
+  return (
+    !!row &&
+    typeof row.key === "string" &&
+    typeof row.count === "number" &&
+    typeof row.distinctValues === "number"
+  );
+}
+
+function isFacetValue(value: unknown): value is FacetValue {
+  const row = value as Record<string, unknown>;
+  return !!row && typeof row.value === "string" && typeof row.count === "number";
+}
+
+/**
+ * GET /me/workspaces/:name/files/facets — which metadata keys this workspace
+ * contains. A single `unavailable` kind (no `reason`) is enough here: the
+ * filter bar degrades to its syntax hint either way and never surfaces the
+ * distinction, unlike a search failure which the user must be told about.
+ */
+export async function getWorkspaceFacets(
+  apiOrigin: string,
+  name: string,
+): Promise<FacetKeysResult> {
+  const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files/facets`;
+  const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
+  if (result.kind === "unavailable" || !result.response.ok) return { kind: "unavailable" };
+  let body: unknown;
+  try {
+    body = await result.response.json();
+  } catch {
+    return { kind: "unavailable" };
+  }
+  const b = body as { keys?: unknown; truncated?: unknown };
+  if (!Array.isArray(b.keys) || typeof b.truncated !== "boolean" || !b.keys.every(isFacetKey)) {
+    return { kind: "unavailable" };
+  }
+  return { kind: "ok", keys: b.keys, truncated: b.truncated };
+}
+
+/** GET /me/workspaces/:name/files/facets?key= — one key's values. */
+export async function getWorkspaceFacetValues(
+  apiOrigin: string,
+  name: string,
+  key: string,
+): Promise<FacetValuesResult> {
+  const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files/facets?key=${encodeURIComponent(key)}`;
+  const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
+  if (result.kind === "unavailable" || !result.response.ok) return { kind: "unavailable" };
+  let body: unknown;
+  try {
+    body = await result.response.json();
+  } catch {
+    return { kind: "unavailable" };
+  }
+  const b = body as { values?: unknown; truncated?: unknown };
+  if (
+    !Array.isArray(b.values) ||
+    typeof b.truncated !== "boolean" ||
+    !b.values.every(isFacetValue)
+  ) {
+    return { kind: "unavailable" };
+  }
+  return { kind: "ok", values: b.values, truncated: b.truncated };
 }
 
 export interface GithubTitleInfo {

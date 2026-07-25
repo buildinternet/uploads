@@ -3,6 +3,7 @@ import {
   getGithubInstalled,
   getMyWorkspaces,
   getSuggestedWorkspaceName,
+  getWorkspaceFacets,
   getWorkspaceInvites,
   getWorkspaceMembers,
   inviteToWorkspace,
@@ -263,6 +264,67 @@ describe("searchWorkspaceFiles", () => {
     await expect(
       searchWorkspaceFiles("http://127.0.0.1:8787", "acme", [{ key: "app", value: "web" }]),
     ).resolves.toEqual({ kind: "unavailable", reason: "malformed" });
+  });
+});
+
+describe("getWorkspaceFacets", () => {
+  it("returns keys from the facets route", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
+      Response.json({
+        keys: [{ key: "app", count: 2, distinctValues: 2 }],
+        truncated: false,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await getWorkspaceFacets("https://api.test", "acme");
+    expect(result).toEqual({
+      kind: "ok",
+      keys: [{ key: "app", count: 2, distinctValues: 2 }],
+      truncated: false,
+    });
+    expect(fetchMock.mock.calls[0]![0]).toBe("https://api.test/me/workspaces/acme/files/facets");
+  });
+
+  it("reports unavailable on a malformed body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ keys: "nope" })),
+    );
+    expect(await getWorkspaceFacets("https://api.test", "acme")).toEqual({ kind: "unavailable" });
+  });
+
+  it("reports unavailable on a non-2xx response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 500 })),
+    );
+    expect(await getWorkspaceFacets("https://api.test", "acme")).toEqual({ kind: "unavailable" });
+  });
+});
+
+describe("searchWorkspaceFiles with a name term", () => {
+  it("sends ?name= alongside meta filters", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
+      Response.json({ items: [], truncated: false }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await searchWorkspaceFiles("https://api.test", "acme", [{ key: "app", value: "web" }], {
+      name: "hero",
+    });
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      "https://api.test/me/workspaces/acme/files/search?meta.app=web&name=hero",
+    );
+  });
+
+  it("sends only ?name= when there are no filters", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
+      Response.json({ items: [], truncated: false }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await searchWorkspaceFiles("https://api.test", "acme", [], { name: "hero" });
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      "https://api.test/me/workspaces/acme/files/search?name=hero",
+    );
   });
 });
 
