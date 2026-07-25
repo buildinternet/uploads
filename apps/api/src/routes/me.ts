@@ -511,10 +511,18 @@ export const me = new Hono<SessionVars>()
   // workspace actually contains, and (with `?key=`) that key's values. The
   // filter bar cannot otherwise tell a user what is filterable — keys are
   // user- and agent-defined, not a schema. Member-gated exactly as the
-  // sibling search route is.
+  // sibling search route is, and gated the same way on the workspace record
+  // so a soft-deleted (or tombstoned) workspace 404s here too, even though
+  // this route reads only D1 — the record load is the deletion gate, not a
+  // storage-config lookup.
   .get("/workspaces/:name/files/facets", async (c) => {
     const name = c.req.param("name");
     await memberWorkspaceOr404(c.env, requireUserId(c), name);
+
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
 
     const key = c.req.query("key");
     if (key === undefined) {

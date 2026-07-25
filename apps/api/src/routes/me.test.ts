@@ -1827,4 +1827,32 @@ describe("GET /me/workspaces/:name/files/facets", () => {
     const res = await app().request("/me/workspaces/other/files/facets", {}, env);
     expect(res.status).toBe(404);
   });
+
+  it("404s for a soft-deleted workspace even when the caller is still a member (keys shape)", async () => {
+    const db = metadataDb([{ workspace: "acme", key: "a.png", meta: { app: "web" } }]);
+    const env = memberEnv({
+      workspace: "acme",
+      db,
+      record: { ...R2_RECORD, deletedAt: "2026-07-01T00:00:00.000Z" },
+    });
+    const res = await app().request("/me/workspaces/acme/files/facets", {}, env);
+    expect(res.status).toBe(404);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "workspace_not_found" },
+    });
+  });
+
+  it("404s for a soft-deleted workspace even when the caller is still a member (values shape)", async () => {
+    const db = metadataDb([{ workspace: "acme", key: "a.png", meta: { app: "web" } }]);
+    const env = memberEnv({
+      workspace: "acme",
+      db,
+      record: { ...R2_RECORD, deletedAt: "2026-07-01T00:00:00.000Z" },
+    });
+    const res = await app().request("/me/workspaces/acme/files/facets?key=app", {}, env);
+    expect(res.status).toBe(404);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "workspace_not_found" },
+    });
+  });
 });

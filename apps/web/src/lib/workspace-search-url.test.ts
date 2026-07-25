@@ -3,7 +3,9 @@ import {
   buildSearchQuery,
   isValidMetaKey,
   isValidMetaValue,
+  isValidSearchName,
   readSearchFilters,
+  readSearchName,
 } from "./workspace-search-url";
 
 describe("isValidMetaKey", () => {
@@ -55,5 +57,49 @@ describe("buildSearchQuery", () => {
         { key: "app", value: "web" },
       ]),
     ).toBe("meta.gh.repo=a%2Fb&meta.app=web");
+  });
+
+  it("includes a valid name term alongside meta.* params", () => {
+    expect(buildSearchQuery([{ key: "app", value: "web" }], "screenshot")).toBe(
+      "name=screenshot&meta.app=web",
+    );
+  });
+
+  it("drops an invalid name term", () => {
+    expect(buildSearchQuery([{ key: "app", value: "web" }], "   ")).toBe("meta.app=web");
+    expect(buildSearchQuery([], "x".repeat(129))).toBe("");
+  });
+});
+
+describe("isValidSearchName", () => {
+  it("accepts a 1–128 char term", () => {
+    expect(isValidSearchName("screenshot")).toBe(true);
+    expect(isValidSearchName("x".repeat(128))).toBe(true);
+  });
+  it("rejects empty, whitespace-only, and over-long terms", () => {
+    expect(isValidSearchName("")).toBe(false);
+    expect(isValidSearchName("   ")).toBe(false);
+    expect(isValidSearchName("x".repeat(129))).toBe(false);
+  });
+});
+
+describe("readSearchName", () => {
+  it("reads a valid name param", () => {
+    expect(readSearchName("?name=screenshot&meta.app=web")).toBe("screenshot");
+  });
+  it("returns undefined when there is no name param", () => {
+    expect(readSearchName("?meta.app=web")).toBeUndefined();
+  });
+  it("ignores an empty or whitespace-only name param", () => {
+    expect(readSearchName("?name=")).toBeUndefined();
+    expect(readSearchName("?name=%20%20")).toBeUndefined();
+  });
+  it("ignores a name param over the 128-char cap", () => {
+    expect(readSearchName(`?name=${"x".repeat(129)}`)).toBeUndefined();
+  });
+  it("round-trips a name term alongside meta.* params", () => {
+    const query = buildSearchQuery([{ key: "gh.repo", value: "a/b" }], "screenshot");
+    expect(readSearchName(`?${query}`)).toBe("screenshot");
+    expect(readSearchFilters(`?${query}`)).toEqual([{ key: "gh.repo", value: "a/b" }]);
   });
 });

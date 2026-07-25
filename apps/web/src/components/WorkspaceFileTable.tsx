@@ -58,6 +58,7 @@ import {
   isValidMetaKey,
   isValidMetaValue,
   readSearchFilters,
+  readSearchName,
   replaceSearchLocation,
   type MetaFilter,
 } from "../lib/workspace-search-url";
@@ -370,7 +371,9 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
   );
   const [draft, setDraft] = useState("");
   const [filterError, setFilterError] = useState<string | null>(null);
-  const [nameTerm, setNameTerm] = useState<string>("");
+  const [nameTerm, setNameTerm] = useState<string>(
+    () => readSearchName(window.location.search) ?? "",
+  );
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [facets, setFacets] = useState<FacetKey[] | null>(null);
@@ -548,7 +551,12 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
 
   const commitFilters = (next: MetaFilter[]) => {
     setFilters(next);
-    replaceSearchLocation(workspace, next);
+    replaceSearchLocation(workspace, next, nameTerm || undefined);
+  };
+
+  const commitNameTerm = (next: string) => {
+    setNameTerm(next);
+    replaceSearchLocation(workspace, filters, next || undefined);
   };
 
   const navigate = (nextPrefix: string) => {
@@ -746,7 +754,7 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
   /** Commit a highlighted row: a name row searches, a key row drills in, a value row filters. */
   const applySuggestion = (suggestion: Suggestion) => {
     if (suggestion.kind === "name") {
-      setNameTerm(suggestion.term);
+      commitNameTerm(suggestion.term);
       setDraft("");
       setMenuOpen(false);
       return;
@@ -1004,7 +1012,7 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
                 type="button"
                 className="wft-chip__remove"
                 aria-label="Remove name filter"
-                onClick={() => setNameTerm("")}
+                onClick={() => commitNameTerm("")}
               >
                 ×
               </button>
@@ -1040,7 +1048,8 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
               type="button"
               onClick={() => {
                 setNameTerm("");
-                commitFilters([]);
+                setFilters([]);
+                replaceSearchLocation(workspace, [], undefined);
               }}
             >
               clear all
