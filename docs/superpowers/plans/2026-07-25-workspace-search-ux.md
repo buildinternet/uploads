@@ -894,9 +894,12 @@ Create `apps/web/src/lib/workspace-search-suggest.test.ts`:
 import { describe, expect, it } from "vitest";
 import { buildSuggestions, parseDraft } from "./workspace-search-suggest";
 
+// Already ordered count-desc, as the facets route returns them. `buildSuggestions`
+// deliberately preserves input order rather than re-sorting — ordering is the
+// API's job and is covered by Task 1's tests.
 const FACETS = [
-  { key: "gh.repo", count: 84, distinctValues: 6 },
   { key: "path", count: 212, distinctValues: 212 },
+  { key: "gh.repo", count: 84, distinctValues: 6 },
   { key: "app", count: 40, distinctValues: 3 },
 ];
 
@@ -1271,7 +1274,7 @@ Replace the `<form className="wft-filterbar input-group">` block (lines 659–67
   <button type="submit" className="input-group__action">
     add
   </button>
-  {menuOpen && <SuggestionMenu />}
+  {menuOpen && renderSuggestionMenu()}
 </form>
 ```
 
@@ -1314,7 +1317,10 @@ const applySuggestion = (suggestion: Suggestion) => {
   }
 };
 
-function SuggestionMenu() {
+// A plain function, not a nested component: declaring a component inside
+// another creates a new component type on every render, which would remount
+// the menu (and drop its DOM state) on every keystroke.
+const renderSuggestionMenu = () => {
   const suggestions = currentSuggestions();
   if (suggestions.length === 0) return null;
   return (
@@ -1373,7 +1379,7 @@ function SuggestionMenu() {
       })}
     </ul>
   );
-}
+};
 ```
 
 Render the active name term as a removable chip. In the `wft-chips` block (line 717), add before the `filters.map(...)`:
