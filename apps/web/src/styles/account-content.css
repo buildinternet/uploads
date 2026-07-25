@@ -991,9 +991,52 @@ section.card .ws-messages .command {
 }
 .wft-filterbar {
   max-width: 460px;
+  position: relative;
 }
 .wft-filterbar .input-group__field input {
   font-size: 12.5px;
+}
+
+.wft-suggest {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 20rem;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+.wft-suggest__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.wft-suggest__row.is-active {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.wft-suggest__label {
+  font: 12px var(--mono);
+  color: var(--fg);
+}
+.wft-suggest__meta {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.wft-suggest__hint {
+  padding: 6px 8px;
+  color: var(--muted);
+  font-size: 11px;
 }
 .wft-error {
   margin: 8px 0 0;
