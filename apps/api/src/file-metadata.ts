@@ -516,6 +516,98 @@ export async function findObjectsByMetadata(
   return keys.map((key) => ({ key, metadata: byKey.get(key) ?? {} }));
 }
 
+/** Max distinct meta keys returned by `facetKeys`. */
+export const FACET_KEY_LIMIT = 50;
+/** Max distinct values per key returned by `facetValues`. */
+export const FACET_VALUE_LIMIT = 50;
+
+/**
+ * SQL fragment excluding server-owned namespaces from facet results. These
+ * keys are not client-settable (`isServerMetaKey`), so offering them as
+ * filters would advertise a filter the user cannot reproduce on upload.
+ * Written as literal NOT LIKE legs rather than bound params because
+ * SERVER_META_PREFIXES is a compile-time constant and D1 caps bound
+ * parameters per query.
+ */
+const EXCLUDE_SERVER_KEYS = SERVER_META_PREFIXES.map(
+  (prefix) => ` AND meta_key NOT LIKE '${prefix}%'`,
+).join("");
+
+/**
+ * Distinct metadata keys in a workspace, with how many files carry each and
+ * how many distinct values it has. `distinctValues` lets the UI tell a useful
+ * facet (`app`, 3 values) from one that is effectively unique per file
+ * (`path`, one value per object) before spending a round trip on it.
+ *
+ * Served by `file_metadata_lookup_idx (workspace, meta_key, meta_value)`.
+ * Fetches one row beyond the cap so `truncated` is exact.
+ */
+export async function facetKeys(
+  db: D1Database,
+  workspace: string,
+): Promise<{
+  keys: Array<{ key: string; count: number; distinctValues: number }>;
+  truncated: boolean;
+}> {
+  const result = await db
+    .prepare(
+      `SELECT meta_key, COUNT(*) AS count, COUNT(DISTINCT meta_value) AS distinct_values
+       FROM file_metadata
+       WHERE workspace = ?${EXCLUDE_SERVER_KEYS}
+       GROUP BY meta_key
+       ORDER BY count DESC, meta_key ASC
+       LIMIT ?`,
+    )
+    .bind(workspace, FACET_KEY_LIMIT + 1)
+    .all<{ meta_key: string; count: number; distinct_values: number }>();
+
+  const truncated = result.results.length > FACET_KEY_LIMIT;
+  const rows = truncated ? result.results.slice(0, FACET_KEY_LIMIT) : result.results;
+  return {
+    keys: rows.map((row) => ({
+      key: row.meta_key,
+      count: row.count,
+      distinctValues: row.distinct_values,
+    })),
+    truncated,
+  };
+}
+
+/**
+ * Distinct values for one metadata key, most common first. Fetched lazily by
+ * the UI when a key is selected, so a workspace with forty keys costs one
+ * grouped query on open rather than forty.
+ *
+ * Rides the same index as an exact prefix seek (workspace + meta_key), so
+ * rows-read is proportional to the one key rather than the whole workspace.
+ */
+export async function facetValues(
+  db: D1Database,
+  workspace: string,
+  key: string,
+): Promise<{ values: Array<{ value: string; count: number }>; truncated: boolean }> {
+  if (isServerMetaKey(key)) return { values: [], truncated: false };
+
+  const result = await db
+    .prepare(
+      `SELECT meta_value, COUNT(*) AS count
+       FROM file_metadata
+       WHERE workspace = ? AND meta_key = ?
+       GROUP BY meta_value
+       ORDER BY count DESC, meta_value ASC
+       LIMIT ?`,
+    )
+    .bind(workspace, key, FACET_VALUE_LIMIT + 1)
+    .all<{ meta_value: string; count: number }>();
+
+  const truncated = result.results.length > FACET_VALUE_LIMIT;
+  const rows = truncated ? result.results.slice(0, FACET_VALUE_LIMIT) : result.results;
+  return {
+    values: rows.map((row) => ({ value: row.meta_value, count: row.count })),
+    truncated,
+  };
+}
+
 /** Max object keys bound into a single `object_key IN (...)` statement (SQLite's ~999 host-parameter limit, kept well under it). */
 const METADATA_LOOKUP_CHUNK = 100;
 
