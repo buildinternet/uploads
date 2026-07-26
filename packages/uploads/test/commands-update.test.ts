@@ -81,8 +81,8 @@ describe("uploads update", () => {
     });
     expect(code).toBe(0);
     expect(out.join("")).toMatch(/CLI already at 0\.10\.0/);
-    expect(calls.some((c) => c[0] === "npm")).toBe(false);
-    // In-process runInstall reaches the same runner with the install steps.
+    // Skill preflight may call `npm --version`; only the package upgrade is forbidden.
+    expect(calls.some((c) => c[0] === "npm" && c.includes("install"))).toBe(false);
     expect(calls.some((c) => c[0] === "npx" && c.includes("skills"))).toBe(true);
     expect(calls).not.toContainEqual(["uploads", "install"]);
   });
@@ -113,7 +113,8 @@ describe("uploads update", () => {
       check: outdated,
     });
     expect(code).toBe(0);
-    expect(calls.some((c) => c[0] === "npm")).toBe(false);
+    // No package upgrade when the source isn't a global install.
+    expect(calls.some((c) => c[0] === "npm" && c.includes("install"))).toBe(false);
     expect(out.join("")).toMatch(/workspace checkout/);
   });
 

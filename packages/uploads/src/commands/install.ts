@@ -41,9 +41,11 @@ What it does:
 
 What runs under the hood:
   skill   npx -y skills add ${SKILL_SOURCE} --skill <name> -g -y -a '*'
-          (once per skill: ${SKILL_NAMES.join(", ")})
+          (once per skill: ${SKILL_NAMES.join(", ")}; needs Node 22+ / npm 7+
+          with npx on PATH — missing tooling fails once with install guidance)
   mcp     claude mcp add --transport http uploads ${DEFAULT_MCP_URL} \\
             --header "Authorization: Bearer <token>"
+          (needs the Claude Code CLI on PATH)
   hooks   write/merge ~/.grok/hooks/… and ~/.cursor/hooks.json when present
 
 Options:
@@ -68,6 +70,9 @@ export interface StepResult {
   output?: string;
 }
 
+/** npm 7+ for `npx -y`. Node 22 ships npm 10+; this catches ancient/system npm. */
+export const MIN_NPM_MAJOR_FOR_SKILLS = 7;
+
 /** Mask Bearer credentials and the configured token in any printed text. */
 function redactor(token: string | undefined): (text: string) => string {
   return (text) => {
@@ -77,17 +82,73 @@ function redactor(token: string | undefined): (text: string) => string {
   };
 }
 
+function isEnoent(err: unknown): boolean {
+  return (err as NodeJS.ErrnoException)?.code === "ENOENT";
+}
+
+/** Install guidance when a host binary is missing (not "run manually: <same binary>"). */
+export function missingBinaryHint(binary: string): string {
+  switch (binary) {
+    case "npx":
+    case "npm":
+      return (
+        `${binary} not found on PATH — skill install needs Node.js (npm includes npx). ` +
+        `Install Node 22+ from https://nodejs.org (or your package manager), open a new shell, ` +
+        `confirm \`${binary} --version\` works, then re-run \`uploads install skill\`.`
+      );
+    case "claude":
+      return (
+        `claude not found on PATH — MCP install needs the Claude Code CLI. ` +
+        `Install it from https://docs.anthropic.com/en/docs/claude-code, ensure \`claude\` is on PATH, ` +
+        `then re-run \`uploads install mcp\`. Skills and hooks still work without Claude Code.`
+      );
+    default:
+      return `${binary} not found on PATH — install it and ensure it is available in this shell.`;
+  }
+}
+
+export function npmTooOldHint(version: string): string {
+  return (
+    `npm ${version} is too old for skill install (need npm ${MIN_NPM_MAJOR_FOR_SKILLS}+ for \`npx -y\`). ` +
+    `Upgrade Node/npm (Node 22+ recommended: https://nodejs.org), confirm \`npm --version\`, ` +
+    `then re-run \`uploads install skill\`.`
+  );
+}
+
+/**
+ * Probe npx/npm once before the per-skill loop. Returns an error string when
+ * tooling is missing/too old; undefined means skill steps should proceed.
+ * Non-ENOENT npx failures are left for the real `skills add` to surface.
+ */
+export function probeSkillTooling(run: CommandRunner): string | undefined {
+  try {
+    run("npx", ["--version"]);
+  } catch (err) {
+    return isEnoent(err) ? missingBinaryHint("npx") : undefined;
+  }
+  try {
+    const out = run("npm", ["--version"]).trim();
+    const major = Number.parseInt(out.split(".")[0] ?? "", 10);
+    if (Number.isFinite(major) && major < MIN_NPM_MAJOR_FOR_SKILLS) {
+      return npmTooOldHint(out);
+    }
+  } catch (err) {
+    if (isEnoent(err)) return missingBinaryHint("npm");
+  }
+  return undefined;
+}
+
 export function runStep(run: CommandRunner, command: string[]): StepResult {
   try {
     const output = run(command[0], command.slice(1)).trim();
     return { command, ok: true, output: output || undefined };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const hint =
-      (err as NodeJS.ErrnoException).code === "ENOENT"
-        ? `${command[0]} not found on PATH — install it, or run manually: ${command.join(" ")}`
-        : message;
-    return { command, ok: false, error: hint };
+    return {
+      command,
+      ok: false,
+      error: isEnoent(err) ? missingBinaryHint(command[0]) : message,
+    };
   }
 }
 
@@ -136,32 +197,70 @@ function peekToken(globals: GlobalFlags): string | undefined {
   }
 }
 
+function printOneHumanStep(
+  step: string,
+  r: StepResult,
+  redact: (s: string) => string,
+  verbose: boolean,
+  mcpName: string,
+): void {
+  const cmd = redact(r.command.join(" "));
+  if (r.skipped === "dry-run") {
+    process.stdout.write(`${step}: would run — ${cmd}\n`);
+  } else if (r.skipped === "sign-in") {
+    process.stdout.write(`${step}: skipped — ${redact(r.error ?? "needs sign-in")}\n`);
+  } else if (r.skipped === "already-configured") {
+    process.stdout.write(
+      `${step}: already configured — "${mcpName}" is registered in Claude Code (nothing to do)\n` +
+        `  To re-register (e.g. with a new token): claude mcp remove ${mcpName} && uploads install mcp\n`,
+    );
+  } else if (r.ok) {
+    process.stdout.write(`${step}: ok\n`);
+    if (verbose && r.output) {
+      process.stdout.write(`  ${redact(r.output).split("\n").join("\n  ")}\n`);
+    }
+  } else {
+    process.stderr.write(`${step}: failed — ${redact(r.error ?? "")}\n`);
+    if (verbose) process.stderr.write(`  command: ${cmd}\n`);
+  }
+}
+
+/** Shared error when every skill step failed identically; otherwise undefined. */
+function identicalSkillFailure(skillEntries: [string, StepResult][]): string | undefined {
+  if (skillEntries.length < 2) return undefined;
+  const error = skillEntries[0]?.[1].error;
+  if (!error) return undefined;
+  const allSame = skillEntries.every(([, r]) => !r.ok && !r.skipped && r.error === error);
+  return allSame ? error : undefined;
+}
+
+/** Collapse identical skill failures to one `skills:` line (missing npx, old npm, …). */
 function printHumanSteps(
   results: Record<string, StepResult>,
   redact: (s: string) => string,
   verbose: boolean,
   mcpName: string,
 ): void {
-  for (const [step, r] of Object.entries(results)) {
-    const cmd = redact(r.command.join(" "));
-    if (r.skipped === "dry-run") {
-      process.stdout.write(`${step}: would run — ${cmd}\n`);
-    } else if (r.skipped === "sign-in") {
-      process.stdout.write(`${step}: skipped — ${redact(r.error ?? "needs sign-in")}\n`);
-    } else if (r.skipped === "already-configured") {
-      process.stdout.write(
-        `${step}: already configured — "${mcpName}" is registered in Claude Code (nothing to do)\n` +
-          `  To re-register (e.g. with a new token): claude mcp remove ${mcpName} && uploads install mcp\n`,
-      );
-    } else if (r.ok) {
-      process.stdout.write(`${step}: ok\n`);
-      if (verbose && r.output) {
-        process.stdout.write(`  ${redact(r.output).split("\n").join("\n  ")}\n`);
+  const entries = Object.entries(results);
+  const skillEntries = entries.filter(([step]) => step.startsWith("skill:"));
+  const sharedError = identicalSkillFailure(skillEntries);
+
+  if (sharedError !== undefined) {
+    process.stderr.write(`skills: failed — ${redact(sharedError)}\n`);
+    if (verbose) {
+      for (const [step, r] of skillEntries) {
+        process.stderr.write(`  ${step}: ${redact(r.command.join(" "))}\n`);
       }
-    } else {
-      process.stderr.write(`${step}: failed — ${redact(r.error ?? "")}\n`);
-      if (verbose) process.stderr.write(`  command: ${cmd}\n`);
     }
+  } else {
+    for (const [step, r] of skillEntries) {
+      printOneHumanStep(step, r, redact, verbose, mcpName);
+    }
+  }
+
+  for (const [step, r] of entries) {
+    if (step.startsWith("skill:")) continue;
+    printOneHumanStep(step, r, redact, verbose, mcpName);
   }
 }
 
@@ -230,11 +329,16 @@ export async function runInstall(
 
   if (target === "skill" || target === "all") {
     if (human) process.stdout.write("Installing skills…\n");
+    const toolingError = dryRun ? undefined : probeSkillTooling(run);
     for (const skill of SKILL_NAMES) {
       const command = skillCommand(skill);
-      results[`skill:${skill}`] = dryRun
-        ? { command, ok: true, skipped: "dry-run" }
-        : runStep(run, command);
+      if (dryRun) {
+        results[`skill:${skill}`] = { command, ok: true, skipped: "dry-run" };
+      } else if (toolingError) {
+        results[`skill:${skill}`] = { command, ok: false, error: toolingError };
+      } else {
+        results[`skill:${skill}`] = runStep(run, command);
+      }
     }
   }
 
@@ -314,15 +418,26 @@ export async function runInstall(
     ];
     printSuccessFooter(stepLabels, signedIn);
   } else if (failed && !dryRun && skillsOk && results.mcp && !results.mcp.ok) {
-    const next =
-      results.mcp.skipped === "sign-in"
-        ? "Sign in with `uploads login`, then re-run `uploads install mcp`."
-        : "Fix the MCP step above, then re-run `uploads install mcp`.";
+    let next: string;
+    if (results.mcp.skipped === "sign-in") {
+      next = "Sign in with `uploads login`, then re-run `uploads install mcp`.";
+    } else if (results.mcp.error?.includes("not found on PATH")) {
+      next = "Install the Claude Code CLI (or skip MCP), then re-run `uploads install mcp`.";
+    } else {
+      next = "Fix the MCP step above, then re-run `uploads install mcp`.";
+    }
     process.stdout.write(`\nSkills are installed. ${next}\n`);
   } else if (failed && !dryRun && skillsFailed) {
-    // Mixed or total skill failure used to print only per-step lines (#191).
+    // Closing guidance when skills fail (issue #191: used to be per-step only).
+    const skillErrText = skillResults.map((r) => r.error ?? "").join("\n");
+    const toolingMissing = /npx not found|npm not found|too old for skill install/i.test(
+      skillErrText,
+    );
     process.stdout.write(
-      "\nSkill install incomplete. Fix the errors above, then re-run `uploads install skill`.\n",
+      toolingMissing
+        ? "\nSkill install needs a working Node.js toolchain (npx + npm 7+ on PATH). " +
+            "Fix that, then re-run `uploads install skill`.\n"
+        : "\nSkill install incomplete. Fix the errors above, then re-run `uploads install skill`.\n",
     );
   }
 
