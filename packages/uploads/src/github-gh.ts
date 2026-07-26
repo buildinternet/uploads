@@ -12,8 +12,34 @@ import { META_VALUE_MAX, isMetaValueSafe } from "./metadata.js";
 /** Runs a command and returns stdout; throws on non-zero exit. Injectable for tests. */
 export type CommandRunner = (cmd: string, args: string[], input?: string) => string;
 
+type ExecFileOpts = {
+  encoding: "utf8";
+  input?: string;
+  stdio: ["pipe", "pipe", "pipe"];
+  timeout?: number;
+};
+
+/**
+ * Windows npm shims are `.cmd`/`.bat`; bare `execFileSync` ENOENTs them.
+ * Retry once with `shell: true` so PATHEXT resolves the shim. Other platforms
+ * and non-ENOENT errors stay on the no-shell path. Args are from our CLI, not
+ * free-form shell strings.
+ */
+function execFileSyncCompat(cmd: string, args: string[], opts: ExecFileOpts): string {
+  try {
+    return execFileSync(cmd, args, opts);
+  } catch (err) {
+    const isWinShim =
+      process.platform === "win32" &&
+      (err as NodeJS.ErrnoException).code === "ENOENT" &&
+      !/\.(cmd|bat|exe|com)$/i.test(cmd);
+    if (isWinShim) return execFileSync(cmd, args, { ...opts, shell: true });
+    throw err;
+  }
+}
+
 export const execRunner: CommandRunner = (cmd, args, input) =>
-  execFileSync(cmd, args, { encoding: "utf8", input, stdio: ["pipe", "pipe", "pipe"] });
+  execFileSyncCompat(cmd, args, { encoding: "utf8", input, stdio: ["pipe", "pipe", "pipe"] });
 
 /**
  * A `CommandRunner` bounded by `timeoutMs` (node's native `execFileSync`
@@ -25,7 +51,7 @@ export const execRunner: CommandRunner = (cmd, args, input) =>
 export const timedExecRunner =
   (timeoutMs: number): CommandRunner =>
   (cmd, args, input) =>
-    execFileSync(cmd, args, {
+    execFileSyncCompat(cmd, args, {
       encoding: "utf8",
       input,
       stdio: ["pipe", "pipe", "pipe"],

@@ -3,15 +3,41 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CommandRunner } from "../src/github-gh.js";
-import { runInstall, DEFAULT_MCP_URL } from "../src/commands/install.js";
+import {
+  runInstall,
+  DEFAULT_MCP_URL,
+  missingBinaryHint,
+  npmTooOldHint,
+  probeSkillTooling,
+} from "../src/commands/install.js";
+
+/** Answer skill preflight version checks so custom runners reach `skills add`. */
+function skillProbeOk(cmd: string, args: string[]): string | undefined {
+  if (cmd === "npx" && args[0] === "--version") return "10.9.0\n";
+  if (cmd === "npm" && args[0] === "--version") return "10.9.0\n";
+  return undefined;
+}
+
+function makeEnoent(message: string): NodeJS.ErrnoException {
+  const err = new Error(message) as NodeJS.ErrnoException;
+  err.code = "ENOENT";
+  return err;
+}
 
 function fakeRunner() {
   const calls: string[][] = [];
   const run: CommandRunner = (cmd, args) => {
     calls.push([cmd, ...args]);
-    return "installed\nwith multi-line child output\n";
+    return skillProbeOk(cmd, args) ?? "installed\nwith multi-line child output\n";
   };
   return { run, calls };
+}
+
+/** Drop skill preflight (`npx/npm --version`) from call logs. */
+function withoutSkillProbe(calls: string[][]): string[][] {
+  return calls.filter(
+    (c) => !(c[0] === "npx" && c[1] === "--version") && !(c[0] === "npm" && c[1] === "--version"),
+  );
 }
 
 function captureStreams() {
@@ -59,7 +85,9 @@ describe("uploads install", () => {
     const { run, calls } = fakeRunner();
     const code = await install([], { globals: GLOBALS, runner: run });
     expect(code).toBe(0);
-    expect(calls).toEqual([
+    expect(calls[0]).toEqual(["npx", "--version"]);
+    expect(calls[1]).toEqual(["npm", "--version"]);
+    expect(withoutSkillProbe(calls)).toEqual([
       [
         "npx",
         "-y",
@@ -144,8 +172,9 @@ describe("uploads install", () => {
   it("install skill runs only the skills step", async () => {
     const { run, calls } = fakeRunner();
     expect(await install(["skill"], { globals: GLOBALS, runner: run })).toBe(0);
-    expect(calls).toHaveLength(3);
-    expect(calls.every((c) => c[0] === "npx")).toBe(true);
+    const skillAdds = withoutSkillProbe(calls);
+    expect(skillAdds).toHaveLength(3);
+    expect(skillAdds.every((c) => c[0] === "npx" && c.includes("skills"))).toBe(true);
   });
 
   it("skill-only success still nudges login when unsigned", async () => {
@@ -218,8 +247,9 @@ describe("uploads install", () => {
       runner: run,
     });
     expect(code).toBe(1);
-    expect(calls).toHaveLength(3);
-    expect(calls.every((c) => c[0] === "npx")).toBe(true);
+    const skillAdds = withoutSkillProbe(calls);
+    expect(skillAdds).toHaveLength(3);
+    expect(skillAdds.every((c) => c[0] === "npx" && c.includes("skills"))).toBe(true);
     expect(out.join("")).toMatch(/skill:uploads-cli: ok/);
     expect(out.join("")).toMatch(/skill:github-screenshots: ok/);
     expect(out.join("")).toMatch(/skill:annotate-screenshots: ok/);
@@ -230,20 +260,86 @@ describe("uploads install", () => {
     expect(err.join("")).not.toMatch(/error:/i);
   });
 
-  it("reports a missing binary with a manual-command hint, redacted, and exits 1", async () => {
+  it("reports a missing claude binary with install guidance, redacted, and exits 1", async () => {
     const enoent: CommandRunner = () => {
-      const err = new Error("spawn claude ENOENT") as NodeJS.ErrnoException;
-      err.code = "ENOENT";
-      throw err;
+      throw makeEnoent("spawn claude ENOENT");
     };
     const { err } = captureStreams();
     const code = await install(["mcp"], { globals: GLOBALS, runner: enoent });
     expect(code).toBe(1);
     const printed = err.join("");
     expect(printed).toContain("claude not found on PATH");
+    expect(printed).toMatch(/Claude Code CLI/i);
+    expect(printed).toMatch(/uploads install mcp/);
     expect(printed).not.toContain("up_acme_secret");
-    // Full command (with token) only with --verbose; still redacted if shown.
     expect(printed).not.toContain("Bearer up_acme");
+    expect(printed).not.toMatch(/run manually:/i);
+  });
+
+  it("missing npx short-circuits all skills with one collapsed human error", async () => {
+    const calls: string[][] = [];
+    const run: CommandRunner = (cmd, args) => {
+      calls.push([cmd, ...args]);
+      if (cmd === "npx") throw makeEnoent("spawn npx ENOENT");
+      return "ok\n";
+    };
+    const { out, err } = captureStreams();
+    const code = await install(["skill"], { globals: GLOBALS, runner: run });
+    expect(code).toBe(1);
+    expect(calls).toEqual([["npx", "--version"]]);
+    const stderr = err.join("");
+    expect(stderr).toMatch(/skills: failed —/);
+    expect(stderr).toContain("npx not found on PATH");
+    expect(stderr).toMatch(/nodejs\.org/i);
+    expect(stderr).not.toMatch(/skill:uploads-cli: failed/);
+    expect(stderr).not.toMatch(/skill:github-screenshots: failed/);
+    expect(stderr).not.toMatch(/run manually:/i);
+    expect(out.join("")).toMatch(/working Node\.js toolchain/);
+    expect(out.join("")).toMatch(/uploads install skill/);
+  });
+
+  it("old npm version blocks skill install before skills add", async () => {
+    const calls: string[][] = [];
+    const run: CommandRunner = (cmd, args) => {
+      calls.push([cmd, ...args]);
+      if (cmd === "npx" && args[0] === "--version") return "6.14.18\n";
+      if (cmd === "npm" && args[0] === "--version") return "6.14.18\n";
+      return "ok\n";
+    };
+    const { err, out } = captureStreams();
+    const code = await install(["skill"], { globals: GLOBALS, runner: run });
+    expect(code).toBe(1);
+    expect(calls).toEqual([
+      ["npx", "--version"],
+      ["npm", "--version"],
+    ]);
+    expect(err.join("")).toMatch(/skills: failed —/);
+    expect(err.join("")).toContain(npmTooOldHint("6.14.18"));
+    expect(out.join("")).toMatch(/npm 7\+/);
+  });
+
+  it("probeSkillTooling and missingBinaryHint are stable for agents/tests", () => {
+    expect(missingBinaryHint("npx")).toMatch(/npx not found/);
+    expect(missingBinaryHint("claude")).toMatch(/Claude Code CLI/);
+    expect(
+      probeSkillTooling(() => {
+        throw makeEnoent("ENOENT");
+      }),
+    ).toBe(missingBinaryHint("npx"));
+    expect(
+      probeSkillTooling((cmd) => {
+        if (cmd === "npx") return "10.0.0";
+        if (cmd === "npm") return "6.0.0";
+        return "";
+      }),
+    ).toBe(npmTooOldHint("6.0.0"));
+    expect(
+      probeSkillTooling((cmd) => {
+        if (cmd === "npx") return "10.0.0";
+        if (cmd === "npm") return "10.0.0";
+        return "";
+      }),
+    ).toBeUndefined();
   });
 
   it("treats an existing MCP entry as already configured, not a failure", async () => {
@@ -312,11 +408,13 @@ describe("uploads install", () => {
   });
 
   it("mixed skill success/failure prints closing guidance (issue #191)", async () => {
-    let skillCalls = 0;
-    const run: CommandRunner = (cmd) => {
+    let skillAddCalls = 0;
+    const run: CommandRunner = (cmd, args) => {
+      const probe = skillProbeOk(cmd, args);
+      if (probe !== undefined) return probe;
       if (cmd === "npx") {
-        skillCalls += 1;
-        if (skillCalls === 2) throw new Error("skills add failed for github-screenshots");
+        skillAddCalls += 1;
+        if (skillAddCalls === 2) throw new Error("skills add failed for github-screenshots");
         return "ok\n";
       }
       return "mcp ok\n";
@@ -328,5 +426,21 @@ describe("uploads install", () => {
     expect(err.join("")).toMatch(/skill:github-screenshots: failed/);
     expect(out.join("")).toMatch(/Skill install incomplete/);
     expect(out.join("")).toMatch(/uploads install skill/);
+  });
+
+  it("missing claude after successful skills points at Claude Code install", async () => {
+    const run: CommandRunner = (cmd, args) => {
+      const probe = skillProbeOk(cmd, args);
+      if (probe !== undefined) return probe;
+      if (cmd === "claude") throw makeEnoent("spawn claude ENOENT");
+      return "ok\n";
+    };
+    const { out, err } = captureStreams();
+    const code = await install([], { globals: GLOBALS, runner: run });
+    expect(code).toBe(1);
+    expect(out.join("")).toMatch(/skill:uploads-cli: ok/);
+    expect(err.join("")).toMatch(/claude not found on PATH/);
+    expect(out.join("")).toMatch(/Skills are installed/);
+    expect(out.join("")).toMatch(/Claude Code CLI/);
   });
 });
