@@ -1,5 +1,12 @@
 # @buildinternet/uploads
 
+## 0.33.1
+
+### Patch Changes
+
+- fa2109c: When the managed attachments comment falls back to local `gh` (posted under your GitHub account instead of the uploads-sh bot), the comment footer notes that the GitHub App hasn't been installed for the repo yet, with a link to install it.
+- 95999d4: `uploads install` handles missing or too-old Node tooling more clearly: one `npx`/`npm` preflight before skill steps, identical failures collapsed to a single `skills:` line, and install guidance (Node 22+ / npm 7+, Claude Code) instead of "run manually: npx …" when the binary is missing. On Windows, `execFile` retries via the shell so npm `.cmd` shims resolve instead of reporting ENOENT.
+
 ## 0.33.0
 
 ### Minor Changes
