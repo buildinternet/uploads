@@ -7,7 +7,7 @@ import {
   syncAttachmentsComment,
   type CliContext,
 } from "../src/commands.js";
-import { ATTACHMENTS_MARKER, attachmentsMarker } from "../src/github.js";
+import { ATTACHMENTS_MARKER, attachmentsMarker, GH_FALLBACK_AUTHOR_NOTE } from "../src/github.js";
 import type { CommandRunner } from "../src/github-gh.js";
 
 function listClient(
@@ -121,6 +121,23 @@ describe("runComment", () => {
     // uses the namespaced marker (phase 4b).
     expect(create!.input).toContain(attachmentsMarker("test"));
     expect(create!.input).toContain("after.png");
+    // Gh-fallback only: explain why the comment is under a human account.
+    expect(create!.input).toContain(GH_FALLBACK_AUTHOR_NOTE);
+  });
+
+  it("does not append the gh-author note when the bot posts successfully", async () => {
+    const { run, calls } = ghRunner();
+    const client = fakeClient({
+      upsertGithubComment: async () => ({
+        posted: true,
+        action: "created",
+        count: 1,
+      }),
+    });
+    await runComment(ctxWith(client), ["--pr", "5", "--repo", "o/r"], false, run);
+    // Bot path never touches local gh, so no create/patch body is recorded.
+    expect(calls.some((c) => c.args.includes("repos/o/r/issues/5/comments"))).toBe(false);
+    expect(calls.some((c) => c.args.includes("PATCH"))).toBe(false);
   });
 
   it("no-ops (no create) via gh when there are no attachments and no comment exists", async () => {

@@ -597,3 +597,10 @@ export function attachmentsCommentBody(
   );
   return lines.join("\n");
 }
+
+/**
+ * Extra footer line appended only on the local-`gh` fallback path (never on
+ * bot-authored comments). Short note that the App isn't on this repo yet.
+ */
+export const GH_FALLBACK_AUTHOR_NOTE =
+  '<sub><a href="https://github.com/apps/uploads-sh">Install the uploads GitHub App</a> for bot-managed comments.</sub>';
