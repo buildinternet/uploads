@@ -10,6 +10,10 @@
   "repository": "https://github.com/buildinternet/uploads",
   "license": "Apache-2.0",
   "keywords": ["uploads", "screenshots", "github", "file-hosting", "images", "mcp"],
-  "skills": ["./skills/github-screenshots", "./skills/uploads-cli"],
+  "skills": [
+    "./skills/github-screenshots",
+    "./skills/annotate-screenshots",
+    "./skills/uploads-cli"
+  ],
   "hooks": "./hooks/hooks.json"
 }

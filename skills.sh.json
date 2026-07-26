@@ -4,8 +4,8 @@
   "groupings": [
     {
       "title": "GitHub screenshots & file hosting",
-      "description": "Start with github-screenshots — it gets screenshots, GIFs, and recordings into PRs and issues. uploads-cli is the full CLI reference it defers to.",
-      "skills": ["github-screenshots", "uploads-cli"]
+      "description": "Start with github-screenshots — it gets screenshots, GIFs, and recordings into PRs and issues. annotate-screenshots bakes callouts and redactions onto a capture; uploads-cli is the full CLI reference the others defer to.",
+      "skills": ["github-screenshots", "annotate-screenshots", "uploads-cli"]
     }
   ]
 }

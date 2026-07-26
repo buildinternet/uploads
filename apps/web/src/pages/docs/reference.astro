@@ -43,7 +43,10 @@ const REPO = "https://github.com/buildinternet/uploads";
     <ul>
       <li>
         <strong>Hosted files are public.</strong> Anyone with the URL can view them, even
-        media attached to private repositories. Don't upload secrets or sensitive UI.
+        media attached to private repositories. Don't upload secrets or sensitive UI —
+        if a capture shows credentials, solid-redact them first with&#32;
+        <a href="/docs/attach-pull-request-images#annotate"><code>uploads annotate</code></a>&#32;
+        or <code>screenshot --annotate</code> (blurred text can be recoverable).
       </li>
       <li>
         <strong>The visibility toggle unlists — it doesn't lock down bytes.</strong> Marking a

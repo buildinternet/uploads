@@ -210,9 +210,11 @@ Full setup is in [docs/deploy.md](docs/deploy.md); the operator runbook is
   type comes from the bytes, never the client header.
 - **Auth is per-workspace bearer tokens**, hashed and compared in constant time,
   with uniform 401s so workspace names cannot be enumerated.
-- **Keep the two skills in sync** with the CLI. `skills/github-screenshots` is
-  the workflow skill and `skills/uploads-cli` is the full reference; both ship
-  to users, so a new flag belongs in the reference.
+- **Keep the three skills in sync** with the CLI. `skills/github-screenshots` is
+  the workflow skill, `skills/annotate-screenshots` covers callouts and
+  redaction, and `skills/uploads-cli` is the full reference; all three ship to
+  users, so a new flag belongs in the reference (and annotate-related changes
+  also belong in annotate-screenshots).
 - **Docs follow a house style** — active voice, one idea per sentence, one term
   per concept. See [AGENTS.md](AGENTS.md#writing-docs).
 

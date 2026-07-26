@@ -17,6 +17,8 @@ uploads --version
 uploads attach ./before.png ./after.png
 uploads screenshot https://app.example --pr 123 --comment   # capture + host in one step
 uploads screenshot ./report.html --dark --selector "main"
+uploads screenshot http://localhost:3000 --via local --annotate ./callouts.json
+uploads annotate ./shot.png --spec ./callouts.json --out ./shot.marked.png
 uploads put ./shot.png
 uploads put ./shot.png --destination screenshots
 uploads put ./shot.png --no-optimize

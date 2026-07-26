@@ -61,25 +61,27 @@ command to run by hand, rather than overwriting your build.
 
 ## Command overview
 
-| Command                 | What it does                                                            |
-| ----------------------- | ----------------------------------------------------------------------- |
-| `attach <file…>`        | Attach media to the current PR (stable URLs + comment)                  |
-| `put <file>`            | Upload one file → public URL + GitHub markdown                          |
-| `comment`               | Create/update a PR/issue attachments comment (via `gh`)                 |
-| `list` / `find k=v`     | List objects, optionally filtered by queryable metadata                 |
-| `meta get` / `meta set` | Read or merge-set an object's queryable metadata                        |
-| `gallery …`             | Create and organize public media galleries                              |
-| `delete <key>`          | Delete an object                                                        |
-| `usage`                 | Workspace storage / upload counters                                     |
-| `install`               | Skills + remote MCP + hooks (Grok/Cursor); see plugins for Claude/Codex |
-| `hook`                  | Agent harness handlers (e.g. pre-PR screenshot reminder)                |
-| `update`                | Update the CLI, then refresh skills / MCP / hooks                       |
-| `login` / `logout`      | Sign in (browser or enrollment code) / clear saved token                |
-| `whoami` (`status`)     | Show the active workspace and token                                     |
-| `invite`                | Invite a teammate to a workspace (workspace admin)                      |
-| `doctor` / `health`     | Health + auth + workspace checks / API liveness                         |
-| `setup` / `config`      | Inspect and configure CLI settings                                      |
-| `mcp`                   | Serve MCP over stdio (tools mirror the CLI)                             |
+| Command                  | What it does                                                            |
+| ------------------------ | ----------------------------------------------------------------------- |
+| `attach <file…>`         | Attach media to the current PR (stable URLs + comment)                  |
+| `put <file>`             | Upload one file → public URL + GitHub markdown                          |
+| `screenshot <url\|html>` | Capture a page (or local HTML) and host it in one step                  |
+| `annotate <image>`       | Bake boxes, arrows, labels, strokes, and redactions onto an image       |
+| `comment`                | Create/update a PR/issue attachments comment (via `gh`)                 |
+| `list` / `find k=v`      | List objects, optionally filtered by queryable metadata                 |
+| `meta get` / `meta set`  | Read or merge-set an object's queryable metadata                        |
+| `gallery …`              | Create and organize public media galleries                              |
+| `delete <key>`           | Delete an object                                                        |
+| `usage`                  | Workspace storage / upload counters                                     |
+| `install`                | Skills + remote MCP + hooks (Grok/Cursor); see plugins for Claude/Codex |
+| `hook`                   | Agent harness handlers (e.g. pre-PR screenshot reminder)                |
+| `update`                 | Update the CLI, then refresh skills / MCP / hooks                       |
+| `login` / `logout`       | Sign in (browser or enrollment code) / clear saved token                |
+| `whoami` (`status`)      | Show the active workspace and token                                     |
+| `invite`                 | Invite a teammate to a workspace (workspace admin)                      |
+| `doctor` / `health`      | Health + auth + workspace checks / API liveness                         |
+| `setup` / `config`       | Inspect and configure CLI settings                                      |
+| `mcp`                    | Serve MCP over stdio (tools mirror the CLI)                             |
 
 Run `uploads <command> --help` for a command's flags.
 
@@ -156,6 +158,32 @@ exists` without writing.
 > (`gh/myorg/myapp/pull/123/after.png`), so generic names are easier to guess
 > than hashed keys. Treat uploads as public; don't host secrets or sensitive UI.
 > Tighter access controls for private repos are planned — see [roadmap](roadmap.md).
+
+## Annotating screenshots
+
+Bake hand-drawn callouts into a capture so reviewers see what changed without
+hunting through the image. Two commands share one JSON spec format:
+
+```bash
+# Capture and annotate in one pass (CSS selectors resolve on the live page;
+# local capture backend only for selector-bearing specs)
+uploads screenshot http://localhost:3000 --via local --annotate ./callouts.json
+
+# Annotate an existing PNG/JPEG (pixel coordinates only — no selectors)
+uploads annotate ./shot.png --spec ./callouts.json --out ./shot.marked.png
+```
+
+A spec is `{ "version": 1, "annotations": [ … ] }`. Supported types: `box`,
+`arrow`, `label`, `draw`, `redact`, and `svg`. Prefer selectors with
+`screenshot --annotate` whenever a live page is available; fall back to pixel
+geometry with `annotate` when you only have the image. Use `redact` with
+`style: "solid"` for secrets before anything is uploaded — hosted URLs are
+public.
+
+Full format, worked examples, and redaction guidance:
+[`skills/annotate-screenshots/SKILL.md`](../skills/annotate-screenshots/SKILL.md).
+Public walkthrough:
+[uploads.sh/docs/attach-pull-request-images#annotate](https://uploads.sh/docs/attach-pull-request-images#annotate).
 
 ## Custom metadata
 
@@ -249,7 +277,10 @@ npx skills add buildinternet/uploads
 [`skills/github-screenshots/SKILL.md`](../skills/github-screenshots/SKILL.md) is
 the workflow skill — screenshots and recordings into PRs and issues.
 [`skills/uploads-cli/SKILL.md`](../skills/uploads-cli/SKILL.md) is the full CLI
-reference it defers to. See [api.md](api.md) for the REST routes.
+reference it defers to.
+[`skills/annotate-screenshots/SKILL.md`](../skills/annotate-screenshots/SKILL.md)
+covers callouts and redaction (`uploads annotate` /
+`uploads screenshot --annotate`). See [api.md](api.md) for the REST routes.
 
 The same install step also wires a fail-open pre-PR screenshot reminder for
 **Grok** and **Cursor** when those tools are present. **Claude Code** and
