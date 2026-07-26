@@ -88,6 +88,7 @@ export {
 export {
   ATTACHMENTS_MARKER,
   attachmentsCommentBody,
+  GH_FALLBACK_AUTHOR_NOTE,
   ghAttachmentKey,
   ghKeyPrefix,
   ghMetadataFromTarget,

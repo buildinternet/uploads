@@ -43,6 +43,7 @@ import {
   ghMetadataForBranch,
   attachmentsCommentBody,
   attachmentsMarker,
+  GH_FALLBACK_AUTHOR_NOTE,
   type GhTarget,
   type AttachmentItem,
   type GalleryCommentItem,
@@ -786,7 +787,9 @@ export async function syncAttachmentsComment(
   );
 
   const marker = attachmentsMarker(workspace);
-  const body = attachmentsCommentBody(items, previewGalleries, marker);
+  // Append only on the local-gh path: bot posts already carry the uploads-sh
+  // bot identity, so this note would be wrong there.
+  const body = `${attachmentsCommentBody(items, previewGalleries, marker)}\n${GH_FALLBACK_AUTHOR_NOTE}`;
   const count = items.length + previewGalleries.length;
   // Empty (count 0) renders the neutral empty-state body but must not create a
   // comment — it only rewrites one that already exists (`action: "skipped"`
