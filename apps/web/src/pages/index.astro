@@ -25,10 +25,11 @@ uploads.sh is the missing upload command for coding agents: one CLI that hosts s
 Setup:
 1. Install the CLI: npm install -g @buildinternet/uploads
 2. Authenticate: uploads login (opens a browser sign-in — wait for me to approve it)
-3. Wire it into you: uploads install (adds the agent skill + MCP server so future sessions know how to use it)
+3. Wire it into you: uploads install (adds the agent skills + MCP server so future sessions know how to use it)
 
 Then get the staged loop working end to end:
 - While you're still working, before there's a PR, capture a screenshot at each visual milestone and run uploads put <file> --state before (or --state after). On a branch, a bare put stages it automatically — no --branch flag, no PR needed yet. uploads screenshot <url> captures and hosts in one step if that's easier.
+- Need to point at what changed? uploads screenshot <url> --via local --annotate ./callouts.json bakes boxes, arrows, labels, or solid redactions into the capture (or uploads annotate on an existing image).
 - Check what's queued anytime with uploads staged.
 - Open the PR (gh pr create or the GitHub UI) and the staged files promote automatically — the single attachments comment appears with no extra upload command at PR time.
 - Already have an open PR or issue to target directly instead? uploads attach <files> does that immediately.
@@ -634,6 +635,14 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             </p>
           </div>
           <div class="feature">
+            <h3>annotations</h3>
+            <p>
+              Bake hand-drawn boxes, arrows, labels, and solid redactions into a capture with&#32;
+              <code>screenshot --annotate</code> or <code>uploads annotate</code> — so reviewers
+              see what changed without hunting.
+            </p>
+          </div>
+          <div class="feature">
             <h3>shareable galleries</h3>
             <p>
               Group uploads into a gallery that can live across multiple PRs — one link for the
@@ -653,7 +662,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           </div>
           <div class="cmdrow">
             <span class="tag">agents</span>
-            <span class="cmdtext">uploads install <span class="comment"># skill + mcp</span></span>
+            <span class="cmdtext">uploads install <span class="comment"># skills + mcp</span></span>
             <button type="button" data-copy="uploads install" aria-live="polite">copy</button>
           </div>
           <div class="cmdrow">

@@ -68,15 +68,15 @@ so future sessions capture on their own instead of being asked.
 
 One storage layer, reached however the agent (or human) already works:
 
-| Surface                        | What it is                                                                 |
-| ------------------------------ | -------------------------------------------------------------------------- |
-| CLI (`@buildinternet/uploads`) | The canonical interface: put, attach, staged, find, galleries, screenshot  |
-| Local MCP (stdio)              | The CLI's capabilities inside any MCP-capable agent                        |
-| Hosted MCP (agents.uploads.sh) | Remote server behind OAuth 2.1 — no local install at all                   |
-| GitHub App                     | Webhook-driven promotion and comment sync the moment a PR opens            |
-| REST API                       | Everything the CLI does, for anything that speaks HTTP                     |
-| Web (uploads.sh)               | File pages, galleries, workspace settings, admin                           |
-| Skills                         | `github-screenshots` and `uploads-cli`, installable into any agent runtime |
+| Surface                        | What it is                                                                          |
+| ------------------------------ | ----------------------------------------------------------------------------------- |
+| CLI (`@buildinternet/uploads`) | The canonical interface: put, attach, staged, find, galleries, screenshot, annotate |
+| Local MCP (stdio)              | The CLI's capabilities inside any MCP-capable agent                                 |
+| Hosted MCP (agents.uploads.sh) | Remote server behind OAuth 2.1 — no local install at all                            |
+| GitHub App                     | Webhook-driven promotion and comment sync the moment a PR opens                     |
+| REST API                       | Everything the CLI does, for anything that speaks HTTP                              |
+| Web (uploads.sh)               | File pages, galleries, workspace settings, admin                                    |
+| Skills                         | `github-screenshots`, `annotate-screenshots`, and `uploads-cli`                     |
 
 Discovery is machine-first too: `/.well-known/integrations.json`, OpenAPI,
 OAuth protected-resource metadata. An agent that has never heard of uploads
@@ -131,12 +131,11 @@ these normal.
   tied to code or a deliverable — extends to whatever surface a team reviews
   or ships on. Galleries are the deliberate exploration of that: a curated,
   linkable bundle of evidence that stands on its own, no PR required.
-- **Annotations.** Marking up the evidence itself — callouts, highlights, and
-  notes on a capture — so a screenshot can carry the reviewer's (or the
-  agent's) commentary with it.
 - **Automatic redaction.** Detecting and redacting sensitive content in
   uploads — tokens, emails, personal data caught in a capture — before it
-  ships to a public URL.
+  ships to a public URL. Manual redaction is already shipped (`uploads annotate`
+  / `screenshot --annotate` with a `redact` annotation); automatic detection is
+  the remaining step.
 - **Private hosting.** Hosted files are public today, stated plainly. Scoped,
   private evidence — for teams whose UI can't be on the open web — is on the
   roadmap, not a quiet promise.
@@ -154,8 +153,9 @@ these normal.
 Shipped and running in production: the staging loop, GitHub App promotion,
 before/after pairing, managed-comment self-healing, hosted and local MCP,
 OAuth 2.1, self-serve workspaces, plans and billing, galleries, the screenshot
-renderer, and the agent skills. This repo furnishes its own PRs with the tool
-it ships.
+renderer, screenshot annotations (`uploads annotate` /
+`screenshot --annotate`), and the agent skills. This repo furnishes its own
+PRs with the tool it ships.
 
 Under active development, in the open. APIs (including auth) can still change.
 Feedback is welcome — open an issue.

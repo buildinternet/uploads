@@ -1,7 +1,7 @@
 ---
-// uploads.sh — docs / attach & share. The three commands that get media onto
+// uploads.sh — docs / attach & share. The commands that get media onto
 // GitHub or a URL: attach (managed PR/issue comment), put (any file → URL),
-// and screenshot (render + host in one step).
+// screenshot (render + host), and annotate (callouts/redactions on a shot).
 import DocsLayout from "../../layouts/DocsLayout.astro";
 
 const TOC = [
@@ -10,15 +10,16 @@ const TOC = [
   { id: "before-after", label: "Pair a before and after" },
   { id: "put", label: "Get a URL for any file" },
   { id: "screenshot", label: "Capture a screenshot" },
+  { id: "annotate", label: "Annotate a screenshot" },
 ];
 ---
 
 <DocsLayout
   title="Attach & share"
-  description="Attach screenshots and video to GitHub PRs and issues, get a public URL for any file, and capture a screenshot in one step with the uploads CLI."
+  description="Attach screenshots and video to GitHub PRs and issues, get a public URL for any file, capture a screenshot, and bake callouts or redactions onto it with the uploads CLI."
   path="/docs/attach-pull-request-images"
   heading="Attach & share"
-  tagline="The three commands that get media onto a PR, an issue, or a plain URL."
+  tagline="The commands that get media onto a PR, an issue, or a plain URL — capture, annotate, and attach."
   active="attach"
   toc={TOC}
 >
@@ -333,6 +334,54 @@ MARKDOWN: ![app.example](https://storage.uploads.sh/gh/app/example/pull/123/app.
       settle animations. Hide any other overlay with <code>--hide &lt;selector&gt;</code>
       (repeatable), or run setup JS first with <code>--eval &lt;js&gt;</code> /
       <code>--init-script &lt;file&gt;</code> (local backend).
+    </p>
+  </section>
+
+  <section id="annotate">
+    <h2>Annotate a screenshot <a class="anchor" href="#annotate" aria-label="Link to this section">#</a></h2>
+    <p>
+      Point reviewers at what changed — boxes, arrows, labels, freeform strokes,
+      and redactions bake into the image before it is hosted. Two entry points,
+      same JSON spec:
+    </p>
+    <div class="cmd">
+      <span class="text">uploads screenshot http://localhost:4321/settings --via local --annotate ./callouts.json</span>
+      <button type="button" data-copy="uploads screenshot http://localhost:4321/settings --via local --annotate ./callouts.json" aria-live="polite">copy</button>
+    </div>
+    <div class="cmd">
+      <span class="text">uploads annotate ./shot.png --spec ./callouts.json --out ./shot.marked.png</span>
+      <button type="button" data-copy="uploads annotate ./shot.png --spec ./callouts.json --out ./shot.marked.png" aria-live="polite">copy</button>
+    </div>
+    <p>
+      Prefer <code>screenshot --annotate</code> when you control the page: CSS
+      selectors resolve against the live DOM (local capture backend only in v1 —
+      remote rejects selector-bearing specs). Use <code>annotate</code> on an
+      image you already have — pixel coordinates only, no selectors.
+    </p>
+    <p>A minimal callouts file:</p>
+    <div class="block" aria-label="Annotation spec example">
+      <pre>{`{
+  "version": 1,
+  "annotations": [
+    { "type": "box", "selector": "#save-button" },
+    { "type": "label", "text": "New: bulk save", "selector": "#save-button" },
+    { "type": "redact", "selector": "[data-testid=api-key]", "style": "solid" }
+  ]
+}`}</pre>
+    </div>
+    <p>
+      Annotation types: <code>box</code>, <code>arrow</code>, <code>label</code>,
+      <code>draw</code>, <code>redact</code>, and <code>svg</code>. House style is
+      fixed (hand-drawn stroke); optional per-annotation <code>color</code> is
+      the only style knob. Use <code>redact</code> with <code>style: "solid"</code>
+      for secrets — hosted files are public, and blurred text can be recoverable.
+    </p>
+    <p>
+      Full spec format, selector vs pixel rules, and workflow notes live in the&#32;
+      <a href="https://github.com/buildinternet/uploads/blob/main/skills/annotate-screenshots/SKILL.md">annotate-screenshots</a>&#32;
+      agent skill (<code>uploads install</code> or&#32;
+      <code>npx skills add buildinternet/uploads</code>). See also&#32;
+      <code>uploads annotate --help</code> and <code>uploads screenshot --help</code>.
     </p>
   </section>
 

@@ -8,9 +8,10 @@ Access requires a workspace — create your own with a linked GitHub account, or
 
 - [Home](https://uploads.sh/): product overview and copyable install commands
 - [Docs](https://uploads.sh/docs): overview, one-time install, and links to the focused guides below
-- [Docs: attach & share](https://uploads.sh/docs/attach-pull-request-images): attach media to PRs/issues, stage screenshots before a PR exists, pair a before/after with --state, get a URL for any file, capture a screenshot
+- [Docs: attach & share](https://uploads.sh/docs/attach-pull-request-images): attach media to PRs/issues, stage screenshots before a PR exists, pair a before/after with --state, get a URL for any file, capture a screenshot, annotate with callouts/redactions
+- [Docs: annotate a screenshot](https://uploads.sh/docs/attach-pull-request-images#annotate): bake boxes, arrows, labels, freeform strokes, and solid redactions into a capture (`uploads screenshot --annotate` or `uploads annotate`)
 - [Docs: GitHub App](https://uploads.sh/docs/github-app): recommended install for bot-posted attachment comments, private-repo PR/issue titles, and zero-CLI promotion of branch-staged screenshots when a PR opens
-- [Docs: agents](https://uploads.sh/docs/agents): install the agent skill and MCP server, or the all-in-one Claude Code plugin
+- [Docs: agents](https://uploads.sh/docs/agents): install the agent skills and MCP server, or the all-in-one Claude Code plugin
 - [Docs: reference](https://uploads.sh/docs/reference): manage uploads (list/delete/usage) and what to know before relying on it
 - [Docs: plans & limits](https://uploads.sh/docs/limits): storage/file-size/member caps per plan, behavior at each cap, and the GitHub attachment-cap comparison
 - [Agent guide](https://uploads.sh/github-screenshots): how to get coding agents to upload screenshots & video to GitHub PRs and issues
@@ -20,6 +21,7 @@ Access requires a workspace — create your own with a linked GitHub account, or
 - [API](https://github.com/buildinternet/uploads/blob/main/docs/api.md): REST surface for workspace-scoped files
 - [OpenAPI (summary)](https://uploads.sh/.well-known/openapi.json): machine-readable API surface
 - [CLI skill](https://github.com/buildinternet/uploads/tree/main/skills/uploads-cli): host a file and embed it in a PR/issue (artifact URL is in the skills index)
+- [Annotate skill](https://github.com/buildinternet/uploads/tree/main/skills/annotate-screenshots): JSON annotation spec and workflow for callouts and redaction
 
 ## Install
 

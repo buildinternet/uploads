@@ -34,11 +34,15 @@ const FAQ = [
 	},
 	{
 		q: "How do I set up Claude Code to attach screenshots to its pull requests?",
-		a: "Run `uploads install` once. It installs the uploads-cli agent skill and registers the hosted MCP server with Claude Code. After that, the agent runs `uploads attach <files>` on its own when it changes something visual.",
+		a: "Run `uploads install` once. It installs the agent skills (attach workflow, CLI reference, and annotations) and registers the hosted MCP server with Claude Code. After that, the agent runs `uploads attach <files>` on its own when it changes something visual.",
+	},
+	{
+		q: "Can I mark up a screenshot before attaching it?",
+		a: "Yes. `uploads screenshot --annotate` bakes boxes, arrows, labels, freeform strokes, and redactions into a capture (CSS selectors on a live page). `uploads annotate` does the same on an existing image with pixel coordinates. See the Attach & share docs and the annotate-screenshots skill.",
 	},
 	{
 		q: "Are uploaded files private?",
-		a: "No. Files are public to anyone with the URL, even media attached to private repos. Don't upload secrets or sensitive UI. Uploading itself requires an invite-issued workspace token.",
+		a: "No. Files are public to anyone with the URL, even media attached to private repos. Don't upload secrets or sensitive UI — use a solid redaction (`uploads annotate` / `screenshot --annotate`) when a capture shows credentials. Uploading itself requires an invite-issued workspace token.",
 	},
 ];
 
@@ -114,8 +118,8 @@ const FAQ_JSON_LD = JSON.stringify({
     </div>
     <ul>
       <li>
-        The <strong>agent skill</strong> teaches the agent when to attach screenshots,
-        like before/after shots on a PR it just opened.
+        The <strong>agent skills</strong> teach when to attach screenshots (and when to
+        annotate them with callouts or redactions), plus the full CLI reference.
       </li>
       <li>
         The <strong>MCP server</strong> offers the same tools
@@ -125,8 +129,8 @@ const FAQ_JSON_LD = JSON.stringify({
     </ul>
     <p>Or set up each piece yourself, for other agent runtimes:</p>
     <div class="cmd">
-      <span class="text">npx skills add buildinternet/uploads --skill uploads-cli</span>
-      <button type="button" data-copy="npx skills add buildinternet/uploads --skill uploads-cli" aria-live="polite">copy</button>
+      <span class="text">npx skills add buildinternet/uploads</span>
+      <button type="button" data-copy="npx skills add buildinternet/uploads" aria-live="polite">copy</button>
     </div>
     <div class="cmd">
       <span class="text">claude mcp add --transport http uploads <span class="url">https://agents.uploads.sh/mcp</span></span>
