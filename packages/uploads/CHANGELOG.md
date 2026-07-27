@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.34.1
+
+### Patch Changes
+
+- 3101044: `put <file> --pr/--issue --format json` now includes `comment`/`commentError` in the single-file JSON payload, matching the multi-file batch shape (#541).
+
 ## 0.34.0
 
 ### Minor Changes
