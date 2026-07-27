@@ -87,8 +87,7 @@ export async function fetchRepoCommentConfig(
       res = await githubFetch(fetch, `https://api.github.com/repos/${repo}/contents/${path}`, {
         headers: { ...githubHeaders(token), accept: "application/vnd.github.raw+json" },
       });
-    } catch (e) {
-      console.error("DEBUG fetch error", e);
+    } catch {
       return NOT_FOUND; // transient (network/timeout) — uncached
     }
     if (res.status === 404) continue;
