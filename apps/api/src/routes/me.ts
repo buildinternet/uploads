@@ -40,7 +40,7 @@ import {
   type AttachmentItem,
 } from "../github-comment-render";
 import { githubInstallStatus, type GithubInstallStatus } from "../github-install-status";
-import { findRepoLink } from "../github-repo-links";
+import { findRepoLink, listRepoLinksForWorkspace } from "../github-repo-links";
 import { resolveRepoCommentOptions, workspaceCommentDefaults } from "../repo-comment-config";
 import { resolveTitles } from "../github-titles";
 import { allowWrite } from "../guards";
@@ -950,6 +950,23 @@ export const me = new Hono<SessionVars>()
     const name = c.req.param("name");
     await memberWorkspaceOr404(c.env, requireUserId(c), name);
     return c.json<GithubInstallStatus>(await githubInstallStatus(c.env, name));
+  })
+
+  // Repos this workspace has linked (issue #307, Task 7) — feeds the comment
+  // settings preview panel's repo picker. Admin/owner-gated like the
+  // comment-settings/preview routes below (same audience: whoever can edit
+  // the defaults is whoever should see which repos they apply to). This is
+  // the session-authed counterpart to admin-ui's operator-only
+  // `/admin-ui/workspaces/:name/github-links` — that route needs
+  // `ADMIN_TOKEN`, which the web app's Better Auth session can't produce.
+  // Repo names only: the web client has no use for installationId/source/
+  // createdAt, and trimming them keeps this from becoming a second surface
+  // to keep in sync with `repoLinkResponse` in admin-ui.ts.
+  .get("/workspaces/:name/repo-links", async (c) => {
+    const name = c.req.param("name");
+    await adminWorkspaceOr403(c.env, requireUserId(c), name);
+    const links = await listRepoLinksForWorkspace(c.env.DB, name);
+    return c.json({ repos: links.map((link) => link.repo) });
   })
 
   // Workspace-level managed-comment defaults (issue #307): image width,

@@ -2057,6 +2057,63 @@ describe("workspace comment-settings routes", () => {
   });
 });
 
+describe("GET /me/workspaces/:name/repo-links", () => {
+  const REC = { provider: "r2", bucket: "uploads-default", prefix: "acme/" };
+
+  /** Admin/owner-gated env with a real (SQL-backed) DB for github_repo_links. */
+  function repoLinksEnv(opts: { workspace?: string; role: string; record?: unknown }) {
+    const { workspace = "acme", role, record } = opts;
+    const registry = fakeRegistry(record !== undefined ? { [workspace]: record } : {});
+    const auth = stubAuth((req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/api/auth/get-session") {
+        return new Response(JSON.stringify({ session: {}, user: USER }), { status: 200 });
+      }
+      if (url.pathname === "/internal/memberships") {
+        return Response.json([
+          {
+            organizationId: "org1",
+            organizationSlug: workspace,
+            organizationName: workspace,
+            role,
+          },
+        ]);
+      }
+      return new Response(null, { status: 404 });
+    });
+    const sqlite = new SqliteD1(["migrations/20260720120000_github_repo_links.sql"]);
+    const env = {
+      AUTH: auth,
+      DB: d1FromSqlite(sqlite),
+      REGISTRY: registry,
+    } as unknown as Env;
+    return { env, sqlite };
+  }
+
+  it("403s for a non-admin member", async () => {
+    const { env } = repoLinksEnv({ role: "member", record: REC });
+    const res = await app().request("/me/workspaces/acme/repo-links", {}, env);
+    expect(res.status).toBe(403);
+  });
+
+  it("returns an empty list for a workspace with no linked repos", async () => {
+    const { env } = repoLinksEnv({ role: "admin", record: REC });
+    const res = await app().request("/me/workspaces/acme/repo-links", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ repos: [] });
+  });
+
+  it("returns repo names only, most recently linked first", async () => {
+    const { env, sqlite } = repoLinksEnv({ role: "owner", record: REC });
+    const db = d1FromSqlite(sqlite);
+    await recordRepoLink(db, "acme/web", "acme", "comment", null, new Date("2026-01-01"));
+    await recordRepoLink(db, "acme/api", "acme", "comment", null, new Date("2026-01-02"));
+    const res = await app().request("/me/workspaces/acme/repo-links", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ repos: ["acme/api", "acme/web"] });
+  });
+});
+
 describe("GET /me/workspaces/:name/comment-preview", () => {
   const REC = {
     provider: "r2",

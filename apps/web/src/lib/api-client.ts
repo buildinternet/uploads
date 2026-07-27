@@ -1061,3 +1061,185 @@ export async function listWorkspaceFolder(
     cursor: typeof body.cursor === "string" ? body.cursor : undefined,
   };
 }
+
+/**
+ * Workspace-level managed-comment defaults (issue #307, Task 7 — the
+ * settings-tab block). Mirrors `commentSettingsResponse` in
+ * apps/api/src/routes/me.ts exactly: `null` means "unset/auto" for every
+ * field, never a separate "not configured" state.
+ */
+export interface CommentSettings {
+  imageWidth: "full" | number | null;
+  maxInlineImages: number | null;
+  showMetadata: boolean | null;
+  linkToFilePage: boolean | null;
+  note: string | null;
+}
+
+export type CommentSettingsResult =
+  | { kind: "ok"; settings: CommentSettings }
+  | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
+
+function toCommentSettings(body: unknown): CommentSettings | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as Record<string, unknown>;
+  const imageWidth =
+    b.imageWidth === "full" || typeof b.imageWidth === "number" ? b.imageWidth : null;
+  const maxInlineImages = typeof b.maxInlineImages === "number" ? b.maxInlineImages : null;
+  const showMetadata = typeof b.showMetadata === "boolean" ? b.showMetadata : null;
+  const linkToFilePage = typeof b.linkToFilePage === "boolean" ? b.linkToFilePage : null;
+  const note = typeof b.note === "string" ? b.note : null;
+  return { imageWidth, maxInlineImages, showMetadata, linkToFilePage, note };
+}
+
+/** GET /me/workspaces/:name/comment-settings — admin/owner only. */
+export async function getWorkspaceCommentSettings(
+  apiOrigin: string,
+  name: string,
+): Promise<CommentSettingsResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/comment-settings`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const settings = toCommentSettings(await response.json().catch(() => null));
+  if (!settings) return { kind: "unavailable", reason: "server" };
+  return { kind: "ok", settings };
+}
+
+export type CommentSettingsPatchResult =
+  | { kind: "ok"; settings: CommentSettings }
+  | { kind: "invalid"; message: string }
+  | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
+
+/**
+ * PATCH /me/workspaces/:name/comment-settings. `patch` is partial — an
+ * omitted key leaves the field unchanged server-side, an explicit `null`
+ * clears it. On a 400 the server's `error.message` is surfaced verbatim
+ * (already a complete sentence naming the offending field/bounds) so the
+ * settings form can show it inline without re-deriving it client-side.
+ */
+export async function patchWorkspaceCommentSettings(
+  apiOrigin: string,
+  name: string,
+  patch: Partial<CommentSettings>,
+): Promise<CommentSettingsPatchResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/comment-settings`,
+    {
+      method: "PATCH",
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 400) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    return { kind: "invalid", message: body?.error?.message ?? "That change isn’t allowed." };
+  }
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const settings = toCommentSettings(await response.json().catch(() => null));
+  if (!settings) return { kind: "unavailable", reason: "server" };
+  return { kind: "ok", settings };
+}
+
+/**
+ * GET /me/workspaces/:name/repo-links — repo names this workspace has
+ * linked (issue #307, Task 7's repo picker). Fails open to `[]`: an empty
+ * picker just means "no repo config" is the only option, same as a
+ * workspace that genuinely has no linked repos.
+ */
+export async function getWorkspaceRepoLinks(apiOrigin: string, name: string): Promise<string[]> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/repo-links`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable" || !result.response.ok) return [];
+  const body = (await result.response.json().catch(() => null)) as { repos?: unknown } | null;
+  if (!body || !Array.isArray(body.repos)) return [];
+  return body.repos.filter((r): r is string => typeof r === "string");
+}
+
+/** Per-key attribution the preview endpoint returns: which layer supplied the resolved value. */
+export type CommentOptionSource = "repo" | "workspace" | "auto";
+
+export interface CommentPreviewResolved {
+  imageWidth: "auto" | "full" | number;
+  maxInlineImages: number;
+  metaPath: boolean;
+  metaState: boolean;
+  linkToFilePage: boolean;
+  note: string | null;
+}
+
+export interface CommentPreview {
+  resolved: CommentPreviewResolved;
+  source: Record<keyof CommentPreviewResolved, CommentOptionSource>;
+  repoConfig: { found: boolean; path: string | null; warnings: string[] } | null;
+  body: string;
+  sample: "recent" | "fixtures";
+}
+
+export type CommentPreviewResult =
+  | { kind: "ok"; preview: CommentPreview }
+  | {
+      kind: "unavailable";
+      reason: RequestFailure | "forbidden" | "not_found" | "invalid_repo" | "server";
+    };
+
+/**
+ * GET /me/workspaces/:name/comment-preview[?repo=owner/name]. `repo` must
+ * already be linked to this workspace — an unlinked or malformed repo 404s/
+ * 400s server-side, surfaced here as `not_found`/`invalid_repo` so the
+ * preview panel can tell the two apart (a stale picker entry vs. a typo).
+ */
+export async function getWorkspaceCommentPreview(
+  apiOrigin: string,
+  name: string,
+  repo?: string,
+): Promise<CommentPreviewResult> {
+  const qs = repo ? `?repo=${encodeURIComponent(repo)}` : "";
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/comment-preview${qs}`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (response.status === 400) return { kind: "unavailable", reason: "invalid_repo" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const body = (await response.json().catch(() => null)) as Partial<CommentPreview> | null;
+  if (
+    !body ||
+    typeof body.body !== "string" ||
+    !body.resolved ||
+    typeof body.resolved !== "object" ||
+    !body.source ||
+    typeof body.source !== "object" ||
+    (body.sample !== "recent" && body.sample !== "fixtures")
+  ) {
+    return { kind: "unavailable", reason: "server" };
+  }
+  return {
+    kind: "ok",
+    preview: {
+      resolved: body.resolved as CommentPreviewResolved,
+      source: body.source as Record<keyof CommentPreviewResolved, CommentOptionSource>,
+      repoConfig: body.repoConfig ?? null,
+      body: body.body,
+      sample: body.sample,
+    },
+  };
+}

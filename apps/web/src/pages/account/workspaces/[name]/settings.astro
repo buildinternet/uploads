@@ -1,10 +1,12 @@
 ---
 /**
- * Workspace settings tab — thin stub (design 3A §5.3). The rail already
- * surfaces slug/public-url live; this repeats the same summary in the main
- * column (visible without the rail, e.g. on narrow viewports) via a
- * `<details>` disclosure. No new endpoints — reuses `getMyWorkspaces` +
- * `renderDetailsHtml` from the rail module.
+ * Workspace settings tab — design 3A §5.3's slug/public-url summary, plus
+ * the issue #307 GitHub-comment defaults block + live preview panel (Task
+ * 7). Both new sections start `hidden` and reveal on session (same
+ * progressive-reveal convention as the details `<dl>` below and the
+ * PR #526 account pages) rather than blocking the tab's initial paint —
+ * admin-gated data has nothing to show until the session/role check lands
+ * anyway.
  */
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
@@ -23,6 +25,86 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         <summary>Workspace details</summary>
         <dl class="kv" data-ws-settings-details></dl>
       </details>
+    </div>
+
+    <div class="settings-section" id="cs-section" hidden>
+      <h2>GitHub comment</h2>
+      <p class="settings-note muted">
+        Defaults every linked repo's managed comment uses, unless a repo's <code>.uploads.yml</code>
+        overrides them.
+      </p>
+
+      <div id="cs-error" class="ul-callout" data-state="error" role="alert" hidden></div>
+
+      <form class="ws-form cs-form" id="cs-form">
+        <div class="cs-field">
+          <label for="cs-image-width">Image width</label>
+          <select id="cs-image-width" class="ul-select">
+            <option value="auto">Auto</option>
+            <option value="full">Full width</option>
+            <option value="custom">Custom (px)</option>
+          </select>
+          <input
+            type="number"
+            id="cs-image-width-px"
+            class="ul-input cs-image-width-px"
+            step="1"
+            placeholder="160–1000"
+            hidden
+          />
+        </div>
+
+        <div class="cs-field">
+          <label for="cs-max-inline">Max inline images</label>
+          <input
+            type="number"
+            id="cs-max-inline"
+            class="ul-input"
+            step="1"
+            placeholder="Auto (16)"
+          />
+        </div>
+
+        <label class="cs-checkbox">
+          <input type="checkbox" id="cs-show-metadata" />
+          Show metadata captions
+        </label>
+        <label class="cs-checkbox">
+          <input type="checkbox" id="cs-link-to-file-page" />
+          Link to file pages
+        </label>
+
+        <div class="cs-field">
+          <label for="cs-note">Note</label>
+          <textarea
+            id="cs-note"
+            class="ul-input cs-note"
+            maxlength="500"
+            rows="3"
+            placeholder="Optional note appended to every managed comment"></textarea>
+          <p class="ul-field__hint"><span id="cs-note-count">0</span>/500</p>
+        </div>
+
+        <div class="cs-actions">
+          <button type="submit" class="ul-btn ul-btn--solid" id="cs-save-btn">Save</button>
+          <span class="muted" id="cs-save-status" role="status"></span>
+        </div>
+      </form>
+    </div>
+
+    <div class="settings-section" id="cs-preview-section" hidden>
+      <h2>Preview</h2>
+
+      <div class="cs-field">
+        <label for="cs-preview-repo">Repo</label>
+        <select id="cs-preview-repo" class="ul-select">
+          <option value="">No repo config</option>
+        </select>
+      </div>
+
+      <div id="cs-preview-badges" class="cs-badges" aria-live="polite"></div>
+      <div id="cs-preview-body" class="cs-preview-body" aria-busy="true"></div>
+      <p class="settings-note muted">GitHub's own styling may differ slightly.</p>
     </div>
   </section>
 
@@ -44,6 +126,73 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       color: var(--fg);
       outline: none;
     }
+
+    .cs-form {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      max-width: 32rem;
+    }
+    .cs-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .cs-field label {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .cs-image-width-px {
+      max-width: 10rem;
+    }
+    .cs-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .cs-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 4px;
+    }
+    #cs-save-status[data-state="error"] {
+      color: var(--red);
+    }
+    #cs-save-status[data-state="ok"] {
+      color: var(--green);
+    }
+
+    .cs-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 4px 0 14px;
+    }
+    .cs-preview-body {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      font-size: 13px;
+      line-height: 1.6;
+      overflow-x: auto;
+      max-width: 42rem;
+    }
+    .cs-preview-body img {
+      max-width: 100%;
+      height: auto;
+    }
+    .cs-preview-body table {
+      border-collapse: collapse;
+    }
+    .cs-preview-body td {
+      padding: 4px 8px;
+      vertical-align: top;
+    }
   </style>
 
   <script>
@@ -52,16 +201,48 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       isCurrentPageVisit,
       onAstroPageLoad,
       onSession,
+      requireElement,
     } from "../../../../lib/account-shell";
-    import { getMyWorkspaces } from "../../../../lib/api-client";
+    import {
+      getMyWorkspaces,
+      getWorkspaceCommentSettings,
+      getWorkspaceCommentPreview,
+      getWorkspaceRepoLinks,
+      patchWorkspaceCommentSettings,
+      type CommentPreview,
+      type CommentSettings,
+    } from "../../../../lib/api-client";
+    import { sanitizeCommentPreviewHtml } from "../../../../lib/comment-preview-sanitize";
     import { writeCachedWorkspaces } from "../../../../lib/workspaces-nav";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
     import { renderDetailsHtml } from "../../../../lib/workspace-rail";
+    import { escapeHtml } from "../../../../lib/workspace-ui";
+
+    const SOURCE_LABEL: Record<string, string> = { repo: "repo", workspace: "workspace", auto: "auto" };
+    const SOURCE_BADGE_CLASS: Record<string, string> = {
+      repo: "ul-badge--accent",
+      workspace: "ul-badge--ok",
+      auto: "",
+    };
+    /** Source-badge rows, each paired with the human label + the `source` key it reads. */
+    const BADGE_FIELDS: { label: string; key: keyof CommentPreview["source"] }[] = [
+      { label: "Image width", key: "imageWidth" },
+      { label: "Max inline images", key: "maxInlineImages" },
+      { label: "Metadata path", key: "metaPath" },
+      { label: "Metadata state", key: "metaState" },
+      { label: "Link to file page", key: "linkToFilePage" },
+      { label: "Note", key: "note" },
+    ];
 
     onAstroPageLoad(() => {
       const detailsEl = document.querySelector<HTMLElement>("[data-ws-settings-details]");
-      if (!detailsEl) return;
+      const csSectionEl = document.getElementById("cs-section");
+      if (!detailsEl || !csSectionEl) return;
+      // Narrowed local, not the outer possibly-null binding: TS doesn't carry
+      // the guard above into closures declared further down this function.
+      const csSection = csSectionEl;
 
+      const page = "workspace comment settings";
       const visit = getPageVisit();
       const stillHere = (): boolean => isCurrentPageVisit(visit);
       const w = window as unknown as {
@@ -75,14 +256,179 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
       );
 
+      // Existing "Workspace details" disclosure — unrelated to the comment
+      // settings below, kept exactly as it was.
+      void getMyWorkspaces(apiOrigin).then((result) => {
+        if (!stillHere() || result.kind !== "success") return;
+        writeCachedWorkspaces(result.workspaces);
+        const ws = result.workspaces.find((item) => item.workspace === workspaceName);
+        if (!ws) return;
+        detailsEl.innerHTML = renderDetailsHtml(ws);
+      });
+
+      const csPreviewSection = requireElement<HTMLElement>("#cs-preview-section", page);
+      const errorEl = requireElement<HTMLElement>("#cs-error", page);
+      const form = requireElement<HTMLFormElement>("#cs-form", page);
+      // worker-configuration.d.ts's HTMLRewriter ambient `Element` redeclares
+      // `remove()`, which makes HTMLSelectElement fail requireElement's
+      // `T extends Element` constraint (same workaround as people.astro's
+      // role-select handler) — fetch as HTMLElement and cast.
+      const widthSelect = requireElement<HTMLElement>(
+        "#cs-image-width",
+        page,
+      ) as unknown as HTMLSelectElement;
+      const widthPxInput = requireElement<HTMLInputElement>("#cs-image-width-px", page);
+      const maxInlineInput = requireElement<HTMLInputElement>("#cs-max-inline", page);
+      const showMetadataInput = requireElement<HTMLInputElement>("#cs-show-metadata", page);
+      const linkToFilePageInput = requireElement<HTMLInputElement>("#cs-link-to-file-page", page);
+      const noteInput = requireElement<HTMLTextAreaElement>("#cs-note", page);
+      const noteCount = requireElement<HTMLElement>("#cs-note-count", page);
+      const saveBtn = requireElement<HTMLButtonElement>("#cs-save-btn", page);
+      const saveStatus = requireElement<HTMLElement>("#cs-save-status", page);
+      const repoSelect = requireElement<HTMLElement>(
+        "#cs-preview-repo",
+        page,
+      ) as unknown as HTMLSelectElement;
+      const badgesEl = requireElement<HTMLElement>("#cs-preview-badges", page);
+      const previewBodyEl = requireElement<HTMLElement>("#cs-preview-body", page);
+
+      function applySettingsToForm(settings: CommentSettings): void {
+        if (settings.imageWidth === "full") {
+          widthSelect.value = "full";
+          widthPxInput.hidden = true;
+        } else if (typeof settings.imageWidth === "number") {
+          widthSelect.value = "custom";
+          widthPxInput.hidden = false;
+          widthPxInput.value = String(settings.imageWidth);
+        } else {
+          widthSelect.value = "auto";
+          widthPxInput.hidden = true;
+          widthPxInput.value = "";
+        }
+        maxInlineInput.value =
+          settings.maxInlineImages === null ? "" : String(settings.maxInlineImages);
+        showMetadataInput.checked = settings.showMetadata === true;
+        linkToFilePageInput.checked = settings.linkToFilePage === true;
+        noteInput.value = settings.note ?? "";
+        noteCount.textContent = String(noteInput.value.length);
+      }
+
+      function renderBadges(preview: CommentPreview): void {
+        badgesEl.innerHTML = BADGE_FIELDS.map(({ label, key }) => {
+          const source = preview.source[key] ?? "auto";
+          const cls = SOURCE_BADGE_CLASS[source] ?? "";
+          return `<span class="ul-badge ${cls}">${escapeHtml(label)}: ${escapeHtml(SOURCE_LABEL[source] ?? source)}</span>`;
+        }).join("");
+      }
+
+      async function loadPreview(): Promise<void> {
+        if (!stillHere()) return;
+        previewBodyEl.setAttribute("aria-busy", "true");
+        const repo = repoSelect.value || undefined;
+        const result = await getWorkspaceCommentPreview(apiOrigin, workspaceName, repo);
+        if (!stillHere()) return;
+        previewBodyEl.removeAttribute("aria-busy");
+        if (result.kind !== "ok") {
+          badgesEl.innerHTML = "";
+          previewBodyEl.textContent = "Preview unavailable right now.";
+          return;
+        }
+        renderBadges(result.preview);
+        previewBodyEl.innerHTML = sanitizeCommentPreviewHtml(result.preview.body);
+      }
+
+      async function loadRepoPicker(): Promise<void> {
+        const repos = await getWorkspaceRepoLinks(apiOrigin, workspaceName);
+        if (!stillHere()) return;
+        const options = repos
+          .map((repo) => `<option value="${escapeHtml(repo)}">${escapeHtml(repo)}</option>`)
+          .join("");
+        repoSelect.innerHTML = `<option value="">No repo config</option>${options}`;
+      }
+
+      function showFormError(message: string | null): void {
+        if (!message) {
+          errorEl.hidden = true;
+          errorEl.textContent = "";
+          return;
+        }
+        errorEl.hidden = false;
+        errorEl.textContent = message;
+      }
+
+      async function loadCommentSettings(): Promise<void> {
+        if (!stillHere()) return;
+        const result = await getWorkspaceCommentSettings(apiOrigin, workspaceName);
+        if (!stillHere()) return;
+        if (result.kind !== "ok") {
+          // Non-admin members (and any other failure) simply don't get this
+          // block — it stays hidden rather than showing broken empty inputs.
+          return;
+        }
+        csSection.hidden = false;
+        csPreviewSection.hidden = false;
+        applySettingsToForm(result.settings);
+        void loadRepoPicker();
+        void loadPreview();
+      }
+
+      widthSelect.addEventListener("change", () => {
+        widthPxInput.hidden = widthSelect.value !== "custom";
+      });
+
+      noteInput.addEventListener("input", () => {
+        noteCount.textContent = String(noteInput.value.length);
+      });
+
+      repoSelect.addEventListener("change", () => {
+        void loadPreview();
+      });
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void (async () => {
+          showFormError(null);
+          saveStatus.textContent = "Saving…";
+          saveStatus.removeAttribute("data-state");
+          saveBtn.disabled = true;
+
+          const patch: Partial<CommentSettings> = {};
+          if (widthSelect.value === "full") {
+            patch.imageWidth = "full";
+          } else if (widthSelect.value === "custom") {
+            const px = Number(widthPxInput.value);
+            patch.imageWidth = Number.isFinite(px) ? px : null;
+          } else {
+            patch.imageWidth = null;
+          }
+          patch.maxInlineImages = maxInlineInput.value === "" ? null : Number(maxInlineInput.value);
+          patch.showMetadata = showMetadataInput.checked ? true : null;
+          patch.linkToFilePage = linkToFilePageInput.checked ? true : null;
+          patch.note = noteInput.value.trim() === "" ? null : noteInput.value;
+
+          const result = await patchWorkspaceCommentSettings(apiOrigin, workspaceName, patch);
+          if (!stillHere()) return;
+          saveBtn.disabled = false;
+
+          if (result.kind === "ok") {
+            applySettingsToForm(result.settings);
+            saveStatus.textContent = "Saved.";
+            saveStatus.dataset.state = "ok";
+            void loadPreview();
+            return;
+          }
+          if (result.kind === "invalid") {
+            showFormError(result.message);
+            saveStatus.textContent = "";
+            return;
+          }
+          saveStatus.textContent = "Couldn’t save. Try again.";
+          saveStatus.dataset.state = "error";
+        })();
+      });
+
       onSession(() => {
-        void getMyWorkspaces(apiOrigin).then((result) => {
-          if (!stillHere() || result.kind !== "success") return;
-          writeCachedWorkspaces(result.workspaces);
-          const ws = result.workspaces.find((item) => item.workspace === workspaceName);
-          if (!ws) return;
-          detailsEl.innerHTML = renderDetailsHtml(ws);
-        });
+        void loadCommentSettings();
       });
     });
   </script>
