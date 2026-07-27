@@ -26,6 +26,7 @@ import {
   type ResolvedConfig,
 } from "./config.js";
 import { buildMarkdown } from "./embed.js";
+import { readLocalRepoCommentConfig, resolveCommentOptions } from "./comment-config.js";
 import { urlForGithubEmbed } from "./public-urls.js";
 import { UploadsError } from "./errors.js";
 import { writeJson, writeStdout } from "./io.js";
@@ -43,7 +44,9 @@ import {
   ghMetadataForBranch,
   attachmentsCommentBody,
   attachmentsMarker,
+  AUTO_RENDER_OPTIONS,
   GH_FALLBACK_AUTHOR_NOTE,
+  type CommentRenderOptions,
   type GhTarget,
   type AttachmentItem,
   type GalleryCommentItem,
@@ -787,9 +790,30 @@ export async function syncAttachmentsComment(
   );
 
   const marker = attachmentsMarker(workspace);
+  // Honor a committed .uploads.yml on the working tree (issue #307). This CLI
+  // process has no server-side WorkspaceRecord in scope (see the note above),
+  // so it resolves against `null` workspace defaults — a documented
+  // divergence from the bot path (commands.ts:728 / apps/api's
+  // resolveRepoCommentOptions, which also layers the workspace's own
+  // githubComment* fields).
+  let renderOptions: CommentRenderOptions = AUTO_RENDER_OPTIONS;
+  try {
+    const root = run("git", ["rev-parse", "--show-toplevel"]).trim();
+    const { config } = readLocalRepoCommentConfig(root);
+    const { options } = resolveCommentOptions(config, null);
+    renderOptions = {
+      imageWidth: options.imageWidth,
+      maxInlineImages: options.maxInlineImages,
+      metaPath: options.metaPath,
+      metaState: options.metaState,
+      note: options.note,
+    };
+  } catch {
+    // Not a git repo, or the config file couldn't be read — fall back to auto.
+  }
   // Append only on the local-gh path: bot posts already carry the uploads-sh
   // bot identity, so this note would be wrong there.
-  const body = `${attachmentsCommentBody(items, previewGalleries, marker)}\n${GH_FALLBACK_AUTHOR_NOTE}`;
+  const body = `${attachmentsCommentBody(items, previewGalleries, marker, renderOptions)}\n${GH_FALLBACK_AUTHOR_NOTE}`;
   const count = items.length + previewGalleries.length;
   // Empty (count 0) renders the neutral empty-state body but must not create a
   // comment — it only rewrites one that already exists (`action: "skipped"`
