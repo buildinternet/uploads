@@ -2458,6 +2458,8 @@ export async function runPut(
         optimize: result.optimize,
         frame: result.frame,
         gallery,
+        comment,
+        commentError,
         ...(dryRun ? { dryRun: true } : {}),
         ...(jsonHint ? { hint: jsonHint } : {}),
       });
