@@ -16,12 +16,15 @@ import { objectPublicUrls, storageConfig } from "./storage";
 import { posterKeyFor } from "./poster";
 import type { WorkspaceRecord } from "./workspace";
 import { githubFetch, githubHeaders, installationToken, type GithubAppConfig } from "./github-app";
+import { resolveRepoCommentOptions } from "./repo-comment-config";
+import type { ResolvedCommentOptions } from "@uploads/comment-config";
 import {
   attachmentsCommentBody,
   attachmentsMarker,
   ghKeyPrefix,
   ATTACHMENTS_MARKER,
   type AttachmentItem,
+  type CommentRenderOptions,
   type GalleryCommentItem,
   type GhTarget,
 } from "./github-comment-render";
@@ -42,18 +45,30 @@ export async function gatherCommentBody(
   workspaceName: string,
   target: GhTarget,
 ): Promise<{ body: string; count: number }> {
+  // Resolve repo `.uploads.yml` (if any) against the workspace's own comment
+  // defaults (issue #307). Never throws — a fetch/App degradation collapses
+  // to workspace-defaults/auto only (see resolveRepoCommentOptions).
+  const { options } = await resolveRepoCommentOptions(env, ws, target.repo);
+
   // Attachments (R2 list) and galleries (D1) are independent reads — overlap
   // them so the request only waits the longer of the two, not their sum.
   const [items, galleries] = await Promise.all([
-    gatherAttachments(env, ws, workspaceName, target),
+    gatherAttachments(env, ws, workspaceName, target, options),
     gatherGalleries(env, ws, workspaceName, target),
   ]);
 
   const count = items.length + galleries.length;
   const marker = attachmentsMarker(workspaceName);
+  const renderOptions: CommentRenderOptions = {
+    imageWidth: options.imageWidth,
+    maxInlineImages: options.maxInlineImages,
+    metaPath: options.metaPath,
+    metaState: options.metaState,
+    note: options.note,
+  };
   // count may be 0 — attachmentsCommentBody renders a neutral empty state.
   // Callers gate create-vs-patch on count (see upsertBotComment createIfMissing).
-  return { body: attachmentsCommentBody(items, galleries, marker), count };
+  return { body: attachmentsCommentBody(items, galleries, marker, renderOptions), count };
 }
 
 /**
@@ -77,13 +92,16 @@ async function gatherAttachments(
   ws: WorkspaceRecord,
   workspaceName: string,
   target: GhTarget,
+  options: ResolvedCommentOptions,
 ): Promise<AttachmentItem[]> {
-  // Per-workspace choice (issue #304): default (undefined/true) links the
-  // managed comment's attachments to their `/f/` file page (issue #301's
+  // Per-workspace/repo choice (issues #304, #307): default (auto/true) links
+  // the managed comment's attachments to their `/f/` file page (issue #301's
   // behavior); `false` links to raw object bytes instead. Attachments only —
   // does not affect gallery `itemUrl` below, which is a separate feature.
-  const linkToFilePage = ws.githubCommentLinkToFilePage !== false;
-  const showMetadata = ws.githubCommentShowMetadata !== false; // issue #365
+  const linkToFilePage = options.linkToFilePage;
+  // issue #365, extended by #307: skip the metadata read entirely when
+  // neither meta field would render anything.
+  const showMetadata = options.metaPath || options.metaState;
   const items: AttachmentItem[] = [];
   let cursor: string | undefined;
   do {

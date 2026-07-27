@@ -37,6 +37,7 @@
   },
   "dependencies": {
     "@uploads/billing": "workspace:^",
+    "@uploads/comment-config": "workspace:^",
     "@uploads/email": "workspace:^",
     "@uploads/errors": "workspace:^",
     "@uploads/storage": "workspace:^",

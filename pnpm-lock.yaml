@@ -47,6 +47,9 @@ importers:
       '@uploads/billing':
         specifier: workspace:^
         version: link:../../packages/billing
+      '@uploads/comment-config':
+        specifier: workspace:^
+        version: link:../../packages/comment-config
       '@uploads/email':
         specifier: workspace:^
         version: link:../../packages/email
