@@ -58,6 +58,18 @@ const NOT_FOUND: RepoConfigFetchResult = {
 
 const cacheKeyFor = (repo: string) => `repocfg:${repo}`;
 
+/** Best-effort KV write — a quota/transient rejection must not surface into the render path. */
+async function cachePut(env: Env, cacheKey: string, result: RepoConfigFetchResult): Promise<void> {
+  try {
+    await env.GITHUB_CACHE.put(cacheKey, JSON.stringify(result), {
+      expirationTtl: REPO_CONFIG_TTL_SECONDS,
+    });
+  } catch {
+    // Cache write failed (quota, transient KV error, etc.) — the result is
+    // still returned to the caller; the next call just re-fetches.
+  }
+}
+
 /**
  * Fetch + KV-cache `repo`'s `.uploads.yml` (or one of its five siblings). See
  * the module doc-comment for the cache policy. Never throws — any failure to
@@ -93,20 +105,21 @@ export async function fetchRepoCommentConfig(
     if (res.status === 404) continue;
     if (!res.ok) return NOT_FOUND; // transient (5xx, rate limit, etc.) — uncached
 
-    const text = await res.text();
+    let text: string;
+    try {
+      text = await res.text();
+    } catch {
+      return NOT_FOUND; // transient (truncated/aborted body) — uncached
+    }
     const format = path.endsWith(".json") ? "json" : "yaml";
     const { config, warnings } = parseRepoCommentConfig(text, format);
     const result: RepoConfigFetchResult = { found: true, path, config, warnings };
-    await env.GITHUB_CACHE.put(cacheKey, JSON.stringify(result), {
-      expirationTtl: REPO_CONFIG_TTL_SECONDS,
-    });
+    await cachePut(env, cacheKey, result);
     return result;
   }
 
   // All six candidates 404 — a real, cacheable "no config" result.
-  await env.GITHUB_CACHE.put(cacheKey, JSON.stringify(NOT_FOUND), {
-    expirationTtl: REPO_CONFIG_TTL_SECONDS,
-  });
+  await cachePut(env, cacheKey, NOT_FOUND);
   return NOT_FOUND;
 }
 

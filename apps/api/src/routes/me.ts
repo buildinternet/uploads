@@ -1028,11 +1028,13 @@ export const me = new Hono<SessionVars>()
   // preview can't be used to probe another workspace's repo binding or
   // `.uploads.yml` contents.
   //
-  // Renders from the workspace's own most recent `gh/`-prefixed attachments
+  // Renders from a page of the workspace's own `gh/`-prefixed attachments
   // (first page only, mirrors gatherAttachments's url/pageUrl mapping but
   // skips the D1 metadata read — the preview needs no per-item meta beyond
-  // what the static fixtures already carry). An empty workspace falls back
-  // to `PREVIEW_FIXTURE_ITEMS` so the preview is never blank.
+  // what the static fixtures already carry). `listObjects` pages in
+  // lexicographic key order, not upload recency, so this is a representative
+  // sample rather than the "most recent" uploads. An empty workspace falls
+  // back to `PREVIEW_FIXTURE_ITEMS` so the preview is never blank.
   .get("/workspaces/:name/comment-preview", async (c) => {
     const name = c.req.param("name");
     await adminWorkspaceOr403(c.env, requireUserId(c), name);
@@ -1074,7 +1076,7 @@ export const me = new Hono<SessionVars>()
       embedUrl: o.embedUrl,
       pageUrl: linkToFilePage ? (o.pageUrl ?? null) : null,
     }));
-    let sample: "recent" | "fixtures" = "recent";
+    let sample: "workspace" | "fixtures" = "workspace";
     if (items.length === 0) {
       items = PREVIEW_FIXTURE_ITEMS;
       sample = "fixtures";

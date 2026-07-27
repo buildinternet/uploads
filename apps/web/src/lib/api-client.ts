@@ -1188,7 +1188,7 @@ export interface CommentPreview {
   source: Record<keyof CommentPreviewResolved, CommentOptionSource>;
   repoConfig: { found: boolean; path: string | null; warnings: string[] } | null;
   body: string;
-  sample: "recent" | "fixtures";
+  sample: "workspace" | "fixtures";
 }
 
 export type CommentPreviewResult =
@@ -1228,7 +1228,7 @@ export async function getWorkspaceCommentPreview(
     typeof body.resolved !== "object" ||
     !body.source ||
     typeof body.source !== "object" ||
-    (body.sample !== "recent" && body.sample !== "fixtures")
+    (body.sample !== "workspace" && body.sample !== "fixtures")
   ) {
     return { kind: "unavailable", reason: "server" };
   }

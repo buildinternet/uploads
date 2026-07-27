@@ -235,6 +235,68 @@ describe("fetchRepoCommentConfig", () => {
     }
   });
 
+  it("returns the parsed result even when the cache write rejects (KV quota/transient)", async () => {
+    const kv = new FakeKv();
+    const pem = await testPem();
+    const env = makeEnv(kv, pem);
+    const { impl } = fakeFetch({
+      "/access_tokens": tokenRoute,
+      "/installation": installationRoute,
+      "/contents/.uploads.yml": () =>
+        new Response("comment:\n  imageWidth: full\n", { status: 200 }),
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = impl;
+    kv.failPutWith = new Error("KV quota exceeded");
+    kv.failPutKeyPrefix = "repocfg:";
+    try {
+      const result = await fetchRepoCommentConfig(env, "acme/web");
+      expect(result.found).toBe(true);
+      expect(result.path).toBe(".uploads.yml");
+      expect(result.config?.imageWidth).toBe("full");
+      // The write failed, so nothing landed in the (fake) store either.
+      const cached = await kv.get("repocfg:acme/web", "json");
+      expect(cached).toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("degrades to not-found, uncached, when res.text() rejects", async () => {
+    const kv = new FakeKv();
+    const pem = await testPem();
+    const env = makeEnv(kv, pem);
+    const brokenText = () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new Error("body stream aborted"));
+          },
+        }),
+        { status: 200 },
+      );
+    const { impl, calls } = fakeFetch({
+      "/access_tokens": tokenRoute,
+      "/installation": installationRoute,
+      "/contents/.uploads.yml": brokenText,
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = impl;
+    try {
+      const first = await fetchRepoCommentConfig(env, "acme/web");
+      expect(first.found).toBe(false);
+      const cached = await kv.get("repocfg:acme/web", "json");
+      expect(cached).toBeNull();
+
+      const callsAfterFirst = calls();
+      const second = await fetchRepoCommentConfig(env, "acme/web");
+      expect(second.found).toBe(false);
+      expect(calls()).toBeGreaterThan(callsAfterFirst); // re-fetched, not cached
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("exposes the six candidate paths in spec order", () => {
     expect(REPO_CONFIG_PATHS).toEqual([
       ".uploads.yml",

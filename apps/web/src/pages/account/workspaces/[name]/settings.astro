@@ -49,6 +49,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             id="cs-image-width-px"
             class="ul-input cs-image-width-px"
             step="1"
+            min="160"
+            max="1000"
             placeholder="160–1000"
             hidden
           />
@@ -61,6 +63,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             id="cs-max-inline"
             class="ul-input"
             step="1"
+            min="1"
+            max="48"
             placeholder="Auto (16)"
           />
         </div>
@@ -424,12 +428,21 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         }).join("");
       }
 
+      // Monotonic token guarding against out-of-order responses: each
+      // repo-picker change (or save) starts a new, unsequenced loadPreview
+      // call, and a slower earlier request landing after a faster later one
+      // would render a stale repo's preview. `stillHere()` only guards
+      // against navigating away entirely, not against overlapping preview
+      // requests for the same page visit.
+      let previewSeq = 0;
+
       async function loadPreview(): Promise<void> {
         if (!stillHere()) return;
+        const seq = ++previewSeq;
         previewBodyEl.setAttribute("aria-busy", "true");
         const repo = repoSelect.value || undefined;
         const result = await getWorkspaceCommentPreview(apiOrigin, workspaceName, repo);
-        if (!stillHere()) return;
+        if (!stillHere() || seq !== previewSeq) return;
         previewBodyEl.removeAttribute("aria-busy");
         if (result.kind !== "ok") {
           badgesEl.innerHTML = "";
@@ -499,12 +512,16 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           if (widthSelect.value === "full") {
             patch.imageWidth = "full";
           } else if (widthSelect.value === "custom") {
-            const px = Number(widthPxInput.value);
-            patch.imageWidth = Number.isFinite(px) ? px : null;
+            const raw = widthPxInput.value.trim();
+            const px = Number(raw);
+            patch.imageWidth = raw !== "" && Number.isFinite(px) ? px : null;
           } else {
             patch.imageWidth = null;
           }
-          patch.maxInlineImages = maxInlineInput.value === "" ? null : Number(maxInlineInput.value);
+          {
+            const rawMaxInline = maxInlineInput.value.trim();
+            patch.maxInlineImages = rawMaxInline === "" ? null : Number(rawMaxInline);
+          }
           patch.showMetadata = selectValueToTriState(showMetadataSelect.value);
           patch.linkToFilePage = selectValueToTriState(linkToFilePageSelect.value);
           patch.note = noteInput.value.trim() === "" ? null : noteInput.value;

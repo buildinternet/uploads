@@ -2201,7 +2201,7 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
     expect(body.body.length).toBeGreaterThan(0);
   });
 
-  it("(c) recent gh/-prefixed objects in the bucket -> sample recent, body references keys", async () => {
+  it("(c) gh/-prefixed objects in the bucket -> sample workspace, body references keys", async () => {
     const bucket = new FakeR2Bucket();
     await bucket.put(
       "acme/gh/o/repo/pull/12/screenshot.png",
@@ -2211,7 +2211,7 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
     const res = await app().request("/me/workspaces/acme/comment-preview", {}, env);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { sample: string; body: string };
-    expect(body.sample).toBe("recent");
+    expect(body.sample).toBe("workspace");
     expect(body.body).toContain("screenshot.png");
   });
 
