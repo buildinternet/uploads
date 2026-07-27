@@ -155,6 +155,34 @@ describe("fetchRepoCommentConfig", () => {
     }
   });
 
+  it("shares one cache entry across repo names differing only in case", async () => {
+    const kv = new FakeKv();
+    const pem = await testPem();
+    const env = makeEnv(kv, pem);
+    const { impl, calls } = fakeFetch({
+      "/access_tokens": tokenRoute,
+      "/installation": installationRoute,
+      "/contents/.uploads.yml": () => new Response("comment:\n  note: hello\n", { status: 200 }),
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = impl;
+    try {
+      const first = await fetchRepoCommentConfig(env, "Acme/Web");
+      expect(first.found).toBe(true);
+      const callsAfterFirst = calls();
+      expect(callsAfterFirst).toBeGreaterThan(0);
+
+      const second = await fetchRepoCommentConfig(env, "acme/web");
+      expect(second).toEqual(first);
+      expect(calls()).toBe(callsAfterFirst); // zero additional fetches
+
+      const cached = await kv.get("repocfg:acme/web", "json");
+      expect(cached).toEqual(first);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("does not cache a transient contents-API failure (500)", async () => {
     const kv = new FakeKv();
     const pem = await testPem();

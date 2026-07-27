@@ -56,7 +56,9 @@ const NOT_FOUND: RepoConfigFetchResult = {
   warnings: [],
 };
 
-const cacheKeyFor = (repo: string) => `repocfg:${repo}`;
+// GitHub repo names are case-insensitive — lowercase before building the KV
+// key so `Acme/Web` and `acme/web` share one cache entry instead of two.
+const cacheKeyFor = (repo: string) => `repocfg:${repo.toLowerCase()}`;
 
 /** Best-effort KV write — a quota/transient rejection must not surface into the render path. */
 async function cachePut(env: Env, cacheKey: string, result: RepoConfigFetchResult): Promise<void> {

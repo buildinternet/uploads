@@ -260,10 +260,14 @@ function resolvedWidth(autoPx: number, options: CommentRenderOptions): number | 
 }
 
 /** Every `<img>` tag in the managed comment goes through here so the
- * omit-width-attribute case ("full") can't drift between call sites. */
-function imgTag(w: number | null, alt: string, src: string): string {
+ * omit-width-attribute case ("full") can't drift between call sites.
+ *
+ * `escapedAlt`/`escapedSrc` must already be attribute-escaped (via
+ * `escapeHtmlAttr`) by the caller — this function interpolates them as-is
+ * and does not escape them itself. */
+function imgTag(w: number | null, escapedAlt: string, escapedSrc: string): string {
   const widthAttr = w === null ? "" : ` width="${w}"`;
-  return `<img${widthAttr} alt="${alt}" src="${src}">`;
+  return `<img${widthAttr} alt="${escapedAlt}" src="${escapedSrc}">`;
 }
 
 /** Extract the filename stem's before/after token (issue #419 fallback pairing).

@@ -237,7 +237,11 @@ export function formatCommentPreviewBody(raw: string): string {
     const item = line.match(LIST_ITEM_LINE_RE);
     if (item) {
       flushParagraph();
-      listItems.push(`<li><a href="${item[2]}">${item[1]}</a></li>`);
+      // Escape at construction — not just relying on the sanitize pass that
+      // runs after — so this transform is safe standalone.
+      const href = escapeAttrValue(item[2]);
+      const text = escapeStrayAngles(item[1]);
+      listItems.push(`<li><a href="${href}">${text}</a></li>`);
       continue;
     }
 

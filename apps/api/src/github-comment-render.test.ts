@@ -23,7 +23,16 @@ function loadOptionsFixture(name: string) {
       fileURLToPath(new NodeURL(`../../../test/fixtures/${name}`, import.meta.url)),
       "utf8",
     ),
-  ) as { cases: { name: string; options: Partial<CommentRenderOptions>; expected: string }[] };
+  ) as {
+    cases: {
+      name: string;
+      options: Partial<CommentRenderOptions>;
+      expected: string;
+      // Falls back to the golden suite's shared `items` when a case doesn't
+      // need its own (most cases don't touch item count/meta).
+      items?: AttachmentItem[];
+    }[];
+  };
 }
 
 const golden = loadFixture("github-comment-golden.json");
@@ -375,12 +384,13 @@ describe("attachmentsCommentBody (api copy)", () => {
       expect(lines[2]).toBe("");
     });
 
-    it("matches the shared options golden", () => {
-      for (const c of goldenOptions.cases) {
-        expect(
-          attachmentsCommentBody(items, [], marker, { ...AUTO_RENDER_OPTIONS, ...c.options }),
-        ).toBe(c.expected);
-      }
+    it.each(goldenOptions.cases)("matches the options golden: $name", (c) => {
+      expect(
+        attachmentsCommentBody(c.items ?? items, [], marker, {
+          ...AUTO_RENDER_OPTIONS,
+          ...c.options,
+        }),
+      ).toBe(c.expected);
     });
   });
 });

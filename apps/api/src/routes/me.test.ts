@@ -1959,6 +1959,25 @@ describe("workspace comment-settings routes", () => {
     expect(saved?.version).toBe(1);
   });
 
+  it("429s when the workspace write limiter is over budget, leaving the record untouched", async () => {
+    const { env: baseEnv, registry } = commentSettingsEnv({ role: "owner", record: REC });
+    const env = {
+      ...baseEnv,
+      WRITE_LIMITER: { limit: async () => ({ success: false }) },
+    } as unknown as Env;
+    const res = await app().request(
+      "/me/workspaces/acme/comment-settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ note: "Hi" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(429);
+    expect(registry.record("acme")).toEqual(REC);
+  });
+
   it("(d) PATCH rejects an out-of-range imageWidth with 400 and leaves the record untouched", async () => {
     const { env, registry } = commentSettingsEnv({ role: "admin", record: REC });
     const res = await app().request(
@@ -2222,6 +2241,10 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
     const body = (await res.json()) as { sample: string; body: string };
     expect(body.sample).toBe("fixtures");
     expect(body.body).toContain("dashboard-overview.png");
+    // Fixture image origin is derived from WEB_ORIGIN (previewEnv sets
+    // "https://uploads.test"), not hardcoded to production's uploads.sh.
+    expect(body.body).toContain('src="https://uploads.test/og/home.png"');
+    expect(body.body).not.toContain("uploads.sh/og/home.png");
   });
 
   it("(e) repo not linked to this workspace -> 404", async () => {

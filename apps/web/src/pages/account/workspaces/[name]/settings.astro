@@ -292,6 +292,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       getWorkspaceRepoLinks,
       patchWorkspaceCommentSettings,
       type CommentPreview,
+      type CommentPreviewResult,
       type CommentSettings,
     } from "../../../../lib/api-client";
     import { renderCommentPreviewHtml } from "../../../../lib/comment-preview-sanitize";
@@ -428,6 +429,27 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         }).join("");
       }
 
+      /** Distinct, actionable copy per `CommentPreviewResult`'s `reason` (api-client.ts) — a
+       * blanket "unavailable" message left every failure mode looking the same. */
+      function previewErrorMessage(
+        reason: Extract<CommentPreviewResult, { kind: "unavailable" }>["reason"],
+      ): string {
+        switch (reason) {
+          case "not_found":
+            return "This repo is no longer linked to the workspace.";
+          case "invalid_repo":
+            return "That repo isn't recognized — pick another from the list.";
+          case "forbidden":
+            return "You don't have permission to preview this workspace's comment.";
+          case "timeout":
+            return "Preview timed out — try again.";
+          case "network":
+            return "Couldn't reach the server — check your connection and try again.";
+          default:
+            return "Preview unavailable right now.";
+        }
+      }
+
       // Monotonic token guarding against out-of-order responses: each
       // repo-picker change (or save) starts a new, unsequenced loadPreview
       // call, and a slower earlier request landing after a faster later one
@@ -446,7 +468,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         previewBodyEl.removeAttribute("aria-busy");
         if (result.kind !== "ok") {
           badgesEl.innerHTML = "";
-          previewBodyEl.textContent = "Preview unavailable right now.";
+          previewBodyEl.textContent = previewErrorMessage(result.reason);
           return;
         }
         renderBadges(result.preview);

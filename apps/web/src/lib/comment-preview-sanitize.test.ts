@@ -131,6 +131,19 @@ describe("formatCommentPreviewBody", () => {
     );
   });
 
+  it("escapes a quote-breakout attempt in a `- [text](url)` line's URL so it stays one attribute, safe standalone", () => {
+    // Before the item[2]/item[1] escaping fix, the raw `"` in the URL broke
+    // out of the href attribute here, producing a second, genuine
+    // `onmouseover="foo"` attribute in formatCommentPreviewBody's own
+    // output — exploitable if that output were ever used without the
+    // sanitize pass. Escaping at construction keeps it one href value.
+    const raw = '- [x](javascript:evil" onmouseover="foo)';
+    const out = formatCommentPreviewBody(raw);
+    expect(out).toBe(
+      '<ul><li><a href="javascript:evil&quot; onmouseover=&quot;foo">x</a></li></ul>',
+    );
+  });
+
   it("does not double-escape a line that is already an HTML tag", () => {
     const raw = '<a href="https://uploads.sh/f/x"><img src="https://uploads.sh/x.png"></a>';
     const out = formatCommentPreviewBody(raw);
@@ -166,5 +179,11 @@ describe("renderCommentPreviewHtml (format + sanitize combined)", () => {
     expect(out).not.toContain("<script>");
     expect(out).not.toContain("javascript:");
     expect(out).toContain("<h3>Heading</h3>");
+  });
+
+  it("neutralizes a combined URL-quote-breakout + dangerous-scheme injection in a list-item line", () => {
+    expect(renderCommentPreviewHtml('- [x](javascript:evil" onmouseover="foo)')).not.toContain(
+      "onmouseover",
+    );
   });
 });

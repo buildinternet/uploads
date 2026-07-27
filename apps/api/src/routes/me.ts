@@ -22,7 +22,7 @@ import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
 import { throwForInviteError } from "../invite-error";
 import { parseExternalReference } from "../external-references";
-import { PREVIEW_FIXTURE_ITEMS } from "../comment-preview-fixtures";
+import { previewFixtureItems } from "../comment-preview-fixtures";
 import {
   facetKeys,
   facetValues,
@@ -1034,7 +1034,7 @@ export const me = new Hono<SessionVars>()
   // what the static fixtures already carry). `listObjects` pages in
   // lexicographic key order, not upload recency, so this is a representative
   // sample rather than the "most recent" uploads. An empty workspace falls
-  // back to `PREVIEW_FIXTURE_ITEMS` so the preview is never blank.
+  // back to `previewFixtureItems` so the preview is never blank.
   .get("/workspaces/:name/comment-preview", async (c) => {
     const name = c.req.param("name");
     await adminWorkspaceOr403(c.env, requireUserId(c), name);
@@ -1078,7 +1078,7 @@ export const me = new Hono<SessionVars>()
     }));
     let sample: "workspace" | "fixtures" = "workspace";
     if (items.length === 0) {
-      items = PREVIEW_FIXTURE_ITEMS;
+      items = previewFixtureItems(c.env);
       sample = "fixtures";
     }
 
