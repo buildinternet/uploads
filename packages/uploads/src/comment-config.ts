@@ -2,11 +2,13 @@
  * Published-CLI COPY of the workspace parser/resolver (issue #307)
  * (packages/comment-config/src/index.ts). The published CLI imports no
  * @uploads/* package, so that private package cannot be shared here — its
- * parser/resolver is copied verbatim below. Kept in sync by hand; there is no
- * golden-fixture cross-check like github-comment-render.ts's, so change both
- * copies together. `readLocalRepoCommentConfig` below is CLI-only: it reads
- * the six candidate config paths off the working tree (the server instead
- * fetches them from GitHub's contents API — apps/api/src/repo-comment-config.ts).
+ * parser/resolver is copied verbatim below. Kept in sync by
+ * test/fixtures/comment-config-golden.json, asserted from both sides (this
+ * package's comment-config.test.ts and the canonical package's
+ * index.test.ts) — change both copies together. `readLocalRepoCommentConfig`
+ * below is CLI-only: it reads the six candidate config paths off the working
+ * tree (the server instead fetches them from GitHub's contents API —
+ * apps/api/src/repo-comment-config.ts).
  */
 
 import fs from "node:fs";

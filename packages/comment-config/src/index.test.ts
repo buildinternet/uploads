@@ -1,5 +1,44 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { AUTO_COMMENT_OPTIONS, parseRepoCommentConfig, resolveCommentOptions } from "./index";
+import {
+  AUTO_COMMENT_OPTIONS,
+  parseRepoCommentConfig,
+  resolveCommentOptions,
+  type RepoCommentConfig,
+  type WorkspaceCommentDefaults,
+} from "./index";
+
+/**
+ * Parity fixture (issue #307) shared with the CLI copy
+ * (packages/uploads/test/comment-config.test.ts) — see the module doc
+ * comment in ./index.ts and packages/uploads/src/comment-config.ts for the
+ * cross-reference. Generated from THIS (canonical) package; asserted from
+ * both sides so the two copies can never drift silently.
+ */
+function loadGolden() {
+  return JSON.parse(
+    readFileSync(
+      fileURLToPath(new URL("../../../test/fixtures/comment-config-golden.json", import.meta.url)),
+      "utf8",
+    ),
+  ) as {
+    parseCases: {
+      name: string;
+      text: string;
+      format: "yaml" | "json";
+      expected: { config: RepoCommentConfig | null; warnings: string[] };
+    }[];
+    resolveCases: {
+      name: string;
+      repo: RepoCommentConfig | null;
+      workspace: WorkspaceCommentDefaults | null;
+      expected: ReturnType<typeof resolveCommentOptions>;
+    }[];
+  };
+}
+
+const golden = loadGolden();
 
 describe("parseRepoCommentConfig", () => {
   it("parses a full valid yaml config", () => {
@@ -112,5 +151,15 @@ describe("resolveCommentOptions", () => {
     const { options } = resolveCommentOptions({ metaPath: true }, { showMetadata: false });
     expect(options.metaPath).toBe(true);
     expect(options.metaState).toBe(false);
+  });
+});
+
+describe("comment-config-golden.json parity (canonical side)", () => {
+  it.each(golden.parseCases)("parse: $name", ({ text, format, expected }) => {
+    expect(parseRepoCommentConfig(text, format)).toEqual(expected);
+  });
+
+  it.each(golden.resolveCases)("resolve: $name", ({ repo, workspace, expected }) => {
+    expect(resolveCommentOptions(repo, workspace)).toEqual(expected);
   });
 });

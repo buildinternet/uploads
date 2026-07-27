@@ -1,13 +1,47 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   AUTO_COMMENT_OPTIONS,
   parseRepoCommentConfig,
   readLocalRepoCommentConfig,
   resolveCommentOptions,
+  type RepoCommentConfig,
+  type WorkspaceCommentDefaults,
 } from "../src/comment-config.js";
+
+/**
+ * Parity fixture (issue #307) shared with the canonical package
+ * (packages/comment-config/src/index.test.ts) — see the header comment in
+ * ../src/comment-config.ts for the cross-reference. Generated from the
+ * canonical package; asserted here too so the two copies can never drift
+ * silently.
+ */
+function loadGolden() {
+  return JSON.parse(
+    fs.readFileSync(
+      fileURLToPath(new URL("../../../test/fixtures/comment-config-golden.json", import.meta.url)),
+      "utf8",
+    ),
+  ) as {
+    parseCases: {
+      name: string;
+      text: string;
+      format: "yaml" | "json";
+      expected: { config: RepoCommentConfig | null; warnings: string[] };
+    }[];
+    resolveCases: {
+      name: string;
+      repo: RepoCommentConfig | null;
+      workspace: WorkspaceCommentDefaults | null;
+      expected: ReturnType<typeof resolveCommentOptions>;
+    }[];
+  };
+}
+
+const golden = loadGolden();
 
 let dirs: string[] = [];
 
@@ -108,5 +142,15 @@ describe("parseRepoCommentConfig / resolveCommentOptions (smoke)", () => {
     const { options, source } = resolveCommentOptions(null, null);
     expect(options).toEqual(AUTO_COMMENT_OPTIONS);
     expect(Object.values(source).every((s) => s === "auto")).toBe(true);
+  });
+});
+
+describe("comment-config-golden.json parity (CLI copy)", () => {
+  it.each(golden.parseCases)("parse: $name", ({ text, format, expected }) => {
+    expect(parseRepoCommentConfig(text, format)).toEqual(expected);
+  });
+
+  it.each(golden.resolveCases)("resolve: $name", ({ repo, workspace, expected }) => {
+    expect(resolveCommentOptions(repo, workspace)).toEqual(expected);
   });
 });

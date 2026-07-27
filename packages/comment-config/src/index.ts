@@ -1,3 +1,12 @@
+/**
+ * Repo-level managed-comment config parser/resolver (issue #307). The
+ * published CLI (`@buildinternet/uploads`) cannot import this private
+ * workspace package, so it carries its own byte-for-byte COPY at
+ * packages/uploads/src/comment-config.ts. Kept in sync by
+ * test/fixtures/comment-config-golden.json, asserted from both sides
+ * (this package's index.test.ts and the CLI's comment-config.test.ts) —
+ * change both copies together.
+ */
 import { parse as parseYaml } from "yaml";
 
 export interface RepoCommentConfig {

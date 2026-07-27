@@ -1,0 +1,292 @@
+{
+  "parseCases": [
+    {
+      "name": "valid full yaml config",
+      "text": "comment:\n  imageWidth: full\n  maxInlineImages: 8\n  meta:\n    path: false\n    state: true\n  linkToFilePage: false\n  note: \"Staging shots only.\"\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "imageWidth": "full",
+          "maxInlineImages": 8,
+          "linkToFilePage": false,
+          "metaPath": false,
+          "metaState": true,
+          "note": "Staging shots only."
+        },
+        "warnings": []
+      }
+    },
+    {
+      "name": "json format",
+      "text": "{\"comment\":{\"imageWidth\":640}}",
+      "format": "json",
+      "expected": {
+        "config": {
+          "imageWidth": 640
+        },
+        "warnings": []
+      }
+    },
+    {
+      "name": "clamps numeric imageWidth low (below 160)",
+      "text": "comment:\n  imageWidth: 40\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "imageWidth": 160
+        },
+        "warnings": []
+      }
+    },
+    {
+      "name": "clamps numeric imageWidth high (above 1000)",
+      "text": "comment:\n  imageWidth: 5000\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "imageWidth": 1000
+        },
+        "warnings": []
+      }
+    },
+    {
+      "name": "clamps maxInlineImages low (below 1)",
+      "text": "comment:\n  maxInlineImages: 0\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "maxInlineImages": 1
+        },
+        "warnings": []
+      }
+    },
+    {
+      "name": "clamps maxInlineImages high (above 48)",
+      "text": "comment:\n  maxInlineImages: 99\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "maxInlineImages": 48
+        },
+        "warnings": []
+      }
+    },
+    {
+      "name": "drops an invalid key with a warning, keeps the rest",
+      "text": "comment:\n  imageWidth: enormous\n  maxInlineImages: 4\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "maxInlineImages": 4
+        },
+        "warnings": ["imageWidth: expected \"auto\", \"full\", or a number; dropped"]
+      }
+    },
+    {
+      "name": "ignores unknown keys silently",
+      "text": "comment:\n  banana: true\n  linkToFilePage: false\nother: 1\n",
+      "format": "yaml",
+      "expected": {
+        "config": {
+          "linkToFilePage": false
+        },
+        "warnings": []
+      }
+    },
+    {
+      "name": "drops an over-500-char note whole, with a warning — never truncates",
+      "text": "comment:\n  note: \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"\n",
+      "format": "yaml",
+      "expected": {
+        "config": {},
+        "warnings": ["note: longer than 500 characters; dropped (not truncated)"]
+      }
+    },
+    {
+      "name": "treats empty/whitespace note as absent",
+      "text": "comment:\n  note: \"   \"\n",
+      "format": "yaml",
+      "expected": {
+        "config": {},
+        "warnings": []
+      }
+    },
+    {
+      "name": "returns null config + warning for unparseable yaml",
+      "text": "comment: [unclosed",
+      "format": "yaml",
+      "expected": {
+        "config": null,
+        "warnings": ["config file could not be parsed; ignoring it"]
+      }
+    },
+    {
+      "name": "returns null config for a non-object root",
+      "text": "- a\n- b\n",
+      "format": "yaml",
+      "expected": {
+        "config": null,
+        "warnings": []
+      }
+    },
+    {
+      "name": "returns null config for a missing comment key",
+      "text": "other: 1\n",
+      "format": "yaml",
+      "expected": {
+        "config": null,
+        "warnings": []
+      }
+    },
+    {
+      "name": "hostile input: empty string",
+      "text": "",
+      "format": "yaml",
+      "expected": {
+        "config": null,
+        "warnings": []
+      }
+    },
+    {
+      "name": "hostile input: NUL byte",
+      "text": "\u0000",
+      "format": "yaml",
+      "expected": {
+        "config": null,
+        "warnings": []
+      }
+    },
+    {
+      "name": "hostile input: yaml function tag",
+      "text": "!!js/function 'x'",
+      "format": "yaml",
+      "expected": {
+        "config": null,
+        "warnings": []
+      }
+    },
+    {
+      "name": "hostile input: unclosed brace",
+      "text": "{",
+      "format": "yaml",
+      "expected": {
+        "config": null,
+        "warnings": ["config file could not be parsed; ignoring it"]
+      }
+    },
+    {
+      "name": "hostile input: comment key is a scalar, not an object",
+      "text": "comment: 3",
+      "format": "yaml",
+      "expected": {
+        "config": null,
+        "warnings": []
+      }
+    }
+  ],
+  "resolveCases": [
+    {
+      "name": "returns AUTO options with all-auto sources for null inputs",
+      "repo": null,
+      "workspace": null,
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto"
+        }
+      }
+    },
+    {
+      "name": "applies per-key precedence repo > workspace > auto",
+      "repo": {
+        "imageWidth": "full"
+      },
+      "workspace": {
+        "imageWidth": 640,
+        "maxInlineImages": 4
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "full",
+          "maxInlineImages": 4,
+          "metaPath": true,
+          "metaState": true,
+          "linkToFilePage": true,
+          "note": null
+        },
+        "source": {
+          "imageWidth": "repo",
+          "maxInlineImages": "workspace",
+          "metaPath": "auto",
+          "metaState": "auto",
+          "linkToFilePage": "auto",
+          "note": "auto"
+        }
+      }
+    },
+    {
+      "name": "maps workspace showMetadata:false to both meta fields",
+      "repo": null,
+      "workspace": {
+        "showMetadata": false
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": false,
+          "metaState": false,
+          "linkToFilePage": true,
+          "note": null
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "workspace",
+          "metaState": "workspace",
+          "linkToFilePage": "auto",
+          "note": "auto"
+        }
+      }
+    },
+    {
+      "name": "repo meta override beats workspace showMetadata",
+      "repo": {
+        "metaPath": true
+      },
+      "workspace": {
+        "showMetadata": false
+      },
+      "expected": {
+        "options": {
+          "imageWidth": "auto",
+          "maxInlineImages": 16,
+          "metaPath": true,
+          "metaState": false,
+          "linkToFilePage": true,
+          "note": null
+        },
+        "source": {
+          "imageWidth": "auto",
+          "maxInlineImages": "auto",
+          "metaPath": "repo",
+          "metaState": "workspace",
+          "linkToFilePage": "auto",
+          "note": "auto"
+        }
+      }
+    }
+  ]
+}
