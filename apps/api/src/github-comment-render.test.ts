@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { describe, expect, it } from "vitest";
-import { attachmentsCommentBody } from "./github-comment-render";
+import {
+  attachmentsCommentBody,
+  AUTO_RENDER_OPTIONS,
+  type AttachmentItem,
+  type CommentRenderOptions,
+} from "./github-comment-render";
 
 function loadFixture(name: string) {
   return JSON.parse(
@@ -12,11 +17,30 @@ function loadFixture(name: string) {
   ) as { items: any[]; galleries: any[]; marker?: string; expected: string };
 }
 
+function loadOptionsFixture(name: string) {
+  return JSON.parse(
+    readFileSync(
+      fileURLToPath(new NodeURL(`../../../test/fixtures/${name}`, import.meta.url)),
+      "utf8",
+    ),
+  ) as {
+    cases: {
+      name: string;
+      options: Partial<CommentRenderOptions>;
+      expected: string;
+      // Falls back to the golden suite's shared `items` when a case doesn't
+      // need its own (most cases don't touch item count/meta).
+      items?: AttachmentItem[];
+    }[];
+  };
+}
+
 const golden = loadFixture("github-comment-golden.json");
 const goldenCap = loadFixture("github-comment-golden-cap.json");
 const goldenMeta = loadFixture("github-comment-golden-meta.json");
 const goldenVideo = loadFixture("github-comment-golden-video.json");
 const goldenEmpty = loadFixture("github-comment-golden-empty.json");
+const goldenOptions = loadOptionsFixture("github-comment-golden-options.json");
 
 describe("attachmentsCommentBody (api copy)", () => {
   it("renders the golden body byte-for-byte", () => {
@@ -239,6 +263,134 @@ describe("attachmentsCommentBody (api copy)", () => {
         img("gh/acme/web/pull/12/shot.webp", { meta: { path: "/x", state: "after" } }),
       ]);
       expect(body).not.toContain("<table>");
+    });
+  });
+
+  describe("attachmentsCommentBody with options", () => {
+    const items = golden.items as AttachmentItem[];
+    const galleries = golden.galleries;
+    const marker = golden.marker ?? "<!-- uploads.sh:attachments -->";
+
+    const manyImages: AttachmentItem[] = Array.from({ length: 18 }, (_, i) => ({
+      key: `gh/acme/web/pull/12/many-${String(i).padStart(2, "0")}.png`,
+      url: `https://uploads.sh/f/many-${i}.png`,
+      embedUrl: `https://embed.uploads.sh/f/many-${i}.png`,
+      pageUrl: `https://uploads.sh/f/acme/many-${i}.png`,
+    }));
+
+    const metaItems: AttachmentItem[] = [
+      {
+        key: "gh/acme/web/pull/12/meta-a.png",
+        url: "https://uploads.sh/f/meta-a.png",
+        embedUrl: "https://embed.uploads.sh/f/meta-a.png",
+        pageUrl: "https://uploads.sh/f/acme/meta-a.png",
+        meta: { path: "apps/web/src", state: "after" },
+      },
+      {
+        key: "gh/acme/web/pull/12/meta-b.png",
+        url: "https://uploads.sh/f/meta-b.png",
+        embedUrl: "https://embed.uploads.sh/f/meta-b.png",
+        pageUrl: "https://uploads.sh/f/acme/meta-b.png",
+        meta: { path: "apps/web/src", state: "after" },
+      },
+    ];
+
+    const galleriesWithPreview = [
+      {
+        title: "Design review",
+        url: "https://uploads.sh/g/abc",
+        previews: [
+          {
+            url: "https://uploads.sh/g/abc/i1.png",
+            embedUrl: "https://embed.uploads.sh/g/abc/i1.png",
+            alt: "screen one",
+            itemUrl: "https://uploads.sh/g/abc/i1",
+          },
+        ],
+      },
+    ];
+
+    const base = (over: Partial<CommentRenderOptions>): CommentRenderOptions => ({
+      ...AUTO_RENDER_OPTIONS,
+      ...over,
+    });
+
+    it("default options render byte-identical to the no-options call", () => {
+      expect(attachmentsCommentBody(items, galleries, marker, AUTO_RENDER_OPTIONS)).toBe(
+        attachmentsCommentBody(items, galleries, marker),
+      );
+    });
+
+    it('imageWidth:"full" omits the width attribute everywhere (inline, pair, poster)', () => {
+      const body = attachmentsCommentBody(items, [], marker, base({ imageWidth: "full" }));
+      expect(body).not.toMatch(/<img width=/);
+      expect(body).toMatch(/<img alt=/);
+    });
+
+    it("explicit px overrides auto sizing and pair/poster constants", () => {
+      const body = attachmentsCommentBody(items, [], marker, base({ imageWidth: 500 }));
+      const widths = [...body.matchAll(/<img width="(\d+)"/g)].map((m) => Number(m[1]));
+      expect(widths.length).toBeGreaterThan(0);
+      expect(widths.every((w) => w === 500)).toBe(true);
+    });
+
+    it("maxInlineImages caps inline embeds; remainder collapses to the details list", () => {
+      const body = attachmentsCommentBody(manyImages, [], marker, base({ maxInlineImages: 2 }));
+      expect([...body.matchAll(/<img /g)]).toHaveLength(2);
+      expect(body).toContain("<details>");
+    });
+
+    it('imageWidth:"full" omits the width attribute on gallery previews too', () => {
+      const body = attachmentsCommentBody(
+        [],
+        galleriesWithPreview,
+        marker,
+        base({ imageWidth: "full" }),
+      );
+      expect(body).not.toMatch(/<img width=/);
+      expect(body).toMatch(/<img alt="screen one"/);
+    });
+
+    it("explicit px overrides the gallery preview's default 320", () => {
+      const body = attachmentsCommentBody(
+        [],
+        galleriesWithPreview,
+        marker,
+        base({ imageWidth: 500 }),
+      );
+      const widths = [...body.matchAll(/<img width="(\d+)"/g)].map((m) => Number(m[1]));
+      expect(widths).toHaveLength(1);
+      expect(widths[0]).toBe(500);
+    });
+
+    it("metaPath:false hides path but keeps state in captions", () => {
+      const body = attachmentsCommentBody(metaItems, [], marker, base({ metaPath: false }));
+      expect(body).not.toContain("apps/web/src");
+      expect(body).toContain("after");
+    });
+
+    it("metaState:false hides state but keeps path in captions", () => {
+      const body = attachmentsCommentBody(metaItems, [], marker, base({ metaState: false }));
+      expect(body).toContain("apps/web/src");
+      expect(body).not.toContain("<sub>apps/web/src · after</sub>");
+      expect(body).not.toMatch(/·\s*after/);
+    });
+
+    it("note renders once, directly after the marker line", () => {
+      const body = attachmentsCommentBody(items, [], marker, base({ note: "Staging only." }));
+      const lines = body.split("\n");
+      expect(lines[0]).toBe(marker);
+      expect(lines[1]).toBe("Staging only.");
+      expect(lines[2]).toBe("");
+    });
+
+    it.each(goldenOptions.cases)("matches the options golden: $name", (c) => {
+      expect(
+        attachmentsCommentBody(c.items ?? items, [], marker, {
+          ...AUTO_RENDER_OPTIONS,
+          ...c.options,
+        }),
+      ).toBe(c.expected);
     });
   });
 });

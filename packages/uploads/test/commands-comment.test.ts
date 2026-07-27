@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { UsageError } from "../src/cli-args.js";
 import type { UploadsClient } from "../src/client.js";
 import {
@@ -373,5 +376,48 @@ describe("syncAttachmentsComment", () => {
     expect(result).toEqual({ action: "skipped", count: 0, via: "gh" });
     expect(calls.some((c) => c.args.includes("PATCH"))).toBe(false);
     expect(calls.some((c) => c.args.includes("repos/acme/web/issues/12/comments"))).toBe(false);
+  });
+
+  describe("repo comment config (.uploads.yml)", () => {
+    let dirs: string[] = [];
+
+    afterEach(() => {
+      for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });
+      dirs = [];
+    });
+
+    function tmpRepoWithConfig(yaml: string): string {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uploads-commands-comment-"));
+      dirs.push(dir);
+      fs.writeFileSync(path.join(dir, ".uploads.yml"), yaml);
+      return dir;
+    }
+
+    it("caps inline images at maxInlineImages from a committed .uploads.yml", async () => {
+      const root = tmpRepoWithConfig("comment:\n  maxInlineImages: 1\n");
+      const client = fakeClient({
+        upsertGithubComment: async () => ({ posted: false, reason: "not_installed" }),
+        listAll: async () => [
+          { key: "gh/acme/web/pull/12/a.png", url: "https://x.test/a.png", embedUrl: null },
+          { key: "gh/acme/web/pull/12/b.png", url: "https://x.test/b.png", embedUrl: null },
+        ],
+        findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+      });
+      let posted = "";
+      // gh+git runner: `git rev-parse --show-toplevel` resolves to the temp
+      // repo root; gh calls find no marker and create.
+      const run: CommandRunner = (cmd, args, input) => {
+        if (cmd === "git" && args[0] === "rev-parse" && args.includes("--show-toplevel")) {
+          return `${root}\n`;
+        }
+        if (cmd !== "gh") throw new Error(`unexpected command: ${cmd}`);
+        if (args[1]?.includes("per_page=100")) return "[]";
+        if (input) posted = input;
+        return JSON.stringify({ id: 9 });
+      };
+      await syncAttachmentsComment(client, { repo: "acme/web", num: 12, kind: "pull" }, run);
+      expect(posted.match(/<img/g)?.length).toBe(1);
+      expect(posted).toContain("<details>");
+    });
   });
 });

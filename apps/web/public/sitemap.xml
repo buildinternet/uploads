@@ -21,6 +21,11 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://uploads.sh/docs/comment-config</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://uploads.sh/docs/agents</loc>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>

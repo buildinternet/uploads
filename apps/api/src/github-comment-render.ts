@@ -76,6 +76,30 @@ export function attachmentsMarker(workspace?: string): string {
  * of images. */
 export const MAX_INLINE_ATTACHMENT_IMAGES = 16;
 
+/**
+ * Per-render knobs for the managed comment (issue #307), sourced from repo
+ * comment config. `imageWidth: "auto"` preserves today's per-item width
+ * heuristics (`attachmentImageWidth`/`posterImageWidth`/pair cap); `"full"`
+ * omits the `width` attribute entirely; a number overrides every width site.
+ */
+export interface CommentRenderOptions {
+  imageWidth: "auto" | "full" | number;
+  maxInlineImages: number;
+  metaPath: boolean;
+  metaState: boolean;
+  note: string | null;
+}
+
+/** Today's behavior, expressed as options — the default for every caller that
+ * hasn't opted into repo comment config. */
+export const AUTO_RENDER_OPTIONS: CommentRenderOptions = {
+  imageWidth: "auto",
+  maxInlineImages: MAX_INLINE_ATTACHMENT_IMAGES,
+  metaPath: true,
+  metaState: true,
+  note: null,
+};
+
 export interface AttachmentItem {
   key: string;
   url: string | null;
@@ -197,18 +221,21 @@ function escapeMarkdownText(s: string): string {
  * alone it is a stray character, and as a prefix next to `state` it is
  * noise. Only exact `/` after trim is suppressed.
  */
-function metaCaptionParts(meta: AttachmentItem["meta"]): string[] {
+function metaCaptionParts(meta: AttachmentItem["meta"], options: CommentRenderOptions): string[] {
   const parts: string[] = [];
   const path = meta?.path?.trim();
-  if (path && path !== "/") parts.push(path);
+  if (options.metaPath && path && path !== "/") parts.push(path);
   const state = meta?.state?.trim();
-  if (state) parts.push(state);
+  if (options.metaState && state) parts.push(state);
   return parts;
 }
 
 /** `<sub>` caption body for an inline image, or null when there is nothing to say. */
-function metaCaptionHtml(meta: AttachmentItem["meta"]): string | null {
-  const parts = metaCaptionParts(meta);
+function metaCaptionHtml(
+  meta: AttachmentItem["meta"],
+  options: CommentRenderOptions,
+): string | null {
+  const parts = metaCaptionParts(meta, options);
   return parts.length > 0 ? parts.map(escapeHtmlText).join(" · ") : null;
 }
 
@@ -217,10 +244,30 @@ function metaCaptionHtml(meta: AttachmentItem["meta"]): string | null {
  * HTML-escapes first, then markdown-escapes: HTML escaping introduces no
  * backslashes or brackets, so the markdown pass cannot corrupt its entities.
  */
-function metaCaptionMarkdown(meta: AttachmentItem["meta"]): string {
-  const parts = metaCaptionParts(meta);
+function metaCaptionMarkdown(meta: AttachmentItem["meta"], options: CommentRenderOptions): string {
+  const parts = metaCaptionParts(meta, options);
   if (parts.length === 0) return "";
   return ` · ${parts.map((p) => escapeMarkdownText(escapeHtmlText(p))).join(" · ")}`;
+}
+
+/** Resolved pixel width for an image site, or `null` meaning "omit the width
+ * attribute". `"auto"` defers to the caller's per-item heuristic (`autoPx`);
+ * `"full"` always omits; a number always wins. */
+function resolvedWidth(autoPx: number, options: CommentRenderOptions): number | null {
+  if (options.imageWidth === "auto") return autoPx;
+  if (options.imageWidth === "full") return null;
+  return options.imageWidth;
+}
+
+/** Every `<img>` tag in the managed comment goes through here so the
+ * omit-width-attribute case ("full") can't drift between call sites.
+ *
+ * `escapedAlt`/`escapedSrc` must already be attribute-escaped (via
+ * `escapeHtmlAttr`) by the caller — this function interpolates them as-is
+ * and does not escape them itself. */
+function imgTag(w: number | null, escapedAlt: string, escapedSrc: string): string {
+  const widthAttr = w === null ? "" : ` width="${w}"`;
+  return `<img${widthAttr} alt="${escapedAlt}" src="${escapedSrc}">`;
 }
 
 /** Extract the filename stem's before/after token (issue #419 fallback pairing).
@@ -321,24 +368,33 @@ function pairAttachments(
  * column width (and don't overflow on mobile). */
 export const ATTACHMENT_IMAGE_WIDTH_PAIR = 320;
 
-function renderPairCell(item: AttachmentItem, label: "Before" | "After"): string {
+function renderPairCell(
+  item: AttachmentItem,
+  label: "Before" | "After",
+  options: CommentRenderOptions,
+): string {
   const name = item.key.slice(item.key.lastIndexOf("/") + 1);
   const src = item.embedUrl ?? item.url;
   const link = item.pageUrl ?? item.url;
-  const w = Math.min(attachmentImageWidth(name), ATTACHMENT_IMAGE_WIDTH_PAIR);
+  const autoPx = Math.min(attachmentImageWidth(name), ATTACHMENT_IMAGE_WIDTH_PAIR);
+  const w = resolvedWidth(autoPx, options);
   const alt = escapeHtmlAttr(name);
   const href = escapeHtmlAttr((link ?? src) as string);
   const imgSrc = escapeHtmlAttr(src as string);
-  const caption = metaCaptionHtml(item.meta);
+  const caption = metaCaptionHtml(item.meta, options);
   const captionHtml = caption ? `<br><sub>${caption}</sub>` : "";
-  return `<td align="center"><sub><strong>${label}</strong></sub><br><a href="${href}"><img width="${w}" alt="${alt}" src="${imgSrc}"></a>${captionHtml}</td>`;
+  return `<td align="center"><sub><strong>${label}</strong></sub><br><a href="${href}">${imgTag(w, alt, imgSrc)}</a>${captionHtml}</td>`;
 }
 
 /** One side-by-side before/after row (issue #419): a single HTML table so
  * GitHub renders both images on one line, with `Before`/`After` labels and
  * each side's usual path/state caption preserved underneath. */
-function renderPairRow(beforeItem: AttachmentItem, afterItem: AttachmentItem): string {
-  return `<table><tr>${renderPairCell(beforeItem, "Before")}${renderPairCell(afterItem, "After")}</tr></table>`;
+function renderPairRow(
+  beforeItem: AttachmentItem,
+  afterItem: AttachmentItem,
+  options: CommentRenderOptions,
+): string {
+  return `<table><tr>${renderPairCell(beforeItem, "Before", options)}${renderPairCell(afterItem, "After", options)}</tr></table>`;
 }
 
 /**
@@ -349,6 +405,7 @@ export function attachmentsCommentBody(
   items: AttachmentItem[],
   galleries: GalleryCommentItem[] = [],
   marker: string = ATTACHMENTS_MARKER,
+  options: CommentRenderOptions = AUTO_RENDER_OPTIONS,
 ): string {
   // Non-mutating sort (equivalent to Array#toSorted) — the api worker's
   // tsconfig targets lib ES2022, which predates Array#toSorted (ES2023);
@@ -358,6 +415,7 @@ export function attachmentsCommentBody(
     (a, b) => a.title.localeCompare(b.title) || a.url.localeCompare(b.url),
   );
   const lines: string[] = [marker];
+  if (options.note) lines.push(options.note, "");
   if (sortedGalleries.length > 0) {
     lines.push("### 🖼️ Galleries", "");
     for (const gallery of sortedGalleries) {
@@ -366,8 +424,9 @@ export function attachmentsCommentBody(
       for (const preview of gallery.previews ?? []) {
         const previewHref = preview.itemUrl ? escapeHtmlAttr(preview.itemUrl) : href;
         const previewSrc = escapeHtmlAttr(preview.embedUrl ?? preview.url);
+        const previewW = resolvedWidth(320, options);
         lines.push(
-          `<a href="${previewHref}"><img width="320" alt="${escapeHtmlAttr(preview.alt)}" src="${previewSrc}"></a>`,
+          `<a href="${previewHref}">${imgTag(previewW, escapeHtmlAttr(preview.alt), previewSrc)}</a>`,
         );
       }
       lines.push(`<sub><a href="${href}">Open gallery</a></sub>`, "");
@@ -391,12 +450,12 @@ export function attachmentsCommentBody(
     const partnerIdx = partnerOf.get(idx);
     if (partnerIdx !== undefined) {
       const partner = sorted[partnerIdx];
-      if (inlinedImages + 2 <= MAX_INLINE_ATTACHMENT_IMAGES) {
+      if (inlinedImages + 2 <= options.maxInlineImages) {
         inlinedImages += 2;
         consumedByPair.add(partnerIdx);
         const beforeItem = roleOf.get(idx) === "before" ? item : partner;
         const afterItem = roleOf.get(idx) === "before" ? partner : item;
-        lines.push(renderPairRow(beforeItem, afterItem), "");
+        lines.push(renderPairRow(beforeItem, afterItem, options), "");
         continue;
       }
       // Cap already full for a two-image row — degrade this pair to two
@@ -412,7 +471,7 @@ export function attachmentsCommentBody(
     const isImage = Boolean(src) && inferContentType(name).startsWith("image/");
     const isPosterVideo = Boolean(item.posterUrl) && inferContentType(name).startsWith("video/");
     const inlines = isImage || isPosterVideo;
-    if (inlines && inlinedImages >= MAX_INLINE_ATTACHMENT_IMAGES) {
+    if (inlines && inlinedImages >= options.maxInlineImages) {
       // Cap hit — defer to the collapsed overflow list below rather than
       // embedding every remaining image inline.
       overflowImages.push(item);
@@ -420,10 +479,11 @@ export function attachmentsCommentBody(
     }
     if (isPosterVideo) {
       inlinedImages++;
-      const w = posterImageWidth(item.videoMeta, name);
+      const autoPx = posterImageWidth(item.videoMeta, name);
+      const w = resolvedWidth(autoPx, options);
       const href = escapeHtmlAttr(link ?? (item.posterUrl as string));
       lines.push(
-        `<a href="${href}"><img width="${w}" alt="${escapeHtmlAttr(name)}" src="${escapeHtmlAttr(item.posterUrl as string)}"></a>`,
+        `<a href="${href}">${imgTag(w, escapeHtmlAttr(name), escapeHtmlAttr(item.posterUrl as string))}</a>`,
       );
       // GitHub strips <video>, so a still frame needs an explicit affordance
       // or it reads as a screenshot.
@@ -431,24 +491,25 @@ export function attachmentsCommentBody(
       if (item.videoMeta?.durationSeconds != null) {
         parts.push(formatDuration(item.videoMeta.durationSeconds));
       }
-      parts.push(...metaCaptionParts(item.meta).map(escapeHtmlText));
+      parts.push(...metaCaptionParts(item.meta, options).map(escapeHtmlText));
       lines.push(`<sub>${parts.join(" · ")}</sub>`, "");
     } else if (isImage) {
       inlinedImages++;
       // Markdown ![]() has no width control — phone frames become full-column giants.
       // img src uses embed host when available (Camo revalidates); click-through prefers the file page.
-      const w = attachmentImageWidth(name);
+      const autoPx = attachmentImageWidth(name);
+      const w = resolvedWidth(autoPx, options);
       const alt = escapeHtmlAttr(name);
       const href = escapeHtmlAttr(link ?? (src as string));
       const imgSrc = escapeHtmlAttr(src as string);
-      lines.push(`<a href="${href}"><img width="${w}" alt="${alt}" src="${imgSrc}"></a>`);
-      const caption = metaCaptionHtml(item.meta);
+      lines.push(`<a href="${href}">${imgTag(w, alt, imgSrc)}</a>`);
+      const caption = metaCaptionHtml(item.meta, options);
       if (caption) lines.push(`<sub>${caption}</sub>`);
       lines.push("");
     } else if (link) {
-      lines.push(`- [${name}](${link})${metaCaptionMarkdown(item.meta)}`);
+      lines.push(`- [${name}](${link})${metaCaptionMarkdown(item.meta, options)}`);
     } else {
-      lines.push(`- ${name}${metaCaptionMarkdown(item.meta)}`);
+      lines.push(`- ${name}${metaCaptionMarkdown(item.meta, options)}`);
     }
   }
   if (overflowImages.length > 0) {
@@ -457,7 +518,7 @@ export function attachmentsCommentBody(
     for (const item of overflowImages) {
       const name = item.key.slice(item.key.lastIndexOf("/") + 1);
       const link = item.pageUrl ?? item.url;
-      const suffix = metaCaptionMarkdown(item.meta);
+      const suffix = metaCaptionMarkdown(item.meta, options);
       lines.push(link ? `- [${name}](${link})${suffix}` : `- ${name}${suffix}`);
     }
     lines.push("", "</details>", "");

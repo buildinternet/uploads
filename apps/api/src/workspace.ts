@@ -126,6 +126,16 @@ export interface WorkspaceRecord {
    * repos whose visibility uploads.sh does not check.
    */
   githubCommentShowMetadata?: boolean;
+  /** Workspace default for managed-comment image width (issue #307):
+   * "full" omits the width attribute; a number (160–1000) forces that px.
+   * Absent = auto (filename-heuristic sizing). Repo `.uploads.yml` overrides. */
+  githubCommentImageWidth?: "full" | number;
+  /** Workspace default for how many images render inline (1–48) before the
+   * remainder collapse to links. Absent = 16. Repo config overrides. */
+  githubCommentMaxInlineImages?: number;
+  /** Workspace default short markdown note under the comment header.
+   * Trimmed, max 500 chars (validated on PATCH). Repo config overrides. */
+  githubCommentNote?: string;
   /**
    * Per-workspace opt-out for video poster generation (issue #299). Default
    * (undefined/true) generates. The surgical kill switch between "all

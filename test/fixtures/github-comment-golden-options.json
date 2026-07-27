@@ -1,0 +1,71 @@
+{
+  "cases": [
+    {
+      "name": "full",
+      "options": {
+        "imageWidth": "full"
+      },
+      "expected": "<!-- uploads.sh:attachments -->\n### 📎 Attachments\n\n- [build.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log)\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>\n<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
+    },
+    {
+      "name": "px500",
+      "options": {
+        "imageWidth": 500
+      },
+      "expected": "<!-- uploads.sh:attachments -->\n### 📎 Attachments\n\n- [build.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log)\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img width=\"500\" alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>\n<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
+    },
+    {
+      "name": "cap2",
+      "options": {
+        "maxInlineImages": 2
+      },
+      "expected": "<!-- uploads.sh:attachments -->\n### 📎 Attachments\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/checkout.png\"><img width=\"400\" alt=\"checkout.png\" src=\"https://embed.uploads.sh/f/checkout.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/dashboard.png\"><img width=\"640\" alt=\"dashboard.png\" src=\"https://embed.uploads.sh/f/dashboard.png\"></a>\n\n<details><summary>1 more attachment</summary>\n\n- [hero.png](https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png)\n\n</details>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>\n<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>",
+      "items": [
+        {
+          "key": "gh/acme/web/pull/12/hero.png",
+          "url": "https://uploads.sh/f/hero.png",
+          "embedUrl": "https://embed.uploads.sh/f/hero.png",
+          "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png"
+        },
+        {
+          "key": "gh/acme/web/pull/12/dashboard.png",
+          "url": "https://uploads.sh/f/dashboard.png",
+          "embedUrl": "https://embed.uploads.sh/f/dashboard.png",
+          "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/dashboard.png"
+        },
+        {
+          "key": "gh/acme/web/pull/12/checkout.png",
+          "url": "https://uploads.sh/f/checkout.png",
+          "embedUrl": "https://embed.uploads.sh/f/checkout.png",
+          "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/checkout.png"
+        }
+      ]
+    },
+    {
+      "name": "metaPathOff",
+      "options": {
+        "metaPath": false
+      },
+      "expected": "<!-- uploads.sh:attachments -->\n### 📎 Attachments\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/meta-a.png\"><img width=\"400\" alt=\"meta-a.png\" src=\"https://embed.uploads.sh/f/meta-a.png\"></a>\n<sub>after</sub>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>\n<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>",
+      "items": [
+        {
+          "key": "gh/acme/web/pull/12/meta-a.png",
+          "url": "https://uploads.sh/f/meta-a.png",
+          "embedUrl": "https://embed.uploads.sh/f/meta-a.png",
+          "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/meta-a.png",
+          "meta": {
+            "path": "apps/web/src",
+            "state": "after"
+          }
+        }
+      ]
+    },
+    {
+      "name": "note",
+      "options": {
+        "note": "Staging only."
+      },
+      "expected": "<!-- uploads.sh:attachments -->\nStaging only.\n\n### 📎 Attachments\n\n- [build.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log)\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img width=\"400\" alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>\n<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
+    }
+  ]
+}

@@ -1,6 +1,14 @@
 /** In-process KV fake: get/put with recorded TTLs. Mirrors the repo's fake-r2 pattern. */
 export class FakeKv {
   store = new Map<string, { value: string; expirationTtl?: number }>();
+  /**
+   * When set, `put` rejects with this for any key matching `failPutKeyPrefix`
+   * (or every key, if the prefix is left unset) — for exercising best-effort
+   * cache-write paths without also breaking unrelated KV writes (e.g. the
+   * GitHub App's installation/token cache) sharing the same fake instance.
+   */
+  failPutWith: Error | null = null;
+  failPutKeyPrefix = "";
 
   async get(key: string, type?: KvReadType): Promise<unknown> {
     const entry = this.store.get(key);
@@ -9,6 +17,7 @@ export class FakeKv {
   }
 
   async put(key: string, value: string, opts?: { expirationTtl?: number }): Promise<void> {
+    if (this.failPutWith && key.startsWith(this.failPutKeyPrefix)) throw this.failPutWith;
     this.store.set(key, { value, expirationTtl: opts?.expirationTtl });
   }
 

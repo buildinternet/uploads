@@ -10,12 +10,19 @@
  * for workspace existence any more precisely than for any other workspace.
  */
 import { resolveWorkspaceCreateQuota } from "@uploads/billing";
+import {
+  NOTE_MAX_CHARS,
+  resolveCommentOptions,
+  type OptionSource,
+  type ResolvedCommentOptions,
+} from "@uploads/comment-config";
 import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
 import { throwForInviteError } from "../invite-error";
 import { parseExternalReference } from "../external-references";
+import { previewFixtureItems } from "../comment-preview-fixtures";
 import {
   facetKeys,
   facetValues,
@@ -27,7 +34,14 @@ import {
 import { badKey, listObjects, setObjectVisibility } from "../files-core";
 import { listGalleries } from "../galleries";
 import { galleryListSummaries } from "../gallery-service";
+import {
+  attachmentsCommentBody,
+  attachmentsMarker,
+  type AttachmentItem,
+} from "../github-comment-render";
 import { githubInstallStatus, type GithubInstallStatus } from "../github-install-status";
+import { findRepoLink, listRepoLinksForWorkspace } from "../github-repo-links";
+import { resolveRepoCommentOptions, workspaceCommentDefaults } from "../repo-comment-config";
 import { resolveTitles } from "../github-titles";
 import { allowWrite } from "../guards";
 import {
@@ -46,10 +60,160 @@ import { requireSessionUser, sessionAuth, type SessionVars } from "../session-au
 import { objectPublicUrls, publicUrl, storage, storageConfig } from "../storage";
 import { getWorkspaceUsage } from "../usage";
 import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
-import { loadWorkspaceRecord } from "../workspace";
+import { loadWorkspaceRecord, type WorkspaceRecord } from "../workspace";
+import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { planResponse, planSourceFor } from "../workspace-plan";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** `imageWidth` bounds (issue #307): "full" or an integer clamp width in px. */
+const COMMENT_IMAGE_WIDTH_MIN = 160;
+const COMMENT_IMAGE_WIDTH_MAX = 1000;
+/** `maxInlineImages` bounds (issue #307). */
+const COMMENT_MAX_INLINE_IMAGES_MIN = 1;
+const COMMENT_MAX_INLINE_IMAGES_MAX = 48;
+
+/** The five workspace-level comment-defaults fields (issue #307). */
+const COMMENT_SETTINGS_KEYS = [
+  "imageWidth",
+  "maxInlineImages",
+  "showMetadata",
+  "linkToFilePage",
+  "note",
+] as const;
+type CommentSettingsKey = (typeof COMMENT_SETTINGS_KEYS)[number];
+
+/** Record field each API key writes to. */
+const COMMENT_SETTINGS_RECORD_FIELD: Record<CommentSettingsKey, keyof WorkspaceRecord> = {
+  imageWidth: "githubCommentImageWidth",
+  maxInlineImages: "githubCommentMaxInlineImages",
+  showMetadata: "githubCommentShowMetadata",
+  linkToFilePage: "githubCommentLinkToFilePage",
+  note: "githubCommentNote",
+};
+
+type CommentSettingsValue = string | number | boolean;
+type CommentSettingsPatch = Partial<Record<CommentSettingsKey, CommentSettingsValue | null>>;
+
+/**
+ * Validates a PATCH body for the workspace-level managed-comment defaults
+ * (issue #307). This is the single enforcement point for the bounds the
+ * resolver itself does not clamp (a review finding on the Task 1 parser):
+ * imageWidth "full" or an integer 160–1000, maxInlineImages an integer
+ * 1–48, and note trimmed, non-empty, and at most `NOTE_MAX_CHARS`. Reject-
+ * all-or-apply-all — the whole body is checked before any record mutation,
+ * so an invalid field never partially applies. An omitted key means "leave
+ * unchanged"; an explicit `null` clears the field. Unknown keys are
+ * ignored, mirroring `validateGithubCommentSettingsPatch` (admin-ui.ts) and
+ * `validateLimitsPatch` (workspace-limits.ts), the two sibling workspace-
+ * record PATCH validators in this codebase.
+ */
+function validateCommentSettingsPatch(body: unknown): CommentSettingsPatch {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new ValidationError("request body must be a JSON object", { code: "invalid_settings" });
+  }
+  const record = body as Record<string, unknown>;
+  const patch: CommentSettingsPatch = {};
+
+  if ("imageWidth" in record) {
+    const value = record.imageWidth;
+    if (value === null) {
+      patch.imageWidth = null;
+    } else if (value === "full") {
+      patch.imageWidth = "full";
+    } else if (
+      typeof value === "number" &&
+      Number.isInteger(value) &&
+      value >= COMMENT_IMAGE_WIDTH_MIN &&
+      value <= COMMENT_IMAGE_WIDTH_MAX
+    ) {
+      patch.imageWidth = value;
+    } else {
+      throw new ValidationError(
+        `imageWidth must be "full", an integer ${COMMENT_IMAGE_WIDTH_MIN}–${COMMENT_IMAGE_WIDTH_MAX}, or null`,
+        { code: "invalid_settings", details: { field: "imageWidth" } },
+      );
+    }
+  }
+
+  if ("maxInlineImages" in record) {
+    const value = record.maxInlineImages;
+    if (value === null) {
+      patch.maxInlineImages = null;
+    } else if (
+      typeof value === "number" &&
+      Number.isInteger(value) &&
+      value >= COMMENT_MAX_INLINE_IMAGES_MIN &&
+      value <= COMMENT_MAX_INLINE_IMAGES_MAX
+    ) {
+      patch.maxInlineImages = value;
+    } else {
+      throw new ValidationError(
+        `maxInlineImages must be an integer ${COMMENT_MAX_INLINE_IMAGES_MIN}–${COMMENT_MAX_INLINE_IMAGES_MAX} or null`,
+        { code: "invalid_settings", details: { field: "maxInlineImages" } },
+      );
+    }
+  }
+
+  if ("showMetadata" in record) {
+    const value = record.showMetadata;
+    if (value !== null && typeof value !== "boolean") {
+      throw new ValidationError("showMetadata must be a boolean or null", {
+        code: "invalid_settings",
+        details: { field: "showMetadata" },
+      });
+    }
+    patch.showMetadata = value;
+  }
+
+  if ("linkToFilePage" in record) {
+    const value = record.linkToFilePage;
+    if (value !== null && typeof value !== "boolean") {
+      throw new ValidationError("linkToFilePage must be a boolean or null", {
+        code: "invalid_settings",
+        details: { field: "linkToFilePage" },
+      });
+    }
+    patch.linkToFilePage = value;
+  }
+
+  if ("note" in record) {
+    const value = record.note;
+    if (value === null) {
+      patch.note = null;
+    } else if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed.length === 0 || trimmed.length > NOTE_MAX_CHARS) {
+        throw new ValidationError(`note must be 1–${NOTE_MAX_CHARS} characters after trimming`, {
+          code: "invalid_settings",
+          details: { field: "note" },
+        });
+      }
+      patch.note = trimmed;
+    } else {
+      throw new ValidationError("note must be a string or null", {
+        code: "invalid_settings",
+        details: { field: "note" },
+      });
+    }
+  }
+
+  return patch;
+}
+
+/** Response body shared by GET and PATCH: the workspace-level comment defaults. */
+function commentSettingsResponse(record: WorkspaceRecord) {
+  return {
+    imageWidth: record.githubCommentImageWidth ?? null,
+    maxInlineImages: record.githubCommentMaxInlineImages ?? null,
+    showMetadata: record.githubCommentShowMetadata ?? null,
+    linkToFilePage: record.githubCommentLinkToFilePage ?? null,
+    note: record.githubCommentNote ?? null,
+  };
+}
+
+/** `?repo=` shape for the comment preview endpoint: exactly one `/`, no empty segments. */
+const REPO_SHAPE_RE = /^[^/\s]+\/[^/\s]+$/;
 
 /** Max characters accepted in a `?name=` filename search term. */
 const SEARCH_NAME_MAX = 128;
@@ -786,4 +950,145 @@ export const me = new Hono<SessionVars>()
     const name = c.req.param("name");
     await memberWorkspaceOr404(c.env, requireUserId(c), name);
     return c.json<GithubInstallStatus>(await githubInstallStatus(c.env, name));
+  })
+
+  // Repos this workspace has linked (issue #307, Task 7) — feeds the comment
+  // settings preview panel's repo picker. Admin/owner-gated like the
+  // comment-settings/preview routes below (same audience: whoever can edit
+  // the defaults is whoever should see which repos they apply to). This is
+  // the session-authed counterpart to admin-ui's operator-only
+  // `/admin-ui/workspaces/:name/github-links` — that route needs
+  // `ADMIN_TOKEN`, which the web app's Better Auth session can't produce.
+  // Repo names only: the web client has no use for installationId/source/
+  // createdAt, and trimming them keeps this from becoming a second surface
+  // to keep in sync with `repoLinkResponse` in admin-ui.ts.
+  .get("/workspaces/:name/repo-links", async (c) => {
+    const name = c.req.param("name");
+    await adminWorkspaceOr403(c.env, requireUserId(c), name);
+    const links = await listRepoLinksForWorkspace(c.env.DB, name);
+    return c.json({ repos: links.map((link) => link.repo) });
+  })
+
+  // Workspace-level managed-comment defaults (issue #307): image width,
+  // inline-image cap, the two legacy booleans, and a short note. Admin/owner
+  // only — these are workspace-wide defaults every repo comment inherits
+  // unless a repo's `.uploads.yml` overrides them.
+  .get("/workspaces/:name/comment-settings", async (c) => {
+    const name = c.req.param("name");
+    await adminWorkspaceOr403(c.env, requireUserId(c), name);
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    return c.json(commentSettingsResponse(record));
+  })
+
+  // Patch the defaults above. Validated in full before any write (reject-
+  // all-or-apply-all — see `validateCommentSettingsPatch`); an omitted key
+  // leaves the field unchanged, an explicit `null` clears it.
+  .patch("/workspaces/:name/comment-settings", async (c) => {
+    const name = c.req.param("name");
+    const userId = requireUserId(c);
+    await adminWorkspaceOr403(c.env, userId, name);
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      throw new ValidationError("request body must be valid JSON", { code: "invalid_settings" });
+    }
+    const patch = validateCommentSettingsPatch(body);
+    const record = await mutateWorkspaceRecord(
+      c.env,
+      name,
+      (current) => {
+        const next = { ...current };
+        for (const key of COMMENT_SETTINGS_KEYS) {
+          if (!(key in patch)) continue;
+          const field = COMMENT_SETTINGS_RECORD_FIELD[key];
+          const value = patch[key];
+          if (value === null || value === undefined) delete next[field];
+          else (next as Record<string, unknown>)[field] = value;
+        }
+        return next;
+      },
+      { requireServing: true },
+    );
+    return c.json(commentSettingsResponse(record));
+  })
+
+  // Preview the production managed-comment body against resolved comment
+  // settings (issue #307). Admin/owner-gated like the settings routes above:
+  // the response includes per-key source attribution ("repo" | "workspace" |
+  // "auto"), which a plain member has no reason to see. With no `repo` query
+  // param, resolution runs against workspace defaults only (`repoConfig:
+  // null`) via the same `resolveCommentOptions(null, ...)` entrypoint
+  // `resolveRepoCommentOptions` wraps. With `repo`, it must already be
+  // linked to THIS workspace (github-repo-links.ts) — otherwise 404, so a
+  // preview can't be used to probe another workspace's repo binding or
+  // `.uploads.yml` contents.
+  //
+  // Renders from a page of the workspace's own `gh/`-prefixed attachments
+  // (first page only, mirrors gatherAttachments's url/pageUrl mapping but
+  // skips the D1 metadata read — the preview needs no per-item meta beyond
+  // what the static fixtures already carry). `listObjects` pages in
+  // lexicographic key order, not upload recency, so this is a representative
+  // sample rather than the "most recent" uploads. An empty workspace falls
+  // back to `previewFixtureItems` so the preview is never blank.
+  .get("/workspaces/:name/comment-preview", async (c) => {
+    const name = c.req.param("name");
+    await adminWorkspaceOr403(c.env, requireUserId(c), name);
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+
+    const repo = c.req.query("repo");
+    let resolved: ResolvedCommentOptions;
+    let source: Record<keyof ResolvedCommentOptions, OptionSource>;
+    let repoConfig: { found: boolean; path: string | null; warnings: string[] } | null = null;
+
+    if (repo !== undefined) {
+      if (!REPO_SHAPE_RE.test(repo)) {
+        throw new ValidationError("repo must be in owner/name form", { code: "invalid_repo" });
+      }
+      const link = await findRepoLink(c.env.DB, repo);
+      if (!link || link.workspaceName !== name) {
+        throw new NotFoundError("repo not linked to this workspace", { code: "repo_not_linked" });
+      }
+      const resolvedRepo = await resolveRepoCommentOptions(c.env, record, repo);
+      resolved = resolvedRepo.options;
+      source = resolvedRepo.source;
+      repoConfig = {
+        found: resolvedRepo.fetch.found,
+        path: resolvedRepo.fetch.path,
+        warnings: resolvedRepo.fetch.warnings,
+      };
+    } else {
+      const resolvedDefaults = resolveCommentOptions(null, workspaceCommentDefaults(record));
+      resolved = resolvedDefaults.options;
+      source = resolvedDefaults.source;
+    }
+
+    const { items: page } = await listObjects(c.env, record, { prefix: "gh/", limit: 8 });
+    const linkToFilePage = resolved.linkToFilePage;
+    let items: AttachmentItem[] = page.map((o) => ({
+      key: o.key,
+      url: o.url,
+      embedUrl: o.embedUrl,
+      pageUrl: linkToFilePage ? (o.pageUrl ?? null) : null,
+    }));
+    let sample: "workspace" | "fixtures" = "workspace";
+    if (items.length === 0) {
+      items = previewFixtureItems(c.env);
+      sample = "fixtures";
+    }
+
+    const body = attachmentsCommentBody(items, [], attachmentsMarker(name), {
+      imageWidth: resolved.imageWidth,
+      maxInlineImages: resolved.maxInlineImages,
+      metaPath: resolved.metaPath,
+      metaState: resolved.metaState,
+      note: resolved.note,
+    });
+
+    return c.json({ resolved, source, repoConfig, body, sample });
   });

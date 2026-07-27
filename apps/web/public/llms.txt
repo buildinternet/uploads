@@ -11,6 +11,7 @@ Access requires a workspace — create your own with a linked GitHub account, or
 - [Docs: attach & share](https://uploads.sh/docs/attach-pull-request-images): attach media to PRs/issues, stage screenshots before a PR exists, pair a before/after with --state, get a URL for any file, capture a screenshot, annotate with callouts/redactions
 - [Docs: annotate a screenshot](https://uploads.sh/docs/attach-pull-request-images#annotate): bake boxes, arrows, labels, freeform strokes, and solid redactions into a capture (`uploads screenshot --annotate` or `uploads annotate`)
 - [Docs: GitHub App](https://uploads.sh/docs/github-app): recommended install for bot-posted attachment comments, private-repo PR/issue titles, and zero-CLI promotion of branch-staged screenshots when a PR opens
+- [Docs: comment config](https://uploads.sh/docs/comment-config): commit `.uploads.yml` to a repo to control image width, inline-image caps, caption metadata, the file-page link, and an optional note on the attachments comment; repo config beats the workspace default, which beats automatic behavior
 - [Docs: agents](https://uploads.sh/docs/agents): install the agent skills and MCP server, or the all-in-one Claude Code plugin
 - [Docs: reference](https://uploads.sh/docs/reference): manage uploads (list/delete/usage) and what to know before relying on it
 - [Docs: plans & limits](https://uploads.sh/docs/limits): storage/file-size/member caps per plan, behavior at each cap, and the GitHub attachment-cap comparison
