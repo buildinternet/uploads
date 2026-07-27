@@ -173,9 +173,13 @@ Options:
   --format human|url|markdown|json
   --pr <num>            Attach to a pull request: key gh/<owner>/<repo>/pull/<num>/<name> (stable URL, no hash)
   --issue <num>         Attach to an issue: key gh/<owner>/<repo>/issues/<num>/<name>
-  --comment             With --pr/--issue: update one managed comment with
-                        attachments and linked galleries. Posts as uploads-sh[bot]
-                        when the GitHub App is installed; otherwise via local gh.
+  --comment             With --pr/--issue, the managed comment sync runs by
+                        default; --comment is accepted as a no-op for
+                        back-compat (kept redundant with the default).
+  --no-comment          With --pr/--issue: skip updating the managed comment
+                        with attachments and linked galleries. Otherwise it
+                        posts as uploads-sh[bot] when the GitHub App is
+                        installed, or via local gh as a fallback.
   --gallery <id>         Add the uploaded object(s) to this public gallery
   --meta <k=v>          Queryable custom metadata (repeatable; value may contain "="): key ^[a-z][a-z0-9._-]{0,63}$, value 1-512 printable ASCII, max 24 pairs
                         Re-uploading to an existing key WITH --meta replaces that file's
@@ -186,7 +190,7 @@ Options:
   --replace             Allow overwriting an existing object on a strict (--key/default) key
                         (or UPLOADS_OVERWRITE=1). No effect on --pr/--issue, which always overwrite.
   --dry-run             Print key + public URL without uploading; reports if the key would replace
-                        (or, on a strict key, be refused). Not with --comment/--gallery
+                        (or, on a strict key, be refused). Not with --gallery
 
 A bare put (no --pr/--issue/--key) on a non-default git branch prints a one-line
 nudge toward --pr/attach --branch (stderr in human mode, a "hint" field in
@@ -2079,7 +2083,10 @@ export async function runPut(
   const destFlag = flagString(parsed.flags, "--destination");
   const prefixFlag = flagString(parsed.flags, "--prefix");
   const ghTarget = ghTargetFromFlags(parsed.flags, run);
-  const wantComment = parsed.flags.has("--comment");
+  // Comment sync runs by default with --pr/--issue (matches `attach`); opt
+  // out with --no-comment. --comment is accepted as a redundant no-op for
+  // back-compat with scripts written before this default flipped (#537).
+  const wantComment = !parsed.flags.has("--no-comment");
   const galleryId = flagString(parsed.flags, "--gallery");
   const nameFlag = flagString(parsed.flags, "--name");
   const dryRun = flagBool(parsed.flags, "--dry-run");
@@ -2097,8 +2104,11 @@ export async function runPut(
     validateMetaMap(merged);
     return merged;
   })();
-  if (wantComment && typeof parsed.flags.get("--comment") === "string") {
+  if (parsed.flags.has("--comment") && typeof parsed.flags.get("--comment") === "string") {
     throw new UsageError("--comment takes no value — place it after the file argument");
+  }
+  if (parsed.flags.has("--no-comment") && typeof parsed.flags.get("--no-comment") === "string") {
+    throw new UsageError("--no-comment takes no value");
   }
   if (parsed.flags.has("--auto") && typeof parsed.flags.get("--auto") === "string") {
     throw new UsageError("--auto takes no value");
@@ -2106,7 +2116,9 @@ export async function runPut(
   if (parsed.flags.has("--no-auto") && typeof parsed.flags.get("--no-auto") === "string") {
     throw new UsageError("--no-auto takes no value");
   }
-  if (wantComment && !ghTarget) throw new UsageError("--comment requires --pr or --issue");
+  if (parsed.flags.has("--no-comment") && !ghTarget) {
+    throw new UsageError("--no-comment requires --pr or --issue");
+  }
   if (multi) {
     if (keyHint) throw new UsageError("--key cannot be combined with multiple files");
     if (nameFlag !== undefined)
@@ -2132,10 +2144,7 @@ export async function runPut(
     }
     if (keyHint) throw new UsageError("--name cannot be combined with --key");
   }
-  if (dryRun) {
-    if (wantComment) throw new UsageError("--dry-run cannot be combined with --comment");
-    if (galleryId) throw new UsageError("--dry-run cannot be combined with --gallery");
-  }
+  if (dryRun && galleryId) throw new UsageError("--dry-run cannot be combined with --gallery");
   let resolvedPrefix: string | undefined;
   try {
     resolvedPrefix = resolvePutPrefix({
@@ -2350,7 +2359,7 @@ export async function runPut(
 
   let comment: AttachmentsCommentResult | undefined;
   let commentError: string | undefined;
-  if (wantComment && ghTarget && uploads.length > 0) {
+  if (wantComment && ghTarget && !dryRun && uploads.length > 0) {
     try {
       comment = await syncAttachmentsComment(ctx.client, ghTarget, run, ctx.config.workspace);
       if (logHuman)

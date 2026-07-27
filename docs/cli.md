@@ -120,12 +120,15 @@ uploads put ./after.png --pr 123 --alt "Dashboard after"
 # key: gh/<owner>/<repo>/pull/123/after.webp  (PNG optimized to WebP; extension follows the output)
 ```
 
-**Managed attachments comment** (`--comment`, requires local `gh` auth) creates
-or updates a single comment listing every file attached to that PR or issue. The
-upload still succeeds if `gh` is unavailable:
+**Managed attachments comment** creates or updates a single comment listing
+every file attached to that PR or issue. `put --pr`/`--issue` syncs it by
+default (posts via the GitHub App bot, falling back to local `gh` when the
+App isn't installed); pass `--no-comment` to upload without syncing. The
+upload still succeeds if the comment sync fails:
 
 ```bash
-uploads put ./after.png --pr 123 --comment
+uploads put ./after.png --pr 123
+uploads put ./after.png --pr 123 --no-comment   # upload only
 uploads comment --pr 123   # re-sync without uploading
 ```
 
