@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeCommentPreviewHtml } from "./comment-preview-sanitize";
+import {
+  formatCommentPreviewBody,
+  renderCommentPreviewHtml,
+  sanitizeCommentPreviewHtml,
+} from "./comment-preview-sanitize";
 
 describe("sanitizeCommentPreviewHtml", () => {
   it("passes through allowed tags with allowed attributes unchanged", () => {
@@ -62,5 +66,105 @@ describe("sanitizeCommentPreviewHtml", () => {
   it("closes disallowed nested tags without corrupting sibling allowed tags", () => {
     const html = "<div><p>text</p></div><p>after</p>";
     expect(sanitizeCommentPreviewHtml(html)).toBe("<p>text</p><p>after</p>");
+  });
+
+  // Embedded tab/newline/CR bypass (browsers strip these before scheme-
+  // sniffing a URL, so a naive `.trim()`-only scheme check can be fooled
+  // into treating `javascript:` as a harmless relative URL).
+  it("rejects a javascript: href with an embedded tab breaking up the scheme", () => {
+    expect(sanitizeCommentPreviewHtml('<a href="java\tscript:alert(1)">x</a>')).toBe("<a>x</a>");
+  });
+
+  it("rejects a javascript: href with an embedded newline breaking up the scheme", () => {
+    expect(sanitizeCommentPreviewHtml('<a href="java\nscript:alert(1)">x</a>')).toBe("<a>x</a>");
+  });
+
+  it("rejects a javascript: href with a leading tab before the scheme", () => {
+    expect(sanitizeCommentPreviewHtml('<a href="\tjavascript:alert(1)">x</a>')).toBe("<a>x</a>");
+  });
+
+  it("rejects a data: src with an embedded newline inside the scheme-adjacent text", () => {
+    expect(sanitizeCommentPreviewHtml('<img src="data:text/html,\nevil">')).toBe("<img>");
+  });
+});
+
+describe("formatCommentPreviewBody", () => {
+  it("strips the hidden managed-comment marker (an HTML comment)", () => {
+    const raw = "<!-- uploads.sh:attachments ws=acme -->\n\nHello";
+    expect(formatCommentPreviewBody(raw)).not.toContain("uploads.sh:attachments");
+    expect(formatCommentPreviewBody(raw)).toBe("<p>Hello</p>");
+  });
+
+  it("strips a multiline HTML comment", () => {
+    const raw = "<!--\nmulti\nline\n-->\nHello";
+    expect(formatCommentPreviewBody(raw)).toBe("<p>Hello</p>");
+  });
+
+  it("converts a line-start ### heading to <h3>", () => {
+    expect(formatCommentPreviewBody("### 📎 Attachments")).toBe("<h3>📎 Attachments</h3>");
+  });
+
+  it("converts a line-start #### heading to <h4>, keeping embedded HTML intact (no double-escaping)", () => {
+    const raw = '#### <a href="https://uploads.sh/g/1">My gallery</a>';
+    expect(formatCommentPreviewBody(raw)).toBe(
+      '<h4><a href="https://uploads.sh/g/1">My gallery</a></h4>',
+    );
+  });
+
+  it("converts a `- [text](url)` line into a real list item link", () => {
+    expect(formatCommentPreviewBody("- [Docs](https://uploads.sh/docs)")).toBe(
+      '<ul><li><a href="https://uploads.sh/docs">Docs</a></li></ul>',
+    );
+  });
+
+  it("groups consecutive list lines into one <ul>", () => {
+    const raw = "- [One](https://a)\n- [Two](https://b)";
+    expect(formatCommentPreviewBody(raw)).toBe(
+      '<ul><li><a href="https://a">One</a></li><li><a href="https://b">Two</a></li></ul>',
+    );
+  });
+
+  it("joins consecutive non-blank lines into one paragraph with <br>, and blank lines separate paragraphs", () => {
+    const raw = "line one\nline two\n\nsecond paragraph";
+    expect(formatCommentPreviewBody(raw)).toBe(
+      "<p>line one<br>line two</p><p>second paragraph</p>",
+    );
+  });
+
+  it("does not double-escape a line that is already an HTML tag", () => {
+    const raw = '<a href="https://uploads.sh/f/x"><img src="https://uploads.sh/x.png"></a>';
+    const out = formatCommentPreviewBody(raw);
+    expect(out).not.toContain("&lt;a");
+    expect(out).toBe(`<p>${raw}</p>`);
+  });
+
+  it("handles an empty string", () => {
+    expect(formatCommentPreviewBody("")).toBe("");
+  });
+});
+
+describe("renderCommentPreviewHtml (format + sanitize combined)", () => {
+  it("renders a realistic managed-comment body: marker gone, heading real, image kept, footer joined", () => {
+    const raw =
+      "<!-- uploads.sh:attachments ws=acme -->\n" +
+      "### 📎 Attachments\n\n" +
+      '<a href="https://uploads.sh/f/x"><img width="400" alt="x.png" src="https://embed.uploads.sh/x.png"></a>\n\n' +
+      "<sub>Maintained by uploads.sh.</sub>\n" +
+      "<sub>Add media: <code>uploads put</code></sub>";
+    const out = renderCommentPreviewHtml(raw);
+    expect(out).not.toContain("uploads.sh:attachments");
+    expect(out).toContain("<h3>📎 Attachments</h3>");
+    expect(out).toContain('<img width="400" alt="x.png" src="https://embed.uploads.sh/x.png">');
+    expect(out).toContain(
+      "<sub>Maintained by uploads.sh.</sub><br><sub>Add media: <code>uploads put</code></sub>",
+    );
+  });
+
+  it("still enforces the tag/attribute allowlist after formatting (script stripped, unsafe href dropped)", () => {
+    const raw = "### Heading\n\n<script>alert(1)</script>\n\n- [Bad](javascript:evil)";
+    const out = renderCommentPreviewHtml(raw);
+    expect(out).not.toContain("<script>");
+    expect(out).not.toContain("javascript:");
+    expect(out).toContain("<h3>Heading</h3>");
   });
 });

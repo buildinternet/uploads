@@ -65,14 +65,23 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           />
         </div>
 
-        <label class="cs-checkbox">
-          <input type="checkbox" id="cs-show-metadata" />
-          Show metadata captions
-        </label>
-        <label class="cs-checkbox">
-          <input type="checkbox" id="cs-link-to-file-page" />
-          Link to file pages
-        </label>
+        <div class="cs-field">
+          <label for="cs-show-metadata">Show metadata captions</label>
+          <select id="cs-show-metadata" class="ul-select">
+            <option value="">Auto (on)</option>
+            <option value="true">On</option>
+            <option value="false">Off</option>
+          </select>
+        </div>
+
+        <div class="cs-field">
+          <label for="cs-link-to-file-page">Link to file pages</label>
+          <select id="cs-link-to-file-page" class="ul-select">
+            <option value="">Auto (on)</option>
+            <option value="true">On</option>
+            <option value="false">Off</option>
+          </select>
+        </div>
 
         <div class="cs-field">
           <label for="cs-note">Note</label>
@@ -147,13 +156,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
     .cs-image-width-px {
       max-width: 10rem;
     }
-    .cs-checkbox {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 13px;
-      cursor: pointer;
-    }
     .cs-actions {
       display: flex;
       align-items: center;
@@ -212,7 +214,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       type CommentPreview,
       type CommentSettings,
     } from "../../../../lib/api-client";
-    import { sanitizeCommentPreviewHtml } from "../../../../lib/comment-preview-sanitize";
+    import { renderCommentPreviewHtml } from "../../../../lib/comment-preview-sanitize";
     import { writeCachedWorkspaces } from "../../../../lib/workspaces-nav";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
     import { renderDetailsHtml } from "../../../../lib/workspace-rail";
@@ -279,8 +281,20 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       ) as unknown as HTMLSelectElement;
       const widthPxInput = requireElement<HTMLInputElement>("#cs-image-width-px", page);
       const maxInlineInput = requireElement<HTMLInputElement>("#cs-max-inline", page);
-      const showMetadataInput = requireElement<HTMLInputElement>("#cs-show-metadata", page);
-      const linkToFilePageInput = requireElement<HTMLInputElement>("#cs-link-to-file-page", page);
+      // Tri-state (Auto/On/Off) selects, not checkboxes: these fields
+      // resolve `true` when left at "auto" (AUTO_COMMENT_OPTIONS default),
+      // so a two-state checkbox couldn't represent "explicitly off" without
+      // being indistinguishable from "unset" — unchecking would clear an
+      // explicit `false` back to auto (which resolves true), the opposite
+      // of what unchecking should mean.
+      const showMetadataSelect = requireElement<HTMLElement>(
+        "#cs-show-metadata",
+        page,
+      ) as unknown as HTMLSelectElement;
+      const linkToFilePageSelect = requireElement<HTMLElement>(
+        "#cs-link-to-file-page",
+        page,
+      ) as unknown as HTMLSelectElement;
       const noteInput = requireElement<HTMLTextAreaElement>("#cs-note", page);
       const noteCount = requireElement<HTMLElement>("#cs-note-count", page);
       const saveBtn = requireElement<HTMLButtonElement>("#cs-save-btn", page);
@@ -291,6 +305,19 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       ) as unknown as HTMLSelectElement;
       const badgesEl = requireElement<HTMLElement>("#cs-preview-badges", page);
       const previewBodyEl = requireElement<HTMLElement>("#cs-preview-body", page);
+
+      /** `null` -> "" (Auto), `true` -> "true", `false` -> "false" — for the tri-state selects. */
+      function triStateToSelectValue(value: boolean | null): string {
+        if (value === true) return "true";
+        if (value === false) return "false";
+        return "";
+      }
+      /** Inverse of `triStateToSelectValue`, for reading a tri-state select back into a patch. */
+      function selectValueToTriState(value: string): boolean | null {
+        if (value === "true") return true;
+        if (value === "false") return false;
+        return null;
+      }
 
       function applySettingsToForm(settings: CommentSettings): void {
         if (settings.imageWidth === "full") {
@@ -307,8 +334,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         }
         maxInlineInput.value =
           settings.maxInlineImages === null ? "" : String(settings.maxInlineImages);
-        showMetadataInput.checked = settings.showMetadata === true;
-        linkToFilePageInput.checked = settings.linkToFilePage === true;
+        showMetadataSelect.value = triStateToSelectValue(settings.showMetadata);
+        linkToFilePageSelect.value = triStateToSelectValue(settings.linkToFilePage);
         noteInput.value = settings.note ?? "";
         noteCount.textContent = String(noteInput.value.length);
       }
@@ -334,7 +361,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           return;
         }
         renderBadges(result.preview);
-        previewBodyEl.innerHTML = sanitizeCommentPreviewHtml(result.preview.body);
+        previewBodyEl.innerHTML = renderCommentPreviewHtml(result.preview.body);
       }
 
       async function loadRepoPicker(): Promise<void> {
@@ -402,8 +429,8 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             patch.imageWidth = null;
           }
           patch.maxInlineImages = maxInlineInput.value === "" ? null : Number(maxInlineInput.value);
-          patch.showMetadata = showMetadataInput.checked ? true : null;
-          patch.linkToFilePage = linkToFilePageInput.checked ? true : null;
+          patch.showMetadata = selectValueToTriState(showMetadataSelect.value);
+          patch.linkToFilePage = selectValueToTriState(linkToFilePageSelect.value);
           patch.note = noteInput.value.trim() === "" ? null : noteInput.value;
 
           const result = await patchWorkspaceCommentSettings(apiOrigin, workspaceName, patch);

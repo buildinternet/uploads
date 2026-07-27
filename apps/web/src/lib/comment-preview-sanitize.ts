@@ -70,6 +70,21 @@ function escapeAttrValue(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
+/**
+ * Strip ASCII tab/newline/CR *everywhere* in the value, not just the edges.
+ * Browsers do this while parsing `href`/`src` before scheme-sniffing (WHATWG
+ * URL parsing's "remove all ASCII tab or newline" step), so a scheme check
+ * that only `.trim()`s is bypassable: `"java\tscript:alert(1)"` doesn't match
+ * the scheme regex (the embedded tab breaks it), so `isSafeUrl` sees no
+ * scheme at all and treats it as a safe relative URL — while the browser
+ * strips the tab back out at render time and happily executes it. Applying
+ * this to every attribute value (not just href/src) before any per-attribute
+ * check keeps width/align consistent with the same normalization.
+ */
+function stripUrlNoise(value: string): string {
+  return value.replace(/[\t\n\r]/g, "");
+}
+
 /** http(s) or scheme-less (relative/anchor) URLs only — no `javascript:`/`data:`/anything else. */
 function isSafeUrl(value: string): boolean {
   const match = value.trim().match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
@@ -88,13 +103,14 @@ function filterAttributes(tagName: string, attrsRaw: string): string {
   while ((m = ATTR_RE.exec(attrsRaw))) {
     const name = m[1].toLowerCase();
     if (!allowed.has(name)) continue;
-    const value = m[2] ?? m[3] ?? m[4];
+    const rawValue = m[2] ?? m[3] ?? m[4];
 
     if (name === "open") {
       out += " open";
       continue;
     }
-    if (value === undefined) continue; // every other allowed attribute requires a value
+    if (rawValue === undefined) continue; // every other allowed attribute requires a value
+    const value = stripUrlNoise(rawValue);
 
     if ((name === "href" || name === "src") && !isSafeUrl(value)) continue;
     if (name === "width" && !WIDTH_RE.test(value)) continue;
@@ -153,4 +169,95 @@ export function sanitizeCommentPreviewHtml(html: string): string {
 
   if (!skipUntilCloseTag) result += escapeStrayAngles(html.slice(lastIndex));
   return result;
+}
+
+const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
+const H4_LINE_RE = /^####\s+(.*)$/;
+const H3_LINE_RE = /^###\s+(.*)$/;
+/** `- [text](url)` — the one markdown-list shape the renderer's note/gallery text can contain. */
+const LIST_ITEM_LINE_RE = /^-\s+\[([^\]]*)\]\(([^)]*)\)\s*$/;
+
+/**
+ * `attachmentsCommentBody` (apps/api/src/github-comment-render.ts) emits
+ * GitHub-flavored Markdown with embedded HTML — literal `### heading` /
+ * `#### <a>title</a>` lines alongside real `<table>/<a>/<img>` tags, because
+ * GitHub's own renderer understands both together. Nothing in apps/web
+ * understands Markdown, so without this step the preview showed the hidden
+ * `<!-- uploads.sh:attachments ... -->` marker and literal `###`/`####`
+ * text verbatim instead of a heading. This is a *small, scoped* subset of
+ * Markdown — exactly what the renderer's own output shape needs (headings,
+ * one link-list-item form, paragraph/line breaks) — not a general Markdown
+ * parser. It runs BEFORE `sanitizeCommentPreviewHtml`, so nothing it emits
+ * skips the allowlist: an `<a href>` built here still has its `href`
+ * validated the same as one that arrived as raw HTML.
+ */
+export function formatCommentPreviewBody(raw: string): string {
+  const withoutComments = raw.replace(HTML_COMMENT_RE, "");
+  const lines = withoutComments.split(/\r\n|\r|\n/);
+
+  const out: string[] = [];
+  let paragraph: string[] = [];
+  let listItems: string[] = [];
+
+  const flushParagraph = (): void => {
+    if (paragraph.length === 0) return;
+    out.push(`<p>${paragraph.join("<br>")}</p>`);
+    paragraph = [];
+  };
+  const flushList = (): void => {
+    if (listItems.length === 0) return;
+    out.push(`<ul>${listItems.join("")}</ul>`);
+    listItems = [];
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (line.length === 0) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const h4 = line.match(H4_LINE_RE);
+    if (h4) {
+      flushParagraph();
+      flushList();
+      out.push(`<h4>${h4[1].trim()}</h4>`);
+      continue;
+    }
+
+    const h3 = line.match(H3_LINE_RE);
+    if (h3) {
+      flushParagraph();
+      flushList();
+      out.push(`<h3>${h3[1].trim()}</h3>`);
+      continue;
+    }
+
+    const item = line.match(LIST_ITEM_LINE_RE);
+    if (item) {
+      flushParagraph();
+      listItems.push(`<li><a href="${item[2]}">${item[1]}</a></li>`);
+      continue;
+    }
+
+    flushList();
+    paragraph.push(line);
+  }
+  flushParagraph();
+  flushList();
+
+  return out.join("");
+}
+
+/**
+ * The one entry point the settings-tab preview panel should call: strips
+ * the managed-comment marker, converts the renderer's Markdown-ish shape to
+ * real tags, then sanitizes the result down to the tag/attribute allowlist.
+ * Prefer this over calling `formatCommentPreviewBody`/
+ * `sanitizeCommentPreviewHtml` separately — they're exported individually
+ * only so each transform has its own focused tests.
+ */
+export function renderCommentPreviewHtml(raw: string): string {
+  return sanitizeCommentPreviewHtml(formatCommentPreviewBody(raw));
 }
