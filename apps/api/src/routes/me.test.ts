@@ -5,9 +5,11 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { respondError } from "../error-response";
 import { me } from "./me";
-import { fakeRegistry } from "../../test/fake-kv";
+import { fakeRegistry, FakeKv } from "../../test/fake-kv";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
 import { FakeR2Bucket } from "../../test/fake-r2";
+import { SqliteD1, database as d1FromSqlite } from "../../test/helpers/sqlite-d1";
+import { recordRepoLink } from "../github-repo-links";
 
 const USER = { id: "u-plain", email: "plain@b.com", name: "Plain", role: "user" };
 
@@ -2052,5 +2054,183 @@ describe("workspace comment-settings routes", () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as { note: unknown }).note).toBe("Hi");
     expect(registry.record<{ githubCommentNote?: unknown }>("acme")?.githubCommentNote).toBe("Hi");
+  });
+});
+
+describe("GET /me/workspaces/:name/comment-preview", () => {
+  const REC = {
+    provider: "r2",
+    bucket: "shared",
+    binding: "UPLOADS_DEFAULT",
+    prefix: "acme/",
+    publicBaseUrl: "https://storage.uploads.sh",
+  };
+
+  /** Admin/owner-gated env with a real (SQL-backed) DB for github_repo_links. */
+  function previewEnv(opts: {
+    workspace?: string;
+    role: string;
+    record?: unknown;
+    bucket?: FakeR2Bucket;
+    kv?: FakeKv;
+    githubApp?: boolean;
+  }) {
+    const { workspace = "acme", role, record, bucket, kv, githubApp } = opts;
+    const registry = fakeRegistry(record !== undefined ? { [workspace]: record } : {});
+    const auth = stubAuth((req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/api/auth/get-session") {
+        return new Response(JSON.stringify({ session: {}, user: USER }), { status: 200 });
+      }
+      if (url.pathname === "/internal/memberships") {
+        return Response.json([
+          {
+            organizationId: "org1",
+            organizationSlug: workspace,
+            organizationName: workspace,
+            role,
+          },
+        ]);
+      }
+      return new Response(null, { status: 404 });
+    });
+    const sqlite = new SqliteD1(["migrations/20260720120000_github_repo_links.sql"]);
+    const env = {
+      AUTH: auth,
+      DB: d1FromSqlite(sqlite),
+      REGISTRY: registry,
+      WEB_ORIGIN: "https://uploads.test",
+      ...(bucket ? { UPLOADS_DEFAULT: bucket } : {}),
+      ...(kv ? { GITHUB_CACHE: kv } : {}),
+      ...(githubApp
+        ? {
+            GITHUB_APP_ID: "1",
+            GITHUB_APP_PRIVATE_KEY: "unused",
+            GITHUB_APP_HOME_INSTALLATION_ID: "9",
+          }
+        : {}),
+    } as unknown as Env;
+    return { env, registry, sqlite };
+  }
+
+  it("(a) 403s for a non-admin member", async () => {
+    const { env } = previewEnv({ role: "member", record: REC, bucket: new FakeR2Bucket() });
+    const res = await app().request("/me/workspaces/acme/comment-preview", {}, env);
+    expect(res.status).toBe(403);
+  });
+
+  it("(b) no repo param -> repoConfig null, body renders, resolved is workspace-defaults", async () => {
+    const { env } = previewEnv({ role: "admin", record: REC, bucket: new FakeR2Bucket() });
+    const res = await app().request("/me/workspaces/acme/comment-preview", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      resolved: { imageWidth: unknown; linkToFilePage: unknown };
+      source: Record<string, string>;
+      repoConfig: unknown;
+      body: string;
+      sample: string;
+    };
+    expect(body.repoConfig).toBeNull();
+    expect(body.resolved).toEqual({
+      imageWidth: "auto",
+      maxInlineImages: 16,
+      metaPath: true,
+      metaState: true,
+      linkToFilePage: true,
+      note: null,
+    });
+    expect(body.source).toMatchObject({ imageWidth: "auto" });
+    expect(typeof body.body).toBe("string");
+    expect(body.body.length).toBeGreaterThan(0);
+  });
+
+  it("(c) recent gh/-prefixed objects in the bucket -> sample recent, body references keys", async () => {
+    const bucket = new FakeR2Bucket();
+    await bucket.put(
+      "acme/gh/o/repo/pull/12/screenshot.png",
+      new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+    );
+    const { env } = previewEnv({ role: "owner", record: REC, bucket });
+    const res = await app().request("/me/workspaces/acme/comment-preview", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sample: string; body: string };
+    expect(body.sample).toBe("recent");
+    expect(body.body).toContain("screenshot.png");
+  });
+
+  it("(d) empty workspace -> sample fixtures, body contains dashboard-overview.png", async () => {
+    const { env } = previewEnv({ role: "admin", record: REC, bucket: new FakeR2Bucket() });
+    const res = await app().request("/me/workspaces/acme/comment-preview", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sample: string; body: string };
+    expect(body.sample).toBe("fixtures");
+    expect(body.body).toContain("dashboard-overview.png");
+  });
+
+  it("(e) repo not linked to this workspace -> 404", async () => {
+    const { env } = previewEnv({ role: "admin", record: REC, bucket: new FakeR2Bucket() });
+    const res = await app().request(
+      "/me/workspaces/acme/comment-preview?repo=other%2Frepo",
+      {},
+      env,
+    );
+    expect(res.status).toBe(404);
+    expect((await res.json()) as { error: { message: string } }).toMatchObject({
+      error: { message: "repo not linked to this workspace" },
+    });
+  });
+
+  it("malformed repo param -> 400", async () => {
+    const { env } = previewEnv({ role: "admin", record: REC, bucket: new FakeR2Bucket() });
+    const res = await app().request(
+      "/me/workspaces/acme/comment-preview?repo=not-a-valid-repo",
+      {},
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("(f) linked repo whose config sets imageWidth: full -> source.imageWidth repo, no width attr", async () => {
+    const kv = new FakeKv();
+    // Pre-populate the installation-id/token cache (mirrors
+    // github-comment-service.test.ts's makeTestEnv): installationForRepo and
+    // installationToken both check GITHUB_CACHE before minting an App JWT,
+    // so a warm cache means the (unusable, "unused") private key is never
+    // actually asked to sign anything.
+    await kv.put("ghinst:acme/web", "42");
+    await kv.put("ghtok:42", "cached-token");
+    const { env, sqlite } = previewEnv({
+      role: "admin",
+      record: REC,
+      bucket: new FakeR2Bucket(),
+      kv,
+      githubApp: true,
+    });
+    await recordRepoLink(d1FromSqlite(sqlite), "acme/web", "acme", "comment", 42);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string) => {
+      if (String(url).includes("/contents/.uploads.yml")) {
+        return new Response("comment:\n  imageWidth: full\n", { status: 200 });
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+    try {
+      const res = await app().request(
+        "/me/workspaces/acme/comment-preview?repo=acme%2Fweb",
+        {},
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        source: Record<string, string>;
+        body: string;
+        repoConfig: { found: boolean; path: string | null };
+      };
+      expect(body.source.imageWidth).toBe("repo");
+      expect(body.repoConfig).toMatchObject({ found: true, path: ".uploads.yml" });
+      expect(body.body).not.toMatch(/width=/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

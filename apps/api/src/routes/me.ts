@@ -10,13 +10,19 @@
  * for workspace existence any more precisely than for any other workspace.
  */
 import { resolveWorkspaceCreateQuota } from "@uploads/billing";
-import { NOTE_MAX_CHARS } from "@uploads/comment-config";
+import {
+  NOTE_MAX_CHARS,
+  resolveCommentOptions,
+  type OptionSource,
+  type ResolvedCommentOptions,
+} from "@uploads/comment-config";
 import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
 import { throwForInviteError } from "../invite-error";
 import { parseExternalReference } from "../external-references";
+import { PREVIEW_FIXTURE_ITEMS } from "../comment-preview-fixtures";
 import {
   facetKeys,
   facetValues,
@@ -28,7 +34,14 @@ import {
 import { badKey, listObjects, setObjectVisibility } from "../files-core";
 import { listGalleries } from "../galleries";
 import { galleryListSummaries } from "../gallery-service";
+import {
+  attachmentsCommentBody,
+  attachmentsMarker,
+  type AttachmentItem,
+} from "../github-comment-render";
 import { githubInstallStatus, type GithubInstallStatus } from "../github-install-status";
+import { findRepoLink } from "../github-repo-links";
+import { resolveRepoCommentOptions, workspaceCommentDefaults } from "../repo-comment-config";
 import { resolveTitles } from "../github-titles";
 import { allowWrite } from "../guards";
 import {
@@ -198,6 +211,9 @@ function commentSettingsResponse(record: WorkspaceRecord) {
     note: record.githubCommentNote ?? null,
   };
 }
+
+/** `?repo=` shape for the comment preview endpoint: exactly one `/`, no empty segments. */
+const REPO_SHAPE_RE = /^[^/\s]+\/[^/\s]+$/;
 
 /** Max characters accepted in a `?name=` filename search term. */
 const SEARCH_NAME_MAX = 128;
@@ -982,4 +998,78 @@ export const me = new Hono<SessionVars>()
       { requireServing: true },
     );
     return c.json(commentSettingsResponse(record));
+  })
+
+  // Preview the production managed-comment body against resolved comment
+  // settings (issue #307). Admin/owner-gated like the settings routes above:
+  // the response includes per-key source attribution ("repo" | "workspace" |
+  // "auto"), which a plain member has no reason to see. With no `repo` query
+  // param, resolution runs against workspace defaults only (`repoConfig:
+  // null`) via the same `resolveCommentOptions(null, ...)` entrypoint
+  // `resolveRepoCommentOptions` wraps. With `repo`, it must already be
+  // linked to THIS workspace (github-repo-links.ts) — otherwise 404, so a
+  // preview can't be used to probe another workspace's repo binding or
+  // `.uploads.yml` contents.
+  //
+  // Renders from the workspace's own most recent `gh/`-prefixed attachments
+  // (first page only, mirrors gatherAttachments's url/pageUrl mapping but
+  // skips the D1 metadata read — the preview needs no per-item meta beyond
+  // what the static fixtures already carry). An empty workspace falls back
+  // to `PREVIEW_FIXTURE_ITEMS` so the preview is never blank.
+  .get("/workspaces/:name/comment-preview", async (c) => {
+    const name = c.req.param("name");
+    await adminWorkspaceOr403(c.env, requireUserId(c), name);
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+
+    const repo = c.req.query("repo");
+    let resolved: ResolvedCommentOptions;
+    let source: Record<keyof ResolvedCommentOptions, OptionSource>;
+    let repoConfig: { found: boolean; path: string | null; warnings: string[] } | null = null;
+
+    if (repo !== undefined) {
+      if (!REPO_SHAPE_RE.test(repo)) {
+        throw new ValidationError("repo must be in owner/name form", { code: "invalid_repo" });
+      }
+      const link = await findRepoLink(c.env.DB, repo);
+      if (!link || link.workspaceName !== name) {
+        throw new NotFoundError("repo not linked to this workspace", { code: "repo_not_linked" });
+      }
+      const resolvedRepo = await resolveRepoCommentOptions(c.env, record, repo);
+      resolved = resolvedRepo.options;
+      source = resolvedRepo.source;
+      repoConfig = {
+        found: resolvedRepo.fetch.found,
+        path: resolvedRepo.fetch.path,
+        warnings: resolvedRepo.fetch.warnings,
+      };
+    } else {
+      const resolvedDefaults = resolveCommentOptions(null, workspaceCommentDefaults(record));
+      resolved = resolvedDefaults.options;
+      source = resolvedDefaults.source;
+    }
+
+    const { items: page } = await listObjects(c.env, record, { prefix: "gh/", limit: 8 });
+    const linkToFilePage = resolved.linkToFilePage;
+    let items: AttachmentItem[] = page.map((o) => ({
+      key: o.key,
+      url: o.url,
+      embedUrl: o.embedUrl,
+      pageUrl: linkToFilePage ? (o.pageUrl ?? null) : null,
+    }));
+    let sample: "recent" | "fixtures" = "recent";
+    if (items.length === 0) {
+      items = PREVIEW_FIXTURE_ITEMS;
+      sample = "fixtures";
+    }
+
+    const body = attachmentsCommentBody(items, [], attachmentsMarker(name), {
+      imageWidth: resolved.imageWidth,
+      maxInlineImages: resolved.maxInlineImages,
+      metaPath: resolved.metaPath,
+      metaState: resolved.metaState,
+      note: resolved.note,
+    });
+
+    return c.json({ resolved, source, repoConfig, body, sample });
   });
