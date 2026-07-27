@@ -280,6 +280,21 @@ describe("attachmentsCommentBody (CLI copy)", () => {
       },
     ];
 
+    const galleriesWithPreview = [
+      {
+        title: "Design review",
+        url: "https://uploads.sh/g/abc",
+        previews: [
+          {
+            url: "https://uploads.sh/g/abc/i1.png",
+            embedUrl: "https://embed.uploads.sh/g/abc/i1.png",
+            alt: "screen one",
+            itemUrl: "https://uploads.sh/g/abc/i1",
+          },
+        ],
+      },
+    ];
+
     const base = (over: Partial<CommentRenderOptions>): CommentRenderOptions => ({
       ...AUTO_RENDER_OPTIONS,
       ...over,
@@ -310,10 +325,40 @@ describe("attachmentsCommentBody (CLI copy)", () => {
       expect(body).toContain("<details>");
     });
 
+    it('imageWidth:"full" omits the width attribute on gallery previews too', () => {
+      const body = attachmentsCommentBody(
+        [],
+        galleriesWithPreview,
+        marker,
+        base({ imageWidth: "full" }),
+      );
+      expect(body).not.toMatch(/<img width=/);
+      expect(body).toMatch(/<img alt="screen one"/);
+    });
+
+    it("explicit px overrides the gallery preview's default 320", () => {
+      const body = attachmentsCommentBody(
+        [],
+        galleriesWithPreview,
+        marker,
+        base({ imageWidth: 500 }),
+      );
+      const widths = [...body.matchAll(/<img width="(\d+)"/g)].map((m) => Number(m[1]));
+      expect(widths).toHaveLength(1);
+      expect(widths[0]).toBe(500);
+    });
+
     it("metaPath:false hides path but keeps state in captions", () => {
       const body = attachmentsCommentBody(metaItems, [], marker, base({ metaPath: false }));
       expect(body).not.toContain("apps/web/src");
       expect(body).toContain("after");
+    });
+
+    it("metaState:false hides state but keeps path in captions", () => {
+      const body = attachmentsCommentBody(metaItems, [], marker, base({ metaState: false }));
+      expect(body).toContain("apps/web/src");
+      expect(body).not.toContain("<sub>apps/web/src · after</sub>");
+      expect(body).not.toMatch(/·\s*after/);
     });
 
     it("note renders once, directly after the marker line", () => {
