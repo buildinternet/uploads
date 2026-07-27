@@ -281,6 +281,100 @@ describe("runPut --pr/--issue", () => {
   });
 });
 
+describe("runPut managed comment sync (#537)", () => {
+  /** gh CommandRunner fake: records calls, resolves repo/pr and posts the comment. */
+  function ghRunner() {
+    const calls: string[][] = [];
+    const run: CommandRunner = (cmd, args) => {
+      calls.push([cmd, ...args]);
+      if (args[1]?.includes("per_page=100")) return "[]";
+      return JSON.stringify({ id: 9 });
+    };
+    return { run, calls };
+  }
+
+  /** Extends the base fakeClient with the methods syncAttachmentsComment needs
+   * for the gh-fallback path (no `upsertGithubComment` stub, so the bot call
+   * is absent and it falls through, same as commands-attach.test.ts). */
+  function commentCapableClient() {
+    const { client, puts } = fakeClient();
+    // At least one item so the sync has something to report — an empty
+    // listing means "skipped" (no comment created), which would defeat the
+    // point of these tests.
+    (client as unknown as { listAll: UploadsClient["listAll"] }).listAll = async () => [
+      { key: "gh/o/r/pull/5/shot.png", url: "https://x.test/shot.png" },
+    ];
+    (
+      client as unknown as { findGalleriesByReference: UploadsClient["findGalleriesByReference"] }
+    ).findGalleriesByReference = async () => ({ galleries: [], nextCursor: null });
+    return { client, puts };
+  }
+
+  it("syncs the managed comment by default with --pr (posts via gh fallback)", async () => {
+    const { client } = commentCapableClient();
+    const { run, calls } = ghRunner();
+    const code = await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "5", "--repo", "o/r"],
+      false,
+      run,
+    );
+    expect(code).toBe(0);
+    expect(calls.some((call) => call.includes("repos/o/r/issues/5/comments"))).toBe(true);
+  });
+
+  it("--no-comment suppresses the sync (no comment call)", async () => {
+    const { client } = commentCapableClient();
+    const { run, calls } = ghRunner();
+    const code = await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "5", "--repo", "o/r", "--no-comment"],
+      false,
+      run,
+    );
+    expect(code).toBe(0);
+    expect(calls.some((call) => call.includes("comments"))).toBe(false);
+  });
+
+  it("bare put (no --pr/--issue) never attempts the comment sync", async () => {
+    const { client } = commentCapableClient();
+    const code = await runPut(ctxWith(client), [tmpFile()], false, noRun);
+    expect(code).toBe(0);
+  });
+
+  it("accepts --comment as a redundant no-op alongside the default sync", async () => {
+    const { client } = commentCapableClient();
+    const { run, calls } = ghRunner();
+    const code = await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "5", "--repo", "o/r", "--comment"],
+      false,
+      run,
+    );
+    expect(code).toBe(0);
+    expect(calls.some((call) => call.includes("repos/o/r/issues/5/comments"))).toBe(true);
+  });
+
+  it("a comment-sync failure degrades with a stderr warning and still exits 0", async () => {
+    const { client, puts } = fakeClient(); // no listAll/findGalleriesByReference stub → sync throws
+    const stderr: string[] = [];
+    const write = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr.push(typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const ctx = { ...ctxWith(client), quiet: false };
+      const code = await runPut(ctx, [tmpFile(), "--pr", "5", "--repo", "o/r"], false, noRun);
+      expect(code).toBe(0);
+      expect(puts).toHaveLength(1); // upload still succeeded
+      expect(stderr.join("")).toContain("warning: upload succeeded but the GitHub comment failed");
+    } finally {
+      process.stderr.write = write;
+    }
+  });
+});
+
 describe("runPut --name", () => {
   it("overrides the key leaf while keeping the stable --pr path", async () => {
     const { client, puts } = fakeClient();
@@ -372,10 +466,21 @@ describe("runPut --dry-run", () => {
     }
   });
 
-  it("rejects --dry-run with --comment", async () => {
+  it("skips the comment sync on --dry-run even with --pr (no run calls)", async () => {
+    const { client } = fakeClient();
+    const code = await runPut(
+      ctxWith(client),
+      [tmpFile(), "--pr", "5", "--repo", "o/r", "--dry-run"],
+      false,
+      noRun, // would throw if the comment sync (or anything else) called the runner
+    );
+    expect(code).toBe(0);
+  });
+
+  it("rejects --no-comment without --pr/--issue", async () => {
     const { client } = fakeClient();
     await expect(
-      runPut(ctxWith(client), [tmpFile(), "--pr", "5", "--dry-run", "--comment"], false, noRun),
+      runPut(ctxWith(client), [tmpFile(), "--no-comment"], false, noRun),
     ).rejects.toThrow(UsageError);
   });
 

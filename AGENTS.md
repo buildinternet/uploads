@@ -69,7 +69,7 @@ pnpm workspace:limits <name> [--max-storage …] [--max-video-bytes …] \
   [--clear-max-storage] [--clear-allowed-prefixes] […]
 pnpm migrate:d1:local    # apply apps/api/migrations to local D1 (migrate:d1 = remote)
 pnpm uploads put <file> --env-file .env   # monorepo only: builds package first
-pnpm uploads put <file> --pr <num> --comment
+pnpm uploads put <file> --pr <num>
 ```
 
 **CLI examples — installed binary vs monorepo:** product-facing examples
@@ -78,7 +78,7 @@ use the global binary as someone who already installed the CLI would:
 
 ```bash
 uploads put ./shot.png
-uploads put ./after.png --pr 123 --comment
+uploads put ./after.png --pr 123
 ```
 
 Reserve `pnpm uploads …` for **in-repo** development (build-from-source via the

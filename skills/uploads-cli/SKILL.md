@@ -258,29 +258,29 @@ capture them. Use `-` as the file to read from stdin.
 
 Key options (`uploads put --help` for all):
 
-| Flag                                  | Purpose                                                                                                                                                               |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--alt <text>`                        | Alt text for the markdown (default: filename). Always write meaningful alt text.                                                                                      |
-| `--width <px>`                        | Emit sized `<img width=…>` HTML instead of `![]()` (markdown can't size images).                                                                                      |
-| `--repo <owner/repo>`                 | Repo segment of the auto key (default: git remote, or `UPLOADS_DEFAULT_REPO`).                                                                                        |
-| `--ref <id>`                          | PR/issue/branch/date segment (default: today, or `UPLOADS_DEFAULT_REF`).                                                                                              |
-| `--destination <id>`                  | Typed root: `screenshots` \| `gh` \| `f` (sets key prefix).                                                                                                           |
-| `--prefix <path>`                     | Key prefix (default: `screenshots`, or `UPLOADS_DEFAULT_PREFIX`).                                                                                                     |
-| `--key <key>`                         | Set the object key explicitly; skips the auto-naming below.                                                                                                           |
-| `--name <leaf>`                       | Clean filename for the key's leaf + default alt (no `/`); keeps the `--pr`/default path. Not with `--key`.                                                            |
-| `--replace`                           | Allow overwriting an existing object on a strict key (`--key`/default path). No effect on `--pr`/`--issue` (or `UPLOADS_OVERWRITE=1`).                                |
-| `--dry-run`                           | Resolve + print the key and final public URL without uploading; reports if the key would replace (or, on a strict key, be refused). Not with `--comment`/`--gallery`. |
-| `--content-type <mime>`               | Override the content type (else inferred from extension; ignored when optimize rewrites the body).                                                                    |
-| `--frame <id>`                        | Opt-in chrome before optimize: `phone`, `browser`, `iphone-16-pro`.                                                                                                   |
-| `--frame-url <url>`                   | Address bar text for `--frame browser`.                                                                                                                               |
-| `--frame-fit cover\|contain`          | How the shot fills the screen (default: `cover`).                                                                                                                     |
-| `--no-optimize`                       | Skip client-side image optimization (default: still images → WebP). Or `UPLOADS_NO_OPTIMIZE=1`.                                                                       |
-| `--optimize-max-edge <px>`            | Max long edge when optimizing (default: 2400).                                                                                                                        |
-| `--optimize-quality <1-100>`          | WebP quality when optimizing (default: 85).                                                                                                                           |
-| `--keep-exif`                         | Keep EXIF/XMP/ICC when optimizing (default: **strip** for privacy). Or `UPLOADS_KEEP_EXIF=1`.                                                                         |
-| `--no-git`                            | Don't derive `--repo` from the git remote (or `UPLOADS_NO_GIT=1`).                                                                                                    |
-| `--format human\|url\|markdown\|json` | Control stdout. `--json` (global) forces json.                                                                                                                        |
-| `-w, --workspace <name>`              | Override workspace (wins over env and token inference).                                                                                                               |
+| Flag                                  | Purpose                                                                                                                                                                                                              |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--alt <text>`                        | Alt text for the markdown (default: filename). Always write meaningful alt text.                                                                                                                                     |
+| `--width <px>`                        | Emit sized `<img width=…>` HTML instead of `![]()` (markdown can't size images).                                                                                                                                     |
+| `--repo <owner/repo>`                 | Repo segment of the auto key (default: git remote, or `UPLOADS_DEFAULT_REPO`).                                                                                                                                       |
+| `--ref <id>`                          | PR/issue/branch/date segment (default: today, or `UPLOADS_DEFAULT_REF`).                                                                                                                                             |
+| `--destination <id>`                  | Typed root: `screenshots` \| `gh` \| `f` (sets key prefix).                                                                                                                                                          |
+| `--prefix <path>`                     | Key prefix (default: `screenshots`, or `UPLOADS_DEFAULT_PREFIX`).                                                                                                                                                    |
+| `--key <key>`                         | Set the object key explicitly; skips the auto-naming below.                                                                                                                                                          |
+| `--name <leaf>`                       | Clean filename for the key's leaf + default alt (no `/`); keeps the `--pr`/default path. Not with `--key`.                                                                                                           |
+| `--replace`                           | Allow overwriting an existing object on a strict key (`--key`/default path). No effect on `--pr`/`--issue` (or `UPLOADS_OVERWRITE=1`).                                                                               |
+| `--dry-run`                           | Resolve + print the key and final public URL without uploading; reports if the key would replace (or, on a strict key, be refused). Not with `--gallery`; skips the managed comment sync even with `--pr`/`--issue`. |
+| `--content-type <mime>`               | Override the content type (else inferred from extension; ignored when optimize rewrites the body).                                                                                                                   |
+| `--frame <id>`                        | Opt-in chrome before optimize: `phone`, `browser`, `iphone-16-pro`.                                                                                                                                                  |
+| `--frame-url <url>`                   | Address bar text for `--frame browser`.                                                                                                                                                                              |
+| `--frame-fit cover\|contain`          | How the shot fills the screen (default: `cover`).                                                                                                                                                                    |
+| `--no-optimize`                       | Skip client-side image optimization (default: still images → WebP). Or `UPLOADS_NO_OPTIMIZE=1`.                                                                                                                      |
+| `--optimize-max-edge <px>`            | Max long edge when optimizing (default: 2400).                                                                                                                                                                       |
+| `--optimize-quality <1-100>`          | WebP quality when optimizing (default: 85).                                                                                                                                                                          |
+| `--keep-exif`                         | Keep EXIF/XMP/ICC when optimizing (default: **strip** for privacy). Or `UPLOADS_KEEP_EXIF=1`.                                                                                                                        |
+| `--no-git`                            | Don't derive `--repo` from the git remote (or `UPLOADS_NO_GIT=1`).                                                                                                                                                   |
+| `--format human\|url\|markdown\|json` | Control stdout. `--json` (global) forces json.                                                                                                                                                                       |
+| `-w, --workspace <name>`              | Override workspace (wins over env and token inference).                                                                                                                                                              |
 
 **Image optimization (default on):** PNG/JPEG and similar still images are re-encoded to
 WebP (long edge capped at 2400px, quality 85) before upload so PR/issue embeds stay
@@ -661,13 +661,15 @@ to the target's own `gh.*` values. It also stamps `gh.title` with the real
 PR/issue title when resolvable via local `gh` (best-effort; omitted rather
 than failing the upload if `gh` can't resolve one).
 
-### Option B — managed attachments comment (`--comment` / `comment`)
+### Option B — managed attachments comment (default with `--pr`/`--issue`, or `comment`)
 
-Add `--comment` to upload **and** create/update a single marker-owned comment on the PR/issue. It keeps loose `gh/...` attachments and every public gallery linked to that PR/issue in clearly separate sections, with up to three available gallery images inline. It finds its own prior comment via a hidden marker and edits it in place — it never touches the description or other comments:
+`put --pr`/`--issue` (like `attach`) uploads **and** creates/updates a single marker-owned comment on the PR/issue by default — no separate flag needed. It keeps loose `gh/...` attachments and every public gallery linked to that PR/issue in clearly separate sections, with up to three available gallery images inline. It finds its own prior comment via a hidden marker and edits it in place — it never touches the description or other comments:
 
 ```bash
-uploads put ./after.png --pr 123 --comment
+uploads put ./after.png --pr 123
 ```
+
+Pass `--no-comment` to skip the sync (upload only), matching `attach --no-comment`. `--comment` is still accepted on `put` as a no-op — it's redundant now that the sync is the default, kept only for scripts written before this changed (#537).
 
 The upload is authoritative; the comment is best-effort — if `gh` is missing or
 unauthenticated, the upload still succeeds and you get a warning. To (re)sync the

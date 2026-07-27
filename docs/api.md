@@ -202,7 +202,7 @@ Examples assume the CLI is installed globally (`uploads`); use
 
 ```bash
 uploads put <file>
-uploads put <file> --pr <num> --comment   # PR attachment + managed GitHub comment
+uploads put <file> --pr <num>   # PR attachment + managed GitHub comment by default
 uploads gallery create --title "Release screenshots"
 uploads put <file> --gallery <gallery-id>
 uploads usage
