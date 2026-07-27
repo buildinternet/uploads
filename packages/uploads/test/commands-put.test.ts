@@ -373,6 +373,43 @@ describe("runPut managed comment sync (#537)", () => {
       process.stderr.write = write;
     }
   });
+
+  // Issue #541: the single-file `--format json` payload silently dropped
+  // `comment`/`commentError`, unlike the multi-file batch payload — JSON-driven
+  // callers couldn't see the sync outcome.
+  it("includes `comment` in the single-file JSON payload on a successful sync", async () => {
+    const { client } = commentCapableClient();
+    const { run } = ghRunner();
+    const stdout = await captureStdout(() =>
+      runPut(
+        { ...ctxWith(client), quiet: false, json: true },
+        [tmpFile(), "--pr", "5", "--repo", "o/r"],
+        false,
+        run,
+      ),
+    );
+    const payload = JSON.parse(stdout) as {
+      comment?: { action: string; via: string };
+      commentError?: string;
+    };
+    expect(payload.comment).toBeDefined();
+    expect("commentError" in payload).toBe(false);
+  });
+
+  it("surfaces `commentError` in the single-file JSON payload when the sync fails", async () => {
+    const { client } = fakeClient(); // no listAll/findGalleriesByReference stub → sync throws
+    const stdout = await captureStdout(() =>
+      runPut(
+        { ...ctxWith(client), quiet: true, json: true },
+        [tmpFile(), "--pr", "5", "--repo", "o/r"],
+        false,
+        noRun,
+      ),
+    );
+    const payload = JSON.parse(stdout) as { comment?: unknown; commentError?: string };
+    expect(typeof payload.commentError).toBe("string");
+    expect("comment" in payload).toBe(false);
+  });
 });
 
 describe("runPut --name", () => {
