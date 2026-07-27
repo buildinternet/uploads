@@ -5,6 +5,7 @@ import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { respondError } from "../error-response";
 import { me } from "./me";
+import { fakeRegistry } from "../../test/fake-kv";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
 import { FakeR2Bucket } from "../../test/fake-r2";
 
@@ -1854,5 +1855,202 @@ describe("GET /me/workspaces/:name/files/facets", () => {
     expect((await res.json()) as { error: { code: string } }).toMatchObject({
       error: { code: "workspace_not_found" },
     });
+  });
+});
+
+describe("workspace comment-settings routes", () => {
+  /** Admin/owner-gated env backed by a real (put-capable) REGISTRY fake. */
+  function commentSettingsEnv(opts: { workspace?: string; role: string; record?: unknown }) {
+    const { workspace = "acme", role, record } = opts;
+    const registry = fakeRegistry(record !== undefined ? { [workspace]: record } : {});
+    const auth = stubAuth((req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/api/auth/get-session") {
+        return new Response(JSON.stringify({ session: {}, user: USER }), { status: 200 });
+      }
+      if (url.pathname === "/internal/memberships") {
+        return Response.json([
+          {
+            organizationId: "org1",
+            organizationSlug: workspace,
+            organizationName: workspace,
+            role,
+          },
+        ]);
+      }
+      return new Response(null, { status: 404 });
+    });
+    const env = {
+      AUTH: auth,
+      DB: new UsageFakeD1(),
+      REGISTRY: registry,
+    } as unknown as Env;
+    return { env, registry };
+  }
+
+  const REC = { provider: "r2", bucket: "uploads-default", prefix: "acme/" };
+
+  it("(a) GET 403s for a non-admin member", async () => {
+    const { env } = commentSettingsEnv({ role: "member", record: REC });
+    const res = await app().request("/me/workspaces/acme/comment-settings", {}, env);
+    expect(res.status).toBe(403);
+  });
+
+  it("(a) PATCH 403s for a non-admin member", async () => {
+    const { env } = commentSettingsEnv({ role: "member", record: REC });
+    const res = await app().request(
+      "/me/workspaces/acme/comment-settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ note: "Hi" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("(b) GET on an untouched workspace returns all nulls", async () => {
+    const { env } = commentSettingsEnv({ role: "admin", record: REC });
+    const res = await app().request("/me/workspaces/acme/comment-settings", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      imageWidth: null,
+      maxInlineImages: null,
+      showMetadata: null,
+      linkToFilePage: null,
+      note: null,
+    });
+  });
+
+  it("(c) PATCH sets fields, echoes the new state, and bumps the KV version", async () => {
+    const { env, registry } = commentSettingsEnv({ role: "owner", record: REC });
+    const res = await app().request(
+      "/me/workspaces/acme/comment-settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ imageWidth: "full", maxInlineImages: 4, note: "Hi" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      imageWidth: "full",
+      maxInlineImages: 4,
+      showMetadata: null,
+      linkToFilePage: null,
+      note: "Hi",
+    });
+
+    // Re-read via GET, independent of the PATCH response, per the brief.
+    const getRes = await app().request("/me/workspaces/acme/comment-settings", {}, env);
+    expect(await getRes.json()).toEqual({
+      imageWidth: "full",
+      maxInlineImages: 4,
+      showMetadata: null,
+      linkToFilePage: null,
+      note: "Hi",
+    });
+
+    const saved = registry.record<{ version?: number }>("acme");
+    expect(saved?.version).toBe(1);
+  });
+
+  it("(d) PATCH rejects an out-of-range imageWidth with 400 and leaves the record untouched", async () => {
+    const { env, registry } = commentSettingsEnv({ role: "admin", record: REC });
+    const res = await app().request(
+      "/me/workspaces/acme/comment-settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ imageWidth: 40 }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "invalid_settings" },
+    });
+    expect(registry.record("acme")).toEqual(REC);
+  });
+
+  it("(e) PATCH rejects a note over NOTE_MAX_CHARS with 400", async () => {
+    const { env, registry } = commentSettingsEnv({ role: "admin", record: REC });
+    const res = await app().request(
+      "/me/workspaces/acme/comment-settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ note: "x".repeat(501) }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(registry.record("acme")).toEqual(REC);
+  });
+
+  it("(f) PATCH with an explicit null clears a previously-set field", async () => {
+    const { env, registry } = commentSettingsEnv({
+      role: "admin",
+      record: { ...REC, githubCommentImageWidth: 400 },
+    });
+    const res = await app().request(
+      "/me/workspaces/acme/comment-settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ imageWidth: null }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { imageWidth: unknown }).imageWidth).toBeNull();
+    expect(
+      registry.record<{ githubCommentImageWidth?: unknown }>("acme")?.githubCommentImageWidth,
+    ).toBeUndefined();
+  });
+
+  it("(g) PATCH writes the two legacy booleans", async () => {
+    const { env, registry } = commentSettingsEnv({ role: "admin", record: REC });
+    const res = await app().request(
+      "/me/workspaces/acme/comment-settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ showMetadata: false, linkToFilePage: false }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      imageWidth: null,
+      maxInlineImages: null,
+      showMetadata: false,
+      linkToFilePage: false,
+      note: null,
+    });
+    const saved = registry.record<{
+      githubCommentShowMetadata?: unknown;
+      githubCommentLinkToFilePage?: unknown;
+    }>("acme");
+    expect(saved?.githubCommentShowMetadata).toBe(false);
+    expect(saved?.githubCommentLinkToFilePage).toBe(false);
+  });
+
+  it("PATCH with an unknown key ignores it (matches validateGithubCommentSettingsPatch / validateLimitsPatch precedent) and applies known fields", async () => {
+    const { env, registry } = commentSettingsEnv({ role: "admin", record: REC });
+    const res = await app().request(
+      "/me/workspaces/acme/comment-settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bogusField: "nope", note: "Hi" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { note: unknown }).note).toBe("Hi");
+    expect(registry.record<{ githubCommentNote?: unknown }>("acme")?.githubCommentNote).toBe("Hi");
   });
 });
