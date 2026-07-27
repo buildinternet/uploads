@@ -1,5 +1,12 @@
 # @buildinternet/uploads
 
+## 0.34.0
+
+### Minor Changes
+
+- 29bb2c1: `put --pr`/`--issue` now syncs the managed attachments comment by default (same as `attach`), so uploads on a quiet PR show up without a webhook event or `--comment`. Opt out with `--no-comment`; `--comment` is kept as a no-op alias.
+- 2e50e34: gh-fallback comments honor a committed `.uploads.yml` (image width, inline cap, caption fields, note)
+
 ## 0.33.1
 
 ### Patch Changes
