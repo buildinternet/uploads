@@ -4,7 +4,8 @@
  * apps/api/src/routes/github-comment-route.test.ts (now via
  * `postManagedComment`, apps/api/src/github-comment-service.ts) — these tests
  * cover only the hosted MCP `put` tool's new surface: targeting args, the
- * `comment` opt-in, and that a decline/failure never fails the upload.
+ * default comment sync with pr/issue (#537 parity; `comment: false` opts
+ * out), and that a decline/failure never fails the upload.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import app from "../src/index";
@@ -490,13 +491,48 @@ describe("hosted put: comment sync (issue #392)", () => {
     }
   });
 
-  it("does not attach a comment when comment is not requested", async () => {
+  it("syncs the comment by default when pr/issue is given (#537 parity)", async () => {
+    const { env, githubCache } = await makeEnv({ boundTo: WS });
+    githubCache.store.set("ghinst:acme/widgets", { value: "42" });
+    githubCache.store.set("ghtok:42", { value: "cached-token" });
+    const restore = stubGithubFetch((url, init) => {
+      if (url.includes("/issues/12/comments")) {
+        return init.method === "POST"
+          ? new Response(
+              JSON.stringify({ id: 5, html_url: "https://github.com/acme/widgets/pull/12#c5" }),
+              { status: 201 },
+            )
+          : new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response("nf", { status: 404 });
+    });
+    try {
+      const result = await callTool(env, "put", {
+        contentBase64: PNG_B64,
+        filename: "hero.png",
+        pr: 12,
+        repo: "acme/widgets",
+      });
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent?.comment).toEqual({
+        posted: true,
+        action: "created",
+        count: 1,
+        commentUrl: "https://github.com/acme/widgets/pull/12#c5",
+      });
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not attach a comment with comment: false", async () => {
     const { env } = await makeEnv({ boundTo: WS });
     const result = await callTool(env, "put", {
       contentBase64: PNG_B64,
       filename: "hero.png",
       pr: 12,
       repo: "acme/widgets",
+      comment: false,
     });
     expect(result.isError).toBe(false);
     expect(result.structuredContent?.comment).toBeUndefined();
@@ -518,7 +554,7 @@ describe("hosted put: comment sync (issue #392)", () => {
     expect(bucket.store.has("gh/acme/widgets/pull/12/hero.png")).toBe(false);
   });
 
-  it("the same files:write-only token can still put without comment", async () => {
+  it("a files:write-only token still puts to a pr: the default sync is skipped, not an error", async () => {
     const { env, bucket } = await makeEnv({ boundTo: WS, scopes: ["files:write"] });
     const result = await callTool(env, "put", {
       contentBase64: PNG_B64,
@@ -528,6 +564,10 @@ describe("hosted put: comment sync (issue #392)", () => {
     });
     expect(result.isError).toBe(false);
     expect(bucket.store.has("gh/acme/widgets/pull/12/hero.png")).toBe(true);
+    // The default-on sync requires files:read — silently skipped here rather
+    // than turning a previously-valid write-only upload into an error.
+    expect(result.structuredContent?.comment).toBeUndefined();
+    expect(result.structuredContent?.commentError).toBeUndefined();
   });
 });
 

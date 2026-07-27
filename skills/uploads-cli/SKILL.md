@@ -863,12 +863,15 @@ uploads --api-url http://localhost:8787 doctor
   accepts `pr`/`issue` (mutually exclusive, mirroring the CLI's `--pr`/
   `--issue`) plus a required `repo` (`owner/name` — the hosted server has no
   git context to infer it from) to get the same stable `gh/…` key the CLI
-  produces. Add `comment: true` to post/update the managed `uploads-sh[bot]`
-  attachments comment directly, same as CLI `--comment` — bot-only on this
-  server, no local-`gh` fallback. Prefer `pr`/`issue`/`comment` over just
+  produces. With `pr`/`issue` the managed `uploads-sh[bot]` attachments
+  comment is posted/updated by default, same as CLI `put --pr` (#537) — pass
+  `comment: false` to skip it. Bot-only on this server, no local-`gh`
+  fallback; the default sync needs the `files:read` scope and is silently
+  skipped on a write-only token (explicit `comment: true` errors instead).
+  Prefer `pr`/`issue` over just
   returning a raw `url`/`embedUrl` whenever the caller is going to paste the
   result into a PR/issue: it gets the stable overwrite-in-place key and
-  (optionally) lands straight in the collected attachments comment instead of
+  lands straight in the collected attachments comment instead of
   a one-off link the caller has to hand-embed. A comment failure never fails
   the upload — it's returned honestly in the result's `comment` field as one
   of `not_installed` (App not installed on the repo), `not_authorized` (repo
