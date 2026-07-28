@@ -179,6 +179,18 @@ describe("runCli help", () => {
     expect(io.stderr()).toMatch(/did you mean: uploads meta set/);
   });
 
+  it("answers a missing argument with a reason, not a help dump (#545)", async () => {
+    const io = captureStdio();
+    const code = await runCli(["node", "uploads", "--token", "up_test_x", "find"]);
+    expect(code).toBe(2);
+    expect(io.stderr()).toMatch(/error: find requires at least one k=v pair/);
+    expect(io.stderr()).toMatch(/hint: uploads find --help/);
+    // The old behavior printed FIND_HELP, which `| tail` would have kept
+    // while dropping the reason.
+    expect(io.stderr()).not.toMatch(/Human-friendly alias/);
+    expect(io.stderr().trimEnd().split("\n").length).toBeLessThanOrEqual(3);
+  });
+
   it("reports an unknown command as JSON on stdout with --json", async () => {
     const io = captureStdio();
     const code = await runCli(["node", "uploads", "--json", "set-metadata"]);

@@ -59,9 +59,9 @@ describe("runFind", () => {
     expect(calls[0].filters).toEqual({ path: "/settings", state: "after" });
   });
 
-  it("requires at least one pair", async () => {
+  it("requires at least one pair, and says so instead of dumping help (#545)", async () => {
     const { client } = fakeClient();
-    expect(await runFind(ctxWith(client), [], false)).toBe(2);
+    await expect(runFind(ctxWith(client), [], false)).rejects.toThrow(/find requires at least one/);
   });
 
   it("rejects a malformed pair", async () => {

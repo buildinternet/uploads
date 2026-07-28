@@ -244,8 +244,8 @@ describe("runMeta unknown command", () => {
     await expect(runMeta(ctxWith(client), ["bogus"], false)).rejects.toThrow(UsageError);
   });
 
-  it("prints help and returns 2 with no subcommand", async () => {
+  it("names the missing subcommand instead of dumping help (#545)", async () => {
     const { client } = fakeClient();
-    expect(await runMeta(ctxWith(client), [], false)).toBe(2);
+    await expect(runMeta(ctxWith(client), [], false)).rejects.toThrow(/meta requires a subcommand/);
   });
 });

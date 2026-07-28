@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { UsageError } from "../src/cli-args.js";
 import { runAnnotate } from "../src/commands/annotate.js";
 
 async function syntheticPng(width = 100, height = 80): Promise<Buffer> {
@@ -165,8 +166,7 @@ describe("runAnnotate", () => {
     await expect(runAnnotate([imagePath])).rejects.toThrow("--spec is required");
   });
 
-  it("requires an image argument", async () => {
-    const code = await runAnnotate([]);
-    expect(code).toBe(2);
+  it("requires an image argument (short usage error, not a help dump)", async () => {
+    await expect(runAnnotate([])).rejects.toThrow(UsageError);
   });
 });

@@ -847,6 +847,11 @@ uploads --api-url http://localhost:8787 doctor
   `--json` emits `{error,code,status}` — branch on `code`. Scripted formats
   (`json|url|markdown`) also print failures on stdout. Usage errors:
   `hint: uploads <cmd> --help`.
+- **Errors stay short (stderr), so trimming output never hides them.** A missing
+  argument prints one `error:` line plus that hint — not the command's help. A
+  mistyped command prints the error, a `did you mean: uploads <cmd>` line, and
+  the help pointers; with `--json` it returns `{error,code:"USAGE",didYouMean}`
+  on stdout. Read the first line; run `uploads <cmd> --help` for the full help.
 - **Update hints (stderr):** successful human runs may note a newer npm release
   (daily). Silence with `--quiet` / `--json` / `UPLOADS_NO_UPDATE=1`.
 - **Telemetry:** anonymous command-name pings (no paths/tokens). Opt out with

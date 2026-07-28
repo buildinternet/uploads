@@ -1377,8 +1377,7 @@ export async function runAttach(
   const branchArg = branchFromFlags(parsed.flags, run);
 
   if (parsed.positionals.length === 0) {
-    writeCommandHelp(ATTACH_HELP);
-    return 2;
+    throw new UsageError("attach requires at least one file");
   }
 
   if (branchArg !== undefined) {
@@ -2074,8 +2073,7 @@ export async function runPut(
 
   const files = parsed.positionals;
   if (files.length === 0) {
-    writeCommandHelp(PUT_HELP);
-    return 2;
+    throw new UsageError("put requires at least one file");
   }
   const multi = files.length > 1;
 
@@ -2536,9 +2534,14 @@ function githubCoordinateFromFlags(flags: CommandFlags["flags"]): string {
 export async function runGallery(ctx: CliContext, args: string[], help = false): Promise<number> {
   const parsed = parseCommandArgs(args);
   const action = parsed.positionals[0];
-  if (help || parsed.help || !action) {
+  if (help || parsed.help) {
     writeCommandHelp(GALLERY_HELP);
-    return help || parsed.help ? 0 : 2;
+    return 0;
+  }
+  if (!action) {
+    throw new UsageError(
+      "gallery requires a subcommand: create, show, list, delete, add, link, or unlink",
+    );
   }
 
   switch (action) {
@@ -2818,8 +2821,7 @@ export async function runFind(ctx: CliContext, args: string[], help = false): Pr
   // alias for `list --meta`, so `find --meta k=v` must not dead-end.
   const pairs = [...parsed.positionals, ...flagValues(parsed.flags, "--meta")];
   if (pairs.length === 0) {
-    writeCommandHelp(FIND_HELP);
-    return 2;
+    throw new UsageError("find requires at least one k=v pair (or --meta k=v)");
   }
   const filters = parseMetaFlags(pairs);
   return runFindFiles(ctx, filters, parsed.flags);
@@ -2849,10 +2851,11 @@ Examples:
 export async function runMeta(ctx: CliContext, args: string[], help = false): Promise<number> {
   const parsed = parseCommandArgs(args);
   const action = parsed.positionals[0];
-  if (help || parsed.help || !action) {
+  if (help || parsed.help) {
     writeCommandHelp(META_HELP);
-    return help || parsed.help ? 0 : 2;
+    return 0;
   }
+  if (!action) throw new UsageError("meta requires a subcommand: get or set");
 
   switch (action) {
     case "get": {
@@ -2958,8 +2961,7 @@ export async function runDelete(ctx: CliContext, args: string[], help = false): 
   }
   const key = parsed.positionals[0];
   if (!key) {
-    writeCommandHelp(DELETE_HELP);
-    return 2;
+    throw new UsageError("delete requires an object key");
   }
   if (flagBool(parsed.flags, "--dry-run")) {
     if (ctx.json) await writeJson({ key, deleted: false, dryRun: true });

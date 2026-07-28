@@ -81,9 +81,9 @@ export async function runConfig(
     case "set":
       return runConfigSet(rest, subArgs, opts, help);
     default:
-      process.stderr.write(`unknown config subcommand: ${sub}\n\n`);
-      writeCommandHelp(CONFIG_HELP);
-      return 2;
+      // Short, not a help dump: agents trim output, and a dump pushes the
+      // reason out of the window (issue #545).
+      throw new UsageError(`unknown config subcommand: ${sub} (expected path, show, init, or set)`);
   }
 }
 
@@ -229,8 +229,7 @@ Examples:
   const key = positionals[0] as UploadsConfigKey | undefined;
   const value = positionals[1];
   if (!key || !value) {
-    writeCommandHelp(`uploads config set <key> <value>\n`);
-    return 2;
+    throw new UsageError("config set requires a key and a value");
   }
   if (!VALID_KEYS.has(key)) {
     throw new UsageError(`unknown key: ${key} (expected ${[...VALID_KEYS].join(", ")})`);
