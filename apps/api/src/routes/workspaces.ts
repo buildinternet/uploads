@@ -23,6 +23,7 @@ import {
   listTokens,
   revokeToken,
 } from "../auth-db";
+import { recordAdoptionSafe } from "../adoption";
 import { allowWorkspaceCreate, allowWrite } from "../guards";
 import { throwForInviteError } from "../invite-error";
 import {
@@ -225,6 +226,8 @@ export const workspaces = new Hono<SessionVars>().post(
         await welcome;
       }
     }
+
+    await recordAdoptionSafe(c.env, { metric: "workspace_created", workspace: name });
 
     return c.json(
       { workspace: { name, publicBaseUrl: record.publicBaseUrl, selfServe: true } },

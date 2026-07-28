@@ -15,6 +15,8 @@
  * promote call (see routes/github-comment.ts, routes/github-promote.ts).
  */
 
+import { bumpDailyMetric } from "./adoption";
+
 export interface RepoLink {
   repo: string;
   workspaceName: string;
@@ -61,7 +63,7 @@ export async function recordRepoLink(
   now = new Date(),
 ): Promise<void> {
   try {
-    await db
+    const result = await db
       .prepare(
         `INSERT OR IGNORE INTO github_repo_links
            (repo_full_name, workspace_name, installation_id, source, created_at)
@@ -69,6 +71,23 @@ export async function recordRepoLink(
       )
       .bind(normalizeRepo(repo), workspaceName, installationId, source, now.toISOString())
       .run();
+
+    // Only a real first claim counts; INSERT OR IGNORE reports changes === 0
+    // when an existing link already owned the repo.
+    if ((result.meta?.changes ?? 0) > 0) {
+      try {
+        await bumpDailyMetric(db, { metric: "repo_linked", workspace: workspaceName });
+      } catch (metricErr) {
+        const message = metricErr instanceof Error ? metricErr.message : String(metricErr);
+        console.error(
+          JSON.stringify({
+            message: "adoption metric write failed",
+            metric: "repo_linked",
+            error: message,
+          }),
+        );
+      }
+    }
   } catch (err) {
     console.error(
       JSON.stringify({

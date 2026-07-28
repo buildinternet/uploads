@@ -11,11 +11,14 @@ import {
 } from "../src/github-repo-links";
 import { SqliteD1, database } from "./helpers/sqlite-d1";
 
-const MIGRATION = "migrations/20260720120000_github_repo_links.sql";
+const MIGRATIONS = [
+  "migrations/20260720120000_github_repo_links.sql",
+  "migrations/20260728120000_daily_metrics.sql",
+];
 
 describe("github repo links persistence against SQLite", () => {
   it("returns null for an unclaimed repo", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
+    const sqlite = new SqliteD1(MIGRATIONS);
     try {
       await expect(findRepoLink(database(sqlite), "acme/web")).resolves.toBeNull();
     } finally {
@@ -24,7 +27,7 @@ describe("github repo links persistence against SQLite", () => {
   });
 
   it("records a claim and lowercases the repo key", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
+    const sqlite = new SqliteD1(MIGRATIONS);
     try {
       await recordRepoLink(database(sqlite), "Acme/Web", "acme", "comment", 42);
       const link = await findRepoLink(database(sqlite), "acme/web");
@@ -41,7 +44,7 @@ describe("github repo links persistence against SQLite", () => {
   });
 
   it("first claim wins: a later call from a different workspace is ignored", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
+    const sqlite = new SqliteD1(MIGRATIONS);
     try {
       await recordRepoLink(database(sqlite), "acme/web", "acme", "comment");
       await recordRepoLink(database(sqlite), "acme/web", "someone-else", "promote");
@@ -54,7 +57,7 @@ describe("github repo links persistence against SQLite", () => {
   });
 
   it("a later call from the SAME workspace is also a no-op (row unchanged)", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
+    const sqlite = new SqliteD1(MIGRATIONS);
     try {
       await recordRepoLink(database(sqlite), "acme/web", "acme", "comment", 1);
       await recordRepoLink(database(sqlite), "acme/web", "acme", "promote", 2);
@@ -67,7 +70,7 @@ describe("github repo links persistence against SQLite", () => {
   });
 
   it("deletes a link", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
+    const sqlite = new SqliteD1(MIGRATIONS);
     try {
       await recordRepoLink(database(sqlite), "acme/web", "acme", "comment");
       await deleteRepoLink(database(sqlite), "acme/web");
@@ -78,7 +81,7 @@ describe("github repo links persistence against SQLite", () => {
   });
 
   it("deleting a non-existent link is a harmless no-op", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
+    const sqlite = new SqliteD1(MIGRATIONS);
     try {
       await expect(deleteRepoLink(database(sqlite), "acme/nope")).resolves.toBeUndefined();
     } finally {
@@ -89,7 +92,7 @@ describe("github repo links persistence against SQLite", () => {
 
 describe("deleteRepoLinkForWorkspace (self-serve unlink, issue #318)", () => {
   it("deletes when the caller owns the binding", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
+    const sqlite = new SqliteD1(MIGRATIONS);
     try {
       await recordRepoLink(database(sqlite), "acme/web", "acme", "comment");
       await expect(deleteRepoLinkForWorkspace(database(sqlite), "acme/web", "acme")).resolves.toBe(
@@ -102,7 +105,7 @@ describe("deleteRepoLinkForWorkspace (self-serve unlink, issue #318)", () => {
   });
 
   it("refuses (no-op) when the caller does not own the binding", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
+    const sqlite = new SqliteD1(MIGRATIONS);
     try {
       await recordRepoLink(database(sqlite), "acme/web", "acme", "comment");
       await expect(
@@ -116,7 +119,7 @@ describe("deleteRepoLinkForWorkspace (self-serve unlink, issue #318)", () => {
   });
 
   it("is a harmless no-op on an unclaimed repo", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
+    const sqlite = new SqliteD1(MIGRATIONS);
     try {
       await expect(deleteRepoLinkForWorkspace(database(sqlite), "acme/nope", "acme")).resolves.toBe(
         false,
@@ -129,7 +132,7 @@ describe("deleteRepoLinkForWorkspace (self-serve unlink, issue #318)", () => {
 
 describe("listRepoLinksForWorkspace (admin visibility, issue #318)", () => {
   it("returns only the calling workspace's bindings, newest first", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
+    const sqlite = new SqliteD1(MIGRATIONS);
     try {
       // Distinct explicit timestamps (not insertion order) so the assertion
       // below actually exercises `ORDER BY created_at DESC` rather than
@@ -169,7 +172,7 @@ describe("listRepoLinksForWorkspace (admin visibility, issue #318)", () => {
   });
 
   it("returns an empty list for a workspace with no bindings", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
+    const sqlite = new SqliteD1(MIGRATIONS);
     try {
       await expect(listRepoLinksForWorkspace(database(sqlite), "acme")).resolves.toEqual([]);
     } finally {
@@ -180,7 +183,7 @@ describe("listRepoLinksForWorkspace (admin visibility, issue #318)", () => {
 
 describe("setRepoLink (operator override, issue #318)", () => {
   it("creates a binding for an unclaimed repo", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
+    const sqlite = new SqliteD1(MIGRATIONS);
     try {
       await setRepoLink(database(sqlite), "acme/web", "acme", "admin");
       const link = await findRepoLink(database(sqlite), "acme/web");
@@ -191,7 +194,7 @@ describe("setRepoLink (operator override, issue #318)", () => {
   });
 
   it("reassigns an existing binding, overwriting the prior owner", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
+    const sqlite = new SqliteD1(MIGRATIONS);
     try {
       await recordRepoLink(database(sqlite), "acme/web", "acme", "comment");
       await setRepoLink(database(sqlite), "acme/web", "someone-else", "admin", 7);
@@ -201,6 +204,47 @@ describe("setRepoLink (operator override, issue #318)", () => {
         source: "admin",
         installationId: 7,
       });
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("repo link adoption metrics", () => {
+  async function repoLinkedCount(db: D1Database): Promise<number> {
+    const row = await db
+      .prepare(
+        `SELECT COALESCE(SUM(count), 0) AS n FROM daily_metrics
+         WHERE metric = 'repo_linked' AND workspace = 'acme'`,
+      )
+      .first<{ n: number }>();
+    return row?.n ?? 0;
+  }
+
+  it("records repo_linked on a first claim", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordRepoLink(db, "Acme/Web", "acme", "comment", 42);
+      expect(await repoLinkedCount(db)).toBe(1);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("does not record when a second claim is ignored (first claim wins)", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordRepoLink(db, "Acme/Web", "acme", "comment", 42);
+      await recordRepoLink(db, "Acme/Web", "beta", "comment", 43);
+      // Still exactly one event: the ignored INSERT must not count.
+      const row = await db
+        .prepare(
+          `SELECT COALESCE(SUM(count), 0) AS n FROM daily_metrics WHERE metric = 'repo_linked' AND workspace <> ''`,
+        )
+        .first<{ n: number }>();
+      expect(row?.n).toBe(1);
     } finally {
       sqlite.close();
     }
