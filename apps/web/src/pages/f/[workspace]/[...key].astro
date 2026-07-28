@@ -52,6 +52,14 @@ const withTime = Boolean(
 const uploadedLabel = uploadedIso ? formatFileDate(uploadedIso, { withTime }) : null;
 const modifiedLabel =
   showModified && modifiedIso ? formatFileDate(modifiedIso, { withTime }) : null;
+// Rail footnote (demoted from a Size/Uploaded/Modified dl — issue: right-rail hierarchy pass):
+// one muted line beneath the actions instead of a data table.
+const footnoteParts = [
+  file ? formatBytes(file.size) : null,
+  uploadedLabel ? `Uploaded ${uploadedLabel}` : null,
+  modifiedLabel ? `Modified ${modifiedLabel}` : null,
+].filter((part): part is string => Boolean(part));
+const footnoteLine = footnoteParts.join(" · ");
 const gh = file?.github;
 const ghKindLabel = gh?.kind === "pull" ? "Pull request" : gh ? "Issue" : "";
 const ghRef = gh ? `${gh.repo}#${gh.number}` : "";
@@ -155,6 +163,12 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
       .shell { width:min(var(--width-viewer, 1080px),calc(100% - 48px)); margin:0 auto; padding:36px 0 64px; flex:1 0 auto; box-sizing:border-box; }
       nav.top { display:flex; align-items:center; justify-content:space-between; margin-bottom:32px; font:13px var(--mono); letter-spacing:.02em; }
       .public { color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:6px 11px; background:var(--panel); }
+      /* Click-to-copy share pill — replaces the static "public file" label whenever there's a link to copy. */
+      button.public { appearance:none; -webkit-appearance:none; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:6px; }
+      button.public:hover, button.public:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
+      /* Icon lives in ::before, not a child node — CopyAsControls' handler replaces
+         button.textContent on copy, which would otherwise destroy an inline <svg>. */
+      .sharelink::before { content:""; width:11px; height:11px; flex:none; background:currentColor; -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E") center/contain no-repeat; mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E") center/contain no-repeat; }
       .stage { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-lg); overflow:hidden; }
       /* Video / non-image fallbacks only — images use ImagePreview. */
       .media { min-height:320px; max-height:78vh; background:var(--bg); display:grid; place-items:center; overflow:hidden; }
@@ -181,7 +195,7 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
       .gh-byline:hover .gh-byline-title, .gh-byline:focus-visible .gh-byline-title { color:inherit; }
       .gh-byline-sep { opacity:.7; }
       .gh-byline-ref { overflow-wrap:anywhere; }
-      /* Right rail: account-shell-like section gap; Metadata uses label + rule. */
+      /* Right rail: account-shell-like section gap; Details uses label + rule. */
       .details { display:flex; flex-direction:column; gap:22px; padding:18px 20px 22px; border-top:1px solid var(--line); }
       .details > * { min-width:0; }
       .rail-head { display:flex; align-items:center; gap:10px; margin:0 0 12px; }
@@ -191,6 +205,9 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
       dl.meta dt { color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-size:11px; }
       dl.meta dd { margin:0; color:var(--body); overflow-wrap:anywhere; }
       .details :global(.actions) { margin-top:0; }
+      /* Subordinate to everything above — margin-top:auto sinks it (and ReportAbuse, right
+         after it in flow) to the bottom of the rail on tall pages, no-op on short ones. */
+      .footnote { margin:auto 0 0; color:var(--muted); font:11.5px/1.5 var(--mono); }
       /* Before/after paired view (issue #420) — static side-by-side, no slider. */
       .pair { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--line); border:1px solid var(--line); border-radius:var(--radius-lg); overflow:hidden; margin:0 0 20px; }
       .pair-panel { position:relative; background:var(--panel); display:flex; flex-direction:column; }
@@ -229,7 +246,21 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
   </head>
   <body>
     <main class="shell">
-      <nav class="top"><Brand /><span class="public">public file</span></nav>
+      <nav class="top">
+        <Brand />
+        {file ? (
+          <button
+            type="button"
+            class="public sharelink"
+            data-copy={canonical}
+            title="Copy link — anyone with this link can view this page"
+          >
+            Public link
+          </button>
+        ) : (
+          <span class="public">public file</span>
+        )}
+      </nav>
       {file ? (
         <>
           <header class="filehead">
@@ -312,15 +343,15 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
               </div>
             )}
             <figcaption class="details">
-              <dl class="meta">
-                <dt>Size</dt><dd>{formatBytes(file.size)}</dd>
-                {uploadedLabel && (<><dt>Uploaded</dt><dd>{uploadedLabel}</dd></>)}
-                {modifiedLabel && (<><dt>Modified</dt><dd>{modifiedLabel}</dd></>)}
-              </dl>
+              <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
+                {kind(file.contentType) !== "unsupported" && (
+                  <a class="original" href={file.url} rel="noopener noreferrer">Open original ↗</a>
+                )}
+              </CopyAsControls>
               {metadataEntries.length > 0 && (
                 <div>
                   <div class="rail-head">
-                    <span class="rail-label">Metadata</span>
+                    <span class="rail-label">Details</span>
                     <span class="rail-rule" aria-hidden="true"></span>
                   </div>
                   <dl class="meta">
@@ -333,11 +364,7 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
                   </dl>
                 </div>
               )}
-              <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
-                {kind(file.contentType) !== "unsupported" && (
-                  <a class="original" href={file.url} rel="noopener noreferrer">Open original ↗</a>
-                )}
-              </CopyAsControls>
+              {footnoteLine && <p class="footnote">{footnoteLine}</p>}
               <ReportAbuse
                 apiOrigin={origin}
                 pageUrl={canonical}

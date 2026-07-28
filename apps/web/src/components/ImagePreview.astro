@@ -65,6 +65,13 @@ const { src, alt } = Astro.props;
       });
     }
 
+    // Imgur-style click-to-zoom: the image itself is a supplementary toggle:
+    // the pill buttons above remain the visible + accessible affordance.
+    img.addEventListener("click", () => {
+      override = root.dataset.mode === "full" ? "fit" : "full";
+      applyMode(root, override);
+    });
+
     if (img.complete && img.naturalWidth > 0) sync();
     else img.addEventListener("load", sync, { once: true });
   }
@@ -137,6 +144,14 @@ const { src, alt } = Astro.props;
     height: auto;
     max-width: 100%;
     object-fit: contain;
+  }
+
+  .image-preview[data-mode="fit"] img {
+    cursor: zoom-in;
+  }
+
+  .image-preview[data-mode="full"] img {
+    cursor: zoom-out;
   }
 
   .image-preview[data-mode="fit"] {

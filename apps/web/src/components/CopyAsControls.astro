@@ -14,7 +14,9 @@ interface Props {
 }
 
 const { formats, downloadUrl = null } = Astro.props;
-const defaultCopyValue = formats[0]?.value ?? "";
+const defaultFormat = formats[0];
+const defaultCopyValue = defaultFormat?.value ?? "";
+const defaultCopyLabel = defaultFormat?.label ?? "";
 const show = Boolean(downloadUrl) || formats.length > 0;
 ---
 
@@ -29,26 +31,47 @@ const show = Boolean(downloadUrl) || formats.length > 0;
         <span class="linkfield">
           <label for="copy-format">Copy as</label>
           <div class="copyrow">
-            <select id="copy-format" aria-label="Copy as format">
+            <select id="copy-format" class="ul-select" aria-label="Copy as format">
               {formats.map((format) => <option value={format.id}>{format.label}</option>)}
             </select>
-            <div class="copyout">
-              <input
-                id="copy-value"
-                type="text"
-                readonly
-                value={defaultCopyValue}
-                aria-label="Value to copy"
-              />
+            {/* The whole row is the copy control (Snippet pattern) — a real
+               button inside carries the click/keyboard affordance, so the
+               wrapper only needs a click-through convenience handler. */}
+            <div
+              class="snippet"
+              id="copy-snippet"
+              data-copy-value={defaultCopyValue}
+              tabindex="-1"
+            >
+              <code id="copy-snippet-value">{defaultCopyValue}</code>
               <button
                 type="button"
                 id="copy-format-btn"
+                class="snippet-copy"
                 data-copy={defaultCopyValue}
-                aria-live="polite"
+                data-copy-icon
+                aria-label={`Copy ${defaultCopyLabel}`}
               >
-                Copy
+                <svg class="icon-copy" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                  <path
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.3"
+                    d="M6 6h7v8H6zM3 2h7v2M3 2v8h3M3 2h0"
+                  />
+                </svg>
+                <svg
+                  class="icon-check is-hidden"
+                  viewBox="0 0 16 16"
+                  width="15"
+                  height="15"
+                  aria-hidden="true"
+                >
+                  <path fill="none" stroke="currentColor" stroke-width="1.6" d="M3 8.5l3.2 3.2L13 4.5" />
+                </svg>
               </button>
             </div>
+            <span id="copy-status" class="sr-only" aria-live="polite" />
           </div>
         </span>
       )}
@@ -65,6 +88,8 @@ const show = Boolean(downloadUrl) || formats.length > 0;
         const shell = document.querySelector(".shell");
         if (!shell) return;
 
+        const status = document.getElementById("copy-status");
+
         shell.addEventListener("click", (event) => {
           const target = event.target;
           if (!(target instanceof Element)) return;
@@ -73,6 +98,23 @@ const show = Boolean(downloadUrl) || formats.length > 0;
           void navigator.clipboard
             .writeText(button.dataset.copy || "")
             .then(() => {
+              // Icon-only snippet button: swap SVGs + aria-live text instead
+              // of clobbering textContent (that path is reserved for the
+              // page-level text-labeled share button sharing this handler).
+              if (button.hasAttribute("data-copy-icon")) {
+                const copyIcon = button.querySelector(".icon-copy");
+                const checkIcon = button.querySelector(".icon-check");
+                if (copyIcon) copyIcon.classList.add("is-hidden");
+                if (checkIcon) checkIcon.classList.remove("is-hidden");
+                if (status) status.textContent = "Copied";
+                setTimeout(() => {
+                  if (copyIcon) copyIcon.classList.remove("is-hidden");
+                  if (checkIcon) checkIcon.classList.add("is-hidden");
+                  if (status) status.textContent = "";
+                }, 1500);
+                return;
+              }
+
               const original = button.dataset.copyLabel ?? button.textContent ?? "Copy";
               button.dataset.copyLabel = original;
               button.textContent = "copied ✓";
@@ -85,19 +127,32 @@ const show = Boolean(downloadUrl) || formats.length > 0;
             });
         });
 
-        const select = document.getElementById("copy-format");
-        const input = document.getElementById("copy-value");
+        // Clicking anywhere on the snippet row (not just the icon button)
+        // copies — same target the button already handles, so just forward.
+        const snippet = document.getElementById("copy-snippet");
         const copyButton = document.getElementById("copy-format-btn");
+        if (snippet instanceof HTMLElement && copyButton instanceof HTMLButtonElement) {
+          snippet.addEventListener("click", (event) => {
+            if (event.target === copyButton || copyButton.contains(event.target)) return;
+            copyButton.click();
+          });
+        }
+
+        const select = document.getElementById("copy-format");
+        const valueEl = document.getElementById("copy-snippet-value");
         if (
           select instanceof HTMLSelectElement &&
-          input instanceof HTMLInputElement &&
-          copyButton instanceof HTMLButtonElement
+          valueEl instanceof HTMLElement &&
+          copyButton instanceof HTMLButtonElement &&
+          snippet instanceof HTMLElement
         ) {
           select.addEventListener("change", () => {
             const format = formats.find((f) => f.id === select.value) ?? formats[0];
             if (!format) return;
-            input.value = format.value;
+            valueEl.textContent = format.value;
+            snippet.dataset.copyValue = format.value;
             copyButton.dataset.copy = format.value;
+            copyButton.setAttribute("aria-label", `Copy ${format.label}`);
           });
         }
       })();
@@ -144,52 +199,77 @@ const show = Boolean(downloadUrl) || formats.length > 0;
     font: 11px var(--mono);
     margin-bottom: 5px;
   }
-  /* Stacked: format chooser on top, value + Copy beneath — keeps every control
-     legible in the ~300px rail instead of crushing them into one row. */
+  /* Stacked: format chooser on top, snippet row beneath — keeps every
+     control legible in the ~300px rail instead of crushing them into one row. */
   .copyrow {
     display: flex;
     flex-direction: column;
     gap: 6px;
   }
-  .copyout {
+  /* ai-sdk Elements "Snippet" pattern: one bordered row, truncated mono value,
+     icon-only copy affordance — the whole row is clickable. */
+  .snippet {
     display: flex;
-    gap: 6px;
-    align-items: stretch;
-  }
-  .copyrow select,
-  .copyout input,
-  .copyout button {
-    padding: 8px;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 0;
+    padding: 8px 8px 8px 10px;
     border: 1px solid var(--line);
     border-radius: var(--radius-md);
-    font: 12px var(--mono);
-  }
-  .copyrow select,
-  .copyout input {
-    background: var(--bg);
-    color: var(--body);
-  }
-  .copyrow select {
-    width: 100%;
-  }
-  .copyout input {
-    flex: 1;
-    min-width: 0;
-    padding: 8px 10px;
-  }
-  /* Primary action — solid accent, mirroring the repo's .ul-btn--solid pattern. */
-  .copyout button {
-    padding: 8px 14px;
-    background: var(--accent);
-    border-color: var(--accent);
-    color: var(--bg);
-    font-weight: 600;
+    background: var(--panel);
     cursor: pointer;
   }
-  .copyout button:hover,
-  .copyout button:focus-visible {
-    background: color-mix(in srgb, var(--accent) 88%, #fff);
-    border-color: color-mix(in srgb, var(--accent) 88%, #fff);
+  .snippet:hover {
+    border-color: var(--accent);
+  }
+  /* Wrap the full value — the ~300px rail truncates a single line past
+     usefulness, and format values are bounded (a few lines at worst). */
+  .snippet code {
+    flex: 1;
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font: 12px/1.5 var(--mono);
+    color: var(--body);
+    padding: 3px 0;
+  }
+  .snippet-copy {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .snippet-copy:hover,
+  .snippet-copy:focus-visible {
+    color: var(--accent);
     outline: none;
+  }
+  .snippet-copy:focus-visible {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  .icon-check {
+    color: var(--accent);
+  }
+  .is-hidden {
+    display: none;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 </style>
