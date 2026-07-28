@@ -89,4 +89,33 @@ describe("fetchBreakdown", () => {
     expect(result).toEqual({ available: false, reason: "invalid_dimension" });
     expect(called).toBe(false);
   });
+
+  it.each(["toString", "constructor", "__proto__"] as const)(
+    "rejects the inherited prototype key %j without issuing a request",
+    async (dimension) => {
+      let called = false;
+      const impl = (async () => {
+        called = true;
+        return new Response("{}");
+      }) as unknown as typeof fetch;
+      const result = await fetchBreakdown(env(), dimension as never, 30, impl);
+      expect(result).toEqual({ available: false, reason: "invalid_dimension" });
+      expect(called).toBe(false);
+    },
+  );
+
+  it("reports unavailable when the response body's data field is not an array", async () => {
+    const result = await fetchBreakdown(env(), "surface", 30, jsonFetch({ data: "not-an-array" }));
+    expect(result).toEqual({ available: false, reason: "query_failed" });
+  });
+});
+
+describe("breakdownQuery non-finite days guard", () => {
+  it("falls back to a 30-day window when days is NaN", () => {
+    expect(breakdownQuery("surface", Number.NaN)).toContain("INTERVAL '30' DAY");
+  });
+
+  it("falls back to a 30-day window when days is Infinity", () => {
+    expect(breakdownQuery("surface", Number.POSITIVE_INFINITY)).toContain("INTERVAL '30' DAY");
+  });
 });

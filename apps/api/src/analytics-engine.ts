@@ -44,7 +44,7 @@ const BLOB_COLUMN: Record<BreakdownDimension, string> = {
 
 export function breakdownQuery(dimension: BreakdownDimension, days: number): string {
   const column = BLOB_COLUMN[dimension];
-  const window = Math.max(1, Math.min(90, Math.floor(days)));
+  const window = Number.isFinite(days) ? Math.max(1, Math.min(90, Math.floor(days))) : 30;
   // _sample_interval scales sampled rows back to a real-world estimate; a raw
   // COUNT() under-reports whenever AE has sampled.
   return `SELECT ${column} AS value,
@@ -63,7 +63,10 @@ export async function fetchBreakdown(
   days: number,
   fetchImpl: typeof fetch = fetch,
 ): Promise<BreakdownResult> {
-  if (!(dimension in BLOB_COLUMN)) return { available: false, reason: "invalid_dimension" };
+  // Object.hasOwn (not the `in` operator) so prototype-chain keys like
+  // "toString" or "constructor" can never slip past this allowlist.
+  if (!Object.hasOwn(BLOB_COLUMN, dimension))
+    return { available: false, reason: "invalid_dimension" };
 
   const account = (env as { CLOUDFLARE_ACCOUNT_ID?: string }).CLOUDFLARE_ACCOUNT_ID;
   const token = (env as { ANALYTICS_API_TOKEN?: string }).ANALYTICS_API_TOKEN;
@@ -76,8 +79,11 @@ export async function fetchBreakdown(
       body: breakdownQuery(dimension, days),
     });
     if (!res.ok) return { available: false, reason: "query_failed" };
-    const payload = (await res.json()) as { data?: BreakdownRow[] };
-    return { available: true, rows: payload.data ?? [] };
+    const payload = (await res.json()) as { data?: unknown };
+    if (payload.data !== undefined && !Array.isArray(payload.data)) {
+      return { available: false, reason: "query_failed" };
+    }
+    return { available: true, rows: (payload.data as BreakdownRow[] | undefined) ?? [] };
   } catch {
     return { available: false, reason: "query_failed" };
   }

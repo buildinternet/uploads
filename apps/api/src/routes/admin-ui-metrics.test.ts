@@ -244,3 +244,79 @@ describe("GET /admin-ui/metrics/overview", () => {
     }
   });
 });
+
+describe("GET /admin-ui/metrics/breakdown", () => {
+  it("401s with no session", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      const env = { AUTH: stubAuth(null), DB: db, REGISTRY: fakeKv().binding } as unknown as Env;
+      const res = await app().request("/admin-ui/metrics/breakdown", {}, env);
+      expect(res.status).toBe(401);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("403s for a non-admin session", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      const env = {
+        AUTH: stubAuth(NON_ADMIN_USER),
+        DB: db,
+        REGISTRY: fakeKv().binding,
+      } as unknown as Env;
+      const res = await app().request("/admin-ui/metrics/breakdown", {}, env);
+      expect(res.status).toBe(403);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("returns 200 for an admin even when Analytics Engine is unconfigured", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      // No CLOUDFLARE_ACCOUNT_ID / ANALYTICS_API_TOKEN on env: AE is
+      // unconfigured, which is the normal, non-error state for this panel.
+      const env = {
+        AUTH: stubAuth(ADMIN_USER),
+        DB: db,
+        REGISTRY: fakeKv().binding,
+      } as unknown as Env;
+      const res = await app().request("/admin-ui/metrics/breakdown", {}, env);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual({ available: false, reason: "not_configured" });
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("defaults the dimension to surface when the param is absent", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      const env = {
+        AUTH: stubAuth(ADMIN_USER),
+        DB: db,
+        REGISTRY: fakeKv().binding,
+        CLOUDFLARE_ACCOUNT_ID: "acct-123",
+        ANALYTICS_API_TOKEN: "tok-abc",
+      } as unknown as Env;
+      const originalFetch = globalThis.fetch;
+      let capturedBody: string | undefined;
+      globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string | undefined;
+        return new Response(JSON.stringify({ data: [] }), { status: 200 });
+      }) as typeof fetch;
+      try {
+        const res = await app().request("/admin-ui/metrics/breakdown", {}, env);
+        expect(res.status).toBe(200);
+        // surface maps to blob2 per BLOB_COLUMN in analytics-engine.ts.
+        expect(capturedBody).toContain("blob2");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    } finally {
+      sqlite.close();
+    }
+  });
+});
