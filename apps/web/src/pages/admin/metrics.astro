@@ -161,6 +161,23 @@ export const prerender = false;
         return niceFrac * base;
       }
 
+      /**
+       * Y-axis tick values for a [0, niceMax] scale: 0, the midpoint, and
+       * niceMax. The midpoint is dropped when rounding it for display would
+       * collide with either endpoint's rounded label — routine for
+       * niceMax === 1 (niceCeil's floor), where midpoint 0.5 rounds up to
+       * 1 and duplicates the top label. Endpoints are always kept so the
+       * axis still spans the full plotted range.
+       */
+      function buildYTicks(niceMax: number): number[] {
+        const raw = [0, niceMax / 2, niceMax];
+        const rounded = raw.map((t) => Math.round(t));
+        if (rounded[1] === rounded[0] || rounded[1] === rounded[2]) {
+          return [raw[0], raw[2]];
+        }
+        return raw;
+      }
+
       /** Evenly spaced x-axis label indices, capped so labels never crowd. */
       function pickLabelIndices(n: number, max = 6): Set<number> {
         const step = Math.max(1, Math.ceil(n / max));
@@ -196,6 +213,7 @@ export const prerender = false;
         elementId: string,
         points: { day: string; value: number }[],
         label: string,
+        windowDays: number,
       ): void {
         const container = document.getElementById(elementId);
         if (!container) return;
@@ -221,7 +239,7 @@ export const prerender = false;
         const barWidth = Math.max(1, Math.min(24, bandWidth - gap));
         const labelIdx = pickLabelIndices(points.length);
 
-        const yTicks = [0, niceMax / 2, niceMax];
+        const yTicks = buildYTicks(niceMax);
         const gridlines = yTicks
           .map((t) => {
             const y = baseline - (t / niceMax) * plotH;
@@ -261,7 +279,12 @@ export const prerender = false;
           })
           .join("");
 
-        const svg = `<svg class="metrics-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeHtml(label)}, last ${points.length} days">
+        // windowDays is the selected time window (overview.window.days from
+        // the API), not points.length — the series only includes days that
+        // have rows, so a sparse window would otherwise undercount (and
+        // mangle the grammar) in the accessible name.
+        const windowLabel = `last ${windowDays} day${windowDays === 1 ? "" : "s"}`;
+        const svg = `<svg class="metrics-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeHtml(label)}, ${windowLabel}">
             <line x1="${marginLeft}" y1="${baseline}" x2="${W - marginRight}" y2="${baseline}" class="metrics-axis-line" />
             ${gridlines}
             ${bars}
@@ -393,11 +416,13 @@ export const prerender = false;
           "chart-uploads",
           overview.series.uploads.map((p) => ({ day: p.day, value: p.count })),
           "Uploads per day",
+          overview.window.days,
         );
         drawChart(
           "chart-signups",
           overview.series.users.map((p) => ({ day: p.day, value: p.count })),
           "Signups per day",
+          overview.window.days,
         );
       }
 
