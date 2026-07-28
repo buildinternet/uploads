@@ -439,110 +439,121 @@ git commit -m "feat(api): add daily_metrics table and adoption recording helper"
 - Modify: `apps/api/src/routes/files.ts:220` (pass `surface`)
 - Modify: `apps/api/src/github-promote.ts:154` (pass `surface`)
 - Modify: `apps/mcp/src/tools.ts:691` and `apps/mcp/src/tools.ts:753` (pass `surface`)
-- Test: `apps/api/test/adoption-hooks.test.ts`
+- Test: `apps/api/test/routes-files.test.ts` (extend the existing route-level harness — no new test file)
 
 **Interfaces:**
 
 - Consumes: `recordAdoptionSafe`, `AdoptionEvent`, `UploadSurface` from Task 1.
 - Produces: `putObject`'s `opts` gains `surface?: UploadSurface`.
 
-- [ ] **Step 1: Write the failing test**
+> **These tests must exercise the real wiring, not re-test Task 1's helper.** A test that calls `bumpDailyMetric` directly proves nothing about whether `putObject` invokes it. Assert through the existing route-level harness in `apps/api/test/routes-files.test.ts`, so a hook that is never called fails the test.
 
-Create `apps/api/test/adoption-hooks.test.ts`:
+- [ ] **Step 1: Give the route-level fake D1 a statement recorder**
+
+`makeFakeDB` in `apps/api/test/routes-files.test.ts` hand-matches SQL and no-ops the usage ledger. Extend it to record prepared statements so adoption writes become assertable. Inside `makeFakeDB`, before its `return`:
 
 ```ts
-/// <reference types="node" />
+const statements: { sql: string; args: unknown[] }[] = [];
+```
 
-import { describe, expect, it, vi } from "vitest";
-import { bumpDailyMetric } from "../src/adoption";
-import { SqliteD1, database } from "./helpers/sqlite-d1";
+Expose it on the returned object alongside `metadata`:
 
-const MIGRATION = "migrations/20260728120000_daily_metrics.sql";
+```ts
+    statements,
+```
 
-/**
- * These assert the CONTRACT the hooks must satisfy, independent of the large
- * putObject integration surface: an upload records one `upload` event with the
- * stored byte size, and a delete records one `delete` event with a positive
- * byte figure.
- */
-describe("upload and delete recording contract", () => {
-  it("an upload of N bytes records count 1 and bytes N", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
-    try {
-      const db = database(sqlite);
-      await bumpDailyMetric(
-        db,
-        { metric: "upload", workspace: "acme", bytes: 2048, dimensions: { surface: "api" } },
-        new Date("2026-07-28T10:00:00Z"),
-      );
-      const row = await db
-        .prepare(
-          `SELECT count, bytes FROM daily_metrics WHERE metric = 'upload' AND workspace = 'acme'`,
-        )
-        .first<{ count: number; bytes: number }>();
-      expect(row).toEqual({ count: 1, bytes: 2048 });
-    } finally {
-      sqlite.close();
-    }
+And record each bind — in the object returned by `prepare(sql)`, inside `bind`, before `return this`:
+
+```ts
+statements.push({ sql: normalized, args: values });
+```
+
+Purely additive: no existing assertion in the file changes.
+
+- [ ] **Step 2: Write the failing wiring tests**
+
+Add to `apps/api/test/routes-files.test.ts`. Build the env exactly as the neighbouring put/delete tests in this file already do (same `FakeR2Bucket` and workspace-record setup, same `TOKEN`/`PNG` constants) — if they share a helper, reuse it under its real name rather than inventing one:
+
+```ts
+describe("adoption metrics wiring", () => {
+  /** Identify adoption writes by table, not by statement position. */
+  function adoptionWrites(db: { statements: { sql: string; args: unknown[] }[] }) {
+    return db.statements.filter((s) => s.sql.includes("INSERT INTO daily_metrics"));
+  }
+
+  it("records an upload event when a put succeeds", async () => {
+    const db = makeFakeDB();
+    const env = /* same env construction as the neighbouring put tests */;
+    const res = await app.request(
+      "/v1/files/shot.png",
+      { method: "PUT", headers: { authorization: `Bearer ${TOKEN}` }, body: PNG },
+      env,
+    );
+    expect(res.status).toBe(201);
+
+    const writes = adoptionWrites(db);
+    // One per-workspace row + one platform row.
+    expect(writes).toHaveLength(2);
+    expect(writes.map((w) => w.args[0])).toEqual(["upload", "upload"]);
+    expect(writes.map((w) => w.args[2]).sort()).toEqual(["", "default"]);
+    expect(writes[0]?.args[3]).toBe(PNG.byteLength);
   });
 
-  it("a delete of N bytes records the delete metric with positive bytes", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
-    try {
-      const db = database(sqlite);
-      await bumpDailyMetric(
-        db,
-        { metric: "delete", workspace: "acme", bytes: 2048 },
-        new Date("2026-07-28T10:00:00Z"),
-      );
-      const row = await db
-        .prepare(
-          `SELECT count, bytes FROM daily_metrics WHERE metric = 'delete' AND workspace = 'acme'`,
-        )
-        .first<{ count: number; bytes: number }>();
-      expect(row).toEqual({ count: 1, bytes: 2048 });
-    } finally {
-      sqlite.close();
-    }
+  it("records nothing when the put is rejected", async () => {
+    const db = makeFakeDB();
+    const env = /* same env construction */;
+    const res = await app.request(
+      "/v1/files/shot.png",
+      { method: "PUT", headers: { authorization: "Bearer wrong-token" }, body: PNG },
+      env,
+    );
+    expect(res.status).toBe(401);
+    expect(adoptionWrites(db)).toHaveLength(0);
   });
 
-  it("net stored change for a day is upload.bytes minus delete.bytes", async () => {
-    const sqlite = new SqliteD1(MIGRATION);
-    try {
-      const db = database(sqlite);
-      const at = new Date("2026-07-28T10:00:00Z");
-      await bumpDailyMetric(db, { metric: "upload", workspace: "acme", bytes: 5000 }, at);
-      await bumpDailyMetric(db, { metric: "delete", workspace: "acme", bytes: 2000 }, at);
-      const row = await db
-        .prepare(
-          `SELECT
-             SUM(CASE WHEN metric = 'upload' THEN bytes ELSE 0 END)
-           - SUM(CASE WHEN metric = 'delete' THEN bytes ELSE 0 END) AS net
-           FROM daily_metrics WHERE workspace = 'acme' AND day = '2026-07-28'`,
-        )
-        .first<{ net: number }>();
-      expect(row?.net).toBe(3000);
-    } finally {
-      sqlite.close();
-    }
-  });
-});
+  it("records a delete event with positive bytes when a delete removes an object", async () => {
+    const db = makeFakeDB();
+    const env = /* same env construction */;
+    await app.request(
+      "/v1/files/shot.png",
+      { method: "PUT", headers: { authorization: `Bearer ${TOKEN}` }, body: PNG },
+      env,
+    );
+    const before = adoptionWrites(db).length;
 
-describe("putObject surface plumbing", () => {
-  it("accepts a surface option without altering the result contract", async () => {
-    // Guard against the opts type regressing: this must typecheck.
-    const opts: { surface?: "api" | "mcp" | "promote" } = { surface: "mcp" };
-    expect(opts.surface).toBe("mcp");
+    const res = await app.request(
+      "/v1/files/shot.png",
+      { method: "DELETE", headers: { authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(res.status).toBe(200);
+
+    const deletes = adoptionWrites(db).slice(before);
+    expect(deletes).toHaveLength(2);
+    expect(deletes.map((w) => w.args[0])).toEqual(["delete", "delete"]);
+    // Positive magnitude — direction is carried by the metric, never the sign.
+    for (const write of deletes) expect(write.args[3] as number).toBeGreaterThan(0);
+  });
+
+  it("records no delete event when the key does not exist", async () => {
+    const db = makeFakeDB();
+    const env = /* same env construction */;
+    await app.request(
+      "/v1/files/absent.png",
+      { method: "DELETE", headers: { authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(adoptionWrites(db).filter((w) => w.args[0] === "delete")).toHaveLength(0);
   });
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 3: Run the tests to verify they fail**
 
-Run: `pnpm vitest run apps/api/test/adoption-hooks.test.ts`
-Expected: PASS for the contract tests only if Task 1 landed — they exercise `bumpDailyMetric` directly. If Task 1 is present these already pass; the real verification for this task is Step 5's typecheck plus the full suite. Proceed to Step 3.
+Run: `pnpm vitest run apps/api/test/routes-files.test.ts -t "adoption metrics wiring"`
+Expected: FAIL — `expect(writes).toHaveLength(2)` receives `0`, because no hook exists yet. That red state is the point: it proves these tests actually detect a missing hook.
 
-- [ ] **Step 3: Add `surface` to the `putObject` options type**
+- [ ] **Step 4: Add `surface` to the `putObject` options type**
 
 In `apps/api/src/files-core.ts`, inside the `opts?:` object literal of `putObject`'s signature, after the `metadata?: Record<string, string>;` member, add:
 
@@ -561,7 +572,7 @@ Add to the imports at the top of `files-core.ts`:
 import { recordAdoptionSafe, type UploadSurface } from "./adoption";
 ```
 
-- [ ] **Step 4: Hook the upload event**
+- [ ] **Step 5: Hook the upload event**
 
 In `apps/api/src/files-core.ts`, immediately after the `await recordUsageSafe(env.DB, workspaceName, { bytes: reservedBytes > 0 ? 0 : deltaBytes, objects: replaced ? 0 : 1, uploads: 0 });` call inside `putObject`, add:
 
@@ -583,7 +594,7 @@ await recordAdoptionSafe(env, {
 });
 ```
 
-- [ ] **Step 5: Hook the delete event**
+- [ ] **Step 6: Hook the delete event**
 
 In `apps/api/src/files-core.ts`, in the delete path, immediately after the existing
 
@@ -607,7 +618,7 @@ await recordAdoptionSafe(env, { metric: "delete", workspace: workspaceName, byte
 
 Do **not** add a hook to the poster-cleanup delete below it: derived posters are an implementation detail, and counting them would inflate the delete series with events no operator initiated.
 
-- [ ] **Step 6: Pass `surface` from each caller**
+- [ ] **Step 7: Pass `surface` from each caller**
 
 In `apps/api/src/routes/files.ts`, change the `putObject` options argument from
 
@@ -625,7 +636,7 @@ In `apps/api/src/github-promote.ts`, add `surface: "promote"` to the options obj
 
 In `apps/mcp/src/tools.ts`, add `surface: "mcp"` to the options object at the first `putObject` call, and add `surface: "mcp"` to the `putOpts` object used by the second.
 
-- [ ] **Step 7: Typecheck and run the suite**
+- [ ] **Step 8: Typecheck and run the suite**
 
 ```bash
 pnpm types && pnpm test
@@ -633,10 +644,10 @@ pnpm types && pnpm test
 
 Expected: types clean; full suite PASS. Existing `files-core` tests continue to pass because `recordAdoptionSafe` never throws even when the test env has no real `daily_metrics` table.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add apps/api/src/files-core.ts apps/api/src/routes/files.ts apps/api/src/github-promote.ts apps/mcp/src/tools.ts apps/api/test/adoption-hooks.test.ts
+git add apps/api/src/files-core.ts apps/api/src/routes/files.ts apps/api/src/github-promote.ts apps/mcp/src/tools.ts apps/api/test/routes-files.test.ts
 git commit -m "feat(api): record upload and delete adoption events"
 ```
 
@@ -650,16 +661,96 @@ git commit -m "feat(api): record upload and delete adoption events"
 - Modify: `apps/api/src/routes/galleries.ts` (gallery create handler)
 - Modify: `apps/api/src/github-comment-service.ts` (after a managed comment is successfully posted)
 - Modify: `apps/api/src/github-repo-links.ts` (after `recordRepoLink` actually creates a link)
-- Test: `apps/api/test/adoption-feature-events.test.ts`
+- Test: `apps/api/test/adoption-feature-events.test.ts` (vocabulary), plus wiring assertions added to `apps/api/test/github-repo-links-sqlite.test.ts` and `apps/api/test/routes-galleries.test.ts`
 
 **Interfaces:**
 
 - Consumes: `recordAdoptionSafe` from Task 1.
 - Produces: no new exported symbols.
 
-- [ ] **Step 1: Write the failing test**
+> **Assert the real wiring wherever a harness already exists.** Two of these four call sites have cheap existing harnesses — use them. The other two are covered by the vocabulary regression test plus typecheck, which is stated honestly rather than dressed up as end-to-end coverage.
 
-Create `apps/api/test/adoption-feature-events.test.ts`:
+- [ ] **Step 1: Write the failing wiring test for repo links**
+
+`apps/api/test/github-repo-links-sqlite.test.ts` already runs against a real `node:sqlite` D1, so `daily_metrics` can be asserted directly. Change its migration constant to apply both migrations:
+
+```ts
+const MIGRATIONS = [
+  "migrations/20260720120000_github_repo_links.sql",
+  "migrations/20260728120000_daily_metrics.sql",
+];
+```
+
+Update the existing `new SqliteD1(MIGRATION)` calls in the file to `new SqliteD1(MIGRATIONS)`, then add:
+
+```ts
+describe("repo link adoption metrics", () => {
+  async function repoLinkedCount(db: D1Database): Promise<number> {
+    const row = await db
+      .prepare(
+        `SELECT COALESCE(SUM(count), 0) AS n FROM daily_metrics
+         WHERE metric = 'repo_linked' AND workspace = 'acme'`,
+      )
+      .first<{ n: number }>();
+    return row?.n ?? 0;
+  }
+
+  it("records repo_linked on a first claim", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordRepoLink(db, "Acme/Web", "acme", "comment", 42);
+      expect(await repoLinkedCount(db)).toBe(1);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("does not record when a second claim is ignored (first claim wins)", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordRepoLink(db, "Acme/Web", "acme", "comment", 42);
+      await recordRepoLink(db, "Acme/Web", "beta", "comment", 43);
+      // Still exactly one event: the ignored INSERT must not count.
+      const row = await db
+        .prepare(
+          `SELECT COALESCE(SUM(count), 0) AS n FROM daily_metrics WHERE metric = 'repo_linked' AND workspace <> ''`,
+        )
+        .first<{ n: number }>();
+      expect(row?.n).toBe(1);
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+```
+
+- [ ] **Step 2: Write the failing wiring test for gallery creation**
+
+In `apps/api/test/routes-galleries.test.ts`, apply the same statement-recorder approach Task 2 added to `routes-files.test.ts` (record `{ sql, args }` on the fake D1's `bind`, expose a `statements` array), then add:
+
+```ts
+describe("gallery adoption metrics", () => {
+  it("records gallery_created when a gallery is created", async () => {
+    // Build the request exactly as the neighbouring create tests in this file do.
+    const writes = db.statements.filter((s: { sql: string }) =>
+      s.sql.includes("INSERT INTO daily_metrics"),
+    );
+    expect(writes).toHaveLength(2); // per-workspace + platform row
+    expect(writes.map((w: { args: unknown[] }) => w.args[0])).toEqual([
+      "gallery_created",
+      "gallery_created",
+    ]);
+  });
+});
+```
+
+If that suite's fake D1 already records statements, reuse what exists rather than adding a second mechanism.
+
+- [ ] **Step 3: Write the metric-vocabulary regression test**
+
+Create `apps/api/test/adoption-feature-events.test.ts`. This guards the metric names and their zero-byte shape; it does **not** claim to test wiring:
 
 ```ts
 /// <reference types="node" />
@@ -670,7 +761,7 @@ import { SqliteD1, database } from "./helpers/sqlite-d1";
 
 const MIGRATION = "migrations/20260728120000_daily_metrics.sql";
 
-describe("feature adoption metrics", () => {
+describe("feature adoption metric vocabulary", () => {
   it("records each feature metric under its own key with zero bytes", async () => {
     const sqlite = new SqliteD1(MIGRATION);
     try {
@@ -705,8 +796,11 @@ describe("feature adoption metrics", () => {
     const sqlite = new SqliteD1(MIGRATION);
     try {
       const db = database(sqlite);
-      const at = new Date("2026-07-28T10:00:00Z");
-      await bumpDailyMetric(db, { metric: "gallery_created", workspace: "acme" }, at);
+      await bumpDailyMetric(
+        db,
+        { metric: "gallery_created", workspace: "acme" },
+        new Date("2026-07-28T10:00:00Z"),
+      );
       const row = await db
         .prepare(`SELECT COUNT(*) AS n FROM daily_metrics WHERE metric = 'upload'`)
         .first<{ n: number }>();
@@ -718,12 +812,15 @@ describe("feature adoption metrics", () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 4: Run the tests to verify they fail**
 
-Run: `pnpm vitest run apps/api/test/adoption-feature-events.test.ts`
-Expected: PASS (it exercises Task 1's helper directly). This file is the regression guard for the metric vocabulary; the wiring below is verified by the full suite in Step 4.
+```bash
+pnpm vitest run apps/api/test/github-repo-links-sqlite.test.ts apps/api/test/routes-galleries.test.ts -t "adoption metrics"
+```
 
-- [ ] **Step 3: Add the four call sites**
+Expected: FAIL — the repo-link and gallery wiring assertions find zero `daily_metrics` writes, because no hook exists yet.
+
+- [ ] **Step 5: Add the four call sites**
 
 In each file, import the helper:
 
@@ -778,7 +875,7 @@ if ((result.meta?.changes ?? 0) > 0) {
 
 Bind `result` to the existing `INSERT OR IGNORE` statement's `.run()` return value if it is not already captured.
 
-- [ ] **Step 4: Typecheck and run the suite**
+- [ ] **Step 6: Typecheck and run the suite**
 
 ```bash
 pnpm types && pnpm test
@@ -786,10 +883,10 @@ pnpm types && pnpm test
 
 Expected: types clean; full suite PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add apps/api/src/routes/workspaces.ts apps/api/src/routes/galleries.ts apps/api/src/github-comment-service.ts apps/api/src/github-repo-links.ts apps/api/test/adoption-feature-events.test.ts
+git add apps/api/src/routes/workspaces.ts apps/api/src/routes/galleries.ts apps/api/src/github-comment-service.ts apps/api/src/github-repo-links.ts apps/api/test/adoption-feature-events.test.ts apps/api/test/github-repo-links-sqlite.test.ts apps/api/test/routes-galleries.test.ts
 git commit -m "feat(api): record workspace, gallery, comment and repo-link adoption events"
 ```
 
