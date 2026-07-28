@@ -20,6 +20,7 @@ import {
   resolvePreviewRecipient,
   sendEmailPreview,
 } from "../admin-email-preview";
+import { fetchBreakdown, type BreakdownDimension } from "../analytics-engine";
 import {
   DEFAULT_ENROLLMENT_SECONDS,
   DEFAULT_TOKEN_SECONDS,
@@ -362,6 +363,16 @@ export const adminUi = new Hono<SessionVars>()
       });
     }
     return c.json(await cachedOverview(c.env, days, c.req.query("fresh") === "1"));
+  })
+
+  // Analytics Engine upload breakdown by dimension (surface, content type,
+  // client, plan, repo). Additive and best-effort: an unconfigured or
+  // unreachable Analytics Engine is a normal state the page renders as a
+  // panel message, not an error — so this always returns 200.
+  .get("/metrics/breakdown", async (c) => {
+    const dimension = (c.req.query("dimension") ?? "surface") as BreakdownDimension;
+    const days = Number(c.req.query("days") ?? 30);
+    return c.json(await fetchBreakdown(c.env, dimension, Number.isFinite(days) ? days : 30));
   })
 
   // List every KV workspace joined with its org + member/invite counts.

@@ -75,6 +75,22 @@ export const prerender = false;
           </table>
         </div>
       </section>
+
+      <section class="metrics-section" id="breakdown-panel">
+        <h3>Upload breakdown</h3>
+        <p class="admin-hint">Last 90 days, from Analytics Engine. Sampled and approximate.</p>
+        <label for="breakdown-dimension">Group by</label>
+        <select id="breakdown-dimension" class="ul-select">
+          <option value="surface">Surface</option>
+          <option value="contentType">Content type</option>
+          <option value="client">Client</option>
+          <option value="repo">Repository</option>
+        </select>
+        <div id="breakdown-status" class="admin-status" hidden></div>
+        <div class="metrics-table-wrap">
+          <table class="admin-table" id="breakdown-table" aria-label="Upload breakdown"></table>
+        </div>
+      </section>
     </div>
   </section>
 
@@ -427,6 +443,60 @@ export const prerender = false;
         );
       }
 
+      // Analytics Engine upload breakdown (Task 9). Loaded separately from
+      // the D1-backed overview above so an unconfigured/unreachable AE never
+      // blocks the tiles/charts/table from rendering.
+      async function loadBreakdown(): Promise<void> {
+        // Not requireElement<HTMLSelectElement>: worker-configuration.d.ts's
+        // HTMLRewriter ambient `Element` redeclares `remove()`, which makes
+        // HTMLSelectElement fail the `T extends Element` constraint. Fetch as
+        // HTMLElement and cast instead (same pattern as oauth/consent.astro).
+        const select = requireElement<HTMLElement>(
+          "#breakdown-dimension",
+          "admin",
+        ) as unknown as HTMLSelectElement;
+        const panelStatus = requireElement<HTMLElement>("#breakdown-status", "admin");
+        const table = requireElement<HTMLElement>("#breakdown-table", "admin");
+        try {
+          const res = await fetch(
+            `${apiOrigin}/admin-ui/metrics/breakdown?dimension=${select.value}&days=90`,
+            { credentials: "include", cache: "no-store" },
+          );
+          const body = (await res.json()) as
+            | { available: true; rows: { value: string; events: number; bytes: number }[] }
+            | { available: false; reason: string };
+          if (!body.available) {
+            table.innerHTML = "";
+            panelStatus.hidden = false;
+            panelStatus.textContent =
+              body.reason === "not_configured"
+                ? "Analytics Engine is not configured. Set ANALYTICS_API_TOKEN to enable this panel."
+                : "Breakdown is temporarily unavailable.";
+            return;
+          }
+          panelStatus.hidden = true;
+          // Every interpolated field is either escaped or coerced to a
+          // number. `value` carries client-supplied data (content type,
+          // client string, repo name) that reached AE straight from upload
+          // requests, so escapeHtml is load-bearing here, not decorative.
+          // The numeric columns are typed `number` but arrive as untyped
+          // JSON from an external API, so they are coerced rather than
+          // trusted.
+          table.innerHTML =
+            `<thead><tr><th class="keep" scope="col">Value</th><th class="keep num" scope="col">Uploads</th><th class="keep num" scope="col">Bytes</th></tr></thead><tbody>` +
+            body.rows
+              .map(
+                (row) =>
+                  `<tr class="admin-row"><td>${escapeHtml(row.value || "(none)")}</td><td class="num">${num(row.events)}</td><td class="num">${bytes(row.bytes)}</td></tr>`,
+              )
+              .join("") +
+            `</tbody>`;
+        } catch {
+          panelStatus.hidden = false;
+          panelStatus.textContent = "Breakdown is temporarily unavailable.";
+        }
+      }
+
       async function load(): Promise<void> {
         status.hidden = false;
         status.textContent = "Loading…";
@@ -439,6 +509,7 @@ export const prerender = false;
           if (!res.ok) throw new Error(`request failed: ${res.status}`);
           render((await res.json()) as Overview);
           status.hidden = true;
+          void loadBreakdown();
         } catch {
           status.hidden = false;
           status.textContent = "Could not load metrics. Try again.";
@@ -446,6 +517,14 @@ export const prerender = false;
           content.dataset.loading = "false";
         }
       }
+
+      const breakdownSelect = requireElement<HTMLElement>(
+        "#breakdown-dimension",
+        "admin",
+      ) as unknown as HTMLSelectElement;
+      breakdownSelect.addEventListener("change", () => {
+        void loadBreakdown();
+      });
 
       for (const button of document.querySelectorAll<HTMLButtonElement>("[data-days]")) {
         button.addEventListener("click", () => {

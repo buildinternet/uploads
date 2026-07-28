@@ -153,3 +153,24 @@
 #metrics-content[data-loading="true"] {
   opacity: 0.6;
 }
+
+/* Small explanatory line under a section heading — same treatment as
+   .admin-page-header p, scoped to this page since no other /admin/* section
+   currently needs one. */
+.admin-hint {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+#breakdown-panel label {
+  display: inline-block;
+  margin: 0 8px 10px 0;
+  font-size: 13px;
+  color: var(--body);
+}
+
+#breakdown-panel #breakdown-status {
+  margin: 8px 0;
+}
