@@ -278,6 +278,19 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     const since = sinceParam
       ? new Date(`${sinceParam}T00:00:00.000Z`)
       : new Date(Date.now() - 29 * 86_400_000);
+    // A digit-shaped but non-calendar date is either Invalid Date (e.g.
+    // month 2026-13-45, whose NaN bind would silently match nothing) or, for
+    // an out-of-range day-of-month, silently overflows into the next month
+    // (e.g. 2026-02-30 parses as 2026-03-02) instead of failing to parse.
+    // Round-tripping back to YYYY-MM-DD catches both — a dashboard should
+    // never show a confident "zero" for a question that was never validly
+    // asked.
+    if (
+      Number.isNaN(since.getTime()) ||
+      (sinceParam !== undefined && since.toISOString().slice(0, 10) !== sinceParam)
+    ) {
+      return c.json(errorJson("invalid_since", "`since` must be YYYY-MM-DD"), 400);
+    }
 
     const db = drizzle(c.env.DB, { schema });
     const userDay = DAY_EXPR(schema.user.createdAt);

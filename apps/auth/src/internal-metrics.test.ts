@@ -94,4 +94,14 @@ describe("GET /internal/metrics", () => {
     const res = await app().request("/internal/metrics?since=not-a-date", {}, env());
     expect(res.status).toBe(400);
   });
+
+  it("rejects a digit-shaped but out-of-range `since` (month 13, day 45)", async () => {
+    const res = await app().request("/internal/metrics?since=2026-13-45", {}, env());
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a digit-shaped but non-existent calendar date (Feb 30)", async () => {
+    const res = await app().request("/internal/metrics?since=2026-02-30", {}, env());
+    expect(res.status).toBe(400);
+  });
 });
