@@ -242,10 +242,11 @@ export const prerender = false;
         const yTicks = buildYTicks(niceMax);
         const gridlines = yTicks
           .map((t) => {
-            const y = baseline - (t / niceMax) * plotH;
+            const labelValue = Math.round(t);
+            const y = baseline - (labelValue / niceMax) * plotH;
             return (
               `<line x1="${marginLeft}" y1="${y}" x2="${W - marginRight}" y2="${y}" class="metrics-gridline" />` +
-              `<text x="${marginLeft - 6}" y="${y}" class="metrics-axis-label" text-anchor="end" dominant-baseline="middle">${escapeHtml(Math.round(t).toLocaleString())}</text>`
+              `<text x="${marginLeft - 6}" y="${y}" class="metrics-axis-label" text-anchor="end" dominant-baseline="middle">${escapeHtml(labelValue.toLocaleString())}</text>`
             );
           })
           .join("");
