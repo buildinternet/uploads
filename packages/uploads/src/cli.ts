@@ -9,7 +9,9 @@ import {
   parseCommandArgs,
   UsageError,
 } from "./cli-args.js";
-import { formatRootHelp, wantsFullHelp } from "./cli-help.js";
+import { formatRootHelp, formatUnknownCommand, wantsFullHelp } from "./cli-help.js";
+import { commandSummary, suggestCommand } from "./cli-suggest.js";
+import { writeJson } from "./io.js";
 import { colorEnabled, createStyle } from "./cli-style.js";
 import {
   runPut,
@@ -170,7 +172,7 @@ function errorOut(err: unknown, format: OutputFormat): void {
     err instanceof UploadsError
       ? { error: err.message, code: err.code, status: err.status }
       : err instanceof UsageError
-        ? { error: err.message, code: "USAGE" }
+        ? { error: err.message, code: "USAGE", ...(err.example ? { example: err.example } : {}) }
         : { error: err instanceof Error ? err.message : String(err) };
 
   if (format === "json") {
@@ -191,6 +193,12 @@ function errorOut(err: unknown, format: OutputFormat): void {
 
   if (msg.includes("\n")) process.stderr.write(`${msg}\n`);
   else process.stderr.write(`error: ${msg}\n`);
+
+  // A runnable line beats prose for both agents and humans; the `--help`
+  // pointer that follows stays for the full option list.
+  if (err instanceof UsageError && err.example) {
+    process.stderr.write(`  ${err.example}\n`);
+  }
 
   if (err instanceof UploadsError) {
     const hint = ERROR_HINTS[err.code];
@@ -426,13 +434,26 @@ export async function runCli(argv: string[]): Promise<number> {
         break;
       }
       default: {
-        const style = createStyle(colorEnabled(process.stderr));
-        process.stderr.write(`${style.error(`unknown command: ${parsed.command}`)}\n\n`);
-        await writeRootHelp({
-          full: false,
-          token: parsed.globals.token,
-          envFile: parsed.globals.envFile,
-        });
+        // Short, greppable, and suggestion-first (issue #545) — never the root
+        // help dump, which buried the error when agents piped through `tail`.
+        const suggestion = suggestCommand(parsed.command);
+        const message = `unknown command: ${parsed.command}`;
+        if (json) {
+          await writeJson({
+            error: message,
+            code: "USAGE",
+            ...(suggestion ? { didYouMean: suggestion } : {}),
+          });
+        } else {
+          process.stderr.write(
+            formatUnknownCommand({
+              command: parsed.command,
+              suggestion,
+              summary: suggestion ? commandSummary(suggestion) : undefined,
+              style: createStyle(colorEnabled(process.stderr)),
+            }),
+          );
+        }
         flushTelemetry(2);
         return 2;
       }

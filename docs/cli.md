@@ -9,6 +9,20 @@ This guide covers the everyday flows. For the full command list, the globals,
 and the exit codes, run `uploads help --all` or see
 [`packages/uploads/README.md`](../packages/uploads/README.md).
 
+Errors are short by design. A failure prints one `error:` line on stderr, a
+correct example invocation when an argument is missing, and a hint that names
+the help you want. Output you trim in a script or an agent still carries the
+reason:
+
+```text
+error: put requires at least one file
+  uploads put ./shot.png --pr 123
+hint: uploads put --help
+```
+
+A mistyped command suggests the closest real one —
+`uploads set-metadata` answers `did you mean: uploads meta set`.
+
 ## Getting started
 
 ```bash
@@ -216,7 +230,11 @@ uploads attach ./mobile-checkout.png \
 uploads find app=web path=/settings
 uploads meta get screenshots/myapp/42/settings.webp
 uploads meta set screenshots/myapp/42/settings.webp page=onboarding --delete path
+uploads meta set screenshots/myapp/42/settings.webp --meta page=onboarding
 ```
+
+`meta set` and `find` take pairs in either spelling: positional `k=v`, or the
+repeatable `--meta k=v` flag that `put`, `attach`, `screenshot`, and `list` use.
 
 Rules: keys match `^[a-z][a-z0-9._-]{0,63}$` (lowercase; dots allowed); values
 are 1–512 printable ASCII; at most 24 pairs per request. Re-uploading **with**

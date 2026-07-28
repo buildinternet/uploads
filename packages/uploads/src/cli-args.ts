@@ -95,9 +95,18 @@ export function parseArgv(argv: string[]): ParsedArgv {
 }
 
 export class UsageError extends Error {
-  constructor(message: string) {
+  /**
+   * A correct invocation to show under the error. Agents pattern-match on a
+   * runnable line far better than on prose, so every "you left out a required
+   * argument" error should carry one — the CLI prints it, and `--json`
+   * callers get it as `example`.
+   */
+  readonly example?: string;
+
+  constructor(message: string, options: { example?: string } = {}) {
     super(message);
     this.name = "UsageError";
+    this.example = options.example;
   }
 }
 

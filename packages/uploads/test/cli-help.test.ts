@@ -159,12 +159,58 @@ describe("runCli help", () => {
     expect(io.stderr()).not.toMatch(/reconcile/);
   });
 
-  it("unknown command shows essentials (not the full dump)", async () => {
+  it("unknown command stays short so `| tail` keeps the error (#545)", async () => {
     const io = captureStdio();
     const code = await runCli(["node", "uploads", "not-a-real-command"]);
     expect(code).toBe(2);
     expect(io.stderr()).toMatch(/unknown command: not-a-real-command/);
-    expect(io.stderr()).toMatch(/Essentials:/);
+    expect(io.stderr()).toMatch(/uploads help --all/);
+    // No banner, no command dump — the whole point is that it fits in a tail window.
+    expect(io.stderr()).not.toMatch(/Essentials:/);
     expect(io.stderr()).not.toMatch(/BUILDINTERNET_CONFIG/);
+    expect(io.stderr().trimEnd().split("\n").length).toBeLessThanOrEqual(8);
+  });
+
+  it("suggests the right command for a near miss", async () => {
+    const io = captureStdio();
+    const code = await runCli(["node", "uploads", "set-metadata"]);
+    expect(code).toBe(2);
+    expect(io.stderr()).toMatch(/unknown command: set-metadata/);
+    expect(io.stderr()).toMatch(/did you mean: uploads meta set/);
+  });
+
+  it("answers a missing argument with a reason and a runnable example (#545)", async () => {
+    const io = captureStdio();
+    const code = await runCli(["node", "uploads", "--token", "up_test_x", "find"]);
+    expect(code).toBe(2);
+    expect(io.stderr()).toMatch(/error: find requires at least one k=v pair/);
+    expect(io.stderr()).toMatch(/ {2}uploads find path=\/settings state=after/);
+    expect(io.stderr()).toMatch(/hint: uploads find --help/);
+    // The old behavior printed FIND_HELP, which `| tail` would have kept
+    // while dropping the reason.
+    expect(io.stderr()).not.toMatch(/Human-friendly alias/);
+    expect(io.stderr().trimEnd().split("\n").length).toBeLessThanOrEqual(4);
+  });
+
+  it("carries the example into the JSON error payload", async () => {
+    const io = captureStdio();
+    const code = await runCli(["node", "uploads", "--json", "--token", "up_test_x", "put"]);
+    expect(code).toBe(2);
+    expect(JSON.parse(io.stdout())).toMatchObject({
+      error: "put requires at least one file",
+      code: "USAGE",
+      example: "uploads put ./shot.png --pr 123",
+    });
+  });
+
+  it("reports an unknown command as JSON on stdout with --json", async () => {
+    const io = captureStdio();
+    const code = await runCli(["node", "uploads", "--json", "set-metadata"]);
+    expect(code).toBe(2);
+    expect(JSON.parse(io.stdout())).toMatchObject({
+      error: "unknown command: set-metadata",
+      code: "USAGE",
+      didYouMean: "meta set",
+    });
   });
 });

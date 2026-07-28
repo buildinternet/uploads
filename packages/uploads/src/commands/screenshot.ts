@@ -222,8 +222,9 @@ export async function runScreenshot(
 
   const target = parsed.positionals[0];
   if (!target) {
-    writeCommandHelp(SCREENSHOT_HELP);
-    return 2;
+    throw new UsageError("screenshot requires a target URL or .html file", {
+      example: "uploads screenshot http://localhost:4321/settings --out settings.png",
+    });
   }
   if (parsed.positionals.length > 1) {
     throw new UsageError("screenshot takes exactly one target");

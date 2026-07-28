@@ -223,6 +223,41 @@ ${style.muted("     uploads help --all    this full listing")}
 `;
 }
 
+export interface UnknownCommandOptions {
+  /** The command the caller typed. */
+  command: string;
+  /** Suggested command phrase, from `suggestCommand`. */
+  suggestion?: string;
+  /** Catalog summary for the suggestion, shown beside it. */
+  summary?: string;
+  color?: boolean;
+  style?: CliStyle;
+}
+
+/**
+ * Unknown-command output: deliberately a handful of lines, not the root help
+ * dump (issue #545). Agents trim command output (`| tail -20`), and a 27-line
+ * banner pushed the one line that mattered — the error — out of the window.
+ * Short output survives truncation, and the pointers below still lead to the
+ * full list.
+ */
+export function formatUnknownCommand(options: UnknownCommandOptions): string {
+  const style =
+    options.style ??
+    createStyle(options.color !== undefined ? options.color : colorEnabled(process.stderr));
+  const lines = [style.error(`unknown command: ${options.command}`)];
+  if (options.suggestion) {
+    const summary = options.summary ? `  ${style.body(options.summary)}` : "";
+    lines.push("", `did you mean: ${style.command(`uploads ${options.suggestion}`)}${summary}`);
+  }
+  lines.push(
+    "",
+    `  ${padCmd("uploads help --all", CMD_WIDTH, style)}${style.body("Full command list")}`,
+    `  ${padCmd("uploads <cmd> --help", CMD_WIDTH, style)}${style.body("Per-command options and examples")}`,
+  );
+  return `${lines.join("\n")}\n`;
+}
+
 /**
  * Root help text. Default is a short essentials view; pass `full: true` for
  * the complete command + config dump (`uploads help --all`).

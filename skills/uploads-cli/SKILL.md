@@ -573,9 +573,15 @@ the PR comment` instead, and either way the metadata write itself never fails.
 ```bash
 uploads meta get screenshots/myapp/42/settings.webp
 uploads meta set screenshots/myapp/42/settings.webp path=/onboarding --delete url
+uploads meta set screenshots/myapp/42/settings.webp --meta path=/onboarding  # same thing
 uploads list --meta app=web --meta path=/settings   # ANDed, repeatable
 uploads find app=web path=/settings                 # same filter, positional pairs
+uploads find --meta app=web                         # --meta works here too
 ```
+
+`meta set` and `find` accept pairs in either spelling: positional `k=v`, or the
+repeatable `--meta k=v` that `put`, `attach`, `screenshot`, and `list` use. Both
+forms can appear in one call.
 
 On the default `screenshots/…` path, `put` also auto-derives GitHub context and
 stamps `gh.repo`/`gh.kind`/`gh.number`/`gh.ref` from the current branch's PR (or
@@ -773,6 +779,7 @@ uploads find app=myapp page=settings       # same filter, human-friendly positio
 uploads list --all --json                  # paginate fully, machine-readable
 uploads meta get <key>                     # show an object's metadata
 uploads meta set <key> k=v [k=v…] [--delete k]…   # merge-set / delete metadata pairs
+uploads meta set <key> --meta k=v                  # same, in put/list's flag spelling
 uploads delete <key>                       # remove an object
 uploads delete <key> --dry-run             # show what would be deleted
 uploads usage                              # storage / monthly upload counters (+ limits)
@@ -840,6 +847,13 @@ uploads --api-url http://localhost:8787 doctor
   `--json` emits `{error,code,status}` — branch on `code`. Scripted formats
   (`json|url|markdown`) also print failures on stdout. Usage errors:
   `hint: uploads <cmd> --help`.
+- **Errors stay short (stderr), so trimming output never hides them.** A missing
+  argument prints one `error:` line, a runnable example (`uploads put
+./shot.png --pr 123`), and that hint — not the command's help. In `--json`
+  the example rides along as `example`. A
+  mistyped command prints the error, a `did you mean: uploads <cmd>` line, and
+  the help pointers; with `--json` it returns `{error,code:"USAGE",didYouMean}`
+  on stdout. Read the first line; run `uploads <cmd> --help` for the full help.
 - **Update hints (stderr):** successful human runs may note a newer npm release
   (daily). Silence with `--quiet` / `--json` / `UPLOADS_NO_UPDATE=1`.
 - **Telemetry:** anonymous command-name pings (no paths/tokens). Opt out with

@@ -1377,8 +1377,9 @@ export async function runAttach(
   const branchArg = branchFromFlags(parsed.flags, run);
 
   if (parsed.positionals.length === 0) {
-    writeCommandHelp(ATTACH_HELP);
-    return 2;
+    throw new UsageError("attach requires at least one file", {
+      example: "uploads attach ./shot.png --pr 123",
+    });
   }
 
   if (branchArg !== undefined) {
@@ -2074,8 +2075,9 @@ export async function runPut(
 
   const files = parsed.positionals;
   if (files.length === 0) {
-    writeCommandHelp(PUT_HELP);
-    return 2;
+    throw new UsageError("put requires at least one file", {
+      example: "uploads put ./shot.png --pr 123",
+    });
   }
   const multi = files.length > 1;
 
@@ -2536,15 +2538,25 @@ function githubCoordinateFromFlags(flags: CommandFlags["flags"]): string {
 export async function runGallery(ctx: CliContext, args: string[], help = false): Promise<number> {
   const parsed = parseCommandArgs(args);
   const action = parsed.positionals[0];
-  if (help || parsed.help || !action) {
+  if (help || parsed.help) {
     writeCommandHelp(GALLERY_HELP);
-    return help || parsed.help ? 0 : 2;
+    return 0;
+  }
+  if (!action) {
+    throw new UsageError(
+      "gallery requires a subcommand: create, show, list, delete, add, link, or unlink",
+      { example: 'uploads gallery create --title "Release screenshots"' },
+    );
   }
 
   switch (action) {
     case "create": {
       const title = flagString(parsed.flags, "--title");
-      if (!title) throw new UsageError("gallery create requires --title");
+      if (!title) {
+        throw new UsageError("gallery create requires --title", {
+          example: 'uploads gallery create --title "Release screenshots"',
+        });
+      }
       const gallery = await ctx.client.createGallery({
         title,
         description: flagString(parsed.flags, "--description"),
@@ -2694,7 +2706,10 @@ export async function runGallery(ctx: CliContext, args: string[], help = false):
       return failures.length === 0 ? 0 : 1;
     }
     default:
-      throw new UsageError(`unknown gallery command: ${action}`);
+      throw new UsageError(
+        `unknown gallery command: ${action} (expected create, show, list, delete, add, link, or unlink)`,
+        { example: 'uploads gallery create --title "Release screenshots"' },
+      );
   }
 }
 
@@ -2800,11 +2815,12 @@ export async function runList(
 const FIND_HELP = `uploads find k=v [k=v...] [--prefix <p>] [--limit <n>] [--workspace <name>]
 
 Human-friendly alias for \`uploads list --meta k=v...\` — same metadata filter
-(ANDed equality), same output; pairs are positional instead of repeated flags.
+(ANDed equality), same output; pairs are positional, or spelled --meta k=v.
 
 Examples:
   uploads find gh.repo=buildinternet/uploads gh.number=123
   uploads find path=/settings state=after --prefix screenshots/
+  uploads find --meta path=/settings
 `;
 
 export async function runFind(ctx: CliContext, args: string[], help = false): Promise<number> {
@@ -2813,11 +2829,15 @@ export async function runFind(ctx: CliContext, args: string[], help = false): Pr
     writeCommandHelp(FIND_HELP);
     return 0;
   }
-  if (parsed.positionals.length === 0) {
-    writeCommandHelp(FIND_HELP);
-    return 2;
+  // Same flag/positional symmetry as `meta set` (issue #545): `find` is the
+  // alias for `list --meta`, so `find --meta k=v` must not dead-end.
+  const pairs = [...parsed.positionals, ...flagValues(parsed.flags, "--meta")];
+  if (pairs.length === 0) {
+    throw new UsageError("find requires at least one k=v pair (or --meta k=v)", {
+      example: "uploads find path=/settings state=after",
+    });
   }
-  const filters = parseMetaFlags(parsed.positionals);
+  const filters = parseMetaFlags(pairs);
   return runFindFiles(ctx, filters, parsed.flags);
 }
 
@@ -2832,24 +2852,37 @@ Commands:
   get <key>                            Show metadata for an object
   set <key> k=v [k=v...] [--delete k]...   Merge-set and/or delete pairs
 
+Pairs take either form: positional k=v, or --meta k=v (same spelling as
+put/screenshot/list). Both can appear in one call.
+
 Examples:
   uploads meta get screenshots/myapp/42/shot.png
   uploads meta set screenshots/myapp/42/shot.png path=/settings state=after
+  uploads meta set screenshots/myapp/42/shot.png --meta path=/settings
   uploads meta set screenshots/myapp/42/shot.png --delete path --delete state
 `;
 
 export async function runMeta(ctx: CliContext, args: string[], help = false): Promise<number> {
   const parsed = parseCommandArgs(args);
   const action = parsed.positionals[0];
-  if (help || parsed.help || !action) {
+  if (help || parsed.help) {
     writeCommandHelp(META_HELP);
-    return help || parsed.help ? 0 : 2;
+    return 0;
+  }
+  if (!action) {
+    throw new UsageError("meta requires a subcommand: get or set", {
+      example: "uploads meta set screenshots/myapp/42/shot.png --meta path=/settings",
+    });
   }
 
   switch (action) {
     case "get": {
       const key = parsed.positionals[1];
-      if (!key) throw new UsageError("meta get requires an object key");
+      if (!key) {
+        throw new UsageError("meta get requires an object key", {
+          example: "uploads meta get screenshots/myapp/42/shot.png",
+        });
+      }
       const result = await ctx.client.getMetadata(key);
       if (ctx.json) await writeJson(result);
       else if (Object.keys(result.metadata).length === 0) {
@@ -2860,11 +2893,22 @@ export async function runMeta(ctx: CliContext, args: string[], help = false): Pr
     }
     case "set": {
       const key = parsed.positionals[1];
-      if (!key) throw new UsageError("meta set requires an object key");
-      const pairs = parsed.positionals.slice(2);
+      if (!key) {
+        throw new UsageError("meta set requires an object key", {
+          example: "uploads meta set screenshots/myapp/42/shot.png --meta path=/settings",
+        });
+      }
+      // `--meta k=v` is accepted alongside the positional form: `put`, `list`,
+      // and `screenshot` all spell metadata that way, and `put`'s own success
+      // tip teaches the flag, so carrying it here is the natural guess
+      // (issue #545). Positionals come first so argument order still reads
+      // left to right when both are used.
+      const pairs = [...parsed.positionals.slice(2), ...flagValues(parsed.flags, "--meta")];
       const del = flagValues(parsed.flags, "--delete");
       if (pairs.length === 0 && del.length === 0) {
-        throw new UsageError("meta set requires k=v pairs and/or --delete <key>");
+        throw new UsageError("meta set requires k=v pairs and/or --delete <key>", {
+          example: `uploads meta set ${key} --meta path=/settings`,
+        });
       }
       const set = pairs.length > 0 ? parseMetaFlags(pairs) : undefined;
       const result = await ctx.client.patchMetadata(key, {
@@ -2877,7 +2921,9 @@ export async function runMeta(ctx: CliContext, args: string[], help = false): Pr
       return 0;
     }
     default:
-      throw new UsageError(`unknown meta command: ${action}`);
+      throw new UsageError(`unknown meta command: ${action} (expected get or set)`, {
+        example: "uploads meta get screenshots/myapp/42/shot.png",
+      });
   }
 }
 
@@ -2945,8 +2991,9 @@ export async function runDelete(ctx: CliContext, args: string[], help = false): 
   }
   const key = parsed.positionals[0];
   if (!key) {
-    writeCommandHelp(DELETE_HELP);
-    return 2;
+    throw new UsageError("delete requires an object key", {
+      example: "uploads delete screenshots/myapp/42/shot.png --dry-run",
+    });
   }
   if (flagBool(parsed.flags, "--dry-run")) {
     if (ctx.json) await writeJson({ key, deleted: false, dryRun: true });
@@ -2990,7 +3037,11 @@ export async function runComment(
     return 0;
   }
   const target = ghTargetFromFlags(parsed.flags, run);
-  if (!target) throw new UsageError("comment requires --pr or --issue");
+  if (!target) {
+    throw new UsageError("comment requires --pr or --issue", {
+      example: "uploads comment --pr 123",
+    });
+  }
 
   const result = await syncAttachmentsComment(ctx.client, target, run, ctx.config.workspace, {
     resync: true,
@@ -3197,7 +3248,9 @@ export async function runGithub(
     return help || parsed.help ? 0 : 2;
   }
   if (action !== "link" && action !== "unlink" && action !== "doctor") {
-    throw new UsageError(`unknown github subcommand: ${action}`);
+    throw new UsageError(`unknown github subcommand: ${action} (expected link or doctor)`, {
+      example: "uploads github link",
+    });
   }
 
   if (action === "doctor") return runGithubDoctor(ctx);

@@ -66,8 +66,9 @@ export async function runAnnotate(
 
   const imagePath = parsed.positionals[0];
   if (!imagePath) {
-    writeCommandHelp(ANNOTATE_HELP);
-    return 2;
+    throw new UsageError("annotate requires an image path", {
+      example: "uploads annotate ./shot.png --spec ./callouts.json",
+    });
   }
   if (parsed.positionals.length > 1) {
     throw new UsageError("annotate takes exactly one image argument");
