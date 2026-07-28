@@ -37,6 +37,7 @@ import {
 import { allowWrite } from "../guards";
 import { throwForInviteError } from "../invite-error";
 import { deriveWebOrigin, inviteLinkUrl } from "../invite-links";
+import { ALLOWED_WINDOWS, cachedOverview } from "../metrics-overview";
 import {
   invitesForOrg,
   membersForOrg,
@@ -348,6 +349,20 @@ async function limitsResponse(env: Env, name: string, record: WorkspaceRecord) {
 
 export const adminUi = new Hono<SessionVars>()
   .use("/*", sessionAuth, requireSessionUser, requireAdminUser)
+
+  // Cached operator adoption-metrics overview (D1 rollups + auth-worker
+  // signup history). `days` selects the window; only ALLOWED_WINDOWS are
+  // accepted so the cache stays small. `fresh=1` bypasses the KV cache.
+  .get("/metrics/overview", async (c) => {
+    const raw = c.req.query("days");
+    const days = raw === undefined ? 30 : Number(raw);
+    if (!ALLOWED_WINDOWS.includes(days as (typeof ALLOWED_WINDOWS)[number])) {
+      throw new ValidationError(`days must be one of ${ALLOWED_WINDOWS.join(", ")}`, {
+        code: "invalid_window",
+      });
+    }
+    return c.json(await cachedOverview(c.env, days, c.req.query("fresh") === "1"));
+  })
 
   // List every KV workspace joined with its org + member/invite counts.
   .get("/workspaces", async (c) => {
