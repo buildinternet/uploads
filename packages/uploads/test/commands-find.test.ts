@@ -48,6 +48,17 @@ describe("runFind", () => {
     expect(calls[0].filters).toEqual({ "gh.repo": "buildinternet/uploads", "gh.number": "123" });
   });
 
+  it("also accepts the --meta k=v spelling (#545)", async () => {
+    const { client, calls } = fakeClient();
+    const code = await runFind(
+      ctxWith(client),
+      ["--meta", "path=/settings", "--meta", "state=after"],
+      false,
+    );
+    expect(code).toBe(0);
+    expect(calls[0].filters).toEqual({ path: "/settings", state: "after" });
+  });
+
   it("requires at least one pair", async () => {
     const { client } = fakeClient();
     expect(await runFind(ctxWith(client), [], false)).toBe(2);

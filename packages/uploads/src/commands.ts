@@ -2800,11 +2800,12 @@ export async function runList(
 const FIND_HELP = `uploads find k=v [k=v...] [--prefix <p>] [--limit <n>] [--workspace <name>]
 
 Human-friendly alias for \`uploads list --meta k=v...\` — same metadata filter
-(ANDed equality), same output; pairs are positional instead of repeated flags.
+(ANDed equality), same output; pairs are positional, or spelled --meta k=v.
 
 Examples:
   uploads find gh.repo=buildinternet/uploads gh.number=123
   uploads find path=/settings state=after --prefix screenshots/
+  uploads find --meta path=/settings
 `;
 
 export async function runFind(ctx: CliContext, args: string[], help = false): Promise<number> {
@@ -2813,11 +2814,14 @@ export async function runFind(ctx: CliContext, args: string[], help = false): Pr
     writeCommandHelp(FIND_HELP);
     return 0;
   }
-  if (parsed.positionals.length === 0) {
+  // Same flag/positional symmetry as `meta set` (issue #545): `find` is the
+  // alias for `list --meta`, so `find --meta k=v` must not dead-end.
+  const pairs = [...parsed.positionals, ...flagValues(parsed.flags, "--meta")];
+  if (pairs.length === 0) {
     writeCommandHelp(FIND_HELP);
     return 2;
   }
-  const filters = parseMetaFlags(parsed.positionals);
+  const filters = parseMetaFlags(pairs);
   return runFindFiles(ctx, filters, parsed.flags);
 }
 
@@ -2832,9 +2836,13 @@ Commands:
   get <key>                            Show metadata for an object
   set <key> k=v [k=v...] [--delete k]...   Merge-set and/or delete pairs
 
+Pairs take either form: positional k=v, or --meta k=v (same spelling as
+put/screenshot/list). Both can appear in one call.
+
 Examples:
   uploads meta get screenshots/myapp/42/shot.png
   uploads meta set screenshots/myapp/42/shot.png path=/settings state=after
+  uploads meta set screenshots/myapp/42/shot.png --meta path=/settings
   uploads meta set screenshots/myapp/42/shot.png --delete path --delete state
 `;
 
@@ -2861,7 +2869,12 @@ export async function runMeta(ctx: CliContext, args: string[], help = false): Pr
     case "set": {
       const key = parsed.positionals[1];
       if (!key) throw new UsageError("meta set requires an object key");
-      const pairs = parsed.positionals.slice(2);
+      // `--meta k=v` is accepted alongside the positional form: `put`, `list`,
+      // and `screenshot` all spell metadata that way, and `put`'s own success
+      // tip teaches the flag, so carrying it here is the natural guess
+      // (issue #545). Positionals come first so argument order still reads
+      // left to right when both are used.
+      const pairs = [...parsed.positionals.slice(2), ...flagValues(parsed.flags, "--meta")];
       const del = flagValues(parsed.flags, "--delete");
       if (pairs.length === 0 && del.length === 0) {
         throw new UsageError("meta set requires k=v pairs and/or --delete <key>");

@@ -120,6 +120,35 @@ describe("runMeta set", () => {
     });
   });
 
+  it("accepts --meta k=v, the spelling put/list use (#545)", async () => {
+    const { client, patchCalls } = fakeClient();
+    const code = await runMeta(
+      ctxWith(client),
+      ["set", "screenshots/a.png", "--meta", "path=/settings", "--meta", "state=after"],
+      false,
+    );
+    expect(code).toBe(0);
+    expect(patchCalls[0]).toEqual({
+      key: "screenshots/a.png",
+      set: { path: "/settings", state: "after" },
+      delete: undefined,
+    });
+  });
+
+  it("merges positional pairs with --meta pairs", async () => {
+    const { client, patchCalls } = fakeClient();
+    await runMeta(
+      ctxWith(client),
+      ["set", "screenshots/a.png", "app=myapp", "--meta", "path=/settings"],
+      false,
+    );
+    expect(patchCalls[0]).toEqual({
+      key: "screenshots/a.png",
+      set: { app: "myapp", path: "/settings" },
+      delete: undefined,
+    });
+  });
+
   it("requires a key", async () => {
     const { client } = fakeClient();
     await expect(runMeta(ctxWith(client), ["set"], false)).rejects.toThrow(UsageError);

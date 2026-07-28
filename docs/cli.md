@@ -216,7 +216,11 @@ uploads attach ./mobile-checkout.png \
 uploads find app=web path=/settings
 uploads meta get screenshots/myapp/42/settings.webp
 uploads meta set screenshots/myapp/42/settings.webp page=onboarding --delete path
+uploads meta set screenshots/myapp/42/settings.webp --meta page=onboarding
 ```
+
+`meta set` and `find` take pairs in either spelling: positional `k=v`, or the
+repeatable `--meta k=v` flag that `put`, `attach`, `screenshot`, and `list` use.
 
 Rules: keys match `^[a-z][a-z0-9._-]{0,63}$` (lowercase; dots allowed); values
 are 1–512 printable ASCII; at most 24 pairs per request. Re-uploading **with**

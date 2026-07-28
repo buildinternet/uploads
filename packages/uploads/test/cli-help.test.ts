@@ -159,12 +159,34 @@ describe("runCli help", () => {
     expect(io.stderr()).not.toMatch(/reconcile/);
   });
 
-  it("unknown command shows essentials (not the full dump)", async () => {
+  it("unknown command stays short so `| tail` keeps the error (#545)", async () => {
     const io = captureStdio();
     const code = await runCli(["node", "uploads", "not-a-real-command"]);
     expect(code).toBe(2);
     expect(io.stderr()).toMatch(/unknown command: not-a-real-command/);
-    expect(io.stderr()).toMatch(/Essentials:/);
+    expect(io.stderr()).toMatch(/uploads help --all/);
+    // No banner, no command dump — the whole point is that it fits in a tail window.
+    expect(io.stderr()).not.toMatch(/Essentials:/);
     expect(io.stderr()).not.toMatch(/BUILDINTERNET_CONFIG/);
+    expect(io.stderr().trimEnd().split("\n").length).toBeLessThanOrEqual(8);
+  });
+
+  it("suggests the right command for a near miss", async () => {
+    const io = captureStdio();
+    const code = await runCli(["node", "uploads", "set-metadata"]);
+    expect(code).toBe(2);
+    expect(io.stderr()).toMatch(/unknown command: set-metadata/);
+    expect(io.stderr()).toMatch(/did you mean: uploads meta set/);
+  });
+
+  it("reports an unknown command as JSON on stdout with --json", async () => {
+    const io = captureStdio();
+    const code = await runCli(["node", "uploads", "--json", "set-metadata"]);
+    expect(code).toBe(2);
+    expect(JSON.parse(io.stdout())).toMatchObject({
+      error: "unknown command: set-metadata",
+      code: "USAGE",
+      didYouMean: "meta set",
+    });
   });
 });
