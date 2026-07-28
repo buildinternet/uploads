@@ -49,6 +49,16 @@ export class SqliteStatement {
   }
 
   runSync() {
+    // SELECTs need `.all()` — `.run()` executes them but never returns rows.
+    // Mutations use `.run()` so callers (e.g. inside `db.batch()`) can still
+    // read `meta.changes`.
+    if (/^\s*SELECT\b/i.test(this.sql)) {
+      return {
+        success: true,
+        results: this.owner.db.prepare(this.sql).all(...this.values),
+        meta: {},
+      };
+    }
     const result = this.owner.db.prepare(this.sql).run(...this.values);
     return {
       success: true,

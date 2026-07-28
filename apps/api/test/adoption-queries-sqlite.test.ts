@@ -131,6 +131,20 @@ describe("featureTotals", () => {
       sqlite.close();
     }
   });
+
+  it("excludes days before the window", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      const db = database(sqlite);
+      await seed(db);
+      // seed() writes an "upload" row on 2026-07-26 (count 1) and more on
+      // 2026-07-28 (count 2); a `since` after the earlier day must drop only
+      // that earlier count, not the metric entirely.
+      expect(await featureTotals(db, "2026-07-27")).toEqual({ upload: 2, gallery_created: 1 });
+    } finally {
+      sqlite.close();
+    }
+  });
 });
 
 describe("platformStorage", () => {

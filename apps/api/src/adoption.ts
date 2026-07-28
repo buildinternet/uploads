@@ -10,13 +10,21 @@
  * and continues on failure, because a metrics write must never fail an upload.
  */
 
-export type AdoptionMetric =
-  | "upload"
-  | "delete"
-  | "workspace_created"
-  | "gallery_created"
-  | "comment_posted"
-  | "repo_linked";
+/**
+ * Every adoption metric. The union is DERIVED from this array so the two can
+ * never drift — `featureTotals` iterates it to issue one index-seeking query
+ * per metric (see adoption-queries.ts).
+ */
+export const ADOPTION_METRICS = [
+  "upload",
+  "delete",
+  "workspace_created",
+  "gallery_created",
+  "comment_posted",
+  "repo_linked",
+] as const;
+
+export type AdoptionMetric = (typeof ADOPTION_METRICS)[number];
 
 /**
  * Which server-side entry point wrote an upload. There is no way to tell a

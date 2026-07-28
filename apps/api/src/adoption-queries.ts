@@ -5,11 +5,18 @@
  * a future digest-email cron can call these directly instead of making an
  * HTTP hop through /admin-ui.
  *
- * D1 bills rows read, so every query here is windowed by `day >= ?` and is
- * served from one of the two covering indexes:
+ * D1 bills rows read, so every query here binds both `metric` and `day >= ?`
+ * and is served from one of the two covering indexes:
  *   - platform-level reads hit `daily_metrics_platform_idx` (partial on
- *     `workspace = ''`) and cost one entry per day in the window, regardless
- *     of how many workspaces exist;
+ *     `workspace = ''`), which is keyed `(metric, day, ...)`. Binding
+ *     `metric` lets D1 SEEK straight to the window instead of scanning the
+ *     whole partial index with `day >= ?` as a residual filter, so cost is
+ *     one entry per day in the window (per metric), regardless of how many
+ *     workspaces exist. `featureTotals` needs a total per metric, so it
+ *     issues one bound-`metric` query per `ADOPTION_METRICS` entry, batched
+ *     into a single round trip, rather than a single unbound `GROUP BY
+ *     metric` query — the latter would leave the index's leading column
+ *     unconstrained and force a full scan;
  *   - per-workspace reads hit `daily_metrics_window_idx`, which carries
  *     count/bytes so there is no per-row table lookup. The table is sparse —
  *     a row exists only for a (metric, day, workspace) with real activity —
@@ -17,7 +24,7 @@
  */
 
 import type { AdoptionMetric } from "./adoption";
-import { utcDay } from "./adoption";
+import { ADOPTION_METRICS, utcDay } from "./adoption";
 
 export interface DayPoint {
   day: string;
@@ -98,21 +105,36 @@ export async function activeWorkspaceCount(db: D1Database, since: string): Promi
   return row?.n ?? 0;
 }
 
-/** Per-metric event totals in the window, from platform rows only. */
+/**
+ * Per-metric event totals in the window, from platform rows only.
+ *
+ * Issues one bound-`metric` query per entry in `ADOPTION_METRICS`, batched
+ * into a single round trip, rather than one unbound `GROUP BY metric` query.
+ * `metric` leads the `daily_metrics_platform_idx` index, so leaving it
+ * unconstrained forces a full partial-index SCAN with `day >= ?` applied as a
+ * residual filter — cost grows with total table history, not window size.
+ * Binding `metric` lets each query SEEK to `(metric, day >= ?)` instead,
+ * mirroring the pattern the other queries in this module already use.
+ */
 export async function featureTotals(
   db: D1Database,
   since: string,
 ): Promise<Record<string, number>> {
-  const result = await db
-    .prepare(
-      `SELECT metric, SUM(count) AS total FROM daily_metrics
-       WHERE workspace = '' AND day >= ?
-       GROUP BY metric`,
-    )
-    .bind(since)
-    .all<{ metric: string; total: number }>();
+  const results = await db.batch<{ total: number | null }>(
+    ADOPTION_METRICS.map((metric) =>
+      db
+        .prepare(
+          `SELECT SUM(count) AS total FROM daily_metrics
+           WHERE metric = ? AND workspace = '' AND day >= ?`,
+        )
+        .bind(metric, since),
+    ),
+  );
   const totals: Record<string, number> = {};
-  for (const row of result.results) totals[row.metric] = row.total;
+  ADOPTION_METRICS.forEach((metric, index) => {
+    const total = results[index]?.results[0]?.total;
+    if (typeof total === "number") totals[metric] = total;
+  });
   return totals;
 }
 
