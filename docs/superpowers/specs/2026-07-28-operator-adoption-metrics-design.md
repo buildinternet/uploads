@@ -29,7 +29,11 @@ them directly.
   authoritative upload count.
 
 One exception, and it is a useful one: `user.created_at` and
-`organization.created_at` in the auth D1 are populated epoch-ms columns.
+`organization.created_at` in the auth D1 are populated epoch-**second**
+columns (drizzle `integer(..., { mode: "timestamp" })` divides by 1000 on
+write — `timestamp_ms` would be milliseconds, and this is not that). Grouping
+SQL must therefore read `strftime('%Y-%m-%d', created_at, 'unixepoch')` with no
+`/1000`.
 **Registration history is therefore fully retroactive with no instrumentation
 at all.** Only uploads and feature counters start from deploy day.
 
