@@ -13,6 +13,7 @@ const MIGRATION = [
   "migrations/20260711180000_galleries.sql",
   "migrations/20260713210559_file_metadata.sql",
   "migrations/20260720120000_github_repo_links.sql",
+  "migrations/20260728120000_daily_metrics.sql",
 ];
 const PRAGMAS = ["PRAGMA foreign_keys = ON"];
 
@@ -59,6 +60,18 @@ function withFetch<T>(impl: typeof fetch, fn: () => Promise<T>): Promise<T> {
   });
 }
 
+/**
+ * Every recorded adoption event writes TWO rows (per-workspace + platform
+ * total, workspace = ''), by design — see 20260728120000_daily_metrics.sql.
+ * Mirrors the query style in github-repo-links-sqlite.test.ts.
+ */
+async function commentPostedRows(db: D1Database): Promise<{ workspace: string }[]> {
+  const { results } = await db
+    .prepare(`SELECT workspace FROM daily_metrics WHERE metric = 'comment_posted'`)
+    .all<{ workspace: string }>();
+  return results;
+}
+
 describe("postManagedComment empty-state (issue #392 stretch)", () => {
   it("empties an existing comment (updated, count 0) when all media is removed", async () => {
     const { env, ws, workspaceName } = await makeTestEnv();
@@ -89,6 +102,13 @@ describe("postManagedComment empty-state (issue #392 stretch)", () => {
       }),
     );
     expect(r).toMatchObject({ posted: true, action: "updated", count: 0 });
+
+    // comment_posted wiring (issue: locking in the convergence-point call):
+    // one posted event writes two rows — the per-workspace row and the
+    // platform total (workspace = '') — never zero, never duplicated.
+    const rows = await commentPostedRows(env.DB);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.workspace).sort()).toEqual(["", "acme"]);
   });
 
   it("no-ops (skipped) when empty and no comment exists", async () => {
@@ -109,5 +129,9 @@ describe("postManagedComment empty-state (issue #392 stretch)", () => {
       }),
     );
     expect(r).toMatchObject({ posted: true, action: "skipped", count: 0 });
+
+    // The "skipped" early return must precede the comment_posted call —
+    // nothing was actually posted, so nothing should be recorded.
+    expect(await commentPostedRows(env.DB)).toHaveLength(0);
   });
 });
