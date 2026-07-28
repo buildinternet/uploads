@@ -118,6 +118,18 @@
       "migrations_dir": "migrations",
     },
   ],
+  // Analytics Engine dataset for wide per-upload dimensions (surface, content
+  // type, client, plan, repo) that would never justify D1 columns. Purely
+  // additive: src/adoption.ts treats an absent ANALYTICS binding as a no-op,
+  // so deleting this block disables the breakdown panel and nothing else.
+  // Reads need ANALYTICS_API_TOKEN (an account token with Account Analytics:
+  // Read) set via `wrangler secret put` — there is no read binding.
+  "analytics_engine_datasets": [
+    {
+      "binding": "ANALYTICS",
+      "dataset": "uploads_adoption",
+    },
+  ],
   // Service binding to apps/auth (Phase 2, plan D1): forwards Cookie/
   // Authorization to GET /api/auth/get-session over the binding — no public
   // hop, no CORS. See src/session-auth.ts.

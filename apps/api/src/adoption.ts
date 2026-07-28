@@ -92,6 +92,54 @@ export async function bumpDailyMetric(
 }
 
 /**
+ * Blob positions are a contract with the SQL read path (analytics-engine.ts)
+ * — Analytics Engine has no column names, only ordinals. Append new
+ * dimensions at the END; never reorder or remove, or historical rows change
+ * meaning retroactively.
+ */
+export const BLOB_ORDER = [
+  "workspace",
+  "surface",
+  "contentType",
+  "client",
+  "plan",
+  "repo",
+] as const;
+
+/**
+ * One wide data point per upload. Upload-only by design: the other metrics are
+ * low-volume and fully served by D1, so sending them here would add a second
+ * place to look without adding an answer.
+ *
+ * Never throws and never awaits — an absent binding (self-hosters, tests,
+ * local dev) is a silent no-op.
+ */
+export function writeAdoptionPoint(env: Env, event: AdoptionEvent): void {
+  if (event.metric !== "upload") return;
+  const analytics = (env as { ANALYTICS?: AnalyticsEngineDataset }).ANALYTICS;
+  if (!analytics) return;
+  const d = event.dimensions ?? {};
+  try {
+    analytics.writeDataPoint({
+      // Sampling key: keeps one workspace's traffic from crowding out another.
+      indexes: [event.workspace],
+      blobs: [
+        event.workspace,
+        d.surface ?? "",
+        d.contentType ?? "",
+        d.client ?? "",
+        d.plan ?? "",
+        d.repo ?? "",
+      ],
+      doubles: [normalizeBytes(event.bytes)],
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(JSON.stringify({ message: "adoption analytics write failed", error: message }));
+  }
+}
+
+/**
  * Best-effort adoption recording: log and continue if the write fails.
  * Safe to await on any request path — it never throws.
  */
@@ -100,6 +148,7 @@ export async function recordAdoptionSafe(
   event: AdoptionEvent,
   now = new Date(),
 ): Promise<void> {
+  writeAdoptionPoint(env, event);
   try {
     await bumpDailyMetric(env.DB, event, now);
   } catch (err) {
