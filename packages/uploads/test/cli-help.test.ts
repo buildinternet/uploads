@@ -179,16 +179,28 @@ describe("runCli help", () => {
     expect(io.stderr()).toMatch(/did you mean: uploads meta set/);
   });
 
-  it("answers a missing argument with a reason, not a help dump (#545)", async () => {
+  it("answers a missing argument with a reason and a runnable example (#545)", async () => {
     const io = captureStdio();
     const code = await runCli(["node", "uploads", "--token", "up_test_x", "find"]);
     expect(code).toBe(2);
     expect(io.stderr()).toMatch(/error: find requires at least one k=v pair/);
+    expect(io.stderr()).toMatch(/ {2}uploads find path=\/settings state=after/);
     expect(io.stderr()).toMatch(/hint: uploads find --help/);
     // The old behavior printed FIND_HELP, which `| tail` would have kept
     // while dropping the reason.
     expect(io.stderr()).not.toMatch(/Human-friendly alias/);
-    expect(io.stderr().trimEnd().split("\n").length).toBeLessThanOrEqual(3);
+    expect(io.stderr().trimEnd().split("\n").length).toBeLessThanOrEqual(4);
+  });
+
+  it("carries the example into the JSON error payload", async () => {
+    const io = captureStdio();
+    const code = await runCli(["node", "uploads", "--json", "--token", "up_test_x", "put"]);
+    expect(code).toBe(2);
+    expect(JSON.parse(io.stdout())).toMatchObject({
+      error: "put requires at least one file",
+      code: "USAGE",
+      example: "uploads put ./shot.png --pr 123",
+    });
   });
 
   it("reports an unknown command as JSON on stdout with --json", async () => {

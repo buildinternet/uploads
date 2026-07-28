@@ -9,9 +9,18 @@ This guide covers the everyday flows. For the full command list, the globals,
 and the exit codes, run `uploads help --all` or see
 [`packages/uploads/README.md`](../packages/uploads/README.md).
 
-Errors are short by design. A failure prints one `error:` line on stderr and a
-hint that names the help you want, so output you trim in a script or an agent
-still carries the reason. A mistyped command suggests the closest real one —
+Errors are short by design. A failure prints one `error:` line on stderr, a
+correct example invocation when an argument is missing, and a hint that names
+the help you want. Output you trim in a script or an agent still carries the
+reason:
+
+```text
+error: put requires at least one file
+  uploads put ./shot.png --pr 123
+hint: uploads put --help
+```
+
+A mistyped command suggests the closest real one —
 `uploads set-metadata` answers `did you mean: uploads meta set`.
 
 ## Getting started

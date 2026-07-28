@@ -51,7 +51,8 @@ Commands: `attach`, `put`, `screenshot`, `annotate`, `gallery`, `comment`, `list
 `uploads <cmd> --help`.
 
 **Errors:** every failure prints a short `error:` line on stderr, followed by a
-hint — never a help dump, so trimmed output (`| tail`) still carries the reason.
+runnable example when an argument is missing, then a hint — never a help dump,
+so trimmed output (`| tail`) still carries the reason.
 A mistyped command also suggests the closest real one: `uploads set-metadata`
 answers `did you mean: uploads meta set`. With `--json`, an unknown command
 returns `{ "error", "code": "USAGE", "didYouMean" }` on stdout.

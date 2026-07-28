@@ -848,7 +848,9 @@ uploads --api-url http://localhost:8787 doctor
   (`json|url|markdown`) also print failures on stdout. Usage errors:
   `hint: uploads <cmd> --help`.
 - **Errors stay short (stderr), so trimming output never hides them.** A missing
-  argument prints one `error:` line plus that hint — not the command's help. A
+  argument prints one `error:` line, a runnable example (`uploads put
+./shot.png --pr 123`), and that hint — not the command's help. In `--json`
+  the example rides along as `example`. A
   mistyped command prints the error, a `did you mean: uploads <cmd>` line, and
   the help pointers; with `--json` it returns `{error,code:"USAGE",didYouMean}`
   on stdout. Read the first line; run `uploads <cmd> --help` for the full help.

@@ -83,7 +83,10 @@ export async function runConfig(
     default:
       // Short, not a help dump: agents trim output, and a dump pushes the
       // reason out of the window (issue #545).
-      throw new UsageError(`unknown config subcommand: ${sub} (expected path, show, init, or set)`);
+      throw new UsageError(
+        `unknown config subcommand: ${sub} (expected path, show, init, or set)`,
+        { example: "uploads config show" },
+      );
   }
 }
 
@@ -229,7 +232,9 @@ Examples:
   const key = positionals[0] as UploadsConfigKey | undefined;
   const value = positionals[1];
   if (!key || !value) {
-    throw new UsageError("config set requires a key and a value");
+    throw new UsageError("config set requires a key and a value", {
+      example: "uploads config set UPLOADS_WORKSPACE myteam",
+    });
   }
   if (!VALID_KEYS.has(key)) {
     throw new UsageError(`unknown key: ${key} (expected ${[...VALID_KEYS].join(", ")})`);

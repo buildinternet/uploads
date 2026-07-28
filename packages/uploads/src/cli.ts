@@ -172,7 +172,7 @@ function errorOut(err: unknown, format: OutputFormat): void {
     err instanceof UploadsError
       ? { error: err.message, code: err.code, status: err.status }
       : err instanceof UsageError
-        ? { error: err.message, code: "USAGE" }
+        ? { error: err.message, code: "USAGE", ...(err.example ? { example: err.example } : {}) }
         : { error: err instanceof Error ? err.message : String(err) };
 
   if (format === "json") {
@@ -193,6 +193,12 @@ function errorOut(err: unknown, format: OutputFormat): void {
 
   if (msg.includes("\n")) process.stderr.write(`${msg}\n`);
   else process.stderr.write(`error: ${msg}\n`);
+
+  // A runnable line beats prose for both agents and humans; the `--help`
+  // pointer that follows stays for the full option list.
+  if (err instanceof UsageError && err.example) {
+    process.stderr.write(`  ${err.example}\n`);
+  }
 
   if (err instanceof UploadsError) {
     const hint = ERROR_HINTS[err.code];
