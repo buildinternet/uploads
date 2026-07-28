@@ -5,7 +5,7 @@
  */
 import { isStripeBackingStatus } from "@uploads/billing";
 import { drizzle } from "drizzle-orm/d1";
-import { and, count, countDistinct, eq, gt, isNull, max } from "drizzle-orm";
+import { and, count, countDistinct, eq, gt, gte, isNull, max, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { OAUTH_SCOPES, type AuthEnv } from "./auth";
 import { sendAuthEmail } from "./email";
@@ -225,6 +225,15 @@ function validateOptionalUrl(value: unknown): { ok: true; value: string | null }
   return { ok: true, value };
 }
 
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * `created_at` is epoch SECONDS (drizzle `integer(..., { mode: "timestamp" })`
+ * divides by 1000 on write) — hence 'unixepoch' with no /1000. Getting this
+ * wrong buckets every signup into 1970.
+ */
+const DAY_EXPR = (column: unknown) => sql<string>`strftime('%Y-%m-%d', ${column}, 'unixepoch')`;
+
 export const internal = new Hono<{ Bindings: AuthEnv }>()
   // Memberships for a user (org-workspaces + member-gated /me routes).
   // Optional `slug` → one-org authz lookup (LIMIT 1; bills one match).
@@ -252,6 +261,57 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
 
     const rows = slug ? await query.limit(1) : await query;
     return c.json(rows);
+  })
+  // Task 5 (operator adoption metrics): daily signup counts + all-time
+  // totals, for apps/api's /admin metrics surface (reached via the AUTH
+  // service binding — apps/api has no D1 binding into this worker's
+  // database, see org-workspaces.ts's header comment). The day grouping is
+  // windowed by `since` so it stays cheap under D1's rows-read billing; the
+  // totals are deliberately unwindowed full-table counts (Task 6 caches
+  // those).
+  .get("/metrics", async (c) => {
+    const sinceParam = c.req.query("since");
+    if (sinceParam !== undefined && !DAY_RE.test(sinceParam)) {
+      return c.json(errorJson("invalid_since", "`since` must be YYYY-MM-DD"), 400);
+    }
+    // Default window matches the overview endpoint's default.
+    const since = sinceParam
+      ? new Date(`${sinceParam}T00:00:00.000Z`)
+      : new Date(Date.now() - 29 * 86_400_000);
+
+    const db = drizzle(c.env.DB, { schema });
+    const userDay = DAY_EXPR(schema.user.createdAt);
+    const orgDay = DAY_EXPR(schema.organization.createdAt);
+
+    const [users, orgs, userTotal, orgTotal, adminTotal, bannedTotal] = await Promise.all([
+      db
+        .select({ day: userDay, count: count() })
+        .from(schema.user)
+        .where(gte(schema.user.createdAt, since))
+        .groupBy(userDay)
+        .orderBy(userDay),
+      db
+        .select({ day: orgDay, count: count() })
+        .from(schema.organization)
+        .where(gte(schema.organization.createdAt, since))
+        .groupBy(orgDay)
+        .orderBy(orgDay),
+      db.select({ n: count() }).from(schema.user),
+      db.select({ n: count() }).from(schema.organization),
+      db.select({ n: count() }).from(schema.user).where(eq(schema.user.role, "admin")),
+      db.select({ n: count() }).from(schema.user).where(eq(schema.user.banned, true)),
+    ]);
+
+    return c.json({
+      users,
+      orgs,
+      totals: {
+        users: userTotal[0]?.n ?? 0,
+        orgs: orgTotal[0]?.n ?? 0,
+        admins: adminTotal[0]?.n ?? 0,
+        banned: bannedTotal[0]?.n ?? 0,
+      },
+    });
   })
   // Phase 3 (plan scope A): admin-provisioned org creation, idempotent on
   // slug — the backfill script (apps/api/scripts/backfill-orgs.mjs) and
