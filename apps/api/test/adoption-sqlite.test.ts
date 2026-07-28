@@ -149,6 +149,23 @@ describe("bumpDailyMetric", () => {
       sqlite.close();
     }
   });
+
+  it("counts a platform-sentinel event exactly once instead of double-counting", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      const db = database(sqlite);
+      await bumpDailyMetric(
+        db,
+        { metric: "upload", workspace: "", bytes: 100 },
+        new Date("2026-07-28T10:00:00Z"),
+      );
+      expect(await rows(db)).toEqual([
+        { metric: "upload", day: "2026-07-28", workspace: "", count: 1, bytes: 100 },
+      ]);
+    } finally {
+      sqlite.close();
+    }
+  });
 });
 
 describe("recordAdoptionSafe", () => {

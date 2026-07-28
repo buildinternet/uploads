@@ -74,10 +74,13 @@ export async function bumpDailyMetric(
                ON CONFLICT(metric, day, workspace) DO UPDATE SET
                  count = count + 1,
                  bytes = bytes + excluded.bytes`;
-  await db.batch([
-    db.prepare(sql).bind(event.metric, day, event.workspace, bytes),
-    db.prepare(sql).bind(event.metric, day, PLATFORM, bytes),
-  ]);
+  // An empty workspace IS the platform sentinel, so writing both statements
+  // would make the second ON CONFLICT fire against the first's own insert and
+  // double-count. Collapse to a single row in that case.
+  const workspaces = event.workspace === PLATFORM ? [PLATFORM] : [event.workspace, PLATFORM];
+  await db.batch(
+    workspaces.map((workspace) => db.prepare(sql).bind(event.metric, day, workspace, bytes)),
+  );
 }
 
 /**
