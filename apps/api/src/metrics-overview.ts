@@ -76,6 +76,12 @@ export function overviewCacheKey(days: number): string {
 /**
  * Signup history from the auth worker. Degrades to zeros rather than failing
  * the page: the D1-backed half of the overview is still worth showing.
+ *
+ * A non-OK response and a thrown/parse failure both fall through to
+ * EMPTY_AUTH above, but a malformed 200 (null body, or one missing `totals`)
+ * would otherwise pass straight through and only blow up later at
+ * `auth.totals.users` in buildOverview — OUTSIDE this try/catch, turning into
+ * a 500 for the entire page. Normalize the shape here instead of trusting it.
  */
 async function authMetrics(env: Env, since: string): Promise<AuthMetrics> {
   try {
@@ -83,7 +89,15 @@ async function authMetrics(env: Env, since: string): Promise<AuthMetrics> {
       headers: { "x-uploads-internal": "1" },
     });
     if (!res.ok) return EMPTY_AUTH;
-    return (await res.json()) as AuthMetrics;
+    const body = (await res.json()) as Partial<AuthMetrics> | null;
+    return {
+      users: Array.isArray(body?.users) ? body.users : [],
+      orgs: Array.isArray(body?.orgs) ? body.orgs : [],
+      totals: {
+        users: typeof body?.totals?.users === "number" ? body.totals.users : 0,
+        orgs: typeof body?.totals?.orgs === "number" ? body.totals.orgs : 0,
+      },
+    };
   } catch {
     return EMPTY_AUTH;
   }

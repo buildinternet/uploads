@@ -24,7 +24,7 @@ export const prerender = false;
       <button type="button" class="admin-btn" data-days="90" aria-pressed="false">90 days</button>
     </div>
 
-    <div id="metrics-status" class="admin-status">Loading…</div>
+    <div id="metrics-status" class="admin-status" role="status">Loading…</div>
 
     <div id="metrics-content">
       <dl class="metrics-tiles" id="metrics-tiles">
@@ -109,7 +109,7 @@ export const prerender = false;
           <option value="client">Client</option>
           <option value="repo">Repository</option>
         </select>
-        <div id="breakdown-status" class="admin-status" hidden></div>
+        <div id="breakdown-status" class="admin-status" role="status" hidden></div>
         <div class="metrics-table-wrap">
           <table class="admin-table" id="breakdown-table" aria-label="Upload breakdown"></table>
         </div>
@@ -169,6 +169,17 @@ export const prerender = false;
       }
 
       let days = 30;
+
+      // Monotonic request tokens (same shape as `previewSeq` in
+      // account/workspaces/[name]/settings.astro): each loader is
+      // re-invoked directly from user input (range buttons, the dimension
+      // select) with no way to cancel an in-flight fetch, so whichever
+      // response RESOLVES last would otherwise win over whichever was
+      // REQUESTED last — a slow 7-day response rendering over an
+      // already-selected 90-day window. One counter per loader since they
+      // run independently.
+      let loadSeq = 0;
+      let breakdownSeq = 0;
 
       // The four genuine feature-adoption metrics (excludes `upload`/
       // `delete`, already shown elsewhere) mapped to their tile element ids.
@@ -526,14 +537,22 @@ export const prerender = false;
         ) as unknown as HTMLSelectElement;
         const panelStatus = requireElement<HTMLElement>("#breakdown-status", "admin");
         const table = requireElement<HTMLElement>("#breakdown-table", "admin");
+        const seq = ++breakdownSeq;
         try {
           const res = await fetch(
             `${apiOrigin}/admin-ui/metrics/breakdown?dimension=${select.value}&days=90`,
             { credentials: "include", cache: "no-store" },
           );
+          if (seq !== breakdownSeq) return;
+          // Checked before res.json(): a 401/5xx response carries an
+          // AppError body, not the {available, ...} shape below, and parsing
+          // it as such would misreport it to the user as "Breakdown is
+          // temporarily unavailable" instead of falling into the catch block.
+          if (!res.ok) throw new Error(`request failed: ${res.status}`);
           const body = (await res.json()) as
             | { available: true; rows: { value: string; events: number; bytes: number }[] }
             | { available: false; reason: string };
+          if (seq !== breakdownSeq) return;
           if (!body.available) {
             table.innerHTML = "";
             panelStatus.hidden = false;
@@ -561,12 +580,14 @@ export const prerender = false;
               .join("") +
             `</tbody>`;
         } catch {
+          if (seq !== breakdownSeq) return;
           panelStatus.hidden = false;
           panelStatus.textContent = "Breakdown is temporarily unavailable.";
         }
       }
 
       async function load(): Promise<void> {
+        const seq = ++loadSeq;
         status.hidden = false;
         status.textContent = "Loading…";
         content.dataset.loading = "true";
@@ -575,15 +596,19 @@ export const prerender = false;
             credentials: "include",
             cache: "no-store",
           });
+          if (seq !== loadSeq) return;
           if (!res.ok) throw new Error(`request failed: ${res.status}`);
-          render((await res.json()) as Overview);
+          const overview = (await res.json()) as Overview;
+          if (seq !== loadSeq) return;
+          render(overview);
           status.hidden = true;
           void loadBreakdown();
         } catch {
+          if (seq !== loadSeq) return;
           status.hidden = false;
           status.textContent = "Could not load metrics. Try again.";
         } finally {
-          content.dataset.loading = "false";
+          if (seq === loadSeq) content.dataset.loading = "false";
         }
       }
 

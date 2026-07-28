@@ -76,7 +76,7 @@ export async function recordRepoLink(
     // when an existing link already owned the repo.
     if ((result.meta?.changes ?? 0) > 0) {
       try {
-        await bumpDailyMetric(db, { metric: "repo_linked", workspace: workspaceName });
+        await bumpDailyMetric(db, { metric: "repo_linked", workspace: workspaceName }, now);
       } catch (metricErr) {
         // Shared with recordAdoptionSafe's catch (adoption.ts) so this and
         // the main adoption-write path log the same one shape rather than

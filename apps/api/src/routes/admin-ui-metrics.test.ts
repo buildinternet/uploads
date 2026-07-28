@@ -15,7 +15,10 @@ const NON_ADMIN_USER = { id: "u-plain", email: "plain@b.com", name: "Plain", rol
 
 function stubAuth(
   user: typeof ADMIN_USER | null,
-  opts?: { metricsOk?: boolean },
+  // metricsBody overrides the /internal/metrics 200 payload verbatim (used to
+  // simulate a malformed-but-OK response); undefined falls back to the
+  // well-formed default below.
+  opts?: { metricsOk?: boolean; metricsBody?: unknown },
 ): Pick<Fetcher, "fetch"> {
   const metricsOk = opts?.metricsOk ?? true;
   return {
@@ -28,6 +31,7 @@ function stubAuth(
       if (url.pathname === "/internal/metrics") {
         expect(req.headers.get("x-uploads-internal")).toBe("1");
         if (!metricsOk) return new Response(null, { status: 404 });
+        if (opts && "metricsBody" in opts) return Response.json(opts.metricsBody);
         return Response.json({
           users: [{ day: "2026-07-28", count: 3 }],
           orgs: [{ day: "2026-07-28", count: 1 }],
@@ -220,6 +224,62 @@ describe("GET /admin-ui/metrics/overview", () => {
       expect(body.totals.orgs).toBe(0);
       expect(body.series.users).toEqual([]);
       expect(body.series.orgs).toEqual([]);
+      // D1-backed half is unaffected by the auth degradation.
+      expect(body.totals.workspaces).toBe(2);
+      expect(body.totals.storedBytes).toBe(150);
+      expect(body.workspaces.map((w) => w.workspace).sort()).toEqual(["acme", "beta"]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("degrades to zeroed user/org totals when the auth call returns a null 200 body, keeping the D1 half intact", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      const env = {
+        AUTH: stubAuth(ADMIN_USER, { metricsBody: null }),
+        DB: db,
+        REGISTRY: fakeKv().binding,
+      } as unknown as Env;
+      const res = await app().request("/admin-ui/metrics/overview?days=30", {}, env);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        totals: { users: number; orgs: number; workspaces: number; storedBytes: number };
+        series: { users: unknown[]; orgs: unknown[] };
+        workspaces: { workspace: string }[];
+      };
+      expect(body.totals.users).toBe(0);
+      expect(body.totals.orgs).toBe(0);
+      expect(body.series.users).toEqual([]);
+      expect(body.series.orgs).toEqual([]);
+      // D1-backed half is unaffected by the auth degradation.
+      expect(body.totals.workspaces).toBe(2);
+      expect(body.totals.storedBytes).toBe(150);
+      expect(body.workspaces.map((w) => w.workspace).sort()).toEqual(["acme", "beta"]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("degrades to zeroed user/org totals when the auth call's 200 body is missing totals, keeping the D1 half intact", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      const env = {
+        AUTH: stubAuth(ADMIN_USER, {
+          metricsBody: { users: [{ day: "2026-07-28", count: 3 }], orgs: [] },
+        }),
+        DB: db,
+        REGISTRY: fakeKv().binding,
+      } as unknown as Env;
+      const res = await app().request("/admin-ui/metrics/overview?days=30", {}, env);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        totals: { users: number; orgs: number; workspaces: number; storedBytes: number };
+        series: { users: unknown[]; orgs: unknown[] };
+        workspaces: { workspace: string }[];
+      };
+      expect(body.totals.users).toBe(0);
+      expect(body.totals.orgs).toBe(0);
       // D1-backed half is unaffected by the auth degradation.
       expect(body.totals.workspaces).toBe(2);
       expect(body.totals.storedBytes).toBe(150);

@@ -224,6 +224,19 @@ All on the existing in-process fake-D1. No new test infrastructure.
   R2's public host and never reach the worker, so views cannot be counted
   without redesigning how files are served. Shipping a "views" number that
   silently counts a fraction of traffic would be worse than omitting it.
+- **Presigned-upload undercounting.** `POST /sign` (`routes/files.ts`) mints a
+  presigned URL for a direct-to-bucket PUT that happens later, entirely
+  outside the Worker. Those uploads never invoke `putObject`, so they are
+  absent from `daily_metrics` and the dashboard's upload counts undercount
+  for any workspace using presigned uploads. The two metrics this affects
+  are NOT equally repairable: `workspace_usage` (current absolute state) can
+  be fixed after the fact by the existing reconcile sweep, which walks the
+  bucket directly. `daily_metrics` (change over time) cannot — once
+  discovered by reconcile, a past upload has no timestamp to attribute it to
+  a particular day. Counting at signing time would also be wrong, since a
+  client can request a signed URL and never use it. Closing this properly
+  needs a post-upload completion callback or storage-event ingestion, both
+  out of scope for this change.
 - **The digest email itself.** This design leaves the query seam; it does not
   build the email.
 - **Per-user tracking** beyond signup counts.

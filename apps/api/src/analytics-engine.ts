@@ -59,6 +59,11 @@ export type BreakdownResult =
 const BLOB_COLUMN: Record<BreakdownDimension, string> = Object.fromEntries(
   BREAKDOWN_DIMENSIONS.map((dimension) => {
     const index = BLOB_ORDER.indexOf(dimension);
+    // This runs at module init, so a BLOB_ORDER edit that drops or renames a
+    // dimension this map depends on fails loudly at startup — instead of
+    // `indexOf` silently returning -1, deriving `blob0` (not a real AE
+    // column), and only surfacing later as a runtime `query_failed`.
+    if (index < 0) throw new Error(`breakdown dimension "${dimension}" is not in BLOB_ORDER`);
     return [dimension, `blob${index + 1}`];
   }),
 ) as Record<BreakdownDimension, string>;

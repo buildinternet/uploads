@@ -51,8 +51,13 @@ export class SqliteStatement {
   runSync() {
     // SELECTs need `.all()` — `.run()` executes them but never returns rows.
     // Mutations use `.run()` so callers (e.g. inside `db.batch()`) can still
-    // read `meta.changes`.
-    if (/^\s*SELECT\b/i.test(this.sql)) {
+    // read `meta.changes`. This is a simple, readable heuristic, not a SQL
+    // parser: strip leading `--` line comments and whitespace, then also
+    // match a leading `WITH` so `WITH ... SELECT` CTEs are recognized as
+    // row-returning too — both used to fall through to `.run()`, which
+    // silently discards their rows.
+    const withoutLeadingComments = this.sql.replace(/^(\s*--[^\n]*\n)*\s*/, "");
+    if (/^(SELECT|WITH)\b/i.test(withoutLeadingComments)) {
       return {
         success: true,
         results: this.owner.db.prepare(this.sql).all(...this.values),
