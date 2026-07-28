@@ -117,6 +117,12 @@ const footnoteLine = footnoteParts.join(" · ");
       .shell { width:min(var(--width-viewer, 1080px),calc(100% - 48px)); margin:0 auto; padding:36px 0 64px; flex:1 0 auto; box-sizing:border-box; }
       nav.top { display:flex; align-items:center; justify-content:space-between; margin-bottom:32px; font:13px var(--mono); letter-spacing:.02em; }
       .public { color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:6px 11px; background:var(--panel); }
+      /* Click-to-copy share pill — same pattern as the public file page. */
+      button.public { appearance:none; -webkit-appearance:none; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:6px; }
+      button.public:hover, button.public:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
+      /* Icon lives in ::before, not a child node — CopyAsControls' handler replaces
+         button.textContent on copy, which would otherwise destroy an inline <svg>. */
+      .sharelink::before { content:""; width:11px; height:11px; flex:none; background:currentColor; -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E") center/contain no-repeat; mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E") center/contain no-repeat; }
       .crumbs { margin-bottom:12px; color:var(--muted); font:13px var(--mono); overflow-wrap:anywhere; }
       .crumbs .count { color:var(--muted); }
       .filehead { margin:0 0 16px; min-width:0; }
@@ -169,7 +175,23 @@ const footnoteLine = footnoteParts.join(" · ");
   </head>
   <body>
     <main class="shell">
-      <nav class="top"><Brand /><span class="public">public gallery</span></nav>
+      <nav class="top">
+        <Brand />
+        {/* Button only when CopyAsControls renders — its delegated
+           `button[data-copy]` handler is what makes the pill copy. */}
+        {embedFormats.length > 0 ? (
+          <button
+            type="button"
+            class="public sharelink"
+            data-copy={canonical}
+            title="Copy link — anyone with this link can view this page"
+          >
+            Public link
+          </button>
+        ) : (
+          <span class="public">public gallery</span>
+        )}
+      </nav>
       {gallery && item ? (
         <>
           <div class="crumbs"><a href={listPath}>{gallery.title}</a> · <span class="count">{index + 1} of {items.length}</span></div>
