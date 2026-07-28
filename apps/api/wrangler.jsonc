@@ -16,6 +16,15 @@
     // The App's installation on the buildinternet org — the general-purpose
     // token source for public-repo reads.
     "GITHUB_APP_HOME_INSTALLATION_ID": "147814297",
+    // Account that owns the Analytics Engine dataset, used to build the SQL
+    // API URL in src/analytics-engine.ts. An identifier, not a credential —
+    // it appears in every dash.cloudflare.com URL — so it belongs here rather
+    // than in `wrangler secret`. The paired ANALYTICS_API_TOKEN *is* a secret.
+    //
+    // This must live in `vars`, not only in .dev.vars: .dev.vars is local-only,
+    // so a deployed worker without this entry reads `undefined` and the
+    // breakdown panel reports `not_configured` no matter how the secret is set.
+    "CLOUDFLARE_ACCOUNT_ID": "b082600d280d44fd5da3501bc1bffe2f",
   },
   // BILLING_INTERNAL_KEY (Stripe phase 2, task 3): shared secret gating
   // POST /internal/billing/plan (routes/internal-billing.ts), set via
