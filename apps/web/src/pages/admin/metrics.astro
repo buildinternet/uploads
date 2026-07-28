@@ -76,6 +76,29 @@ export const prerender = false;
         </div>
       </section>
 
+      <section class="metrics-section" id="features-panel">
+        <h3>Feature adoption</h3>
+        <p class="admin-hint">Counts within the selected window, not all-time totals.</p>
+        <dl class="metrics-tiles" id="feature-tiles">
+          <div class="metrics-tile">
+            <dt>Workspaces created</dt>
+            <dd id="tile-feature-workspace_created">—</dd>
+          </div>
+          <div class="metrics-tile">
+            <dt>Galleries created</dt>
+            <dd id="tile-feature-gallery_created">—</dd>
+          </div>
+          <div class="metrics-tile">
+            <dt>PR comments posted</dt>
+            <dd id="tile-feature-comment_posted">—</dd>
+          </div>
+          <div class="metrics-tile">
+            <dt>Repos linked</dt>
+            <dd id="tile-feature-repo_linked">—</dd>
+          </div>
+        </dl>
+      </section>
+
       <section class="metrics-section" id="breakdown-panel">
         <h3>Upload breakdown</h3>
         <p class="admin-hint">Last 90 days, from Analytics Engine. Sampled and approximate.</p>
@@ -146,6 +169,16 @@ export const prerender = false;
       }
 
       let days = 30;
+
+      // The four genuine feature-adoption metrics (excludes `upload`/
+      // `delete`, already shown elsewhere) mapped to their tile element ids.
+      // Keys mirror ADOPTION_METRICS in apps/api/src/adoption.ts.
+      const FEATURE_TILES: [string, string][] = [
+        ["workspace_created", "tile-feature-workspace_created"],
+        ["gallery_created", "tile-feature-gallery_created"],
+        ["comment_posted", "tile-feature-comment_posted"],
+        ["repo_linked", "tile-feature-repo_linked"],
+      ];
 
       const num = (input: unknown): string => {
         const parsed = Number(input);
@@ -406,6 +439,18 @@ export const prerender = false;
         tile("tile-active-7", num(overview.totals.activeWorkspaces7d));
         tile("tile-active-30", num(overview.totals.activeWorkspaces30d));
         tile("tile-uploads", num(overview.totals.uploads));
+
+        // `upload`/`delete` are deliberately excluded — they're already the
+        // "Uploads in window" tile and the uploads chart above; repeating
+        // them here would double-report the headline number under a
+        // "feature adoption" label. A metric absent from `overview.features`
+        // means zero activity in the window (adoption-queries.ts's
+        // featureTotals only sets keys with a real SUM), not "unknown" — so
+        // it renders as 0, same as any other zero count, rather than being
+        // dropped from the tile row.
+        for (const [key, id] of FEATURE_TILES) {
+          tile(id, num(overview.features[key] ?? 0));
+        }
 
         const table = requireElement<HTMLElement>("#workspace-activity", "admin metrics");
         // tr.admin-row: .admin-table's cell padding/border rules are scoped
