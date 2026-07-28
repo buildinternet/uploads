@@ -1,5 +1,30 @@
 # @buildinternet/uploads
 
+## 0.35.0
+
+### Minor Changes
+
+- 918faa2: Show a runnable example when a command is missing an argument. `uploads put`
+  now answers `error: put requires at least one file` followed by
+  `uploads put ./shot.png --pr 123`, so the fix is copy-pasteable instead of one
+  `--help` away. Applies to put, attach, find, delete, meta, gallery, comment,
+  screenshot, annotate, and config set, plus the unknown-subcommand errors. With
+  `--json` the example comes back as an `example` field on the error payload.
+- 918faa2: Stop hiding the reason a command failed (#545). A missing argument used to
+  print the command's whole help block with no error line in it — `uploads put`,
+  `find`, `delete`, `meta`, `gallery`, `screenshot`, `annotate`, and
+  `config set` all did this. Each now prints one `error:` line naming what is
+  missing, plus the `uploads <cmd> --help` hint, so trimmed output still carries
+  the reason and `--json` gets a real error payload. An unknown `config`
+  subcommand does the same instead of dumping the config help.
+- 918faa2: Smooth out three metadata papercuts agents hit (#545). `meta set` and `find`
+  now accept `--meta k=v`, the same spelling `put`, `attach`, `screenshot`, and
+  `list` use, alongside the positional `k=v` form. An unknown command answers
+  with a "did you mean" suggestion — `uploads set-metadata` points at
+  `uploads meta set` — instead of a help dump that never mentioned `meta`. That
+  output is also short now, so an agent that pipes through `tail` still sees the
+  error; with `--json` it comes back as `{ error, code, didYouMean }` on stdout.
+
 ## 0.34.1
 
 ### Patch Changes
