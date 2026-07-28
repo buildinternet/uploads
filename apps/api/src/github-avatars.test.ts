@@ -44,6 +44,24 @@ describe("githubAvatarProxyUrl", () => {
       "https://api.uploads.sh/public/github/avatars/acme",
     );
   });
+
+  it("coerces non-loopback http to https (local wrangler dev reports the route host as http)", () => {
+    expect(githubAvatarProxyUrl("http://api.uploads.sh", "acme")).toBe(
+      "https://api.uploads.sh/public/github/avatars/acme",
+    );
+  });
+
+  it("keeps loopback origins http so local avatars stay reachable", () => {
+    expect(githubAvatarProxyUrl("http://127.0.0.1:8787", "acme")).toBe(
+      "http://127.0.0.1:8787/public/github/avatars/acme",
+    );
+    expect(githubAvatarProxyUrl("http://localhost:8787", "acme")).toBe(
+      "http://localhost:8787/public/github/avatars/acme",
+    );
+    expect(githubAvatarProxyUrl("http://[::1]:8787", "acme")).toBe(
+      "http://[::1]:8787/public/github/avatars/acme",
+    );
+  });
 });
 
 function memoryCache(): AvatarCache & { store: Map<string, Response> } {

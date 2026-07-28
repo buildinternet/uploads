@@ -35,9 +35,23 @@ export function ownerFromRepo(repo: string): string | null {
   return normalizeGithubOwner(repo.slice(0, slash));
 }
 
-/** Absolute proxy URL (`{apiOrigin}/public/github/avatars/{owner}`). */
+/**
+ * Absolute proxy URL (`{apiOrigin}/public/github/avatars/{owner}`).
+ *
+ * Non-loopback origins are coerced to `https:` — local wrangler dev reports
+ * the prod route host with an `http:` scheme, and the web page's validator
+ * (public-file.ts `isAvatarUrl`) only accepts https or loopback http, so an
+ * uncoerced dev origin would 503 the whole /f/ page. Loopback stays http so
+ * the avatar remains reachable when the API really is served from 127.0.0.1.
+ */
 export function githubAvatarProxyUrl(apiOrigin: string, owner: string): string {
-  return `${apiOrigin.replace(/\/$/, "")}/public/github/avatars/${encodeURIComponent(owner)}`;
+  const origin = new URL(apiOrigin);
+  const loopback =
+    origin.hostname === "localhost" ||
+    origin.hostname === "127.0.0.1" ||
+    origin.hostname === "[::1]";
+  if (origin.protocol === "http:" && !loopback) origin.protocol = "https:";
+  return `${origin.origin}/public/github/avatars/${encodeURIComponent(owner)}`;
 }
 
 function avatarResponse(
