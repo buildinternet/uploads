@@ -1,0 +1,155 @@
+/*
+ * Operator metrics surface (/admin/metrics). Follows the per-page CSS
+ * convention used by admin-workspaces.css / admin-oauth.css — design-system
+ * tokens only, no hard-coded colors, so light and dark both work.
+ *
+ * Token names verified against packages/ui/src/tokens.css and
+ * apps/web/src/styles/admin.css: this repo has no "--space-", "--font-size-"
+ * or "--color-" prefixed custom properties in active use anywhere under
+ * apps/web/src, so spacing here matches admin.css's raw-px convention (its
+ * numbers are all literal px, not a token scale) and colors read the real
+ * tokens — var(--line), var(--fg), var(--body), var(--muted), var(--accent),
+ * var(--panel), var(--bg), var(--mono), var(--radius-sm), var(--radius-md).
+ */
+
+.metrics-tiles {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  margin: 0;
+  padding: 0;
+}
+
+.metrics-tile {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+
+.metrics-tile dt {
+  margin: 0;
+  color: var(--muted);
+  font: 11px var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.metrics-tile dd {
+  margin: 6px 0 0;
+  color: var(--fg);
+  font-size: 20px;
+  font-weight: 600;
+  /* Tabular figures so the numbers don't jitter on refresh. */
+  font-variant-numeric: tabular-nums;
+}
+
+.metrics-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* .admin-btn is the shared admin button look; the pressed state here is
+   the same pattern as .wft-view__btn[aria-pressed="true"] in
+   account-content.css — a filled accent chip instead of an outline. */
+.metrics-range .admin-btn[aria-pressed="true"] {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.metrics-section h3 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+
+.metrics-chart-wrap {
+  position: relative;
+}
+
+.metrics-chart {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+}
+
+.metrics-chart .metrics-axis-line,
+.metrics-chart .metrics-gridline {
+  stroke: var(--line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.metrics-chart .metrics-axis-label {
+  fill: var(--muted);
+  font: 9px var(--mono);
+}
+
+.metrics-chart .metrics-bar-fill {
+  fill: var(--accent);
+  transition: opacity 0.1s ease;
+}
+
+.metrics-chart .metrics-bar-hit {
+  fill: transparent;
+  cursor: pointer;
+}
+
+.metrics-chart .metrics-bar-hit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Data-point tooltip, positioned in JS as a percentage of the chart's
+   rendered box (computed from SVG viewBox coordinates, so it tracks the
+   chart at any responsive width). */
+.metrics-chart-tooltip {
+  position: absolute;
+  transform: translate(-50%, -100%) translateY(-6px);
+  pointer-events: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+  z-index: 1;
+}
+
+.metrics-chart-tooltip[data-visible="true"] {
+  opacity: 1;
+}
+
+.metrics-chart-tooltip .value {
+  color: var(--fg);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.metrics-chart-tooltip .day {
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+/* Wide content scrolls inside its own container; the page body never
+   scrolls horizontally. */
+.metrics-table-wrap {
+  overflow-x: auto;
+}
+
+/* Reduced opacity while a range change is refetching, so the previous
+   render holds instead of flashing to empty. */
+#metrics-content {
+  transition: opacity 0.15s ease;
+}
+
+#metrics-content[data-loading="true"] {
+  opacity: 0.6;
+}
