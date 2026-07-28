@@ -40,15 +40,18 @@ interface FakeAuthToken {
 
 function makeFakeDB(authToken?: FakeAuthToken) {
   const table = new FileMetadataTable();
+  const statements: { sql: string; args: unknown[] }[] = [];
 
   return {
     metadata: table.metadata,
+    statements,
     prepare(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       let args: unknown[] = [];
       return {
         bind(...values: unknown[]) {
           args = values;
+          statements.push({ sql: normalized, args: values });
           return this;
         },
         async first() {
@@ -1416,6 +1419,62 @@ describe("PUT /v1/:workspace/files uploader attribution (issue #340)", () => {
       "screenshots/shot.png",
     );
     expect(meta).toEqual({ "gh.repo": "acme/web" });
+  });
+});
+
+describe("adoption metrics wiring", () => {
+  /** Identify adoption writes by table, not by statement position. */
+  function adoptionWrites(db: { statements: { sql: string; args: unknown[] }[] }) {
+    return db.statements.filter((s) => s.sql.includes("INSERT INTO daily_metrics"));
+  }
+
+  it("records an upload event when a put succeeds", async () => {
+    const { env, db } = await makeEnv();
+    const res = await putShot(env);
+    expect(res.status).toBe(201);
+
+    const writes = adoptionWrites(db);
+    // One per-workspace row + one platform row.
+    expect(writes).toHaveLength(2);
+    expect(writes.map((w) => w.args[0])).toEqual(["upload", "upload"]);
+    expect(writes.map((w) => w.args[2]).sort()).toEqual(["", "default"]);
+    expect(writes[0]?.args[3]).toBe(PNG.byteLength);
+  });
+
+  it("records nothing when the put is rejected", async () => {
+    const { env, db } = await makeEnv();
+    const res = await putShot(env, { headers: { Authorization: "Bearer wrong-token" } });
+    expect(res.status).toBe(401);
+    expect(adoptionWrites(db)).toHaveLength(0);
+  });
+
+  it("records a delete event with positive bytes when a delete removes an object", async () => {
+    const { env, db } = await makeEnv();
+    await putShot(env);
+    const before = adoptionWrites(db).length;
+
+    const res = await app.request(
+      "/v1/default/files/screenshots/shot.png",
+      { method: "DELETE", headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(res.status).toBe(200);
+
+    const deletes = adoptionWrites(db).slice(before);
+    expect(deletes).toHaveLength(2);
+    expect(deletes.map((w) => w.args[0])).toEqual(["delete", "delete"]);
+    // Positive magnitude — direction is carried by the metric, never the sign.
+    for (const write of deletes) expect(write.args[3] as number).toBeGreaterThan(0);
+  });
+
+  it("records no delete event when the key does not exist", async () => {
+    const { env, db } = await makeEnv();
+    await app.request(
+      "/v1/default/files/screenshots/absent.png",
+      { method: "DELETE", headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(adoptionWrites(db).filter((w) => w.args[0] === "delete")).toHaveLength(0);
   });
 });
 

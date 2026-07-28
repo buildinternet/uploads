@@ -5,6 +5,7 @@ import {
   ValidationError,
 } from "@uploads/errors";
 import { Hono, type Context } from "hono";
+import { recordAdoptionSafe } from "../adoption";
 import { badKey } from "../files-core";
 import {
   addGalleryItem,
@@ -57,6 +58,10 @@ export const galleries = new Hono<WorkspaceVars>()
             : undefined,
       }),
     );
+    await recordAdoptionSafe(c.env, {
+      metric: "gallery_created",
+      workspace: c.get("workspaceName"),
+    });
     return c.json(await ownerGallery(c, result.value.id), 201);
   })
   .get("/", requireScope("files:read"), async (c) => {

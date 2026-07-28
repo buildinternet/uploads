@@ -1,0 +1,638 @@
+---
+/**
+ * Operator adoption-metrics overview — GET /admin-ui/metrics/overview
+ * (Task 6). Session-authenticated + admin-gated server-side; this page's
+ * gating is a UX affordance only, same disclaimer as every other /admin/*
+ * page (see AdminLayout.astro).
+ */
+import AdminLayout from "../../layouts/AdminLayout.astro";
+import "../../styles/admin-metrics.css";
+
+export const prerender = false;
+---
+
+<AdminLayout section="metrics">
+  <section class="admin-page">
+    <header class="admin-page-header">
+      <h2>Adoption</h2>
+      <p>Signup, upload, and workspace activity across the platform over a rolling window.</p>
+    </header>
+
+    <div class="metrics-range" role="group" aria-label="Time window">
+      <button type="button" class="admin-btn" data-days="7" aria-pressed="false">7 days</button>
+      <button type="button" class="admin-btn" data-days="30" aria-pressed="true">30 days</button>
+      <button type="button" class="admin-btn" data-days="90" aria-pressed="false">90 days</button>
+    </div>
+
+    <div id="metrics-status" class="admin-status" role="status">Loading…</div>
+
+    <div id="metrics-content">
+      <dl class="metrics-tiles" id="metrics-tiles">
+        <div class="metrics-tile">
+          <dt>Users</dt>
+          <dd id="tile-users">—</dd>
+        </div>
+        <div class="metrics-tile">
+          <dt>Organizations</dt>
+          <dd id="tile-orgs">—</dd>
+        </div>
+        <div class="metrics-tile">
+          <dt>Workspaces with uploads</dt>
+          <dd id="tile-workspaces">—</dd>
+        </div>
+        <div class="metrics-tile">
+          <dt>Stored bytes</dt>
+          <dd id="tile-stored">—</dd>
+        </div>
+        <div class="metrics-tile">
+          <dt>Active, 7d</dt>
+          <dd id="tile-active-7">—</dd>
+        </div>
+        <div class="metrics-tile">
+          <dt>Active, 30d</dt>
+          <dd id="tile-active-30">—</dd>
+        </div>
+        <div class="metrics-tile">
+          <dt>Uploads in window</dt>
+          <dd id="tile-uploads">—</dd>
+        </div>
+      </dl>
+
+      <section class="metrics-section">
+        <h3>Uploads per day</h3>
+        <div id="chart-uploads"></div>
+      </section>
+
+      <section class="metrics-section">
+        <h3>Signups per day</h3>
+        <div id="chart-signups"></div>
+      </section>
+
+      <section class="metrics-section">
+        <h3>Workspace activity</h3>
+        <div class="metrics-table-wrap">
+          <table class="admin-table" id="workspace-activity" aria-label="Workspace activity">
+          </table>
+        </div>
+      </section>
+
+      <section class="metrics-section" id="features-panel">
+        <h3>Feature adoption</h3>
+        <p class="admin-hint">Counts within the selected window, not all-time totals.</p>
+        <dl class="metrics-tiles" id="feature-tiles">
+          <div class="metrics-tile">
+            <dt>Workspaces created</dt>
+            <dd id="tile-feature-workspace_created">—</dd>
+          </div>
+          <div class="metrics-tile">
+            <dt>Galleries created</dt>
+            <dd id="tile-feature-gallery_created">—</dd>
+          </div>
+          <div class="metrics-tile">
+            <dt>PR comments posted</dt>
+            <dd id="tile-feature-comment_posted">—</dd>
+          </div>
+          <div class="metrics-tile">
+            <dt>Repos linked</dt>
+            <dd id="tile-feature-repo_linked">—</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="metrics-section" id="breakdown-panel">
+        <h3>Upload breakdown</h3>
+        <p class="admin-hint">Last 90 days, from Analytics Engine. Sampled and approximate.</p>
+        <label for="breakdown-dimension">Group by</label>
+        <select id="breakdown-dimension" class="ul-select">
+          <option value="surface">Surface</option>
+          <option value="contentType">Content type</option>
+          <option value="client">Client</option>
+          <option value="repo">Repository</option>
+        </select>
+        <div id="breakdown-status" class="admin-status" role="status" hidden></div>
+        <div class="metrics-table-wrap">
+          <table class="admin-table" id="breakdown-table" aria-label="Upload breakdown"></table>
+        </div>
+      </section>
+    </div>
+  </section>
+
+  <script>
+    import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
+    import { escapeHtml } from "../../lib/admin-ui";
+    import { formatBytes } from "../../lib/workspace-ui";
+
+    onAstroPageLoad(() => {
+      if (!document.getElementById("metrics-tiles")) return;
+
+      const w = window as unknown as { __UPLOADS_API_ORIGIN__: string };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__.replace(/\/$/, "");
+      const status = requireElement<HTMLElement>("#metrics-status", "admin metrics");
+      const content = requireElement<HTMLElement>("#metrics-content", "admin metrics");
+
+      interface DayPoint {
+        day: string;
+        count: number;
+        bytes: number;
+      }
+      interface SignupPoint {
+        day: string;
+        count: number;
+      }
+      interface WorkspaceRow {
+        workspace: string;
+        uploads: number;
+        bytes: number;
+        lastActive: string;
+      }
+      // Mirrors apps/api/src/metrics-overview.ts's MetricsOverview exactly.
+      // `totals.workspaces` is workspaces with >=1 recorded upload — not the
+      // registration count (idle workspaces have no workspace_usage row).
+      // `totals.orgs` is the registration figure. `totals.storedBytes` is
+      // current absolute stored bytes; `totals.bytes` is bytes uploaded
+      // within the selected window, not stored bytes.
+      interface Overview {
+        window: { days: number; since: string };
+        totals: {
+          users: number;
+          orgs: number;
+          workspaces: number;
+          storedBytes: number;
+          activeWorkspaces7d: number;
+          activeWorkspaces30d: number;
+          uploads: number;
+          bytes: number;
+        };
+        series: { uploads: DayPoint[]; users: SignupPoint[]; orgs: SignupPoint[] };
+        features: Record<string, number>;
+        workspaces: WorkspaceRow[];
+      }
+
+      let days = 30;
+
+      // Monotonic request tokens (same shape as `previewSeq` in
+      // account/workspaces/[name]/settings.astro): each loader is
+      // re-invoked directly from user input (range buttons, the dimension
+      // select) with no way to cancel an in-flight fetch, so whichever
+      // response RESOLVES last would otherwise win over whichever was
+      // REQUESTED last — a slow 7-day response rendering over an
+      // already-selected 90-day window. One counter per loader since they
+      // run independently.
+      let loadSeq = 0;
+      let breakdownSeq = 0;
+
+      // The four genuine feature-adoption metrics (excludes `upload`/
+      // `delete`, already shown elsewhere) mapped to their tile element ids.
+      // Keys mirror ADOPTION_METRICS in apps/api/src/adoption.ts.
+      const FEATURE_TILES: [string, string][] = [
+        ["workspace_created", "tile-feature-workspace_created"],
+        ["gallery_created", "tile-feature-gallery_created"],
+        ["comment_posted", "tile-feature-comment_posted"],
+        ["repo_linked", "tile-feature-repo_linked"],
+      ];
+
+      const num = (input: unknown): string => {
+        const parsed = Number(input);
+        return Number.isFinite(parsed) ? parsed.toLocaleString() : "0";
+      };
+
+      const bytes = (input: unknown): string => {
+        const parsed = Number(input);
+        return Number.isFinite(parsed) ? formatBytes(parsed) : "0 B";
+      };
+
+      // Hoisted out of formatDay: constructing an Intl.DateTimeFormat is
+      // comparatively expensive, and formatDay runs up to ~180 times per
+      // chart render plus once per hover/focus move — one shared formatter
+      // instance is reused instead of building a fresh one every call.
+      const DAY_FORMATTER = new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      });
+
+      const formatDay = (day: string): string => {
+        const date = new Date(`${day}T00:00:00Z`);
+        if (Number.isNaN(date.getTime())) return day;
+        return DAY_FORMATTER.format(date);
+      };
+
+      /** Round a positive max up to a "clean" axis ceiling (1/2/5/10 * 10^n). */
+      function niceCeil(value: number): number {
+        if (!Number.isFinite(value) || value <= 0) return 1;
+        const exp = Math.floor(Math.log10(value));
+        const base = 10 ** exp;
+        const frac = value / base;
+        const niceFrac = frac <= 1 ? 1 : frac <= 2 ? 2 : frac <= 5 ? 5 : 10;
+        return niceFrac * base;
+      }
+
+      /**
+       * Y-axis tick values for a [0, niceMax] scale: 0, the midpoint, and
+       * niceMax. The midpoint is dropped when rounding it for display would
+       * collide with either endpoint's rounded label — routine for
+       * niceMax === 1 (niceCeil's floor), where midpoint 0.5 rounds up to
+       * 1 and duplicates the top label. Endpoints are always kept so the
+       * axis still spans the full plotted range.
+       */
+      function buildYTicks(niceMax: number): number[] {
+        const raw = [0, niceMax / 2, niceMax];
+        const rounded = raw.map((t) => Math.round(t));
+        if (rounded[1] === rounded[0] || rounded[1] === rounded[2]) {
+          return [raw[0], raw[2]];
+        }
+        return raw;
+      }
+
+      /** Evenly spaced x-axis label indices, capped so labels never crowd. */
+      function pickLabelIndices(n: number, max = 6): Set<number> {
+        const step = Math.max(1, Math.ceil(n / max));
+        const idx = new Set<number>();
+        for (let i = 0; i < n; i += step) idx.add(i);
+        idx.add(n - 1);
+        return idx;
+      }
+
+      /** A rect path rounded only at the top — square at the baseline. */
+      function roundedTopRectPath(
+        x: number,
+        y: number,
+        barW: number,
+        h: number,
+        r: number,
+      ): string {
+        if (h <= 0 || barW <= 0) return "";
+        const radius = Math.min(r, barW / 2, h);
+        return `M${x},${y + h} V${y + radius} Q${x},${y} ${x + radius},${y} H${x + barW - radius} Q${x + barW},${y} ${x + barW},${y + radius} V${y + h} Z`;
+      }
+
+      /**
+       * Single-series inline SVG bar chart with a hover/focus tooltip and a
+       * visually-hidden data table as the accessible alternative (dataviz
+       * skill: form = bar for daily counts; a lone series takes one hue
+       * (var(--accent)) and needs no legend box — the heading names it;
+       * y-axis ticks round to clean numbers; hover lifts the hovered bar and
+       * every value stays reachable without hovering, via the sr-only
+       * table).
+       */
+      function drawChart(
+        elementId: string,
+        points: { day: string; value: number }[],
+        label: string,
+        windowDays: number,
+      ): void {
+        const container = document.getElementById(elementId);
+        if (!container) return;
+        if (!points.length) {
+          container.innerHTML = `<p class="muted">No data yet.</p>`;
+          return;
+        }
+
+        const values = points.map((p) => Math.max(0, Number(p.value) || 0));
+        const niceMax = niceCeil(Math.max(1, ...values));
+
+        const W = 480;
+        const H = 200;
+        const marginLeft = 36;
+        const marginRight = 8;
+        const marginTop = 10;
+        const marginBottom = 26;
+        const plotW = W - marginLeft - marginRight;
+        const plotH = H - marginTop - marginBottom;
+        const baseline = marginTop + plotH;
+        const bandWidth = plotW / points.length;
+        const gap = Math.min(6, Math.max(2, bandWidth * 0.25));
+        const barWidth = Math.max(1, Math.min(24, bandWidth - gap));
+        const labelIdx = pickLabelIndices(points.length);
+
+        const yTicks = buildYTicks(niceMax);
+        const gridlines = yTicks
+          .map((t) => {
+            const labelValue = Math.round(t);
+            const y = baseline - (labelValue / niceMax) * plotH;
+            return (
+              `<line x1="${marginLeft}" y1="${y}" x2="${W - marginRight}" y2="${y}" class="metrics-gridline" />` +
+              `<text x="${marginLeft - 6}" y="${y}" class="metrics-axis-label" text-anchor="end" dominant-baseline="middle">${escapeHtml(labelValue.toLocaleString())}</text>`
+            );
+          })
+          .join("");
+
+        const bars = points
+          .map((point, i) => {
+            const value = values[i];
+            const barHeight = (value / niceMax) * plotH;
+            const x = marginLeft + i * bandWidth + (bandWidth - barWidth) / 2;
+            const y = baseline - barHeight;
+            const path = roundedTopRectPath(x, y, barWidth, barHeight, 4);
+            const dayLabel = escapeHtml(formatDay(point.day));
+            const xLabel = labelIdx.has(i)
+              ? `<text x="${x + barWidth / 2}" y="${H - 8}" class="metrics-axis-label" text-anchor="middle">${dayLabel}</text>`
+              : "";
+            return `<g class="metrics-bar" data-index="${i}">
+                ${path ? `<path d="${path}" class="metrics-bar-fill" />` : ""}
+                <rect
+                  class="metrics-bar-hit"
+                  data-index="${i}"
+                  x="${x - gap / 2}"
+                  y="${marginTop}"
+                  width="${barWidth + gap}"
+                  height="${plotH}"
+                  tabindex="0"
+                  role="img"
+                  aria-label="${dayLabel}: ${escapeHtml(value.toLocaleString())} ${escapeHtml(label.toLowerCase())}"
+                />
+                ${xLabel}
+              </g>`;
+          })
+          .join("");
+
+        // windowDays is the selected time window (overview.window.days from
+        // the API), not points.length — the series only includes days that
+        // have rows, so a sparse window would otherwise undercount (and
+        // mangle the grammar) in the accessible name.
+        const windowLabel = `last ${windowDays} day${windowDays === 1 ? "" : "s"}`;
+        const svg = `<svg class="metrics-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escapeHtml(label)}, ${windowLabel}">
+            <line x1="${marginLeft}" y1="${baseline}" x2="${W - marginRight}" y2="${baseline}" class="metrics-axis-line" />
+            ${gridlines}
+            ${bars}
+          </svg>`;
+
+        const tableRows = points
+          .map(
+            (point, i) =>
+              `<tr><td>${escapeHtml(point.day)}</td><td class="num">${escapeHtml(values[i].toLocaleString())}</td></tr>`,
+          )
+          .join("");
+
+        container.innerHTML = `
+          <div class="metrics-chart-wrap">
+            ${svg}
+            <div class="metrics-chart-tooltip" data-visible="false" role="presentation"></div>
+          </div>
+          <table class="sr-only">
+            <caption>${escapeHtml(label)}, by day</caption>
+            <thead><tr><th scope="col">Day</th><th scope="col">Value</th></tr></thead>
+            <tbody>${tableRows}</tbody>
+          </table>`;
+
+        const wrap = container.querySelector<HTMLElement>(".metrics-chart-wrap");
+        const tooltip = container.querySelector<HTMLElement>(".metrics-chart-tooltip");
+        let liftedFill: SVGElement | null = null;
+
+        // Precomputed once per draw rather than a `.metrics-bar-fill`
+        // querySelector per hover: pointermove can fire 60-120 times/sec, and
+        // a bar with zero height renders no path (see roundedTopRectPath), so
+        // this map simply has no entry for those indices — same as the old
+        // querySelector returning null.
+        const fillByIndex = new Map<number, SVGElement>();
+        wrap?.querySelectorAll<HTMLElement>(".metrics-bar[data-index]").forEach((bar) => {
+          const idx = Number(bar.getAttribute("data-index"));
+          const fill = bar.querySelector<SVGElement>(".metrics-bar-fill");
+          if (!Number.isNaN(idx) && fill) fillByIndex.set(idx, fill);
+        });
+
+        function setLift(index: number | null): void {
+          if (liftedFill) {
+            liftedFill.removeAttribute("style");
+            liftedFill = null;
+          }
+          if (index === null) return;
+          const fill = fillByIndex.get(index);
+          if (fill) {
+            fill.setAttribute("style", "opacity:0.8");
+            liftedFill = fill;
+          }
+        }
+
+        // The index the tooltip currently reflects, so repeated pointermove
+        // events over the same bar (dozens per second) can no-op instead of
+        // re-running show()'s DOM teardown/rebuild on every event. Reset to
+        // null on hide() so the next show() of that same index still works.
+        let lastShownIndex: number | null = null;
+
+        function show(index: number): void {
+          const point = points[index];
+          if (!point || !tooltip) return;
+          const value = values[index];
+          const barHeight = (value / niceMax) * plotH;
+          const x = marginLeft + index * bandWidth + bandWidth / 2;
+          const y = baseline - barHeight;
+          tooltip.style.left = `${(x / W) * 100}%`;
+          tooltip.style.top = `${(y / H) * 100}%`;
+          tooltip.innerHTML = "";
+          const dayEl = document.createElement("span");
+          dayEl.className = "day";
+          dayEl.textContent = formatDay(point.day);
+          const valueEl = document.createElement("span");
+          valueEl.className = "value";
+          valueEl.textContent = value.toLocaleString();
+          // Not tooltip.append(...): worker-configuration.d.ts's HTMLRewriter
+          // ambient `Element` redeclares append() with a Cloudflare-specific
+          // signature that shadows the DOM lib overload (same drift noted in
+          // admin/index.astro re: Element.remove()). appendChild is unaffected.
+          tooltip.appendChild(dayEl);
+          tooltip.appendChild(valueEl);
+          tooltip.dataset.visible = "true";
+          setLift(index);
+          lastShownIndex = index;
+        }
+
+        function hide(): void {
+          if (tooltip) tooltip.dataset.visible = "false";
+          setLift(null);
+          lastShownIndex = null;
+        }
+
+        function indexFromEvent(event: Event): number | null {
+          const el = (event.target as Element | null)?.closest("[data-index]");
+          const raw = el?.getAttribute("data-index");
+          const idx = raw === null || raw === undefined ? NaN : Number(raw);
+          return Number.isNaN(idx) ? null : idx;
+        }
+
+        wrap?.addEventListener("pointermove", (event) => {
+          const idx = indexFromEvent(event);
+          if (idx !== null && idx !== lastShownIndex) show(idx);
+        });
+        wrap?.addEventListener("pointerleave", hide);
+        wrap?.addEventListener("focusin", (event) => {
+          const idx = indexFromEvent(event);
+          if (idx !== null) show(idx);
+        });
+        wrap?.addEventListener("focusout", hide);
+      }
+
+      function render(overview: Overview): void {
+        const tile = (id: string, value: string) => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = value;
+        };
+        tile("tile-users", num(overview.totals.users));
+        tile("tile-orgs", num(overview.totals.orgs));
+        tile("tile-workspaces", num(overview.totals.workspaces));
+        tile("tile-stored", bytes(overview.totals.storedBytes));
+        tile("tile-active-7", num(overview.totals.activeWorkspaces7d));
+        tile("tile-active-30", num(overview.totals.activeWorkspaces30d));
+        tile("tile-uploads", num(overview.totals.uploads));
+
+        // `upload`/`delete` are deliberately excluded — they're already the
+        // "Uploads in window" tile and the uploads chart above; repeating
+        // them here would double-report the headline number under a
+        // "feature adoption" label. A metric absent from `overview.features`
+        // means zero activity in the window (adoption-queries.ts's
+        // featureTotals only sets keys with a real SUM), not "unknown" — so
+        // it renders as 0, same as any other zero count, rather than being
+        // dropped from the tile row.
+        for (const [key, id] of FEATURE_TILES) {
+          tile(id, num(overview.features[key] ?? 0));
+        }
+
+        const table = requireElement<HTMLElement>("#workspace-activity", "admin metrics");
+        // tr.admin-row: .admin-table's cell padding/border rules are scoped
+        // to tr.admin-row (see admin.css) — a bare <tr> falls through to
+        // unstyled browser-default cell padding, same convention oauth.astro
+        // uses for its plain (non-expandable) rows.
+        const rows = overview.workspaces.length
+          ? overview.workspaces
+              .map(
+                (row) =>
+                  `<tr class="admin-row"><td>${escapeHtml(row.workspace)}</td><td class="num">${num(row.uploads)}</td><td class="num">${bytes(row.bytes)}</td><td>${escapeHtml(row.lastActive)}</td></tr>`,
+              )
+              .join("")
+          : `<tr class="admin-row"><td colspan="4" class="muted">No workspace activity in this window.</td></tr>`;
+        // th.keep: this table is only 4 narrow columns, so all of them stay
+        // visible at the .admin-table mobile breakpoint instead of the
+        // wider workspaces table's "hide the optional ones" collapse — a
+        // bare `th` (no `keep`) is dropped there, which would leave the
+        // data row without column labels.
+        table.innerHTML =
+          `<thead><tr><th class="keep" scope="col">Workspace</th><th class="keep num" scope="col">Uploads</th><th class="keep num" scope="col">Bytes</th><th class="keep" scope="col">Last active</th></tr></thead>` +
+          `<tbody>${rows}</tbody>`;
+
+        drawChart(
+          "chart-uploads",
+          overview.series.uploads.map((p) => ({ day: p.day, value: p.count })),
+          "Uploads per day",
+          overview.window.days,
+        );
+        drawChart(
+          "chart-signups",
+          overview.series.users.map((p) => ({ day: p.day, value: p.count })),
+          "Signups per day",
+          overview.window.days,
+        );
+      }
+
+      // Analytics Engine upload breakdown (Task 9). Loaded separately from
+      // the D1-backed overview above so an unconfigured/unreachable AE never
+      // blocks the tiles/charts/table from rendering.
+      async function loadBreakdown(): Promise<void> {
+        // Not requireElement<HTMLSelectElement>: worker-configuration.d.ts's
+        // HTMLRewriter ambient `Element` redeclares `remove()`, which makes
+        // HTMLSelectElement fail the `T extends Element` constraint. Fetch as
+        // HTMLElement and cast instead (same pattern as oauth/consent.astro).
+        const select = requireElement<HTMLElement>(
+          "#breakdown-dimension",
+          "admin",
+        ) as unknown as HTMLSelectElement;
+        const panelStatus = requireElement<HTMLElement>("#breakdown-status", "admin");
+        const table = requireElement<HTMLElement>("#breakdown-table", "admin");
+        const seq = ++breakdownSeq;
+        try {
+          const res = await fetch(
+            `${apiOrigin}/admin-ui/metrics/breakdown?dimension=${select.value}&days=90`,
+            { credentials: "include", cache: "no-store" },
+          );
+          if (seq !== breakdownSeq) return;
+          // Checked before res.json(): a 401/5xx response carries an
+          // AppError body, not the {available, ...} shape below, and parsing
+          // it as such would misreport it to the user as "Breakdown is
+          // temporarily unavailable" instead of falling into the catch block.
+          if (!res.ok) throw new Error(`request failed: ${res.status}`);
+          const body = (await res.json()) as
+            | { available: true; rows: { value: string; events: number; bytes: number }[] }
+            | { available: false; reason: string };
+          if (seq !== breakdownSeq) return;
+          if (!body.available) {
+            table.innerHTML = "";
+            panelStatus.hidden = false;
+            panelStatus.textContent =
+              body.reason === "not_configured"
+                ? "Analytics Engine is not configured. Set ANALYTICS_API_TOKEN to enable this panel."
+                : "Breakdown is temporarily unavailable.";
+            return;
+          }
+          panelStatus.hidden = true;
+          // Every interpolated field is either escaped or coerced to a
+          // number. `value` carries client-supplied data (content type,
+          // client string, repo name) that reached AE straight from upload
+          // requests, so escapeHtml is load-bearing here, not decorative.
+          // The numeric columns are typed `number` but arrive as untyped
+          // JSON from an external API, so they are coerced rather than
+          // trusted.
+          table.innerHTML =
+            `<thead><tr><th class="keep" scope="col">Value</th><th class="keep num" scope="col">Uploads</th><th class="keep num" scope="col">Bytes</th></tr></thead><tbody>` +
+            body.rows
+              .map(
+                (row) =>
+                  `<tr class="admin-row"><td>${escapeHtml(row.value || "(none)")}</td><td class="num">${num(row.events)}</td><td class="num">${bytes(row.bytes)}</td></tr>`,
+              )
+              .join("") +
+            `</tbody>`;
+        } catch {
+          if (seq !== breakdownSeq) return;
+          panelStatus.hidden = false;
+          panelStatus.textContent = "Breakdown is temporarily unavailable.";
+        }
+      }
+
+      async function load(): Promise<void> {
+        const seq = ++loadSeq;
+        status.hidden = false;
+        status.textContent = "Loading…";
+        content.dataset.loading = "true";
+        try {
+          const res = await fetch(`${apiOrigin}/admin-ui/metrics/overview?days=${days}`, {
+            credentials: "include",
+            cache: "no-store",
+          });
+          if (seq !== loadSeq) return;
+          if (!res.ok) throw new Error(`request failed: ${res.status}`);
+          const overview = (await res.json()) as Overview;
+          if (seq !== loadSeq) return;
+          render(overview);
+          status.hidden = true;
+          void loadBreakdown();
+        } catch {
+          if (seq !== loadSeq) return;
+          status.hidden = false;
+          status.textContent = "Could not load metrics. Try again.";
+        } finally {
+          if (seq === loadSeq) content.dataset.loading = "false";
+        }
+      }
+
+      const breakdownSelect = requireElement<HTMLElement>(
+        "#breakdown-dimension",
+        "admin",
+      ) as unknown as HTMLSelectElement;
+      breakdownSelect.addEventListener("change", () => {
+        void loadBreakdown();
+      });
+
+      for (const button of document.querySelectorAll<HTMLButtonElement>("[data-days]")) {
+        button.addEventListener("click", () => {
+          days = Number(button.dataset.days);
+          for (const other of document.querySelectorAll<HTMLButtonElement>("[data-days]")) {
+            other.setAttribute("aria-pressed", other === button ? "true" : "false");
+          }
+          void load();
+        });
+      }
+
+      onSession(() => {
+        void load();
+      });
+    });
+  </script>
+</AdminLayout>

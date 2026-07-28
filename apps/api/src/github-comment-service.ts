@@ -7,6 +7,7 @@
  * bot-post problem returns `{ posted: false, reason }` so callers can fall
  * back (the CLI to its local-gh path; the hosted MCP surfaces the decline).
  */
+import { recordAdoptionSafe } from "./adoption";
 import { gatherCommentBody, upsertBotComment } from "./github-comment";
 import { githubAppConfig, installationForRepo } from "./github-app";
 import { isEntitledToClaimRepo } from "./github-claim-authz";
@@ -178,6 +179,11 @@ export async function postManagedComment(
   // PR/issue thread — best-effort record it as the repo's bound workspace.
   // First-claim-wins (recordRepoLink) and never affects this response.
   await recordRepoLink(env.DB, target.repo, workspaceName, "comment", installId);
+
+  // Both `created` and `updated` converge here — editing an existing managed
+  // comment counts as one posted comment, not zero. `skipped` and every
+  // decline path above return before reaching this point.
+  await recordAdoptionSafe(env, { metric: "comment_posted", workspace: workspaceName });
 
   return {
     posted: true,

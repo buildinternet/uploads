@@ -223,7 +223,7 @@ export const files = new Hono<WorkspaceVars>()
       key,
       new Uint8Array(body),
       c.get("workspaceName"),
-      { provenance, visibility, metadata, replace: wantReplace },
+      { provenance, visibility, metadata, replace: wantReplace, surface: "api" },
     );
     return c.json({ workspace: c.get("workspaceName"), ...result }, 201);
   })

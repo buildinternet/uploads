@@ -20,6 +20,7 @@ import {
   resolvePreviewRecipient,
   sendEmailPreview,
 } from "../admin-email-preview";
+import { fetchBreakdown, type BreakdownDimension } from "../analytics-engine";
 import {
   DEFAULT_ENROLLMENT_SECONDS,
   DEFAULT_TOKEN_SECONDS,
@@ -37,6 +38,7 @@ import {
 import { allowWrite } from "../guards";
 import { throwForInviteError } from "../invite-error";
 import { deriveWebOrigin, inviteLinkUrl } from "../invite-links";
+import { ALLOWED_WINDOWS, cachedOverview } from "../metrics-overview";
 import {
   invitesForOrg,
   membersForOrg,
@@ -348,6 +350,30 @@ async function limitsResponse(env: Env, name: string, record: WorkspaceRecord) {
 
 export const adminUi = new Hono<SessionVars>()
   .use("/*", sessionAuth, requireSessionUser, requireAdminUser)
+
+  // Cached operator adoption-metrics overview (D1 rollups + auth-worker
+  // signup history). `days` selects the window; only ALLOWED_WINDOWS are
+  // accepted so the cache stays small. `fresh=1` bypasses the KV cache.
+  .get("/metrics/overview", async (c) => {
+    const raw = c.req.query("days");
+    const days = raw === undefined ? 30 : Number(raw);
+    if (!ALLOWED_WINDOWS.includes(days as (typeof ALLOWED_WINDOWS)[number])) {
+      throw new ValidationError(`days must be one of ${ALLOWED_WINDOWS.join(", ")}`, {
+        code: "invalid_window",
+      });
+    }
+    return c.json(await cachedOverview(c.env, days, c.req.query("fresh") === "1"));
+  })
+
+  // Analytics Engine upload breakdown by dimension (surface, content type,
+  // client, repo). Additive and best-effort: an unconfigured or
+  // unreachable Analytics Engine is a normal state the page renders as a
+  // panel message, not an error — so this always returns 200.
+  .get("/metrics/breakdown", async (c) => {
+    const dimension = (c.req.query("dimension") ?? "surface") as BreakdownDimension;
+    const days = Number(c.req.query("days") ?? 30);
+    return c.json(await fetchBreakdown(c.env, dimension, Number.isFinite(days) ? days : 30));
+  })
 
   // List every KV workspace joined with its org + member/invite counts.
   .get("/workspaces", async (c) => {

@@ -16,9 +16,11 @@ class SQLiteStatement {
   constructor(
     readonly database: DatabaseSync,
     readonly sql: string,
+    readonly statements: { sql: string; args: unknown[] }[],
   ) {}
   bind(...values: unknown[]) {
     this.values = values;
+    this.statements.push({ sql: this.sql.replace(/\s+/g, " ").trim(), args: values });
     return this;
   }
   first<T>() {
@@ -45,9 +47,11 @@ class SQLiteStatement {
 }
 
 class SQLiteD1 {
+  /** Statement-recorder (mirrors routes-files.test.ts's makeFakeDB): every `bind()` call is captured here for wiring assertions. */
+  readonly statements: { sql: string; args: unknown[] }[] = [];
   constructor(readonly database: DatabaseSync) {}
   prepare(sql: string) {
-    return new SQLiteStatement(this.database, sql);
+    return new SQLiteStatement(this.database, sql, this.statements);
   }
   async batch(statements: SQLiteStatement[]) {
     this.database.exec("BEGIN");
@@ -79,6 +83,7 @@ beforeAll(() => {
 });
 
 let db: DatabaseSync;
+let fakeDb: SQLiteD1;
 let bucket: FakeR2Bucket;
 let records: Record<string, WorkspaceRecord>;
 let env: Parameters<typeof app.request>[2];
@@ -123,6 +128,13 @@ beforeEach(async () => {
       "utf8",
     ),
   );
+  // Task 3: gallery creation now records a `gallery_created` adoption event.
+  db.exec(
+    readFileSync(
+      fileURLToPath(new NodeURL("../migrations/20260728120000_daily_metrics.sql", import.meta.url)),
+      "utf8",
+    ),
+  );
   bucket = new FakeR2Bucket();
   await bucket.put("alpha/screenshots/one.png", PNG);
   records = {
@@ -143,8 +155,9 @@ beforeEach(async () => {
       tokenHash: await sha256Hex(TOKEN),
     },
   };
+  fakeDb = new SQLiteD1(db);
   env = {
-    DB: new SQLiteD1(db) as unknown as D1Database,
+    DB: fakeDb as unknown as D1Database,
     WEB_ORIGIN: "https://uploads.test",
     REGISTRY: { get: async (key: string) => records[key.slice(3)] ?? null },
     UPLOADS_DEFAULT: bucket,
@@ -716,6 +729,15 @@ describe("gallery routes with SQLite D1", () => {
         })
       ).status,
     ).toBe(429);
+  });
+});
+
+describe("gallery adoption metrics", () => {
+  it("records gallery_created when a gallery is created", async () => {
+    await create();
+    const writes = fakeDb.statements.filter((s) => s.sql.includes("INSERT INTO daily_metrics"));
+    expect(writes).toHaveLength(2); // per-workspace + platform row
+    expect(writes.map((w) => w.args[0])).toEqual(["gallery_created", "gallery_created"]);
   });
 });
 

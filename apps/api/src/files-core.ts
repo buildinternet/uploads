@@ -7,6 +7,7 @@
  */
 import { ConflictError, NotFoundError, ValidationError } from "@uploads/errors";
 import type { Files } from "@uploads/storage";
+import { recordAdoptionSafe, type UploadSurface } from "./adoption";
 import {
   budgetDenialError,
   checkPutBudget,
@@ -334,6 +335,12 @@ export async function putObject(
      * `metadata` argument was omitted.
      */
     metadata?: Record<string, string>;
+    /**
+     * Which server-side entry point is writing this object. Recorded as an
+     * Analytics Engine dimension only — never stored in D1, never affects the
+     * write. Absent means the caller predates this parameter.
+     */
+    surface?: UploadSurface;
   },
 ): Promise<{
   key: string;
@@ -493,11 +500,34 @@ export async function putObject(
   // stored but under-counted (recordUsageSafe never throws). Upload count
   // and any reserved positive byte delta were already applied at reservation
   // time; only remaining deltas (objects; shrink/unlimited bytes) land here.
-  await recordUsageSafe(env.DB, workspaceName, {
-    bytes: reservedBytes > 0 ? 0 : deltaBytes,
-    objects: replaced ? 0 : 1,
-    uploads: 0,
-  });
+  //
+  // Adoption metrics, best-effort and never fatal (see src/adoption.ts).
+  // Recorded here rather than at the route so all four putObject callers are
+  // covered by construction. `newSize` (not deltaBytes) is the right figure:
+  // this counts bytes written by this upload, not net storage change.
+  //
+  // These two writes land in different tables (workspace_usage vs
+  // daily_metrics), neither depends on the other's result, and both are
+  // never-throwing — so they run concurrently rather than as two serial D1
+  // round trips on every upload.
+  await Promise.all([
+    recordUsageSafe(env.DB, workspaceName, {
+      bytes: reservedBytes > 0 ? 0 : deltaBytes,
+      objects: replaced ? 0 : 1,
+      uploads: 0,
+    }),
+    recordAdoptionSafe(env, {
+      metric: "upload",
+      workspace: workspaceName,
+      bytes: newSize,
+      dimensions: {
+        surface: opts?.surface,
+        contentType: inspection.contentType,
+        client: provenance.client,
+        repo: opts?.metadata?.["gh.repo"],
+      },
+    }),
+  ]);
 
   // Derived metadata from a content-identical earlier upload in this workspace
   // (issue #479) — rescues the paths the CLI sidecar cannot reach: the hosted
@@ -813,11 +843,19 @@ export async function deleteObject(
   await deleteFileMetadata(env.DB, workspaceName, key);
 
   if (prev !== null) {
-    await recordUsageSafe(env.DB, workspaceName, {
-      bytes: -prev,
-      objects: -1,
-      uploads: 0,
-    });
+    // Positive magnitude under the `delete` metric — never negative bytes
+    // under `upload`. Net change is computed at read time. These two writes
+    // land in different tables (workspace_usage vs daily_metrics), neither
+    // depends on the other's result, and both are never-throwing — so they
+    // run concurrently rather than as two serial D1 round trips per delete.
+    await Promise.all([
+      recordUsageSafe(env.DB, workspaceName, {
+        bytes: -prev,
+        objects: -1,
+        uploads: 0,
+      }),
+      recordAdoptionSafe(env, { metric: "delete", workspace: workspaceName, bytes: prev }),
+    ]);
   }
 
   // Derived poster (issue #299), best-effort: a missing one is the norm for
