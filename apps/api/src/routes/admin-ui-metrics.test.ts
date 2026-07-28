@@ -13,7 +13,11 @@ const MIGRATIONS = [
 const ADMIN_USER = { id: "u-admin", email: "admin@b.com", name: "Admin", role: "admin" };
 const NON_ADMIN_USER = { id: "u-plain", email: "plain@b.com", name: "Plain", role: "user" };
 
-function stubAuth(user: typeof ADMIN_USER | null): Pick<Fetcher, "fetch"> {
+function stubAuth(
+  user: typeof ADMIN_USER | null,
+  opts?: { metricsOk?: boolean },
+): Pick<Fetcher, "fetch"> {
+  const metricsOk = opts?.metricsOk ?? true;
   return {
     fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
       const req = input instanceof Request ? input : new Request(input, init);
@@ -22,6 +26,8 @@ function stubAuth(user: typeof ADMIN_USER | null): Pick<Fetcher, "fetch"> {
         return new Response(JSON.stringify(user ? { session: {}, user } : null), { status: 200 });
       }
       if (url.pathname === "/internal/metrics") {
+        expect(req.headers.get("x-uploads-internal")).toBe("1");
+        if (!metricsOk) return new Response(null, { status: 404 });
         return Response.json({
           users: [{ day: "2026-07-28", count: 3 }],
           orgs: [{ day: "2026-07-28", count: 1 }],
@@ -190,6 +196,34 @@ describe("GET /admin-ui/metrics/overview", () => {
       const env = { AUTH: stubAuth(ADMIN_USER), DB: db, REGISTRY: broken } as unknown as Env;
       const res = await app().request("/admin-ui/metrics/overview", {}, env);
       expect(res.status).toBe(200);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("degrades to zeroed user/org totals when the auth call is non-OK, keeping the D1 half intact", async () => {
+    const { sqlite, db } = await seededDb();
+    try {
+      const env = {
+        AUTH: stubAuth(ADMIN_USER, { metricsOk: false }),
+        DB: db,
+        REGISTRY: fakeKv().binding,
+      } as unknown as Env;
+      const res = await app().request("/admin-ui/metrics/overview?days=30", {}, env);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        totals: { users: number; orgs: number; workspaces: number; storedBytes: number };
+        series: { users: unknown[]; orgs: unknown[] };
+        workspaces: { workspace: string }[];
+      };
+      expect(body.totals.users).toBe(0);
+      expect(body.totals.orgs).toBe(0);
+      expect(body.series.users).toEqual([]);
+      expect(body.series.orgs).toEqual([]);
+      // D1-backed half is unaffected by the auth degradation.
+      expect(body.totals.workspaces).toBe(2);
+      expect(body.totals.storedBytes).toBe(150);
+      expect(body.workspaces.map((w) => w.workspace).sort()).toEqual(["acme", "beta"]);
     } finally {
       sqlite.close();
     }

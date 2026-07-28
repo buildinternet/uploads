@@ -79,7 +79,9 @@ export function overviewCacheKey(days: number): string {
  */
 async function authMetrics(env: Env, since: string): Promise<AuthMetrics> {
   try {
-    const res = await env.AUTH.fetch(`https://auth.internal/internal/metrics?since=${since}`);
+    const res = await env.AUTH.fetch(`https://auth.internal/internal/metrics?since=${since}`, {
+      headers: { "x-uploads-internal": "1" },
+    });
     if (!res.ok) return EMPTY_AUTH;
     return (await res.json()) as AuthMetrics;
   } catch {
