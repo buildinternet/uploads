@@ -190,14 +190,20 @@ export const prerender = false;
         return Number.isFinite(parsed) ? formatBytes(parsed) : "0 B";
       };
 
+      // Hoisted out of formatDay: constructing an Intl.DateTimeFormat is
+      // comparatively expensive, and formatDay runs up to ~180 times per
+      // chart render plus once per hover/focus move — one shared formatter
+      // instance is reused instead of building a fresh one every call.
+      const DAY_FORMATTER = new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      });
+
       const formatDay = (day: string): string => {
         const date = new Date(`${day}T00:00:00Z`);
         if (Number.isNaN(date.getTime())) return day;
-        return new Intl.DateTimeFormat("en-US", {
-          month: "short",
-          day: "numeric",
-          timeZone: "UTC",
-        }).format(date);
+        return DAY_FORMATTER.format(date);
       };
 
       /** Round a positive max up to a "clean" axis ceiling (1/2/5/10 * 10^n). */
@@ -362,20 +368,36 @@ export const prerender = false;
         const tooltip = container.querySelector<HTMLElement>(".metrics-chart-tooltip");
         let liftedFill: SVGElement | null = null;
 
+        // Precomputed once per draw rather than a `.metrics-bar-fill`
+        // querySelector per hover: pointermove can fire 60-120 times/sec, and
+        // a bar with zero height renders no path (see roundedTopRectPath), so
+        // this map simply has no entry for those indices — same as the old
+        // querySelector returning null.
+        const fillByIndex = new Map<number, SVGElement>();
+        wrap?.querySelectorAll<HTMLElement>(".metrics-bar[data-index]").forEach((bar) => {
+          const idx = Number(bar.getAttribute("data-index"));
+          const fill = bar.querySelector<SVGElement>(".metrics-bar-fill");
+          if (!Number.isNaN(idx) && fill) fillByIndex.set(idx, fill);
+        });
+
         function setLift(index: number | null): void {
           if (liftedFill) {
             liftedFill.removeAttribute("style");
             liftedFill = null;
           }
           if (index === null) return;
-          const fill = wrap?.querySelector<SVGElement>(
-            `.metrics-bar[data-index="${index}"] .metrics-bar-fill`,
-          );
+          const fill = fillByIndex.get(index);
           if (fill) {
             fill.setAttribute("style", "opacity:0.8");
             liftedFill = fill;
           }
         }
+
+        // The index the tooltip currently reflects, so repeated pointermove
+        // events over the same bar (dozens per second) can no-op instead of
+        // re-running show()'s DOM teardown/rebuild on every event. Reset to
+        // null on hide() so the next show() of that same index still works.
+        let lastShownIndex: number | null = null;
 
         function show(index: number): void {
           const point = points[index];
@@ -401,11 +423,13 @@ export const prerender = false;
           tooltip.appendChild(valueEl);
           tooltip.dataset.visible = "true";
           setLift(index);
+          lastShownIndex = index;
         }
 
         function hide(): void {
           if (tooltip) tooltip.dataset.visible = "false";
           setLift(null);
+          lastShownIndex = null;
         }
 
         function indexFromEvent(event: Event): number | null {
@@ -417,7 +441,7 @@ export const prerender = false;
 
         wrap?.addEventListener("pointermove", (event) => {
           const idx = indexFromEvent(event);
-          if (idx !== null) show(idx);
+          if (idx !== null && idx !== lastShownIndex) show(idx);
         });
         wrap?.addEventListener("pointerleave", hide);
         wrap?.addEventListener("focusin", (event) => {

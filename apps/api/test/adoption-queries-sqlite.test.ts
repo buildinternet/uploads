@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { bumpDailyMetric } from "../src/adoption";
 import {
-  activeWorkspaceCount,
+  activeWorkspacesSince,
   featureTotals,
   platformSeries,
   platformStorage,
@@ -90,21 +90,34 @@ describe("workspaceActivity", () => {
   });
 });
 
-describe("activeWorkspaceCount", () => {
-  it("counts distinct workspaces that uploaded in the window", async () => {
+describe("activeWorkspacesSince", () => {
+  it("returns one row per workspace that uploaded in the window, with lastActive", async () => {
     const sqlite = new SqliteD1(MIGRATION);
     try {
       const db = database(sqlite);
       await seed(db);
-      expect(await activeWorkspaceCount(db, "2026-07-01")).toBe(2);
-      expect(await activeWorkspaceCount(db, "2026-07-27")).toBe(2);
-      expect(await activeWorkspaceCount(db, "2026-07-29")).toBe(0);
+      const rows = await activeWorkspacesSince(db, "2026-07-01");
+      expect(rows).toHaveLength(2);
+      expect(rows.map((r) => r.workspace).sort()).toEqual(["acme", "beta"]);
+      expect(rows.find((r) => r.workspace === "acme")?.lastActive).toBe("2026-07-28");
+      expect(rows.find((r) => r.workspace === "beta")?.lastActive).toBe("2026-07-28");
     } finally {
       sqlite.close();
     }
   });
 
-  it("does not count a workspace whose only activity was a gallery", async () => {
+  it("excludes days before the window", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      const db = database(sqlite);
+      await seed(db);
+      expect(await activeWorkspacesSince(db, "2026-07-29")).toEqual([]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("does not include a workspace whose only activity was a gallery", async () => {
     const sqlite = new SqliteD1(MIGRATION);
     try {
       const db = database(sqlite);
@@ -113,7 +126,42 @@ describe("activeWorkspaceCount", () => {
         { metric: "gallery_created", workspace: "gamma" },
         new Date("2026-07-28T10:00:00Z"),
       );
-      expect(await activeWorkspaceCount(db, "2026-07-01")).toBe(0);
+      expect(await activeWorkspacesSince(db, "2026-07-01")).toEqual([]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  // Fix 5: metrics-overview.ts derives BOTH the 7d and 30d active-workspace
+  // counts from a single 30-day activeWorkspacesSince call (rather than two
+  // separate queries), by filtering these rows on `lastActive`. Prove that
+  // derivation is correct for a workspace active in the 30d window but NOT
+  // the 7d window — the case a naive "just count the 30d rows" approach for
+  // both figures would get wrong.
+  it("supports deriving both a 7d and 30d count from one 30-day call", async () => {
+    const sqlite = new SqliteD1(MIGRATION);
+    try {
+      const db = database(sqlite);
+      // Only active on 2026-07-05: inside a 30-day window starting
+      // 2026-06-29, but well before a 7-day window starting 2026-07-22.
+      await bumpDailyMetric(
+        db,
+        { metric: "upload", workspace: "delta" },
+        new Date("2026-07-05T10:00:00Z"),
+      );
+      await seed(db); // acme/beta, both last active 2026-07-28
+
+      const since30 = "2026-06-29";
+      const since7 = "2026-07-22";
+      const rows = await activeWorkspacesSince(db, since30);
+
+      expect(rows.map((r) => r.workspace).sort()).toEqual(["acme", "beta", "delta"]);
+
+      const active30d = rows.length;
+      const active7d = rows.filter((r) => r.lastActive >= since7).length;
+      expect(active30d).toBe(3);
+      // delta is in the 30d count but drops out of the 7d count.
+      expect(active7d).toBe(2);
     } finally {
       sqlite.close();
     }

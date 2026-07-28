@@ -15,7 +15,7 @@
  * promote call (see routes/github-comment.ts, routes/github-promote.ts).
  */
 
-import { bumpDailyMetric } from "./adoption";
+import { bumpDailyMetric, logAdoptionFailure } from "./adoption";
 
 export interface RepoLink {
   repo: string;
@@ -78,14 +78,11 @@ export async function recordRepoLink(
       try {
         await bumpDailyMetric(db, { metric: "repo_linked", workspace: workspaceName });
       } catch (metricErr) {
-        const message = metricErr instanceof Error ? metricErr.message : String(metricErr);
-        console.error(
-          JSON.stringify({
-            message: "adoption metric write failed",
-            metric: "repo_linked",
-            error: message,
-          }),
-        );
+        // Shared with recordAdoptionSafe's catch (adoption.ts) so this and
+        // the main adoption-write path log the same one shape rather than
+        // two hand-rolled copies that quietly drift (this one used to omit
+        // `workspace`).
+        logAdoptionFailure("repo_linked", workspaceName, metricErr);
       }
     }
   } catch (err) {

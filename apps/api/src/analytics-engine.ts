@@ -14,10 +14,29 @@
  * durable record. That lives in `daily_metrics`.
  */
 
+import { BLOB_ORDER } from "./adoption";
+
 const SQL_ENDPOINT = "https://api.cloudflare.com/client/v4/accounts";
 const DATASET = "uploads_adoption";
 
-export type BreakdownDimension = "surface" | "contentType" | "client" | "plan" | "repo";
+/**
+ * Dimensions the breakdown panel lets an operator group by — a DELIBERATELY
+ * separate concept from "physical blob position" (BLOB_ORDER in adoption.ts).
+ * Every entry here must also be a BLOB_ORDER entry, but not every BLOB_ORDER
+ * entry belongs here: `workspace` is the AE sampling index, not a breakdown
+ * column, and `plan` is a reserved-but-unpopulated blob slot (see
+ * adoption.ts) that no caller ever sets — querying it would only ever return
+ * one row with `value: ""`, so it is left out of the UI's "Group by" list
+ * and out of this type.
+ */
+export type BreakdownDimension = "surface" | "contentType" | "client" | "repo";
+
+const BREAKDOWN_DIMENSIONS: readonly BreakdownDimension[] = [
+  "surface",
+  "contentType",
+  "client",
+  "repo",
+];
 
 export interface BreakdownRow {
   value: string;
@@ -30,17 +49,19 @@ export type BreakdownResult =
   | { available: false; reason: string };
 
 /**
- * Blob ordinals, matching BLOB_ORDER in adoption.ts. AE columns are
- * positional, so this mapping is a contract with the write path — appending
- * is safe, reordering rewrites the meaning of historical rows.
+ * Blob ordinals for each queryable dimension, DERIVED from BLOB_ORDER (the
+ * single source of truth for the write-side contract in adoption.ts) rather
+ * than hand-repeated here. AE columns are positional and 1-indexed
+ * (`blob1`, `blob2`, ...) while BLOB_ORDER is a 0-indexed array, hence the
+ * `+ 1`. Appending a dimension to BLOB_ORDER is safe; reordering or removing
+ * one rewrites the meaning of historical rows.
  */
-const BLOB_COLUMN: Record<BreakdownDimension, string> = {
-  surface: "blob2",
-  contentType: "blob3",
-  client: "blob4",
-  plan: "blob5",
-  repo: "blob6",
-};
+const BLOB_COLUMN: Record<BreakdownDimension, string> = Object.fromEntries(
+  BREAKDOWN_DIMENSIONS.map((dimension) => {
+    const index = BLOB_ORDER.indexOf(dimension);
+    return [dimension, `blob${index + 1}`];
+  }),
+) as Record<BreakdownDimension, string>;
 
 export function breakdownQuery(dimension: BreakdownDimension, days: number): string {
   const column = BLOB_COLUMN[dimension];

@@ -19,6 +19,19 @@ describe("breakdownQuery", () => {
     expect(breakdownQuery("repo", 30)).toContain("blob6");
   });
 
+  // Fix 1/2 (structural blob-ordinal contract): BLOB_COLUMN is now DERIVED
+  // from adoption.ts's BLOB_ORDER rather than a hand-synced literal. This
+  // locks in the exact mapping the derivation must produce — byte-identical
+  // to the pre-derivation hand-listed version, minus `plan` (Fix 2 drops it
+  // from the queryable BreakdownDimension type since no caller ever sets it,
+  // while its blob5 slot stays reserved in BLOB_ORDER so `repo` keeps blob6).
+  it("derives every queryable dimension's blob column from BLOB_ORDER", () => {
+    expect(breakdownQuery("surface", 30)).toContain("blob2");
+    expect(breakdownQuery("contentType", 30)).toContain("blob3");
+    expect(breakdownQuery("client", 30)).toContain("blob4");
+    expect(breakdownQuery("repo", 30)).toContain("blob6");
+  });
+
   it("multiplies by _sample_interval so sampled counts are scaled back up", () => {
     expect(breakdownQuery("surface", 30)).toContain("_sample_interval");
   });
@@ -77,6 +90,22 @@ describe("fetchBreakdown", () => {
     }) as unknown as typeof fetch;
     const result = await fetchBreakdown(env(), "surface", 30, impl);
     expect(result).toEqual({ available: false, reason: "query_failed" });
+  });
+
+  // Fix 2: `plan` reserves a blob slot (see adoption.ts's BLOB_ORDER) but is
+  // no longer a queryable BreakdownDimension — nothing sets it, so it would
+  // only ever return a single always-empty row. Confirm it is now rejected
+  // the same way any other unknown dimension is, rather than silently
+  // returning that dead data.
+  it("rejects the reserved-but-unpopulated `plan` dimension without issuing a request", async () => {
+    let called = false;
+    const impl = (async () => {
+      called = true;
+      return new Response("{}");
+    }) as unknown as typeof fetch;
+    const result = await fetchBreakdown(env(), "plan" as never, 30, impl);
+    expect(result).toEqual({ available: false, reason: "invalid_dimension" });
+    expect(called).toBe(false);
   });
 
   it("rejects an unknown dimension without issuing a request", async () => {

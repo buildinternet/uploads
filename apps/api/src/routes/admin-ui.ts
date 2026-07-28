@@ -366,7 +366,7 @@ export const adminUi = new Hono<SessionVars>()
   })
 
   // Analytics Engine upload breakdown by dimension (surface, content type,
-  // client, plan, repo). Additive and best-effort: an unconfigured or
+  // client, repo). Additive and best-effort: an unconfigured or
   // unreachable Analytics Engine is a normal state the page renders as a
   // panel message, not an error — so this always returns 200.
   .get("/metrics/breakdown", async (c) => {

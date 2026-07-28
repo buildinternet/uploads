@@ -93,16 +93,33 @@ export async function workspaceActivity(
   return result.results;
 }
 
-/** Workspaces that uploaded at least once in the window. */
-export async function activeWorkspaceCount(db: D1Database, since: string): Promise<number> {
-  const row = await db
+/** One row per workspace that uploaded at least once since `since`, with its most recent active day. */
+export interface ActiveWorkspace {
+  workspace: string;
+  lastActive: string;
+}
+
+/**
+ * Workspaces active (at least one upload) since `since`, one row each with
+ * their most recent active day. Scans the window ONCE so callers who need
+ * both a 7-day and a 30-day active-workspace count can derive both from a
+ * single 30-day call — `buildOverview` (metrics-overview.ts) does exactly
+ * this — instead of the 30-day window's rows being read twice (D1 bills rows
+ * read, and the last 7 days are always a subset of the last 30).
+ */
+export async function activeWorkspacesSince(
+  db: D1Database,
+  since: string,
+): Promise<ActiveWorkspace[]> {
+  const result = await db
     .prepare(
-      `SELECT COUNT(DISTINCT workspace) AS n FROM daily_metrics
-       WHERE metric = 'upload' AND workspace <> '' AND day >= ?`,
+      `SELECT workspace, MAX(day) AS lastActive FROM daily_metrics
+       WHERE metric = 'upload' AND workspace <> '' AND day >= ?
+       GROUP BY workspace`,
     )
     .bind(since)
-    .first<{ n: number }>();
-  return row?.n ?? 0;
+    .all<ActiveWorkspace>();
+  return result.results;
 }
 
 /**

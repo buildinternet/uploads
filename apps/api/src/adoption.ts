@@ -33,12 +33,17 @@ export type AdoptionMetric = (typeof ADOPTION_METRICS)[number];
  */
 export type UploadSurface = "api" | "mcp" | "promote";
 
-/** Analytics Engine dimensions. Never written to D1 — see the module docs. */
+/**
+ * Analytics Engine dimensions. Never written to D1 — see the module docs.
+ *
+ * Deliberately excludes `plan`: `BLOB_ORDER` below still reserves a blob slot
+ * for it (so `repo`'s ordinal never shifts), but no caller populates it, so
+ * it is not exposed as something callers can set. See `BLOB_ORDER`'s comment.
+ */
 export interface AdoptionDimensions {
   surface?: UploadSurface;
   contentType?: string;
   client?: string;
-  plan?: string;
   repo?: string;
 }
 
@@ -96,6 +101,18 @@ export async function bumpDailyMetric(
  * — Analytics Engine has no column names, only ordinals. Append new
  * dimensions at the END; never reorder or remove, or historical rows change
  * meaning retroactively.
+ *
+ * This is the SINGLE SOURCE OF TRUTH for that ordinal contract: the write
+ * side (`writeAdoptionPoint`'s `blobs` array, below) and the read side
+ * (analytics-engine.ts's `BLOB_COLUMN`) both derive from this array rather
+ * than hand-repeating the ordering, so adding a dimension in the wrong
+ * position is now a one-place change instead of three hand-synced copies.
+ *
+ * `"plan"` (blob5) is reserved but deliberately unpopulated — see
+ * `AdoptionDimensions`'s comment. It stays in this array (rather than being
+ * removed) purely to hold `"repo"` at blob6: removing it would shift `repo`
+ * to blob5 and silently reinterpret every historical AE row, which AE has no
+ * way to backfill. `writeAdoptionPoint` always emits `""` at this position.
  */
 export const BLOB_ORDER = [
   "workspace",
@@ -105,6 +122,28 @@ export const BLOB_ORDER = [
   "plan",
   "repo",
 ] as const;
+
+type BlobKey = (typeof BLOB_ORDER)[number];
+
+/** The value written at `key`'s blob position for one adoption event. */
+function blobValue(key: BlobKey, event: AdoptionEvent, d: AdoptionDimensions): string {
+  switch (key) {
+    case "workspace":
+      return event.workspace;
+    case "surface":
+      return d.surface ?? "";
+    case "contentType":
+      return d.contentType ?? "";
+    case "client":
+      return d.client ?? "";
+    case "plan":
+      // Reserved-but-unpopulated slot (see BLOB_ORDER's comment) — no caller
+      // sets this today. Always "" so blob5 stays a stable, empty column.
+      return "";
+    case "repo":
+      return d.repo ?? "";
+  }
+}
 
 /**
  * One wide data point per upload. Upload-only by design: the other metrics are
@@ -123,20 +162,29 @@ export function writeAdoptionPoint(env: Env, event: AdoptionEvent): void {
     analytics.writeDataPoint({
       // Sampling key: keeps one workspace's traffic from crowding out another.
       indexes: [event.workspace],
-      blobs: [
-        event.workspace,
-        d.surface ?? "",
-        d.contentType ?? "",
-        d.client ?? "",
-        d.plan ?? "",
-        d.repo ?? "",
-      ],
+      // Derived from BLOB_ORDER (not hand-listed) so this can never drift
+      // from the ordinal contract documented there.
+      blobs: BLOB_ORDER.map((key) => blobValue(key, event, d)),
       doubles: [normalizeBytes(event.bytes)],
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(JSON.stringify({ message: "adoption analytics write failed", error: message }));
   }
+}
+
+/**
+ * Shared adoption-write-failure log shape. Exported so every caller that
+ * swallows a `bumpDailyMetric`/`recordAdoptionSafe`-style failure (e.g.
+ * github-repo-links.ts's `recordRepoLink`, which cannot await
+ * `recordAdoptionSafe` directly — see that file's header comment) logs the
+ * same one line instead of hand-rolling a copy that silently drifts.
+ */
+export function logAdoptionFailure(metric: AdoptionMetric, workspace: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(
+    JSON.stringify({ message: "adoption metric write failed", metric, workspace, error: message }),
+  );
 }
 
 /**
@@ -152,14 +200,6 @@ export async function recordAdoptionSafe(
   try {
     await bumpDailyMetric(env.DB, event, now);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      JSON.stringify({
-        message: "adoption metric write failed",
-        metric: event.metric,
-        workspace: event.workspace,
-        error: message,
-      }),
-    );
+    logAdoptionFailure(event.metric, event.workspace, err);
   }
 }

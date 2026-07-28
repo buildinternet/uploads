@@ -268,7 +268,11 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
   // database, see org-workspaces.ts's header comment). The day grouping is
   // windowed by `since` so it stays cheap under D1's rows-read billing; the
   // totals are deliberately unwindowed full-table counts (Task 6 caches
-  // those).
+  // those). Only `users`/`orgs` totals are computed — this used to also run
+  // unwindowed full-table `role='admin'`/`banned=1` scans, but nothing
+  // downstream ever read those (MetricsOverview.totals has no admins/banned
+  // fields, and the page renders neither), so they were two wasted full
+  // scans on every cache miss. Removed rather than left dead.
   .get("/metrics", async (c) => {
     const sinceParam = c.req.query("since");
     if (sinceParam !== undefined && !DAY_RE.test(sinceParam)) {
@@ -296,7 +300,7 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
     const userDay = DAY_EXPR(schema.user.createdAt);
     const orgDay = DAY_EXPR(schema.organization.createdAt);
 
-    const [users, orgs, userTotal, orgTotal, adminTotal, bannedTotal] = await Promise.all([
+    const [users, orgs, userTotal, orgTotal] = await Promise.all([
       db
         .select({ day: userDay, count: count() })
         .from(schema.user)
@@ -311,8 +315,6 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
         .orderBy(orgDay),
       db.select({ n: count() }).from(schema.user),
       db.select({ n: count() }).from(schema.organization),
-      db.select({ n: count() }).from(schema.user).where(eq(schema.user.role, "admin")),
-      db.select({ n: count() }).from(schema.user).where(eq(schema.user.banned, true)),
     ]);
 
     return c.json({
@@ -321,8 +323,6 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
       totals: {
         users: userTotal[0]?.n ?? 0,
         orgs: orgTotal[0]?.n ?? 0,
-        admins: adminTotal[0]?.n ?? 0,
-        banned: bannedTotal[0]?.n ?? 0,
       },
     });
   })

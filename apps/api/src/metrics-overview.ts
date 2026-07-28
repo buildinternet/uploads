@@ -10,7 +10,7 @@
  */
 
 import {
-  activeWorkspaceCount,
+  activeWorkspacesSince,
   featureTotals,
   platformSeries,
   platformStorage,
@@ -60,13 +60,13 @@ export interface MetricsOverview {
 interface AuthMetrics {
   users: SignupPoint[];
   orgs: SignupPoint[];
-  totals: { users: number; orgs: number; admins: number; banned: number };
+  totals: { users: number; orgs: number };
 }
 
 const EMPTY_AUTH: AuthMetrics = {
   users: [],
   orgs: [],
-  totals: { users: 0, orgs: 0, admins: 0, banned: 0 },
+  totals: { users: 0, orgs: 0 },
 };
 
 export function overviewCacheKey(days: number): string {
@@ -98,12 +98,16 @@ export async function buildOverview(
   const since7 = windowStart(7, now);
   const since30 = windowStart(30, now);
 
-  const [uploads, features, table, active7, active30, storage, auth] = await Promise.all([
+  const [uploads, features, table, active30, storage, auth] = await Promise.all([
     platformSeries(env.DB, "upload", since),
     featureTotals(env.DB, since),
     workspaceActivity(env.DB, since),
-    activeWorkspaceCount(env.DB, since7),
-    activeWorkspaceCount(env.DB, since30),
+    // Scans the 30-day window ONCE; the 7-day count is derived below by
+    // filtering these same rows rather than issuing a second query — the
+    // last 7 days of index entries are always a subset of the last 30, so a
+    // separate activeWorkspaceCount(since7) call would just re-read them
+    // (D1 bills rows read).
+    activeWorkspacesSince(env.DB, since30),
     platformStorage(env.DB),
     authMetrics(env, since),
   ]);
@@ -115,8 +119,8 @@ export async function buildOverview(
       orgs: auth.totals.orgs,
       workspaces: storage.workspaces,
       storedBytes: storage.storedBytes,
-      activeWorkspaces7d: active7,
-      activeWorkspaces30d: active30,
+      activeWorkspaces7d: active30.filter((w) => w.lastActive >= since7).length,
+      activeWorkspaces30d: active30.length,
       uploads: uploads.reduce((sum, point) => sum + point.count, 0),
       bytes: uploads.reduce((sum, point) => sum + point.bytes, 0),
     },

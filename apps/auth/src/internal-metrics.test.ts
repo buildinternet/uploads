@@ -70,16 +70,21 @@ describe("GET /internal/metrics", () => {
   });
 
   it("reports all-time totals independent of the window", async () => {
+    // role/banned overrides still exercise seedUser's full column set even
+    // though totals.admins/totals.banned were removed (Fix 6: nothing ever
+    // read them — MetricsOverview.totals has no such fields and the page
+    // renders neither — so those two unwindowed full-table scans were
+    // wasted work on every cache miss).
     await seedUser(new Date("2026-01-01T10:00:00Z"), { role: "admin" });
     await seedUser(new Date("2026-07-28T10:00:00Z"), { banned: true });
 
     const res = await app().request("/internal/metrics?since=2026-07-20", {}, env());
     const body = (await res.json()) as {
-      totals: { users: number; admins: number; banned: number };
+      totals: { users: number };
     };
     expect(body.totals.users).toBe(2);
-    expect(body.totals.admins).toBe(1);
-    expect(body.totals.banned).toBe(1);
+    expect((body.totals as Record<string, unknown>).admins).toBeUndefined();
+    expect((body.totals as Record<string, unknown>).banned).toBeUndefined();
   });
 
   it("defaults to a 30-day window when `since` is absent", async () => {
