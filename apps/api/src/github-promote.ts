@@ -169,6 +169,7 @@ export async function promoteBranchAttachments(
           "gh.branch": target.branch,
           "gh.promoted-at": nowIso,
         },
+        surface: "promote",
       });
     } catch (err) {
       // Never leak internal error detail (D1/R2 messages, key policy

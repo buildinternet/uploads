@@ -638,7 +638,9 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         // layout) — putObject always allows overwrite on gh/-prefixed keys.
         const replaceArg = optBool(args, "replace") === true;
         const putOpts =
-          metadata !== undefined || replaceArg ? { metadata, replace: replaceArg } : undefined;
+          metadata !== undefined || replaceArg
+            ? { metadata, replace: replaceArg, surface: "mcp" as const }
+            : { surface: "mcp" as const };
 
         if (multi) {
           // Decode (and size-gate) every item before any write, so a
