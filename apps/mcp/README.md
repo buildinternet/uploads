@@ -51,6 +51,23 @@ conformant clients already send them, but the worker did not enforce them
 before it moved to the MCP SDK. A hand-rolled caller that omitted either used
 to work and now does not.
 
+### Legacy `initialize` params are validated
+
+On the legacy leg, `initialize` params are checked against the spec schema, so
+`capabilities` and `clientInfo` are both required:
+
+```json
+{
+  "protocolVersion": "2025-06-18",
+  "capabilities": {},
+  "clientInfo": { "name": "x", "version": "1" }
+}
+```
+
+Omitting either returns `-32603` with a validation dump. The spec has always
+required them, but the pre-SDK server read only `protocolVersion` and ignored
+the rest, so a partial handshake used to succeed.
+
 The REST API's upload guardrails apply: content type is sniffed server-side,
 size-capped, budget-checked, and subject to optional key policy
 (`allowedKeyPrefixes` / `maxKeyDepth`). Writes are rate limited per workspace.

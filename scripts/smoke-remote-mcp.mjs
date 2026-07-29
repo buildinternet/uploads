@@ -184,7 +184,14 @@ try {
   mask(scopedToken);
   ok("exchange");
 
-  const initialized = await mcp("initialize", { protocolVersion: "2025-06-18" });
+  // `capabilities` and `clientInfo` are required by the spec and are now
+  // schema-validated by the SDK transport: omitting either gets -32603, where
+  // the pre-SDK server ignored both and echoed the version back.
+  const initialized = await mcp("initialize", {
+    protocolVersion: "2025-06-18",
+    capabilities: {},
+    clientInfo: { name: "uploads-smoke", version: "1" },
+  });
   if (initialized.body.result?.protocolVersion !== "2025-06-18") {
     throw new Error("MCP initialize returned unexpected protocol version");
   }
