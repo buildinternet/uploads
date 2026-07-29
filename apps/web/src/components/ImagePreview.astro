@@ -253,6 +253,11 @@ const counterpartUrl = compare?.src ?? null;
   .compare-wrap {
     position: relative;
     display: none;
+    /* Without this, the block-level wrap picks up the inline-level host's
+       baseline descender gap (~4-5px), so the wrap's bottom edge sits below
+       the host's — and the corner labels below, positioned against the wrap,
+       land short of the image's real bottom edge. */
+    line-height: 0;
   }
 
   .image-preview[data-view="compare"] .compare-wrap {
@@ -417,6 +422,25 @@ const counterpartUrl = compare?.src ?? null;
   @media (max-width: 760px) {
     .image-preview {
       min-height: 220px;
+    }
+  }
+
+  /* Below ~480px the two pill groups (view-toggle top-left, size-toggle
+     top-right) together approach or exceed the stage width and form a solid
+     band across the image. Shrink padding/gap/font rather than change the
+     settled button copy ("This image" / "Compare" / "Fit" / "Full width"). */
+  @media (max-width: 480px) {
+    .size-toggle,
+    .view-toggle {
+      padding: 2px;
+      gap: 1px;
+    }
+
+    .size-toggle button,
+    .view-toggle button {
+      padding: 4px 6px;
+      font-size: 9.5px;
+      letter-spacing: 0.01em;
     }
   }
 </style>
