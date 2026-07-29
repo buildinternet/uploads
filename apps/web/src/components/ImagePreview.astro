@@ -253,7 +253,6 @@ const counterpartUrl = compare?.src ?? null;
   .compare-wrap {
     position: relative;
     display: none;
-    width: 100%;
   }
 
   .image-preview[data-view="compare"] .compare-wrap {
@@ -264,13 +263,39 @@ const counterpartUrl = compare?.src ?? null;
     display: none;
   }
 
-  img-comparison-slider {
-    display: block;
+  /* Fit: shrink-wrap the wrap to the host's sized box (see the
+     img-comparison-slider rules below) and center it, matching how a lone
+     fit-mode image is centered by the stage's `place-items: center`. This is
+     what keeps the corner labels — positioned against this element — sitting
+     on the image's real edges instead of a full-width box the image doesn't
+     fill. `justify-self` overrides the `justify-items: stretch` set by the
+     compare-view rule further down, for this one grid item only. */
+  .image-preview[data-mode="fit"] .compare-wrap {
+    width: auto;
+    max-width: 100%;
+    justify-self: center;
+  }
+
+  /* Full: wrap fills the stage, same as before. */
+  .image-preview[data-mode="full"] .compare-wrap {
     width: 100%;
+  }
+
+  img-comparison-slider {
+    max-width: 100%;
     --divider-width: 2px;
     --divider-color: var(--accent);
     --default-handle-width: 44px;
     --default-handle-color: var(--accent);
+  }
+
+  /* Full width: host fills the stage, same contract as the single image's
+     full-width mode. Fit mode intentionally leaves the host at its shadow
+     default (`inline-block`) so it shrink-wraps the sized image below rather
+     than forcing a width the image itself doesn't fill. */
+  .image-preview[data-mode="full"] img-comparison-slider {
+    display: block;
+    width: 100%;
   }
 
   /* The component's own FOUC guard, replicated from its shipped
@@ -296,13 +321,24 @@ const counterpartUrl = compare?.src ?? null;
 
   .image-preview img-comparison-slider img {
     display: block;
-    width: 100%;
     height: auto;
     object-fit: contain;
   }
 
+  /* Fit: same intrinsic-ratio sizing as the single image in fit mode — width
+     resolves from the image's own aspect ratio once height is capped, so the
+     host (shrink-wrapped above) matches the visible content and the divider
+     lands on the image's real edges. */
   .image-preview[data-mode="fit"] img-comparison-slider img {
+    width: auto;
+    max-width: 100%;
     max-height: var(--preview-max-h);
+  }
+
+  /* Full: same fill-the-stage sizing as the single image in full mode. */
+  .image-preview[data-mode="full"] img-comparison-slider img {
+    width: 100%;
+    max-height: none;
   }
 
   .compare-label {
