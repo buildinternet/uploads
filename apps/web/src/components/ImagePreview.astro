@@ -5,21 +5,71 @@
  * Fit: compact, viewport-capped (photos / wide UI).
  * Full width: stage grows with the image; page scroll (tall screenshots).
  * Tall images auto-open full width. Mode resolution: `lib/image-preview-mode.ts`.
+ *
+ * When `compare` is supplied the stage gains a second, independent axis: the
+ * view switch between this image alone and a draggable before/after slider
+ * (`img-comparison-slider`, a custom element — the public file page ships no
+ * framework runtime and must keep it that way).
  */
+import { compareImages, type BeforeAfterState } from "../lib/before-after-view";
+
 interface Props {
   src: string;
   alt: string;
+  /** The counterpart image and this file's own role; omit for unpaired files. */
+  compare?: { src: string; ownState: BeforeAfterState } | null;
 }
 
-const { src, alt } = Astro.props;
+const { src, alt, compare = null } = Astro.props;
+const pair = compare ? compareImages(compare.ownState, src, compare.src) : null;
+/** The counterpart's URL — the one layer that can 404 out from under us. */
+const counterpartUrl = compare?.src ?? null;
 ---
 
-<div class="media image-preview" data-mode="fit" data-image-preview>
+<div class="media image-preview" data-mode="fit" data-view="single" data-image-preview>
+  {pair && (
+    <div class="view-toggle" role="group" aria-label="Comparison view">
+      <button type="button" data-view-btn="single" aria-pressed="true">This image</button>
+      <button type="button" data-view-btn="compare" aria-pressed="false">Compare</button>
+    </div>
+  )}
   <div class="size-toggle" role="group" aria-label="Preview size">
     <button type="button" data-size="fit" aria-pressed="true">Fit</button>
     <button type="button" data-size="full" aria-pressed="false">Full width</button>
   </div>
-  <img src={src} alt={alt} decoding="async" />
+  <img class="single-image" src={src} alt={alt} decoding="async" />
+  {pair && (
+    <div class="compare-wrap">
+      <img-comparison-slider
+        value="50"
+        role="slider"
+        aria-label="Before and after comparison"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="50"
+        aria-valuetext="50% after"
+      >
+        <img
+          slot="first"
+          src={pair.beforeUrl}
+          alt={`Before: ${alt}`}
+          decoding="async"
+          loading="lazy"
+          data-counterpart={pair.beforeUrl === counterpartUrl ? "true" : null}
+        />
+        <img
+          slot="second"
+          src={pair.afterUrl}
+          alt={`After: ${alt}`}
+          decoding="async"
+          loading="lazy"
+          data-counterpart={pair.afterUrl === counterpartUrl ? "true" : null}
+        />
+      </img-comparison-slider>
+      <span class="compare-label compare-label--before" aria-hidden="true">before</span>
+      <span class="compare-label compare-label--after" aria-hidden="true">after</span>
+    </div>
+  )}
 </div>
 
 <script>
@@ -27,6 +77,54 @@ const { src, alt } = Astro.props;
     resolvePreviewMode,
     type ImagePreviewMode,
   } from "../lib/image-preview-mode";
+  import "img-comparison-slider";
+
+  type CompareView = "single" | "compare";
+
+  function applyView(root: HTMLElement, view: CompareView): void {
+    root.dataset.view = view;
+    for (const btn of root.querySelectorAll<HTMLButtonElement>("button[data-view-btn]")) {
+      btn.setAttribute("aria-pressed", btn.dataset.viewBtn === view ? "true" : "false");
+    }
+  }
+
+  /**
+   * Wire the single ⇄ compare switch. No-op for unpaired files. If the
+   * counterpart image fails to load, the switch removes itself rather than
+   * offering a mode that would show a broken half.
+   */
+  function initCompare(root: HTMLElement): void {
+    const wrap = root.querySelector<HTMLElement>(".compare-wrap");
+    const toggle = root.querySelector<HTMLElement>(".view-toggle");
+    if (!wrap || !toggle) return;
+
+    for (const btn of toggle.querySelectorAll<HTMLButtonElement>("button[data-view-btn]")) {
+      btn.addEventListener("click", () => {
+        const view = btn.dataset.viewBtn;
+        if (view !== "single" && view !== "compare") return;
+        applyView(root, view);
+      });
+    }
+
+    const slider = wrap.querySelector("img-comparison-slider");
+    if (slider) {
+      slider.addEventListener("slide", () => {
+        const pct = Math.round(Number((slider as unknown as { value: number }).value) || 0);
+        slider.setAttribute("aria-valuenow", String(pct));
+        slider.setAttribute("aria-valuetext", `${pct}% after`);
+      });
+    }
+
+    const counterpart = wrap.querySelector<HTMLImageElement>("img[data-counterpart]");
+    if (!counterpart) return;
+    const drop = () => {
+      applyView(root, "single");
+      toggle.remove();
+      wrap.remove();
+    };
+    if (counterpart.complete && counterpart.naturalWidth === 0) drop();
+    else counterpart.addEventListener("error", drop, { once: true });
+  }
 
   function applyMode(root: HTMLElement, mode: ImagePreviewMode): void {
     root.dataset.mode = mode;
@@ -38,6 +136,8 @@ const { src, alt } = Astro.props;
   function initPreview(root: HTMLElement): void {
     if (root.dataset.previewReady === "1") return;
     root.dataset.previewReady = "1";
+
+    initCompare(root);
 
     const img = root.querySelector("img");
     if (!(img instanceof HTMLImageElement)) return;
@@ -68,6 +168,7 @@ const { src, alt } = Astro.props;
     // Imgur-style click-to-zoom: the image itself is a supplementary toggle:
     // the pill buttons above remain the visible + accessible affordance.
     img.addEventListener("click", () => {
+      if (root.dataset.view === "compare") return;
       override = root.dataset.mode === "full" ? "fit" : "full";
       applyMode(root, override);
     });
@@ -95,7 +196,8 @@ const { src, alt } = Astro.props;
     overflow: hidden;
   }
 
-  .size-toggle {
+  .size-toggle,
+  .view-toggle {
     position: absolute;
     top: 10px;
     right: 10px;
@@ -109,7 +211,8 @@ const { src, alt } = Astro.props;
     backdrop-filter: blur(8px);
   }
 
-  .size-toggle button {
+  .size-toggle button,
+  .view-toggle button {
     appearance: none;
     margin: 0;
     padding: 5px 11px;
@@ -124,18 +227,103 @@ const { src, alt } = Astro.props;
   }
 
   .size-toggle button:hover,
-  .size-toggle button:focus-visible {
+  .view-toggle button:hover,
+  .size-toggle button:focus-visible,
+  .view-toggle button:focus-visible {
     color: var(--fg);
     outline: none;
   }
 
-  .size-toggle button:focus-visible {
+  .size-toggle button:focus-visible,
+  .view-toggle button:focus-visible {
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
   }
 
-  .size-toggle button[aria-pressed="true"] {
+  .size-toggle button[aria-pressed="true"],
+  .view-toggle button[aria-pressed="true"] {
     background: color-mix(in srgb, var(--accent) 22%, var(--panel));
     color: var(--fg);
+  }
+
+  .view-toggle {
+    right: auto;
+    left: 10px;
+  }
+
+  .compare-wrap {
+    position: relative;
+    display: none;
+    width: 100%;
+  }
+
+  .image-preview[data-view="compare"] .compare-wrap {
+    display: block;
+  }
+
+  .image-preview[data-view="compare"] > .single-image {
+    display: none;
+  }
+
+  img-comparison-slider {
+    display: block;
+    width: 100%;
+    --divider-width: 2px;
+    --divider-color: var(--accent);
+    --default-handle-width: 44px;
+    --default-handle-color: var(--accent);
+  }
+
+  /* The component's own FOUC guard, replicated from its shipped
+     dist/styles.css (read against v8.0.7 during Task 1). It adds a `rendered`
+     class to itself once laid out; until then both slotted images would
+     render stacked. `:not(:defined)` is NOT sufficient — the gap that matters
+     is between definition and first layout, not before upgrade. */
+  img-comparison-slider {
+    visibility: hidden;
+  }
+
+  img-comparison-slider [slot="second"] {
+    display: none;
+  }
+
+  img-comparison-slider.rendered {
+    visibility: inherit;
+  }
+
+  img-comparison-slider.rendered [slot="second"] {
+    display: unset;
+  }
+
+  img-comparison-slider img {
+    display: block;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+  }
+
+  .image-preview[data-mode="fit"] img-comparison-slider img {
+    max-height: var(--preview-max-h);
+  }
+
+  .compare-label {
+    position: absolute;
+    bottom: 10px;
+    z-index: 2;
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--panel) 82%, transparent);
+    color: var(--muted);
+    font: 10.5px var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+
+  .compare-label--before {
+    left: 10px;
+  }
+  .compare-label--after {
+    right: 10px;
   }
 
   .image-preview img {
@@ -170,6 +358,10 @@ const { src, alt } = Astro.props;
   .image-preview[data-mode="full"] img {
     width: 100%;
     max-height: none;
+  }
+
+  .image-preview[data-view="compare"] {
+    place-items: start stretch;
   }
 
   @media (max-width: 760px) {
