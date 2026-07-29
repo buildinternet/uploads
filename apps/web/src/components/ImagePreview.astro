@@ -12,6 +12,10 @@
  * framework runtime and must keep it that way).
  */
 import { compareImages, type BeforeAfterState } from "../lib/before-after-view";
+/** Vendor FOUC guard (the `rendered` class + slot-hiding rules) — imported
+ * rather than hand-copied so a future minor version can't silently drift out
+ * from under a stale local copy (see Task 1's read of v8.0.7's dist/styles.css). */
+import "img-comparison-slider/dist/styles.css";
 
 interface Props {
   src: string;
@@ -77,7 +81,6 @@ const counterpartUrl = compare?.src ?? null;
     resolvePreviewMode,
     type ImagePreviewMode,
   } from "../lib/image-preview-mode";
-  import "img-comparison-slider";
 
   type CompareView = "single" | "compare";
 
@@ -89,14 +92,42 @@ const counterpartUrl = compare?.src ?? null;
   }
 
   /**
-   * Wire the single ⇄ compare switch. No-op for unpaired files. If the
-   * counterpart image fails to load, the switch removes itself rather than
-   * offering a mode that would show a broken half.
+   * Wire the single ⇄ compare switch. No-op for unpaired files (nothing is
+   * imported: the overwhelming majority of pages using this component have
+   * no pair, and the public file page ships no framework runtime, so the
+   * slider's JS is loaded only on the pages that actually render one). If the
+   * counterpart image fails to load — or the slider module itself fails to
+   * load — the switch removes itself rather than offering a mode that would
+   * show a broken or inert half.
    */
-  function initCompare(root: HTMLElement): void {
+  async function initCompare(root: HTMLElement): Promise<void> {
     const wrap = root.querySelector<HTMLElement>(".compare-wrap");
     const toggle = root.querySelector<HTMLElement>(".view-toggle");
     if (!wrap || !toggle) return;
+
+    const drop = () => {
+      applyView(root, "single");
+      toggle.remove();
+      wrap.remove();
+    };
+
+    const slider = wrap.querySelector("img-comparison-slider");
+    if (slider) {
+      try {
+        await import("img-comparison-slider");
+      } catch {
+        // A failed dynamic import must not leave a live toggle over a dead
+        // element — drop straight back to single and bail before wiring
+        // anything else up.
+        drop();
+        return;
+      }
+      slider.addEventListener("slide", () => {
+        const pct = Math.round(Number((slider as unknown as { value: number }).value) || 0);
+        slider.setAttribute("aria-valuenow", String(pct));
+        slider.setAttribute("aria-valuetext", `${pct}% after`);
+      });
+    }
 
     for (const btn of toggle.querySelectorAll<HTMLButtonElement>("button[data-view-btn]")) {
       btn.addEventListener("click", () => {
@@ -106,22 +137,8 @@ const counterpartUrl = compare?.src ?? null;
       });
     }
 
-    const slider = wrap.querySelector("img-comparison-slider");
-    if (slider) {
-      slider.addEventListener("slide", () => {
-        const pct = Math.round(Number((slider as unknown as { value: number }).value) || 0);
-        slider.setAttribute("aria-valuenow", String(pct));
-        slider.setAttribute("aria-valuetext", `${pct}% after`);
-      });
-    }
-
     const counterpart = wrap.querySelector<HTMLImageElement>("img[data-counterpart]");
     if (!counterpart) return;
-    const drop = () => {
-      applyView(root, "single");
-      toggle.remove();
-      wrap.remove();
-    };
     if (counterpart.complete && counterpart.naturalWidth === 0) drop();
     else counterpart.addEventListener("error", drop, { once: true });
   }
@@ -137,7 +154,7 @@ const counterpartUrl = compare?.src ?? null;
     if (root.dataset.previewReady === "1") return;
     root.dataset.previewReady = "1";
 
-    initCompare(root);
+    void initCompare(root);
 
     const img = root.querySelector("img");
     if (!(img instanceof HTMLImageElement)) return;
@@ -303,27 +320,6 @@ const counterpartUrl = compare?.src ?? null;
     width: 100%;
   }
 
-  /* The component's own FOUC guard, replicated from its shipped
-     dist/styles.css (read against v8.0.7 during Task 1). It adds a `rendered`
-     class to itself once laid out; until then both slotted images would
-     render stacked. `:not(:defined)` is NOT sufficient — the gap that matters
-     is between definition and first layout, not before upgrade. */
-  img-comparison-slider {
-    visibility: hidden;
-  }
-
-  img-comparison-slider [slot="second"] {
-    display: none;
-  }
-
-  img-comparison-slider.rendered {
-    visibility: inherit;
-  }
-
-  img-comparison-slider.rendered [slot="second"] {
-    display: unset;
-  }
-
   .image-preview img-comparison-slider img {
     display: block;
     height: auto;
@@ -354,10 +350,22 @@ const counterpartUrl = compare?.src ?? null;
     object-position: left top;
   }
 
-  /* Full: same fill-the-stage sizing as the single image in full mode. */
-  .image-preview[data-mode="full"] img-comparison-slider img {
+  /* Full, second slot ("after"): same fill-the-stage sizing as the single
+     image in full mode. Still the layer that drives the host's width. */
+  .image-preview[data-mode="full"] img-comparison-slider img[slot="second"] {
     width: 100%;
     max-height: none;
+  }
+
+  /* Full, first slot ("before"): same reasoning as the fit-mode override
+     above — fill the box the after image established (here, the full stage
+     width) and letterbox to it rather than resolving its own intrinsic
+     ratio inside an overlay sized to a possibly different-ratio after image. */
+  .image-preview[data-mode="full"] img-comparison-slider img[slot="first"] {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: left top;
   }
 
   .compare-label {
@@ -389,11 +397,11 @@ const counterpartUrl = compare?.src ?? null;
     object-fit: contain;
   }
 
-  .image-preview[data-mode="fit"] img {
+  .image-preview[data-mode="fit"] .single-image {
     cursor: zoom-in;
   }
 
-  .image-preview[data-mode="full"] img {
+  .image-preview[data-mode="full"] .single-image {
     cursor: zoom-out;
   }
 
@@ -415,8 +423,14 @@ const counterpartUrl = compare?.src ?? null;
     max-height: none;
   }
 
-  .image-preview[data-view="compare"] {
-    place-items: start stretch;
+  /* Fit + compare: match single view's centering (the base rule's
+     `place-items: center`) instead of top-aligning, so toggling between
+     single and compare in fit mode doesn't jump a shorter-than-min-height
+     image vertically. Full mode already sets its own top-aligned
+     `place-items: start stretch` unconditionally above and is unaffected —
+     this selector only matches when both attributes are present. */
+  .image-preview[data-mode="fit"][data-view="compare"] {
+    place-items: center stretch;
   }
 
   @media (max-width: 760px) {
