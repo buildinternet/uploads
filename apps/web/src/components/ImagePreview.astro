@@ -325,14 +325,28 @@ const counterpartUrl = compare?.src ?? null;
     object-fit: contain;
   }
 
-  /* Fit: same intrinsic-ratio sizing as the single image in fit mode — width
-     resolves from the image's own aspect ratio once height is capped, so the
-     host (shrink-wrapped above) matches the visible content and the divider
-     lands on the image's real edges. */
-  .image-preview[data-mode="fit"] img-comparison-slider img {
+  /* Fit, second slot ("after"): the component keeps this layer in flow inside
+     its shadow tree, so it — and only it — drives the host's shrink-to-fit
+     box. Same intrinsic-ratio sizing as the single image in fit mode. */
+  .image-preview[data-mode="fit"] img-comparison-slider img[slot="second"] {
     width: auto;
     max-width: 100%;
     max-height: var(--preview-max-h);
+  }
+
+  /* Fit, first slot ("before"): the component absolutely positions this
+     layer's shadow container at 100%/100% of the box the second slot just
+     established, so it is excluded from the shrink-to-fit computation above.
+     Real before/after pairs routinely differ by a few pixels (content length
+     changed), so nothing guarantees the two share intrinsic dimensions. Fill
+     the box the after image set and letterbox to it — `contain` never crops,
+     and top-left (not centered) is the shared origin of two screenshots of
+     the same page, since any mismatch is extra content below the fold. */
+  .image-preview[data-mode="fit"] img-comparison-slider img[slot="first"] {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: left top;
   }
 
   /* Full: same fill-the-stage sizing as the single image in full mode. */
