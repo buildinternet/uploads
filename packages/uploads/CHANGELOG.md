@@ -1,5 +1,21 @@
 # @buildinternet/uploads
 
+## 0.36.0
+
+### Minor Changes
+
+- e2d9fd2: Adopt MCP spec `2026-07-28` by replacing the hand-rolled protocol core in
+  `@buildinternet/uploads/mcp` with `@modelcontextprotocol/server`. The stdio
+  server (`uploads mcp`) now speaks both the modern `2026-07-28` revision and
+  the legacy `2025-era` `initialize` handshake, negotiated per session.
+
+  **Breaking:** the `McpServer` interface exported from the `@buildinternet/uploads/mcp`
+  subpath no longer has a `handleLine(line)` method — the SDK owns JSON-RPC
+  dispatch and transport, so a consumer driving `handleLine` directly must move
+  to the SDK's transport instead (e.g. `serveStdio`). `createMcpServer` also
+  gains a `validator` option for the injected JSON Schema validator; callers
+  outside this repo's own CLI and worker builds need to pass one explicitly.
+
 ## 0.35.1
 
 ### Patch Changes
