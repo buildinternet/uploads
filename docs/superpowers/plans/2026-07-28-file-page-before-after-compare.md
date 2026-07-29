@@ -136,6 +136,42 @@ screenshot), then:
   math in a pure, unit-tested `apps/web/src/lib/image-compare.ts`. That is a
   decision point for the user, not a silent substitution.
 
+**Verdict (2026-07-28): PASS.** Measured on a deliberately mismatched pair
+(800×600 before, 780×590 after) rendered in a 700px stage:
+
+|                  | x   | y   | width | height |
+| ---------------- | --- | --- | ----- | ------ |
+| first (`before`) | 290 | 65  | 700   | 525    |
+| second (`after`) | 290 | 65  | 700   | 529.5  |
+| host             | 290 | 65  | 700   | 529.5  |
+
+Both layers share an exact origin (Δx 0, Δy 0). Each is width-matched and keeps
+its own aspect ratio; the host grows to the taller of the two. Nothing is
+stretched independently and nothing is clipped. This is the _right_ behavior for
+screenshot pairs — content registers from the top-left, which is how two shots of
+the same page actually differ. The only artifact is a thin band at the bottom
+(here 4.5px) where only the taller image has pixels.
+
+Dragging was verified live (value 50 → 15.7).
+
+Three findings that changed this plan, all folded into Task 3 above:
+
+1. **FOUC guard.** The package ships `dist/styles.css` guarding on a `rendered`
+   class it adds to itself, not on `:defined`. Step 4 now replicates those four
+   rules instead of the `:not(:defined)` rule originally specced.
+2. **No ARIA whatsoever.** It sets `tabindex="0"` and handles arrow keys but
+   publishes no role, name, or value. New Step 3b closes that.
+3. **Keyboard is hold-to-animate**, driven by `requestAnimationFrame`, with only
+   ArrowLeft / ArrowRight — no discrete steps, no Home / End. Weaker than the
+   range-input fallback would have been, but functional.
+
+**Verification limit discovered:** the in-app browser panel reports
+`document.hidden === true`, so `requestAnimationFrame` never ticks there and
+rAF-driven keyboard sliding cannot be observed in it at all — real key presses
+look like no-ops. This is a harness artifact, not a component defect (drag is
+pointer-driven and works fine). Task 5's keyboard check must therefore be done
+outside that panel, or skipped with this noted.
+
 - [ ] **Step 6: Delete the scratch page and commit the dependency**
 
 ```bash
@@ -487,6 +523,41 @@ img.addEventListener("click", () => {
 });
 ```
 
+- [ ] **Step 3b: Give the slider ARIA semantics**
+
+Task 1 read the component's source: it sets `tabindex="0"` on itself and
+handles `ArrowLeft` / `ArrowRight`, but publishes **no** `role`, `aria-label`,
+or value attributes at all. A focusable, keyboard-operable control with no
+accessible name or role is a real gap, and it is ours to close from the light
+DOM. Note its keyboard model is hold-to-animate (the divider glides while the
+key is held) rather than discrete per-press steps, and only those two keys are
+handled — no Home / End.
+
+Add these attributes to the `<img-comparison-slider>` element in the markup
+from Step 2:
+
+```astro
+        role="slider"
+        aria-label="Before and after comparison"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="50"
+        aria-valuetext="50% after"
+```
+
+Then keep them in sync inside `initCompare`, after the button wiring:
+
+```ts
+const slider = wrap.querySelector("img-comparison-slider");
+if (slider) {
+  slider.addEventListener("slide", () => {
+    const pct = Math.round(Number((slider as unknown as { value: number }).value) || 0);
+    slider.setAttribute("aria-valuenow", String(pct));
+    slider.setAttribute("aria-valuetext", `${pct}% after`);
+  });
+}
+```
+
 - [ ] **Step 4: Extend the styles**
 
 The `.size-toggle` rules already describe the pill-group look. Make the view
@@ -525,10 +596,25 @@ img-comparison-slider {
   --default-handle-color: var(--accent);
 }
 
-/* Custom elements upgrade client-side only; without this the two slotted
-     images render stacked for a frame before the component takes over. */
-img-comparison-slider:not(:defined) {
+/* The component's own FOUC guard, replicated from its shipped
+     dist/styles.css (read against v8.0.7 during Task 1). It adds a `rendered`
+     class to itself once laid out; until then both slotted images would
+     render stacked. `:not(:defined)` is NOT sufficient — the gap that matters
+     is between definition and first layout, not before upgrade. */
+img-comparison-slider {
   visibility: hidden;
+}
+
+img-comparison-slider [slot="second"] {
+  display: none;
+}
+
+img-comparison-slider.rendered {
+  visibility: inherit;
+}
+
+img-comparison-slider.rendered [slot="second"] {
+  display: unset;
 }
 
 img-comparison-slider img {
