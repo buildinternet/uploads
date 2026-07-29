@@ -78,31 +78,59 @@ be proven to be an image server-side. Two guards, no API change:
   single mode. Today the same situation renders a broken thumbnail, so this is strictly
   better.
 
-### Slider mechanics
+### Slider mechanics: adopt `img-comparison-slider`
 
-A visually-hidden `<input type="range" min="0" max="100">` is the source of truth for the
-split position. This buys keyboard support (arrows, Home, End), focus handling, and
-screen-reader semantics from the platform instead of hand-rolled ARIA.
+The divider itself is not hand-rolled. `img-comparison-slider`
+(https://github.com/sneas/img-comparison-slider, MIT, v8.0.7) is a dependency-free web
+component under 4 kB gzipped that already provides drag, click-to-jump, touch, and
+keyboard control, plus a `value` attribute (0–100), a `slide` event, and CSS-variable
+styling. Being a plain custom element, it costs the public file page no framework
+runtime — the page ships no React today and must keep it that way.
 
-Pointer interaction writes into that input:
+Markup inside the stage, with `before` always first:
 
-- `pointerdown` on the stage sets the split to the pointer's x and calls
-  `setPointerCapture`, so a drag survives leaving the stage box.
-- `pointermove` while captured updates the split.
-- `pointerup` / `pointercancel` release capture.
-
-Touch works through the same pointer events. There is no autoplay and no hover-scrub.
-
-The pointer-x-to-percentage math and its clamping move into a new pure module,
-`apps/web/src/lib/image-compare.ts`, following the precedent set by
-`image-preview-mode.ts`:
-
-```ts
-/** Pointer x within a stage rect → a 0–100 split percentage, clamped. */
-export function splitFromPointer(clientX: number, rect: { left: number; width: number }): number;
+```html
+<img-comparison-slider>
+  <img slot="first" src="{beforeUrl}" alt="before" />
+  <img slot="second" src="{afterUrl}" alt="after" />
+</img-comparison-slider>
 ```
 
-A zero-width rect returns 50 rather than dividing by zero.
+Slotted images stay in the light DOM, so the stage's existing `img` sizing rules keep
+applying to both layers. The handle and divider are restyled to the page's palette
+through the component's own custom properties (`--divider-width`, `--divider-color`,
+`--default-handle-width`, `--default-handle-color`). The BEFORE / AFTER corner labels are
+ours, positioned in the wrapper rather than inside the component's shadow root.
+
+Rejected alternatives: shadcn/ui has no comparison component, and the community versions
+(shadcn.io, BundUI, Aceternity) are React + Tailwind, which this repo's public pages use
+neither of; `react-compare-slider` is a good component but would put react and react-dom
+on a page that currently ships no framework JS.
+
+Two integration details this brings with it:
+
+- **No SSR.** Custom elements only upgrade client-side. The import lives in the
+  component's client `<script>`, and an `img-comparison-slider:not(:defined)` rule hides
+  or neutralizes the element until it upgrades, so there is no flash of stacked images.
+- **Shadow DOM.** Styling reaches the component only through its documented custom
+  properties and the slotted images. Anything the page needs to restyle beyond those has
+  to live in our wrapper.
+
+#### Spike first
+
+The README does not document how the component lays out images of differing dimensions,
+and before/after screenshot pairs are frequently a few pixels apart. **Before any other
+implementation work**, prototype the component in the stage with a deliberately
+mismatched pair and confirm the two layers stay registered (same origin, same scale) —
+not offset or independently stretched.
+
+If they mis-register and no combination of the component's CSS variables and our own
+slotted-image rules fixes it, fall back to hand-rolling the divider: a visually-hidden
+`<input type="range" min="0" max="100">` as the source of truth (platform keyboard and
+screen-reader semantics for free), driven by `pointerdown` / `pointermove` with
+`setPointerCapture`, with the pointer-x-to-percentage math in a pure, unit-tested
+`apps/web/src/lib/image-compare.ts`. That fallback is a decision point for the
+implementer, not a silent substitution — surface it before proceeding.
 
 ### Rail
 
@@ -131,16 +159,23 @@ that get no stage toggle.
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `apps/web/src/pages/f/[workspace]/[...key].astro` | Delete the `.pair` block, the `PairPanel` interface, `pairPanels`, and the `.pair*` CSS. Pass `compare` to `ImagePreview`. Add the Comparison rail section. Keep `ownState` / `counterpartHref`. |
 | `apps/web/src/components/ImagePreview.astro`      | Optional `compare` prop; compare-mode markup, styles, and slider script; mode toggle; counterpart-error fallback.                                                                                |
-| `apps/web/src/lib/image-compare.ts`               | New. Pure split-position helpers.                                                                                                                                                                |
-| `apps/web/src/lib/image-compare.test.ts`          | New. Unit tests for those helpers.                                                                                                                                                               |
+| `apps/web/package.json`                           | Add the `img-comparison-slider` dependency.                                                                                                                                                      |
+
+Only if the spike fails and the divider is hand-rolled: new
+`apps/web/src/lib/image-compare.ts` plus its unit tests.
 
 ## Testing
 
-- Unit tests for `splitFromPointer`: midpoint, both clamps, out-of-range pointer, zero-width rect.
+The comparison behavior is a third-party component driven by pointer events, so it is
+verified in a browser rather than in unit tests.
+
 - Existing `public-file.test.ts` counterpart coverage is unaffected and must stay green.
 - Browser verification against a locally served paired file (stack-raw on `127.0.0.1`,
   per the local verification recipe): mode switch, drag, click-to-jump, keyboard nudge,
-  Fit / Full width in both modes, mobile width, and the counterpart-fails-to-load fallback.
+  Fit / Full width in both modes, mobile width, a mismatched-dimensions pair, and the
+  counterpart-fails-to-load fallback.
+- Confirm the public file page still ships no framework runtime, and that the added
+  bundle is the component only.
 
 ## Out of scope
 
