@@ -129,10 +129,28 @@ const counterpartUrl = compare?.src ?? null;
       });
     }
 
+    // `loading="lazy"` keeps the counterpart out of the initial page fetch,
+    // but in fit mode the second slot is `width: auto` — its box derives from
+    // its own intrinsic size, which is 0×0 until it loads, and the host
+    // shrink-wraps to that. A 0×0 box never triggers a lazy load, so the
+    // circularity never breaks on its own. Force both layers eager the first
+    // time the user actually opens compare view: that's still deferred past
+    // the initial fetch (the whole reason `lazy` was there), but guarantees
+    // the images load once there's something to load them into.
+    let imagesActivated = false;
+    const activateImages = () => {
+      if (imagesActivated) return;
+      imagesActivated = true;
+      for (const el of wrap.querySelectorAll<HTMLImageElement>("img[loading='lazy']")) {
+        el.loading = "eager";
+      }
+    };
+
     for (const btn of toggle.querySelectorAll<HTMLButtonElement>("button[data-view-btn]")) {
       btn.addEventListener("click", () => {
         const view = btn.dataset.viewBtn;
         if (view !== "single" && view !== "compare") return;
+        if (view === "compare") activateImages();
         applyView(root, view);
       });
     }
