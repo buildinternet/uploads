@@ -52,10 +52,10 @@ top-left, mirroring the existing Fit / Full width group on the right:
 
 - **This image** — the default. Behavior identical to an unpaired file today, including
   click-to-zoom.
-- **Compare** — both images occupy the same box. `before` is the base layer; `after` is
-  overlaid and clipped by a CSS `inset` driven by a single `--split` custom property. A
-  vertical rule with a grab handle sits at the split. Corner labels read `BEFORE` (left)
-  and `AFTER` (right).
+- **Compare** — both images occupy the same box, split by a draggable vertical divider
+  with a grab handle, `before` on the left and `after` on the right. Corner labels read
+  `BEFORE` and `AFTER`. The divider is the `img-comparison-slider` web component; see
+  "Slider mechanics" below.
 
 Fit / Full width continues to size the whole stage in both modes. Click-to-zoom is
 suppressed in Compare mode, because a click there moves the divider — this is the one
