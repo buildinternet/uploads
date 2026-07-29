@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
-  "protocolVersion": "2025-06-18",
+  "supportedVersions": ["2026-07-28", "2025-06-18"],
   "serverInfo": {
     "name": "uploads-mcp",
     "version": "0.5.0",
@@ -18,7 +18,7 @@
   },
   "authentication": {
     "required": true,
-    "schemes": ["bearer"],
-    "description": "Per-workspace bearer token (Authorization: Bearer up_<workspace>_…). Obtain via invitation + `uploads login`. See https://uploads.sh/auth.md"
+    "schemes": ["bearer", "oauth2"],
+    "description": "Bearer token — either a per-workspace token (Authorization: Bearer up_<workspace>_…, via invitation + `uploads login`) or an OAuth 2.1 access token from the uploads-auth authorization server (browser consent flow; see /.well-known/oauth-protected-resource). See https://uploads.sh/auth.md"
   }
 }

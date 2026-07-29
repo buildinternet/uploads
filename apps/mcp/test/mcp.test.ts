@@ -317,7 +317,15 @@ async function rpc(
     {
       method: "POST",
       body: typeof body === "string" ? body : JSON.stringify(body),
-      headers: { Authorization: `Bearer ${token}` },
+      // The v2 SDK's Streamable HTTP transport enforces the spec's mandatory
+      // POST Accept header (application/json + text/event-stream) even on
+      // the legacy leg — real MCP clients already send this; the hand-rolled
+      // core never checked it, so test fixtures need it added explicitly now.
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json, text/event-stream",
+        "Content-Type": "application/json",
+      },
     },
     env,
   );
@@ -511,11 +519,19 @@ describe("mcp worker", () => {
 
   it("answers the initialize handshake", async () => {
     const { env } = await makeEnv();
+    // The v2 SDK validates `initialize` params against the spec's schema,
+    // which requires `capabilities`/`clientInfo` (the hand-rolled core never
+    // checked this) — a real client always sends both, so the fixture needs
+    // them too now.
     const response = await rpc(env, {
       jsonrpc: "2.0",
       id: 1,
       method: "initialize",
-      params: { protocolVersion: "2025-06-18" },
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "test-client", version: "1.0.0" },
+      },
     });
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toContain("application/json");
@@ -679,7 +695,7 @@ describe("mcp worker", () => {
     });
   });
 
-  it("rejects a state outside the canonical enum, with a suggestion", async () => {
+  it("rejects a state outside the canonical enum with a JSON Schema validation error", async () => {
     const { env } = await makeEnv();
     const result = await callTool(env, "put", {
       contentBase64: PNG_B64,
@@ -688,7 +704,14 @@ describe("mcp worker", () => {
       state: "post",
     });
     expect(result.isError).toBe(true);
-    expect(JSON.stringify(result)).toContain("did you mean");
+    // Pre-SDK, this reached the handler and args.ts's stateProp() produced a
+    // "did you mean" typo suggestion. The v2 SDK now validates tool arguments
+    // against the JSON Schema (which encodes the same enum) before the
+    // handler ever runs, so an out-of-enum value is now rejected at that
+    // layer instead — the design doc calls this redundancy deliberate. The
+    // friendlier suggestion only fires today for args the JSON Schema itself
+    // doesn't constrain.
+    expect(JSON.stringify(result)).toContain("does not match any of");
   });
 
   it("leaves existing metadata untouched when the metadata argument is omitted", async () => {
@@ -1242,6 +1265,121 @@ describe("mcp worker", () => {
   });
 });
 
+/**
+ * Modern-era (2026-07-28) traffic: a request carries the `_meta` envelope
+ * (`io.modelcontextprotocol/protocolVersion` + `…/clientCapabilities`) plus
+ * the `Mcp-Method` (and, for tools/call, `Mcp-Name`) headers, and is routed
+ * to `createMcpHandler`'s modern leg instead of the hand-wired legacy
+ * transport (see handleMcp's `isLegacyRequest` branch in src/index.ts). The
+ * SDK owns this envelope's validation and the `resultType`/cache-hint/error
+ * shapes; these tests only cover that our routing reaches it correctly.
+ */
+describe("modern-era (2026-07-28) requests", () => {
+  const MODERN_META = {
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientCapabilities": {},
+  };
+
+  async function modernRpc(
+    env: Env,
+    body: unknown,
+    extraHeaders: Record<string, string>,
+    token = TOKEN,
+    path = "/test-ws/mcp",
+  ): Promise<Response> {
+    return app.request(
+      path,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+          ...extraHeaders,
+        },
+      },
+      env,
+    );
+  }
+
+  it("answers tools/list with the _meta envelope, the Mcp-Method header, and the tools/list cache hint", async () => {
+    const { env } = await makeEnv();
+    const response = await modernRpc(
+      env,
+      { jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: MODERN_META } },
+      { "Mcp-Method": "tools/list" },
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      result: {
+        tools: { name: string }[];
+        resultType: string;
+        ttlMs: number;
+        cacheScope: string;
+      };
+    };
+    expect(body.result.tools.map((tool) => tool.name)).toContain("put");
+    expect(body.result.resultType).toBe("complete");
+    expect(body.result.ttlMs).toBe(3_600_000);
+    expect(body.result.cacheScope).toBe("private");
+  });
+
+  it("answers tools/call with the _meta envelope plus the Mcp-Method and Mcp-Name headers", async () => {
+    const { env } = await makeEnv();
+    const response = await modernRpc(
+      env,
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "health", arguments: {}, _meta: MODERN_META },
+      },
+      { "Mcp-Method": "tools/call", "Mcp-Name": "health" },
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      result: { isError: boolean; structuredContent: Record<string, unknown>; resultType: string };
+    };
+    expect(body.result.isError).toBe(false);
+    expect(body.result.structuredContent).toEqual({ ok: true });
+    expect(body.result.resultType).toBe("complete");
+  });
+
+  it("rejects a modern request missing the required Mcp-Method header with 400", async () => {
+    const { env } = await makeEnv();
+    const response = await modernRpc(
+      env,
+      { jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: MODERN_META } },
+      {},
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("still 401s an unauthenticated modern request — auth runs before any MCP processing", async () => {
+    const { env } = await makeEnv();
+    const response = await app.request(
+      "https://agents.uploads.sh/mcp",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/list",
+          params: { _meta: MODERN_META },
+        }),
+        headers: {
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+          "Mcp-Method": "tools/list",
+        },
+      },
+      env,
+    );
+    expect(response.status).toBe(401);
+  });
+});
+
 describe("token-inferred /mcp endpoint", () => {
   it("serves tool calls at /mcp with the workspace inferred from the token", async () => {
     const { env, bucket } = await makeEnv();
@@ -1351,7 +1489,11 @@ describe("OAuth JWT bearer (issue #224)", () => {
       {
         method: "POST",
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
-        headers: { Authorization: `bearer ${jwt}` },
+        headers: {
+          Authorization: `bearer ${jwt}`,
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+        },
       },
       env,
     );

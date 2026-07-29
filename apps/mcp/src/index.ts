@@ -8,7 +8,13 @@
  * bearer-token middleware; the protocol core is the CLI package's
  * `createMcpServer`, shared verbatim.
  */
-import { createMcpServer } from "@buildinternet/uploads/mcp";
+import { createMcpServer, type McpServer } from "@buildinternet/uploads/mcp";
+import {
+  createMcpHandler,
+  isLegacyRequest,
+  WebStandardStreamableHTTPServerTransport,
+} from "@modelcontextprotocol/server";
+import { CfWorkerJsonSchemaValidator } from "@modelcontextprotocol/server/validators/cf-worker";
 import {
   AppError,
   ForbiddenError,
@@ -36,6 +42,16 @@ import { invalidTokenChallenge, isJwtShaped, missingTokenChallenge, verifyOAuthJ
  * lane). A JWT minted against either resource works on either route.
  */
 const OAUTH_AUDIENCES = ["https://agents.uploads.sh/mcp", "https://mcp.uploads.sh/mcp"];
+
+/**
+ * The JSON Schema validator for `createMcpServer`'s tool registration. Built
+ * once at module scope — it's stateless config, not per-request state — and
+ * MUST be the `@cfworker/json-schema`-backed provider: the Ajv provider
+ * compiles schemas with `new Function` at runtime, which workerd rejects (see
+ * packages/uploads/src/mcp/server.ts's module doc and the design doc's
+ * "JSON Schema validator is injected per runtime" section).
+ */
+const validator = new CfWorkerJsonSchemaValidator();
 
 function authOriginOf(env: Env): string {
   return (env.AUTH_ORIGIN || "https://auth.uploads.sh").replace(/\/+$/, "");
@@ -130,9 +146,9 @@ async function workspacePathAuth(c: Context<WorkspaceVars>, next: Next): Promise
   return workspaceAuth(c, next);
 }
 
-async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
-  const body = await c.req.text();
-  const server = createMcpServer({
+/** Builds a fresh server for this request — same tool catalog for both eras, so they can't drift. */
+function buildServer(c: Context<WorkspaceVars>): McpServer {
+  return createMcpServer({
     serverInfo: { name: "uploads-mcp", version: pkg.version },
     tools: createRemoteTools({
       env: c.env,
@@ -141,11 +157,60 @@ async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
       authScopes: c.get("authScopes"),
       mintingUserId: c.get("mintingUserId") ?? null,
     }),
+    validator,
   });
-  const result = await server.handleLine(body);
-  // Notifications and client responses get no JSON-RPC reply: 202, empty.
-  if (result === undefined) return c.body(null, 202);
-  return c.body(result, 200, { "Content-Type": "application/json" });
+}
+
+/**
+ * Routes the two protocol eras explicitly rather than leaning on
+ * `createMcpHandler`'s own legacy fallback, because that fallback constructs
+ * its transport without `enableJsonResponse` and answers with an SSE stream
+ * whenever the caller's `Accept` header permits one. Every existing
+ * agents.uploads.sh caller receives plain JSON today, and this migration must
+ * not silently change their wire shape — so the legacy leg is hand-wired to
+ * be byte-identical to the pre-SDK behavior, while `legacy: "reject"` on the
+ * modern leg is an unreachable safety net (isLegacyRequest already claimed
+ * anything that would hit it).
+ */
+async function handleMcp(c: Context<WorkspaceVars>): Promise<Response> {
+  if (await isLegacyRequest(c.req.raw)) {
+    const server = buildServer(c);
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
+    try {
+      await server.connect(transport);
+      // Parse the body ourselves and hand it to the transport as
+      // `parsedBody` (rather than letting it read `c.req.raw` itself): this
+      // transport, unlike the retired hand-rolled core, does not reject a
+      // JSON-RPC batch (array) body — the 2026-07-28 spec removed batching,
+      // but this leg exists precisely to keep 2025-era callers byte-identical
+      // to their pre-SDK behavior, so that rejection is preserved here.
+      let parsedBody: unknown = null;
+      try {
+        parsedBody = JSON.parse(await c.req.text());
+      } catch {
+        parsedBody = null;
+      }
+      if (Array.isArray(parsedBody)) {
+        return c.json(
+          { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } },
+          200,
+        );
+      }
+      return await transport.handleRequest(c.req.raw, { parsedBody });
+    } finally {
+      await server.close();
+    }
+  }
+
+  const handler = createMcpHandler(() => buildServer(c), { legacy: "reject" });
+  try {
+    return await handler.fetch(c.req.raw);
+  } finally {
+    await handler.close();
+  }
 }
 
 function respondError(c: Context, err: unknown): Response {
@@ -171,7 +236,13 @@ const methodNotAllowed = (_c: Context<WorkspaceVars>) => {
 function mcpServerCard() {
   return {
     $schema: "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
-    protocolVersion: "2025-06-18",
+    // Plural, mirroring the ratified `server/discover` result. There is no
+    // ratified server-card schema to key off — the `$schema` URL above 404s
+    // and SEP-2127 is still an unmerged draft with a different shape — so the
+    // discover result is the closest thing to an authority. Keep this list in
+    // sync with apps/web/public/.well-known/mcp/server-card.json, which serves
+    // the same document from the uploads.sh origin.
+    supportedVersions: ["2026-07-28", "2025-06-18"],
     serverInfo: {
       name: "uploads-mcp",
       version: pkg.version,

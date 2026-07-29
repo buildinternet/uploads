@@ -64,6 +64,7 @@
     "provenance": true
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
     "exif-reader": "^2.0.3",
     "opentype.js": "^2.0.0",
     "perfect-freehand": "^1.2.3",

@@ -14,8 +14,17 @@ import type {
 } from "../src/client.js";
 import type { UploadsClientConfig } from "../src/config.js";
 import type { CommandRunner } from "../src/github-gh.js";
-import { createMcpServer, type McpServer } from "../src/mcp/server.js";
+import { createMcpServer } from "../src/mcp/server.js";
 import { createUploadsMcpTools } from "../src/mcp/tools.js";
+import {
+  legacyFetch,
+  legacyRpc,
+  modernFetch,
+  modernNotification,
+  modernRequest,
+  rpc,
+  validator,
+} from "./mcp-harness.js";
 
 /** Fake client factory capturing every resolved config and put()/delete() call. */
 function fakeFactory() {
@@ -241,6 +250,7 @@ function serverWith(overrides?: {
   const { factory, puts, deletes, configs, metadataStore } = fakeFactory();
   const server = createMcpServer({
     serverInfo: { name: "uploads", version: "0.0.0-test" },
+    validator,
     tools: createUploadsMcpTools({
       globals: overrides?.globals ?? { apiUrl: "https://x.test", token: "up_test_x" },
       runner: overrides?.runner ?? noRun,
@@ -248,17 +258,6 @@ function serverWith(overrides?: {
     }),
   });
   return { server, puts, deletes, configs, metadataStore };
-}
-
-async function rpc(
-  server: McpServer,
-  method: string,
-  params?: unknown,
-  id: number | string = 1,
-  // oxlint-disable-next-line no-explicit-any
-): Promise<any> {
-  const raw = await server.handleLine(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
-  return raw === undefined ? undefined : JSON.parse(raw);
 }
 
 const PNG_B64 = Buffer.from("png-bytes").toString("base64");
@@ -274,61 +273,112 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("createMcpServer protocol", () => {
+describe("createMcpServer protocol — 2025-era (legacy) clients", () => {
   it("echoes a supported protocol version on initialize", async () => {
     const { server } = serverWith();
-    const res = await rpc(server, "initialize", {
+    const res = await legacyRpc(server, "initialize", {
       protocolVersion: "2024-11-05",
       capabilities: {},
       clientInfo: { name: "test", version: "0" },
     });
     expect(res.result.protocolVersion).toBe("2024-11-05");
-    expect(res.result.capabilities).toEqual({ tools: {} });
     expect(res.result.serverInfo).toEqual({ name: "uploads", version: "0.0.0-test" });
   });
 
-  it("falls back to the latest supported version for unknown versions", async () => {
+  it("falls back to the newest supported revision for unknown versions", async () => {
     const { server } = serverWith();
-    const res = await rpc(server, "initialize", { protocolVersion: "1999-01-01" });
-    expect(res.result.protocolVersion).toBe("2025-06-18");
+    const res = await legacyRpc(server, "initialize", {
+      protocolVersion: "1999-01-01",
+      capabilities: {},
+      clientInfo: { name: "test", version: "0" },
+    });
+    // The SDK negotiates down to the newest revision it can serve on the
+    // legacy leg, which is 2025-11-25 — not the 2025-06-18 our hand-rolled
+    // core used to pin.
+    expect(res.result.protocolVersion).toBe("2025-11-25");
   });
 
-  it("returns no response for notifications", async () => {
+  it("answers legacy calls as plain JSON, never SSE", async () => {
     const { server } = serverWith();
-    const raw = await server.handleLine(
+    const res = await legacyFetch(
+      server,
+      JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+    );
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(((await res.json()) as { result: unknown }).result).toEqual({});
+  });
+
+  it("still answers ping, which 2026-07-28 removed", async () => {
+    const { server } = serverWith();
+    expect((await legacyRpc(server, "ping")).result).toEqual({});
+  });
+
+  it("returns no JSON-RPC reply for notifications", async () => {
+    const { server } = serverWith();
+    const res = await legacyFetch(
+      server,
       JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
     );
-    expect(raw).toBeUndefined();
-    expect(
-      await server.handleLine(
-        JSON.stringify({ jsonrpc: "2.0", method: "notifications/cancelled" }),
-      ),
-    ).toBeUndefined();
+    expect(res.status).toBe(202);
+    expect(await res.text()).toBe("");
   });
+});
 
-  it("ignores responses sent by the client", async () => {
+describe("createMcpServer protocol", () => {
+  it("returns no response for notifications", async () => {
     const { server } = serverWith();
-    expect(
-      await server.handleLine(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} })),
-    ).toBeUndefined();
-  });
-
-  it("answers ping with an empty result", async () => {
-    const { server } = serverWith();
-    expect((await rpc(server, "ping")).result).toEqual({});
+    const res = await modernFetch(
+      server,
+      modernNotification("notifications/cancelled", { requestId: 1 }),
+    );
+    expect(res.status).toBe(202);
+    expect(await res.text()).toBe("");
   });
 
   it("rejects malformed JSON with -32700", async () => {
     const { server } = serverWith();
-    const res = JSON.parse((await server.handleLine("{nope"))!);
-    expect(res.error.code).toBe(-32700);
-    expect(res.id).toBeNull();
+    const req = modernRequest("tools/list");
+    const res = await modernFetch(server, new Request(req, { body: "{nope", method: "POST" }));
+    const body = (await res.json()) as { error: { code: number }; id: unknown };
+    expect(body.error.code).toBe(-32700);
+    expect(body.id).toBeNull();
   });
 
   it("rejects arrays (batching removed from MCP) with -32600", async () => {
     const { server } = serverWith();
-    const res = JSON.parse((await server.handleLine("[]"))!);
-    expect(res.error.code).toBe(-32600);
+    const req = modernRequest("tools/list");
+    const res = await modernFetch(server, new Request(req, { body: "[]", method: "POST" }));
+    expect(((await res.json()) as { error: { code: number } }).error.code).toBe(-32600);
+  });
+
+  it("rejects a request missing the required Mcp-Method header with 400", async () => {
+    const { server } = serverWith();
+    const req = modernRequest("tools/list");
+    const headers = new Headers(req.headers);
+    headers.delete("mcp-method");
+    const res = await modernFetch(
+      server,
+      new Request(req.url, { method: "POST", headers, body: await req.text() }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("carries the spec's cache hints and resultType on tools/list", async () => {
+    const { server } = serverWith();
+    const res = await rpc(server, "tools/list");
+    expect(res.result.resultType).toBe("complete");
+    expect(res.result.ttlMs).toBe(3_600_000);
+    expect(res.result.cacheScope).toBe("private");
+  });
+
+  it("implements server/discover", async () => {
+    const { server } = serverWith();
+    const res = await rpc(server, "server/discover");
+    expect(res.result.supportedVersions).toContain("2026-07-28");
+    expect(res.result._meta["io.modelcontextprotocol/serverInfo"]).toEqual({
+      name: "uploads",
+      version: "0.0.0-test",
+    });
   });
 
   it("rejects unknown methods with -32601", async () => {
@@ -389,6 +439,7 @@ describe("gallery tool workflow", () => {
     const state = galleryFactory();
     const server = createMcpServer({
       serverInfo: { name: "uploads", version: "0.0.0-test" },
+      validator,
       tools: createUploadsMcpTools({
         globals: { apiUrl: "https://api.test", token: "up_alpha_test" },
         runner: noRun,
@@ -990,7 +1041,10 @@ describe("tools/call get_metadata, set_metadata, find_files", () => {
       arguments: {},
     });
     expect(missingKey.result.isError).toBe(true);
-    expect(missingKey.result.content[0].text).toContain("key is required");
+    // The SDK validates the tool's JSON Schema before the handler runs, so a
+    // missing required argument is reported by schema validation rather than
+    // by our own `key is required`.
+    expect(missingKey.result.content[0].text).toContain("key");
   });
 
   it("sets and deletes metadata, returning the merged map", async () => {
@@ -1200,7 +1254,7 @@ describe("canonical metadata params reach the upload", () => {
   });
 
   it("put rejects a state outside the enum", async () => {
-    const { server } = serverWith();
+    const { server, puts } = serverWith();
     const dir = mkdtempSync(join(tmpdir(), "uploads-mcp-canon-bad-"));
     const file = join(dir, "shot.png");
     writeFileSync(file, "png");
@@ -1208,9 +1262,15 @@ describe("canonical metadata params reach the upload", () => {
       name: "put",
       arguments: { file, state: "post" },
     });
-    // MCP delegates to the CLI's validator, so it gets the same suggestion.
-    expect(JSON.stringify(res)).toContain("did you mean");
-    expect(JSON.stringify(res)).toContain("after");
+    // The advertised `enum` on `state` is enforced by the SDK's schema
+    // validation, which runs before the handler — so an out-of-enum value is
+    // rejected there rather than by `validateStateValue`, and the CLI's
+    // near-miss suggestion ("post" -> "after") does not reach MCP callers.
+    // Keeping the enum is the deliberate trade: it steers models to a valid
+    // value up front, which beats explaining the mistake afterwards.
+    expect(res.result.isError).toBe(true);
+    expect(JSON.stringify(res)).toContain("state");
+    expect(puts).toHaveLength(0);
   });
 
   it("state wins over a same-named metadata key", async () => {
@@ -1271,6 +1331,7 @@ describe("staged tool (issue #405)", () => {
     });
     const server = createMcpServer({
       serverInfo: { name: "uploads", version: "0.0.0-test" },
+      validator,
       tools: createUploadsMcpTools({
         globals: { apiUrl: "https://x.test", token: "up_test_x" },
         runner: noRun,
@@ -1307,6 +1368,7 @@ describe("staged tool (issue #405)", () => {
     const { factory, listCalls } = stagedFactory({ repoLinkStatus: { binding: "none" } });
     const server = createMcpServer({
       serverInfo: { name: "uploads", version: "0.0.0-test" },
+      validator,
       tools: createUploadsMcpTools({
         globals: { apiUrl: "https://x.test", token: "up_test_x" },
         runner: branchRunner("main"),
@@ -1325,6 +1387,7 @@ describe("staged tool (issue #405)", () => {
     const { factory } = stagedFactory({ repoLinkStatus: { binding: "none" } });
     const server = createMcpServer({
       serverInfo: { name: "uploads", version: "0.0.0-test" },
+      validator,
       tools: createUploadsMcpTools({
         globals: { apiUrl: "https://x.test", token: "up_test_x" },
         runner: noRun,
@@ -1344,6 +1407,7 @@ describe("staged tool (issue #405)", () => {
     const { factory } = stagedFactory({}); // no repoLinkStatus -> method absent
     const server = createMcpServer({
       serverInfo: { name: "uploads", version: "0.0.0-test" },
+      validator,
       tools: createUploadsMcpTools({
         globals: { apiUrl: "https://x.test", token: "up_test_x" },
         runner: noRun,
