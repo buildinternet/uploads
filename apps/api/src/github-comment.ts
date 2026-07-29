@@ -317,26 +317,87 @@ export async function upsertBotComment(
     : await write(`${base}/issues/${target.num}/comments`, "POST");
   if (!r.ok) return { degrade: degradeFor(r.status) };
 
+  // Best effort — a failed delete must never fail the caller's request, and
+  // the next hunt retries anyway. Independent requests, so they overlap.
+  const remove = async (comments: GhComment[]): Promise<void> => {
+    await Promise.allSettled(
+      comments.map((c) =>
+        githubFetch(fetchImpl, `${base}/issues/comments/${c.id}`, {
+          method: "DELETE",
+          headers: jsonHeaders,
+        }),
+      ),
+    );
+  };
+
+  /**
+   * Post-create reconciliation (issue #553). find-or-create is not atomic: a
+   * concurrent writer — the `pull_request.opened` promotion webhook racing an
+   * explicit `uploads put --pr`, seconds apart — can hunt, miss and create at
+   * the same moment we do, and the loser's id is what ends up cached, so the
+   * hunt (and its dedupe) never runs again while the cache is warm. Verifying
+   * right after our own create closes that window: both racers independently
+   * agree the OLDEST marker comment wins, fold their body into it, and delete
+   * the rest — including their own create.
+   *
+   * Ordering is deliberate: the winner is patched FIRST and the extras are
+   * only deleted once that succeeds, so a failed fold leaves two comments for
+   * the next hunt rather than deleting the one carrying the current body.
+   *
+   * `unverified` means we could not confirm our create is the thread's only
+   * marker comment — the listing degraded, or the fold failed. The caller
+   * skips the cache write in that case, so the next sync misses the fast path
+   * and hunts, which is exactly the repair. A failed verification never turns
+   * a successful create into a failure.
+   */
+  const reconcileCreate = async (
+    createdId: number | undefined,
+  ): Promise<
+    | { state: "clean" }
+    | { state: "folded"; id: number; commentUrl: string }
+    | { state: "unverified" }
+  > => {
+    const verify = await findMarkerComment(fetchImpl, token, base, target.num, marker);
+    if (verify.degrade) return { state: "unverified" };
+    // `extras` is undefined in legacy mode (`marker` is the shared unnamespaced
+    // one), where a second hit may belong to another workspace — the adopt-only
+    // contract from `findMarkerComment` holds here too, so we leave ours alone.
+    const winner = verify.comment;
+    const extras = verify.extras ?? [];
+    if (!winner || extras.length === 0) return { state: "clean" };
+
+    // We are the oldest: our comment already carries the body we just wrote,
+    // so there is nothing to fold — just drop the other writer's duplicate.
+    if (winner.id === createdId) {
+      await remove(extras);
+      return { state: "clean" };
+    }
+
+    const folded = await write(`${base}/issues/comments/${winner.id}`, "PATCH");
+    if (!folded.ok) return { state: "unverified" };
+    await remove(extras);
+    return { state: "folded", id: winner.id, commentUrl: folded.commentUrl };
+  };
+
   // Self-healing dedupe (issue #470): a create race can leave two marker
   // comments on the thread; the extras would drift stale forever since the
-  // hunt keeps only the oldest. Delete them best-effort — a failed delete
-  // must never fail the caller's request, and the next sync retries anyway.
-  for (const extra of found.extras ?? []) {
-    try {
-      await githubFetch(fetchImpl, `${base}/issues/comments/${extra.id}`, {
-        method: "DELETE",
-        headers: jsonHeaders,
-      });
-    } catch {
-      // Best effort only.
-    }
+  // hunt keeps only the oldest.
+  await remove(found.extras ?? []);
+
+  if (existing) {
+    await env.GITHUB_CACHE.put(cacheKey, String(existing.id), { expirationTtl: COMMENT_ID_TTL });
+    return { action: "updated", commentUrl: r.commentUrl };
   }
 
-  const id = existing?.id ?? r.id;
-  if (id !== undefined) {
+  const settled = await reconcileCreate(r.id);
+  const id = settled.state === "folded" ? settled.id : r.id;
+  // Only cache an id we know is the thread's sole managed comment.
+  if (settled.state !== "unverified" && id !== undefined) {
     await env.GITHUB_CACHE.put(cacheKey, String(id), { expirationTtl: COMMENT_ID_TTL });
   }
-  return { action: existing ? "updated" : "created", commentUrl: r.commentUrl };
+  return settled.state === "folded"
+    ? { action: "updated", commentUrl: settled.commentUrl }
+    : { action: "created", commentUrl: r.commentUrl };
 }
 
 /**

@@ -1148,3 +1148,278 @@ describe("upsertBotComment", () => {
     expect(res).toEqual({ action: "skipped" });
   });
 });
+
+/**
+ * Issue #553: two writers (the `pull_request.opened` promotion webhook and an
+ * explicit `uploads put --pr`) can both hunt, both miss, and both create,
+ * seconds apart. The post-create verification pass below is what makes that
+ * race converge instead of leaving a permanent stale orphan.
+ */
+describe("upsertBotComment post-create race reconciliation (issue #553)", () => {
+  /**
+   * A thread whose comment list changes between the pre-create hunt and the
+   * post-create verification — `listings` supplies one response body per list
+   * call, the last entry repeating. Records every PATCH/DELETE for assertions.
+   */
+  function racingFetch(
+    listings: { id: number; body: string }[][],
+    createdId: number,
+    opts: { patchStatus?: number } = {},
+  ) {
+    const patched: string[] = [];
+    const deleted: string[] = [];
+    let listCall = 0;
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (url.includes("/access_tokens")) {
+        return new Response(JSON.stringify({ token: "t" }), { status: 201 });
+      }
+      if (url.includes(`/issues/12/comments`) && init.method === "POST") {
+        return new Response(
+          JSON.stringify({
+            id: createdId,
+            html_url: `https://github.com/acme/web/pull/12#c${createdId}`,
+          }),
+          { status: 201 },
+        );
+      }
+      if (url.includes("/issues/12/comments")) {
+        const page = listings[Math.min(listCall++, listings.length - 1)];
+        return new Response(JSON.stringify(page), { status: 200 });
+      }
+      if (init.method === "DELETE") {
+        deleted.push(url);
+        return new Response(null, { status: 204 });
+      }
+      if (init.method === "PATCH") {
+        patched.push(url);
+        const id = url.slice(url.lastIndexOf("/") + 1);
+        return new Response(
+          JSON.stringify({
+            id: Number(id),
+            html_url: `https://github.com/acme/web/pull/12#c${id}`,
+          }),
+          { status: opts.patchStatus ?? 200 },
+        );
+      }
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+    return { fetchImpl, patched, deleted };
+  }
+
+  const MARKER = attachmentsMarker("acme");
+
+  it("folds into the older comment and deletes its own when it lost the create race", async () => {
+    const { env, kv } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    // Pre-create hunt sees nothing; by the verification pass the other writer's
+    // (older) comment 100 is there alongside our fresh 200.
+    const { fetchImpl, patched, deleted } = racingFetch(
+      [
+        [],
+        [
+          { id: 100, body: `${MARKER}\nthe other writer's` },
+          { id: 200, body: `${MARKER}\nours` },
+        ],
+      ],
+      200,
+    );
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "BODY",
+      "acme",
+      fetchImpl,
+    );
+    expect(res).toEqual({
+      action: "updated",
+      commentUrl: "https://github.com/acme/web/pull/12#c100",
+    });
+    expect(patched).toEqual(["https://api.github.com/repos/acme/web/issues/comments/100"]);
+    expect(deleted).toEqual(["https://api.github.com/repos/acme/web/issues/comments/200"]);
+    // Both racers must converge on the same surviving comment id.
+    expect(await kv.get("ghcomment:acme:acme/web#12")).toBe("100");
+  });
+
+  it("keeps its own comment and deletes the newer duplicate when it won the race", async () => {
+    const { env, kv } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    const { fetchImpl, patched, deleted } = racingFetch(
+      [
+        [],
+        [
+          { id: 100, body: `${MARKER}\nours` },
+          { id: 200, body: `${MARKER}\nthe other writer's` },
+        ],
+      ],
+      100,
+    );
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "BODY",
+      "acme",
+      fetchImpl,
+    );
+    expect(res).toEqual({
+      action: "created",
+      commentUrl: "https://github.com/acme/web/pull/12#c100",
+    });
+    expect(patched).toEqual([]); // ours is already the body we wrote.
+    expect(deleted).toEqual(["https://api.github.com/repos/acme/web/issues/comments/200"]);
+    expect(await kv.get("ghcomment:acme:acme/web#12")).toBe("100");
+  });
+
+  it("keeps its own comment when the verification listing shows no duplicate", async () => {
+    const { env, kv } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    const { fetchImpl, patched, deleted } = racingFetch(
+      [[], [{ id: 100, body: `${MARKER}\nours` }]],
+      100,
+    );
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "BODY",
+      "acme",
+      fetchImpl,
+    );
+    expect(res).toEqual({
+      action: "created",
+      commentUrl: "https://github.com/acme/web/pull/12#c100",
+    });
+    expect(patched).toEqual([]);
+    expect(deleted).toEqual([]);
+    expect(await kv.get("ghcomment:acme:acme/web#12")).toBe("100");
+  });
+
+  it("leaves both comments alone when folding into the older one fails", async () => {
+    const { env, kv } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    const { fetchImpl, deleted } = racingFetch(
+      [
+        [],
+        [
+          { id: 100, body: `${MARKER}\nthe other writer's` },
+          { id: 200, body: `${MARKER}\nours` },
+        ],
+      ],
+      200,
+      { patchStatus: 500 },
+    );
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "BODY",
+      "acme",
+      fetchImpl,
+    );
+    // Our comment carries the correct body, so a failed fold must not delete it.
+    expect(res).toEqual({
+      action: "created",
+      commentUrl: "https://github.com/acme/web/pull/12#c200",
+    });
+    expect(deleted).toEqual([]);
+    expect(await kv.get("ghcomment:acme:acme/web#12")).toBeNull();
+  });
+
+  it("never deletes another workspace's legacy comment after a create", async () => {
+    const { env, kv } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    // A legacy (unnamespaced) comment is ambiguous — it may belong to another
+    // workspace, so the adopt-only contract holds here as it does in the hunt.
+    const { fetchImpl, patched, deleted } = racingFetch(
+      [
+        [],
+        [
+          { id: 100, body: `${ATTACHMENTS_MARKER}\nsomeone else's legacy comment` },
+          { id: 200, body: `${MARKER}\nours` },
+        ],
+      ],
+      200,
+    );
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "BODY",
+      "acme",
+      fetchImpl,
+    );
+    expect(res).toEqual({
+      action: "created",
+      commentUrl: "https://github.com/acme/web/pull/12#c200",
+    });
+    expect(patched).toEqual([]);
+    expect(deleted).toEqual([]);
+    expect(await kv.get("ghcomment:acme:acme/web#12")).toBe("200");
+  });
+
+  it("keeps its own comment when the verification listing degrades", async () => {
+    const { env, kv } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    let listCall = 0;
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (url.includes("/access_tokens")) {
+        return new Response(JSON.stringify({ token: "t" }), { status: 201 });
+      }
+      if (url.includes("/issues/12/comments") && init.method === "POST") {
+        return new Response(
+          JSON.stringify({ id: 100, html_url: "https://github.com/acme/web/pull/12#c100" }),
+          { status: 201 },
+        );
+      }
+      if (url.includes("/issues/12/comments")) {
+        // First listing (the pre-create hunt) succeeds; the verification fails.
+        return listCall++ === 0
+          ? new Response(JSON.stringify([]), { status: 200 })
+          : new Response("boom", { status: 500 });
+      }
+      throw new Error(`unexpected ${init.method} ${url}`);
+    }) as unknown as typeof fetch;
+    const res = await upsertBotComment(
+      env,
+      cfg,
+      42,
+      { repo: "acme/web", num: 12 },
+      "BODY",
+      "acme",
+      fetchImpl,
+    );
+    // A failed verification must never turn a successful create into a degrade.
+    expect(res).toEqual({
+      action: "created",
+      commentUrl: "https://github.com/acme/web/pull/12#c100",
+    });
+    // ...but the id is NOT cached: we never confirmed ours is the thread's only
+    // managed comment, so the next sync must miss the fast path and hunt.
+    expect(await kv.get("ghcomment:acme:acme/web#12")).toBeNull();
+  });
+
+  it("does not cache the id when folding into the older comment fails", async () => {
+    const { env, kv } = makeTestEnv();
+    const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
+    const { fetchImpl } = racingFetch(
+      [
+        [],
+        [
+          { id: 100, body: `${MARKER}\nthe other writer's` },
+          { id: 200, body: `${MARKER}\nours` },
+        ],
+      ],
+      200,
+      { patchStatus: 500 },
+    );
+    await upsertBotComment(env, cfg, 42, { repo: "acme/web", num: 12 }, "BODY", "acme", fetchImpl);
+    // Two comments survive, so the next sync must hunt rather than trust an id.
+    expect(await kv.get("ghcomment:acme:acme/web#12")).toBeNull();
+  });
+});

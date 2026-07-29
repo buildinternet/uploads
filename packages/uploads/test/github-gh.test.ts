@@ -374,6 +374,107 @@ describe("upsertAttachmentsComment", () => {
   });
 });
 
+/**
+ * Issue #553: find-or-create is not atomic, so a concurrent writer can create
+ * its own managed comment inside the window between our hunt and our create.
+ * The verification pass after a create is what makes that converge.
+ */
+describe("upsertAttachmentsComment post-create race reconciliation (issue #553)", () => {
+  const target: GhTarget = { repo: "o/r", kind: "pull", num: 5 };
+  const marker = attachmentsMarker("acme");
+
+  /** A runner whose comment listing changes between calls (last entry repeats). */
+  function racingRunner(listings: { id: number; body: string }[][], createdId: number) {
+    let listCall = 0;
+    return fakeRunner({
+      gh: (args) => {
+        if (args[1]?.includes("/comments?per_page=100")) {
+          return JSON.stringify(listings[Math.min(listCall++, listings.length - 1)]);
+        }
+        return JSON.stringify({ id: createdId });
+      },
+    });
+  }
+
+  it("folds into the older comment and deletes its own when it lost the create race", () => {
+    const { run, calls } = racingRunner(
+      [
+        [],
+        [
+          { id: 100, body: `${marker}\nthe other writer's` },
+          { id: 200, body: `${marker}\nours` },
+        ],
+      ],
+      200,
+    );
+    const result = upsertAttachmentsComment(target, `${marker}\nnew body`, run, marker);
+    expect(result).toEqual({ action: "updated" });
+
+    const patches = calls.filter((c) => c.args.includes("PATCH"));
+    expect(patches).toHaveLength(1);
+    expect(patches[0].args).toContain("repos/o/r/issues/comments/100");
+    expect(patches[0].input).toContain("new body");
+
+    const deletes = calls.filter((c) => c.args.includes("DELETE"));
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0].args).toEqual(["api", "repos/o/r/issues/comments/200", "-X", "DELETE"]);
+  });
+
+  it("keeps its own comment and deletes the newer duplicate when it won the race", () => {
+    const { run, calls } = racingRunner(
+      [
+        [],
+        [
+          { id: 100, body: `${marker}\nours` },
+          { id: 200, body: `${marker}\nthe other writer's` },
+        ],
+      ],
+      100,
+    );
+    const result = upsertAttachmentsComment(target, `${marker}\nnew body`, run, marker);
+    expect(result).toEqual({ action: "created" });
+    expect(calls.some((c) => c.args.includes("PATCH"))).toBe(false);
+
+    const deletes = calls.filter((c) => c.args.includes("DELETE"));
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0].args).toEqual(["api", "repos/o/r/issues/comments/200", "-X", "DELETE"]);
+  });
+
+  it("leaves the fresh comment alone when the verification listing fails", () => {
+    let listCall = 0;
+    const { run, calls } = fakeRunner({
+      gh: (args) => {
+        if (args[1]?.includes("/comments?per_page=100")) {
+          if (listCall++ === 0) return JSON.stringify([]);
+          throw new Error("gh: 502 Bad Gateway");
+        }
+        return JSON.stringify({ id: 100 });
+      },
+    });
+    // A failed verification must never fail a successful create.
+    const result = upsertAttachmentsComment(target, `${marker}\nnew body`, run, marker);
+    expect(result).toEqual({ action: "created" });
+    expect(calls.some((c) => c.args.includes("DELETE"))).toBe(false);
+  });
+
+  it("never deletes another workspace's legacy comment after a create", () => {
+    const { run, calls } = racingRunner(
+      [
+        [],
+        [
+          { id: 100, body: `${ATTACHMENTS_MARKER}\nsomeone else's legacy comment` },
+          { id: 200, body: `${marker}\nours` },
+        ],
+      ],
+      200,
+    );
+    const result = upsertAttachmentsComment(target, `${marker}\nnew body`, run, marker);
+    expect(result).toEqual({ action: "created" });
+    expect(calls.some((c) => c.args.includes("DELETE"))).toBe(false);
+    expect(calls.some((c) => c.args.includes("PATCH"))).toBe(false);
+  });
+});
+
 describe("resolveGhTitle", () => {
   const pr: GhTarget = { repo: "o/r", kind: "pull", num: 208 };
   const issue: GhTarget = { repo: "o/r", kind: "issues", num: 45 };

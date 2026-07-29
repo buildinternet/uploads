@@ -309,6 +309,13 @@ function findManagedComment(
  * deleted best-effort via `gh api -X DELETE`; a failed delete is swallowed
  * and never fails the caller's command, and the next sync retries anyway.
  *
+ * A create additionally re-hunts once it has written (issue #553, mirroring
+ * the bot path): find-or-create is not atomic, so a concurrent writer can
+ * create its own comment in the same window. Both writers independently agree
+ * the OLDEST marker comment wins, fold their body into it and delete the rest
+ * — including their own create — so the race converges instead of leaving a
+ * stale orphan behind for a PR that never syncs again.
+ *
  * On why this duplicates the bot path rather than deferring to it: the gh
  * fallback is a supported path, not a stopgap, so it is held at behavioral
  * parity deliberately. This file already reimplements the hunt, the legacy
@@ -331,37 +338,91 @@ export function upsertAttachmentsComment(
   const createIfMissing = opts.createIfMissing ?? true;
   const { comment: existing, extras } = findManagedComment(target, run, marker);
 
-  const deleteExtras = () => {
-    for (const extra of extras ?? []) {
-      try {
-        run("gh", ["api", `repos/${target.repo}/issues/comments/${extra.id}`, "-X", "DELETE"]);
-      } catch {
-        // Best effort only — a failed delete must never fail the caller's command.
-      }
-    }
-  };
-
   if (existing) {
-    run(
-      "gh",
-      [
-        "api",
-        `repos/${target.repo}/issues/comments/${existing.id}`,
-        "-X",
-        "PATCH",
-        "-F",
-        "body=@-",
-      ],
-      body,
-    );
-    deleteExtras();
+    patchComment(target, run, existing.id, body);
+    deleteComments(target, run, extras);
     return { action: "updated" };
   }
   // Patch-only (createIfMissing false, i.e. an empty body) with no existing
   // comment: nothing to do — never create one just to say it's empty.
   if (!createIfMissing) return { action: "skipped" };
   // No existing marker hit means `extras` is necessarily empty here (see
-  // `findManagedComment`) — nothing to delete after a create.
-  run("gh", ["api", `repos/${target.repo}/issues/${target.num}/comments`, "-F", "body=@-"], body);
-  return { action: "created" };
+  // `findManagedComment`) — nothing to delete before the create.
+  const created = run(
+    "gh",
+    ["api", `repos/${target.repo}/issues/${target.num}/comments`, "-F", "body=@-"],
+    body,
+  );
+  return reconcileAfterCreate(target, body, run, marker, created) ?? { action: "created" };
+}
+
+/**
+ * Re-hunt right after a create and collapse whatever a concurrent writer left
+ * behind (issue #553). Returns `{ action: "updated" }` when this run lost the
+ * race — its body has been folded into the older winning comment and its own
+ * create deleted — or null when nothing needed folding, including every
+ * failure: a verification problem must never fail a successful create.
+ *
+ * The winner is patched BEFORE any delete, so a failed fold leaves both
+ * comments (the next sync's hunt retries) rather than deleting the one that
+ * carries the current body.
+ */
+function reconcileAfterCreate(
+  target: GhTarget,
+  body: string,
+  run: CommandRunner,
+  marker: string,
+  createdRaw: string,
+): { action: "updated" } | null {
+  let createdId: number | undefined;
+  try {
+    createdId = (JSON.parse(createdRaw) as GhComment).id;
+  } catch {
+    // `gh` printed something unparseable — fall through to the hunt, which
+    // identifies the winner on its own.
+  }
+  try {
+    const { comment: winner, extras } = findManagedComment(target, run, marker);
+    // `extras` is undefined in legacy mode, where a second hit may belong to
+    // another workspace — the adopt-only contract holds here too.
+    if (!winner || !extras?.length) return null;
+    if (winner.id === createdId) {
+      // Ours is the oldest and already carries the body we just wrote — only
+      // the other writer's duplicate needs to go.
+      deleteComments(target, run, extras);
+      return null;
+    }
+    patchComment(target, run, winner.id, body);
+    deleteComments(target, run, extras);
+    return { action: "updated" };
+  } catch {
+    // A failed listing or fold leaves the freshly created comment in place —
+    // correct content, one duplicate, healed by the next sync's hunt.
+    return null;
+  }
+}
+
+/** PATCH one comment's body via stdin, so the body is never shell-interpolated. */
+function patchComment(target: GhTarget, run: CommandRunner, id: number, body: string): void {
+  run(
+    "gh",
+    ["api", `repos/${target.repo}/issues/comments/${id}`, "-X", "PATCH", "-F", "body=@-"],
+    body,
+  );
+}
+
+/** Best-effort delete: a failed delete must never fail the caller's command,
+ * and the next sync's hunt retries anyway. */
+function deleteComments(
+  target: GhTarget,
+  run: CommandRunner,
+  comments: GhComment[] | undefined,
+): void {
+  for (const c of comments ?? []) {
+    try {
+      run("gh", ["api", `repos/${target.repo}/issues/comments/${c.id}`, "-X", "DELETE"]);
+    } catch {
+      // Best effort only.
+    }
+  }
 }
