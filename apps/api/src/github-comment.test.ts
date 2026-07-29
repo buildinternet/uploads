@@ -1327,7 +1327,7 @@ describe("upsertBotComment post-create race reconciliation (issue #553)", () => 
       commentUrl: "https://github.com/acme/web/pull/12#c200",
     });
     expect(deleted).toEqual([]);
-    expect(await kv.get("ghcomment:acme:acme/web#12")).toBe("200");
+    expect(await kv.get("ghcomment:acme:acme/web#12")).toBeNull();
   });
 
   it("never deletes another workspace's legacy comment after a create", async () => {
@@ -1399,15 +1399,27 @@ describe("upsertBotComment post-create race reconciliation (issue #553)", () => 
       action: "created",
       commentUrl: "https://github.com/acme/web/pull/12#c100",
     });
-    expect(await kv.get("ghcomment:acme:acme/web#12")).toBe("100");
+    // ...but the id is NOT cached: we never confirmed ours is the thread's only
+    // managed comment, so the next sync must miss the fast path and hunt.
+    expect(await kv.get("ghcomment:acme:acme/web#12")).toBeNull();
   });
 
-  it("caches the comment id for at most a day so a surviving duplicate self-heals", async () => {
+  it("does not cache the id when folding into the older comment fails", async () => {
     const { env, kv } = makeTestEnv();
     const cfg = { appId: "1", privateKey: await testPem(), homeInstallationId: "9" };
-    const { fetchImpl } = racingFetch([[], [{ id: 100, body: `${MARKER}\nours` }]], 100);
+    const { fetchImpl } = racingFetch(
+      [
+        [],
+        [
+          { id: 100, body: `${MARKER}\nthe other writer's` },
+          { id: 200, body: `${MARKER}\nours` },
+        ],
+      ],
+      200,
+      { patchStatus: 500 },
+    );
     await upsertBotComment(env, cfg, 42, { repo: "acme/web", num: 12 }, "BODY", "acme", fetchImpl);
-    const entry = kv.store.get("ghcomment:acme:acme/web#12");
-    expect(entry?.expirationTtl).toBeLessThanOrEqual(60 * 60 * 24);
+    // Two comments survive, so the next sync must hunt rather than trust an id.
+    expect(await kv.get("ghcomment:acme:acme/web#12")).toBeNull();
   });
 });

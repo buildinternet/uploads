@@ -209,15 +209,9 @@ interface GhComment {
   html_url: string;
 }
 
-/**
- * KV TTL for a cached comment id. A stale id self-heals: a 404 on PATCH drops
- * it and re-hunts. Long enough to spare the hunt across a working day of syncs
- * on an active PR, short enough that the marker hunt — and with it the
- * duplicate dedupe — runs again within a day (issue #553). It used to be 30
- * days, which meant a duplicate that slipped past every guard stayed visible
- * for a month unless someone ran `uploads comment`.
- */
-const COMMENT_ID_TTL = 60 * 60 * 24; // 1 day.
+/** KV TTL for a cached comment id. A stale id self-heals: a 404 on PATCH drops
+ * it and re-hunts. Long only to spare the hunt on active PRs. */
+const COMMENT_ID_TTL = 60 * 60 * 24 * 30; // 30 days.
 
 /** KV key for the managed comment's id, keyed by the workspace + coordinate the
  * comment is unique on (repo#num — one managed comment per PR/issue per
@@ -323,19 +317,66 @@ export async function upsertBotComment(
     : await write(`${base}/issues/${target.num}/comments`, "POST");
   if (!r.ok) return { degrade: degradeFor(r.status) };
 
+  // Best effort — a failed delete must never fail the caller's request, and
+  // the next hunt retries anyway. Independent requests, so they overlap.
   const remove = async (comments: GhComment[]): Promise<void> => {
-    // Best effort — a failed delete must never fail the caller's request, and
-    // the next hunt retries anyway.
-    for (const c of comments) {
-      try {
-        await githubFetch(fetchImpl, `${base}/issues/comments/${c.id}`, {
+    await Promise.allSettled(
+      comments.map((c) =>
+        githubFetch(fetchImpl, `${base}/issues/comments/${c.id}`, {
           method: "DELETE",
           headers: jsonHeaders,
-        });
-      } catch {
-        // Best effort only.
-      }
+        }),
+      ),
+    );
+  };
+
+  /**
+   * Post-create reconciliation (issue #553). find-or-create is not atomic: a
+   * concurrent writer — the `pull_request.opened` promotion webhook racing an
+   * explicit `uploads put --pr`, seconds apart — can hunt, miss and create at
+   * the same moment we do, and the loser's id is what ends up cached, so the
+   * hunt (and its dedupe) never runs again while the cache is warm. Verifying
+   * right after our own create closes that window: both racers independently
+   * agree the OLDEST marker comment wins, fold their body into it, and delete
+   * the rest — including their own create.
+   *
+   * Ordering is deliberate: the winner is patched FIRST and the extras are
+   * only deleted once that succeeds, so a failed fold leaves two comments for
+   * the next hunt rather than deleting the one carrying the current body.
+   *
+   * `unverified` means we could not confirm our create is the thread's only
+   * marker comment — the listing degraded, or the fold failed. The caller
+   * skips the cache write in that case, so the next sync misses the fast path
+   * and hunts, which is exactly the repair. A failed verification never turns
+   * a successful create into a failure.
+   */
+  const reconcileCreate = async (
+    createdId: number | undefined,
+  ): Promise<
+    | { state: "clean" }
+    | { state: "folded"; id: number; commentUrl: string }
+    | { state: "unverified" }
+  > => {
+    const verify = await findMarkerComment(fetchImpl, token, base, target.num, marker);
+    if (verify.degrade) return { state: "unverified" };
+    // `extras` is undefined in legacy mode (`marker` is the shared unnamespaced
+    // one), where a second hit may belong to another workspace — the adopt-only
+    // contract from `findMarkerComment` holds here too, so we leave ours alone.
+    const winner = verify.comment;
+    const extras = verify.extras ?? [];
+    if (!winner || extras.length === 0) return { state: "clean" };
+
+    // We are the oldest: our comment already carries the body we just wrote,
+    // so there is nothing to fold — just drop the other writer's duplicate.
+    if (winner.id === createdId) {
+      await remove(extras);
+      return { state: "clean" };
     }
+
+    const folded = await write(`${base}/issues/comments/${winner.id}`, "PATCH");
+    if (!folded.ok) return { state: "unverified" };
+    await remove(extras);
+    return { state: "folded", id: winner.id, commentUrl: folded.commentUrl };
   };
 
   // Self-healing dedupe (issue #470): a create race can leave two marker
@@ -343,85 +384,20 @@ export async function upsertBotComment(
   // hunt keeps only the oldest.
   await remove(found.extras ?? []);
 
-  let action: "created" | "updated" = existing ? "updated" : "created";
-  let id = existing?.id ?? r.id;
-  let commentUrl = r.commentUrl;
-
-  if (!existing) {
-    // Post-create reconciliation (issue #553). find-or-create is not atomic:
-    // a concurrent writer — the `pull_request.opened` promotion webhook racing
-    // an explicit `uploads put --pr`, seconds apart — can hunt, miss and
-    // create at the same time we do, and the loser's id is what ends up
-    // cached, so the hunt (and its dedupe) never runs again while the cache is
-    // warm. Verifying right after our own create closes that window: both
-    // racers independently agree the OLDEST marker comment wins, fold their
-    // body into it, and delete the rest — including their own create.
-    const settled = await reconcileAfterCreate(
-      fetchImpl,
-      token,
-      base,
-      target.num,
-      marker,
-      r.id,
-      write,
-      remove,
-    );
-    if (settled) {
-      action = "updated";
-      id = settled.id;
-      commentUrl = settled.commentUrl;
-    }
+  if (existing) {
+    await env.GITHUB_CACHE.put(cacheKey, String(existing.id), { expirationTtl: COMMENT_ID_TTL });
+    return { action: "updated", commentUrl: r.commentUrl };
   }
 
-  if (id !== undefined) {
+  const settled = await reconcileCreate(r.id);
+  const id = settled.state === "folded" ? settled.id : r.id;
+  // Only cache an id we know is the thread's sole managed comment.
+  if (settled.state !== "unverified" && id !== undefined) {
     await env.GITHUB_CACHE.put(cacheKey, String(id), { expirationTtl: COMMENT_ID_TTL });
   }
-  return { action, commentUrl };
-}
-
-/**
- * Re-hunt immediately after a create and collapse whatever the race left
- * behind. Returns the surviving comment when we lost the race (our create was
- * not the oldest, so its body has been folded into the winner and our own
- * comment deleted), or null when nothing needed folding — including every
- * degraded case, since a failed verification must never turn a successful
- * create into a failure.
- *
- * Ordering is deliberate: the winner is patched FIRST and the extras are only
- * deleted once that succeeds, so a failed fold leaves two comments (the next
- * sync's hunt retries) rather than deleting the one comment that carried the
- * current body.
- *
- * `extras` is undefined in legacy mode (`marker` is the shared unnamespaced
- * one), where a second hit may belong to another workspace — the adopt-only
- * contract from `findMarkerComment` holds here too, so we leave ours in place.
- */
-async function reconcileAfterCreate(
-  fetchImpl: typeof fetch,
-  token: string,
-  base: string,
-  num: number,
-  marker: string,
-  createdId: number | undefined,
-  write: (url: string, method: "POST" | "PATCH") => Promise<WriteOutcome>,
-  remove: (comments: GhComment[]) => Promise<void>,
-): Promise<{ id: number; commentUrl: string } | null> {
-  const verify = await findMarkerComment(fetchImpl, token, base, num, marker);
-  const winner = verify.comment;
-  const extras = verify.extras ?? [];
-  if (!winner || extras.length === 0) return null;
-
-  // We are the oldest: our comment already carries the body we just wrote, so
-  // there is nothing to fold — just drop the other writer's duplicate.
-  if (winner.id === createdId) {
-    await remove(extras);
-    return null;
-  }
-
-  const folded = await write(`${base}/issues/comments/${winner.id}`, "PATCH");
-  if (!folded.ok) return null;
-  await remove(extras);
-  return { id: winner.id, commentUrl: folded.commentUrl };
+  return settled.state === "folded"
+    ? { action: "updated", commentUrl: settled.commentUrl }
+    : { action: "created", commentUrl: r.commentUrl };
 }
 
 /**
