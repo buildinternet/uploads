@@ -68,15 +68,22 @@ aspect ratios letterbox rather than mis-register.
 
 ### Degrade rules
 
-The API's counterpart DTO carries no content type
-(`PublicFileCounterpart` in `apps/web/src/lib/public-file.ts`), so the counterpart cannot
-be proven to be an image server-side. Two guards, no API change:
+The counterpart DTO (`PublicFileCounterpart` in `apps/web/src/lib/public-file.ts`) carries
+no content type, but it does not need to: the API only ever populates `counterpart` when
+**both** this file and the candidate pass `isPairableImageContentType`
+(`apps/api/src/routes/public-files.ts`), whose set is identical to the web app's own
+`imageTypes`. A video, PDF, or SVG therefore never receives a counterpart at all, and any
+counterpart that arrives is renderable as an `<img>`.
 
-- The `compare` prop is only passed when **this** file's `fileKind` is `image`. A video or
-  PDF with a counterpart keeps the rail row and gets no stage toggle.
-- If the counterpart image fires `error`, the script removes the toggle and forces
-  single mode. Today the same situation renders a broken thumbnail, so this is strictly
-  better.
+That leaves one guard, for transport rather than type:
+
+- If the counterpart image fires `error` (deleted between the API read and the browser
+  fetch, network failure), the script removes the Compare toggle and forces single mode.
+  Today the same situation renders a broken thumbnail, so this is strictly better.
+
+Passing `compare` only when this file's `fileKind` is `image` remains a cheap assertion of
+the server's contract, but it is a belt-and-braces check, not the thing standing between a
+viewer and a broken layout.
 
 ### Slider mechanics: adopt `img-comparison-slider`
 
@@ -150,8 +157,7 @@ The current file's row is marked with the accent color and a muted "this file" n
 link carries an accessible name naming the role and destination (for example,
 `View the before image`).
 
-The rail section renders whenever a counterpart exists, including for non-image files
-that get no stage toggle.
+The rail section renders whenever a counterpart exists.
 
 ## Files
 
@@ -181,6 +187,6 @@ verified in a browser rather than in unit tests.
 
 - A side-by-side (non-slider) third mode. Two stage modes plus Fit / Full width is already
   the ceiling for stage chrome.
-- Adding `contentType` to the counterpart DTO. The two guards above cover the case without
-  an API change; revisit only if non-image pairs become common.
+- Adding `contentType` to the counterpart DTO. The API already guarantees both sides are
+  pairable images, so the field would carry no new information.
 - Any change to how pairs are detected or to the managed PR comment's pairing output.
