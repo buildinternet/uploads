@@ -1,7 +1,8 @@
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/server/validators/ajv";
 import { parseCommandArgs, type GlobalFlags } from "../cli-args.js";
 import { resolveApiUrl } from "../config.js";
 import { createMcpServer } from "../mcp/server.js";
-import { serveStdio } from "../mcp/stdio.js";
 import { createUploadsMcpTools } from "../mcp/tools.js";
 import { packageVersion } from "../package-version.js";
 import { writeCommandHelp } from "../cli-style.js";
@@ -35,11 +36,25 @@ export async function runMcp(
     writeCommandHelp(MCP_HELP);
     return 0;
   }
-  const server = createMcpServer({
-    serverInfo: { name: "uploads", version: packageVersion() },
-    tools: createUploadsMcpTools({ globals: opts.globals }),
-    apiUrl: resolveApiUrl(opts.globals),
+  // Ajv is the right provider here and only here: it compiles schemas at
+  // runtime, which Node allows and workerd does not (apps/mcp passes the
+  // `@cfworker/json-schema` provider instead).
+  const validator = new AjvJsonSchemaValidator();
+  const handle = serveStdio(() =>
+    createMcpServer({
+      serverInfo: { name: "uploads", version: packageVersion() },
+      tools: createUploadsMcpTools({ globals: opts.globals }),
+      apiUrl: resolveApiUrl(opts.globals),
+      validator,
+    }),
+  );
+  // `serveStdio` hands back only a teardown handle, so the command owns the
+  // wait: serving ends when the client closes our stdin, which is what the
+  // previous readline loop returned on.
+  await new Promise<void>((resolve) => {
+    process.stdin.once("end", resolve);
+    process.stdin.once("close", resolve);
   });
-  await serveStdio(server);
+  await handle.close();
   return 0;
 }

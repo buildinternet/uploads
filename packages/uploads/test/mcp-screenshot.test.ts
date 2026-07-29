@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { UploadsClient } from "../src/client.js";
 import type { UploadsClientConfig } from "../src/config.js";
 import type { CommandRunner } from "../src/github-gh.js";
-import { createMcpServer, type McpServer } from "../src/mcp/server.js";
+import { createMcpServer } from "../src/mcp/server.js";
 import { createUploadsMcpTools } from "../src/mcp/tools.js";
+import { rpc, validator } from "./mcp-harness.js";
 
 // The screenshot tool dynamically imports "../screenshot.js" from inside its
 // handler (by design — keeps mcp/tools.ts free of a static reference to the
@@ -48,6 +49,7 @@ function serverWith(overrides?: { runner?: CommandRunner }) {
   const client = fakeClient(puts);
   const server = createMcpServer({
     serverInfo: { name: "uploads", version: "0.0.0-test" },
+    validator,
     tools: createUploadsMcpTools({
       globals: { apiUrl: "https://x.test", token: "up_test_x" },
       runner: overrides?.runner,
@@ -91,11 +93,6 @@ function branchStagingRunner(opts: {
     }
     throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
   };
-}
-
-async function rpc(server: McpServer, method: string, params?: unknown, id: number | string = 1) {
-  const raw = await server.handleLine(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
-  return raw === undefined ? undefined : JSON.parse(raw);
 }
 
 describe("mcp screenshot tool", () => {
@@ -164,6 +161,7 @@ describe("mcp screenshot canonical metadata", () => {
     } as unknown as UploadsClient;
     const server = createMcpServer({
       serverInfo: { name: "uploads", version: "0.0.0-test" },
+      validator,
       tools: createUploadsMcpTools({
         globals: { apiUrl: "https://x.test", token: "up_test_x" },
         clientFactory: (_config: UploadsClientConfig) => client,

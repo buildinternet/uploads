@@ -233,7 +233,13 @@ async function callTool(env: Env, name: string, args: Record<string, unknown>) {
         method: "tools/call",
         params: { name, arguments: args },
       }),
-      headers: { Authorization: `Bearer ${TOKEN}` },
+      // The v2 SDK's Streamable HTTP transport enforces the spec's mandatory
+      // POST Accept header even on the legacy leg (see mcp.test.ts's rpc()).
+      headers: {
+        Authorization: `Bearer ${TOKEN}`,
+        Accept: "application/json, text/event-stream",
+        "Content-Type": "application/json",
+      },
     },
     env,
   );

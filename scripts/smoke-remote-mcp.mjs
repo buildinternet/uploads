@@ -65,7 +65,14 @@ async function jsonRequest(url, options, expected = [200], operation = "HTTP req
 }
 
 function headers(token) {
-  return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  return {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    // Both are mandatory on Streamable HTTP: the transport answers 415 without
+    // the content type and 406 unless the client accepts BOTH media types,
+    // even though our replies are always plain JSON.
+    Accept: "application/json, text/event-stream",
+  };
 }
 
 async function mcp(method, params, expected = [200]) {
@@ -83,6 +90,38 @@ async function mcp(method, params, expected = [200]) {
     },
     expected,
     `MCP ${method}`,
+  );
+}
+
+/**
+ * A 2026-07-28 request: no `initialize` first, the protocol version and client
+ * capabilities ride in `params._meta`, and SEP-2243 requires the method (plus
+ * the tool name, for `tools/call`) to be mirrored into request headers.
+ */
+async function mcpModern(method, params, { omitMethodHeader = false, expected = [200] } = {}) {
+  const requestHeaders = { ...headers(scopedToken) };
+  if (!omitMethodHeader) requestHeaders["Mcp-Method"] = method;
+  if (method === "tools/call" && params?.name) requestHeaders["Mcp-Name"] = params.name;
+  return jsonRequest(
+    mcpUrl,
+    {
+      method: "POST",
+      headers: requestHeaders,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: ++rpcId,
+        method,
+        params: {
+          ...params,
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
+    },
+    expected,
+    `MCP (2026-07-28) ${method}`,
   );
 }
 
@@ -157,6 +196,33 @@ try {
     if (!toolNames.has(name)) throw new Error(`MCP tools/list missing required tool: ${name}`);
   }
   ok("tools/list");
+
+  // The 2026-07-28 leg, served by the same endpoint and the same tool set.
+  const discovered = await mcpModern("server/discover");
+  if (!discovered.body.result?.supportedVersions?.includes("2026-07-28")) {
+    throw new Error("MCP server/discover does not advertise 2026-07-28");
+  }
+  ok("server/discover");
+
+  const modernTools = await mcpModern("tools/list");
+  const modernResult = modernTools.body.result ?? {};
+  const modernNames = new Set(modernTools.body.result?.tools?.map((item) => item.name));
+  for (const name of toolNames) {
+    if (!modernNames.has(name)) {
+      throw new Error(`2026-07-28 tools/list is missing a 2025-era tool: ${name}`);
+    }
+  }
+  if (modernResult.resultType !== "complete") {
+    throw new Error("MCP tools/list result is missing resultType: complete");
+  }
+  if (typeof modernResult.ttlMs !== "number" || modernResult.cacheScope !== "private") {
+    throw new Error("MCP tools/list result is missing the expected cache hints");
+  }
+  ok("tools/list (2026-07-28)");
+
+  // SEP-2243: the header is mandatory, so its absence must be refused.
+  await mcpModern("tools/list", undefined, { omitMethodHeader: true, expected: [400] });
+  ok("rejects a missing Mcp-Method header");
 
   putAttempted = true;
   const put = await tool("put", { contentBase64: pngBase64, filename: "smoke.png", key });

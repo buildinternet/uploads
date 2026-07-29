@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@buildinternet/uploads": "workspace:^",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@uploads/api": "workspace:^",
     "@uploads/errors": "workspace:^",
     "@uploads/storage": "workspace:^",

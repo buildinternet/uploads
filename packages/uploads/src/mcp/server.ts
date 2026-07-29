@@ -1,12 +1,29 @@
 /**
- * Minimal, dependency-free MCP (Model Context Protocol) server core.
+ * MCP (Model Context Protocol) server core, built on the v2 TypeScript SDK
+ * (`@modelcontextprotocol/server`), which speaks spec `2026-07-28` and the
+ * 2025-era revisions side by side.
  *
- * Transport is one JSON-RPC 2.0 message per line/request. This module is
- * transport- and runtime-agnostic (usable from Workers as well as Node) —
- * `handleLine` takes a raw message string and returns the serialized response
- * (or undefined when no response is due), so it is directly testable. The
- * stdio transport lives in ./stdio.ts; logs must never go to stdout.
+ * Tools stay declarative: callers pass `McpTool[]` with hand-written JSON
+ * Schema and this module registers them with the SDK. That keeps the two tool
+ * sets (./tools.ts and apps/mcp/src/tools.ts) free of SDK imports and confines
+ * the dependency to this file.
+ *
+ * Runtime-agnostic, so the JSON Schema validator is injected rather than
+ * chosen here: the SDK bundles no provider in its root entry, and the two
+ * available ones are not interchangeable — Ajv compiles schemas at runtime and
+ * workerd rejects that, so Workers callers must pass the `@cfworker/json-schema`
+ * provider. See `@modelcontextprotocol/server/validators/{ajv,cf-worker}`.
+ *
+ * The stdio transport comes from `@modelcontextprotocol/server/stdio`; logs
+ * must never go to stdout.
  */
+import {
+  fromJsonSchema,
+  McpServer,
+  type CacheHint,
+  type CallToolResult,
+  type jsonSchemaValidator,
+} from "@modelcontextprotocol/server";
 import { UploadsError } from "../errors.js";
 import { errorCodeFromUnknown, recordEvent } from "../telemetry.js";
 import { ToolBatchError } from "./batch-error.js";
@@ -28,6 +45,7 @@ export {
 } from "./args.js";
 export { ToolBatchError, batchFailureMessage } from "./batch-error.js";
 export { mapBounded } from "../async.js";
+export { McpServer, type jsonSchemaValidator };
 
 export interface McpTool {
   name: string;
@@ -37,23 +55,14 @@ export interface McpTool {
   handler: (args: Record<string, unknown>) => Promise<unknown>;
 }
 
-export interface McpServer {
-  /** Handle one JSON-RPC line. Undefined for notifications / client responses. */
-  handleLine(line: string): Promise<string | undefined>;
-}
-
-const SUPPORTED_PROTOCOL_VERSIONS = new Set(["2025-06-18", "2025-03-26", "2024-11-05"]);
-const LATEST_PROTOCOL_VERSION = "2025-06-18";
-
-type JsonRpcId = string | number | null;
-
-function response(id: JsonRpcId, result: unknown): string {
-  return JSON.stringify({ jsonrpc: "2.0", id, result });
-}
-
-function errorResponse(id: JsonRpcId, code: number, message: string): string {
-  return JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } });
-}
+/**
+ * The tool catalog is fixed for the lifetime of a deploy, so a generous
+ * freshness hint is honest. `private` rather than `public` because the list is
+ * behind auth and, on the hosted worker, filtered by the caller's token
+ * scopes — a shared intermediary must never serve one caller's tool list to
+ * another.
+ */
+const TOOLS_LIST_CACHE_HINT: CacheHint = { ttlMs: 3_600_000, cacheScope: "private" };
 
 /** Tool failures become tool results (isError), never JSON-RPC errors. */
 function toolErrorText(err: unknown): string {
@@ -61,40 +70,27 @@ function toolErrorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function createMcpServer(opts: {
-  serverInfo: { name: string; version: string };
-  tools: McpTool[];
-  /** API base for telemetry (honors uploads --api-url). */
-  apiUrl?: string;
-}): McpServer {
-  const { serverInfo, tools, apiUrl } = opts;
-
-  async function callTool(id: JsonRpcId, params: Record<string, unknown>): Promise<string> {
-    const name = params.name;
-    const tool = typeof name === "string" ? tools.find((t) => t.name === name) : undefined;
-    if (!tool) return errorResponse(id, -32602, `unknown tool: ${String(name ?? "(missing)")}`);
-    const args = params.arguments ?? {};
-    if (typeof args !== "object" || args === null || Array.isArray(args)) {
-      return errorResponse(id, -32602, "tool arguments must be an object");
-    }
+/**
+ * Wraps a tool handler so its outcome becomes a `CallToolResult` and every
+ * call is recorded. A throw is reported to the client as an errored tool
+ * result rather than a protocol error, which is what lets an agent read the
+ * message and retry.
+ */
+function wrapHandler(tool: McpTool, apiUrl: string | undefined) {
+  const command = `tool ${tool.name}`.slice(0, 120);
+  return async (args: Record<string, unknown>): Promise<CallToolResult> => {
     const start = Date.now();
-    const command = `tool ${tool.name}`.slice(0, 120);
     try {
-      const result = await tool.handler(args as Record<string, unknown>);
+      const result = await tool.handler(args ?? {});
       recordEvent(
-        {
-          surface: "mcp",
-          command,
-          exitCode: 0,
-          durationMs: Date.now() - start,
-        },
+        { surface: "mcp", command, exitCode: 0, durationMs: Date.now() - start },
         { apiUrl },
       );
-      return response(id, {
+      return {
         content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        structuredContent: result,
+        structuredContent: result as CallToolResult["structuredContent"],
         isError: false,
-      });
+      };
     } catch (err) {
       recordEvent(
         {
@@ -109,82 +105,41 @@ export function createMcpServer(opts: {
       // Multi-file total failure: keep structuredContent so agents see every
       // per-file error, not only the first message string.
       if (err instanceof ToolBatchError) {
-        return response(id, {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(err.structuredContent, null, 2),
-            },
-          ],
-          structuredContent: err.structuredContent,
+        return {
+          content: [{ type: "text", text: JSON.stringify(err.structuredContent, null, 2) }],
+          structuredContent: err.structuredContent as CallToolResult["structuredContent"],
           isError: true,
-        });
+        };
       }
-      return response(id, {
-        content: [{ type: "text", text: toolErrorText(err) }],
-        isError: true,
-      });
+      return { content: [{ type: "text", text: toolErrorText(err) }], isError: true };
     }
-  }
-
-  return {
-    async handleLine(line) {
-      let msg: unknown;
-      try {
-        msg = JSON.parse(line);
-      } catch {
-        return errorResponse(null, -32700, "Parse error");
-      }
-      // JSON-RPC batching was removed from MCP: arrays are invalid requests.
-      if (typeof msg !== "object" || msg === null || Array.isArray(msg)) {
-        return errorResponse(null, -32600, "Invalid Request");
-      }
-      const record = msg as Record<string, unknown>;
-      const { method, params } = record;
-      // A response from the client (has result/error, no method): ignore.
-      if (method === undefined && ("result" in record || "error" in record)) return undefined;
-      const id: JsonRpcId =
-        typeof record.id === "string" || typeof record.id === "number" ? record.id : null;
-      if (typeof method !== "string") return errorResponse(id, -32600, "Invalid Request");
-      if (method.startsWith("notifications/")) return undefined;
-      // A request without an id is a notification — never respond.
-      if (!("id" in record)) return undefined;
-
-      const p = (
-        typeof params === "object" && params !== null && !Array.isArray(params) ? params : {}
-      ) as Record<string, unknown>;
-
-      try {
-        switch (method) {
-          case "initialize": {
-            const requested = typeof p.protocolVersion === "string" ? p.protocolVersion : "";
-            const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.has(requested)
-              ? requested
-              : LATEST_PROTOCOL_VERSION;
-            return response(id, {
-              protocolVersion,
-              capabilities: { tools: {} },
-              serverInfo,
-            });
-          }
-          case "ping":
-            return response(id, {});
-          case "tools/list":
-            return response(id, {
-              tools: tools.map(({ name, description, inputSchema }) => ({
-                name,
-                description,
-                inputSchema,
-              })),
-            });
-          case "tools/call":
-            return await callTool(id, p);
-          default:
-            return errorResponse(id, -32601, `method not found: ${method}`);
-        }
-      } catch (err) {
-        return errorResponse(id, -32603, err instanceof Error ? err.message : String(err));
-      }
-    },
   };
+}
+
+export function createMcpServer(opts: {
+  serverInfo: { name: string; version: string };
+  tools: McpTool[];
+  /** API base for telemetry (honors uploads --api-url). */
+  apiUrl?: string;
+  /**
+   * Runtime's JSON Schema validator. Node callers pass the Ajv provider;
+   * Workers callers must pass the `@cfworker/json-schema` one.
+   */
+  validator: jsonSchemaValidator;
+}): McpServer {
+  const { serverInfo, tools, apiUrl, validator } = opts;
+  const server = new McpServer(serverInfo, {
+    cacheHints: { "tools/list": TOOLS_LIST_CACHE_HINT },
+  });
+  for (const tool of tools) {
+    server.registerTool(
+      tool.name,
+      {
+        description: tool.description,
+        inputSchema: fromJsonSchema<Record<string, unknown>>(tool.inputSchema, validator),
+      },
+      wrapHandler(tool, apiUrl),
+    );
+  }
+  return server;
 }

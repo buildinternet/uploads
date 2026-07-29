@@ -11,6 +11,46 @@ SSE (GET/DELETE on the endpoint are 405). Tools cover put/list/delete, metadata
 `health`. Filesystem/`gh`-dependent tools (attach, comment, doctor) live only
 in the stdio server (`uploads mcp`).
 
+### Protocol eras
+
+The worker speaks both MCP spec revisions on the same `/mcp` endpoint and
+picks the era per request:
+
+- **`2026-07-28` (modern).** No `initialize` handshake. Each request carries
+  its protocol version and client capabilities in a per-request `_meta`
+  envelope (`io.modelcontextprotocol/protocolVersion`,
+  `io.modelcontextprotocol/clientCapabilities`), and the `Mcp-Method` and
+  `Mcp-Name` headers are required — a request missing either gets a 400. A
+  client can call `server/discover` to read back supported versions and
+  capabilities before sending anything else. `tools/list` responses carry
+  cache hints (`ttlMs: 3600000`, `cacheScope: "private"`): the tool catalog is
+  static per deploy, so a generous TTL is honest, but it's auth-gated and
+  scope-filtered per token, so a shared cache must not serve one caller's list
+  to another.
+- **`2025-era` (legacy).** The classic `initialize` → `tools/*` flow. Legacy
+  requests still get plain JSON replies, not an SSE stream — the worker was
+  already stateless and JSON-only before this migration, and the reply body
+  does not change.
+
+Either era, `GET`/`DELETE` on `/mcp` stay 405, and the worker does not
+implement `subscriptions/listen` — it has no change notifications to push.
+
+### Required request headers
+
+Every POST must send both:
+
+```
+Content-Type: application/json
+Accept: application/json, text/event-stream
+```
+
+A request without the content type gets 415, and one that does not accept both
+media types gets 406 — even though replies are always plain JSON. Both headers
+have been required by Streamable HTTP since revision `2025-03-26`, so
+conformant clients already send them, but the worker did not enforce them
+before it moved to the MCP SDK. A hand-rolled caller that omitted either used
+to work and now does not.
+
 The REST API's upload guardrails apply: content type is sniffed server-side,
 size-capped, budget-checked, and subject to optional key policy
 (`allowedKeyPrefixes` / `maxKeyDepth`). Writes are rate limited per workspace.

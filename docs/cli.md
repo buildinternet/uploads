@@ -95,7 +95,7 @@ command to run by hand, rather than overwriting your build.
 | `invite`                 | Invite a teammate to a workspace (workspace admin)                      |
 | `doctor` / `health`      | Health + auth + workspace checks / API liveness                         |
 | `setup` / `config`       | Inspect and configure CLI settings                                      |
-| `mcp`                    | Serve MCP over stdio (tools mirror the CLI)                             |
+| `mcp`                    | Serve MCP over stdio, both spec eras (tools mirror the CLI)             |
 
 Run `uploads <command> --help` for a command's flags.
 
