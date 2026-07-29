@@ -486,6 +486,78 @@ export const admin = new Hono<{ Bindings: Env }>()
   })
 
   /**
+   * Read one workspace record — the counterpart to the delete/restore pair
+   * below, which were the only other `ADMIN_TOKEN` routes on this path. Its
+   * absence meant there was no token-authed way to answer "does this
+   * workspace exist, and is it soft-deleted?": `/admin-ui/workspaces` can, but
+   * that surface is session-gated (`requireAdminUser`) and so unreachable from
+   * ops tooling or CI holding only `ADMIN_TOKEN`. Operators were left
+   * inferring existence from a destructive endpoint's error codes.
+   *
+   * Scoped deliberately narrow: one named workspace, no listing or search.
+   * Cross-workspace discovery from client credentials stays closed (#183);
+   * this is the operator surface, where the same token can already delete the
+   * workspace it is naming.
+   *
+   * A **soft-deleted** workspace is returned with `deletedAt`/`purgeAt`
+   * stamped rather than 404'd — knowing a record sits inside its grace window,
+   * and is therefore restorable via `POST /workspaces/:name/restore`, is the
+   * main reason to call this. Only a genuinely absent record or a permanent
+   * purged tombstone 404s, matching the delete route's precondition.
+   *
+   * The stored record holds `secretAccessKey`, `accessKeyId`, and per-token
+   * hashes, so this projects an explicit field list rather than echoing it.
+   * Credentials are reported as presence booleans and tokens as their labels
+   * and creation times — never the hashes. Keep it that way when adding
+   * fields: any holder of `ADMIN_TOKEN` or an `operator:read` token can call
+   * this.
+   */
+  .get("/workspaces/:name", async (c) => {
+    const name = c.req.param("name");
+    requireWorkspaceName(name);
+
+    const raw = await loadWorkspaceRecordRaw(c.env, name);
+    if (!raw || isPurgedTombstone(raw)) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
+
+    return c.json({
+      name,
+      version: raw.version ?? 0,
+      provider: raw.provider,
+      bucket: raw.bucket,
+      binding: raw.binding ?? null,
+      prefix: raw.prefix ?? null,
+      publicBaseUrl: raw.publicBaseUrl ?? null,
+      plan: raw.plan ?? null,
+      selfServe: raw.selfServe === true,
+      createdAt: raw.createdAt ?? null,
+      createdByUserId: raw.createdByUserId ?? null,
+      deletedAt: raw.deletedAt ?? null,
+      purgeAt: raw.purgeAt ?? null,
+      limits: {
+        maxUploadBytes: raw.maxUploadBytes ?? null,
+        maxVideoUploadBytes: raw.maxVideoUploadBytes ?? null,
+        maxStorageBytes: raw.maxStorageBytes ?? null,
+        maxUploadsPerPeriod: raw.maxUploadsPerPeriod ?? null,
+        maxMembers: raw.maxMembers ?? null,
+        retentionDays: raw.retentionDays ?? null,
+      },
+      keyPolicy: {
+        autoPrefixBareKeys: raw.autoPrefixBareKeys !== false,
+        allowedKeyPrefixes: raw.allowedKeyPrefixes ?? null,
+        maxKeyDepth: raw.maxKeyDepth ?? null,
+      },
+      // Labels and timestamps only — never the hashes.
+      tokens: legacyTokens(raw).map(({ label, createdAt }) => ({
+        label: label ?? null,
+        createdAt,
+      })),
+      hasHttpCredentials: typeof raw.secretAccessKey === "string",
+    });
+  })
+
+  /**
    * Admin-gated workspace teardown (v1 — see issue #241; soft-by-default —
    * see #247). Session-authed self-serve delete is deliberately out of scope
    * here; this is the ops/CI break-glass path, same as `/tokens` and

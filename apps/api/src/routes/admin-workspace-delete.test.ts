@@ -85,6 +85,12 @@ function restoreRequest(name: string) {
   });
 }
 
+function getRequest(name: string) {
+  return new Request(`https://api.uploads.sh/admin/workspaces/${name}`, {
+    headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
+  });
+}
+
 describe("DELETE /admin/workspaces/:name", () => {
   it("401s without a valid admin token", async () => {
     const { app, env } = appWith({});
@@ -259,5 +265,106 @@ describe("DELETE /admin/workspaces/:name", () => {
       const body = (await res.json()) as { error: { code: string } };
       expect(body.error.code).toBe("grace_expired");
     });
+  });
+});
+
+describe("GET /admin/workspaces/:name", () => {
+  it("401s without a valid admin token", async () => {
+    const { app, env } = appWith({ kvRecords: { "ws:acme": RECORD } });
+    const res = await app.request(
+      new Request("https://api.uploads.sh/admin/workspaces/acme"),
+      {},
+      env,
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("404s workspace_not_found for an unknown workspace", async () => {
+    const { app, env } = appWith({});
+    const res = await app.request(getRequest("acme"), {}, env);
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("workspace_not_found");
+  });
+
+  it("400s an invalid slug rather than looking it up", async () => {
+    const { app, env } = appWith({});
+    const res = await app.request(getRequest("Not_A_Slug"), {}, env);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("invalid_workspace");
+  });
+
+  it("returns the storage placement and defaults for a live workspace", async () => {
+    const { app, env } = appWith({ kvRecords: { "ws:acme": RECORD } });
+    const res = await app.request(getRequest("acme"), {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      name: "acme",
+      provider: "r2",
+      bucket: "shared",
+      binding: "UPLOADS_DEFAULT",
+      prefix: "acme/",
+      publicBaseUrl: "https://storage.uploads.sh",
+      deletedAt: null,
+      purgeAt: null,
+      selfServe: false,
+      plan: null,
+      hasHttpCredentials: false,
+    });
+    // Unset key policy reads as the permissive default, not as absent.
+    expect(body.keyPolicy).toMatchObject({ autoPrefixBareKeys: true, allowedKeyPrefixes: null });
+  });
+
+  it("reports a soft-deleted workspace with its grace window instead of 404ing", async () => {
+    const { app, env } = appWith({ kvRecords: { "ws:acme": RECORD } });
+    await app.request(deleteRequest("acme"), {}, env);
+
+    const res = await app.request(getRequest("acme"), {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deletedAt: string | null; purgeAt: string | null };
+    // The whole point of the route: an operator can see the record is inside
+    // its grace window and therefore still restorable.
+    expect(typeof body.deletedAt).toBe("string");
+    expect(typeof body.purgeAt).toBe("string");
+  });
+
+  it("never exposes credentials or token hashes", async () => {
+    const { app, env } = appWith({
+      kvRecords: {
+        "ws:acme": {
+          ...RECORD,
+          accountId: "acct-1",
+          accessKeyId: "AKIAEXAMPLE",
+          secretAccessKey: "super-secret",
+          tokens: [{ hash: "deadbeefcafe", label: "ci", createdAt: "2026-01-01T00:00:00.000Z" }],
+        },
+      },
+    });
+    const res = await app.request(getRequest("acme"), {}, env);
+    expect(res.status).toBe(200);
+    const raw = await res.text();
+    for (const secret of ["super-secret", "AKIAEXAMPLE", "deadbeefcafe"]) {
+      expect(raw).not.toContain(secret);
+    }
+    const body = JSON.parse(raw) as {
+      hasHttpCredentials: boolean;
+      tokens: Array<{ label: string | null; createdAt: string }>;
+    };
+    expect(body.hasHttpCredentials).toBe(true);
+    expect(body.tokens).toEqual([{ label: "ci", createdAt: "2026-01-01T00:00:00.000Z" }]);
+  });
+
+  it("surfaces a legacy tokenHash record as one unnamed token", async () => {
+    const { app, env } = appWith({
+      kvRecords: { "ws:acme": { ...RECORD, tokenHash: "legacyhash" } },
+    });
+    const res = await app.request(getRequest("acme"), {}, env);
+    const raw = await res.text();
+    expect(raw).not.toContain("legacyhash");
+    const body = JSON.parse(raw) as { tokens: Array<{ label: string | null }> };
+    expect(body.tokens).toHaveLength(1);
+    expect(body.tokens[0]?.label).toBeNull();
   });
 });

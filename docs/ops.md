@@ -97,6 +97,31 @@ orphan. The sweep isolates an AUTH outage or a single org's delete failure
 (logged, sweep continues) rather than failing the run. Results roll up into the
 sweep's `orgsSwept` field.
 
+## Inspecting a workspace
+
+`GET /admin/workspaces/:name` reads one workspace record — storage placement,
+plan, limits, key policy, and its soft-delete state:
+
+```bash
+curl https://api.uploads.sh/admin/workspaces/acme \
+  -H "authorization: Bearer $ADMIN_TOKEN"
+```
+
+A soft-deleted workspace comes back with `deletedAt`/`purgeAt` set rather than
+404'ing, so this is how you check whether a record is still inside its grace
+window and restorable. Only a workspace that never existed, or one already
+finalized to a purged tombstone, 404s `workspace_not_found`.
+
+Credentials are never returned: `secretAccessKey`/`accessKeyId` collapse to a
+`hasHttpCredentials` boolean, and tokens list their labels and creation times
+without the hashes.
+
+There is no list or search here by design — cross-workspace discovery from
+client credentials stays closed (#183). This is the operator surface, where the
+same token can already delete the workspace it names. `/admin-ui/workspaces`
+lists every workspace for the admin dashboard, but it is session-gated
+(`requireAdminUser`) and unavailable to `ADMIN_TOKEN` holders.
+
 ## Workspace deletion, restore, and finalization
 
 `DELETE /admin/workspaces/:name` is **soft by default** (#247): it stamps
