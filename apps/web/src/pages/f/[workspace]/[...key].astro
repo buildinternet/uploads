@@ -869,13 +869,16 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
 
         stepBtn.addEventListener("click", async function () {
           if (!stepBtn.hasAttribute("data-armed")) {
-            // First click arms; auto-disarm after 5s.
+            // First click arms; auto-disarm after DELETE_DISARM_MS. Twin of
+            // the React confirm in WorkspaceFileTable.tsx (this page ships no
+            // framework JS) — keep the timing and semantics in sync.
+            var DELETE_DISARM_MS = 5000;
             stepBtn.setAttribute("data-armed", "");
             stepBtn.textContent = "Confirm delete";
             disarmTimer = setTimeout(function () {
               stepBtn.removeAttribute("data-armed");
               stepBtn.textContent = "Delete file";
-            }, 5000);
+            }, DELETE_DISARM_MS);
             return;
           }
           if (disarmTimer) clearTimeout(disarmTimer);

@@ -245,6 +245,9 @@ function VisibilityBadge({ private: priv }: { private: boolean }) {
   );
 }
 
+/** How long an armed "Confirm delete" stays armed before auto-disarming. */
+const DELETE_DISARM_MS = 5000;
+
 function FileActionsMenu({
   open,
   busy,
@@ -266,6 +269,9 @@ function FileActionsMenu({
 }) {
   // Two-step destructive confirm (spec 2026-07-30): "delete…" swaps the menu
   // for a warning panel; its button arms a red confirm that auto-disarms.
+  // The /f/ file page carries a vanilla twin of this state machine (public
+  // pages ship no framework JS) — keep DELETE_DISARM_MS and the arm/disarm
+  // semantics in sync with apps/web/src/pages/f/[workspace]/[...key].astro.
   const [confirm, setConfirm] = useState<"closed" | "confirm" | "armed">("closed");
   const disarmTimer = useRef<number | null>(null);
 
@@ -274,7 +280,7 @@ function FileActionsMenu({
   }, [open]);
   useEffect(() => {
     if (confirm !== "armed") return;
-    disarmTimer.current = window.setTimeout(() => setConfirm("confirm"), 5000);
+    disarmTimer.current = window.setTimeout(() => setConfirm("confirm"), DELETE_DISARM_MS);
     return () => {
       if (disarmTimer.current !== null) window.clearTimeout(disarmTimer.current);
     };
