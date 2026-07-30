@@ -93,7 +93,9 @@ the two surfaces never drift.
 
 Local stdio MCP mirrors this as the `staged` tool (`branch`/`repo` args,
 same `{ repo, branch, files, binding }` shape). The hosted MCP has no
-dedicated tool for this — see "Hosted MCP: checking what's staged" below.
+dedicated `staged` tool (no git defaults) — list/find_files recipes and
+hosted `put`/`promote` with explicit `repo`/`branch` are under "Hosted MCP"
+below.
 
 Getting those files into the PR's attachments comment needs no extra step
 once a PR exists for that branch:
@@ -906,6 +908,22 @@ uploads --api-url http://localhost:8787 doctor
   tool and `put` with `pr`/`issue` honor the target repo's `.uploads.yml`
   (same as the bot path — no separate MCP config; see
   https://uploads.sh/docs/comment-config).
+
+  **Hosted MCP: branch staging + promote.** There is still no `attach` tool
+  on the hosted server (no filesystem paths) — use `put` instead:
+
+  ```text
+  # Stage pre-PR (CLI attach --branch parity). repo + branch required.
+  put  { contentBase64, filename, repo: "owner/name", branch: "feature/x", state: "after" }
+  # → key gh/owner/name/branch/feature-x/<filename>, gh.status=staged
+
+  # Promote staged files into a PR once it exists (CLI attach --promote).
+  promote  { repo: "owner/name", pr: 123, branch: "feature/x" }
+  # optional comment: false to skip the managed comment refresh (default on)
+
+  # Or attach a new file to the PR and promote that branch in one call:
+  put  { contentBase64, filename, repo: "owner/name", pr: 123, branch: "feature/x" }
+  ```
 
   **Hosted MCP: checking what's staged (issue #405).** There's no dedicated
   `staged` tool on the hosted server — it has no local git context to default

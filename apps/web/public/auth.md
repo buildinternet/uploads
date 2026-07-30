@@ -70,6 +70,8 @@ inferred from the `up_<workspace>_…` token form).
 | ---------------------- | ---------------------------------------------------------------- |
 | This file              | https://uploads.sh/auth.md                                       |
 | Agent summary          | https://uploads.sh/llms.txt                                      |
+| Full agent guide       | https://uploads.sh/llms-full.txt                                 |
+| Repo agent entrypoint  | https://github.com/buildinternet/uploads/blob/main/llms.txt      |
 | Integration surfaces   | https://uploads.sh/.well-known/integrations.json                 |
 | API catalog (RFC 9727) | https://uploads.sh/.well-known/api-catalog                       |
 | OpenAPI (summary)      | https://uploads.sh/.well-known/openapi.json (also /openapi.json) |

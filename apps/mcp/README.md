@@ -7,11 +7,13 @@ the CLI package's transport-agnostic MCP core (`@buildinternet/uploads/mcp`).
 
 Stateless MCP Streamable HTTP: one JSON-RPC message per POST, no sessions or
 SSE (GET/DELETE on the endpoint are 405). Tools cover put/list/delete, metadata
-(`get_metadata` / `set_metadata` / `find_files`), galleries, usage, health, and
-hosted `put`/`comment` that sync the managed attachments comment via the
-GitHub App (bot-only; body honors the repo's `.uploads.yml` when present —
-see https://uploads.sh/docs/comment-config). Local attach/comment/doctor need a
-filesystem or `gh` and live only on the stdio server (`uploads mcp`).
+(`get_metadata` / `set_metadata` / `find_files`), galleries, usage, health,
+branch staging (`put` with `branch` + `repo`), promote (`promote` with
+`repo`/`pr`/`branch`), and managed-comment sync via `put`/`comment`/`promote`
+(bot-only; body honors the repo's `.uploads.yml` when present — see
+https://uploads.sh/docs/comment-config). Local `attach`/`doctor` (filesystem or
+`gh`) and the git-defaulting `staged` tool live only on the stdio server
+(`uploads mcp`).
 
 ### Protocol eras
 

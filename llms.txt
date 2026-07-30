@@ -1,0 +1,98 @@
+# uploads (repository)
+
+> Source monorepo for uploads.sh — file hosting for coding agents and humans.
+> Open source (Apache 2.0). Hosted service at https://uploads.sh.
+
+This file is for agents that land on **this GitHub repository**. Pick an
+audience below. Do not treat contributor docs as the product API, and do not
+treat product install docs as monorepo setup.
+
+## Audience A — use the product (CLI / MCP / skills)
+
+You want to host a screenshot, stage PR media, or attach files to GitHub.
+
+- **Canonical product index:** https://uploads.sh/llms.txt
+- **Expanded product guide:** https://uploads.sh/llms-full.txt
+- **Auth for agents:** https://uploads.sh/auth.md
+- **Agent setup walkthrough:** https://uploads.sh/docs/agents
+- **Stage / attach walkthrough:** https://uploads.sh/github-screenshots
+
+Install (product, not monorepo):
+
+```bash
+npm install -g @buildinternet/uploads && uploads login
+uploads install
+npx skills add buildinternet/uploads
+```
+
+Hosted MCP (HTTP):
+
+```bash
+claude mcp add --transport http uploads https://agents.uploads.sh/mcp
+```
+
+In-repo skill sources (installable via `npx skills add buildinternet/uploads`):
+
+- [skills/github-screenshots](skills/github-screenshots) — when/how to put visuals on PRs/issues
+- [skills/annotate-screenshots](skills/annotate-screenshots) — callouts and redaction
+- [skills/uploads-cli](skills/uploads-cli) — CLI and MCP flag reference
+
+Machine-readable product discovery:
+
+- https://uploads.sh/.well-known/integrations.json
+- https://uploads.sh/.well-known/openapi.json (summary OpenAPI)
+- https://uploads.sh/.well-known/mcp/server-card.json
+- https://uploads.sh/.well-known/agent-skills/index.json
+
+## Audience B — work on this monorepo
+
+You are changing the workers, CLI package, web app, or docs in this checkout.
+
+- **Agent working conventions:** [AGENTS.md](AGENTS.md)
+- **Human contrib / PR shape:** [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Local setup:** [docs/local-dev.md](docs/local-dev.md)
+- **Product intent:** [VISION.md](VISION.md), [PRODUCT.md](PRODUCT.md)
+- **Roadmap:** [docs/roadmap.md](docs/roadmap.md)
+
+One-command local setup:
+
+```bash
+pnpm bootstrap
+pnpm dev                 # API on :8787
+pnpm test                # whole suite
+```
+
+Layout summary (full table in [README.md](README.md#whats-in-this-repo)):
+
+| Path | Role |
+| --- | --- |
+| `apps/api/` | REST API worker |
+| `apps/auth/` | Better Auth worker |
+| `apps/mcp/` | Hosted MCP worker (`agents.uploads.sh`) |
+| `apps/web/` | Astro site (uploads.sh) |
+| `packages/uploads/` | `@buildinternet/uploads` CLI + client (npm) |
+| `packages/storage/` | files-sdk adapter factory |
+| `skills/` | Installable agent skills |
+
+`CLAUDE.md` only points at `AGENTS.md` — read that file for conventions.
+
+## Endpoints (hosted product)
+
+- Web: https://uploads.sh
+- API: https://api.uploads.sh
+- Agents / MCP: https://agents.uploads.sh/mcp
+- Public storage: https://storage.uploads.sh
+- Embed (prefer in GitHub markdown): https://embed.uploads.sh
+
+## Cautions
+
+- Hosted files are **public**, including media attached to private repos.
+- Do not upload secrets, tokens, or sensitive UI.
+- APIs may change while the project is in active development.
+- Operator break-glass `ADMIN_TOKEN` is never for routine agent configs.
+
+## Legal
+
+- https://uploads.sh/terms
+- https://uploads.sh/privacy
+- Operated by https://buildinternet.com
