@@ -7,6 +7,7 @@ Hono worker — workspace-scoped REST API for file I/O. Deploys to **api.uploads
 | Path                     | Auth             | Purpose                                       |
 | ------------------------ | ---------------- | --------------------------------------------- |
 | `GET /health`            | —                | Liveness                                      |
+| `GET /robots.txt`        | —                | Crawl policy (`Disallow: /` — service host)   |
 | `/admin/*`               | admin token      | Mint/list/revoke tokens; credential reencrypt |
 | `/v1/:workspace/files/*` | workspace bearer | Put, sign, get, list, delete                  |
 | `/v1/:workspace/usage/*` | workspace bearer | Usage, reconcile, purge-expired               |

@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
-import app from "../src/index";
+import app, { ROBOTS_TXT } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "@uploads/api/workspace";
 import { FakeR2Bucket } from "@uploads/storage/test/fake-r2";
 import { resetOAuthJwksCacheForTests } from "../src/oauth";
@@ -457,6 +457,22 @@ describe("hosted gallery tenant isolation", () => {
 });
 
 describe("mcp worker", () => {
+  it("disallows all crawlers on the MCP host", async () => {
+    const { env } = await makeEnv();
+    const response = await app.request(
+      "https://agents.uploads.sh/robots.txt",
+      { method: "GET" },
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toMatch(/^text\/plain/);
+    expect(response.headers.get("Cache-Control")).toContain("max-age=86400");
+    const body = await response.text();
+    expect(body).toBe(ROBOTS_TXT);
+    expect(body).toContain("User-agent: *");
+    expect(body).toContain("Disallow: /");
+  });
+
   it("serves an unauthenticated MCP server card for discovery", async () => {
     const { env } = await makeEnv();
     const response = await app.request("/.well-known/mcp/server-card.json", { method: "GET" }, env);

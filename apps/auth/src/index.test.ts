@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { app } from "./index";
+import { app, ROBOTS_TXT } from "./index";
 import type { AuthEnv } from "./auth";
 import { LOCAL_STACK_AUTH_ORIGIN, LOCAL_STACK_WEB_ORIGIN } from "./local-demo";
 import { createFakeD1 } from "./test/fake-d1";
@@ -30,6 +30,23 @@ describe("GET /health", () => {
     const response = await app.request("/health", {}, envWithoutSecret());
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });
+  });
+});
+
+describe("GET /robots.txt", () => {
+  it("disallows all crawlers on the auth host", async () => {
+    const response = await app.request(
+      "https://auth.uploads.sh/robots.txt",
+      { method: "GET" },
+      envWithoutSecret(),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toMatch(/^text\/plain/);
+    expect(response.headers.get("Cache-Control")).toContain("max-age=86400");
+    const body = await response.text();
+    expect(body).toBe(ROBOTS_TXT);
+    expect(body).toContain("User-agent: *");
+    expect(body).toContain("Disallow: /");
   });
 });
 

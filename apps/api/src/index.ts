@@ -69,9 +69,27 @@ const adminUiCors = cors({
   maxAge: 86400,
 });
 
+/**
+ * Service-host crawl policy. api.uploads.sh is a REST API — not a content
+ * surface — so every bot is told to stay out. Marketing + docs live on
+ * https://uploads.sh (which has its own, more open robots.txt).
+ */
+export const ROBOTS_TXT = `# https://api.uploads.sh — REST API only; do not crawl.
+# Public docs and marketing: https://uploads.sh
+
+User-agent: *
+Disallow: /
+`;
+
 /** Hono app — also re-exported for vitest (`app.request`). */
 export const app = new Hono<WorkspaceVars>()
   .get("/health", (c) => c.json({ ok: true }))
+  .get("/robots.txt", (c) =>
+    c.text(ROBOTS_TXT, 200, {
+      "Cache-Control": "public, max-age=86400",
+      "Content-Type": "text/plain; charset=utf-8",
+    }),
+  )
   // RFC 9728 discovery: this API is an OAuth resource server (workspace bearer
   // tokens with `files:*` scopes). Public, uncached-cross-origin so browser
   // agents can read it. See src/well-known.ts.
