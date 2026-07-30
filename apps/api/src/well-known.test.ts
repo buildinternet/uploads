@@ -1,8 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { app } from "./index";
+import { app, ROBOTS_TXT } from "./index";
 
 // The route reads only c.env.WEB_ORIGIN (with a fallback), no bindings.
 const env = {} as unknown as Env;
+
+describe("GET /robots.txt", () => {
+  it("disallows all crawlers on the API host", async () => {
+    const response = await app.request("https://api.uploads.sh/robots.txt", { method: "GET" }, env);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toMatch(/^text\/plain/);
+    expect(response.headers.get("Cache-Control")).toContain("max-age=86400");
+    const body = await response.text();
+    expect(body).toBe(ROBOTS_TXT);
+    expect(body).toContain("User-agent: *");
+    expect(body).toContain("Disallow: /");
+  });
+});
 
 describe("GET /.well-known/oauth-protected-resource", () => {
   it("advertises the API as an OAuth resource server (RFC 9728)", async () => {

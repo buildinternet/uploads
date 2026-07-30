@@ -289,8 +289,26 @@ function respondProtectedResource(c: Context<WorkspaceVars>): Response {
   );
 }
 
+/**
+ * Service-host crawl policy. agents.uploads.sh / mcp.uploads.sh is an MCP
+ * endpoint — not a content surface — so every bot is told to stay out.
+ * Marketing + docs live on https://uploads.sh.
+ */
+export const ROBOTS_TXT = `# https://agents.uploads.sh — MCP server only; do not crawl.
+# Public docs and marketing: https://uploads.sh
+
+User-agent: *
+Disallow: /
+`;
+
 const app = new Hono<WorkspaceVars>()
   .get("/health", (c) => c.json({ ok: true }))
+  .get("/robots.txt", (c) =>
+    c.text(ROBOTS_TXT, 200, {
+      "Cache-Control": "public, max-age=86400",
+      "Content-Type": "text/plain; charset=utf-8",
+    }),
+  )
   // Public discovery — registered before /:workspace/* so ".well-known" is not a tenant.
   .get("/.well-known/mcp/server-card.json", (c) => c.json(mcpServerCard()))
   // OAuth Protected Resource Metadata (RFC 9728). Served at both the origin

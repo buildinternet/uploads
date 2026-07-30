@@ -57,8 +57,26 @@ const billingPricesCors = cors({
   maxAge: 86400,
 });
 
+/**
+ * Service-host crawl policy. auth.uploads.sh is the sign-in / OAuth AS —
+ * not a content surface — so every bot is told to stay out. Marketing +
+ * docs live on https://uploads.sh.
+ */
+export const ROBOTS_TXT = `# https://auth.uploads.sh — auth / OAuth only; do not crawl.
+# Public docs and marketing: https://uploads.sh
+
+User-agent: *
+Disallow: /
+`;
+
 export const app = new Hono<{ Bindings: AuthEnv }>()
   .get("/health", (c) => c.json({ ok: true }))
+  .get("/robots.txt", (c) =>
+    c.text(ROBOTS_TXT, 200, {
+      "Cache-Control": "public, max-age=86400",
+      "Content-Type": "text/plain; charset=utf-8",
+    }),
+  )
   .use("/billing/prices", billingPricesCors)
   .get("/billing/prices", async (c) => {
     const body = await billingPricesResponseBody(c.env);
