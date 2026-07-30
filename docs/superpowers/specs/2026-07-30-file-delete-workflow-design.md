@@ -32,7 +32,7 @@ The galleries page has no per-item action UI today and is out of scope.
 
 New session-authed endpoint in `apps/api/src/routes/me.ts`:
 
-```
+```http
 DELETE /me/workspaces/:name/files?key=<key>
 ```
 
@@ -47,8 +47,10 @@ Cloned from the visibility-toggle pattern
 5. Delegate to the existing `deleteObject()` in `apps/api/src/files-core.ts`
    — R2/S3 delete, D1 metadata cleanup, usage/adoption accounting, and
    best-effort derived-poster deletion all come for free
-6. Respond `{ key, deleted: true }`; unknown key follows `deleteObject()`'s
-   existing not-found behavior
+6. Respond `{ key, deleted: true }`. A missing or invalid `key` value 404s
+   (matching the `file-url`/visibility convention); a valid key whose object
+   is already absent still returns `{ key, deleted: true }` — deletion is
+   idempotent, same as the token-authed `/v1` sibling
 
 No new deletion logic is written anywhere. The token-authed
 `DELETE /v1/:workspace/files/:key` is untouched.
@@ -107,7 +109,7 @@ React for the table. No new shared primitive, no `@uploads/ui` addition.
 
 - **API (vitest):** member deletes → 200 + object gone from fake store +
   metadata row removed; non-member → 404 `workspace_not_found`; signed-out →
-  401; missing/invalid key → 400; rate-limit path exercised.
+  401; missing/invalid key → 404; rate-limit path exercised.
 - **Web:** manual verification of both surfaces via the local signed-in
   browser recipe (stack-raw on 127.0.0.1), including: control hidden when
   signed out, popover open/arm/disarm/Escape, successful delete end-state,

@@ -843,7 +843,12 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
         const errorEl = document.getElementById("delete-error");
         let disarmTimer = null;
 
+        // Once a DELETE is in flight, close/Escape must not re-enable the
+        // button — a re-click would fire a second concurrent request.
+        var deleteInFlight = false;
+
         function reset() {
+          if (deleteInFlight) return;
           pop.hidden = true;
           stepBtn.textContent = "Delete file";
           stepBtn.removeAttribute("data-armed");
@@ -882,6 +887,7 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
             return;
           }
           if (disarmTimer) clearTimeout(disarmTimer);
+          deleteInFlight = true;
           stepBtn.disabled = true;
           try {
             const target = new URL(
@@ -899,6 +905,7 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
             const done = document.getElementById("deleted-state");
             if (done) done.hidden = false;
           } catch (e) {
+            deleteInFlight = false;
             errorEl.textContent = "Couldn't delete this file. Try again shortly.";
             errorEl.hidden = false;
             stepBtn.disabled = false;
