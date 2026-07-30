@@ -23,6 +23,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ConnectedWorkSetter } from "../lib/workspace-rail";
 import { applyGhTitles, connectedWork, exactPrMatch, type GhWorkItem } from "../lib/gh-context";
 import {
+  deleteWorkspaceFile,
   GITHUB_TITLES_MAX_REFS,
   getGithubTitles,
   getMyWorkspaces,
@@ -248,17 +249,37 @@ function FileActionsMenu({
   open,
   busy,
   isPrivate,
+  filename,
   onToggle,
   onCopy,
   onToggleVisibility,
+  onDelete,
 }: {
   open: boolean;
   busy: boolean;
   isPrivate: boolean;
+  filename: string;
   onToggle: () => void;
   onCopy: (button: HTMLButtonElement) => void;
   onToggleVisibility: () => void;
+  onDelete: () => void;
 }) {
+  // Two-step destructive confirm (spec 2026-07-30): "delete…" swaps the menu
+  // for a warning panel; its button arms a red confirm that auto-disarms.
+  const [confirm, setConfirm] = useState<"closed" | "confirm" | "armed">("closed");
+  const disarmTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!open) setConfirm("closed");
+  }, [open]);
+  useEffect(() => {
+    if (confirm !== "armed") return;
+    disarmTimer.current = window.setTimeout(() => setConfirm("confirm"), 5000);
+    return () => {
+      if (disarmTimer.current !== null) window.clearTimeout(disarmTimer.current);
+    };
+  }, [confirm]);
+
   return (
     <div className="wft-menu">
       <button
@@ -270,7 +291,7 @@ function FileActionsMenu({
       >
         ⋯
       </button>
-      {open && (
+      {open && confirm === "closed" && (
         <div role="menu" className="wft-menu__popover">
           <button
             type="button"
@@ -289,6 +310,45 @@ function FileActionsMenu({
           >
             {isPrivate ? "make public" : "unlist"}
           </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="wft-menu__item wft-menu__item--danger"
+            onClick={() => setConfirm("confirm")}
+          >
+            delete…
+          </button>
+        </div>
+      )}
+      {open && confirm !== "closed" && (
+        <div
+          className="wft-menu__popover wft-confirm"
+          role="alertdialog"
+          aria-label={`Delete ${filename}`}
+        >
+          <p className="wft-confirm__text">
+            Permanently delete <strong>{filename}</strong> for everyone? Links and embeds will
+            break.
+          </p>
+          {confirm === "confirm" ? (
+            <button
+              type="button"
+              className="wft-menu__item wft-menu__item--danger"
+              disabled={busy}
+              onClick={() => setConfirm("armed")}
+            >
+              Delete file
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="wft-menu__item wft-confirm__armed"
+              disabled={busy}
+              onClick={onDelete}
+            >
+              Confirm delete
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -622,6 +682,30 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
         setOpenMenuKey(null);
       } else {
         setActionError(`Couldn't make "${leafName(file.key)}" ${next}. Try again shortly.`);
+      }
+    } finally {
+      setTogglingKeys((prev) => {
+        const copy = new Set(prev);
+        copy.delete(file.key);
+        return copy;
+      });
+    }
+  };
+
+  const deleteFile = async (file: FileTableRow) => {
+    setTogglingKeys((prev) => new Set(prev).add(file.key));
+    setActionError(null);
+    try {
+      const result = await deleteWorkspaceFile(apiOrigin, workspace, file.key);
+      if (result.kind === "success") {
+        setState((prev) =>
+          prev.status === "ok"
+            ? { ...prev, files: prev.files.filter((f) => f.key !== file.key) }
+            : prev,
+        );
+        setOpenMenuKey(null);
+      } else {
+        setActionError(`Couldn't delete "${leafName(file.key)}". Try again shortly.`);
       }
     } finally {
       setTogglingKeys((prev) => {
@@ -1172,9 +1256,11 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
                   open={openMenuKey === file.key}
                   busy={togglingKeys.has(file.key)}
                   isPrivate={priv}
+                  filename={name}
                   onToggle={() => setOpenMenuKey((prev) => (prev === file.key ? null : file.key))}
                   onCopy={(btn) => void copyLink(file, btn)}
                   onToggleVisibility={() => void toggleVisibility(file)}
+                  onDelete={() => void deleteFile(file)}
                 />
               </div>
             );
@@ -1239,11 +1325,13 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
                       open={openMenuKey === file.key}
                       busy={togglingKeys.has(file.key)}
                       isPrivate={priv}
+                      filename={name}
                       onToggle={() =>
                         setOpenMenuKey((prev) => (prev === file.key ? null : file.key))
                       }
                       onCopy={(btn) => void copyLink(file, btn)}
                       onToggleVisibility={() => void toggleVisibility(file)}
+                      onDelete={() => void deleteFile(file)}
                     />
                   </div>
                   <div className="wft-card__meta">

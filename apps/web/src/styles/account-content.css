@@ -1427,6 +1427,26 @@ button.wft-name--btn {
   opacity: 0.55;
   cursor: default;
 }
+.wft-menu__item--danger {
+  color: var(--red);
+}
+.wft-confirm {
+  width: 220px;
+  padding: 10px;
+}
+.wft-confirm__text {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--body);
+  overflow-wrap: anywhere;
+}
+.wft-confirm__armed {
+  color: #fff;
+  background: var(--red);
+  border-radius: 6px;
+  text-align: center;
+}
 .wft-end {
   border-top: 1px solid var(--line);
   padding: 9px 2px;
