@@ -82,10 +82,16 @@ const fullTitle = `${title} · uploads.sh`;
     <meta name="twitter:image" content={OG_DEFAULT_IMAGE} />
     <slot name="head" />
     <style is:global>
-      * { box-sizing: border-box; }
-      html { scroll-behavior: smooth; }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
       @media (prefers-reduced-motion: reduce) {
-        html { scroll-behavior: auto; }
+        html {
+          scroll-behavior: auto;
+        }
       }
       body {
         margin: 0;
@@ -116,7 +122,11 @@ const fullTitle = `${title} · uploads.sh`;
         gap: 44px;
         margin-top: 8px;
       }
-      main.docs-main { flex: 1 1 auto; min-width: 0; max-width: 720px; }
+      main.docs-main {
+        flex: 1 1 auto;
+        min-width: 0;
+        max-width: 720px;
+      }
       main.docs-main > h1 {
         font-size: clamp(26px, 5vw, 34px);
         font-weight: 600;
@@ -124,7 +134,11 @@ const fullTitle = `${title} · uploads.sh`;
         line-height: 1.25;
         margin: 4px 0 4px;
       }
-      main.docs-main > .tagline { color: var(--muted); font-size: 14px; margin: 0 0 8px; }
+      main.docs-main > .tagline {
+        color: var(--muted);
+        font-size: 14px;
+        margin: 0 0 8px;
+      }
 
       /* ---------- left nav sidebar ---------- */
       .docs-side {
@@ -134,8 +148,12 @@ const fullTitle = `${title} · uploads.sh`;
         top: 24px;
         align-self: flex-start;
       }
-      .docs-side .group { margin-bottom: 22px; }
-      .docs-side .group:last-child { margin-bottom: 0; }
+      .docs-side .group {
+        margin-bottom: 22px;
+      }
+      .docs-side .group:last-child {
+        margin-bottom: 0;
+      }
       .docs-nav-title {
         font: 11px var(--mono);
         letter-spacing: 0.14em;
@@ -144,9 +162,15 @@ const fullTitle = `${title} · uploads.sh`;
         margin: 0 0 8px;
       }
       .docs-side ul,
-      .docs-nav-m ul { list-style: none; margin: 0; padding: 0; }
+      .docs-nav-m ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
       .docs-side li,
-      .docs-nav-m li { margin: 1px 0; }
+      .docs-nav-m li {
+        margin: 1px 0;
+      }
       .docs-side a,
       .docs-nav-m .panel a {
         display: block;
@@ -158,12 +182,20 @@ const fullTitle = `${title} · uploads.sh`;
       .docs-side a:hover,
       .docs-side a:focus-visible,
       .docs-nav-m .panel a:hover,
-      .docs-nav-m .panel a:focus-visible { color: var(--fg); outline: none; }
+      .docs-nav-m .panel a:focus-visible {
+        color: var(--fg);
+        outline: none;
+      }
       .docs-side a[aria-current="page"],
-      .docs-nav-m .panel a[aria-current="page"] { color: var(--accent); font-weight: 600; }
+      .docs-nav-m .panel a[aria-current="page"] {
+        color: var(--accent);
+        font-weight: 600;
+      }
 
       /* mobile: the left nav collapses to a dropdown (hidden on wider screens) */
-      .docs-nav-m { display: none; }
+      .docs-nav-m {
+        display: none;
+      }
 
       /* ---------- right "on this page" TOC rail ---------- */
       .docs-toc {
@@ -180,8 +212,15 @@ const fullTitle = `${title} · uploads.sh`;
         color: var(--muted);
         margin: 0 0 10px;
       }
-      .docs-toc ol { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--line); }
-      .docs-toc li { margin: 0; }
+      .docs-toc ol {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        border-left: 1px solid var(--line);
+      }
+      .docs-toc li {
+        margin: 0;
+      }
       .docs-toc a {
         display: block;
         border-left: 1px solid transparent;
@@ -191,17 +230,34 @@ const fullTitle = `${title} · uploads.sh`;
         color: var(--muted);
         text-decoration: none;
       }
-      .docs-toc a:hover, .docs-toc a:focus-visible { color: var(--fg); outline: none; }
-      .docs-toc a[aria-current="true"] { color: var(--accent); border-left-color: var(--accent); }
+      .docs-toc a:hover,
+      .docs-toc a:focus-visible {
+        color: var(--fg);
+        outline: none;
+      }
+      .docs-toc a[aria-current="true"] {
+        color: var(--accent);
+        border-left-color: var(--accent);
+      }
 
       /* drop the TOC rail first, then collapse the left nav to a dropdown */
       @media (max-width: 1180px) {
-        .docs-toc { display: none; }
+        .docs-toc {
+          display: none;
+        }
       }
       @media (max-width: 880px) {
-        .docs-grid { flex-direction: column; align-items: stretch; gap: 18px; }
-        main.docs-main { max-width: none; }
-        .docs-side { display: none; }
+        .docs-grid {
+          flex-direction: column;
+          align-items: stretch;
+          gap: 18px;
+        }
+        main.docs-main {
+          max-width: none;
+        }
+        .docs-side {
+          display: none;
+        }
         .docs-nav-m {
           display: block;
           border: 1px solid var(--line);
@@ -218,18 +274,31 @@ const fullTitle = `${title} · uploads.sh`;
           cursor: pointer;
           list-style: none;
         }
-        .docs-nav-m > summary::-webkit-details-marker { display: none; }
-        .docs-nav-m .chev { color: var(--muted); transition: transform 0.15s ease; }
-        @media (prefers-reduced-motion: reduce) {
-          .docs-nav-m .chev { transition: none; }
+        .docs-nav-m > summary::-webkit-details-marker {
+          display: none;
         }
-        .docs-nav-m[open] .chev { transform: rotate(180deg); }
+        .docs-nav-m .chev {
+          color: var(--muted);
+          transition: transform 0.15s ease;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .docs-nav-m .chev {
+            transition: none;
+          }
+        }
+        .docs-nav-m[open] .chev {
+          transform: rotate(180deg);
+        }
         .docs-nav-m .panel {
           padding: 6px 14px 12px;
           border-top: 1px solid var(--line);
         }
-        .docs-nav-m .group { margin-bottom: 16px; }
-        .docs-nav-m .group:last-child { margin-bottom: 0; }
+        .docs-nav-m .group {
+          margin-bottom: 16px;
+        }
+        .docs-nav-m .group:last-child {
+          margin-bottom: 0;
+        }
       }
 
       /* ---------- slotted page content (scoped to .doc) ---------- */
@@ -239,7 +308,11 @@ const fullTitle = `${title} · uploads.sh`;
         text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
         text-underline-offset: 3px;
       }
-      .doc a:hover, .doc a:focus-visible { color: var(--accent); outline: none; }
+      .doc a:hover,
+      .doc a:focus-visible {
+        color: var(--accent);
+        outline: none;
+      }
 
       .doc section h2 {
         font-size: 19px;
@@ -258,12 +331,28 @@ const fullTitle = `${title} · uploads.sh`;
         font-weight: 400;
       }
       .doc section h2 .anchor:hover,
-      .doc section h2 .anchor:focus-visible { color: var(--accent); background: none; }
+      .doc section h2 .anchor:focus-visible {
+        color: var(--accent);
+        background: none;
+      }
       /* the first section shouldn't add a rule directly under the page title */
-      .doc section.lead h2 { border-top: none; padding-top: 0; margin-top: 22px; }
-      .doc h3 { font: 600 15px/1.4 var(--sans); margin: 22px 0 6px; color: var(--fg); }
-      .doc p, .doc li { color: var(--body); }
-      .doc strong { color: var(--fg); }
+      .doc section.lead h2 {
+        border-top: none;
+        padding-top: 0;
+        margin-top: 22px;
+      }
+      .doc h3 {
+        font: 600 15px/1.4 var(--sans);
+        margin: 22px 0 6px;
+        color: var(--fg);
+      }
+      .doc p,
+      .doc li {
+        color: var(--body);
+      }
+      .doc strong {
+        color: var(--fg);
+      }
 
       /* plain data table (used by the plans & limits page) */
       .doc table {
@@ -279,15 +368,36 @@ const fullTitle = `${title} · uploads.sh`;
         border: 1px solid var(--line);
         color: var(--body);
       }
-      .doc table thead th { background: var(--panel); color: var(--fg); font-weight: 600; }
-      .doc table tbody th[scope="row"] { color: var(--fg); font-weight: 600; white-space: nowrap; }
+      .doc table thead th {
+        background: var(--panel);
+        color: var(--fg);
+        font-weight: 600;
+      }
+      .doc table tbody th[scope="row"] {
+        color: var(--fg);
+        font-weight: 600;
+        white-space: nowrap;
+      }
 
       /* FAQ definition list (used by the agent guide) */
-      .doc .faq { margin: 0; }
-      .doc .faq dt { color: var(--fg); font-weight: 600; margin-top: 18px; }
-      .doc .faq dd { margin: 6px 0 0; color: var(--body); }
-      .doc ul { padding-left: 22px; }
-      .doc li { margin: 8px 0; }
+      .doc .faq {
+        margin: 0;
+      }
+      .doc .faq dt {
+        color: var(--fg);
+        font-weight: 600;
+        margin-top: 18px;
+      }
+      .doc .faq dd {
+        margin: 6px 0 0;
+        color: var(--body);
+      }
+      .doc ul {
+        padding-left: 22px;
+      }
+      .doc li {
+        margin: 8px 0;
+      }
       .doc code {
         background: var(--panel);
         border: 1px solid var(--line);
@@ -315,12 +425,21 @@ const fullTitle = `${title} · uploads.sh`;
         white-space: nowrap;
         scrollbar-width: none;
       }
-      .doc .cmd .text::before { content: "$ "; color: var(--accent); }
+      .doc .cmd .text::before {
+        content: "$ ";
+        color: var(--accent);
+      }
       /* slash commands are typed into Claude Code, not a shell: no "$ " prompt —
          the command's own leading "/" stands in for it */
-      .doc .cmd.slash .text::before { content: ""; }
-      .doc .cmd .text .url { color: var(--body); }
-      .doc .cmd .text .cm { color: var(--muted); }
+      .doc .cmd.slash .text::before {
+        content: "";
+      }
+      .doc .cmd .text .url {
+        color: var(--body);
+      }
+      .doc .cmd .text .cm {
+        color: var(--muted);
+      }
       .doc .cmd button {
         font: 11px var(--mono);
         letter-spacing: 0.06em;
@@ -336,7 +455,10 @@ const fullTitle = `${title} · uploads.sh`;
         outline: none;
         border-color: var(--accent);
       }
-      .doc .cmd button.done { color: var(--green); border-color: var(--green); }
+      .doc .cmd button.done {
+        color: var(--green);
+        border-color: var(--green);
+      }
 
       /* multi-line output block (not copyable) */
       .doc .block {
@@ -349,9 +471,16 @@ const fullTitle = `${title} · uploads.sh`;
         color: var(--muted);
         overflow-x: auto;
       }
-      .doc .block .ok { color: var(--green); }
-      .doc .block .v { color: var(--body); }
-      .doc .block pre { margin: 0; white-space: pre; }
+      .doc .block .ok {
+        color: var(--green);
+      }
+      .doc .block .v {
+        color: var(--body);
+      }
+      .doc .block pre {
+        margin: 0;
+        white-space: pre;
+      }
 
       /* hub "explore" cards linking to the subject pages */
       .doc .cards {
@@ -369,16 +498,27 @@ const fullTitle = `${title} · uploads.sh`;
         text-decoration: none;
       }
       .doc .card:hover,
-      .doc .card:focus-visible { border-color: var(--accent); outline: none; }
+      .doc .card:focus-visible {
+        border-color: var(--accent);
+        outline: none;
+      }
       .doc .card h3 {
         font: 600 14px var(--sans);
         color: var(--fg);
         margin: 0 0 4px;
       }
-      .doc .card p { font-size: 13px; color: var(--muted); margin: 0; }
-      .doc .card .go { color: var(--accent); }
+      .doc .card p {
+        font-size: 13px;
+        color: var(--muted);
+        margin: 0;
+      }
+      .doc .card .go {
+        color: var(--accent);
+      }
       @media (max-width: 560px) {
-        .doc .cards { grid-template-columns: 1fr; }
+        .doc .cards {
+          grid-template-columns: 1fr;
+        }
       }
 
       /* prev/next footer nav between subject pages */
@@ -391,10 +531,25 @@ const fullTitle = `${title} · uploads.sh`;
         border-top: 1px solid var(--line);
         font: 13px var(--sans);
       }
-      .doc .page-nav a { color: var(--body); text-decoration: none; }
-      .doc .page-nav a:hover, .doc .page-nav a:focus-visible { color: var(--accent); }
-      .doc .page-nav .next { margin-left: auto; text-align: right; }
-      .doc .page-nav .dir { color: var(--muted); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; display: block; }
+      .doc .page-nav a {
+        color: var(--body);
+        text-decoration: none;
+      }
+      .doc .page-nav a:hover,
+      .doc .page-nav a:focus-visible {
+        color: var(--accent);
+      }
+      .doc .page-nav .next {
+        margin-left: auto;
+        text-align: right;
+      }
+      .doc .page-nav .dir {
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        display: block;
+      }
 
       /* ---------- wireframe github comment (same treatment as the landing page) ---------- */
       .doc .ghc {
@@ -413,7 +568,10 @@ const fullTitle = `${title} · uploads.sh`;
         display: grid;
         place-items: center;
       }
-      .doc .ghc .avatar svg { width: 32px; height: 32px; }
+      .doc .ghc .avatar svg {
+        width: 32px;
+        height: 32px;
+      }
       .doc .ghc .bubble {
         background: #161b22;
         border: 1px solid #30363d;
@@ -443,7 +601,10 @@ const fullTitle = `${title} · uploads.sh`;
         padding: 8px 14px;
         color: #8b949e;
       }
-      .doc .ghc .head .user { color: #e6edf3; font-weight: 600; }
+      .doc .ghc .head .user {
+        color: #e6edf3;
+        font-weight: 600;
+      }
       .doc .ghc .head .bot-chip {
         font: 10px var(--sans);
         letter-spacing: 0.02em;
@@ -461,25 +622,40 @@ const fullTitle = `${title} · uploads.sh`;
         padding: 1px 8px;
         margin-left: auto;
       }
-      .doc .ghc .body { padding: 14px; }
-      .doc .ghc .md-title { color: #e6edf3; font-weight: 600; margin: 0 0 10px; }
+      .doc .ghc .body {
+        padding: 14px;
+      }
+      .doc .ghc .md-title {
+        color: #e6edf3;
+        font-weight: 600;
+        margin: 0 0 10px;
+      }
       .doc .ghc .imgs {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 10px;
         margin-bottom: 12px;
       }
-      .doc .ghc figure { margin: 0; }
+      .doc .ghc figure {
+        margin: 0;
+      }
       .doc .ghc .ph {
         aspect-ratio: 16 / 10;
         border: 1.5px dashed #444c56;
         border-radius: 6px;
-        background: linear-gradient(135deg, rgba(139, 148, 158, 0.06) 0%, rgba(139, 148, 158, 0.02) 100%);
+        background: linear-gradient(
+          135deg,
+          rgba(139, 148, 158, 0.06) 0%,
+          rgba(139, 148, 158, 0.02) 100%
+        );
         display: grid;
         place-items: center;
         color: #545d68;
       }
-      .doc .ghc .ph svg { width: 42px; height: 42px; }
+      .doc .ghc .ph svg {
+        width: 42px;
+        height: 42px;
+      }
       .doc .ghc figcaption {
         font: 11px var(--mono);
         color: #8b949e;
@@ -488,12 +664,25 @@ const fullTitle = `${title} · uploads.sh`;
         justify-content: space-between;
         gap: 8px;
       }
-      .doc .ghc figcaption .host { color: #58a6ff; }
-      .doc .skel { height: 8px; border-radius: 4px; background: #2d333b; margin: 8px 0; }
-      .doc .skel.w70 { width: 70%; }
-      .doc .skel.w45 { width: 45%; }
+      .doc .ghc figcaption .host {
+        color: #58a6ff;
+      }
+      .doc .skel {
+        height: 8px;
+        border-radius: 4px;
+        background: #2d333b;
+        margin: 8px 0;
+      }
+      .doc .skel.w70 {
+        width: 70%;
+      }
+      .doc .skel.w45 {
+        width: 45%;
+      }
       @media (max-width: 560px) {
-        .doc .ghc .imgs { grid-template-columns: 1fr; }
+        .doc .ghc .imgs {
+          grid-template-columns: 1fr;
+        }
       }
       /* Post-install banner (docs/github-app), revealed by ?setup_action=install|update. */
       .doc .installed {
@@ -505,7 +694,9 @@ const fullTitle = `${title} · uploads.sh`;
         font-size: 14px;
         line-height: 1.6;
       }
-      .doc .installed strong { color: var(--green); }
+      .doc .installed strong {
+        color: var(--green);
+      }
       /* Contextual callout (e.g. "landed here from a bot comment?" on docs/github-app). */
       .doc .callout {
         margin: 0 0 28px;
@@ -516,19 +707,28 @@ const fullTitle = `${title} · uploads.sh`;
         font-size: 14px;
         line-height: 1.6;
       }
-      .doc .callout strong { color: var(--accent); }
+      .doc .callout strong {
+        color: var(--accent);
+      }
       .doc .note {
         margin: 20px 0 0;
         color: var(--muted);
         font-size: 13.5px;
       }
-      .doc .note a { color: var(--muted); }
+      .doc .note a {
+        color: var(--muted);
+      }
 
       /* Geist Mono merges " --" into a joined dash via calt - keep CLI flags literal.
          Declared last: the font shorthand in earlier rules resets feature settings. */
-      .doc code, .doc pre, .doc .cmd, .doc .block {
+      .doc code,
+      .doc pre,
+      .doc .cmd,
+      .doc .block {
         font-variant-ligatures: none;
-        font-feature-settings: "calt" 0, "liga" 0;
+        font-feature-settings:
+          "calt" 0,
+          "liga" 0;
       }
     </style>
   </head>
@@ -560,7 +760,14 @@ const fullTitle = `${title} · uploads.sh`;
           <details class="docs-nav-m">
             <summary>
               <span>{currentLabel}</span>
-              <svg class="chev" width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <svg
+                class="chev"
+                width="16"
+                height="16"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                aria-hidden="true"
+              >
                 <path
                   fill-rule="evenodd"
                   d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z"
@@ -575,7 +782,10 @@ const fullTitle = `${title} · uploads.sh`;
                     <ul>
                       {section.items.map((item) => (
                         <li>
-                          <a href={item.href} aria-current={item.slug === active ? "page" : undefined}>
+                          <a
+                            href={item.href}
+                            aria-current={item.slug === active ? "page" : undefined}
+                          >
                             {item.label}
                           </a>
                         </li>

@@ -5,78 +5,221 @@ import BaseHead from "../components/BaseHead.astro";
 import Brand from "../components/Brand.astro";
 import Footer from "../components/Footer.astro";
 ---
+
 <html lang="en">
-<head>
-  <BaseHead />
-  <meta name="robots" content="noindex, nofollow, noarchive" />
-  <meta name="referrer" content="no-referrer" />
-  <title>Accept your invite · uploads.sh</title>
-  <style>
-    *{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:28px;background:var(--bg);color:var(--fg);font:14.5px/1.65 var(--mono)}main{/* deliberately wider than --width-card (480px): this card carries setup instructions, not just a form */width:min(640px,100%);background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);padding:clamp(24px,6vw,44px)}.brandbar{display:flex;justify-content:center;margin-bottom:24px}h1{margin:0 0 8px;font-size:clamp(23px,5vw,30px);font-weight:600;letter-spacing:-.015em;line-height:1.25}p{color:var(--body)}.status{padding:12px 14px;margin:24px 0;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--bg);color:var(--body)}.status[data-state=ready]{color:var(--green)}.status[data-state=closed]{color:var(--red)}ol{padding-left:20px}li{margin:16px 0}.command{display:flex;gap:12px;align-items:center;margin-top:8px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--bg)}.command code{flex:1;min-width:0;white-space:nowrap;overflow-x:auto;display:block;font-variant-ligatures:none;font-feature-settings:"calt" 0,"liga" 0}.command button{flex-shrink:0}button{font-size:11px;letter-spacing:.06em;border:1px solid var(--line);border-radius:6px;padding:6px 10px;background:none;color:var(--accent);cursor:pointer;font-family:inherit}button:hover,button:focus-visible{border-color:var(--accent);outline:none}.security{margin-top:26px;padding-top:18px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}[hidden]{display:none!important}
-  </style>
-</head>
-<body>
-<main>
-  <div class="brandbar"><Brand /></div>
-  <h1>Accept your invite to uploads.sh</h1>
-  <p>Host files and screenshots straight from your terminal — upload, get a public link, attach them to a pull request.</p>
-  <div class="status" id="meta" role="status">Checking your invite…</div>
-  <section id="instructions" hidden>
-    <ol>
-      <li>Install<div class="command"><code>npm install --global @buildinternet/uploads</code><button data-copy="npm install --global @buildinternet/uploads" aria-live="polite">copy</button></div></li>
-      <li>Log in<div class="command"><code id="login-cmd">uploads login</code><button id="login-copy" data-copy="uploads login" aria-live="polite">copy</button></div></li>
-    </ol>
-  </section>
-  <p class="security">Treat this link like a password — it's single-use and stops working once you log in.</p>
-  <Footer compact />
-</main>
-<script>
-  function requireElement<T extends Element>(selector: string): T {
-    const element = document.querySelector<T>(selector);
-    if (!element) throw new Error(`invite page is missing ${selector}`);
-    return element;
-  }
+  <head>
+    <BaseHead />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Accept your invite · uploads.sh</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 28px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14.5px/1.65 var(--mono);
+      }
+      main {
+        /* deliberately wider than --width-card (480px): this card carries setup instructions, not just a form */
+        width: min(640px, 100%);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: clamp(24px, 6vw, 44px);
+      }
+      .brandbar {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 24px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(23px, 5vw, 30px);
+        font-weight: 600;
+        letter-spacing: -0.015em;
+        line-height: 1.25;
+      }
+      p {
+        color: var(--body);
+      }
+      .status {
+        padding: 12px 14px;
+        margin: 24px 0;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: var(--bg);
+        color: var(--body);
+      }
+      .status[data-state="ready"] {
+        color: var(--green);
+      }
+      .status[data-state="closed"] {
+        color: var(--red);
+      }
+      ol {
+        padding-left: 20px;
+      }
+      li {
+        margin: 16px 0;
+      }
+      .command {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin-top: 8px;
+        padding: 12px 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: var(--bg);
+      }
+      .command code {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow-x: auto;
+        display: block;
+        font-variant-ligatures: none;
+        font-feature-settings:
+          "calt" 0,
+          "liga" 0;
+      }
+      .command button {
+        flex-shrink: 0;
+      }
+      button {
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 10px;
+        background: none;
+        color: var(--accent);
+        cursor: pointer;
+        font-family: inherit;
+      }
+      button:hover,
+      button:focus-visible {
+        border-color: var(--accent);
+        outline: none;
+      }
+      .security {
+        margin-top: 26px;
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+        font-size: 13px;
+        color: var(--muted);
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brandbar"><Brand /></div>
+      <h1>Accept your invite to uploads.sh</h1>
+      <p>
+        Host files and screenshots straight from your terminal — upload, get a public link, attach
+        them to a pull request.
+      </p>
+      <div class="status" id="meta" role="status">Checking your invite…</div>
+      <section id="instructions" hidden>
+        <ol>
+          <li>
+            Install<div class="command">
+              <code>npm install --global @buildinternet/uploads</code><button
+                data-copy="npm install --global @buildinternet/uploads"
+                aria-live="polite">copy</button
+              >
+            </div>
+          </li>
+          <li>
+            Log in<div class="command">
+              <code id="login-cmd">uploads login</code><button
+                id="login-copy"
+                data-copy="uploads login"
+                aria-live="polite">copy</button
+              >
+            </div>
+          </li>
+        </ol>
+      </section>
+      <p class="security">
+        Treat this link like a password — it's single-use and stops working once you log in.
+      </p>
+      <Footer compact />
+    </main>
+    <script>
+      function requireElement<T extends Element>(selector: string): T {
+        const element = document.querySelector<T>(selector);
+        if (!element) throw new Error(`invite page is missing ${selector}`);
+        return element;
+      }
 
-  const meta = requireElement<HTMLElement>("#meta");
-  const instructions = requireElement<HTMLElement>("#instructions");
-  const loginCmd = requireElement<HTMLElement>("#login-cmd");
-  const loginCopy = requireElement<HTMLButtonElement>("#login-copy");
+      const meta = requireElement<HTMLElement>("#meta");
+      const instructions = requireElement<HTMLElement>("#instructions");
+      const loginCmd = requireElement<HTMLElement>("#login-cmd");
+      const loginCopy = requireElement<HTMLButtonElement>("#login-copy");
 
-  const url = new URL(location.href);
-  const pageId = url.searchParams.get("id") ?? "";
-  // The one-time code rides in the URL fragment, which browsers never send to the
-  // server. Read it, then scrub it from the address bar; the CLI still redeems it.
-  const code = new URLSearchParams(url.hash.replace(/^#/, "")).get("code") ?? "";
-  if (url.hash) history.replaceState(null, "", url.pathname + url.search);
+      const url = new URL(location.href);
+      const pageId = url.searchParams.get("id") ?? "";
+      // The one-time code rides in the URL fragment, which browsers never send to the
+      // server. Read it, then scrub it from the address bar; the CLI still redeems it.
+      const code = new URLSearchParams(url.hash.replace(/^#/, "")).get("code") ?? "";
+      if (url.hash) history.replaceState(null, "", url.pathname + url.search);
 
-  if (/^upe_[A-Za-z0-9_-]{20,}$/.test(code)) {
-    const command = `uploads login --code ${code}`;
-    loginCmd.textContent = command;
-    loginCopy.dataset.copy = command;
-  }
+      if (/^upe_[A-Za-z0-9_-]{20,}$/.test(code)) {
+        const command = `uploads login --code ${code}`;
+        loginCmd.textContent = command;
+        loginCopy.dataset.copy = command;
+      }
 
-  async function checkInvitation() {
-    if (!/^upi_[A-Za-z0-9_-]{16}$/.test(pageId)) throw new Error("invalid");
-    const response = await fetch(`https://api.uploads.sh/auth/enrollments/${encodeURIComponent(pageId)}`, { cache:"no-store", credentials:"omit", referrerPolicy:"no-referrer" });
-    if (!response.ok) throw new Error("invalid");
-    const invitation = (await response.json()) as { used: boolean; expiresAt: string; workspace: string };
-    if (invitation.used) { meta.textContent = "This invite has already been used."; meta.dataset.state = "closed"; return; }
-    const when = new Date(invitation.expiresAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
-    const where = invitation.workspace ? `the ${invitation.workspace} workspace` : "uploads.sh";
-    meta.textContent = `You'll join ${where} · expires ${when}`;
-    meta.dataset.state = "ready";
-    instructions.hidden = false;
-  }
+      async function checkInvitation() {
+        if (!/^upi_[A-Za-z0-9_-]{16}$/.test(pageId)) throw new Error("invalid");
+        const response = await fetch(
+          `https://api.uploads.sh/auth/enrollments/${encodeURIComponent(pageId)}`,
+          { cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer" },
+        );
+        if (!response.ok) throw new Error("invalid");
+        const invitation = (await response.json()) as {
+          used: boolean;
+          expiresAt: string;
+          workspace: string;
+        };
+        if (invitation.used) {
+          meta.textContent = "This invite has already been used.";
+          meta.dataset.state = "closed";
+          return;
+        }
+        const when = new Date(invitation.expiresAt).toLocaleString([], {
+          dateStyle: "medium",
+          timeStyle: "short",
+        });
+        const where = invitation.workspace ? `the ${invitation.workspace} workspace` : "uploads.sh";
+        meta.textContent = `You'll join ${where} · expires ${when}`;
+        meta.dataset.state = "ready";
+        instructions.hidden = false;
+      }
 
-  checkInvitation().catch(() => { meta.textContent = "This invite is invalid or has expired."; meta.dataset.state = "closed"; });
-  document.querySelectorAll<HTMLButtonElement>("[data-copy]").forEach((button) =>
-    button.addEventListener("click", async () => {
-      const value = button.dataset.copy;
-      if (!value) return;
-      await navigator.clipboard.writeText(value);
-      button.textContent = "copied";
-    }),
-  );
-</script>
-</body>
+      checkInvitation().catch(() => {
+        meta.textContent = "This invite is invalid or has expired.";
+        meta.dataset.state = "closed";
+      });
+      document.querySelectorAll<HTMLButtonElement>("[data-copy]").forEach((button) =>
+        button.addEventListener("click", async () => {
+          const value = button.dataset.copy;
+          if (!value) return;
+          await navigator.clipboard.writeText(value);
+          button.textContent = "copied";
+        }),
+      );
+    </script>
+  </body>
 </html>

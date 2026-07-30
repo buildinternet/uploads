@@ -52,7 +52,9 @@ describe("ClientRouter boot scripts", () => {
       needles: ["ViewTransitions", "onAstroPageLoad", "bindCopyButtons", "tocSpy"],
     },
     {
-      rel: "components/SiteHeader.astro",
+      // Star-count logic lives in the extracted module so prettier-plugin-astro
+      // can format SiteHeader (JSX-conditional scripts can't hold function bodies).
+      rel: "components/site-header-stars.ts",
       needles: ["onAstroPageLoad", "fillStarCount", 'getElementById("star-count")'],
     },
   ] as const;

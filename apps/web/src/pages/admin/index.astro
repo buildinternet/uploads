@@ -10,8 +10,8 @@ export const prerender = false;
     <header class="admin-page-header">
       <h2>Workspaces</h2>
       <p>
-        Every registered workspace, with its members and pending invites. Expand a
-        row to load people, plan, limits, and invites.
+        Every registered workspace, with its members and pending invites. Expand a row to load
+        people, plan, limits, and invites.
       </p>
     </header>
     <div id="workspaces-status" class="admin-status">Loading…</div>
@@ -33,116 +33,114 @@ export const prerender = false;
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
     import { formatDate } from "../../lib/subscription-copy";
-    import {
-      clearExpandGroups,
-      escapeHtml,
-      loadOnce,
-      wireExpandGroup,
-    } from "../../lib/admin-ui";
+    import { clearExpandGroups, escapeHtml, loadOnce, wireExpandGroup } from "../../lib/admin-ui";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("workspaces-list")) return;
 
-    const w = window as unknown as { __UPLOADS_API_ORIGIN__: string };
-    const apiOrigin = w.__UPLOADS_API_ORIGIN__.replace(/\/$/, "");
+      const w = window as unknown as { __UPLOADS_API_ORIGIN__: string };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__.replace(/\/$/, "");
 
-    const workspacesStatus = requireElement<HTMLElement>("#workspaces-status", "admin");
-    const workspacesList = requireElement<HTMLElement>("#workspaces-list", "admin");
+      const workspacesStatus = requireElement<HTMLElement>("#workspaces-status", "admin");
+      const workspacesList = requireElement<HTMLElement>("#workspaces-list", "admin");
 
-    interface WorkspaceSummary {
-      workspace: string;
-      organization: { id: string; slug: string; name: string } | null;
-      memberCount: number;
-      pendingInviteCount: number;
-    }
-    interface Member {
-      id: string;
-      email: string;
-      name: string;
-      role: string;
-    }
-    interface Invite {
-      id: string;
-      email: string;
-      role: string | null;
-      status: string;
-    }
+      interface WorkspaceSummary {
+        workspace: string;
+        organization: { id: string; slug: string; name: string } | null;
+        memberCount: number;
+        pendingInviteCount: number;
+      }
+      interface Member {
+        id: string;
+        email: string;
+        name: string;
+        role: string;
+      }
+      interface Invite {
+        id: string;
+        email: string;
+        role: string | null;
+        status: string;
+      }
 
-    async function apiGet<T>(path: string): Promise<T> {
-      const res = await fetch(`${apiOrigin}${path}`, { credentials: "include", cache: "no-store" });
-      if (!res.ok) throw new Error(`request failed: ${res.status}`);
-      return (await res.json()) as T;
-    }
+      async function apiGet<T>(path: string): Promise<T> {
+        const res = await fetch(`${apiOrigin}${path}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error(`request failed: ${res.status}`);
+        return (await res.json()) as T;
+      }
 
-    interface Limits {
-      maxStorageBytes: number | null;
-      maxUploadsPerPeriod: number | null;
-      maxUploadBytes: number | null;
-      maxVideoUploadBytes: number | null;
-      maxMembers: number | null;
-    }
-    interface LimitsResponse {
-      workspace: string;
-      limits: Limits;
-      usage: { bytes: number; uploads: number } | null;
-    }
+      interface Limits {
+        maxStorageBytes: number | null;
+        maxUploadsPerPeriod: number | null;
+        maxUploadBytes: number | null;
+        maxVideoUploadBytes: number | null;
+        maxMembers: number | null;
+      }
+      interface LimitsResponse {
+        workspace: string;
+        limits: Limits;
+        usage: { bytes: number; uploads: number } | null;
+      }
 
-    // Issue #445: subscription enrichment, additive to the plan
-    // GET/PATCH response shape (see apps/api/src/routes/admin-ui.ts's
-    // adminSubscriptionInfo). `stripeCustomerId` is admin-ui-only — never
-    // sent to /me — and only present when a subscription row exists.
-    interface AdminSubscription {
-      status: string;
-      periodEnd: string | null;
-      cancelAtPeriodEnd: boolean;
-      stripeCustomerId: string | null;
-    }
-    interface PlanResponse {
-      workspace: string;
-      plan: "free" | "pro";
-      available: boolean;
-      planApplied: boolean;
-      limits: Limits;
-      overrides: string[];
-      planSource: "stripe" | "admin" | "none";
-      subscription: AdminSubscription | null;
-    }
+      // Issue #445: subscription enrichment, additive to the plan
+      // GET/PATCH response shape (see apps/api/src/routes/admin-ui.ts's
+      // adminSubscriptionInfo). `stripeCustomerId` is admin-ui-only — never
+      // sent to /me — and only present when a subscription row exists.
+      interface AdminSubscription {
+        status: string;
+        periodEnd: string | null;
+        cancelAtPeriodEnd: boolean;
+        stripeCustomerId: string | null;
+      }
+      interface PlanResponse {
+        workspace: string;
+        plan: "free" | "pro";
+        available: boolean;
+        planApplied: boolean;
+        limits: Limits;
+        overrides: string[];
+        planSource: "stripe" | "admin" | "none";
+        subscription: AdminSubscription | null;
+      }
 
-    const PLAN_OPTIONS: { id: "free" | "pro"; label: string }[] = [
-      { id: "free", label: "Free" },
-      { id: "pro", label: "Pro (unavailable to self-serve)" },
-    ];
+      const PLAN_OPTIONS: { id: "free" | "pro"; label: string }[] = [
+        { id: "free", label: "Free" },
+        { id: "pro", label: "Pro (unavailable to self-serve)" },
+      ];
 
-    const PLAN_SOURCE_LABEL: Record<PlanResponse["planSource"], string> = {
-      stripe: "Stripe-backed",
-      admin: "Admin-set (comped)",
-      none: "None",
-    };
+      const PLAN_SOURCE_LABEL: Record<PlanResponse["planSource"], string> = {
+        stripe: "Stripe-backed",
+        admin: "Admin-set (comped)",
+        none: "None",
+      };
 
-    function renderPlanSelector(host: HTMLElement, workspace: string, data: PlanResponse): void {
-      const options = PLAN_OPTIONS.map(
-        (opt) =>
-          `<option value="${opt.id}"${opt.id === data.plan ? " selected" : ""}>${escapeHtml(opt.label)}</option>`,
-      ).join("");
+      function renderPlanSelector(host: HTMLElement, workspace: string, data: PlanResponse): void {
+        const options = PLAN_OPTIONS.map(
+          (opt) =>
+            `<option value="${opt.id}"${opt.id === data.plan ? " selected" : ""}>${escapeHtml(opt.label)}</option>`,
+        ).join("");
 
-      const appliedNote = data.planApplied
-        ? ""
-        : `<p class="muted plan-unapplied">No plan applied (legacy) — limits shown are the enforcement truth (explicit-or-unlimited), not this plan's defaults.</p>`;
+        const appliedNote = data.planApplied
+          ? ""
+          : `<p class="muted plan-unapplied">No plan applied (legacy) — limits shown are the enforcement truth (explicit-or-unlimited), not this plan's defaults.</p>`;
 
-      const sub = data.subscription;
-      const stripeLink = sub?.stripeCustomerId
-        ? `<a href="https://dashboard.stripe.com/customers/${encodeURIComponent(sub.stripeCustomerId)}" target="_blank" rel="noopener noreferrer">View in Stripe</a>`
-        : "";
-      const periodEndText = sub ? formatDate(sub.periodEnd) : null;
-      const subscriptionLine = sub
-        ? `<p class="muted plan-subscription">
+        const sub = data.subscription;
+        const stripeLink = sub?.stripeCustomerId
+          ? `<a href="https://dashboard.stripe.com/customers/${encodeURIComponent(sub.stripeCustomerId)}" target="_blank" rel="noopener noreferrer">View in Stripe</a>`
+          : "";
+        const periodEndText = sub ? formatDate(sub.periodEnd) : null;
+        const subscriptionLine = sub
+          ? `<p class="muted plan-subscription">
             Subscription: ${escapeHtml(sub.status)}${sub.cancelAtPeriodEnd ? " (cancels at period end)" : ""}
             ${periodEndText ? ` · renews/ends ${escapeHtml(periodEndText)}` : ""}
             ${stripeLink ? ` · ${stripeLink}` : ""}
           </p>`
-        : "";
+          : "";
 
-      host.innerHTML = `
+        host.innerHTML = `
         <h4 class="plan-heading">Plan</h4>
         <p class="muted plan-availability">${data.available ? "Available" : "Not available for self-serve upgrade"}</p>
         <p class="muted plan-source">Source: ${escapeHtml(PLAN_SOURCE_LABEL[data.planSource])}</p>
@@ -154,116 +152,119 @@ export const prerender = false;
           <div class="plan-status" role="status" aria-live="polite" hidden></div>
         </form>`;
 
-      const form = host.querySelector<HTMLFormElement>(".plan-form");
-      const statusEl = host.querySelector<HTMLElement>(".plan-status");
-      form?.addEventListener("submit", (event) => {
-        void (async () => {
-          event.preventDefault();
-          if (statusEl) statusEl.hidden = true;
-          const select = host.querySelector<HTMLElement>(
-            ".plan-select",
-          ) as unknown as HTMLSelectElement | null;
-          const plan = select?.value ?? "free";
-          const submitBtn = form.querySelector<HTMLButtonElement>("button[type=submit]");
-          if (submitBtn) submitBtn.disabled = true;
-          try {
-            const res = await fetch(
-              `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(workspace)}/plan`,
-              {
-                method: "PATCH",
-                credentials: "include",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ plan }),
-              },
-            );
-            if (!res.ok) {
-              const payload = (await res.json().catch(() => null)) as {
-                error?: { message?: string };
-              } | null;
-              throw new Error(payload?.error?.message || `save failed: ${res.status}`);
+        const form = host.querySelector<HTMLFormElement>(".plan-form");
+        const statusEl = host.querySelector<HTMLElement>(".plan-status");
+        form?.addEventListener("submit", (event) => {
+          void (async () => {
+            event.preventDefault();
+            if (statusEl) statusEl.hidden = true;
+            const select = host.querySelector<HTMLElement>(
+              ".plan-select",
+            ) as unknown as HTMLSelectElement | null;
+            const plan = select?.value ?? "free";
+            const submitBtn = form.querySelector<HTMLButtonElement>("button[type=submit]");
+            if (submitBtn) submitBtn.disabled = true;
+            try {
+              const res = await fetch(
+                `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(workspace)}/plan`,
+                {
+                  method: "PATCH",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ plan }),
+                },
+              );
+              if (!res.ok) {
+                const payload = (await res.json().catch(() => null)) as {
+                  error?: { message?: string };
+                } | null;
+                throw new Error(payload?.error?.message || `save failed: ${res.status}`);
+              }
+              const updated = (await res.json()) as PlanResponse;
+              renderPlanSelector(host, workspace, updated);
+              const freshStatus = host.querySelector<HTMLElement>(".plan-status");
+              if (freshStatus) {
+                freshStatus.dataset.state = "ready";
+                freshStatus.textContent = "Saved.";
+                freshStatus.hidden = false;
+              }
+            } catch (err) {
+              if (statusEl) {
+                statusEl.dataset.state = "error";
+                statusEl.textContent =
+                  err instanceof Error && err.message ? err.message : "Couldn't save plan.";
+                statusEl.hidden = false;
+              }
+            } finally {
+              if (submitBtn) submitBtn.disabled = false;
             }
-            const updated = (await res.json()) as PlanResponse;
-            renderPlanSelector(host, workspace, updated);
-            const freshStatus = host.querySelector<HTMLElement>(".plan-status");
-            if (freshStatus) {
-              freshStatus.dataset.state = "ready";
-              freshStatus.textContent = "Saved.";
-              freshStatus.hidden = false;
-            }
-          } catch (err) {
-            if (statusEl) {
-              statusEl.dataset.state = "error";
-              statusEl.textContent =
-                err instanceof Error && err.message ? err.message : "Couldn't save plan.";
-              statusEl.hidden = false;
-            }
-          } finally {
-            if (submitBtn) submitBtn.disabled = false;
-          }
-        })();
-      });
-    }
-
-    // Decimal SI only — plan caps and display use 1000-based MB/GB (not MiB/GiB).
-    const LIMIT_UNITS: { label: string; mult: number }[] = [
-      { label: "MB", mult: 1_000_000 },
-      { label: "GB", mult: 1_000_000_000 },
-    ];
-    const LIMIT_FIELDS: { key: keyof Limits; label: string; byte: boolean }[] = [
-      { key: "maxStorageBytes", label: "Storage", byte: true },
-      { key: "maxUploadsPerPeriod", label: "Uploads / month", byte: false },
-      { key: "maxUploadBytes", label: "Max file size", byte: true },
-      { key: "maxVideoUploadBytes", label: "Max video size", byte: true },
-      // Members, not bytes: the invite-time cap from issue #450. Editing it
-      // here is how an operator comps an exception to the free-plan cap.
-      { key: "maxMembers", label: "Members", byte: false },
-    ];
-
-    /** Pick a friendly unit + value for a byte count (exact GiB > GB > MB). */
-    function splitBytes(n: number): { value: number; unit: string } {
-      for (const u of [...LIMIT_UNITS].reverse()) {
-        if (n % u.mult === 0) return { value: n / u.mult, unit: u.label };
+          })();
+        });
       }
-      return { value: n / 1_000_000, unit: "MB" };
-    }
-    function formatBytes(n: number): string {
-      const { value, unit } = splitBytes(n);
-      return `${value} ${unit}`;
-    }
 
-    function renderLimitsForm(host: HTMLElement, workspace: string, data: LimitsResponse): void {
-      const rows = LIMIT_FIELDS.map((f) => {
-        const raw = data.limits[f.key];
-        const unlimited = raw === null;
-        if (f.byte) {
-          const split = raw === null ? { value: "", unit: "MB" } : splitBytes(raw);
-          const options = LIMIT_UNITS.map(
-            (u) => `<option value="${u.label}"${u.label === split.unit ? " selected" : ""}>${u.label}</option>`,
-          ).join("");
-          return `
+      // Decimal SI only — plan caps and display use 1000-based MB/GB (not MiB/GiB).
+      const LIMIT_UNITS: { label: string; mult: number }[] = [
+        { label: "MB", mult: 1_000_000 },
+        { label: "GB", mult: 1_000_000_000 },
+      ];
+      const LIMIT_FIELDS: { key: keyof Limits; label: string; byte: boolean }[] = [
+        { key: "maxStorageBytes", label: "Storage", byte: true },
+        { key: "maxUploadsPerPeriod", label: "Uploads / month", byte: false },
+        { key: "maxUploadBytes", label: "Max file size", byte: true },
+        { key: "maxVideoUploadBytes", label: "Max video size", byte: true },
+        // Members, not bytes: the invite-time cap from issue #450. Editing it
+        // here is how an operator comps an exception to the free-plan cap.
+        { key: "maxMembers", label: "Members", byte: false },
+      ];
+
+      /** Pick a friendly unit + value for a byte count (exact GiB > GB > MB). */
+      function splitBytes(n: number): { value: number; unit: string } {
+        for (const u of [...LIMIT_UNITS].reverse()) {
+          if (n % u.mult === 0) return { value: n / u.mult, unit: u.label };
+        }
+        return { value: n / 1_000_000, unit: "MB" };
+      }
+      function formatBytes(n: number): string {
+        const { value, unit } = splitBytes(n);
+        return `${value} ${unit}`;
+      }
+
+      function renderLimitsForm(host: HTMLElement, workspace: string, data: LimitsResponse): void {
+        const rows = LIMIT_FIELDS.map((f) => {
+          const raw = data.limits[f.key];
+          const unlimited = raw === null;
+          if (f.byte) {
+            const split = raw === null ? { value: "", unit: "MB" } : splitBytes(raw);
+            const options = LIMIT_UNITS.map(
+              (u) =>
+                `<option value="${u.label}"${u.label === split.unit ? " selected" : ""}>${u.label}</option>`,
+            ).join("");
+            return `
             <div class="limit-row" data-field="${f.key}" data-byte="1">
               <label>${f.label}</label>
               <input type="number" min="1" step="1" class="limit-value" value="${split.value}" ${unlimited ? "disabled" : ""} />
               <select class="limit-unit ul-select ul-select--sm" ${unlimited ? "disabled" : ""}>${options}</select>
               <label class="limit-unlimited"><input type="checkbox" class="limit-unlim" ${unlimited ? "checked" : ""} /> Unlimited</label>
             </div>`;
-        }
-        return `
+          }
+          return (
+            `
           <div class="limit-row" data-field="${f.key}">
             <label>${f.label}</label>
             <input type="number" min="1" step="1" class="limit-value" value="${raw === null ? "" : raw}" ${unlimited ? "disabled" : ""} />
-            <label class="limit-unlimited"><input type="checkbox" class="limit-unlim" ${unlimited ? "checked" : ""} /> Unlimited</label>`
-          + `</div>`;
-      }).join("");
+            <label class="limit-unlimited"><input type="checkbox" class="limit-unlim" ${unlimited ? "checked" : ""} /> Unlimited</label>` +
+            `</div>`
+          );
+        }).join("");
 
-      const usageLine =
-        data.usage && data.limits.maxStorageBytes !== null
-          ? `<p class="limit-usage muted">${formatBytes(data.usage.bytes)} of ${formatBytes(data.limits.maxStorageBytes)} stored · ${data.usage.uploads} uploads this month</p>`
-          : data.usage
-            ? `<p class="limit-usage muted">${formatBytes(data.usage.bytes)} stored · ${data.usage.uploads} uploads this month</p>`
-            : "";
+        const usageLine =
+          data.usage && data.limits.maxStorageBytes !== null
+            ? `<p class="limit-usage muted">${formatBytes(data.usage.bytes)} of ${formatBytes(data.limits.maxStorageBytes)} stored · ${data.usage.uploads} uploads this month</p>`
+            : data.usage
+              ? `<p class="limit-usage muted">${formatBytes(data.usage.bytes)} stored · ${data.usage.uploads} uploads this month</p>`
+              : "";
 
-      host.innerHTML = `
+        host.innerHTML = `
         <h4 class="limits-heading">Limits</h4>
         ${usageLine}
         <form class="limits-form">
@@ -272,122 +273,125 @@ export const prerender = false;
           <div class="limit-status" role="status" aria-live="polite" hidden></div>
         </form>`;
 
-      // Unlimited checkbox toggles its row's inputs.
-      host.querySelectorAll<HTMLElement>(".limit-row").forEach((row) => {
-        const check = row.querySelector<HTMLInputElement>(".limit-unlim");
-        // Not querySelectorAll<HTMLInputElement | HTMLSelectElement>:
-        // worker-configuration.d.ts's HTMLRewriter ambient `Element`
-        // redeclares `remove()`, which makes HTMLSelectElement fail the
-        // `T extends Element` constraint. Fetch as HTMLElement and cast.
-        const inputs = row.querySelectorAll<HTMLElement>(
-          ".limit-value, .limit-unit",
-        ) as unknown as NodeListOf<HTMLInputElement | HTMLSelectElement>;
-        check?.addEventListener("change", () => {
-          inputs.forEach((el) => (el.disabled = check.checked));
+        // Unlimited checkbox toggles its row's inputs.
+        host.querySelectorAll<HTMLElement>(".limit-row").forEach((row) => {
+          const check = row.querySelector<HTMLInputElement>(".limit-unlim");
+          // Not querySelectorAll<HTMLInputElement | HTMLSelectElement>:
+          // worker-configuration.d.ts's HTMLRewriter ambient `Element`
+          // redeclares `remove()`, which makes HTMLSelectElement fail the
+          // `T extends Element` constraint. Fetch as HTMLElement and cast.
+          const inputs = row.querySelectorAll<HTMLElement>(
+            ".limit-value, .limit-unit",
+          ) as unknown as NodeListOf<HTMLInputElement | HTMLSelectElement>;
+          check?.addEventListener("change", () => {
+            inputs.forEach((el) => (el.disabled = check.checked));
+          });
         });
-      });
 
-      const form = host.querySelector<HTMLFormElement>(".limits-form");
-      const statusEl = host.querySelector<HTMLElement>(".limit-status");
-      form?.addEventListener("submit", (event) => {
-        void (async () => {
-          event.preventDefault();
-          if (statusEl) statusEl.hidden = true;
-          let body: Record<string, number | null>;
-          try {
-            body = buildLimitsBody(host);
-          } catch (err) {
-            if (statusEl) {
-              statusEl.dataset.state = "error";
-              statusEl.textContent = err instanceof Error ? err.message : "Invalid input.";
-              statusEl.hidden = false;
+        const form = host.querySelector<HTMLFormElement>(".limits-form");
+        const statusEl = host.querySelector<HTMLElement>(".limit-status");
+        form?.addEventListener("submit", (event) => {
+          void (async () => {
+            event.preventDefault();
+            if (statusEl) statusEl.hidden = true;
+            let body: Record<string, number | null>;
+            try {
+              body = buildLimitsBody(host);
+            } catch (err) {
+              if (statusEl) {
+                statusEl.dataset.state = "error";
+                statusEl.textContent = err instanceof Error ? err.message : "Invalid input.";
+                statusEl.hidden = false;
+              }
+              return;
             }
+            const submitBtn = form.querySelector<HTMLButtonElement>("button[type=submit]");
+            if (submitBtn) submitBtn.disabled = true;
+            try {
+              const res = await fetch(
+                `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(workspace)}/limits`,
+                {
+                  method: "PATCH",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(body),
+                },
+              );
+              if (!res.ok) {
+                const payload = (await res.json().catch(() => null)) as {
+                  error?: { message?: string };
+                } | null;
+                throw new Error(payload?.error?.message || `save failed: ${res.status}`);
+              }
+              const updated = (await res.json()) as LimitsResponse;
+              renderLimitsForm(host, workspace, updated);
+              const freshStatus = host.querySelector<HTMLElement>(".limit-status");
+              if (freshStatus) {
+                freshStatus.dataset.state = "ready";
+                freshStatus.textContent = "Saved. Changes apply within ~60s.";
+                freshStatus.hidden = false;
+              }
+            } catch (err) {
+              if (statusEl) {
+                statusEl.dataset.state = "error";
+                statusEl.textContent =
+                  err instanceof Error && err.message ? err.message : "Couldn't save limits.";
+                statusEl.hidden = false;
+              }
+            } finally {
+              if (submitBtn) submitBtn.disabled = false;
+            }
+          })();
+        });
+      }
+
+      /** Read the form into a PATCH body; throws on empty non-unlimited fields. */
+      function buildLimitsBody(host: HTMLElement): Record<string, number | null> {
+        const body: Record<string, number | null> = {};
+        host.querySelectorAll<HTMLElement>(".limit-row").forEach((row) => {
+          const field = row.dataset.field;
+          if (!field) return;
+          const unlimited = row.querySelector<HTMLInputElement>(".limit-unlim")?.checked;
+          if (unlimited) {
+            body[field] = null;
             return;
           }
-          const submitBtn = form.querySelector<HTMLButtonElement>("button[type=submit]");
-          if (submitBtn) submitBtn.disabled = true;
-          try {
-            const res = await fetch(
-              `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(workspace)}/limits`,
-              {
-                method: "PATCH",
-                credentials: "include",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body),
-              },
-            );
-            if (!res.ok) {
-              const payload = (await res.json().catch(() => null)) as
-                | { error?: { message?: string } }
-                | null;
-              throw new Error(payload?.error?.message || `save failed: ${res.status}`);
-            }
-            const updated = (await res.json()) as LimitsResponse;
-            renderLimitsForm(host, workspace, updated);
-            const freshStatus = host.querySelector<HTMLElement>(".limit-status");
-            if (freshStatus) {
-              freshStatus.dataset.state = "ready";
-              freshStatus.textContent = "Saved. Changes apply within ~60s.";
-              freshStatus.hidden = false;
-            }
-          } catch (err) {
-            if (statusEl) {
-              statusEl.dataset.state = "error";
-              statusEl.textContent = err instanceof Error && err.message ? err.message : "Couldn't save limits.";
-              statusEl.hidden = false;
-            }
-          } finally {
-            if (submitBtn) submitBtn.disabled = false;
+          const valueInput = row.querySelector<HTMLInputElement>(".limit-value");
+          const num = Number(valueInput?.value);
+          if (!valueInput?.value || !Number.isInteger(num) || num < 1) {
+            throw new Error(`Enter a whole number ≥ 1 for "${field}", or check Unlimited.`);
           }
-        })();
-      });
-    }
+          if (row.dataset.byte) {
+            // Not querySelector<HTMLSelectElement>: same worker-configuration.d.ts
+            // `Element.remove()` drift noted above. Fetch as HTMLElement and cast.
+            const unitEl = row.querySelector<HTMLElement>(
+              ".limit-unit",
+            ) as unknown as HTMLSelectElement | null;
+            const unit = unitEl?.value ?? "MB";
+            const mult = LIMIT_UNITS.find((u) => u.label === unit)?.mult ?? 1_000_000;
+            body[field] = Math.floor(num * mult);
+          } else {
+            body[field] = num;
+          }
+        });
+        return body;
+      }
 
-    /** Read the form into a PATCH body; throws on empty non-unlimited fields. */
-    function buildLimitsBody(host: HTMLElement): Record<string, number | null> {
-      const body: Record<string, number | null> = {};
-      host.querySelectorAll<HTMLElement>(".limit-row").forEach((row) => {
-        const field = row.dataset.field;
-        if (!field) return;
-        const unlimited = row.querySelector<HTMLInputElement>(".limit-unlim")?.checked;
-        if (unlimited) {
-          body[field] = null;
-          return;
-        }
-        const valueInput = row.querySelector<HTMLInputElement>(".limit-value");
-        const num = Number(valueInput?.value);
-        if (!valueInput?.value || !Number.isInteger(num) || num < 1) {
-          throw new Error(`Enter a whole number ≥ 1 for "${field}", or check Unlimited.`);
-        }
-        if (row.dataset.byte) {
-          // Not querySelector<HTMLSelectElement>: same worker-configuration.d.ts
-          // `Element.remove()` drift noted above. Fetch as HTMLElement and cast.
-          const unitEl = row.querySelector<HTMLElement>(".limit-unit") as unknown as HTMLSelectElement | null;
-          const unit = unitEl?.value ?? "MB";
-          const mult = LIMIT_UNITS.find((u) => u.label === unit)?.mult ?? 1_000_000;
-          body[field] = Math.floor(num * mult);
-        } else {
-          body[field] = num;
-        }
-      });
-      return body;
-    }
+      interface GithubLink {
+        repo: string;
+        workspace: string;
+        source: string;
+        installationId: number | null;
+        createdAt: string;
+      }
+      interface GithubLinksResponse {
+        workspace: string;
+        links: GithubLink[];
+      }
 
-    interface GithubLink {
-      repo: string;
-      workspace: string;
-      source: string;
-      installationId: number | null;
-      createdAt: string;
-    }
-    interface GithubLinksResponse {
-      workspace: string;
-      links: GithubLink[];
-    }
-
-    function renderGithubLinks(host: HTMLElement, links: GithubLink[]): void {
-      host.innerHTML = links.length
-        ? `<h4 class="github-links-heading">GitHub repos claimed</h4>
+      function renderGithubLinks(host: HTMLElement, links: GithubLink[]): void {
+        host.innerHTML = links.length
+          ? `<h4 class="github-links-heading">GitHub repos claimed</h4>
            <ul class="github-links-list">
              ${links
                .map(
@@ -396,16 +400,16 @@ export const prerender = false;
                )
                .join("")}
            </ul>`
-        : "";
-    }
+          : "";
+      }
 
-    function renderWorkspace(ws: WorkspaceSummary): HTMLElement {
-      const group = document.createElement("tbody");
-      group.className = "admin-row-group workspace";
-      const org = ws.organization ? ws.organization.name : "no organization yet";
-      const orgClass = ws.organization ? "" : " muted";
+      function renderWorkspace(ws: WorkspaceSummary): HTMLElement {
+        const group = document.createElement("tbody");
+        group.className = "admin-row-group workspace";
+        const org = ws.organization ? ws.organization.name : "no organization yet";
+        const orgClass = ws.organization ? "" : " muted";
 
-      group.innerHTML = `
+        group.innerHTML = `
       <tr class="admin-row" tabindex="0" aria-expanded="false">
         <td class="admin-expand" aria-hidden="true">›</td>
         <td class="keep"><span class="primary mono">${escapeHtml(ws.workspace)}</span></td>
@@ -446,235 +450,238 @@ export const prerender = false;
         </td>
       </tr>`;
 
-      const membersLoaded = { done: false };
-      const planLoaded = { done: false };
-      const limitsLoaded = { done: false };
-      const githubLinksLoaded = { done: false };
+        const membersLoaded = { done: false };
+        const planLoaded = { done: false };
+        const limitsLoaded = { done: false };
+        const githubLinksLoaded = { done: false };
 
-      function loadDetail() {
-        const membersEl = group.querySelector<HTMLElement>(".members");
-        const invitesEl = group.querySelector<HTMLElement>(".invites");
-        if (!ws.organization) {
-          if (membersEl) membersEl.textContent = "";
-          membersLoaded.done = true;
-        } else {
-          loadOnce(membersLoaded, async () => {
+        function loadDetail() {
+          const membersEl = group.querySelector<HTMLElement>(".members");
+          const invitesEl = group.querySelector<HTMLElement>(".invites");
+          if (!ws.organization) {
+            if (membersEl) membersEl.textContent = "";
+            membersLoaded.done = true;
+          } else {
+            loadOnce(membersLoaded, async () => {
+              try {
+                const [{ members }, { invites }] = await Promise.all([
+                  apiGet<{ members: Member[] }>(
+                    `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/members`,
+                  ),
+                  apiGet<{ invites: Invite[] }>(
+                    `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invites`,
+                  ),
+                ]);
+                if (membersEl) {
+                  membersEl.innerHTML = members.length
+                    ? `<h4>Members</h4><ul class="admin-mini-list">${members.map((m) => `<li><span>${escapeHtml(m.email)}</span><span class="role">${escapeHtml(m.role)}</span></li>`).join("")}</ul>`
+                    : `<p class="muted">No members yet.</p>`;
+                }
+                if (invitesEl) {
+                  invitesEl.innerHTML = invites.length
+                    ? `<h4>Pending invites</h4><ul class="admin-mini-list">${invites.map((i) => `<li><span>${escapeHtml(i.email)}</span><span class="role">pending</span></li>`).join("")}</ul>`
+                    : "";
+                }
+              } catch {
+                if (membersEl) membersEl.textContent = "Failed to load members.";
+                throw new Error("members");
+              }
+            });
+          }
+
+          loadOnce(planLoaded, async () => {
+            const planEl = group.querySelector<HTMLElement>(".plan");
+            if (!planEl) return;
             try {
-              const [{ members }, { invites }] = await Promise.all([
-                apiGet<{ members: Member[] }>(
-                  `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/members`,
-                ),
-                apiGet<{ invites: Invite[] }>(
-                  `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invites`,
-                ),
-              ]);
-              if (membersEl) {
-                membersEl.innerHTML = members.length
-                  ? `<h4>Members</h4><ul class="admin-mini-list">${members.map((m) => `<li><span>${escapeHtml(m.email)}</span><span class="role">${escapeHtml(m.role)}</span></li>`).join("")}</ul>`
-                  : `<p class="muted">No members yet.</p>`;
-              }
-              if (invitesEl) {
-                invitesEl.innerHTML = invites.length
-                  ? `<h4>Pending invites</h4><ul class="admin-mini-list">${invites.map((i) => `<li><span>${escapeHtml(i.email)}</span><span class="role">pending</span></li>`).join("")}</ul>`
-                  : "";
-              }
+              const planData = await apiGet<PlanResponse>(
+                `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/plan`,
+              );
+              renderPlanSelector(planEl, ws.workspace, planData);
             } catch {
-              if (membersEl) membersEl.textContent = "Failed to load members.";
-              throw new Error("members");
+              planEl.innerHTML = `<p class="muted">Failed to load plan.</p>`;
+              throw new Error("plan");
+            }
+          });
+
+          loadOnce(limitsLoaded, async () => {
+            const limitsEl = group.querySelector<HTMLElement>(".limits");
+            if (!limitsEl) return;
+            try {
+              const limitsData = await apiGet<LimitsResponse>(
+                `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/limits`,
+              );
+              renderLimitsForm(limitsEl, ws.workspace, limitsData);
+            } catch {
+              limitsEl.innerHTML = `<p class="muted">Failed to load limits.</p>`;
+              throw new Error("limits");
+            }
+          });
+
+          loadOnce(githubLinksLoaded, async () => {
+            const githubLinksEl = group.querySelector<HTMLElement>(".github-links");
+            if (!githubLinksEl) return;
+            try {
+              const { links } = await apiGet<GithubLinksResponse>(
+                `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/github-links`,
+              );
+              renderGithubLinks(githubLinksEl, links);
+            } catch {
+              githubLinksEl.innerHTML = `<p class="muted">Failed to load GitHub links.</p>`;
+              throw new Error("github");
             }
           });
         }
 
-        loadOnce(planLoaded, async () => {
-          const planEl = group.querySelector<HTMLElement>(".plan");
-          if (!planEl) return;
-          try {
-            const planData = await apiGet<PlanResponse>(
-              `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/plan`,
-            );
-            renderPlanSelector(planEl, ws.workspace, planData);
-          } catch {
-            planEl.innerHTML = `<p class="muted">Failed to load plan.</p>`;
-            throw new Error("plan");
-          }
-        });
+        const { setOpen } = wireExpandGroup(group, loadDetail);
 
-        loadOnce(limitsLoaded, async () => {
-          const limitsEl = group.querySelector<HTMLElement>(".limits");
-          if (!limitsEl) return;
-          try {
-            const limitsData = await apiGet<LimitsResponse>(
-              `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/limits`,
-            );
-            renderLimitsForm(limitsEl, ws.workspace, limitsData);
-          } catch {
-            limitsEl.innerHTML = `<p class="muted">Failed to load limits.</p>`;
-            throw new Error("limits");
-          }
-        });
-
-        loadOnce(githubLinksLoaded, async () => {
-          const githubLinksEl = group.querySelector<HTMLElement>(".github-links");
-          if (!githubLinksEl) return;
-          try {
-            const { links } = await apiGet<GithubLinksResponse>(
-              `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/github-links`,
-            );
-            renderGithubLinks(githubLinksEl, links);
-          } catch {
-            githubLinksEl.innerHTML = `<p class="muted">Failed to load GitHub links.</p>`;
-            throw new Error("github");
-          }
-        });
-      }
-
-      const { setOpen } = wireExpandGroup(group, loadDetail);
-
-      const form = group.querySelector<HTMLFormElement>(".invite-form");
-      const statusEl = group.querySelector<HTMLElement>(".invite-status:not(.invite-link-status)");
-      form?.addEventListener("submit", (event) => {
-        void (async () => {
-          event.preventDefault();
-          const emailInput = form.querySelector(".invite-email") as HTMLInputElement | null;
-          const roleSelect = form.querySelector(".invite-role") as HTMLSelectElement | null;
-          const email = emailInput?.value.trim() ?? "";
-          const role = roleSelect?.value ?? "member";
-          const submitBtn = form.querySelector<HTMLButtonElement>("button[type=submit]");
-          if (submitBtn) submitBtn.disabled = true;
-          if (statusEl) statusEl.hidden = true;
-          try {
-            const res = await fetch(
-              `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invites`,
-              {
-                method: "POST",
-                credentials: "include",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email, role }),
-              },
-            );
-            if (!res.ok) {
-              const payload = (await res.json().catch(() => null)) as
-                | { error?: { message?: string } }
-                | null;
-              throw new Error(payload?.error?.message || `invite failed: ${res.status}`);
-            }
-            if (statusEl) {
-              statusEl.dataset.state = "ready";
-              statusEl.textContent = `Invited ${email}.`;
-              statusEl.hidden = false;
-            }
-            if (emailInput) emailInput.value = "";
-            membersLoaded.done = false;
-            setOpen(true);
-          } catch (err) {
-            if (statusEl) {
-              statusEl.dataset.state = "error";
-              statusEl.textContent =
-                err instanceof Error && err.message ? err.message : "Couldn't send the invite.";
-              statusEl.hidden = false;
-            }
-          } finally {
-            if (submitBtn) submitBtn.disabled = false;
-          }
-        })();
-      });
-
-      const generateBtn = group.querySelector<HTMLButtonElement>(".invite-link-generate");
-      const urlInput = group.querySelector<HTMLInputElement>(".invite-link-url");
-      const copyBtn = group.querySelector<HTMLButtonElement>(".invite-link-copy");
-      const linkStatusEl = group.querySelector<HTMLElement>(".invite-link-status");
-      generateBtn?.addEventListener("click", () => {
-        void (async () => {
-          generateBtn.disabled = true;
-          if (linkStatusEl) linkStatusEl.hidden = true;
-          if (urlInput) urlInput.hidden = true;
-          if (copyBtn) copyBtn.hidden = true;
-          try {
-            const res = await fetch(
-              `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invite-links`,
-              {
-                method: "POST",
-                credentials: "include",
-                headers: { "Content-Type": "application/json" },
-                body: "{}",
-              },
-            );
-            if (!res.ok) {
-              const payload = (await res.json().catch(() => null)) as
-                | { error?: { message?: string } }
-                | null;
-              throw new Error(payload?.error?.message || `invite link failed: ${res.status}`);
-            }
-            const { url } = (await res.json()) as { url: string };
-            if (urlInput) {
-              urlInput.value = url;
-              urlInput.hidden = false;
-            }
-            if (copyBtn) copyBtn.hidden = false;
-          } catch (err) {
-            if (linkStatusEl) {
-              linkStatusEl.dataset.state = "error";
-              linkStatusEl.textContent =
-                err instanceof Error && err.message
-                  ? err.message
-                  : "Couldn't generate an invite link.";
-              linkStatusEl.hidden = false;
-            }
-          } finally {
-            generateBtn.disabled = false;
-          }
-        })();
-      });
-      copyBtn?.addEventListener("click", () => {
-        void (async () => {
-          if (!urlInput?.value) return;
-          try {
-            await navigator.clipboard.writeText(urlInput.value);
-            if (linkStatusEl) {
-              linkStatusEl.dataset.state = "ready";
-              linkStatusEl.textContent = "Copied.";
-              linkStatusEl.hidden = false;
-            }
-          } catch {
-            if (linkStatusEl) {
-              linkStatusEl.dataset.state = "error";
-              linkStatusEl.textContent = "Clipboard unavailable; copy the selected link manually.";
-              linkStatusEl.hidden = false;
-            }
-            urlInput.focus();
-            urlInput.select();
-          }
-        })();
-      });
-
-      return group;
-    }
-
-    async function loadWorkspaces() {
-      const tableWrap = document.getElementById("workspaces-table-wrap");
-      try {
-        const { workspaces } = await apiGet<{ workspaces: WorkspaceSummary[] }>(
-          "/admin-ui/workspaces",
+        const form = group.querySelector<HTMLFormElement>(".invite-form");
+        const statusEl = group.querySelector<HTMLElement>(
+          ".invite-status:not(.invite-link-status)",
         );
-        workspacesStatus.hidden = true;
-        clearExpandGroups(workspacesList);
-        if (!workspaces.length) {
-          workspacesStatus.hidden = false;
-          workspacesStatus.textContent = "No workspaces yet.";
-          if (tableWrap) tableWrap.hidden = true;
-          return;
-        }
-        if (tableWrap) tableWrap.hidden = false;
-        for (const ws of workspaces) workspacesList.appendChild(renderWorkspace(ws));
-      } catch {
-        workspacesStatus.textContent = "Failed to load workspaces.";
-        if (tableWrap) tableWrap.hidden = true;
-      }
-    }
+        form?.addEventListener("submit", (event) => {
+          void (async () => {
+            event.preventDefault();
+            const emailInput = form.querySelector(".invite-email") as HTMLInputElement | null;
+            const roleSelect = form.querySelector(".invite-role") as HTMLSelectElement | null;
+            const email = emailInput?.value.trim() ?? "";
+            const role = roleSelect?.value ?? "member";
+            const submitBtn = form.querySelector<HTMLButtonElement>("button[type=submit]");
+            if (submitBtn) submitBtn.disabled = true;
+            if (statusEl) statusEl.hidden = true;
+            try {
+              const res = await fetch(
+                `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invites`,
+                {
+                  method: "POST",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ email, role }),
+                },
+              );
+              if (!res.ok) {
+                const payload = (await res.json().catch(() => null)) as {
+                  error?: { message?: string };
+                } | null;
+                throw new Error(payload?.error?.message || `invite failed: ${res.status}`);
+              }
+              if (statusEl) {
+                statusEl.dataset.state = "ready";
+                statusEl.textContent = `Invited ${email}.`;
+                statusEl.hidden = false;
+              }
+              if (emailInput) emailInput.value = "";
+              membersLoaded.done = false;
+              setOpen(true);
+            } catch (err) {
+              if (statusEl) {
+                statusEl.dataset.state = "error";
+                statusEl.textContent =
+                  err instanceof Error && err.message ? err.message : "Couldn't send the invite.";
+                statusEl.hidden = false;
+              }
+            } finally {
+              if (submitBtn) submitBtn.disabled = false;
+            }
+          })();
+        });
 
-    onSession(() => {
-      void loadWorkspaces();
-    });
+        const generateBtn = group.querySelector<HTMLButtonElement>(".invite-link-generate");
+        const urlInput = group.querySelector<HTMLInputElement>(".invite-link-url");
+        const copyBtn = group.querySelector<HTMLButtonElement>(".invite-link-copy");
+        const linkStatusEl = group.querySelector<HTMLElement>(".invite-link-status");
+        generateBtn?.addEventListener("click", () => {
+          void (async () => {
+            generateBtn.disabled = true;
+            if (linkStatusEl) linkStatusEl.hidden = true;
+            if (urlInput) urlInput.hidden = true;
+            if (copyBtn) copyBtn.hidden = true;
+            try {
+              const res = await fetch(
+                `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/invite-links`,
+                {
+                  method: "POST",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: "{}",
+                },
+              );
+              if (!res.ok) {
+                const payload = (await res.json().catch(() => null)) as {
+                  error?: { message?: string };
+                } | null;
+                throw new Error(payload?.error?.message || `invite link failed: ${res.status}`);
+              }
+              const { url } = (await res.json()) as { url: string };
+              if (urlInput) {
+                urlInput.value = url;
+                urlInput.hidden = false;
+              }
+              if (copyBtn) copyBtn.hidden = false;
+            } catch (err) {
+              if (linkStatusEl) {
+                linkStatusEl.dataset.state = "error";
+                linkStatusEl.textContent =
+                  err instanceof Error && err.message
+                    ? err.message
+                    : "Couldn't generate an invite link.";
+                linkStatusEl.hidden = false;
+              }
+            } finally {
+              generateBtn.disabled = false;
+            }
+          })();
+        });
+        copyBtn?.addEventListener("click", () => {
+          void (async () => {
+            if (!urlInput?.value) return;
+            try {
+              await navigator.clipboard.writeText(urlInput.value);
+              if (linkStatusEl) {
+                linkStatusEl.dataset.state = "ready";
+                linkStatusEl.textContent = "Copied.";
+                linkStatusEl.hidden = false;
+              }
+            } catch {
+              if (linkStatusEl) {
+                linkStatusEl.dataset.state = "error";
+                linkStatusEl.textContent =
+                  "Clipboard unavailable; copy the selected link manually.";
+                linkStatusEl.hidden = false;
+              }
+              urlInput.focus();
+              urlInput.select();
+            }
+          })();
+        });
+
+        return group;
+      }
+
+      async function loadWorkspaces() {
+        const tableWrap = document.getElementById("workspaces-table-wrap");
+        try {
+          const { workspaces } = await apiGet<{ workspaces: WorkspaceSummary[] }>(
+            "/admin-ui/workspaces",
+          );
+          workspacesStatus.hidden = true;
+          clearExpandGroups(workspacesList);
+          if (!workspaces.length) {
+            workspacesStatus.hidden = false;
+            workspacesStatus.textContent = "No workspaces yet.";
+            if (tableWrap) tableWrap.hidden = true;
+            return;
+          }
+          if (tableWrap) tableWrap.hidden = false;
+          for (const ws of workspaces) workspacesList.appendChild(renderWorkspace(ws));
+        } catch {
+          workspacesStatus.textContent = "Failed to load workspaces.";
+          if (tableWrap) tableWrap.hidden = true;
+        }
+      }
+
+      onSession(() => {
+        void loadWorkspaces();
+      });
     });
   </script>
 </AdminLayout>

@@ -167,10 +167,11 @@ records; any future global secrets go through `wrangler secret put` (prod) or
 
 ## Conventions
 
-- `pnpm check` runs `oxlint` then `oxfmt --check`. Autofix with `pnpm lint:fix`
-  / `pnpm format`. CI runs the same gate in the **Lint & Format** job
-  (`.github/workflows/ci.yml`), after `pnpm types` so gitignored
-  `worker-configuration.d.ts` files exist for type-aware rules.
+- `pnpm check` runs `oxlint` then `format:check` (oxfmt + Prettier for
+  `*.astro`). Autofix with `pnpm lint:fix` / `pnpm format`. CI runs the same
+  gate in the **Lint & Format** job (`.github/workflows/ci.yml`), after
+  `pnpm types` so gitignored `worker-configuration.d.ts` files exist for
+  type-aware rules.
 - Three `unicorn` rules are off in `.oxlintrc.json` because their **autofixes**
   are wrong here, not because their advice is: `prefer-set-has` rewrites an
   array literal to `new Set(...)` without touching the variable's type
@@ -181,7 +182,8 @@ records; any future global secrets go through `wrangler secret put` (prod) or
   while suppressing only its fix. If you re-enable any of them, re-check that
   `pnpm lint:fix` still leaves a clean tree.
 - A Husky pre-commit hook runs `pnpm types` then `lint-staged` (oxlint + oxfmt
-  on staged files); it's installed via the `prepare` script on `pnpm install`.
+  on staged files; Prettier for `*.astro` — oxfmt has no Astro parser); it's
+  installed via the `prepare` script on `pnpm install`.
 - TypeScript strict, ESM only, `lib: ["ES2022"]` (no DOM — the Workers types
   own globals like `crypto.subtle.timingSafeEqual`).
 - Auth is per-workspace bearer tokens, hashed + timing-safe compare, with

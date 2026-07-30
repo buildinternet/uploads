@@ -34,14 +34,14 @@ describe("LegalConsent component", () => {
     expect(component).toContain("By continuing, you agree to the");
   });
 
-  it("keeps the links on one source line so Astro does not eat the spaces", () => {
-    // A newline between `the` and `<a href="/terms">` renders as
-    // "the<a>Terms" with no space — the same collapse that has bitten the
-    // legal pages before. Assert the rendered sentence stays intact.
-    const sentence = component.match(
-      /By continuing[^<]*<a[^>]*>[^<]*<\/a>[^<]*<a[^>]*>[^<]*<\/a>\./,
-    );
-    expect(sentence, "consent sentence must be a single unbroken source line").not.toBeNull();
+  it("keeps explicit spaces around the policy links", () => {
+    // A bare newline between text and `<a>` collapses to no space in the
+    // rendered HTML (same bite as the legal pages). Explicit `{" "}` keeps
+    // the spaces even when Prettier wraps the markup.
+    expect(component).toContain('the{" "}');
+    expect(component).toContain('{" "}and{" "}');
+    expect(component).toContain('href="/terms"');
+    expect(component).toContain('href="/privacy"');
   });
 });
 

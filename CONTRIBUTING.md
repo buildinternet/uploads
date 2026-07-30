@@ -78,15 +78,19 @@ time-bounded runner. See
 ## Checks
 
 ```bash
-pnpm check        # oxlint + oxfmt --check — the same gate CI runs
+pnpm check        # oxlint + format:check — the same gate CI runs
 pnpm lint:fix     # autofix lint
-pnpm format       # autofix formatting
+pnpm format       # autofix formatting (oxfmt + Prettier for *.astro)
 pnpm typecheck    # wrangler types + tsc across every workspace
 ```
 
-The repo formats with **oxfmt**, not Prettier. A Husky pre-commit hook runs
-`pnpm types` then `lint-staged` on staged files; `pnpm install` installs it.
-
+Most of the repo formats with **oxfmt**. `*.astro` is the exception: oxfmt
+has no Astro parser, so those files go through **Prettier** with
+`prettier-plugin-astro` (options aligned with `.oxfmtrc.json`). Keep scripts
+with `define:vars` or non-trivial bodies out of JSX conditionals — the plugin
+cannot parse those (see the note in `prettier.config.mjs`). A Husky
+pre-commit hook runs `pnpm types` then `lint-staged` on staged files;
+`pnpm install` installs it.
 Run `pnpm types` after any `wrangler.jsonc` change. `Env` is generated into a
 gitignored `worker-configuration.d.ts` and is never hand-written, and
 type-aware lint rules need those files to exist.

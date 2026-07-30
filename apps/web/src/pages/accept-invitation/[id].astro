@@ -20,188 +20,314 @@ applyAuthSecurityHeaders(Astro.response.headers, authPageCsp(authOrigin));
 ---
 
 <html lang="en">
-<head>
-  <BaseHead />
-  <title>Accept invitation · uploads.sh</title>
-  <style>
-    *{box-sizing:border-box}
-    body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:28px;background:var(--bg);color:var(--fg);font:14.5px/1.65 var(--mono)}
-    main{width:min(var(--width-card, 480px),100%);background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-lg);padding:clamp(24px,6vw,40px)}
-    .brandbar{display:flex;justify-content:center;margin-bottom:24px}
-    h1{margin:0 0 8px;font-size:clamp(21px,5vw,26px);font-weight:600;letter-spacing:-.015em;line-height:1.25}
-    p{color:var(--body);margin:0 0 20px}
-    .status{margin:16px 0}
-    button.github{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;font:14px var(--mono);letter-spacing:.02em;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-md);padding:12px 16px;cursor:pointer}
-    button.github:hover,button.github:focus-visible{border-color:var(--accent);outline:none}
-    .divider{display:flex;align-items:center;gap:12px;margin:22px 0;color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
-    .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line)}
-    form{display:grid;gap:10px}
-    label{display:grid;gap:6px;color:var(--muted);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase}
-    input{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-md);color:var(--fg);padding:10px 12px;font:14px var(--mono)}
-    input:focus-visible{border-color:var(--accent);outline:none}
-    button[type=submit],button#accept-btn{font:12px var(--mono);letter-spacing:.04em;color:var(--accent);background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 13px;cursor:pointer}
-    button[type=submit]:hover,button[type=submit]:focus-visible,button#accept-btn:hover,button#accept-btn:focus-visible{border-color:var(--accent);outline:none}
-    button:disabled{opacity:.6;cursor:default}
-    [hidden]{display:none!important}
-  </style>
-</head>
-<body>
-<main>
-  <div class="brandbar"><Brand /></div>
-  <h1>You've been invited</h1>
+  <head>
+    <BaseHead />
+    <title>Accept invitation · uploads.sh</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 28px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14.5px/1.65 var(--mono);
+      }
+      main {
+        width: min(var(--width-card, 480px), 100%);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: clamp(24px, 6vw, 40px);
+      }
+      .brandbar {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 24px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: clamp(21px, 5vw, 26px);
+        font-weight: 600;
+        letter-spacing: -0.015em;
+        line-height: 1.25;
+      }
+      p {
+        color: var(--body);
+        margin: 0 0 20px;
+      }
+      .status {
+        margin: 16px 0;
+      }
+      button.github {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        font: 14px var(--mono);
+        letter-spacing: 0.02em;
+        color: var(--fg);
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 12px 16px;
+        cursor: pointer;
+      }
+      button.github:hover,
+      button.github:focus-visible {
+        border-color: var(--accent);
+        outline: none;
+      }
+      .divider {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 22px 0;
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .divider::before,
+      .divider::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--line);
+      }
+      form {
+        display: grid;
+        gap: 10px;
+      }
+      label {
+        display: grid;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 10.5px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      input {
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        color: var(--fg);
+        padding: 10px 12px;
+        font: 14px var(--mono);
+      }
+      input:focus-visible {
+        border-color: var(--accent);
+        outline: none;
+      }
+      button[type="submit"],
+      button#accept-btn {
+        font: 12px var(--mono);
+        letter-spacing: 0.04em;
+        color: var(--accent);
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-sm);
+        padding: 10px 13px;
+        cursor: pointer;
+      }
+      button[type="submit"]:hover,
+      button[type="submit"]:focus-visible,
+      button#accept-btn:hover,
+      button#accept-btn:focus-visible {
+        border-color: var(--accent);
+        outline: none;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brandbar"><Brand /></div>
+      <h1>You've been invited</h1>
 
-  <div id="checking" class="ul-callout status" role="status">Checking your invitation…</div>
+      <div id="checking" class="ul-callout status" role="status">Checking your invitation…</div>
 
-  <div id="auth-unavailable" hidden>
-    <div class="status" data-state="error" role="alert">
-      Authentication is temporarily unavailable. Check the local stack or try again.
-    </div>
-    <button type="button" id="session-retry">Try again</button>
-  </div>
+      <div id="auth-unavailable" hidden>
+        <div class="status" data-state="error" role="alert">
+          Authentication is temporarily unavailable. Check the local stack or try again.
+        </div>
+        <button type="button" id="session-retry">Try again</button>
+      </div>
 
-  <div id="invalid" hidden>
-    <div class="ul-callout status" data-state="error" role="alert">This invitation is invalid or has expired.</div>
-  </div>
+      <div id="invalid" hidden>
+        <div class="ul-callout status" data-state="error" role="alert">
+          This invitation is invalid or has expired.
+        </div>
+      </div>
 
-  <div id="signed-out" hidden>
-    <p>Sign in to accept this invitation.</p>
-    <button type="button" class="github" id="github-btn">Continue with GitHub</button>
-    <div class="divider">or</div>
-    <form id="magic-form">
-      <label>
-        Email
-        <input id="email" type="email" required autocomplete="email" placeholder="you@example.com" />
-      </label>
-      <button type="submit" id="magic-submit">Send sign-in link</button>
-    </form>
-    <div class="ul-callout status" id="signin-error" data-state="error" role="alert" hidden></div>
-    <LegalConsent />
-  </div>
+      <div id="signed-out" hidden>
+        <p>Sign in to accept this invitation.</p>
+        <button type="button" class="github" id="github-btn">Continue with GitHub</button>
+        <div class="divider">or</div>
+        <form id="magic-form">
+          <label>
+            Email
+            <input
+              id="email"
+              type="email"
+              required
+              autocomplete="email"
+              placeholder="you@example.com"
+            />
+          </label>
+          <button type="submit" id="magic-submit">Send sign-in link</button>
+        </form>
+        <div class="ul-callout status" id="signin-error" data-state="error" role="alert" hidden>
+        </div>
+        <LegalConsent />
+      </div>
 
-  <div id="sent-state" hidden>
-    <div class="ul-callout status" data-state="ready" role="status">Check your email — we sent you a sign-in link. Come back to this page after signing in.</div>
-  </div>
+      <div id="sent-state" hidden>
+        <div class="ul-callout status" data-state="ready" role="status">
+          Check your email — we sent you a sign-in link. Come back to this page after signing in.
+        </div>
+      </div>
 
-  <div id="ready" hidden>
-    <p>Signed in as <span id="who"></span>.</p>
-    <button type="button" id="accept-btn">Accept invitation</button>
-    <div class="ul-callout status" id="accept-error" data-state="error" role="alert" hidden></div>
-  </div>
+      <div id="ready" hidden>
+        <p>Signed in as <span id="who"></span>.</p>
+        <button type="button" id="accept-btn">Accept invitation</button>
+        <div class="ul-callout status" id="accept-error" data-state="error" role="alert" hidden>
+        </div>
+      </div>
 
-  <Footer compact />
-</main>
-<script define:vars={{ authOrigin, invitationId: id }}>
-  window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
-  window.__UPLOADS_INVITATION_ID__ = invitationId;
-</script>
-<script>
-  import { acceptInvitation, getSession, sendMagicLink, signInWithGitHub } from "../../lib/auth-client";
+      <Footer compact />
+    </main>
+    <script define:vars={{ authOrigin, invitationId: id }}>
+      window.__UPLOADS_AUTH_ORIGIN__ = authOrigin;
+      window.__UPLOADS_INVITATION_ID__ = invitationId;
+    </script>
+    <script>
+      import {
+        acceptInvitation,
+        getSession,
+        sendMagicLink,
+        signInWithGitHub,
+      } from "../../lib/auth-client";
 
-  const w = window as unknown as { __UPLOADS_AUTH_ORIGIN__: string; __UPLOADS_INVITATION_ID__: string };
-  const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
-  const invitationId = w.__UPLOADS_INVITATION_ID__;
+      const w = window as unknown as {
+        __UPLOADS_AUTH_ORIGIN__: string;
+        __UPLOADS_INVITATION_ID__: string;
+      };
+      const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
+      const invitationId = w.__UPLOADS_INVITATION_ID__;
 
-  function requireElement<T extends Element>(selector: string): T {
-    const element = document.querySelector<T>(selector);
-    if (!element) throw new Error(`accept-invitation page is missing ${selector}`);
-    return element as T;
-  }
+      function requireElement<T extends Element>(selector: string): T {
+        const element = document.querySelector<T>(selector);
+        if (!element) throw new Error(`accept-invitation page is missing ${selector}`);
+        return element as T;
+      }
 
-  const checking = requireElement<HTMLElement>("#checking");
-  const invalid = requireElement<HTMLElement>("#invalid");
-  const signedOut = requireElement<HTMLElement>("#signed-out");
-  const authUnavailable = requireElement<HTMLElement>("#auth-unavailable");
-  const sentState = requireElement<HTMLElement>("#sent-state");
-  const ready = requireElement<HTMLElement>("#ready");
-  const who = requireElement<HTMLElement>("#who");
-  const githubBtn = requireElement<HTMLButtonElement>("#github-btn");
-  const magicForm = requireElement<HTMLFormElement>("#magic-form");
-  const magicSubmit = requireElement<HTMLButtonElement>("#magic-submit");
-  const emailInput = requireElement<HTMLInputElement>("#email");
-  const signinError = requireElement<HTMLElement>("#signin-error");
-  const acceptBtn = requireElement<HTMLButtonElement>("#accept-btn");
-  const acceptError = requireElement<HTMLElement>("#accept-error");
+      const checking = requireElement<HTMLElement>("#checking");
+      const invalid = requireElement<HTMLElement>("#invalid");
+      const signedOut = requireElement<HTMLElement>("#signed-out");
+      const authUnavailable = requireElement<HTMLElement>("#auth-unavailable");
+      const sentState = requireElement<HTMLElement>("#sent-state");
+      const ready = requireElement<HTMLElement>("#ready");
+      const who = requireElement<HTMLElement>("#who");
+      const githubBtn = requireElement<HTMLButtonElement>("#github-btn");
+      const magicForm = requireElement<HTMLFormElement>("#magic-form");
+      const magicSubmit = requireElement<HTMLButtonElement>("#magic-submit");
+      const emailInput = requireElement<HTMLInputElement>("#email");
+      const signinError = requireElement<HTMLElement>("#signin-error");
+      const acceptBtn = requireElement<HTMLButtonElement>("#accept-btn");
+      const acceptError = requireElement<HTMLElement>("#accept-error");
 
-  const callbackURL = location.href;
+      const callbackURL = location.href;
 
-  async function init() {
-    if (!invitationId) {
-      checking.hidden = true;
-      invalid.hidden = false;
-      return;
-    }
+      async function init() {
+        if (!invitationId) {
+          checking.hidden = true;
+          invalid.hidden = false;
+          return;
+        }
 
-    const session = await getSession(authOrigin);
-    checking.hidden = true;
+        const session = await getSession(authOrigin);
+        checking.hidden = true;
 
-    if (session.kind === "unavailable") {
-      authUnavailable.hidden = false;
-      return;
-    }
-    if (session.kind !== "signed_in") {
-      signedOut.hidden = false;
-      return;
-    }
+        if (session.kind === "unavailable") {
+          authUnavailable.hidden = false;
+          return;
+        }
+        if (session.kind !== "signed_in") {
+          signedOut.hidden = false;
+          return;
+        }
 
-    who.textContent = session.session.user.email;
-    ready.hidden = false;
-  }
+        who.textContent = session.session.user.email;
+        ready.hidden = false;
+      }
 
-  requireElement<HTMLButtonElement>("#session-retry").addEventListener("click", () => {
-    authUnavailable.hidden = true;
-    checking.hidden = false;
-    void init();
-  });
+      requireElement<HTMLButtonElement>("#session-retry").addEventListener("click", () => {
+        authUnavailable.hidden = true;
+        checking.hidden = false;
+        void init();
+      });
 
-  githubBtn.addEventListener("click", async () => {
-    signinError.hidden = true;
-    githubBtn.disabled = true;
-    const ok = await signInWithGitHub(authOrigin, callbackURL);
-    if (!ok) {
-      githubBtn.disabled = false;
-      signinError.textContent = "GitHub sign-in isn't available right now.";
-      signinError.hidden = false;
-    }
-  });
+      githubBtn.addEventListener("click", async () => {
+        signinError.hidden = true;
+        githubBtn.disabled = true;
+        const ok = await signInWithGitHub(authOrigin, callbackURL);
+        if (!ok) {
+          githubBtn.disabled = false;
+          signinError.textContent = "GitHub sign-in isn't available right now.";
+          signinError.hidden = false;
+        }
+      });
 
-  magicForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    signinError.hidden = true;
-    magicSubmit.disabled = true;
-    const email = emailInput.value.trim();
-    try {
-      const ok = await sendMagicLink(authOrigin, email, callbackURL);
-      if (!ok) throw new Error("send failed");
-      signedOut.hidden = true;
-      sentState.hidden = false;
-    } catch {
-      signinError.textContent = "Couldn't send the sign-in link. Try again.";
-      signinError.hidden = false;
-    } finally {
-      magicSubmit.disabled = false;
-    }
-  });
+      magicForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        signinError.hidden = true;
+        magicSubmit.disabled = true;
+        const email = emailInput.value.trim();
+        try {
+          const ok = await sendMagicLink(authOrigin, email, callbackURL);
+          if (!ok) throw new Error("send failed");
+          signedOut.hidden = true;
+          sentState.hidden = false;
+        } catch {
+          signinError.textContent = "Couldn't send the sign-in link. Try again.";
+          signinError.hidden = false;
+        } finally {
+          magicSubmit.disabled = false;
+        }
+      });
 
-  acceptBtn.addEventListener("click", async () => {
-    acceptError.hidden = true;
-    acceptBtn.disabled = true;
-    const result = await acceptInvitation(authOrigin, invitationId);
-    if (result.ok) {
-      // Land in the workspaces shell (auto-opens a single membership).
-      location.assign(`${location.origin}/account/workspaces`);
-      return;
-    }
-    acceptBtn.disabled = false;
-    acceptError.textContent =
-      result.status === 404
-        ? "This invitation no longer exists."
-        : result.status === 410 || result.code === "invitation_expired"
-          ? "This invitation has expired."
-          : "Couldn't accept this invitation. It may already have been used.";
-    acceptError.hidden = false;
-  });
+      acceptBtn.addEventListener("click", async () => {
+        acceptError.hidden = true;
+        acceptBtn.disabled = true;
+        const result = await acceptInvitation(authOrigin, invitationId);
+        if (result.ok) {
+          // Land in the workspaces shell (auto-opens a single membership).
+          location.assign(`${location.origin}/account/workspaces`);
+          return;
+        }
+        acceptBtn.disabled = false;
+        acceptError.textContent =
+          result.status === 404
+            ? "This invitation no longer exists."
+            : result.status === 410 || result.code === "invitation_expired"
+              ? "This invitation has expired."
+              : "Couldn't accept this invitation. It may already have been used.";
+        acceptError.hidden = false;
+      });
 
-  void init();
-</script>
-</body>
+      void init();
+    </script>
+  </body>
 </html>

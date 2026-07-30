@@ -19,9 +19,7 @@ export const prerender = false;
 
 const id = Astro.params.id ?? "";
 const origin =
-  env.UPLOADS_API_ORIGIN ??
-  import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ??
-  "https://api.uploads.sh";
+  env.UPLOADS_API_ORIGIN ?? import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ?? "https://api.uploads.sh";
 const result = await fetchPublicGallery(id, { origin });
 
 applyPublicGalleryHeaders(Astro.response.headers);
@@ -41,85 +39,339 @@ const oembedHref = gallery ? oembedDiscoveryHref(canonical, Astro.url.origin) : 
     <meta name="robots" content="noindex, nofollow, noarchive" />
     <link rel="canonical" href={canonical} />
     <title>{gallery ? `${gallery.title} · uploads.sh` : "Gallery unavailable · uploads.sh"}</title>
-    <meta name="description" content={gallery?.description ?? "A public media gallery hosted by uploads.sh."} />
+    <meta
+      name="description"
+      content={gallery?.description ?? "A public media gallery hosted by uploads.sh."}
+    />
     <meta property="og:type" content="website" />
     <meta property="og:title" content={gallery?.title ?? "Gallery unavailable"} />
-    <meta property="og:description" content={gallery?.description ?? "A public media gallery hosted by uploads.sh."} />
+    <meta
+      property="og:description"
+      content={gallery?.description ?? "A public media gallery hosted by uploads.sh."}
+    />
     <meta property="og:url" content={canonical} />
     <meta property="og:site_name" content={OG_SITE_NAME} />
     <meta property="og:image" content={OG_DEFAULT_IMAGE} />
-    {oembedHref && gallery && (
-      <link
-        rel="alternate"
-        type="application/json+oembed"
-        href={oembedHref}
-        title={`${gallery.title} oEmbed Profile`}
-      />
-    )}
+    {
+      oembedHref && gallery && (
+        <link
+          rel="alternate"
+          type="application/json+oembed"
+          href={oembedHref}
+          title={`${gallery.title} oEmbed Profile`}
+        />
+      )
+    }
     <style>
-      * { box-sizing:border-box; }
-      body { margin:0; min-height:100dvh; color:var(--fg); background:var(--bg); font-family:var(--sans); display:flex; flex-direction:column; }
-      .shell { width:min(var(--width-viewer, 1080px),calc(100% - 48px)); margin:0 auto; padding:36px 0 64px; flex:1 0 auto; box-sizing:border-box; }
-      nav { display:flex; align-items:center; justify-content:space-between; margin-bottom:40px; font:13px var(--mono); letter-spacing:.02em; }
-      .public { color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:6px 11px; background:var(--panel); }
-      header { max-width:720px; margin-bottom:28px; }
-      .eyebrow { color:var(--muted); font:11px var(--mono); letter-spacing:.14em; text-transform:uppercase; }
-      h1 { margin:10px 0 12px; font-size:clamp(1.7rem,4vw,2.4rem); font-weight:600; line-height:1.2; letter-spacing:-.015em; overflow-wrap:anywhere; }
-      .desc { max-width:640px; color:var(--body); font-size:15px; line-height:1.65; white-space:pre-wrap; }
-      .meta { display:flex; gap:16px; flex-wrap:wrap; margin-top:18px; color:var(--muted); font:12px var(--mono); }
-      .notice { margin:22px 2px; color:var(--muted); font:13.5px/1.6 var(--sans); }
-      .grid { display:grid; grid-template-columns:repeat(12,1fr); gap:14px; }
-      figure { grid-column:span 6; margin:0; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-lg); overflow:hidden; }
-      .media { min-height:260px; aspect-ratio:16/10; background:var(--bg); display:grid; place-items:center; overflow:hidden; }
-      img,video { width:100%; height:100%; object-fit:contain; display:block; }
-      .fallback { padding:30px; text-align:center; color:var(--muted); font:13px/1.6 var(--mono); }
-      .fallback strong { display:block; color:var(--red); margin-bottom:8px; }
-      .fallback a { color:var(--fg); overflow-wrap:anywhere; }
-      figcaption { padding:14px 16px 16px; border-top:1px solid var(--line); }
-      .filename { color:var(--fg); font:600 13px var(--mono); overflow-wrap:anywhere; }
-      .original { display:inline-block; margin-top:10px; margin-right:14px; color:var(--muted); font:12px var(--mono); }
-      .media-link { display:contents; }
-      .original:hover, .original:focus-visible { color:var(--accent); outline:none; }
-      .caption { margin-top:8px; color:var(--body); font-size:14px; line-height:1.5; white-space:pre-wrap; }
-      .empty,.error { padding:70px 24px; border:1px solid var(--line); border-radius:var(--radius-lg); text-align:center; background:var(--panel); color:var(--body); }
-      .empty code,.error code { color:var(--accent); font-family:var(--mono); }
-      a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
-      @media (max-width:760px) { .shell{width:min(100% - 32px,1080px);padding-top:24px} nav{margin-bottom:32px} figure{grid-column:1/-1}.media{min-height:190px} }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        color: var(--fg);
+        background: var(--bg);
+        font-family: var(--sans);
+        display: flex;
+        flex-direction: column;
+      }
+      .shell {
+        width: min(var(--width-viewer, 1080px), calc(100% - 48px));
+        margin: 0 auto;
+        padding: 36px 0 64px;
+        flex: 1 0 auto;
+        box-sizing: border-box;
+      }
+      nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 40px;
+        font: 13px var(--mono);
+        letter-spacing: 0.02em;
+      }
+      .public {
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 6px 11px;
+        background: var(--panel);
+      }
+      header {
+        max-width: 720px;
+        margin-bottom: 28px;
+      }
+      .eyebrow {
+        color: var(--muted);
+        font: 11px var(--mono);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 10px 0 12px;
+        font-size: clamp(1.7rem, 4vw, 2.4rem);
+        font-weight: 600;
+        line-height: 1.2;
+        letter-spacing: -0.015em;
+        overflow-wrap: anywhere;
+      }
+      .desc {
+        max-width: 640px;
+        color: var(--body);
+        font-size: 15px;
+        line-height: 1.65;
+        white-space: pre-wrap;
+      }
+      .meta {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin-top: 18px;
+        color: var(--muted);
+        font: 12px var(--mono);
+      }
+      .notice {
+        margin: 22px 2px;
+        color: var(--muted);
+        font: 13.5px/1.6 var(--sans);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 14px;
+      }
+      figure {
+        grid-column: span 6;
+        margin: 0;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+      }
+      .media {
+        min-height: 260px;
+        aspect-ratio: 16/10;
+        background: var(--bg);
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+      }
+      img,
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        display: block;
+      }
+      .fallback {
+        padding: 30px;
+        text-align: center;
+        color: var(--muted);
+        font: 13px/1.6 var(--mono);
+      }
+      .fallback strong {
+        display: block;
+        color: var(--red);
+        margin-bottom: 8px;
+      }
+      .fallback a {
+        color: var(--fg);
+        overflow-wrap: anywhere;
+      }
+      figcaption {
+        padding: 14px 16px 16px;
+        border-top: 1px solid var(--line);
+      }
+      .filename {
+        color: var(--fg);
+        font: 600 13px var(--mono);
+        overflow-wrap: anywhere;
+      }
+      .original {
+        display: inline-block;
+        margin-top: 10px;
+        margin-right: 14px;
+        color: var(--muted);
+        font: 12px var(--mono);
+      }
+      .media-link {
+        display: contents;
+      }
+      .original:hover,
+      .original:focus-visible {
+        color: var(--accent);
+        outline: none;
+      }
+      .caption {
+        margin-top: 8px;
+        color: var(--body);
+        font-size: 14px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+      }
+      .empty,
+      .error {
+        padding: 70px 24px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        text-align: center;
+        background: var(--panel);
+        color: var(--body);
+      }
+      .empty code,
+      .error code {
+        color: var(--accent);
+        font-family: var(--mono);
+      }
+      a {
+        color: var(--fg);
+        text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+        text-underline-offset: 3px;
+      }
+      @media (max-width: 760px) {
+        .shell {
+          width: min(100% - 32px, 1080px);
+          padding-top: 24px;
+        }
+        nav {
+          margin-bottom: 32px;
+        }
+        figure {
+          grid-column: 1/-1;
+        }
+        .media {
+          min-height: 190px;
+        }
+      }
     </style>
   </head>
   <body>
     <main class="shell">
       <nav><Brand /><span class="public">public gallery</span></nav>
-      {gallery ? (
-        <>
-          <header>
-            <div class="eyebrow">Media collection</div>
-            <h1>{gallery.title}</h1>
-            {gallery.description && <div class="desc">{gallery.description}</div>}
-            <div class="meta"><span>{gallery.items.length} {gallery.items.length === 1 ? "item" : "items"}</span><span>updated {new Date(gallery.updatedAt).toLocaleDateString("en-US", { year:"numeric", month:"short", day:"numeric" })}</span></div>
-          </header>
-          <aside class="notice">Anyone with this link can view and enumerate this gallery. Do not share sensitive media.</aside>
-          {gallery.items.length === 0 ? <section class="empty"><code>gallery.empty</code><p>This gallery is ready, but no media has been added yet.</p></section> : (
-            <section class="grid">
-              {gallery.items.map((item) => (
-                <figure>
-                  <div class="media">
-                    {kind(item) === "image" && <a class="media-link" href={itemPage(item)} aria-label={`View ${item.filename}`}><img src={item.url!} alt={item.altText ?? item.caption ?? item.filename} loading="lazy" decoding="async" /></a>}
-                    {kind(item) === "video" && <video src={item.url!} controls playsinline preload="metadata" aria-describedby={`caption-${item.id}`}>Your browser cannot play this video.</video>}
-                    {kind(item) === "file" && <div class="fallback"><strong>Preview unavailable</strong><a href={item.url!} rel="noopener noreferrer">Open {item.filename}</a></div>}
-                    {kind(item) === "unsupported" && <div class="fallback"><strong>Unsupported media type</strong><span>This item cannot be opened inline.</span></div>}
-                    {kind(item) === "missing" && <div class="fallback"><strong>Removed or expired</strong><span>This item remains in the gallery to preserve its place.</span></div>}
-                  </div>
-                  <figcaption id={`caption-${item.id}`}><div class="filename">{item.filename}</div>{item.caption && <div class="caption">{item.caption}</div>}<a class="original" href={itemPage(item)}>View page</a>{item.status === "available" && kind(item) !== "unsupported" && <a class="original" href={item.url!} rel="noopener noreferrer">Open original</a>}</figcaption>
-                </figure>
-              ))}
-            </section>
-          )}
-          <GalleryReferences references={gallery.references} />
-        </>
-      ) : (
-        <section class="error"><code>{result.status === "not_found" ? "gallery.not_found" : "gallery.unavailable"}</code><h1>{result.status === "not_found" ? "Gallery not found" : "Gallery temporarily unavailable"}</h1><p>{result.status === "not_found" ? "Check the link or ask the gallery owner for a current URL." : "The gallery service could not be reached. Please try again shortly."}</p></section>
-      )}
+      {
+        gallery ? (
+          <>
+            <header>
+              <div class="eyebrow">Media collection</div>
+              <h1>{gallery.title}</h1>
+              {gallery.description && <div class="desc">{gallery.description}</div>}
+              <div class="meta">
+                <>
+                  <span>
+                    {gallery.items.length} {gallery.items.length === 1 ? "item" : "items"}
+                  </span>
+                  <span>
+                    updated{" "}
+                    {new Date(gallery.updatedAt).toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </span>
+                </>
+              </div>
+            </header>
+            <aside class="notice">
+              Anyone with this link can view and enumerate this gallery. Do not share sensitive
+              media.
+            </aside>
+            {gallery.items.length === 0 ? (
+              <section class="empty">
+                <code>gallery.empty</code>
+                <p>This gallery is ready, but no media has been added yet.</p>
+              </section>
+            ) : (
+              <section class="grid">
+                {gallery.items.map((item) => (
+                  <figure>
+                    <div class="media">
+                      {kind(item) === "image" && (
+                        <a
+                          class="media-link"
+                          href={itemPage(item)}
+                          aria-label={`View ${item.filename}`}
+                        >
+                          <img
+                            src={item.url!}
+                            alt={item.altText ?? item.caption ?? item.filename}
+                            loading="lazy"
+                            decoding="async"
+                          />
+                        </a>
+                      )}
+                      {kind(item) === "video" && (
+                        <video
+                          src={item.url!}
+                          controls
+                          playsinline
+                          preload="metadata"
+                          aria-describedby={`caption-${item.id}`}
+                        >
+                          Your browser cannot play this video.
+                        </video>
+                      )}
+                      {kind(item) === "file" && (
+                        <div class="fallback">
+                          <strong>Preview unavailable</strong>
+                          <a href={item.url!} rel="noopener noreferrer">
+                            Open {item.filename}
+                          </a>
+                        </div>
+                      )}
+                      {kind(item) === "unsupported" && (
+                        <div class="fallback">
+                          <strong>Unsupported media type</strong>
+                          <span>This item cannot be opened inline.</span>
+                        </div>
+                      )}
+                      {kind(item) === "missing" && (
+                        <div class="fallback">
+                          <strong>Removed or expired</strong>
+                          <span>This item remains in the gallery to preserve its place.</span>
+                        </div>
+                      )}
+                    </div>
+                    <figcaption id={`caption-${item.id}`}>
+                      <div class="filename">{item.filename}</div>
+                      {item.caption && <div class="caption">{item.caption}</div>}
+                      <a class="original" href={itemPage(item)}>
+                        View page
+                      </a>
+                      {item.status === "available" && kind(item) !== "unsupported" && (
+                        <a class="original" href={item.url!} rel="noopener noreferrer">
+                          Open original
+                        </a>
+                      )}
+                    </figcaption>
+                  </figure>
+                ))}
+              </section>
+            )}
+            <GalleryReferences references={gallery.references} />
+          </>
+        ) : (
+          <section class="error">
+            <>
+              <code>
+                {result.status === "not_found" ? "gallery.not_found" : "gallery.unavailable"}
+              </code>
+              <h1>
+                {result.status === "not_found"
+                  ? "Gallery not found"
+                  : "Gallery temporarily unavailable"}
+              </h1>
+              <p>
+                {result.status === "not_found"
+                  ? "Check the link or ask the gallery owner for a current URL."
+                  : "The gallery service could not be reached. Please try again shortly."}
+              </p>
+            </>
+          </section>
+        )
+      }
     </main>
     <Footer />
   </body>

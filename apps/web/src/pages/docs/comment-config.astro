@@ -26,11 +26,14 @@ const TOC = [
   toc={TOC}
 >
   <section class="lead" id="what-it-controls">
-    <h2>What it controls <a class="anchor" href="#what-it-controls" aria-label="Link to this section">#</a></h2>
+    <h2>
+      What it controls <a class="anchor" href="#what-it-controls" aria-label="Link to this section"
+        >#</a
+      >
+    </h2>
     <p>
-      Every key is optional and lives under a top-level <code>comment:</code> map. All of
-      it is presentation only — it changes how the attachments comment looks, never what
-      gets uploaded or where.
+      Every key is optional and lives under a top-level <code>comment:</code> map. All of it is presentation
+      only — it changes how the attachments comment looks, never what gets uploaded or where.
     </p>
     <ul>
       <li><strong>Image width</strong> for inline images, pair cells, and video posters.</li>
@@ -40,9 +43,9 @@ const TOC = [
       <li><strong>A short note</strong> shown under the comment header.</li>
     </ul>
     <p>
-      Nothing in the file can change which files get uploaded, where they're hosted, or
-      which repo a workspace can post to — it only reshapes the comment body for a repo
-      that's already allowed to receive one.
+      Nothing in the file can change which files get uploaded, where they're hosted, or which repo a
+      workspace can post to — it only reshapes the comment body for a repo that's already allowed to
+      receive one.
     </p>
   </section>
 
@@ -79,17 +82,17 @@ const TOC = [
   note: ""</pre>
     </div>
     <p class="note">
-      A value outside its valid range doesn't fail the whole file: numbers clamp to their
-      bounds, and an unrecognized value for a key drops just that key while every other
-      key still applies.
+      A value outside its valid range doesn't fail the whole file: numbers clamp to their bounds,
+      and an unrecognized value for a key drops just that key while every other key still applies.
     </p>
   </section>
 
   <section id="file-location">
-    <h2>File location <a class="anchor" href="#file-location" aria-label="Link to this section">#</a></h2>
+    <h2>
+      File location <a class="anchor" href="#file-location" aria-label="Link to this section">#</a>
+    </h2>
     <p>
-      The bot and the CLI both check these locations, in order, and use the first one
-      they find:
+      The bot and the CLI both check these locations, in order, and use the first one they find:
     </p>
     <ul>
       <li><code>.uploads.yml</code></li>
@@ -100,8 +103,8 @@ const TOC = [
       <li><code>.github/uploads.json</code></li>
     </ul>
     <p>
-      Only the file on the repo's default branch is read — config committed on a feature
-      branch or a PR doesn't take effect until it lands on default.
+      Only the file on the repo's default branch is read — config committed on a feature branch or a
+      PR doesn't take effect until it lands on default.
     </p>
   </section>
 
@@ -117,52 +120,60 @@ const TOC = [
       <li><strong>Automatic behavior</strong> — the built-in default when neither is set.</li>
     </ol>
     <p>
-      A repo can set some keys and leave others out; the ones it leaves out fall through
-      to the workspace default or the automatic behavior on a per-key basis, not as a
-      single all-or-nothing switch.
+      A repo can set some keys and leave others out; the ones it leaves out fall through to the
+      workspace default or the automatic behavior on a per-key basis, not as a single all-or-nothing
+      switch.
     </p>
   </section>
 
   <section id="note">
     <h2>The note field <a class="anchor" href="#note" aria-label="Link to this section">#</a></h2>
     <p>
-      <code>note</code> renders directly under the comment header, before the attachments
-      themselves — a good place for "these are staging shots" or a link to a contributing
-      guide. It's capped at 500 characters.
+      <code>note</code> renders directly under the comment header, before the attachments themselves —
+      a good place for "these are staging shots" or a link to a contributing guide. It's capped at 500
+      characters.
     </p>
     <p>
-      A note over the cap is dropped whole, not cut short. Truncating mid-sentence could
-      post a note that reads as a different, unintended message, so the render falls back
-      to no note at all rather than a partial one. Trim the note in the file and it posts
-      normally.
+      A note over the cap is dropped whole, not cut short. Truncating mid-sentence could post a note
+      that reads as a different, unintended message, so the render falls back to no note at all
+      rather than a partial one. Trim the note in the file and it posts normally.
     </p>
   </section>
 
   <section id="fail-closed">
-    <h2>Fail-closed behavior <a class="anchor" href="#fail-closed" aria-label="Link to this section">#</a></h2>
+    <h2>
+      Fail-closed behavior <a class="anchor" href="#fail-closed" aria-label="Link to this section"
+        >#</a
+      >
+    </h2>
     <p>
-      A missing, unreadable, or unparseable config file never breaks the comment — it
-      just falls back to the workspace defaults, the same as if no file existed. This
-      applies to the whole file: a YAML syntax error anywhere in it means the whole file
-      is ignored for that render, not just the broken part.
+      A missing, unreadable, or unparseable config file never breaks the comment — it just falls
+      back to the workspace defaults, the same as if no file existed. This applies to the whole
+      file: a YAML syntax error anywhere in it means the whole file is ignored for that render, not
+      just the broken part.
     </p>
     <p>
-      The server caches a repo's config for about five minutes, so a commit that changes
-      or removes the file can take up to that long to take effect on the next bot
-      comment. The CLI's <code>gh</code>-fallback path reads the file straight from your
-      local working tree instead, with no cache, so both paths end up honoring the same
-      file.
+      The server caches a repo's config for about five minutes, so a commit that changes or removes
+      the file can take up to that long to take effect on the next bot comment. The CLI's <code
+        >gh</code
+      >-fallback path reads the file straight from your local working tree instead, with no cache,
+      so both paths end up honoring the same file.
     </p>
   </section>
 
   <section id="preview">
-    <h2>Preview before committing <a class="anchor" href="#preview" aria-label="Link to this section">#</a></h2>
+    <h2>
+      Preview before committing <a class="anchor" href="#preview" aria-label="Link to this section"
+        >#</a
+      >
+    </h2>
     <p>
-      The workspace's <a href="/account">comment settings</a> page includes a live
-      preview: pick a repo the workspace is bound to and it renders the resolved comment
-      body using the same code path the bot uses, with a badge on each setting showing
-      whether it came from the repo config, the workspace default, or automatic
-      behavior. Use it to check a change before committing <code>.uploads.yml</code>.
+      The workspace's <a href="/account">comment settings</a> page includes a live preview: pick a repo
+      the workspace is bound to and it renders the resolved comment body using the same code path the
+      bot uses, with a badge on each setting showing whether it came from the repo config, the workspace
+      default, or automatic behavior. Use it to check a change before committing <code
+        >.uploads.yml</code
+      >.
     </p>
   </section>
 

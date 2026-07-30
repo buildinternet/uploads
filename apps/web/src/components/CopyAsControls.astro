@@ -25,24 +25,23 @@ const show = Boolean(downloadUrl) || formats.length > 0;
     <div class="actions">
       <slot />
       {downloadUrl && (
-        <a class="original download" href={downloadUrl} rel="noopener noreferrer">Download</a>
+        <a class="original download" href={downloadUrl} rel="noopener noreferrer">
+          Download
+        </a>
       )}
       {formats.length > 0 && (
         <span class="linkfield">
           <label for="copy-format">Copy as</label>
           <div class="copyrow">
             <select id="copy-format" class="ul-select" aria-label="Copy as format">
-              {formats.map((format) => <option value={format.id}>{format.label}</option>)}
+              {formats.map((format) => (
+                <option value={format.id}>{format.label}</option>
+              ))}
             </select>
             {/* The whole row is the copy control (Snippet pattern) — a real
                button inside carries the click/keyboard affordance, so the
                wrapper only needs a click-through convenience handler. */}
-            <div
-              class="snippet"
-              id="copy-snippet"
-              data-copy-value={defaultCopyValue}
-              tabindex="-1"
-            >
+            <div class="snippet" id="copy-snippet" data-copy-value={defaultCopyValue} tabindex="-1">
               <code id="copy-snippet-value">{defaultCopyValue}</code>
               <button
                 type="button"
@@ -52,7 +51,13 @@ const show = Boolean(downloadUrl) || formats.length > 0;
                 data-copy-icon
                 aria-label={`Copy ${defaultCopyLabel}`}
               >
-                <svg class="icon-copy" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                <svg
+                  class="icon-copy"
+                  viewBox="0 0 16 16"
+                  width="15"
+                  height="15"
+                  aria-hidden="true"
+                >
                   <path
                     fill="none"
                     stroke="currentColor"
@@ -67,7 +72,12 @@ const show = Boolean(downloadUrl) || formats.length > 0;
                   height="15"
                   aria-hidden="true"
                 >
-                  <path fill="none" stroke="currentColor" stroke-width="1.6" d="M3 8.5l3.2 3.2L13 4.5" />
+                  <path
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.6"
+                    d="M3 8.5l3.2 3.2L13 4.5"
+                  />
                 </svg>
               </button>
             </div>
@@ -79,86 +89,88 @@ const show = Boolean(downloadUrl) || formats.length > 0;
   )
 }
 
-{
-  formats.length > 0 && (
-    // dataset.copyLabel keeps the label stable across a rapid double-click
-    // while the "copied ✓" timeout is still pending.
-    <script define:vars={{ formats }}>
-      (function () {
-        const shell = document.querySelector(".shell");
-        if (!shell) return;
+<!--
+  Top-level script (not JSX-conditional): prettier-plugin-astro cannot parse
+  `define:vars` inside a JSX expression (issue #551). Early-return when there
+  are no formats so empty embeds stay inert.
+-->
+<script define:vars={{ formats, hasFormats: formats.length > 0 }}>
+  // dataset.copyLabel keeps the label stable across a rapid double-click
+  // while the "copied ✓" timeout is still pending.
+  (function () {
+    if (!hasFormats) return;
+    const shell = document.querySelector(".shell");
+    if (!shell) return;
 
-        const status = document.getElementById("copy-status");
+    const status = document.getElementById("copy-status");
 
-        shell.addEventListener("click", (event) => {
-          const target = event.target;
-          if (!(target instanceof Element)) return;
-          const button = target.closest("button[data-copy]");
-          if (!(button instanceof HTMLButtonElement)) return;
-          void navigator.clipboard
-            .writeText(button.dataset.copy || "")
-            .then(() => {
-              // Icon-only snippet button: swap SVGs + aria-live text instead
-              // of clobbering textContent (that path is reserved for the
-              // page-level text-labeled share button sharing this handler).
-              if (button.hasAttribute("data-copy-icon")) {
-                const copyIcon = button.querySelector(".icon-copy");
-                const checkIcon = button.querySelector(".icon-check");
-                if (copyIcon) copyIcon.classList.add("is-hidden");
-                if (checkIcon) checkIcon.classList.remove("is-hidden");
-                if (status) status.textContent = "Copied";
-                setTimeout(() => {
-                  if (copyIcon) copyIcon.classList.remove("is-hidden");
-                  if (checkIcon) checkIcon.classList.add("is-hidden");
-                  if (status) status.textContent = "";
-                }, 1500);
-                return;
-              }
+    shell.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const button = target.closest("button[data-copy]");
+      if (!(button instanceof HTMLButtonElement)) return;
+      void navigator.clipboard
+        .writeText(button.dataset.copy || "")
+        .then(() => {
+          // Icon-only snippet button: swap SVGs + aria-live text instead
+          // of clobbering textContent (that path is reserved for the
+          // page-level text-labeled share button sharing this handler).
+          if (button.hasAttribute("data-copy-icon")) {
+            const copyIcon = button.querySelector(".icon-copy");
+            const checkIcon = button.querySelector(".icon-check");
+            if (copyIcon) copyIcon.classList.add("is-hidden");
+            if (checkIcon) checkIcon.classList.remove("is-hidden");
+            if (status) status.textContent = "Copied";
+            setTimeout(() => {
+              if (copyIcon) copyIcon.classList.remove("is-hidden");
+              if (checkIcon) checkIcon.classList.add("is-hidden");
+              if (status) status.textContent = "";
+            }, 1500);
+            return;
+          }
 
-              const original = button.dataset.copyLabel ?? button.textContent ?? "Copy";
-              button.dataset.copyLabel = original;
-              button.textContent = "copied ✓";
-              setTimeout(() => {
-                button.textContent = original;
-              }, 1500);
-            })
-            .catch(() => {
-              // Clipboard blocked — leave the label.
-            });
+          const original = button.dataset.copyLabel ?? button.textContent ?? "Copy";
+          button.dataset.copyLabel = original;
+          button.textContent = "copied ✓";
+          setTimeout(() => {
+            button.textContent = original;
+          }, 1500);
+        })
+        .catch(() => {
+          // Clipboard blocked — leave the label.
         });
+    });
 
-        // Clicking anywhere on the snippet row (not just the icon button)
-        // copies — same target the button already handles, so just forward.
-        const snippet = document.getElementById("copy-snippet");
-        const copyButton = document.getElementById("copy-format-btn");
-        if (snippet instanceof HTMLElement && copyButton instanceof HTMLButtonElement) {
-          snippet.addEventListener("click", (event) => {
-            if (event.target === copyButton || copyButton.contains(event.target)) return;
-            copyButton.click();
-          });
-        }
+    // Clicking anywhere on the snippet row (not just the icon button)
+    // copies — same target the button already handles, so just forward.
+    const snippet = document.getElementById("copy-snippet");
+    const copyButton = document.getElementById("copy-format-btn");
+    if (snippet instanceof HTMLElement && copyButton instanceof HTMLButtonElement) {
+      snippet.addEventListener("click", (event) => {
+        if (event.target === copyButton || copyButton.contains(event.target)) return;
+        copyButton.click();
+      });
+    }
 
-        const select = document.getElementById("copy-format");
-        const valueEl = document.getElementById("copy-snippet-value");
-        if (
-          select instanceof HTMLSelectElement &&
-          valueEl instanceof HTMLElement &&
-          copyButton instanceof HTMLButtonElement &&
-          snippet instanceof HTMLElement
-        ) {
-          select.addEventListener("change", () => {
-            const format = formats.find((f) => f.id === select.value) ?? formats[0];
-            if (!format) return;
-            valueEl.textContent = format.value;
-            snippet.dataset.copyValue = format.value;
-            copyButton.dataset.copy = format.value;
-            copyButton.setAttribute("aria-label", `Copy ${format.label}`);
-          });
-        }
-      })();
-    </script>
-  )
-}
+    const select = document.getElementById("copy-format");
+    const valueEl = document.getElementById("copy-snippet-value");
+    if (
+      select instanceof HTMLSelectElement &&
+      valueEl instanceof HTMLElement &&
+      copyButton instanceof HTMLButtonElement &&
+      snippet instanceof HTMLElement
+    ) {
+      select.addEventListener("change", () => {
+        const format = formats.find((f) => f.id === select.value) ?? formats[0];
+        if (!format) return;
+        valueEl.textContent = format.value;
+        snippet.dataset.copyValue = format.value;
+        copyButton.dataset.copy = format.value;
+        copyButton.setAttribute("aria-label", `Copy ${format.label}`);
+      });
+    }
+  })();
+</script>
 
 <style>
   .actions {

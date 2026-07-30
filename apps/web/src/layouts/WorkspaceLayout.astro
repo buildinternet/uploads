@@ -44,12 +44,14 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
           <span class="ws-rail__label">details</span>
           <span class="ws-rail__rule"></span>
         </div>
-        {/* `aria-busy` sits on the <dl> itself, not inside the placeholder like
+        {
+          /* `aria-busy` sits on the <dl> itself, not inside the placeholder like
             the usage section's does: `innerHTML` replaces this element's
             children but not the element, so the attribute survives the repaint
             and `paint()` has to clear it explicitly. Without it the skeleton
             bars are `aria-hidden`, so a screen reader would meet two empty
-            <dd>s with no indication anything is still loading. */}
+            <dd>s with no indication anything is still loading. */
+        }
         <dl
           class="ws-rail__kv"
           data-rail-details
@@ -64,11 +66,13 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
           <span class="ws-rail__rule"></span>
         </div>
         <div class="ws-rail__actions">
-          {/* Server-rendered visible, then hidden by `initWorkspaceRail` when
+          {
+            /* Server-rendered visible, then hidden by `initWorkspaceRail` when
               `/me/workspaces/:name/github-status` reports the App installed
               (issue #492). Shown on every other outcome — a workspace that has
               it already sees one extra muted link; one that doesn't would
-              otherwise never learn the App exists. */}
+              otherwise never learn the App exists. */
+          }
           <a
             class="ws-rail__cta"
             data-rail-github-cta

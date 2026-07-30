@@ -31,56 +31,65 @@ const counterpartUrl = compare?.src ?? null;
 ---
 
 <div class="media image-preview" data-mode="fit" data-view="single" data-image-preview>
-  {pair && (
-    <div class="view-toggle" role="group" aria-label="Comparison view">
-      <button type="button" data-view-btn="single" aria-pressed="true">This image</button>
-      <button type="button" data-view-btn="compare" aria-pressed="false">Compare</button>
-    </div>
-  )}
+  {
+    pair && (
+      <div class="view-toggle" role="group" aria-label="Comparison view">
+        <button type="button" data-view-btn="single" aria-pressed="true">
+          This image
+        </button>
+        <button type="button" data-view-btn="compare" aria-pressed="false">
+          Compare
+        </button>
+      </div>
+    )
+  }
   <div class="size-toggle" role="group" aria-label="Preview size">
     <button type="button" data-size="fit" aria-pressed="true">Fit</button>
     <button type="button" data-size="full" aria-pressed="false">Full width</button>
   </div>
   <img class="single-image" src={src} alt={alt} decoding="async" />
-  {pair && (
-    <div class="compare-wrap">
-      <img-comparison-slider
-        value="50"
-        role="slider"
-        aria-label="Before and after comparison"
-        aria-valuemin="0"
-        aria-valuemax="100"
-        aria-valuenow="50"
-        aria-valuetext="50% after"
-      >
-        <img
-          slot="first"
-          src={pair.beforeUrl}
-          alt={`Before: ${alt}`}
-          decoding="async"
-          loading="lazy"
-          data-counterpart={pair.beforeUrl === counterpartUrl ? "true" : null}
-        />
-        <img
-          slot="second"
-          src={pair.afterUrl}
-          alt={`After: ${alt}`}
-          decoding="async"
-          loading="lazy"
-          data-counterpart={pair.afterUrl === counterpartUrl ? "true" : null}
-        />
-      </img-comparison-slider>
-      <span class="compare-label compare-label--before" aria-hidden="true">before</span>
-      <span class="compare-label compare-label--after" aria-hidden="true">after</span>
-    </div>
-  )}
+  {
+    pair && (
+      <div class="compare-wrap">
+        <img-comparison-slider
+          value="50"
+          role="slider"
+          aria-label="Before and after comparison"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="50"
+          aria-valuetext="50% after"
+        >
+          <img
+            slot="first"
+            src={pair.beforeUrl}
+            alt={`Before: ${alt}`}
+            decoding="async"
+            loading="lazy"
+            data-counterpart={pair.beforeUrl === counterpartUrl ? "true" : null}
+          />
+          <img
+            slot="second"
+            src={pair.afterUrl}
+            alt={`After: ${alt}`}
+            decoding="async"
+            loading="lazy"
+            data-counterpart={pair.afterUrl === counterpartUrl ? "true" : null}
+          />
+        </img-comparison-slider>
+        <span class="compare-label compare-label--before" aria-hidden="true">
+          before
+        </span>
+        <span class="compare-label compare-label--after" aria-hidden="true">
+          after
+        </span>
+      </div>
+    )
+  }
 </div>
 
 <script>
-  import {
-    resolvePreviewMode,
-    type ImagePreviewMode,
-  } from "../lib/image-preview-mode";
+  import { resolvePreviewMode, type ImagePreviewMode } from "../lib/image-preview-mode";
 
   type CompareView = "single" | "compare";
 

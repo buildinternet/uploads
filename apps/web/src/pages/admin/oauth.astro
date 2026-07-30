@@ -10,8 +10,8 @@ export const prerender = false;
     <header class="admin-page-header">
       <h2>OAuth apps</h2>
       <p>
-        Registered OAuth client applications. All clients are public PKCE
-        clients - there is no client secret to manage.
+        Registered OAuth client applications. All clients are public PKCE clients - there is no
+        client secret to manage.
       </p>
     </header>
     <div id="oauth-status" class="admin-status">Loading…</div>
@@ -48,8 +48,7 @@ export const prerender = false;
           id="oauth-create-redirects"
           required
           rows="3"
-          placeholder="https://example.com/callback"
-        ></textarea>
+          placeholder="https://example.com/callback"></textarea>
       </label>
       <fieldset class="oauth-scopes">
         <legend>Scopes</legend>
@@ -121,7 +120,10 @@ export const prerender = false;
       }
 
       async function apiGet<T>(path: string): Promise<T> {
-        const res = await fetch(`${apiOrigin}${path}`, { credentials: "include", cache: "no-store" });
+        const res = await fetch(`${apiOrigin}${path}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
         if (!res.ok) throw new Error(`request failed: ${res.status}`);
         return (await res.json()) as T;
       }
@@ -195,7 +197,9 @@ export const prerender = false;
             "admin oauth",
           );
           const scopeInputs = Array.from(
-            createForm.querySelectorAll<HTMLInputElement>('input[name="oauth-create-scope"]:checked'),
+            createForm.querySelectorAll<HTMLInputElement>(
+              'input[name="oauth-create-scope"]:checked',
+            ),
           );
 
           const name = nameInput.value.trim();
@@ -225,9 +229,10 @@ export const prerender = false;
               }),
             });
             if (!res.ok) {
-              const payload = (await res.json().catch(() => null)) as
-                | { error?: { message?: string } | string; message?: string }
-                | null;
+              const payload = (await res.json().catch(() => null)) as {
+                error?: { message?: string } | string;
+                message?: string;
+              } | null;
               const message =
                 (typeof payload?.error === "object" ? payload?.error?.message : undefined) ||
                 payload?.message ||

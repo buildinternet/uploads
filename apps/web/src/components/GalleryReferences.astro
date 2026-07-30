@@ -31,22 +31,41 @@ const refsClass = isByline ? "refs refs--byline" : isHeaderMulti ? "refs refs--h
       {isHeaderMulti && (
         <div class="rail-head">
           <span class="rail-label">Connected work</span>
-          <span class="rail-rule" aria-hidden="true"></span>
+          <span class="rail-rule" aria-hidden="true" />
         </div>
       )}
       {!isHeader && <h2>Connected work items</h2>}
 
       {isByline && single ? (
         single.href ? (
-          <a class="gh-byline" href={single.href} rel="noopener noreferrer" aria-label={single.ariaLabel}>
+          <a
+            class="gh-byline"
+            href={single.href}
+            rel="noopener noreferrer"
+            aria-label={single.ariaLabel}
+          >
             {single.glyph === "kind" && single.kind && (
-              <svg class="gh-byline-icon" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+              <svg
+                class="gh-byline-icon"
+                viewBox="0 0 16 16"
+                width="13"
+                height="13"
+                aria-hidden="true"
+                focusable="false"
+              >
                 <title>{single.kindLabel}</title>
                 <path fill="currentColor" d={GH_KIND_PATH[single.kind]} />
               </svg>
             )}
             {single.glyph === "github-mark" && (
-              <svg class="gh-byline-icon" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" focusable="false">
+              <svg
+                class="gh-byline-icon"
+                viewBox="0 0 24 24"
+                width="13"
+                height="13"
+                aria-hidden="true"
+                focusable="false"
+              >
                 <path fill="currentColor" d={GITHUB_MARK_PATH} />
               </svg>
             )}
@@ -54,7 +73,9 @@ const refsClass = isByline ? "refs refs--byline" : isHeaderMulti ? "refs refs--h
             {single.title ? (
               <>
                 <span class="gh-byline-title">{single.title}</span>
-                <span class="gh-byline-sep" aria-hidden="true">·</span>
+                <span class="gh-byline-sep" aria-hidden="true">
+                  ·
+                </span>
                 <span class="gh-byline-ref">{single.coordinate}</span>
               </>
             ) : (
@@ -67,7 +88,9 @@ const refsClass = isByline ? "refs refs--byline" : isHeaderMulti ? "refs refs--h
             {single.title ? (
               <>
                 <span class="gh-byline-title">{single.title}</span>
-                <span class="gh-byline-sep" aria-hidden="true">·</span>
+                <span class="gh-byline-sep" aria-hidden="true">
+                  ·
+                </span>
                 <span class="gh-byline-ref">{single.coordinate}</span>
               </>
             ) : (
@@ -80,15 +103,34 @@ const refsClass = isByline ? "refs refs--byline" : isHeaderMulti ? "refs refs--h
           {chips.map((chip) => (
             <li>
               {chip.href ? (
-                <a class="gh-chip" href={chip.href} rel="noopener noreferrer" aria-label={chip.ariaLabel}>
+                <a
+                  class="gh-chip"
+                  href={chip.href}
+                  rel="noopener noreferrer"
+                  aria-label={chip.ariaLabel}
+                >
                   {chip.glyph === "kind" && chip.kind && (
-                    <svg class="gh-chip-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                    <svg
+                      class="gh-chip-icon"
+                      viewBox="0 0 16 16"
+                      width="14"
+                      height="14"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
                       <title>{chip.kindLabel}</title>
                       <path fill="currentColor" d={GH_KIND_PATH[chip.kind]} />
                     </svg>
                   )}
                   {chip.glyph === "github-mark" && (
-                    <svg class="gh-chip-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+                    <svg
+                      class="gh-chip-icon"
+                      viewBox="0 0 24 24"
+                      width="14"
+                      height="14"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
                       <path fill="currentColor" d={GITHUB_MARK_PATH} />
                     </svg>
                   )}

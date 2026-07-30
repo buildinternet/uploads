@@ -36,7 +36,9 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
     <div class="cli-steps" id="cli-steps">
       <div class="command" id="cli-install-cmd">
         <code>npm install -g @buildinternet/uploads</code>
-        <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite">copy</button>
+        <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite"
+          >copy</button
+        >
       </div>
       <div class="command">
         <code>uploads login</code>
@@ -61,16 +63,16 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
   <section class="card settings-page dev-page">
     <div class="settings-section">
       <h2>Developers</h2>
-      <p class="settings-note muted">
-        API and CI. Day to day starts with the CLI setup above.
-      </p>
+      <p class="settings-note muted">API and CI. Day to day starts with the CLI setup above.</p>
       <ul class="dev-links">
-        {showConsoleLinks ? (
-          <li>
-            <a href="/console">Console</a>
-            <span class="slug">token-based ops</span>
-          </li>
-        ) : null}
+        {
+          showConsoleLinks ? (
+            <li>
+              <a href="/console">Console</a>
+              <span class="slug">token-based ops</span>
+            </li>
+          ) : null
+        }
         <li>
           <a href="/docs">API docs</a>
           <span class="slug">endpoints &amp; auth</span>
@@ -121,39 +123,36 @@ const showConsoleLinks = await resolveShowConsoleLinks(env);
       const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
         .__UPLOADS_AUTH_ORIGIN__;
 
-      requireElement<HTMLElement>("#cli-setup", "developers").addEventListener(
-        "click",
-        (event) => {
-          void (async () => {
-            const dismiss = (event.target as HTMLElement).closest<HTMLButtonElement>(
-              "#cli-upgrade-dismiss",
-            );
-            if (dismiss) {
-              const box = requireElement<HTMLElement>("#cli-upgrade", "developers");
-              const latest = box.dataset.latest;
-              if (latest) dismissUpgrade(latest, sessionStorage);
-              box.hidden = true;
-              return;
-            }
-            const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
-              "button[data-copy], #cli-upgrade-copy",
-            );
-            if (!button) return;
-            const text = button.dataset.copy ?? "";
-            if (!text) return;
-            try {
-              await navigator.clipboard.writeText(text);
-              const previous = button.textContent;
-              button.textContent = "copied ✓";
-              setTimeout(() => {
-                button.textContent = previous;
-              }, 1500);
-            } catch {
-              // Clipboard blocked — leave the label.
-            }
-          })();
-        },
-      );
+      requireElement<HTMLElement>("#cli-setup", "developers").addEventListener("click", (event) => {
+        void (async () => {
+          const dismiss = (event.target as HTMLElement).closest<HTMLButtonElement>(
+            "#cli-upgrade-dismiss",
+          );
+          if (dismiss) {
+            const box = requireElement<HTMLElement>("#cli-upgrade", "developers");
+            const latest = box.dataset.latest;
+            if (latest) dismissUpgrade(latest, sessionStorage);
+            box.hidden = true;
+            return;
+          }
+          const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+            "button[data-copy], #cli-upgrade-copy",
+          );
+          if (!button) return;
+          const text = button.dataset.copy ?? "";
+          if (!text) return;
+          try {
+            await navigator.clipboard.writeText(text);
+            const previous = button.textContent;
+            button.textContent = "copied ✓";
+            setTimeout(() => {
+              button.textContent = previous;
+            }, 1500);
+          } catch {
+            // Clipboard blocked — leave the label.
+          }
+        })();
+      });
 
       async function maybeShowCliUpgrade(sessions: AuthSession[] | null): Promise<void> {
         const box = requireElement<HTMLElement>("#cli-upgrade", "developers");

@@ -8,6 +8,10 @@
  * pass: handing a fully-ignored list to the tool makes it exit non-zero with
  * "No files found to lint" / "Expected at least one target file" when only
  * those files are staged.
+ *
+ * `*.astro` is formatted by Prettier (`prettier-plugin-astro`), not oxfmt —
+ * oxfmt has no Astro parser. Keep that split explicit so a silent no-op
+ * cannot look like coverage.
  */
 
 import path from "node:path";
@@ -30,6 +34,12 @@ const oxfmtCommand = (stagedFiles) => {
     : [];
 };
 
+const prettierAstroCommand = (stagedFiles) => {
+  return stagedFiles.length > 0
+    ? [`prettier --write --ignore-unknown ${stagedFiles.join(" ")}`]
+    : [];
+};
+
 export default {
   "*.{js,jsx,ts,tsx,mjs,cjs}": (stagedFiles) => {
     const lintable = stagedFiles.filter((f) => !isIgnored(f, OXLINT_IGNORED_DIRS));
@@ -41,4 +51,6 @@ export default {
     ];
   },
   "*.{json,jsonc,md,yml,yaml,css}": oxfmtCommand,
+  // oxfmt cannot parse Astro; Prettier + prettier-plugin-astro owns these.
+  "*.astro": prettierAstroCommand,
 };

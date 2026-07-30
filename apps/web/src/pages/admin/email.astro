@@ -22,9 +22,9 @@ const PREVIEW_TYPES = [
     <header class="admin-page-header">
       <h2>Email previews</h2>
       <p>
-        Send a sample of each product email through Cloudflare Email Sending.
-        Links use placeholder tokens and will not complete a real sign-in or invite.
-        Defaults to your signed-in address; override for another inbox (e.g. Gmail markup tests).
+        Send a sample of each product email through Cloudflare Email Sending. Links use placeholder
+        tokens and will not complete a real sign-in or invite. Defaults to your signed-in address;
+        override for another inbox (e.g. Gmail markup tests).
       </p>
     </header>
 
@@ -100,12 +100,15 @@ const PREVIEW_TYPES = [
         setStatus("");
         try {
           const to = toInput.value.trim();
-          const res = await fetch(`${apiOrigin}/admin-ui/dev/emails/${encodeURIComponent(typeId)}`, {
-            method: "POST",
-            credentials: "include",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(to ? { to } : {}),
-          });
+          const res = await fetch(
+            `${apiOrigin}/admin-ui/dev/emails/${encodeURIComponent(typeId)}`,
+            {
+              method: "POST",
+              credentials: "include",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(to ? { to } : {}),
+            },
+          );
           const payload = (await res.json().catch(() => null)) as {
             ok?: boolean;
             to?: string;
