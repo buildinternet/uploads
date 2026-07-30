@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  deleteWorkspaceFile,
   getGithubInstalled,
   getMyWorkspaces,
   getSuggestedWorkspaceName,
@@ -215,6 +216,36 @@ describe("setFileVisibility", () => {
     await expect(
       setFileVisibility("http://127.0.0.1:8787", "acme", "a.png", "public"),
     ).resolves.toEqual({ kind: "unavailable", reason: "network" });
+  });
+});
+
+describe("deleteWorkspaceFile", () => {
+  it("DELETEs with credentials and reports success", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe(
+        "http://127.0.0.1:8787/me/workspaces/acme/files?key=f%2Fx%2Fshot.png",
+      );
+      expect(init?.method).toBe("DELETE");
+      expect(init?.credentials).toBe("include");
+      return Response.json({ key: "f/x/shot.png", deleted: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      deleteWorkspaceFile("http://127.0.0.1:8787", "acme", "f/x/shot.png"),
+    ).resolves.toEqual({ kind: "success" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("reports non-2xx responses as unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    await expect(deleteWorkspaceFile("http://127.0.0.1:8787", "acme", "a.png")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "server",
+    });
   });
 });
 
