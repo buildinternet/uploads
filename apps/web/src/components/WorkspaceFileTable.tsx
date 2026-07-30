@@ -344,7 +344,14 @@ function FileActionsMenu({
               type="button"
               className="wft-menu__item wft-confirm__armed"
               disabled={busy}
-              onClick={onDelete}
+              onClick={() => {
+                // Reset to a fresh two-step confirm immediately: if the
+                // delete fails, the menu stays open (see the parent's
+                // `deleteFile`) but the very next click must re-confirm
+                // rather than delete instantly.
+                setConfirm("confirm");
+                onDelete();
+              }}
             >
               Confirm delete
             </button>
