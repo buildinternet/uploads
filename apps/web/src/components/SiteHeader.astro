@@ -52,9 +52,9 @@ const REPO = "https://github.com/buildinternet/uploads";
 </header>
 
 {
-  /* Import-only shell stays behind `star` so non-star pages don't ship the
+  /* Import-only shell stays behind star so non-star pages don't ship the
      module. Logic lives in site-header-stars.ts: prettier-plugin-astro cannot
-     parse function bodies inside a JSX-conditional `<script>` (issue #551). */
+     parse function bodies inside a JSX-conditional script tag (issue #551). */
   star && <script>import "./site-header-stars";</script>
 }
 
