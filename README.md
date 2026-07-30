@@ -186,7 +186,9 @@ case plus peer deps, no API changes.
 
 How to set up, test, and open a pull request:
 [CONTRIBUTING.md](CONTRIBUTING.md). Agent working conventions live in
-[AGENTS.md](AGENTS.md).
+[AGENTS.md](AGENTS.md). Agents that land on this repo should start at
+[llms.txt](llms.txt) (product use vs monorepo contribute). The product site
+serves https://uploads.sh/llms.txt and https://uploads.sh/llms-full.txt.
 
 ## Local development
 

@@ -119,11 +119,14 @@ exists, run `uploads attach --promote` (or any targeted `uploads attach`
 against that PR) to promote and post explicitly.
 
 **No local filesystem?** An agent driving the hosted MCP
-(`agents.uploads.sh/mcp`, no CLI, no git checkout) can still get a visual into
-a PR in one call: the `put` tool takes `pr`/`issue` (+ required `repo`, since
-there's no git context server-side) plus `comment: true` to post straight to
-the managed attachments comment — see the **uploads-cli** skill for the exact
-tool contract and honest decline reasons.
+(`agents.uploads.sh/mcp`, no CLI, no git checkout) can still run the same loop
+with explicit `repo`/`branch`/`pr` (no git defaults on the server):
+
+- Stage as you go: `put` with `branch` + `repo` + base64 content
+- Once the PR exists: `promote` with `repo` + `pr` + `branch`, or `put` with
+  `pr` + `repo` (and optional `branch` to also promote staged files)
+- Managed comment is bot-only on this server — see the **uploads-cli** skill
+  for contracts and honest decline reasons
 
 **Pass `--state before`/`--state after` and `--meta path=/route` as a habit —
 both, every time.** Before/after is the whole point of most PR screenshots, and

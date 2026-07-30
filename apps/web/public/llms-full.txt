@@ -1,0 +1,267 @@
+# uploads.sh — full agent guide
+
+> File hosting for coding agents and humans. Host a file, get a stable public
+> URL, embed it in GitHub pull requests and issues. CLI, installable skills,
+> local stdio MCP, and hosted MCP. Open source for self-hosting.
+
+Shorter index: https://uploads.sh/llms.txt
+Repository agent entrypoint: https://github.com/buildinternet/uploads/blob/main/llms.txt
+
+Access requires a workspace — create your own with a linked GitHub account, or
+be invited. Hosted files are public (including media on private repositories).
+Do not upload secrets or sensitive UI. APIs may change without notice while the
+project is in active development.
+
+## What the product does
+
+GitHub's native image hosting only works through a browser session. Agents
+cannot drag-and-drop. uploads.sh is the missing step: put a local file (or
+base64 on the hosted MCP) and get back durable `url` / `embedUrl` markdown.
+
+The intended loop is **stage as you go**:
+
+1. Capture a visual (your browser tools, or `uploads screenshot`).
+2. On a non-default git branch, bare `uploads put ./shot.png --state after`
+   stages under a branch key automatically — no PR required.
+3. When the PR opens, staged files promote into one managed "📎 Attachments"
+   comment (GitHub App webhook, or the next `uploads attach` / `attach --promote`).
+4. Re-upload the same filename on a stable `gh/…` key; the URL never changes.
+
+Prefer `embedUrl` (https://embed.uploads.sh/…) in GitHub markdown so Camo
+revalidates after overwrite. Prefer the returned `markdown` field rather than
+hand-building storage URLs.
+
+## Install
+
+```bash
+npm install -g @buildinternet/uploads && uploads login
+uploads install
+npx skills add buildinternet/uploads
+```
+
+`uploads login` is one-time and human-in-the-loop (device authorization). It
+writes `UPLOADS_API_URL`, `UPLOADS_WORKSPACE`, and `UPLOADS_TOKEN` to the shared
+config file. Later non-interactive agent runs only need the saved token.
+
+Remote MCP (HTTP):
+
+```bash
+claude mcp add --transport http uploads https://agents.uploads.sh/mcp
+```
+
+Local stdio MCP (full tool parity with the CLI, needs local filesystem):
+
+```bash
+claude mcp add uploads -- uploads mcp
+```
+
+Claude Code plugin (skills + hosted MCP + `/uploads:attach` + pre-PR hook):
+
+```text
+/plugin marketplace add buildinternet/uploads
+/plugin install uploads@uploads
+```
+
+Codex uses the same repo as a plugin (`.codex-plugin/plugin.json`). Keep the
+`uploads` CLI on PATH and run `uploads login` once.
+
+## Auth
+
+Routine path:
+
+1. Get workspace access (self-serve create at /account/workspaces/new with a
+   linked GitHub account, or accept an invitation).
+2. `uploads login` → workspace bearer token `up_<workspace>_…`.
+3. Send `Authorization: Bearer <token>` on API and MCP calls.
+
+Default scopes on login: `files:read`, `files:write`. `files:delete` is not
+default — an admin must grant it. Tokens default to 90 days.
+
+Hosted MCP also accepts OAuth 2.1 from https://auth.uploads.sh (PKCE + dynamic
+client registration). REST API does **not** accept OAuth in v1 — workspace
+bearer only. Full detail: https://uploads.sh/auth.md
+
+Never put `ADMIN_TOKEN` in agent configs. It is break-glass operator access.
+
+## Core CLI workflows
+
+### Stage on a branch (pre-PR)
+
+```bash
+uploads put ./before.png --meta path=/settings --state before
+uploads put ./after.png --meta path=/settings --state after
+uploads staged                    # what's queued + will it auto-attach?
+```
+
+Bare `put` / bare `screenshot` on a non-default branch stage automatically.
+`--state` is a closed set: `before` | `after` | `empty` | `error` | `loading`.
+Pass `--meta path=/route` as a habit; `path` and `state` are the highest-value
+queryable tags.
+
+Staging auto-promotes only when the repo is **bound** to the workspace. Check
+with `uploads github link --status` or `uploads staged` (binding field). If
+unbound, after the PR exists run:
+
+```bash
+uploads attach --promote
+```
+
+### Attach to an existing PR/issue
+
+```bash
+uploads attach ./before.png ./after.png
+uploads attach ./shot.png --issue 45 --repo owner/name
+uploads put ./after.png --pr 123 --alt "Dashboard after" --width 700
+```
+
+`--pr` / `--issue` keys are stable and hash-free:
+`gh/<owner>/<repo>/pull|issues/<num>/<filename>`. They always overwrite in
+place. Other keys are strict (refuse overwrite unless `--replace`).
+
+### Capture
+
+```bash
+uploads screenshot http://localhost:4321/settings --out after.png --state after
+uploads screenshot https://example.com --via remote --pr 123
+```
+
+`--via auto` prefers local Chrome, else remote server render (counts against
+the workspace upload budget). localhost targets are local-only.
+
+### Annotate
+
+```bash
+uploads screenshot http://localhost:3000 --via local --annotate ./callouts.json
+uploads annotate ./shot.png --spec ./callouts.json
+```
+
+See skill `annotate-screenshots` for the JSON spec.
+
+### Manage
+
+```bash
+uploads list --pr 123
+uploads find path=/settings state=after
+uploads delete <key>
+uploads usage
+uploads doctor
+uploads comment --pr 123          # re-sync managed comment without uploading
+```
+
+## Hosted MCP (agents.uploads.sh)
+
+Use when the agent has **no local filesystem or git checkout**. Content is
+base64, not paths. Workspace is inferred from the bearer / OAuth token.
+
+Important tools (not exhaustive):
+
+| Tool | Role |
+| --- | --- |
+| `put` | Upload base64; with `pr`/`issue` + required `repo`, stable gh key + managed comment by default (`comment: false` to skip). With `branch` + `repo` (no pr/issue), stages under `gh/…/branch/…`. With `pr` + `branch`, also promotes that branch after upload |
+| `promote` | Copy branch-staged files into a PR (`repo` + `pr` + `branch` required); optional comment refresh (default on) |
+| `comment` | Refresh managed attachments comment without re-uploading |
+| `list` / `find_files` / `get_metadata` / `set_metadata` | Browse and tag objects |
+| `repo_link_status` | Binding tri-state: `self` \| `other` \| `none` (will staged files auto-attach?) |
+| `delete` / `usage` / galleries… | Lifecycle and collections |
+
+Hosted `put`/`promote` comment paths are **bot-only** (uploads-sh[bot]). No
+local `gh` fallback. Declines surface in the result (`not_installed`,
+`not_authorized`, `forbidden` with `fixUrl`) and never fail the upload itself.
+
+### Why there is no hosted `attach` tool
+
+**Intentional.** Local stdio `attach` takes filesystem paths and can fall back
+to local `gh`. The Worker has neither. Hosted agents use `put` (PR attach or
+branch stage) and `promote` for the same outcomes.
+
+### Why there is no hosted `staged` tool
+
+**Intentional (issue #405).** Local `staged` defaults branch/repo from git.
+Hosted has no git context. Answer the same questions with:
+
+```text
+list  { prefix: "gh/<owner>/<repo>/branch/<branch>/" }
+find_files  { filters: { "gh.branch": "<branch>", "gh.repo": "<owner>/<repo>" } }
+repo_link_status  { repo: "<owner>/<repo>" }
+```
+
+Local stdio MCP exposes a first-class `staged` tool mirroring the CLI.
+
+## Skills
+
+| Skill | When |
+| --- | --- |
+| github-screenshots | Visual needs to land in a PR/issue/share link |
+| annotate-screenshots | Callouts, arrows, redaction on a capture |
+| uploads-cli | Exact flags, keys, MCP contracts, edge cases |
+
+Install: `npx skills add buildinternet/uploads` or `uploads install`.
+
+## Endpoints
+
+- Web: https://uploads.sh
+- API: https://api.uploads.sh
+- Agents / MCP: https://agents.uploads.sh/mcp
+- Public storage: https://storage.uploads.sh
+- Embed (GitHub Camo-friendly): https://embed.uploads.sh
+- oEmbed: https://uploads.sh/oembed?url=<page-url>&format=json
+
+## Machine-readable discovery
+
+- Integration surfaces: https://uploads.sh/.well-known/integrations.json
+- API catalog: https://uploads.sh/.well-known/api-catalog
+- OpenAPI (summary): https://uploads.sh/.well-known/openapi.json (also /openapi.json)
+- MCP server card: https://uploads.sh/.well-known/mcp/server-card.json
+- Agent skills index: https://uploads.sh/.well-known/agent-skills/index.json
+- robots / sitemap: https://uploads.sh/robots.txt · https://uploads.sh/sitemap.xml
+
+Narrative API docs (not full OpenAPI): https://github.com/buildinternet/uploads/blob/main/docs/api.md
+
+## Project instructions snippet
+
+Add to AGENTS.md / CLAUDE.md / Cursor rules in **consumer** repos:
+
+```text
+## Screenshots
+When a change is visually observable (UI, layout, styling), capture it as you
+go — don't wait until the PR is open. After each meaningful visual change:
+
+  uploads put ./shot.png --state before   # or --state after
+
+On a branch, that stages automatically — no --branch flag needed. Stage
+before/after pairs where it makes sense. No need to open the PR first —
+staged files are promoted into the PR's attachments comment automatically.
+```
+
+## Cautions
+
+- Uploads are public until deleted. Private GitHub repos do not make media private.
+- `gh/<owner>/<repo>/pull|issues/<num>/<name>` keys are predictable.
+- Prefer short compressed clips over large raw video on PRs.
+- Exit codes (CLI): `2` usage/token/file, `3` auth/policy, `4` network, `1` other.
+- Telemetry is anonymous command-name pings; opt out with `DO_NOT_TRACK=1` or
+  `UPLOADS_TELEMETRY_DISABLED=1`.
+
+## Docs map
+
+- Home: https://uploads.sh/
+- Docs hub: https://uploads.sh/docs
+- Attach & share: https://uploads.sh/docs/attach-pull-request-images
+- GitHub App: https://uploads.sh/docs/github-app
+- Comment config (`.uploads.yml`): https://uploads.sh/docs/comment-config
+- Agents: https://uploads.sh/docs/agents
+- Reference: https://uploads.sh/docs/reference
+- Plans & limits: https://uploads.sh/docs/limits
+- Agent walkthrough: https://uploads.sh/github-screenshots
+- Source: https://github.com/buildinternet/uploads
+
+## Legal
+
+- Terms: https://uploads.sh/terms
+- Privacy: https://uploads.sh/privacy
+- Operated by Build Internet: https://buildinternet.com
+
+## Do not crawl as public product surface
+
+Enrollment invite pages (`/invite`) and the browser console (`/console`) are
+private operator surfaces. See https://uploads.sh/robots.txt.

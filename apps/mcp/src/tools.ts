@@ -1,14 +1,22 @@
 /**
- * Remote MCP tool set — the hosted subset of the CLI's stdio tools (put,
- * list, delete, health). Everything is scoped to the workspace resolved by
- * `workspaceAuth`; token scopes are enforced inside handlers, where a throw
- * becomes an isError tool result rather than a JSON-RPC error. Tools needing
- * a filesystem or the gh CLI (attach, comment, doctor) stay stdio-only.
+ * Remote MCP tool set — the hosted subset of the CLI's stdio tools. Everything
+ * is scoped to the workspace resolved by `workspaceAuth`; token scopes are
+ * enforced inside handlers, where a throw becomes an isError tool result
+ * rather than a JSON-RPC error.
+ *
+ * Deliberate hosted divergences (no filesystem / no git / no local `gh`):
+ * - No `attach` tool — use `put` with `pr`/`issue` (+ required `repo`) for the
+ *   same stable key + managed comment, or `put` with `branch` (+ `repo`) to
+ *   stage pre-PR, or `promote` to copy staged files into a PR.
+ * - No `doctor` (local checks). No `staged` tool — no git defaults for branch;
+ *   use `list` / `find_files` + `repo_link_status` (issue #405).
  */
 import {
   buildMarkdown,
   buildScreenshotKey,
   ghAttachmentKey,
+  ghBranchAttachmentKey,
+  ghMetadataForBranch,
   ghMetadataFromTarget,
   type GhTarget,
 } from "@buildinternet/uploads";
@@ -32,6 +40,10 @@ import {
 import { AppError, NotFoundError } from "@uploads/errors";
 import { badKey } from "@uploads/api/files";
 import { postManagedComment, type PostCommentResult } from "@uploads/api/github-comment-service";
+import {
+  postPromoteBranchAttachments,
+  type PromoteResult,
+} from "@uploads/api/github-promote-service";
 import {
   findObjectsByMetadata,
   getFileMetadata,
@@ -167,6 +179,29 @@ function ghTargetFromArgs(args: Record<string, unknown>): GhTarget | undefined {
   return { repo, kind: pr !== undefined ? "pull" : "issues", num: (pr ?? issue) as number };
 }
 
+/**
+ * Branch name for staging / promote. Required non-empty printable string when
+ * present; `ghMetadataForBranch` enforces the metadata value rules and is
+ * the source of truth for "is this branch name stageable?".
+ */
+function branchFromArgs(args: Record<string, unknown>): string | undefined {
+  if (!("branch" in args) || args.branch === undefined || args.branch === null) return undefined;
+  const branch = optString(args, "branch");
+  if (branch === undefined || branch.length === 0) {
+    usage("branch must be a non-empty string");
+  }
+  return branch;
+}
+
+/** Stamp gh.* branch metadata; surface metadata rule failures as usage errors. */
+function branchMetadata(repo: string, branch: string): Record<string, string> {
+  try {
+    return ghMetadataForBranch(repo, branch);
+  } catch (err) {
+    usage(err instanceof Error ? err.message : String(err));
+  }
+}
+
 /** Per-item failure detail, same shape as the CLI/stdio `failures[]` entries. */
 function errorDetail(err: unknown): {
   message: string;
@@ -216,6 +251,30 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
       return { comment };
     } catch (err) {
       return { commentError: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  /**
+   * Best-effort promote (CLI attach --pr parity). Never fails the caller —
+   * promote problems surface as `promoteError` so an upload/comment path
+   * still returns its primary result.
+   */
+  async function attemptPromote(
+    repo: string,
+    num: number,
+    branch: string,
+  ): Promise<{ promotion?: PromoteResult; promoteError?: string }> {
+    try {
+      const promotion = await postPromoteBranchAttachments(
+        env,
+        workspace,
+        workspaceName,
+        ctx.mintingUserId,
+        { repo, num, branch },
+      );
+      return { promotion };
+    } catch (err) {
+      return { promoteError: err instanceof Error ? err.message : String(err) };
     }
   }
 
@@ -439,7 +498,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     {
       name: "put",
       description:
-        "Upload base64-encoded content to the workspace and get a public URL plus GitHub-ready embed markdown (the returned `markdown` is ready to paste into a PR or issue). Single file: pass `contentBase64` + `filename` (flat result). Multiple files: pass `files` (uploaded in parallel; returns `uploads` + `failures`, one bad item does not abort the rest). The key defaults to <prefix>/<repo>/<ref>/<name>-<hash>.<ext>; pass `key` for an explicit path instead (single-file only). With `pr`/`issue` (+ required `repo`) the key is stable instead (gh/…, always overwrites) and the managed attachments comment is synced by default as uploads-sh[bot] (bot-only on this hosted server, no local gh fallback; body honors the repo's `.uploads.yml` when present) — pass `comment: false` to skip it. Uploads are public regardless of GitHub repository visibility; explicit predictable keys must contain only non-sensitive media. The stored content type is sniffed from the bytes and restricted to the workspace's allowlist (images plus mp4/webm by default).",
+        "Upload base64-encoded content to the workspace and get a public URL plus GitHub-ready embed markdown (the returned `markdown` is ready to paste into a PR or issue). Single file: pass `contentBase64` + `filename` (flat result). Multiple files: pass `files` (uploaded in parallel; returns `uploads` + `failures`, one bad item does not abort the rest). The key defaults to <prefix>/<repo>/<ref>/<name>-<hash>.<ext>; pass `key` for an explicit path instead (single-file only). With `pr`/`issue` (+ required `repo`) the key is stable instead (gh/…, always overwrites) and the managed attachments comment is synced by default as uploads-sh[bot] (bot-only on this hosted server, no local gh fallback; body honors the repo's `.uploads.yml` when present) — pass `comment: false` to skip it. With `branch` (+ required `repo`, no pr/issue) stages under gh/…/branch/… for pre-PR capture (CLI attach --branch parity); no comment yet. With `pr` + `branch`, also best-effort promotes that branch's staged files into the PR before the comment sync (CLI attach --pr auto-promote parity). Uploads are public regardless of GitHub repository visibility; explicit predictable keys must contain only non-sensitive media. The stored content type is sniffed from the bytes and restricted to the workspace's allowlist (images plus mp4/webm by default).",
       inputSchema: {
         type: "object",
         properties: {
@@ -474,12 +533,12 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
               required: ["filename", "contentBase64"],
               additionalProperties: false,
             },
-            description: `Multiple files to upload in one call (max ${MAX_PUT_FILES} items). Cannot be combined with contentBase64, filename, or key; prefix/repo/ref/pr/issue/width/metadata apply to every item. Returns { uploads, failures } with per-item results (plus comment/commentError once for the whole batch when the comment sync runs).`,
+            description: `Multiple files to upload in one call (max ${MAX_PUT_FILES} items). Cannot be combined with contentBase64, filename, or key; prefix/repo/ref/pr/issue/branch/width/metadata apply to every item. Returns { uploads, failures } with per-item results (plus comment/commentError / promotion once for the whole batch when those run).`,
           },
           key: {
             type: "string",
             description:
-              "Explicit object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>). Cannot be combined with prefix/repo/ref.",
+              "Explicit object key (default: <prefix>/<repo>/<ref>/<name>-<hash>.<ext>). Cannot be combined with prefix/repo/ref/pr/issue/branch.",
           },
           prefix: {
             type: "string",
@@ -488,27 +547,32 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           repo: {
             type: "string",
             description:
-              "owner/name repo segment for the default key layout (default: misc). REQUIRED (and must be owner/name) with pr/issue — there is no git context on this server to infer it from.",
+              "owner/name repo segment for the default key layout (default: misc). REQUIRED (and must be owner/name) with pr/issue/branch — there is no git context on this server to infer it from.",
           },
           ref: {
             type: "string",
             description:
-              "PR/issue/branch key segment for the default key layout (default: today). Cannot be combined with pr/issue.",
+              "PR/issue/branch key segment for the default key layout (default: today). Cannot be combined with pr/issue/branch.",
           },
           pr: {
             type: "number",
             description:
-              "Attach to this pull request: uses a stable gh/ key (always overwrites) and stamps canonical gh.* metadata. Mutually exclusive with issue and with key/prefix/ref. Requires repo.",
+              "Attach to this pull request: uses a stable gh/ key (always overwrites) and stamps canonical gh.* metadata. Mutually exclusive with issue. Cannot combine with key/prefix/ref, or with branch-only staging (branch alone stages; pr + branch uploads to the PR and promotes that branch). Requires repo.",
           },
           issue: {
             type: "number",
             description:
-              "Attach to this issue: uses a stable gh/ key (always overwrites) and stamps canonical gh.* metadata. Mutually exclusive with pr and with key/prefix/ref. Requires repo.",
+              "Attach to this issue: uses a stable gh/ key (always overwrites) and stamps canonical gh.* metadata. Mutually exclusive with pr and with branch (promotion is PR-only). Cannot combine with key/prefix/ref. Requires repo.",
+          },
+          branch: {
+            type: "string",
+            description:
+              "Git branch name. Without pr/issue: stage under gh/<owner>/<repo>/branch/<branch>/<filename> (pre-PR; no comment). With pr: after upload, best-effort promote this branch's staged files into the PR (never fails the upload; see promotion/promoteError). Requires repo. Cannot combine with issue, key, prefix, or ref.",
           },
           comment: {
             type: "boolean",
             description:
-              "With pr/issue: after a successful upload, create or update the managed attachments comment via the uploads.sh GitHub App (bot-only on this hosted server — no local gh fallback; body honors the repo's `.uploads.yml` when present). Defaults to true when pr/issue is given (requires the files:read scope; a write-only token skips the sync unless comment is explicitly true); pass false to skip. Requires pr or issue. A comment failure never fails the upload; see the response's `comment`/`commentError`.",
+              "With pr/issue: after a successful upload, create or update the managed attachments comment via the uploads.sh GitHub App (bot-only on this hosted server — no local gh fallback; body honors the repo's `.uploads.yml` when present). Defaults to true when pr/issue is given (requires the files:read scope; a write-only token skips the sync unless comment is explicitly true); pass false to skip. Requires pr or issue (not branch-only staging). A comment failure never fails the upload; see the response's `comment`/`commentError`.",
           },
           alt: {
             type: "string",
@@ -558,47 +622,53 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           if (!filename) usage("filename is required");
         }
 
-        // PR/issue targeting (issue #392): mirrors the stdio put contract, but
-        // `repo` is required here (no git context on this server, enforced by
-        // ghTargetFromArgs). Mutually exclusive with key/prefix/ref — a target
-        // always uses the stable gh/ key layout, never the default one.
+        // Destinations (no git on this server — repo is always required when
+        // the key layout needs it):
+        // - pr/issue → stable gh/…/pull|issues/… keys + optional comment (#392)
+        // - branch alone → stage under gh/…/branch/… (CLI attach --branch)
+        // - pr + branch → PR key, then best-effort promote that branch
         const target = ghTargetFromArgs(args);
-        // optBool collapses "absent" to false, but absent vs explicit false
-        // matters here (absent → default-on with pr/issue), so gate on the
-        // raw arg first.
-        const commentArg = args.comment == null ? undefined : optBool(args, "comment");
-        if (commentArg && !target) usage("comment requires pr or issue");
-        // The comment path's gather reads the workspace's own objects,
-        // metadata, and galleries (github-comment-service.ts's
-        // gatherCommentBody) — the same reason the REST route requires
-        // files:read. Checked up front, alongside the other argument
-        // validation, so a files:write-only token is rejected before any
-        // bytes are written — never after a successful upload.
-        if (commentArg === true) requireScope("files:read");
-        // With pr/issue the sync runs by default (parity with CLI put, #537);
-        // comment: false opts out. The default-on case additionally requires
-        // files:read on the token — a write-only token keeps its pre-#537
-        // ability to upload by silently skipping the sync, and only an
-        // explicit comment: true turns that missing scope into an error.
-        const wantComment =
-          commentArg ?? (target !== undefined && ctx.authScopes.includes("files:read"));
-
+        const branch = branchFromArgs(args);
         const explicitKey = optString(args, "key");
         const prefix = optString(args, "prefix");
         const repo = optString(args, "repo");
         const ref = optString(args, "ref");
-        if (target) {
-          if (explicitKey) usage("key cannot be combined with pr/issue");
-          if (prefix) usage("prefix cannot be combined with pr/issue");
-          if (ref) usage("ref cannot be combined with pr/issue");
+
+        if (branch !== undefined && target?.kind === "issues") {
+          usage("branch cannot be combined with issue (promotion only applies to pull requests)");
         }
-        if (explicitKey && (prefix ?? repo ?? ref) !== undefined) {
+        // Branch-only staging vs pr+branch promote-after.
+        const staging = branch !== undefined && !target;
+        const promoteBranch = branch !== undefined && target?.kind === "pull" ? branch : undefined;
+        if (staging) {
+          if (!repo) usage("repo is required with branch (no git context on the hosted server)");
+          if (!validRepoGrammar(repo)) usage("repo must be owner/name");
+        }
+
+        // Stable gh layouts (PR/issue or branch stage) own the key path.
+        const ghLayout = target ? "pr/issue" : staging ? "branch" : null;
+        if (ghLayout) {
+          if (explicitKey) usage(`key cannot be combined with ${ghLayout}`);
+          if (prefix) usage(`prefix cannot be combined with ${ghLayout}`);
+          if (ref) usage(`ref cannot be combined with ${ghLayout}`);
+        } else if (explicitKey && (prefix ?? repo ?? ref) !== undefined) {
           usage("key cannot be combined with prefix/repo/ref");
         }
 
-        // state/app are explicit input and win over a same-named metadata key.
-        // This server cannot derive the EXIF-sourced keys (no image decoding in
-        // the Workers runtime), so these two are the whole canonical surface here.
+        // optBool collapses "absent" to false; absent vs explicit false matters
+        // for default-on comment with pr/issue.
+        const commentArg = args.comment == null ? undefined : optBool(args, "comment");
+        if (commentArg && !target) usage("comment requires pr or issue");
+        // Comment gather needs files:read (same as REST). Check up front so a
+        // write-only token is rejected before any bytes are written when the
+        // caller explicitly asked for comment: true.
+        if (commentArg === true) requireScope("files:read");
+        // Default-on with pr/issue when the token has files:read (#537);
+        // write-only tokens still upload, just skip the sync unless comment:true.
+        const wantComment =
+          commentArg ?? (target !== undefined && ctx.authScopes.includes("files:read"));
+
+        // state/app win over same-named metadata. No EXIF derivation on Workers.
         let metadata = metadataArgWithCanonical(args);
         if (metadata) {
           try {
@@ -607,46 +677,63 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             usage(err instanceof Error ? err.message : String(err));
           }
         }
-        // With a target, stamp the canonical gh.* pairs (parity with the
-        // attach flow, so find/activity-feed/attribution see these uploads).
-        // Canonical keys win over any caller-supplied same-named pair.
+        // Canonical gh.* stamps win over caller pairs (attach parity).
         if (target) metadata = { ...metadata, ...ghMetadataFromTarget(target) };
-        // Uploader attribution (issue #345, parity with the REST PUT hook in
-        // apps/api/src/routes/files.ts): gh.*-tagged uploads get server-derived
-        // `gh.uploader`/`gh.uploader-id` stamped from the OAuth JWT's (or
-        // up_ token's) minting user, spread AFTER the tool-supplied pairs so
-        // a caller can't spoof those keys. Applied once for the whole call —
-        // metadata (like prefix/repo/ref) applies to every item in a batch.
+        else if (staging && repo && branch) {
+          metadata = { ...metadata, ...branchMetadata(repo, branch) };
+        }
+        // Uploader attribution (#345): server tags after caller pairs so they
+        // can't be spoofed; drop if they'd exceed the key cap.
         if (metadata && hasGithubTags(metadata)) {
           const uploader = await uploaderTags(env, ctx.mintingUserId, metadata["gh.repo"]);
           if (uploader) {
-            // Never let attribution break an upload that was valid without
-            // it: drop the server tags if the merge would exceed the cap.
             const merged = { ...metadata, ...uploader };
             if (Object.keys(merged).length <= META_MAX_KEYS) metadata = merged;
           }
         }
 
         const policy = resolveUploadPolicy(workspace);
-        // Pre-decode gate uses the policy ceiling (video caps can exceed
-        // maxBytes); putObject's inspectUpload enforces the content-specific
-        // limit after sniffing, so an over-cap image still fails per item.
+        // Pre-decode uses the policy ceiling (video may exceed maxBytes);
+        // putObject's inspectUpload enforces the content-specific limit.
         const maxBytes = Math.max(policy.maxBytes, policy.maxVideoBytes);
         const alt = optString(args, "alt");
         const width = optPosInt(args, "width");
-        // Strict-overwrite gate (issue #174): defaults false; only matters on
-        // non-gh/ keys (explicit `key`, or the default prefix/repo/ref
-        // layout) — putObject always allows overwrite on gh/-prefixed keys.
+        // Strict overwrite (issue #174) only on non-gh/ keys.
         const replaceArg = optBool(args, "replace") === true;
         const putOpts =
           metadata !== undefined || replaceArg
             ? { metadata, replace: replaceArg, surface: "mcp" as const }
             : { surface: "mcp" as const };
 
+        /** Resolve the object key for one filename (+ bytes for the dated layout). */
+        async function resolveKey(name: string, bytes: Uint8Array): Promise<string> {
+          if (explicitKey) return explicitKey;
+          if (target) return ghAttachmentKey(target, name);
+          if (staging && repo && branch) return ghBranchAttachmentKey(repo, branch, name);
+          // deriveRepoFromGit: false — no git on a worker.
+          return buildScreenshotKey({
+            filename: name,
+            fileBytes: bytes,
+            prefix,
+            repo,
+            ref,
+            deriveRepoFromGit: false,
+          });
+        }
+
+        /** After successful write(s): optional promote, then comment (CLI order). */
+        async function afterUploadExtras(hadSuccess: boolean): Promise<Record<string, unknown>> {
+          if (!hadSuccess || !target) return {};
+          const promoteResult =
+            promoteBranch !== undefined
+              ? await attemptPromote(target.repo, target.num, promoteBranch)
+              : undefined;
+          const commentResult = wantComment ? await attachComment(target) : undefined;
+          return { ...promoteResult, ...commentResult };
+        }
+
         if (multi) {
-          // Decode (and size-gate) every item before any write, so a
-          // structurally invalid batch fails whole with a usage error
-          // instead of leaving partial writes behind.
+          // Decode every item before any write so a bad batch fails whole.
           const decoded = items.map((item, i) => {
             try {
               return decodeBase64(item.contentBase64, maxBytes);
@@ -656,25 +743,10 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
               );
             }
           });
-          // Keys are deterministic (sanitized name + content hash for the
-          // default layout, or filename alone under a gh/ target), so two
-          // items can collide — e.g. the same file listed twice. Reject
-          // before any write: concurrent same-key puts would double-count
-          // the usage ledger and report more uploads than stored objects.
-          const keys = target
-            ? items.map((item) => ghAttachmentKey(target, item.filename))
-            : await Promise.all(
-                decoded.map((bytes, i) =>
-                  buildScreenshotKey({
-                    filename: items[i]!.filename,
-                    fileBytes: bytes,
-                    prefix,
-                    repo,
-                    ref,
-                    deriveRepoFromGit: false,
-                  }),
-                ),
-              );
+          const keys = await Promise.all(
+            items.map((item, i) => resolveKey(item.filename, decoded[i]!)),
+          );
+          // Deterministic keys can collide (same file twice). Reject first.
           const firstIndexByKey = new Map<string, number>();
           keys.forEach((key, i) => {
             const first = firstIndexByKey.get(key);
@@ -719,40 +791,18 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
             slot.ok ? [] : [{ file: slot.file, error: errorDetail(slot.err) }],
           );
           if (uploads.length === 0 && failures.length > 0) {
-            // Total failure → isError with structuredContent, same as stdio.
             throw new ToolBatchError(batchFailureMessage(failures), {
               workspace: workspaceName,
               uploads,
               failures,
             });
           }
-          // At least one item made it into R2 (issue #392): sync the comment
-          // once for the whole batch, same as the stdio tool syncs once per call.
-          const commentResult =
-            wantComment && target && uploads.length > 0 ? await attachComment(target) : undefined;
-          return { workspace: workspaceName, uploads, failures, ...commentResult };
+          const extras = await afterUploadExtras(uploads.length > 0);
+          return { workspace: workspaceName, uploads, failures, ...extras };
         }
 
         const bytes = decodeBase64(contentBase64!, maxBytes);
-
-        const key =
-          explicitKey ??
-          (target
-            ? ghAttachmentKey(target, filename!)
-            : // deriveRepoFromGit: false — no git (or child_process) on a worker.
-              await buildScreenshotKey({
-                filename: filename!,
-                fileBytes: bytes,
-                prefix,
-                repo,
-                ref,
-                deriveRepoFromGit: false,
-              }));
-
-        // Key/body validation and the size/type guardrails live in putObject,
-        // shared with the REST API — the stored content type is sniffed there.
-        // metadata is undefined when omitted (leave existing D1 rows
-        // untouched); passing opts only when defined preserves that.
+        const key = await resolveKey(filename!, bytes);
         const result = await putObject(env, workspace, key, bytes, workspaceName, putOpts);
         const markdown =
           result.url === null
@@ -761,8 +811,8 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
                 alt: alt ?? filename!,
                 width,
               });
-        const commentResult = wantComment && target ? await attachComment(target) : undefined;
-        return { workspace: workspaceName, ...result, markdown, ...commentResult };
+        const extras = await afterUploadExtras(true);
+        return { workspace: workspaceName, ...result, markdown, ...extras };
       },
     },
     {
@@ -848,6 +898,66 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
         return postManagedComment(env, workspace, workspaceName, ctx.mintingUserId, target, {
           resync: true,
         });
+      },
+    },
+    {
+      name: "promote",
+      description:
+        "Copy this workspace's branch-staged attachments (gh/…/branch/… keys from put with branch, or CLI attach --branch) into a PR's stable gh/…/pull/… prefix, then optionally refresh the managed attachments comment. Hosted stand-in for `uploads attach --promote` — no git context, so repo, pr, and branch are all required. Does not delete staged originals. Promotion is a pure workspace-data copy (no GitHub API for the copy itself); the comment path is bot-only like the comment tool. Returns { promotion: { promoted, skipped }, comment?, commentError? }.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          repo: {
+            type: "string",
+            description:
+              "owner/name repo. REQUIRED — there is no git context on this server to infer it from.",
+          },
+          pr: {
+            type: "number",
+            description: "Pull request number to promote into. Promotion never applies to issues.",
+          },
+          branch: {
+            type: "string",
+            description:
+              "Git branch whose staged prefix (gh/…/branch/<branch>/) should be copied into the PR.",
+          },
+          comment: {
+            type: "boolean",
+            description:
+              "After a successful promote, create or update the managed attachments comment (default true when files:read is on the token; pass false to skip). A comment failure never fails the promote; see commentError.",
+          },
+        },
+        required: ["repo", "pr", "branch"],
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:write");
+        await requireWriteBudget();
+        const repo = requiredString(args, "repo");
+        if (!validRepoGrammar(repo)) usage("repo must be owner/name");
+        const pr = optPosInt(args, "pr");
+        if (pr === undefined) usage("pr is required");
+        const branch = branchFromArgs(args) ?? usage("branch is required");
+        // Validate branch is stageable (metadata rules) before the copy.
+        branchMetadata(repo, branch);
+
+        const commentArg = args.comment == null ? undefined : optBool(args, "comment");
+        if (commentArg === true) requireScope("files:read");
+        const wantComment = commentArg ?? ctx.authScopes.includes("files:read");
+
+        // Primary job — failures throw (isError), unlike put's best-effort promote.
+        const promotion = await postPromoteBranchAttachments(
+          env,
+          workspace,
+          workspaceName,
+          ctx.mintingUserId,
+          { repo, num: pr, branch },
+        );
+
+        const commentResult = wantComment
+          ? await attachComment({ repo, kind: "pull", num: pr })
+          : undefined;
+        return { promotion, ...commentResult };
       },
     },
     {

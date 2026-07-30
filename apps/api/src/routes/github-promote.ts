@@ -9,9 +9,7 @@
  */
 import { ValidationError } from "@uploads/errors";
 import { Hono } from "hono";
-import { promoteBranchAttachments } from "../github-promote";
-import { isEntitledToClaimRepo } from "../github-claim-authz";
-import { findRepoLink, recordRepoLink } from "../github-repo-links";
+import { postPromoteBranchAttachments } from "../github-promote-service";
 import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
 import { jsonBody } from "./json-body";
@@ -60,33 +58,15 @@ export const githubPromote = new Hono<WorkspaceVars>().post(
   async (c) => {
     const target = parseBody(await jsonBody(c));
     const workspaceName = c.get("workspaceName");
-    const result = await promoteBranchAttachments(c.env, c.get("workspace"), workspaceName, target);
-
-    // Implicit claim (phase 3): reaching a 2xx response means this workspace
-    // has proven authenticated write access to this repo's branch-staged
-    // attachments — best-effort record it as the repo's bound workspace.
-    // First-claim-wins (recordRepoLink) and never affects this response.
-    //
-    // Cross-tenant authorization (issue #297): unlike /github/comment, this
-    // route makes no GitHub API call of its own (it only copies the calling
-    // workspace's own R2 objects), so nothing previously stopped workspace A
-    // from being the first to promote against org B's unbound repo and
-    // silently becoming its bound workspace — a defacement/denial vector
-    // against org B's later legitimate `/github/comment` calls, which decline
-    // once a repo is bound elsewhere. Gate the claim itself: an already-bound
-    // repo is always re-recorded (INSERT OR IGNORE no-ops, matching prior
-    // behavior — grandfathered), but a NEW claim only happens when this
-    // workspace's linked GitHub identity is verified as entitled to `repo`.
-    // The promote operation itself (copying the workspace's own data) is
-    // never blocked by this — only the side-effect claim is gated.
-    const existingLink = await findRepoLink(c.env.DB, target.repo);
-    const canClaim =
-      existingLink !== null ||
-      (await isEntitledToClaimRepo(c.env, target.repo, c.get("mintingUserId")));
-    if (canClaim) {
-      await recordRepoLink(c.env.DB, target.repo, workspaceName, "promote");
-    }
-
+    // Promote + gated claim live in github-promote-service so the hosted MCP
+    // promote tool reuses the same path (no drift with this route).
+    const result = await postPromoteBranchAttachments(
+      c.env,
+      c.get("workspace"),
+      workspaceName,
+      c.get("mintingUserId"),
+      target,
+    );
     return c.json(result);
   },
 );

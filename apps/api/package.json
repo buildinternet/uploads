@@ -21,6 +21,7 @@
     "./uploader-identity": "./src/uploader-identity.ts",
     "./github-comment-service": "./src/github-comment-service.ts",
     "./github-comment-render": "./src/github-comment-render.ts",
+    "./github-promote-service": "./src/github-promote-service.ts",
     "./github-repo-binding": "./src/github-repo-binding.ts"
   },
   "scripts": {

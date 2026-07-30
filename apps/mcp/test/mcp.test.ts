@@ -580,6 +580,7 @@ describe("mcp worker", () => {
       "get_metadata",
       "health",
       "list",
+      "promote",
       "purge_expired",
       "put",
       "reconcile",

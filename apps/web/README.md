@@ -24,7 +24,8 @@ src/lib/                             Public gallery/file fetch + oEmbed resoluti
 public/_headers                      Per-path response headers (Link, robots, types)
 public/robots.txt                    Crawl policy + Content Signals + AI bot rules
 public/sitemap.xml                   Public URL list (landing only)
-public/llms.txt                      Agent-oriented product summary
+public/llms.txt                      Agent-oriented product index (links to full guide)
+public/llms-full.txt                 Expanded one-file product guide for agents
 public/auth.md                       Agent enrollment / bearer auth + hosted-MCP OAuth
 public/.well-known/api-catalog       RFC 9727 linkset
 public/.well-known/integrations.json integrations.sh v3 surface declaration
@@ -43,15 +44,15 @@ wrangler.jsonc                       Hybrid Worker, static assets, skills index,
 The landing page, `/docs`, and the `/github-screenshots` use-case guide are meant
 for search engines. Agent discovery docs are public but not listed in the sitemap.
 
-| Path                                      | Indexable | Notes                                                      |
-| ----------------------------------------- | --------- | ---------------------------------------------------------- |
-| `/`                                       | yes       | Listed in `sitemap.xml`; Link headers advertise catalogs   |
-| `/docs`                                   | yes       | Plain-language setup guide; in `sitemap.xml`               |
-| `/github-screenshots`                     | yes       | SEO landing: agents uploading media to GitHub; FAQ JSON-LD |
-| `/invite`                                 | **no**    | Magic-link enrollment; robots + meta + `X-Robots-Tag`      |
-| `/console`                                | **no**    | Operator scaffold; same triple coverage                    |
-| `/404`,`/500`                             | **no**    | Status pages                                               |
-| `/auth.md`, `/llms.txt`, `/.well-known/*` | n/a       | Machine-readable; not in sitemap                           |
+| Path                                                        | Indexable | Notes                                                      |
+| ----------------------------------------------------------- | --------- | ---------------------------------------------------------- |
+| `/`                                                         | yes       | Listed in `sitemap.xml`; Link headers advertise catalogs   |
+| `/docs`                                                     | yes       | Plain-language setup guide; in `sitemap.xml`               |
+| `/github-screenshots`                                       | yes       | SEO landing: agents uploading media to GitHub; FAQ JSON-LD |
+| `/invite`                                                   | **no**    | Magic-link enrollment; robots + meta + `X-Robots-Tag`      |
+| `/console`                                                  | **no**    | Operator scaffold; same triple coverage                    |
+| `/404`,`/500`                                               | **no**    | Status pages                                               |
+| `/auth.md`, `/llms.txt`, `/llms-full.txt`, `/.well-known/*` | n/a       | Machine-readable; not in sitemap                           |
 
 `robots.txt` includes explicit `User-agent` blocks for common AI crawlers and
 `Content-Signal` preferences (`search=yes`, `ai-input=yes`, `ai-train=no`).
@@ -134,7 +135,7 @@ curl -sI -H "Accept: text/markdown" https://uploads.sh/
 ```
 
 Browsers (no `text/markdown` in `Accept`) still get HTML. Non-HTML responses
-(JSON discovery docs, `/auth.md`, `/llms.txt`) are left alone. Content-Signal on
+(JSON discovery docs, `/auth.md`, `/llms.txt`, `/llms-full.txt`) are left alone. Content-Signal on
 converted responses matches `robots.txt` (`search=yes`, `ai-input=yes`,
 `ai-train=no`).
 
