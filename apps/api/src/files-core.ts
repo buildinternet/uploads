@@ -46,6 +46,8 @@ import {
 } from "./provenance";
 import { objectPublicUrls, storage, storageConfig } from "./storage";
 import {
+  claimDeleteUsageSafe,
+  clearDeleteUsageClaimSafe,
   getWorkspaceUsage,
   recordUsageSafe,
   releaseStorageBytesSafe,
@@ -215,7 +217,14 @@ export async function generateAndStorePoster(
       if (stale !== null) {
         await store.delete(posterKey);
         await deleteServerFileMetadataKeys(env.DB, workspaceName, key, POSTER_META_KEYS);
-        await recordUsageSafe(env.DB, workspaceName, { bytes: -stale, objects: -1, uploads: 0 });
+        // Single-winner claim (issue #570) — same gate as deleteObject.
+        if (await claimDeleteUsageSafe(env.DB, workspaceName, posterKey)) {
+          await recordUsageSafe(env.DB, workspaceName, {
+            bytes: -stale,
+            objects: -1,
+            uploads: 0,
+          });
+        }
       }
       return;
     }
@@ -229,6 +238,8 @@ export async function generateAndStorePoster(
       // publicly-fetchable poster at its deterministic _internal/ path.
       ...(visibility === "private" ? { metadata: { [VISIBILITY_META_KEY]: "private" } } : {}),
     });
+    // A re-created poster must be able to debit the ledger on a later delete.
+    await clearDeleteUsageClaimSafe(env.DB, workspaceName, posterKey);
     // Counted because reconcileWorkspaceUsage walks every object under the
     // prefix and would otherwise disagree with the ledger permanently.
     await recordUsageSafe(env.DB, workspaceName, {
@@ -501,14 +512,17 @@ export async function putObject(
   // and any reserved positive byte delta were already applied at reservation
   // time; only remaining deltas (objects; shrink/unlimited bytes) land here.
   //
+  // Clear any prior delete-usage claim for this key (issue #570) so a
+  // re-uploaded object can debit the ledger on its next delete. Runs with
+  // the other post-write bookkeeping below.
+  //
   // Adoption metrics, best-effort and never fatal (see src/adoption.ts).
   // Recorded here rather than at the route so all four putObject callers are
   // covered by construction. `newSize` (not deltaBytes) is the right figure:
   // this counts bytes written by this upload, not net storage change.
   //
-  // These two writes land in different tables (workspace_usage vs
-  // daily_metrics), neither depends on the other's result, and both are
-  // never-throwing — so they run concurrently rather than as two serial D1
+  // These writes land in different tables / are independent, and all are
+  // never-throwing — so they run concurrently rather than as serial D1
   // round trips on every upload.
   await Promise.all([
     recordUsageSafe(env.DB, workspaceName, {
@@ -516,6 +530,7 @@ export async function putObject(
       objects: replaced ? 0 : 1,
       uploads: 0,
     }),
+    clearDeleteUsageClaimSafe(env.DB, workspaceName, finalKey),
     recordAdoptionSafe(env, {
       metric: "upload",
       workspace: workspaceName,
@@ -843,19 +858,26 @@ export async function deleteObject(
   await deleteFileMetadata(env.DB, workspaceName, key);
 
   if (prev !== null) {
-    // Positive magnitude under the `delete` metric — never negative bytes
-    // under `upload`. Net change is computed at read time. These two writes
-    // land in different tables (workspace_usage vs daily_metrics), neither
-    // depends on the other's result, and both are never-throwing — so they
-    // run concurrently rather than as two serial D1 round trips per delete.
-    await Promise.all([
-      recordUsageSafe(env.DB, workspaceName, {
-        bytes: -prev,
-        objects: -1,
-        uploads: 0,
-      }),
-      recordAdoptionSafe(env, { metric: "delete", workspace: workspaceName, bytes: prev }),
-    ]);
+    // Single-winner claim (issue #570): concurrent DELETEs can both observe
+    // the object and both reach this branch; only the first claimer debits
+    // the ledger (and records the adoption delete metric). Claim after the
+    // storage delete so a failed delete never burns the slot.
+    const wonClaim = await claimDeleteUsageSafe(env.DB, workspaceName, key);
+    if (wonClaim) {
+      // Positive magnitude under the `delete` metric — never negative bytes
+      // under `upload`. Net change is computed at read time. These two writes
+      // land in different tables (workspace_usage vs daily_metrics), neither
+      // depends on the other's result, and both are never-throwing — so they
+      // run concurrently rather than as two serial D1 round trips per delete.
+      await Promise.all([
+        recordUsageSafe(env.DB, workspaceName, {
+          bytes: -prev,
+          objects: -1,
+          uploads: 0,
+        }),
+        recordAdoptionSafe(env, { metric: "delete", workspace: workspaceName, bytes: prev }),
+      ]);
+    }
   }
 
   // Derived poster (issue #299), best-effort: a missing one is the norm for
@@ -866,11 +888,13 @@ export async function deleteObject(
     const posterSize = await existingSize(store, posterKey);
     if (posterSize !== null) {
       await store.delete(posterKey);
-      await recordUsageSafe(env.DB, workspaceName, {
-        bytes: -posterSize,
-        objects: -1,
-        uploads: 0,
-      });
+      if (await claimDeleteUsageSafe(env.DB, workspaceName, posterKey)) {
+        await recordUsageSafe(env.DB, workspaceName, {
+          bytes: -posterSize,
+          objects: -1,
+          uploads: 0,
+        });
+      }
     }
   } catch (err) {
     console.error({ event: "poster_delete_failed", workspace: workspaceName, key, err });

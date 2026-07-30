@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   applyUsageDelta,
+  claimDeleteUsageSafe,
+  clearDeleteUsageClaimSafe,
   emptyUsage,
   getWorkspaceUsage,
+  recordUsageSafe,
   releaseStorageBytesSafe,
   releaseUploadsSafe,
   reserveStorageBytes,
@@ -209,5 +212,57 @@ describe("storage byte reservations", () => {
     );
     expect(results.filter((r) => r.ok)).toHaveLength(2);
     expect((await getWorkspaceUsage(db, "acme", now)).bytes).toBe(800);
+  });
+});
+
+describe("delete usage claims (issue #570)", () => {
+  const now = new Date("2026-07-10T00:00:00Z");
+
+  it("admits only the first concurrent claim for a key", async () => {
+    const db = new UsageFakeD1() as unknown as D1Database;
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => claimDeleteUsageSafe(db, "acme", "f/x/a.png", now)),
+    );
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(results.filter((won) => !won)).toHaveLength(4);
+  });
+
+  it("scopes claims per workspace and per key", async () => {
+    const db = new UsageFakeD1() as unknown as D1Database;
+    expect(await claimDeleteUsageSafe(db, "acme", "a.png", now)).toBe(true);
+    expect(await claimDeleteUsageSafe(db, "acme", "b.png", now)).toBe(true);
+    expect(await claimDeleteUsageSafe(db, "globex", "a.png", now)).toBe(true);
+    expect(await claimDeleteUsageSafe(db, "acme", "a.png", now)).toBe(false);
+  });
+
+  it("clear allows a re-uploaded key to claim again", async () => {
+    const db = new UsageFakeD1() as unknown as D1Database;
+    expect(await claimDeleteUsageSafe(db, "acme", "shot.png", now)).toBe(true);
+    expect(await claimDeleteUsageSafe(db, "acme", "shot.png", now)).toBe(false);
+
+    await clearDeleteUsageClaimSafe(db, "acme", "shot.png");
+    expect(await claimDeleteUsageSafe(db, "acme", "shot.png", now)).toBe(true);
+  });
+
+  it("only one concurrent delete path debits the ledger", async () => {
+    const db = new UsageFakeD1() as unknown as D1Database;
+    await applyUsageDelta(db, "acme", { bytes: 1000, objects: 2, uploads: 2 }, now);
+
+    // Simulate two delete handlers that both observed size 500 for the same key.
+    const size = 500;
+    await Promise.all(
+      Array.from({ length: 2 }, async () => {
+        if (await claimDeleteUsageSafe(db, "acme", "shared.png", now)) {
+          await recordUsageSafe(db, "acme", { bytes: -size, objects: -1, uploads: 0 }, now);
+        }
+      }),
+    );
+
+    // One debit only — the sibling object (500 bytes / 1 object) remains.
+    expect(await getWorkspaceUsage(db, "acme", now)).toMatchObject({
+      bytes: 500,
+      objects: 1,
+      uploadsInPeriod: 2,
+    });
   });
 });
