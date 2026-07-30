@@ -857,13 +857,21 @@ describe("workspace github-comment settings editing", () => {
     retentionDays: 90,
   };
 
+  const EMPTY_SETTINGS = {
+    githubCommentLinkToFilePage: null,
+    githubCommentShowMetadata: null,
+    githubCommentImageWidth: null,
+    githubCommentMaxInlineImages: null,
+    githubCommentNote: null,
+  };
+
   it("GET returns the flag unset by default", async () => {
     const { env } = settingsEnv(ADMIN_USER, REC);
     const res = await app().request("/admin-ui/workspaces/acme/settings", {}, env);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       workspace: "acme",
-      settings: { githubCommentLinkToFilePage: null, githubCommentShowMetadata: null },
+      settings: EMPTY_SETTINGS,
     });
   });
 
@@ -873,7 +881,7 @@ describe("workspace github-comment settings editing", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       workspace: "acme",
-      settings: { githubCommentLinkToFilePage: false, githubCommentShowMetadata: null },
+      settings: { ...EMPTY_SETTINGS, githubCommentLinkToFilePage: false },
     });
   });
 
@@ -891,7 +899,7 @@ describe("workspace github-comment settings editing", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       workspace: "acme",
-      settings: { githubCommentLinkToFilePage: false, githubCommentShowMetadata: null },
+      settings: { ...EMPTY_SETTINGS, githubCommentLinkToFilePage: false },
     });
     const saved = JSON.parse(store.get("ws:acme")!);
     expect(saved.githubCommentLinkToFilePage).toBe(false);
@@ -1030,7 +1038,7 @@ describe("workspace github-comment settings editing", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       workspace: "acme",
-      settings: { githubCommentLinkToFilePage: null, githubCommentShowMetadata: false },
+      settings: { ...EMPTY_SETTINGS, githubCommentShowMetadata: false },
     });
     expect(JSON.parse(store.get("ws:acme")!).githubCommentShowMetadata).toBe(false);
   });
@@ -1065,6 +1073,182 @@ describe("workspace github-comment settings editing", () => {
     );
     expect(res.status).toBe(200);
     expect(JSON.parse(store.get("ws:acme")!).githubCommentShowMetadata).toBe(false);
+  });
+
+  // Three #534 fields on the operator surface (issue #535) — same bounds as
+  // me.ts validateCommentSettingsPatch; null clears.
+  it("PATCH sets imageWidth, maxInlineImages, and note (issue #535)", async () => {
+    const { env, store } = settingsEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          githubCommentImageWidth: "full",
+          githubCommentMaxInlineImages: 8,
+          githubCommentNote: "  Screenshots from CI.  ",
+        }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      workspace: "acme",
+      settings: {
+        ...EMPTY_SETTINGS,
+        githubCommentImageWidth: "full",
+        githubCommentMaxInlineImages: 8,
+        githubCommentNote: "Screenshots from CI.",
+      },
+    });
+    const saved = JSON.parse(store.get("ws:acme")!);
+    expect(saved.githubCommentImageWidth).toBe("full");
+    expect(saved.githubCommentMaxInlineImages).toBe(8);
+    expect(saved.githubCommentNote).toBe("Screenshots from CI.");
+  });
+
+  it("PATCH accepts a pixel imageWidth in range", async () => {
+    const { env, store } = settingsEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentImageWidth: 400 }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(store.get("ws:acme")!).githubCommentImageWidth).toBe(400);
+  });
+
+  it("PATCH rejects out-of-range imageWidth without mutating the record", async () => {
+    const { env, store } = settingsEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentImageWidth: 40 }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(JSON.parse(store.get("ws:acme")!).githubCommentImageWidth).toBeUndefined();
+  });
+
+  it("PATCH rejects maxInlineImages outside 1–48", async () => {
+    const { env, store } = settingsEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentMaxInlineImages: 0 }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(JSON.parse(store.get("ws:acme")!).githubCommentMaxInlineImages).toBeUndefined();
+  });
+
+  it("PATCH rejects a note over 500 chars", async () => {
+    const { env, store } = settingsEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentNote: "x".repeat(501) }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(JSON.parse(store.get("ws:acme")!).githubCommentNote).toBeUndefined();
+  });
+
+  it("PATCH rejects an empty/whitespace note", async () => {
+    const { env } = settingsEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentNote: "   " }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH with null clears a previously-set imageWidth / note", async () => {
+    const { env, store } = settingsEnv(ADMIN_USER, {
+      ...REC,
+      githubCommentImageWidth: 400,
+      githubCommentNote: "hi",
+    });
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentImageWidth: null, githubCommentNote: null }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      workspace: "acme",
+      settings: EMPTY_SETTINGS,
+    });
+    const saved = JSON.parse(store.get("ws:acme")!);
+    expect(saved.githubCommentImageWidth).toBeUndefined();
+    expect(saved.githubCommentNote).toBeUndefined();
+  });
+
+  it("PATCH leaves the three #534 fields unchanged when omitted", async () => {
+    const { env, store } = settingsEnv(ADMIN_USER, {
+      ...REC,
+      githubCommentImageWidth: "full",
+      githubCommentMaxInlineImages: 4,
+      githubCommentNote: "keep me",
+    });
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ githubCommentLinkToFilePage: false }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const saved = JSON.parse(store.get("ws:acme")!);
+    expect(saved.githubCommentImageWidth).toBe("full");
+    expect(saved.githubCommentMaxInlineImages).toBe(4);
+    expect(saved.githubCommentNote).toBe("keep me");
+    expect(saved.githubCommentLinkToFilePage).toBe(false);
+  });
+
+  it("PATCH rejects an invalid imageWidth even when other fields are valid (reject-all)", async () => {
+    const { env, store } = settingsEnv(ADMIN_USER, REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/settings",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          githubCommentImageWidth: 40,
+          githubCommentNote: "should not apply",
+        }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    const saved = JSON.parse(store.get("ws:acme")!);
+    expect(saved.githubCommentImageWidth).toBeUndefined();
+    expect(saved.githubCommentNote).toBeUndefined();
   });
 });
 
