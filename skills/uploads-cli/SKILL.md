@@ -902,7 +902,10 @@ uploads --api-url http://localhost:8787 doctor
   re-sync after deleting an asset: `delete` the `gh/…` key, then call `comment`.
   When the last attachment and gallery are gone the comment is rewritten in
   place to a neutral empty state (never deleted, never created empty). It is
-  bot-only with the same honest declines as `put`'s comment field.
+  bot-only with the same honest declines as `put`'s comment field. Both this
+  tool and `put` with `pr`/`issue` honor the target repo's `.uploads.yml`
+  (same as the bot path — no separate MCP config; see
+  https://uploads.sh/docs/comment-config).
 
   **Hosted MCP: checking what's staged (issue #405).** There's no dedicated
   `staged` tool on the hosted server — it has no local git context to default
