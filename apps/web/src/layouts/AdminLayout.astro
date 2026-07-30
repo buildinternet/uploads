@@ -53,126 +53,129 @@ const nav: { href: string; section: AdminSection; label: string }[] = [
 ---
 
 <html lang="en" transition:animate="none">
-<head>
-  <BaseHead />
-  <ViewTransitions />
-  <title>{docTitle}</title>
-</head>
-<body>
-  <h1 class="sr-only">{titles[section]}</h1>
-  <div id="checking" class="shell-status">
-    <div class="ul-callout status" role="status">Checking your session…</div>
-  </div>
-
-  <div id="denied" class="shell-status" hidden>
-    <div class="ul-callout status" data-state="error" role="alert">You need admin access to view this page.</div>
-    <a class="button" href="/login">Sign in</a>
-  </div>
-
-  <div id="auth-unavailable" class="shell-status" hidden>
-    <div class="status" data-state="denied" role="alert">
-      Authentication is temporarily unavailable. Check the local stack or try again.
+  <head>
+    <BaseHead />
+    <ViewTransitions />
+    <title>{docTitle}</title>
+  </head>
+  <body>
+    <h1 class="sr-only">{titles[section]}</h1>
+    <div id="checking" class="shell-status">
+      <div class="ul-callout status" role="status">Checking your session…</div>
     </div>
-    <button class="button" type="button" id="session-retry">Try again</button>
-  </div>
 
-  <!--
+    <div id="denied" class="shell-status" hidden>
+      <div class="ul-callout status" data-state="error" role="alert">
+        You need admin access to view this page.
+      </div>
+      <a class="button" href="/login">Sign in</a>
+    </div>
+
+    <div id="auth-unavailable" class="shell-status" hidden>
+      <div class="status" data-state="denied" role="alert">
+        Authentication is temporarily unavailable. Check the local stack or try again.
+      </div>
+      <button class="button" type="button" id="session-retry">Try again</button>
+    </div>
+
+    <!--
     Client-side gating here is a UX affordance ONLY — it just avoids flashing
     admin nav (and firing admin-ui fetches) at a non-admin visitor. It is NOT
     the security boundary: the workspaces data is fetched from apps/api's
     /admin-ui/* surface, which independently enforces requireAdminUser
     over the AUTH service binding on every request.
   -->
-  <div id="dashboard" hidden>
-    <SiteHeader badge="admin" authOrigin={authOrigin} />
+    <div id="dashboard" hidden>
+      <SiteHeader badge="admin" authOrigin={authOrigin} />
 
-    <div class="shell">
-      <div class="layout">
-        <nav class="side" aria-label="Admin sections">
-          {nav.map((item) => (
-            <a
-              href={item.href}
-              aria-current={item.section === section ? "page" : undefined}
-            >
-              {item.label}
-            </a>
-          ))}
-          <div class="side-foot">
-            <a href="/account">← account</a>
-            {showConsoleLinks ? <a href="/console">console →</a> : null}
-            <button type="button" id="sign-out-btn">Sign out</button>
+      <div class="shell">
+        <div class="layout">
+          <nav class="side" aria-label="Admin sections">
+            {
+              nav.map((item) => (
+                <a href={item.href} aria-current={item.section === section ? "page" : undefined}>
+                  {item.label}
+                </a>
+              ))
+            }
+            <div class="side-foot">
+              <a href="/account">← account</a>
+              {showConsoleLinks ? <a href="/console">console →</a> : null}
+              <button type="button" id="sign-out-btn">Sign out</button>
+            </div>
+          </nav>
+
+          <div class="content">
+            <slot />
           </div>
-        </nav>
-
-        <div class="content">
-          <slot />
         </div>
       </div>
+
+      {/* Sibling of .shell so the footer centers on the viewport. */}
+      <Footer />
     </div>
 
-    {/* Sibling of .shell so the footer centers on the viewport. */}
-    <Footer />
-  </div>
-
-{/* Sync optimistic paint for admins only — same cache key as account-shell.
-    data-astro-rerun: ClientRouter must re-apply this after every body swap. */}
-<script is:inline data-astro-rerun>
-  (function () {
-    try {
-      var raw = sessionStorage.getItem("uploads:sessionUser");
-      if (!raw) return;
-      var user = JSON.parse(raw);
-      if (!user || !user.email || user.role !== "admin") return;
-      var checking = document.getElementById("checking");
-      var app = document.getElementById("dashboard");
-      if (checking) checking.hidden = true;
-      if (app) app.hidden = false;
-      window.__uploadsSessionUser = user;
-    } catch (e) {}
-  })();
-</script>
-
-{/* Window assigns only — see AccountLayout (define:vars const breaks data-astro-rerun). */}
-<script
-  is:inline
-  data-astro-rerun
-  set:html={`window.__UPLOADS_AUTH_ORIGIN__=${JSON.stringify(authOrigin)};window.__UPLOADS_API_ORIGIN__=${JSON.stringify(apiOrigin)};`}
-></script>
-<script>
-  import {
-    initSignOut,
-    onAstroPageLoad,
-    requireElement,
-    resolveSessionGate,
-  } from "../lib/account-shell";
-
-  onAstroPageLoad(() => {
-    if (!document.getElementById("dashboard")) return;
-
-    const w = window as unknown as {
-      __UPLOADS_AUTH_ORIGIN__: string;
-    };
-    const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
-
-    initSignOut(authOrigin);
-
-    void resolveSessionGate({
-      authOrigin,
-      checking: requireElement<HTMLElement>("#checking", "admin"),
-      denied: requireElement<HTMLElement>("#denied", "admin"),
-      unavailable: requireElement<HTMLElement>("#auth-unavailable", "admin"),
-      app: requireElement<HTMLElement>("#dashboard", "admin"),
-      requireRole: "admin",
-    });
-
-    const retry = document.querySelector<HTMLButtonElement>("#session-retry");
-    if (retry && retry.dataset.bound !== "1") {
-      retry.dataset.bound = "1";
-      retry.addEventListener("click", () => {
-        location.reload();
-      });
+    {
+      /* Sync optimistic paint for admins only — same cache key as account-shell.
+    data-astro-rerun: ClientRouter must re-apply this after every body swap. */
     }
-  });
-</script>
-</body>
+    <script is:inline data-astro-rerun>
+      (function () {
+        try {
+          var raw = sessionStorage.getItem("uploads:sessionUser");
+          if (!raw) return;
+          var user = JSON.parse(raw);
+          if (!user || !user.email || user.role !== "admin") return;
+          var checking = document.getElementById("checking");
+          var app = document.getElementById("dashboard");
+          if (checking) checking.hidden = true;
+          if (app) app.hidden = false;
+          window.__uploadsSessionUser = user;
+        } catch (e) {}
+      })();
+    </script>
+
+    {/* Window assigns only — see AccountLayout (define:vars const breaks data-astro-rerun). */}
+    <script
+      is:inline
+      data-astro-rerun
+      set:html={`window.__UPLOADS_AUTH_ORIGIN__=${JSON.stringify(authOrigin)};window.__UPLOADS_API_ORIGIN__=${JSON.stringify(apiOrigin)};`}
+    />
+    <script>
+      import {
+        initSignOut,
+        onAstroPageLoad,
+        requireElement,
+        resolveSessionGate,
+      } from "../lib/account-shell";
+
+      onAstroPageLoad(() => {
+        if (!document.getElementById("dashboard")) return;
+
+        const w = window as unknown as {
+          __UPLOADS_AUTH_ORIGIN__: string;
+        };
+        const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
+
+        initSignOut(authOrigin);
+
+        void resolveSessionGate({
+          authOrigin,
+          checking: requireElement<HTMLElement>("#checking", "admin"),
+          denied: requireElement<HTMLElement>("#denied", "admin"),
+          unavailable: requireElement<HTMLElement>("#auth-unavailable", "admin"),
+          app: requireElement<HTMLElement>("#dashboard", "admin"),
+          requireRole: "admin",
+        });
+
+        const retry = document.querySelector<HTMLButtonElement>("#session-retry");
+        if (retry && retry.dataset.bound !== "1") {
+          retry.dataset.bound = "1";
+          retry.addEventListener("click", () => {
+            location.reload();
+          });
+        }
+      });
+    </script>
+  </body>
 </html>

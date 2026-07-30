@@ -7,9 +7,9 @@ import Footer from "../components/Footer.astro";
 import SiteHeader from "../components/SiteHeader.astro";
 
 interface Props {
-	title: string;
-	description: string;
-	path: string;
+  title: string;
+  description: string;
+  path: string;
 }
 const { title, description, path } = Astro.props;
 
@@ -24,7 +24,9 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
     <meta name="description" content={description} />
     <link rel="canonical" href={`https://uploads.sh${path}`} />
     <style>
-      * { box-sizing: border-box; }
+      * {
+        box-sizing: border-box;
+      }
       body {
         margin: 0;
         min-height: 100dvh;
@@ -48,7 +50,11 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         line-height: 1.25;
         margin: 8px 0 4px;
       }
-      .effective { color: var(--muted); font-size: 13px; margin: 0 0 36px; }
+      .effective {
+        color: var(--muted);
+        font-size: 13px;
+        margin: 0 0 36px;
+      }
       article h2 {
         font-size: 19px;
         font-weight: 600;
@@ -57,18 +63,36 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         padding-top: 22px;
         border-top: 1px solid var(--line);
       }
-      article h3 { font-size: 15px; font-weight: 600; color: var(--fg); margin: 24px 0 6px; }
-      article p, article li { color: var(--body); }
-      article strong { color: var(--fg); }
-      article ul { padding-left: 22px; }
-      article li { margin: 8px 0; }
+      article h3 {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--fg);
+        margin: 24px 0 6px;
+      }
+      article p,
+      article li {
+        color: var(--body);
+      }
+      article strong {
+        color: var(--fg);
+      }
+      article ul {
+        padding-left: 22px;
+      }
+      article li {
+        margin: 8px 0;
+      }
       article a {
         color: var(--fg);
         text-decoration: underline;
         text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
         text-underline-offset: 3px;
       }
-      article a:hover, article a:focus-visible { color: var(--accent); outline: none; }
+      article a:hover,
+      article a:focus-visible {
+        color: var(--accent);
+        outline: none;
+      }
       article code {
         background: var(--panel);
         border: 1px solid var(--line);
@@ -76,7 +100,9 @@ const authOrigin = import.meta.env.PUBLIC_UPLOADS_AUTH_ORIGIN ?? "https://auth.u
         padding: 1px 6px;
         font: 0.88em var(--mono);
         font-variant-ligatures: none;
-        font-feature-settings: "calt" 0, "liga" 0;
+        font-feature-settings:
+          "calt" 0,
+          "liga" 0;
       }
     </style>
   </head>

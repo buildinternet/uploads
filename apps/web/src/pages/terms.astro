@@ -12,21 +12,24 @@ import LegalLayout from "../layouts/LegalLayout.astro";
 
   <p>
     These terms cover use of the uploads.sh website, the API, the remote MCP server, and the
-    open-source CLI. By using any of these, you agree to the terms below. If you don't agree,
-    please don't use the service.
+    open-source CLI. By using any of these, you agree to the terms below. If you don't agree, please
+    don't use the service.
   </p>
 
   <h2>The service</h2>
   <p>
-    uploads.sh is a file-hosting service for agents &amp; humans: you upload files from the
-    terminal (or an agent does, on your behalf) and get back public links suitable for embedding
-    in pull requests, issues, and docs. The service is operated by <a href="https://buildinternet.com">Build Internet</a>.
+    uploads.sh is a file-hosting service for agents &amp; humans: you upload files from the terminal
+    (or an agent does, on your behalf) and get back public links suitable for embedding in pull
+    requests, issues, and docs. The service is operated by <a href="https://buildinternet.com"
+      >Build Internet</a
+    >.
   </p>
   <p>
     The service is provided as-is while it is in active development. We may change, rate-limit,
     suspend, or discontinue any part of it at any time, and we may change what is included at any
-    tier of access. If we discontinue something a paid plan includes, the <strong>Plans and
-    payment</strong> section below covers what happens to the period you already paid for.
+    tier of access. If we discontinue something a paid plan includes, the <strong
+      >Plans and payment</strong
+    > section below covers what happens to the period you already paid for.
   </p>
 
   <h2>Access and credentials</h2>
@@ -34,14 +37,16 @@ import LegalLayout from "../layouts/LegalLayout.astro";
     <li>
       You sign in with a magic link sent to your email address, or with GitHub. Access then comes
       from creating your own workspace, or from an invitation to an existing one. Creating a
-      workspace also requires a connected GitHub account. An invitation link contains a
-      single-use code — treat it like a password. Either way, sign-in issues a scoped, expiring
-      workspace token.
+      workspace also requires a connected GitHub account. An invitation link contains a single-use
+      code — treat it like a password. Either way, sign-in issues a scoped, expiring workspace
+      token.
     </li>
     <li>
-      You are responsible for keeping your invitation links and workspace tokens confidential,
-      and for all activity under your workspace or tokens. Anyone holding a token can act with
-      the access it grants. If you believe a token has been compromised, stop using it and email <a href="mailto:security@uploads.sh">security@uploads.sh</a> so we can revoke it.
+      You are responsible for keeping your invitation links and workspace tokens confidential, and
+      for all activity under your workspace or tokens. Anyone holding a token can act with the
+      access it grants. If you believe a token has been compromised, stop using it and email <a
+        href="mailto:security@uploads.sh">security@uploads.sh</a
+      > so we can revoke it.
     </li>
     <li>
       We may revoke tokens, suspend workspaces, or remove content to protect the service or its
@@ -52,40 +57,39 @@ import LegalLayout from "../layouts/LegalLayout.astro";
   <h2>Plans and payment</h2>
   <p>
     The free plan is available in perpetuity. Pro is a paid subscription that raises your
-    workspace's storage and file-size limits. An owner or admin of the workspace can subscribe
-    from the workspace's billing tab.
+    workspace's storage and file-size limits. An owner or admin of the workspace can subscribe from
+    the workspace's billing tab.
   </p>
   <ul>
     <li>
-      <strong>A subscription renews automatically.</strong> You pay the price shown at checkout
-      for each billing period. The subscription renews at that price every period until you
-      cancel it. We add tax where we are required to collect it.
+      <strong>A subscription renews automatically.</strong> You pay the price shown at checkout for each
+      billing period. The subscription renews at that price every period until you cancel it. We add tax
+      where we are required to collect it.
     </li>
     <li>
-      <strong>Stripe processes payments.</strong> You enter your card details on Stripe's own
-      checkout page. We never receive or store your card number.
+      <strong>Stripe processes payments.</strong> You enter your card details on Stripe's own checkout
+      page. We never receive or store your card number.
     </li>
     <li>
-      <strong>You can cancel at any time.</strong> Use <strong>Manage billing</strong> in the
-      workspace's billing tab, which opens the Stripe customer portal. The cancellation takes
-      effect at the end of the period you already paid for. Your workspace stays on Pro until
-      then. We don't refund the remainder of a period you cancel partway through.
+      <strong>You can cancel at any time.</strong> Use <strong>Manage billing</strong> in the workspace's
+      billing tab, which opens the Stripe customer portal. The cancellation takes effect at the end of
+      the period you already paid for. Your workspace stays on Pro until then. We don't refund the remainder
+      of a period you cancel partway through.
     </li>
     <li>
-      <strong>A failed payment downgrades the workspace.</strong> If a renewal payment doesn't go
-      through, we mark the subscription past due and ask you to update your payment method. The
-      workspace returns to the free plan if the payment isn't resolved.
+      <strong>A failed payment downgrades the workspace.</strong> If a renewal payment doesn't go through,
+      we mark the subscription past due and ask you to update your payment method. The workspace returns
+      to the free plan if the payment isn't resolved.
     </li>
     <li>
-      <strong>We give notice before a price change.</strong> A new price applies from your next
-      renewal, never to a period you are already in.
+      <strong>We give notice before a price change.</strong> A new price applies from your next renewal,
+      never to a period you are already in.
     </li>
   </ul>
   <p>
-    <strong>A downgrade never deletes your files.</strong> Whether you cancel or a payment fails,
-    your files stay where they are and their links keep working. If the workspace holds more than
-    the free plan's storage limit, we refuse new uploads until you delete enough to get back
-    under it.
+    <strong>A downgrade never deletes your files.</strong> Whether you cancel or a payment fails, your
+    files stay where they are and their links keep working. If the workspace holds more than the free
+    plan's storage limit, we refuse new uploads until you delete enough to get back under it.
   </p>
   <p>
     If we discontinue Pro, or materially reduce what it includes, your workspace keeps its current
@@ -100,15 +104,15 @@ import LegalLayout from "../layouts/LegalLayout.astro";
   </p>
   <ul>
     <li>
-      <strong>Uploaded files are public by link.</strong> Files are served from public URLs
-      (for example <code>storage.uploads.sh</code>). The URLs are unguessable but not access
-      controlled: anyone who has a link can fetch the file. Don't upload anything that must stay
-      private. Marking a file "private" in a workspace hides it from listings and the file page
-      unless you're signed in — it does not restrict the underlying URL.
+      <strong>Uploaded files are public by link.</strong> Files are served from public URLs (for example
+      <code>storage.uploads.sh</code>). The URLs are unguessable but not access controlled: anyone
+      who has a link can fetch the file. Don't upload anything that must stay private. Marking a
+      file "private" in a workspace hides it from listings and the file page unless you're signed in
+      — it does not restrict the underlying URL.
     </li>
     <li>
-      <strong>You must have the rights to what you upload.</strong> Only upload content you own
-      or are licensed to share.
+      <strong>You must have the rights to what you upload.</strong> Only upload content you own or are
+      licensed to share.
     </li>
   </ul>
   <p>
@@ -120,42 +124,53 @@ import LegalLayout from "../layouts/LegalLayout.astro";
   <p>When you use the service, you agree not to:</p>
   <ul>
     <li>Upload content that is illegal, infringes others' rights, or contains malware.</li>
-    <li>Use the service to harass, deceive, or impersonate others, including hosting content for phishing.</li>
-    <li>Circumvent, disable, or overload rate limits, upload guardrails, authentication, or other protective measures.</li>
+    <li>
+      Use the service to harass, deceive, or impersonate others, including hosting content for
+      phishing.
+    </li>
+    <li>
+      Circumvent, disable, or overload rate limits, upload guardrails, authentication, or other
+      protective measures.
+    </li>
     <li>Share invitation links or tokens with parties they weren't issued to.</li>
     <li>Use the service in violation of applicable law.</li>
   </ul>
-  <p>We may block IPs, revoke tokens, remove content, or otherwise restrict access to protect the service or its users.</p>
+  <p>
+    We may block IPs, revoke tokens, remove content, or otherwise restrict access to protect the
+    service or its users.
+  </p>
 
   <h2>Rate limits and fair use</h2>
   <p>
     Uploads and other mutating operations are rate-limited per workspace, and upload size and
     content-type limits apply. Agents and integrations should handle rate-limit responses with
-    exponential backoff. The Pro plan raises the storage and file-size limits. If you need more
-    than it offers for a legitimate use, email <a href="mailto:hi@uploads.sh">hi@uploads.sh</a>.
+    exponential backoff. The Pro plan raises the storage and file-size limits. If you need more than
+    it offers for a legitimate use, email <a href="mailto:hi@uploads.sh">hi@uploads.sh</a>.
   </p>
 
   <h2>Takedowns</h2>
   <p>
     If content hosted on uploads.sh infringes your rights or otherwise shouldn't be here, use
-    <strong>Report a problem</strong> on the public file page, or email <a href="mailto:abuse@uploads.sh">abuse@uploads.sh</a> with the file URL, your relationship to
-    the content, and a brief reason. We review takedown requests and honor reasonable ones, even
-    when not legally required to.
+    <strong>Report a problem</strong> on the public file page, or email <a
+      href="mailto:abuse@uploads.sh">abuse@uploads.sh</a
+    > with the file URL, your relationship to the content, and a brief reason. We review takedown requests
+    and honor reasonable ones, even when not legally required to.
   </p>
 
   <h2>Open source</h2>
   <p>
-    The CLI and service code are open source under the license in the <a href="https://github.com/buildinternet/uploads">repository</a>. These terms cover the
-    hosted service at uploads.sh, not your own deployment of the code.
+    The CLI and service code are open source under the license in the <a
+      href="https://github.com/buildinternet/uploads">repository</a
+    >. These terms cover the hosted service at uploads.sh, not your own deployment of the code.
   </p>
 
   <h2>Disclaimer</h2>
   <p>
-    The service is provided "as is" and "as available", without warranties of any kind, express
-    or implied, including fitness for a particular purpose, accuracy, availability, or
-    non-infringement. To the fullest extent permitted by law, Build Internet is not liable for
-    any indirect, incidental, or consequential damages arising from your use of the service,
-    including loss of hosted files.
+    The service is provided "as is" and "as available", without warranties of any kind, express or
+    implied, including fitness for a particular purpose, accuracy, availability, or
+    non-infringement. To the fullest extent permitted by law, Build Internet is not liable for any
+    indirect, incidental, or consequential damages arising from your use of the service, including
+    loss of hosted files.
   </p>
 
   <h2>Changes to these terms</h2>
@@ -176,13 +191,13 @@ import LegalLayout from "../layouts/LegalLayout.astro";
   <h2>Revision history</h2>
   <ul>
     <li>
-      <strong>July 24, 2026</strong> — Added <strong>Plans and payment</strong> for the Pro
-      subscription: renewal, cancellation, refunds, and what a downgrade does to your files.
-      Described how you sign in.
+      <strong>July 24, 2026</strong> — Added <strong>Plans and payment</strong> for the Pro subscription:
+      renewal, cancellation, refunds, and what a downgrade does to your files. Described how you sign
+      in.
     </li>
     <li>
-      <strong>July 22, 2026</strong> — Corrected a stale description of the service as
-      invitation-only; self-serve workspace creation is available. No change to any term.
+      <strong>July 22, 2026</strong> — Corrected a stale description of the service as invitation-only;
+      self-serve workspace creation is available. No change to any term.
     </li>
     <li><strong>July 11, 2026</strong> — Initial version published.</li>
   </ul>

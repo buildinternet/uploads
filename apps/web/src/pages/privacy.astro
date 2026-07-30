@@ -11,8 +11,11 @@ import LegalLayout from "../layouts/LegalLayout.astro";
   <p class="effective">Effective July 24, 2026</p>
 
   <p>
-    This page explains what data uploads.sh collects when you use the website, the API, the <a href="https://github.com/buildinternet/uploads">open-source CLI</a>, or the MCP server, and
-    who we share it with. The service is operated by <a href="https://buildinternet.com">Build Internet</a>.
+    This page explains what data uploads.sh collects when you use the website, the API, the <a
+      href="https://github.com/buildinternet/uploads">open-source CLI</a
+    >, or the MCP server, and who we share it with. The service is operated by <a
+      href="https://buildinternet.com">Build Internet</a
+    >.
   </p>
 
   <h2>What we collect</h2>
@@ -72,12 +75,12 @@ import LegalLayout from "../layouts/LegalLayout.astro";
     </li>
   </ul>
   <p>
-    Stripe holds the payment method, the billing address, any tax details the sale requires, and
-    the invoice history. Stripe uses that data as its own controller for payment processing, fraud
-    prevention, and its legal obligations, under <a href="https://stripe.com/privacy">Stripe's
-    privacy policy</a>. You can reach your invoices
-    and payment method through <strong>Manage billing</strong> in the workspace's billing tab, which
-    opens the Stripe customer portal.
+    Stripe holds the payment method, the billing address, any tax details the sale requires, and the
+    invoice history. Stripe uses that data as its own controller for payment processing, fraud
+    prevention, and its legal obligations, under <a href="https://stripe.com/privacy"
+      >Stripe's privacy policy</a
+    >. You can reach your invoices and payment method through <strong>Manage billing</strong> in the workspace's
+    billing tab, which opens the Stripe customer portal.
   </p>
 
   <h3>Uploaded files</h3>
@@ -90,17 +93,17 @@ import LegalLayout from "../layouts/LegalLayout.astro";
   <h3>Request logs</h3>
   <p>
     API requests are logged with basic metadata — IP address, user agent, request path, response
-    status, and timing — for operational and abuse-prevention purposes: diagnosing errors,
-    detecting abuse, and enforcing rate limits. Logs are short-lived and are processed only by the
+    status, and timing — for operational and abuse-prevention purposes: diagnosing errors, detecting
+    abuse, and enforcing rate limits. Logs are short-lived and are processed only by the
     infrastructure providers that host and route the service (chiefly Cloudflare).
   </p>
 
   <h3>CLI and MCP server</h3>
   <p>
-    The CLI runs on your machine and stores its configuration (API URL, workspace, token) in a
-    local config file. It sends no telemetry. When you use features that talk to third parties —
-    for example attaching images to a GitHub pull request — the CLI uses your own credentials and
-    talks to that service directly, under that service's privacy policy.
+    The CLI runs on your machine and stores its configuration (API URL, workspace, token) in a local
+    config file. It sends no telemetry. When you use features that talk to third parties — for
+    example attaching images to a GitHub pull request — the CLI uses your own credentials and talks
+    to that service directly, under that service's privacy policy.
   </p>
 
   <h2>How we use data</h2>
@@ -113,46 +116,53 @@ import LegalLayout from "../layouts/LegalLayout.astro";
     <li>To respond to your questions and takedown requests.</li>
   </ul>
   <p>
-    We do not sell data. We do not use any of it for advertising, and we do not build advertising
-    or marketing profiles.
+    We do not sell data. We do not use any of it for advertising, and we do not build advertising or
+    marketing profiles.
   </p>
 
   <h2>Service providers</h2>
   <ul>
     <li>
-      <strong>Cloudflare</strong> — hosts the API, MCP server, and website; stores the database
-      and uploaded files (R2); and sends invitation email. Request metadata passes through
-      Cloudflare as part of normal routing and logging.
+      <strong>Cloudflare</strong> — hosts the API, MCP server, and website; stores the database and uploaded
+      files (R2); and sends invitation email. Request metadata passes through Cloudflare as part of normal
+      routing and logging.
     </li>
     <li>
-      <strong>Stripe</strong> — processes payments for paid plans, hosts the checkout page and the
-      billing portal, and stores your payment method and billing details. We send Stripe the
-      workspace and account identifiers needed to attach a subscription to your workspace.
+      <strong>Stripe</strong> — processes payments for paid plans, hosts the checkout page and the billing
+      portal, and stores your payment method and billing details. We send Stripe the workspace and account
+      identifiers needed to attach a subscription to your workspace.
     </li>
     <li>
-      <strong>GitHub</strong> — authenticates you if you sign in with GitHub or connect a GitHub
-      account, under GitHub's own privacy policy.
+      <strong>GitHub</strong> — authenticates you if you sign in with GitHub or connect a GitHub account,
+      under GitHub's own privacy policy.
     </li>
     <li>
-      <strong>Your own storage</strong> — workspaces can bring their own bucket (for example an
-      S3-compatible provider). Files in those workspaces are stored with the provider you chose,
-      under its privacy policy.
+      <strong>Your own storage</strong> — workspaces can bring their own bucket (for example an S3-compatible
+      provider). Files in those workspaces are stored with the provider you chose, under its privacy policy.
     </li>
   </ul>
 
   <h2>Security practices</h2>
   <p>
     Traffic is served over HTTPS. Tokens are stored only as hashes and compared in constant time;
-    invitation codes are single-use and expire automatically. Uploads are validated by content
-    (size caps and a content-type allowlist checked against the actual bytes), and sensitive
-    endpoints are rate-limited. Access to production systems is limited to maintainers.
+    invitation codes are single-use and expire automatically. Uploads are validated by content (size
+    caps and a content-type allowlist checked against the actual bytes), and sensitive endpoints are
+    rate-limited. Access to production systems is limited to maintainers.
   </p>
 
   <h2>Retention</h2>
   <ul>
-    <li>Uploaded files: kept until you delete them or a retention policy configured for your workspace removes them.</li>
-    <li>Workspace and token records: kept while the workspace is active; tokens expire and can be revoked.</li>
-    <li>Invitation codes: expire automatically (hours, not days) and are unusable after redemption.</li>
+    <li>
+      Uploaded files: kept until you delete them or a retention policy configured for your workspace
+      removes them.
+    </li>
+    <li>
+      Workspace and token records: kept while the workspace is active; tokens expire and can be
+      revoked.
+    </li>
+    <li>
+      Invitation codes: expire automatically (hours, not days) and are unusable after redemption.
+    </li>
     <li>Request and delivery logs: short-lived, retained for operational purposes only.</li>
     <li>
       Billing and tax records: kept after a workspace is deleted, for as long as tax and accounting
@@ -163,9 +173,10 @@ import LegalLayout from "../layouts/LegalLayout.astro";
   <h2>Your rights</h2>
   <p>
     To delete your files, use the CLI or API. To delete a workspace and the records tied to it, or
-    to ask what data we hold about you, email <a href="mailto:privacy@uploads.sh">privacy@uploads.sh</a>.
-    Cancel a paid plan first, through <strong>Manage billing</strong> in the workspace's billing
-    tab. Deleting a workspace does not clear the billing and tax records described under
+    to ask what data we hold about you, email <a href="mailto:privacy@uploads.sh"
+      >privacy@uploads.sh</a
+    >. Cancel a paid plan first, through <strong>Manage billing</strong> in the workspace's billing tab.
+    Deleting a workspace does not clear the billing and tax records described under
     <strong>Retention</strong>.
   </p>
 
@@ -185,10 +196,9 @@ import LegalLayout from "../layouts/LegalLayout.astro";
   <h2>Revision history</h2>
   <ul>
     <li>
-      <strong>July 24, 2026</strong> — Described payment data and named Stripe as a service
-      provider, for the Pro plan. Added an accounts section. Corrected two statements that had
-      gone stale: the site does set a session cookie, and an invitation record does store the
-      invited email address.
+      <strong>July 24, 2026</strong> — Described payment data and named Stripe as a service provider,
+      for the Pro plan. Added an accounts section. Corrected two statements that had gone stale: the site
+      does set a session cookie, and an invitation record does store the invited email address.
     </li>
     <li><strong>July 11, 2026</strong> — Initial version published.</li>
   </ul>

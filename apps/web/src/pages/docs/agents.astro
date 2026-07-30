@@ -15,97 +15,135 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
   <section class="lead" id="install">
     <h2>One command <a class="anchor" href="#install" aria-label="Link to this section">#</a></h2>
     <p>
-      One command detects your agent runtime and installs the agent skills (attach
-      workflow, CLI reference, and screenshot annotations) plus the hosted MCP
-      server:
+      One command detects your agent runtime and installs the agent skills (attach workflow, CLI
+      reference, and screenshot annotations) plus the hosted MCP server:
     </p>
     <div class="cmd">
       <span class="text">uploads install</span>
       <button type="button" data-copy="uploads install" aria-live="polite">copy</button>
     </div>
     <p>
-      Or set up each piece yourself — the skills via <code>npx skills</code>, the MCP
-      server with your runtime's MCP registration (shown here for Claude Code):
+      Or set up each piece yourself — the skills via <code>npx skills</code>, the MCP server with
+      your runtime's MCP registration (shown here for Claude Code):
     </p>
     <div class="cmd">
       <span class="text">npx skills add buildinternet/uploads</span>
-      <button type="button" data-copy="npx skills add buildinternet/uploads" aria-live="polite">copy</button>
+      <button type="button" data-copy="npx skills add buildinternet/uploads" aria-live="polite"
+        >copy</button
+      >
     </div>
     <div class="cmd">
-      <span class="text">claude mcp add --transport http uploads <span class="url">https://agents.uploads.sh/mcp</span></span>
-      <button type="button" data-copy="claude mcp add --transport http uploads https://agents.uploads.sh/mcp" aria-live="polite">copy</button>
+      <span class="text"
+        >claude mcp add --transport http uploads <span class="url"
+          >https://agents.uploads.sh/mcp</span
+        ></span
+      >
+      <button
+        type="button"
+        data-copy="claude mcp add --transport http uploads https://agents.uploads.sh/mcp"
+        aria-live="polite">copy</button
+      >
     </div>
   </section>
 
   <section id="plugin">
-    <h2>Claude Code &amp; Codex plugins <a class="anchor" href="#plugin" aria-label="Link to this section">#</a></h2>
+    <h2>
+      Claude Code &amp; Codex plugins <a
+        class="anchor"
+        href="#plugin"
+        aria-label="Link to this section">#</a
+      >
+    </h2>
     <p>
-      On Claude Code you can install everything as one plugin — the agent skills
-      (attach workflow, CLI reference, annotations), an MCP server, an&#32;
-      <code>/uploads:attach</code> command, and a pre-PR screenshot reminder hook —
-      from the uploads marketplace. Add the marketplace, then install:
+      On Claude Code you can install everything as one plugin — the agent skills (attach workflow,
+      CLI reference, annotations), an MCP server, an&#32;
+      <code>/uploads:attach</code> command, and a pre-PR screenshot reminder hook — from the uploads marketplace.
+      Add the marketplace, then install:
     </p>
     <div class="cmd slash">
       <span class="text">/plugin marketplace add buildinternet/uploads</span>
-      <button type="button" data-copy="/plugin marketplace add buildinternet/uploads" aria-live="polite">copy</button>
+      <button
+        type="button"
+        data-copy="/plugin marketplace add buildinternet/uploads"
+        aria-live="polite">copy</button
+      >
     </div>
     <div class="cmd slash">
       <span class="text">/plugin install uploads@uploads</span>
-      <button type="button" data-copy="/plugin install uploads@uploads" aria-live="polite">copy</button>
+      <button type="button" data-copy="/plugin install uploads@uploads" aria-live="polite"
+        >copy</button
+      >
     </div>
     <p>
-      Codex uses the same repo as a plugin (<code>.codex-plugin/plugin.json</code>):
-      skills plus the same pre-PR hook. After enabling it, open <code>/hooks</code> once
-      and trust the hook if Codex asks. Both plugins run
-      <code>uploads hook pre-pr-screenshot</code>, so keep the <code>uploads</code> CLI
-      on your <code>PATH</code> and run <code>uploads login</code> once.
+      Codex uses the same repo as a plugin (<code>.codex-plugin/plugin.json</code>): skills plus the
+      same pre-PR hook. After enabling it, open <code>/hooks</code> once and trust the hook if Codex asks.
+      Both plugins run
+      <code>uploads hook pre-pr-screenshot</code>, so keep the <code>uploads</code> CLI on your <code
+        >PATH</code
+      > and run <code>uploads login</code> once.
     </p>
   </section>
 
   <section id="skill-vs-mcp">
-    <h2>Skill vs. MCP <a class="anchor" href="#skill-vs-mcp" aria-label="Link to this section">#</a></h2>
+    <h2>
+      Skill vs. MCP <a class="anchor" href="#skill-vs-mcp" aria-label="Link to this section">#</a>
+    </h2>
     <p>
-      The <strong>skills</strong> teach the agent when and how to use the CLI — for
-      example attaching before/after screenshots to the PR it just opened, or baking
-      callouts onto a capture with <code>uploads screenshot --annotate</code>. The&#32;
+      The <strong>skills</strong> teach the agent when and how to use the CLI — for example attaching
+      before/after screenshots to the PR it just opened, or baking callouts onto a capture with <code
+        >uploads screenshot --annotate</code
+      >. The&#32;
       <strong>MCP server</strong> gives agents the same tools (<code>put</code>,&#32;
-      <code>attach</code>, <code>list</code>, <code>delete</code>, and more) over HTTP,
-      using the same token as the CLI. There's also a local stdio variant — register&#32;
+      <code>attach</code>, <code>list</code>, <code>delete</code>, and more) over HTTP, using the
+      same token as the CLI. There's also a local stdio variant — register&#32;
       <code>uploads mcp</code> with any MCP client, e.g.:
     </p>
     <div class="cmd">
       <span class="text">claude mcp add uploads -- uploads mcp</span>
-      <button type="button" data-copy="claude mcp add uploads -- uploads mcp" aria-live="polite">copy</button>
+      <button type="button" data-copy="claude mcp add uploads -- uploads mcp" aria-live="polite"
+        >copy</button
+      >
     </div>
     <div class="note">
-      Want the guided version? The <a href="/github-screenshots">agent walkthrough</a> takes a
-      coding agent from install to a first before/after attachment on a PR.
+      Want the guided version? The <a href="/github-screenshots">agent walkthrough</a> takes a coding
+      agent from install to a first before/after attachment on a PR.
     </div>
   </section>
 
   <section id="stage-as-you-go">
-    <h2>Stage screenshots as the agent works <a class="anchor" href="#stage-as-you-go" aria-label="Link to this section">#</a></h2>
+    <h2>
+      Stage screenshots as the agent works <a
+        class="anchor"
+        href="#stage-as-you-go"
+        aria-label="Link to this section">#</a
+      >
+    </h2>
     <p>
-      Any agent that can run a shell command can capture at each visual milestone and run a
-      bare <code>uploads put ./shot.png --state before|after</code> — on a branch it stages
-      automatically (issue #403), no <code>--branch</code> flag required. A bare&#32;
+      Any agent that can run a shell command can capture at each visual milestone and run a bare <code
+        >uploads put ./shot.png --state before|after</code
+      > — on a branch it stages automatically (issue #403), no <code>--branch</code> flag required. A
+      bare&#32;
       <code>uploads screenshot</code> stages the same way, carrying its derived&#32;
-      <code>path</code>/<code>url</code>/<code>env</code>/<code>viewport</code> metadata
-      through promotion. <code>--state</code> is still worth keeping as a habit; it's the one
-      thing no tool can infer from the image.
-      Let the PR comment assemble itself once a PR opens — via the GitHub App webhook, or the
-      next <code>uploads attach</code> (or <code>uploads attach --promote</code>) without the
-      App. See the <a href="/github-screenshots">stage-as-you-go walkthrough</a>&#32;
-      for the full loop.
+      <code>path</code>/<code>url</code>/<code>env</code>/<code>viewport</code> metadata through promotion.
+      <code>--state</code> is still worth keeping as a habit; it's the one thing no tool can infer from
+      the image. Let the PR comment assemble itself once a PR opens — via the GitHub App webhook, or the
+      next <code>uploads attach</code> (or <code>uploads attach --promote</code>) without the App.
+      See the <a href="/github-screenshots">stage-as-you-go walkthrough</a>&#32; for the full loop.
     </p>
   </section>
 
   <section id="instructions-file">
-    <h2>Put it in your instructions file <a class="anchor" href="#instructions-file" aria-label="Link to this section">#</a></h2>
+    <h2>
+      Put it in your instructions file <a
+        class="anchor"
+        href="#instructions-file"
+        aria-label="Link to this section">#</a
+      >
+    </h2>
     <p>
       Add a block like this to your project's instructions file —&#32;
-      <code>AGENTS.md</code>, <code>CLAUDE.md</code>, <code>.cursor/rules</code>, wherever
-      your runtime reads project instructions:
+      <code>AGENTS.md</code>, <code>CLAUDE.md</code>, <code>.cursor/rules</code>, wherever your
+      runtime reads project instructions:
     </p>
     <div class="block" aria-label="AGENTS.md snippet">
       <pre>## Screenshots
@@ -125,25 +163,35 @@ staged files are promoted into the PR's attachments comment automatically.</pre>
   </section>
 
   <section id="pre-pr-reminder">
-    <h2>Pre-PR screenshot reminder <a class="anchor" href="#pre-pr-reminder" aria-label="Link to this section">#</a></h2>
+    <h2>
+      Pre-PR screenshot reminder <a
+        class="anchor"
+        href="#pre-pr-reminder"
+        aria-label="Link to this section">#</a
+      >
+    </h2>
     <p>
-      Before <code>gh pr create</code>, agents can get a non-blocking nudge when the
-      branch touches UI files and nothing is staged on uploads.sh. The handler is
-      <code>uploads hook pre-pr-screenshot</code> — fail-open, never blocks the PR.
-      Disable with <code>UPLOADS_HOOK_DISABLE=1</code>.
+      Before <code>gh pr create</code>, agents can get a non-blocking nudge when the branch touches
+      UI files and nothing is staged on uploads.sh. The handler is
+      <code>uploads hook pre-pr-screenshot</code> — fail-open, never blocks the PR. Disable with <code
+        >UPLOADS_HOOK_DISABLE=1</code
+      >.
     </p>
     <ul>
-      <li><strong>Claude Code</strong> and <strong>Codex</strong> — bundled in the
-        <a href="#plugin">plugin</a> (Codex: trust once via <code>/hooks</code>).</li>
-      <li><strong>Grok</strong> and <strong>Cursor</strong> —
-        <code>uploads install hooks</code> writes a user-global manifest when those
-        tools are present (included in plain <code>uploads install</code>).</li>
+      <li>
+        <strong>Claude Code</strong> and <strong>Codex</strong> — bundled in the
+        <a href="#plugin">plugin</a> (Codex: trust once via <code>/hooks</code>).
+      </li>
+      <li>
+        <strong>Grok</strong> and <strong>Cursor</strong> —
+        <code>uploads install hooks</code> writes a user-global manifest when those tools are present
+        (included in plain <code>uploads install</code>).
+      </li>
     </ul>
     <p>
-      No reminder is required — <code>uploads attach --promote</code> (no file
-      arguments) right after opening a PR picks up everything staged against the branch
-      and posts or refreshes the attachments comment; it exits <code>0</code> even if
-      nothing was staged.
+      No reminder is required — <code>uploads attach --promote</code> (no file arguments) right after
+      opening a PR picks up everything staged against the branch and posts or refreshes the attachments
+      comment; it exits <code>0</code> even if nothing was staged.
     </p>
   </section>
 

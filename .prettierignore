@@ -1,0 +1,12 @@
+# Prettier is only invoked for `*.astro`; ignore build/cache dirs so a
+# stray broader invocation cannot rewrite generated trees.
+node_modules
+.wrangler
+.worktrees
+apps/web/dist
+apps/web/.astro
+packages/*/dist
+.superpowers
+.design-sync
+pnpm-lock.yaml
+**/*.d.ts

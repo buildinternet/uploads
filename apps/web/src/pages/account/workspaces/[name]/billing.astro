@@ -174,7 +174,10 @@ if (!workspace) return Astro.redirect("/account/workspaces");
        * current-plan card — issue #445's remaining billing-tab surface.
        * `resolveSubscriptionCopy` is the pure state→copy mapping
        * (subscription-copy.ts); this is just the DOM glue. */
-      function paintSubscriptionStatus(billing: WorkspaceBilling, proPriceCopy: string | null): void {
+      function paintSubscriptionStatus(
+        billing: WorkspaceBilling,
+        proPriceCopy: string | null,
+      ): void {
         const state = resolveSubscriptionCopy({
           planSource: billing.planSource,
           subscription: billing.subscription,
@@ -226,7 +229,9 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           defaultLimits.maxVideoUploadBytes !== undefined &&
           defaultLimits.maxVideoUploadBytes !== defaultLimits.maxUploadBytes
         ) {
-          rows.push(`<li>Videos up to ${formatMarketedBytes(defaultLimits.maxVideoUploadBytes)}</li>`);
+          rows.push(
+            `<li>Videos up to ${formatMarketedBytes(defaultLimits.maxVideoUploadBytes)}</li>`,
+          );
         }
         // Members: free markets its cap ("3 members"); pro's maxMembers is an
         // unmarketed abuse guard, so its card says "Unlimited members" and the

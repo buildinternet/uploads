@@ -25,40 +25,45 @@ const TOC = [
   active="github-app"
   toc={TOC}
 >
-  {/* Post-install landing: GitHub's Setup URL redirect arrives with
-      ?setup_action=install|update, which reveals this banner client-side. */}
+  {
+    /* Post-install landing: GitHub's Setup URL redirect arrives with
+      ?setup_action=install|update, which reveals this banner client-side. */
+  }
   <aside class="installed" id="installed-note" hidden aria-live="polite">
-    <strong data-installed-heading>App installed — you're done.</strong> There is nothing to
-    configure on this side. The CLI notices the installation automatically the next time you
-    run <code>uploads attach</code>.
+    <strong data-installed-heading>App installed — you're done.</strong> There is nothing to configure
+    on this side. The CLI notices the installation automatically the next time you run <code
+      >uploads attach</code
+    >.
   </aside>
 
   <aside class="callout">
-    <strong>Landed here from an <code>uploads-sh</code> bot comment?</strong> That's an
-    auto-updating list of files uploaded for the PR or issue. Anyone with repo access can add
-    to it with the <a href="/docs/attach-pull-request-images">uploads CLI</a>. This page
-    covers the GitHub App that posts it.
+    <strong>Landed here from an <code>uploads-sh</code> bot comment?</strong> That's an auto-updating
+    list of files uploaded for the PR or issue. Anyone with repo access can add to it with the <a
+      href="/docs/attach-pull-request-images">uploads CLI</a
+    >. This page covers the GitHub App that posts it.
   </aside>
 
   <section class="lead" id="what-it-adds">
-    <h2>What it adds <a class="anchor" href="#what-it-adds" aria-label="Link to this section">#</a></h2>
+    <h2>
+      What it adds <a class="anchor" href="#what-it-adds" aria-label="Link to this section">#</a>
+    </h2>
     <p>
-      Installing <a href={GITHUB_APP_URL}>the App</a> is the recommended setup — it's what
-      makes the staged loop hands-off. Four things change:
+      Installing <a href={GITHUB_APP_URL}>the App</a> is the recommended setup — it's what makes the staged
+      loop hands-off. Four things change:
     </p>
     <ul>
       <li>
-        <strong>The bot posts all linked media automatically.</strong> The attachments
-        comment is created and kept current on the server — no local <code>gh</code> auth,
-        no comments under contributors' own accounts.
+        <strong>The bot posts all linked media automatically.</strong> The attachments comment is created
+        and kept current on the server — no local <code>gh</code> auth, no comments under contributors'
+        own accounts.
       </li>
       <li>
-        <strong>File pages show titles for private repos.</strong> Public repos work out of
-        the box; the App grants read access for private ones.
+        <strong>File pages show titles for private repos.</strong> Public repos work out of the box; the
+        App grants read access for private ones.
       </li>
       <li>
-        <strong>Titles stay current.</strong> Webhooks pick up when a PR or issue is renamed,
-        closed, or merged.
+        <strong>Titles stay current.</strong> Webhooks pick up when a PR or issue is renamed, closed,
+        or merged.
       </li>
       <li>
         <strong>Screenshots staged before the PR exists get promoted automatically.</strong>&#32;
@@ -74,9 +79,10 @@ const TOC = [
   <section id="install">
     <h2>Install it <a class="anchor" href="#install" aria-label="Link to this section">#</a></h2>
     <p>
-      <a href={GITHUB_APP_INSTALL_URL}>Install the App on GitHub</a> and pick the repositories
-      you attach files to (add more later in GitHub's settings). That's the whole setup — the
-      next <code>uploads attach</code> against an installed repo posts as the bot:
+      <a href={GITHUB_APP_INSTALL_URL}>Install the App on GitHub</a> and pick the repositories you attach
+      files to (add more later in GitHub's settings). That's the whole setup — the next <code
+        >uploads attach</code
+      > against an installed repo posts as the bot:
     </p>
     <div class="cmd">
       <span class="text">uploads attach ./after.png</span>
@@ -89,11 +95,14 @@ const TOC = [
   </section>
 
   <section id="staging">
-    <h2>Staging before a PR exists <a class="anchor" href="#staging" aria-label="Link to this section">#</a></h2>
+    <h2>
+      Staging before a PR exists <a class="anchor" href="#staging" aria-label="Link to this section"
+        >#</a
+      >
+    </h2>
     <p>
-      No PR open yet? On a branch, a bare <code>put</code> stages against it by default — no
-      flag needed. Staged files are hosted and public immediately; there's just no PR to
-      comment on yet.
+      No PR open yet? On a branch, a bare <code>put</code> stages against it by default — no flag needed.
+      Staged files are hosted and public immediately; there's just no PR to comment on yet.
     </p>
     <div class="cmd">
       <span class="text">uploads put ./progress.png</span>
@@ -101,38 +110,45 @@ const TOC = [
     </div>
     <p>
       A bare <code>uploads screenshot</code> stages the same way, carrying its derived&#32;
-      <code>path</code>/<code>url</code>/<code>env</code>/<code>viewport</code> metadata
-      through promotion once the PR opens.
+      <code>path</code>/<code>url</code>/<code>env</code>/<code>viewport</code> metadata through promotion
+      once the PR opens.
     </p>
     <p>
-      <code>uploads attach --branch ./a.png ./b.png</code> is the explicit multi-file form of
-      the same thing. See&#32;
-      <a href="/docs/attach-pull-request-images#staging">Attach &amp; share: stage before a PR
-      exists</a> for <code>uploads staged</code> and the binding states.
+      <code>uploads attach --branch ./a.png ./b.png</code> is the explicit multi-file form of the same
+      thing. See&#32;
+      <a href="/docs/attach-pull-request-images#staging"
+        >Attach &amp; share: stage before a PR exists</a
+      > for <code>uploads staged</code> and the binding states.
     </p>
     <p>
-      The moment a PR opens for that branch (or reopens, or gets new commits), the App
-      promotes the staged files onto it and posts or updates the bot comment — no CLI
-      involvement. Without the App, the next <code>uploads attach</code> against that PR
-      promotes them, or run <code>uploads attach --promote</code> with no files
-      (<code>--no-promote</code> skips it).
+      The moment a PR opens for that branch (or reopens, or gets new commits), the App promotes the
+      staged files onto it and posts or updates the bot comment — no CLI involvement. Without the
+      App, the next <code>uploads attach</code> against that PR promotes them, or run <code
+        >uploads attach --promote</code
+      > with no files (<code>--no-promote</code> skips it).
     </p>
     <p>
-      Promotion copies — it never deletes the staged original, so URLs you've already
-      embedded keep working. Staged files stick around under the same rules as anything else
-      in your workspace. The one caveat: a file staged more than 30 days before its PR opens
-      won't auto-promote (it's still there, just not attached automatically).
+      Promotion copies — it never deletes the staged original, so URLs you've already embedded keep
+      working. Staged files stick around under the same rules as anything else in your workspace.
+      The one caveat: a file staged more than 30 days before its PR opens won't auto-promote (it's
+      still there, just not attached automatically).
     </p>
   </section>
 
   <section id="permissions">
-    <h2>Permissions &amp; events <a class="anchor" href="#permissions" aria-label="Link to this section">#</a></h2>
+    <h2>
+      Permissions &amp; events <a
+        class="anchor"
+        href="#permissions"
+        aria-label="Link to this section">#</a
+      >
+    </h2>
     <p>
-      The App asks for one permission: <strong>Issues and Pull requests, read &amp;
-      write</strong> — to read titles and state and post the one managed attachments comment.
-      It never touches other comments, PR descriptions, or your code. If your org installed
-      the App before a permission was added, GitHub holds the upgrade until an org admin
-      approves it. In the meantime, the CLI prints the approval link and posts via
+      The App asks for one permission: <strong>Issues and Pull requests, read &amp; write</strong> — to
+      read titles and state and post the one managed attachments comment. It never touches other comments,
+      PR descriptions, or your code. If your org installed the App before a permission was added, GitHub
+      holds the upgrade until an org admin approves it. In the meantime, the CLI prints the approval link
+      and posts via
       <code>gh</code>.
     </p>
     <p>
@@ -141,9 +157,8 @@ const TOC = [
     </p>
     <ul>
       <li>
-        <strong>Required — <code>issues</code> and <code>pull_request</code>.</strong> Without
-        these the ping still shows green, but title updates and staged-file auto-promotion
-        silently do nothing.
+        <strong>Required — <code>issues</code> and <code>pull_request</code>.</strong> Without these the
+        ping still shows green, but title updates and staged-file auto-promotion silently do nothing.
       </li>
       <li>
         <strong>Recommended — <code>issue_comment</code>.</strong> Enables&#32;
@@ -151,8 +166,7 @@ const TOC = [
       </li>
     </ul>
     <p>
-      <code>uploads github doctor</code> checks the subscriptions directly and reports
-      anything missing:
+      <code>uploads github doctor</code> checks the subscriptions directly and reports anything missing:
     </p>
     <div class="cmd">
       <span class="text">uploads github doctor</span>
@@ -161,72 +175,80 @@ const TOC = [
   </section>
 
   <section id="bindings">
-    <h2>Repo bindings <a class="anchor" href="#bindings" aria-label="Link to this section">#</a></h2>
+    <h2>
+      Repo bindings <a class="anchor" href="#bindings" aria-label="Link to this section">#</a>
+    </h2>
     <p>
-      Each repo maps to at most one workspace's managed comment. The binding is created
-      implicitly the first time a workspace comments, attaches, or promotes against a repo;
-      inspect or claim it explicitly with:
+      Each repo maps to at most one workspace's managed comment. The binding is created implicitly
+      the first time a workspace comments, attaches, or promotes against a repo; inspect or claim it
+      explicitly with:
     </p>
     <div class="cmd">
       <span class="text">uploads github link --status</span>
-      <button type="button" data-copy="uploads github link --status" aria-live="polite">copy</button>
+      <button type="button" data-copy="uploads github link --status" aria-live="polite">copy</button
+      >
     </div>
     <ul>
       <li>
-        <strong>Bindings can't be stolen.</strong> Claiming a bound repo just reports the
-        current owner. <code>uploads github unlink</code> releases your own binding; an
-        operator can reassign stuck ones from the admin panel.
+        <strong>Bindings can't be stolen.</strong> Claiming a bound repo just reports the current owner.
+        <code>uploads github unlink</code> releases your own binding; an operator can reassign stuck ones
+        from the admin panel.
       </li>
       <li>
         <strong>Other workspaces can't post to your repo.</strong> Their&#32;
         <code>comment</code>/<code>attach</code> calls get a <code>not_authorized</code>&#32;
-        decline with no <code>gh</code> fallback — nobody can deface or duplicate the bot
-        comment on your repo.
+        decline with no <code>gh</code> fallback — nobody can deface or duplicate the bot comment on your
+        repo.
       </li>
       <li>
-        <strong>First claims require push access.</strong> Before a workspace can bind an
-        unclaimed repo, the server verifies live against GitHub that the calling token's
-        linked GitHub account can push to it. Tokens with no linked GitHub identity can't
-        make first claims (they still work on repos already bound to them), and repos bound
-        before this check existed keep working.
+        <strong>First claims require push access.</strong> Before a workspace can bind an unclaimed repo,
+        the server verifies live against GitHub that the calling token's linked GitHub account can push
+        to it. Tokens with no linked GitHub identity can't make first claims (they still work on repos
+        already bound to them), and repos bound before this check existed keep working.
       </li>
     </ul>
   </section>
 
   <section id="self-healing">
-    <h2>Self-healing comments <a class="anchor" href="#self-healing" aria-label="Link to this section">#</a></h2>
+    <h2>
+      Self-healing comments <a class="anchor" href="#self-healing" aria-label="Link to this section"
+        >#</a
+      >
+    </h2>
     <p>
       If the managed comment is deleted or edited out from under the bot, the App restores it
-      automatically on the next comment activity in that PR or issue — same attachment list, no
-      CLI call needed. This requires the <code>issue_comment</code> event
-      (see <a href="#permissions">Permissions &amp; events</a>). A briefly missing comment is
-      expected and not a reason to repost one manually.
+      automatically on the next comment activity in that PR or issue — same attachment list, no CLI
+      call needed. This requires the <code>issue_comment</code> event (see <a href="#permissions"
+        >Permissions &amp; events</a
+      >). A briefly missing comment is expected and not a reason to repost one manually.
     </p>
     <p>
       Duplicate marker comments — the occasional webhook-vs-CLI race that creates two — are
-      collapsed the same way: the next sync keeps the oldest, updates it, and deletes the
-      extras. And <code>uploads meta set</code> on a <code>gh/…</code>-keyed object refreshes
-      the comment automatically whenever it changes <code>path</code> or <code>state</code>,
-      so backfilled metadata shows up without waiting on the next <code>attach</code>.
+      collapsed the same way: the next sync keeps the oldest, updates it, and deletes the extras.
+      And <code>uploads meta set</code> on a <code>gh/…</code>-keyed object refreshes the comment
+      automatically whenever it changes <code>path</code> or <code>state</code>, so backfilled
+      metadata shows up without waiting on the next <code>attach</code>.
     </p>
   </section>
 
   <section id="without-it">
-    <h2>Without the App <a class="anchor" href="#without-it" aria-label="Link to this section">#</a></h2>
+    <h2>
+      Without the App <a class="anchor" href="#without-it" aria-label="Link to this section">#</a>
+    </h2>
     <p>
       <code>uploads attach</code> posts the same managed comment through your local&#32;
-      <code>gh</code> CLI, and file pages still resolve titles for public repos. Uninstalling
-      just returns you to that behavior — hosted files and their URLs are unaffected either
-      way.
+      <code>gh</code> CLI, and file pages still resolve titles for public repos. Uninstalling just returns
+      you to that behavior — hosted files and their URLs are unaffected either way.
     </p>
   </section>
 
   <nav class="page-nav" aria-label="More docs">
-    <a class="prev" href="/docs/attach-pull-request-images"><span class="dir">← Back</span>Attach &amp; share</a>
+    <a class="prev" href="/docs/attach-pull-request-images"
+      ><span class="dir">← Back</span>Attach &amp; share</a
+    >
     <a class="next" href="/docs/comment-config"><span class="dir">Next →</span>Comment config</a>
   </nav>
 </DocsLayout>
-
 
 <script is:inline>
   // GitHub's post-install redirect lands here with ?setup_action=install|update.

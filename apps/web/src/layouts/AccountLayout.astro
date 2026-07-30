@@ -54,9 +54,7 @@ const docTitle = `${pageHeading} · uploads.sh`;
 const activeTab: WorkspaceNavTab | "" = workspace
   ? workspaceTabFromPathname(Astro.url.pathname) || "files"
   : "";
-const workspaceBase = workspace
-  ? `/account/workspaces/${encodeURIComponent(workspace)}`
-  : "";
+const workspaceBase = workspace ? `/account/workspaces/${encodeURIComponent(workspace)}` : "";
 const switcherHeading = workspace || "workspaces";
 
 const { authOrigin, apiOrigin } = resolveSignedInOrigins(env);
@@ -65,206 +63,212 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
 ---
 
 <html lang="en" transition:animate="none">
-<head>
-  <BaseHead />
-  <ViewTransitions />
-  <title>{docTitle}</title>
-</head>
-<body>
-  <h1 class="sr-only">{pageHeading}</h1>
-  <div id="checking" class="shell-status">
-    <div class="ul-callout status" role="status">Checking your session…</div>
-  </div>
-
-  <div id="signed-out" class="shell-status" hidden>
-    <div class="ul-callout status" data-state="error" role="alert">You're not signed in.</div>
-    <a class="button" href="/login">Sign in</a>
-  </div>
-
-  <div id="auth-unavailable" class="shell-status" hidden>
-    <div class="status" data-state="denied" role="alert">
-      Authentication is temporarily unavailable. Check the local stack or try again.
+  <head>
+    <BaseHead />
+    <ViewTransitions />
+    <title>{docTitle}</title>
+  </head>
+  <body>
+    <h1 class="sr-only">{pageHeading}</h1>
+    <div id="checking" class="shell-status">
+      <div class="ul-callout status" role="status">Checking your session…</div>
     </div>
-    <button class="button" type="button" id="session-retry">Try again</button>
-  </div>
 
-  <div id="app" class="account-shell" hidden>
-    <SiteHeader authOrigin={authOrigin} />
+    <div id="signed-out" class="shell-status" hidden>
+      <div class="ul-callout status" data-state="error" role="alert">You're not signed in.</div>
+      <a class="button" href="/login">Sign in</a>
+    </div>
 
-    <div class="shell">
-      <div class="layout">
-        <nav class="side" aria-label="Account sections">
-          <div class="ws-switcher" id="ws-switcher">
-            <button
-              type="button"
-              class="ws-switcher__trigger"
-              id="ws-switcher-trigger"
-              aria-expanded="false"
-              aria-haspopup="true"
-              aria-controls="ws-switcher-menu"
-            >
-              <span class="ws-switcher__label" id="ws-switcher-label">{switcherHeading}</span>
-              <span class="ws-switcher__chevron" aria-hidden="true" title="Switch workspace">▾</span>
-            </button>
-            <div class="ws-switcher__menu" id="ws-switcher-menu" hidden>
-              {/* Filled client-side after session + /me/workspaces (cached for paint). */}
-              {creating ? (
-                <a
-                  href="/account/workspaces/new"
-                  class="ws-switcher__item ws-switcher__item--new"
-                  aria-current="true"
-                >
-                  + new workspace
-                </a>
-              ) : null}
-            </div>
-          </div>
-
-          <div
-            id="workspace-section-nav"
-            class="ws-section-nav"
-            role="group"
-            aria-label="Workspace sections"
-            hidden={!workspace}
-          >
-            {
-              workspace
-                ? WORKSPACE_NAV_TABS.map((tab) => (
-                    <a
-                      href={`${workspaceBase}${tab.path}`}
-                      class="side-link"
-                      aria-current={activeTab === tab.id ? "page" : undefined}
-                    >
-                      {tab.label}
-                    </a>
-                  ))
-                : null
-            }
-          </div>
-
-          <div class="side-label">Personal</div>
-          <a
-            href="/account/profile"
-            class="side-link"
-            aria-current={section === "profile" ? "page" : undefined}
-          >
-            account
-          </a>
-          <a
-            href="/account/developers"
-            class="side-link"
-            aria-current={section === "developers" ? "page" : undefined}
-          >
-            developers
-          </a>
-        </nav>
-
-        <div class="content">
-          <slot />
-        </div>
-
-        <aside
-          class="rail"
-          aria-label="Workspace summary"
-          aria-hidden={hasRail ? undefined : "true"}
-          data-empty={hasRail ? undefined : ""}
-        >
-          {hasRail ? <slot name="rail" /> : null}
-        </aside>
+    <div id="auth-unavailable" class="shell-status" hidden>
+      <div class="status" data-state="denied" role="alert">
+        Authentication is temporarily unavailable. Check the local stack or try again.
       </div>
+      <button class="button" type="button" id="session-retry">Try again</button>
     </div>
 
-    {/* Sibling of .shell so the footer centers on the viewport. */}
-    <Footer />
-  </div>
+    <div id="app" class="account-shell" hidden>
+      <SiteHeader authOrigin={authOrigin} />
 
-{/* Optimistic shell + workspace section nav before deferred modules run.
+      <div class="shell">
+        <div class="layout">
+          <nav class="side" aria-label="Account sections">
+            <div class="ws-switcher" id="ws-switcher">
+              <button
+                type="button"
+                class="ws-switcher__trigger"
+                id="ws-switcher-trigger"
+                aria-expanded="false"
+                aria-haspopup="true"
+                aria-controls="ws-switcher-menu"
+              >
+                <span class="ws-switcher__label" id="ws-switcher-label">{switcherHeading}</span>
+                <span class="ws-switcher__chevron" aria-hidden="true" title="Switch workspace"
+                  >▾</span
+                >
+              </button>
+              <div class="ws-switcher__menu" id="ws-switcher-menu" hidden>
+                {/* Filled client-side after session + /me/workspaces (cached for paint). */}
+                {
+                  creating ? (
+                    <a
+                      href="/account/workspaces/new"
+                      class="ws-switcher__item ws-switcher__item--new"
+                      aria-current="true"
+                    >
+                      + new workspace
+                    </a>
+                  ) : null
+                }
+              </div>
+            </div>
+
+            <div
+              id="workspace-section-nav"
+              class="ws-section-nav"
+              role="group"
+              aria-label="Workspace sections"
+              hidden={!workspace}
+            >
+              {
+                workspace
+                  ? WORKSPACE_NAV_TABS.map((tab) => (
+                      <a
+                        href={`${workspaceBase}${tab.path}`}
+                        class="side-link"
+                        aria-current={activeTab === tab.id ? "page" : undefined}
+                      >
+                        {tab.label}
+                      </a>
+                    ))
+                  : null
+              }
+            </div>
+
+            <div class="side-label">Personal</div>
+            <a
+              href="/account/profile"
+              class="side-link"
+              aria-current={section === "profile" ? "page" : undefined}
+            >
+              account
+            </a>
+            <a
+              href="/account/developers"
+              class="side-link"
+              aria-current={section === "developers" ? "page" : undefined}
+            >
+              developers
+            </a>
+          </nav>
+
+          <div class="content">
+            <slot />
+          </div>
+
+          <aside
+            class="rail"
+            aria-label="Workspace summary"
+            aria-hidden={hasRail ? undefined : "true"}
+            data-empty={hasRail ? undefined : ""}
+          >
+            {hasRail ? <slot name="rail" /> : null}
+          </aside>
+        </div>
+      </div>
+
+      {/* Sibling of .shell so the footer centers on the viewport. */}
+      <Footer />
+    </div>
+
+    {
+      /* Optimistic shell + workspace section nav before deferred modules run.
     Keys match SESSION_CACHE_KEY / ACTIVE_WORKSPACE_CACHE_KEY. Not a security
-    boundary — revalidated after. data-astro-rerun: re-apply after body swap. */}
-<script is:inline data-astro-rerun>
-  (function () {
-    try {
-      var raw = sessionStorage.getItem("uploads:sessionUser");
-      if (!raw) return;
-      var user = JSON.parse(raw);
-      if (!user || !user.email) return;
-      var checking = document.getElementById("checking");
-      var app = document.getElementById("app");
-      if (checking) checking.hidden = true;
-      if (app) app.hidden = false;
-      window.__uploadsSessionUser = user;
-
-      // Remember workspace from URL; on personal routes restore last-used section nav.
-      var m = location.pathname.match(/^\/account\/workspaces\/([^/]+)/);
-      var pathWs = m && m[1] !== "new" ? decodeURIComponent(m[1]) : "";
-      if (pathWs) {
-        try { sessionStorage.setItem("uploads:activeWorkspace", pathWs); } catch (e) {}
-      }
-      var activeWs = pathWs || sessionStorage.getItem("uploads:activeWorkspace") || "";
-      if (!activeWs || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(activeWs)) return;
-      var section = document.getElementById("workspace-section-nav");
-      if (!section || !section.hidden) return;
-      var label = document.getElementById("ws-switcher-label");
-      if (label && !pathWs) label.textContent = activeWs;
-      var base = "/account/workspaces/" + encodeURIComponent(activeWs);
-      var paths = ["", "/galleries", "/people", "/billing", "/settings"];
-      var names = ["files", "galleries", "people", "billing", "settings"];
-      var html = "";
-      for (var i = 0; i < paths.length; i++) {
-        html += '<a href="' + base + paths[i] + '" class="side-link">' + names[i] + "</a>";
-      }
-      section.innerHTML = html;
-      section.hidden = false;
-    } catch (e) {}
-  })();
-</script>
-
-{/* Assign to window only — no `define:vars` `const`s. ClientRouter re-runs
-    this after every body swap; top-level const would throw "already declared"
-    and leave stale __UPLOADS_ACTIVE_WORKSPACE__ (access denied after sibling nav). */}
-<script
-  is:inline
-  data-astro-rerun
-  set:html={`window.__UPLOADS_AUTH_ORIGIN__=${JSON.stringify(authOrigin)};window.__UPLOADS_API_ORIGIN__=${JSON.stringify(apiOrigin)};window.__UPLOADS_ACTIVE_WORKSPACE__=${JSON.stringify(workspace)};`}
-></script>
-<script>
-  import {
-    onAstroPageLoad,
-    requireElement,
-    resolveSessionGate,
-  } from "../lib/account-shell";
-  import { initWorkspacesNav } from "../lib/workspaces-nav";
-
-  onAstroPageLoad(() => {
-    if (!document.getElementById("app")) return;
-
-    const w = window as unknown as {
-      __UPLOADS_AUTH_ORIGIN__: string;
-      __UPLOADS_API_ORIGIN__: string;
-      __UPLOADS_ACTIVE_WORKSPACE__: string;
-    };
-
-    // Boot global is a hint; init resolves URL → boot → last-used cache.
-    initWorkspacesNav(w.__UPLOADS_API_ORIGIN__, {
-      active: w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
-    });
-
-    void resolveSessionGate({
-      authOrigin: w.__UPLOADS_AUTH_ORIGIN__,
-      checking: requireElement<HTMLElement>("#checking", "account"),
-      denied: requireElement<HTMLElement>("#signed-out", "account"),
-      unavailable: requireElement<HTMLElement>("#auth-unavailable", "account"),
-      app: requireElement<HTMLElement>("#app", "account"),
-    });
-
-    const retry = document.querySelector<HTMLButtonElement>("#session-retry");
-    if (retry && retry.dataset.bound !== "1") {
-      retry.dataset.bound = "1";
-      retry.addEventListener("click", () => {
-        location.reload();
-      });
+    boundary — revalidated after. data-astro-rerun: re-apply after body swap. */
     }
-  });
-</script>
-</body>
+    <script is:inline data-astro-rerun>
+      (function () {
+        try {
+          var raw = sessionStorage.getItem("uploads:sessionUser");
+          if (!raw) return;
+          var user = JSON.parse(raw);
+          if (!user || !user.email) return;
+          var checking = document.getElementById("checking");
+          var app = document.getElementById("app");
+          if (checking) checking.hidden = true;
+          if (app) app.hidden = false;
+          window.__uploadsSessionUser = user;
+
+          // Remember workspace from URL; on personal routes restore last-used section nav.
+          var m = location.pathname.match(/^\/account\/workspaces\/([^/]+)/);
+          var pathWs = m && m[1] !== "new" ? decodeURIComponent(m[1]) : "";
+          if (pathWs) {
+            try {
+              sessionStorage.setItem("uploads:activeWorkspace", pathWs);
+            } catch (e) {}
+          }
+          var activeWs = pathWs || sessionStorage.getItem("uploads:activeWorkspace") || "";
+          if (!activeWs || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(activeWs)) return;
+          var section = document.getElementById("workspace-section-nav");
+          if (!section || !section.hidden) return;
+          var label = document.getElementById("ws-switcher-label");
+          if (label && !pathWs) label.textContent = activeWs;
+          var base = "/account/workspaces/" + encodeURIComponent(activeWs);
+          var paths = ["", "/galleries", "/people", "/billing", "/settings"];
+          var names = ["files", "galleries", "people", "billing", "settings"];
+          var html = "";
+          for (var i = 0; i < paths.length; i++) {
+            html += '<a href="' + base + paths[i] + '" class="side-link">' + names[i] + "</a>";
+          }
+          section.innerHTML = html;
+          section.hidden = false;
+        } catch (e) {}
+      })();
+    </script>
+
+    {
+      /* Assign to window only — no `define:vars` `const`s. ClientRouter re-runs
+    this after every body swap; top-level const would throw "already declared"
+    and leave stale __UPLOADS_ACTIVE_WORKSPACE__ (access denied after sibling nav). */
+    }
+    <script
+      is:inline
+      data-astro-rerun
+      set:html={`window.__UPLOADS_AUTH_ORIGIN__=${JSON.stringify(authOrigin)};window.__UPLOADS_API_ORIGIN__=${JSON.stringify(apiOrigin)};window.__UPLOADS_ACTIVE_WORKSPACE__=${JSON.stringify(workspace)};`}
+    />
+    <script>
+      import { onAstroPageLoad, requireElement, resolveSessionGate } from "../lib/account-shell";
+      import { initWorkspacesNav } from "../lib/workspaces-nav";
+
+      onAstroPageLoad(() => {
+        if (!document.getElementById("app")) return;
+
+        const w = window as unknown as {
+          __UPLOADS_AUTH_ORIGIN__: string;
+          __UPLOADS_API_ORIGIN__: string;
+          __UPLOADS_ACTIVE_WORKSPACE__: string;
+        };
+
+        // Boot global is a hint; init resolves URL → boot → last-used cache.
+        initWorkspacesNav(w.__UPLOADS_API_ORIGIN__, {
+          active: w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+        });
+
+        void resolveSessionGate({
+          authOrigin: w.__UPLOADS_AUTH_ORIGIN__,
+          checking: requireElement<HTMLElement>("#checking", "account"),
+          denied: requireElement<HTMLElement>("#signed-out", "account"),
+          unavailable: requireElement<HTMLElement>("#auth-unavailable", "account"),
+          app: requireElement<HTMLElement>("#app", "account"),
+        });
+
+        const retry = document.querySelector<HTMLButtonElement>("#session-retry");
+        if (retry && retry.dataset.bound !== "1") {
+          retry.dataset.bound = "1";
+          retry.addEventListener("click", () => {
+            location.reload();
+          });
+        }
+      });
+    </script>
+  </body>
 </html>

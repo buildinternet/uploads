@@ -13,8 +13,8 @@ export const prerender = false;
     <header class="admin-page-header">
       <h2>Users</h2>
       <p>
-        Deactivate an account for abuse - ends their sessions and revokes workspace
-        API tokens they minted. Reactivate restores sign-in only (tokens stay revoked).
+        Deactivate an account for abuse - ends their sessions and revokes workspace API tokens they
+        minted. Reactivate restores sign-in only (tokens stay revoked).
       </p>
     </header>
     <form id="users-search" class="admin-toolbar" role="search">
@@ -48,12 +48,7 @@ export const prerender = false;
 
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../lib/account-shell";
-    import {
-      banUser,
-      listAdminUsers,
-      unbanUser,
-      type AdminUser,
-    } from "../../lib/auth-client";
+    import { banUser, listAdminUsers, unbanUser, type AdminUser } from "../../lib/auth-client";
     import { clearExpandGroups, escapeHtml, wireExpandGroup } from "../../lib/admin-ui";
 
     onAstroPageLoad(() => {
@@ -84,7 +79,12 @@ export const prerender = false;
       }
 
       function isAdmin(role: string | null | undefined): boolean {
-        return Boolean(role?.split(",").map((r) => r.trim()).includes("admin"));
+        return Boolean(
+          role
+            ?.split(",")
+            .map((r) => r.trim())
+            .includes("admin"),
+        );
       }
 
       function setStatus(state: "ready" | "error" | "", text: string): void {

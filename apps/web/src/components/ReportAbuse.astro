@@ -30,24 +30,33 @@ const REASONS = [
     <label class="field">
       <span class="field-label">Reason</span>
       <select name="reason">
-        {REASONS.map((r) =>
-          r.value === "abuse" ? (
-            <option value={r.value} selected>
-              {r.label}
-            </option>
-          ) : (
-            <option value={r.value}>{r.label}</option>
-          ),
-        )}
+        {
+          REASONS.map((r) =>
+            r.value === "abuse" ? (
+              <option value={r.value} selected>
+                {r.label}
+              </option>
+            ) : (
+              <option value={r.value}>{r.label}</option>
+            ),
+          )
+        }
       </select>
     </label>
     <label class="field">
       <span class="field-label">Details <em>(required for Other)</em></span>
-      <textarea name="message" rows="3" maxlength="2000" placeholder="What should we know?"></textarea>
+      <textarea name="message" rows="3" maxlength="2000" placeholder="What should we know?"
+      ></textarea>
     </label>
     <label class="field">
       <span class="field-label">Contact <em>(optional)</em></span>
-      <input type="text" name="contact" maxlength="200" placeholder="email or handle" autocomplete="email" />
+      <input
+        type="text"
+        name="contact"
+        maxlength="200"
+        placeholder="email or handle"
+        autocomplete="email"
+      />
     </label>
     <div class="report-actions">
       <button type="submit" class="report-submit">Submit report</button>

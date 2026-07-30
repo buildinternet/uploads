@@ -30,15 +30,15 @@ export const prerender = false;
 const id = Astro.params.id ?? "";
 const itemId = Astro.params.item ?? "";
 const origin =
-  env.UPLOADS_API_ORIGIN ??
-  import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ??
-  "https://api.uploads.sh";
+  env.UPLOADS_API_ORIGIN ?? import.meta.env.PUBLIC_UPLOADS_API_ORIGIN ?? "https://api.uploads.sh";
 const result = await fetchPublicGallery(id, { origin });
 
 applyPublicGalleryHeaders(Astro.response.headers);
 
 const gallery = result.status === "ok" ? result.gallery : null;
-const items = gallery ? gallery.items.toSorted((a, b) => a.position - b.position || a.id.localeCompare(b.id)) : [];
+const items = gallery
+  ? gallery.items.toSorted((a, b) => a.position - b.position || a.id.localeCompare(b.id))
+  : [];
 const index = items.findIndex((entry) => entry.id === itemId);
 const item = index === -1 ? null : items[index];
 if (result.status === "unavailable") Astro.response.status = 503;
@@ -49,7 +49,10 @@ const next = index >= 0 && index < items.length - 1 ? items[index + 1] : null;
 const listPath = galleryPath(id);
 const itemPath = (target: PublicGalleryItem) => galleryItemPath(id, target.id);
 const canonical = new URL(item ? itemPath(item) : listPath, Astro.url.origin).href;
-const title = item && gallery ? `${item.filename} · ${gallery.title} · uploads.sh` : "Media unavailable · uploads.sh";
+const title =
+  item && gallery
+    ? `${item.filename} · ${gallery.title} · uploads.sh`
+    : "Media unavailable · uploads.sh";
 const itemKind = item ? kind(item) : null;
 const embedFormats: EmbedFormatOption[] =
   item && item.status === "available" && item.url && itemKind
@@ -65,8 +68,7 @@ const embedFormats: EmbedFormatOption[] =
     : [];
 const downloadUrl =
   item && item.status === "available" ? galleryItemDownloadUrl(origin, id, item.id) : null;
-const oembedHref =
-  gallery && item ? oembedDiscoveryHref(canonical, Astro.url.origin) : null;
+const oembedHref = gallery && item ? oembedDiscoveryHref(canonical, Astro.url.origin) : null;
 const uploadedIso = item?.uploaded ?? null;
 const modifiedIso = item?.modified ?? null;
 const showModified = shouldShowModified(uploadedIso, modifiedIso);
@@ -96,65 +98,249 @@ const footnoteLine = footnoteParts.join(" · ");
     <meta name="robots" content="noindex, nofollow, noarchive" />
     <link rel="canonical" href={canonical} />
     <title>{title}</title>
-    <meta name="description" content={item?.caption ?? gallery?.description ?? "Public media hosted by uploads.sh."} />
+    <meta
+      name="description"
+      content={item?.caption ?? gallery?.description ?? "Public media hosted by uploads.sh."}
+    />
     <meta property="og:type" content="website" />
     <meta property="og:title" content={item ? item.filename : "Media unavailable"} />
-    <meta property="og:description" content={item?.caption ?? gallery?.description ?? "Public media hosted by uploads.sh."} />
+    <meta
+      property="og:description"
+      content={item?.caption ?? gallery?.description ?? "Public media hosted by uploads.sh."}
+    />
     <meta property="og:url" content={canonical} />
     <meta property="og:site_name" content={OG_SITE_NAME} />
     <meta property="og:image" content={ogImage} />
-    {oembedHref && item && (
-      <link
-        rel="alternate"
-        type="application/json+oembed"
-        href={oembedHref}
-        title={`${item.filename} oEmbed Profile`}
-      />
-    )}
+    {
+      oembedHref && item && (
+        <link
+          rel="alternate"
+          type="application/json+oembed"
+          href={oembedHref}
+          title={`${item.filename} oEmbed Profile`}
+        />
+      )
+    }
     <style>
-      * { box-sizing:border-box; }
-      body { margin:0; min-height:100dvh; color:var(--fg); background:var(--bg); font-family:var(--sans); display:flex; flex-direction:column; }
-      .shell { width:min(var(--width-viewer, 1080px),calc(100% - 48px)); margin:0 auto; padding:36px 0 64px; flex:1 0 auto; box-sizing:border-box; }
-      nav.top { display:flex; align-items:center; justify-content:space-between; margin-bottom:32px; font:13px var(--mono); letter-spacing:.02em; }
-      .public { color:var(--muted); font-size:11px; letter-spacing:.1em; text-transform:uppercase; border:1px solid var(--line); border-radius:999px; padding:6px 11px; background:var(--panel); }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        color: var(--fg);
+        background: var(--bg);
+        font-family: var(--sans);
+        display: flex;
+        flex-direction: column;
+      }
+      .shell {
+        width: min(var(--width-viewer, 1080px), calc(100% - 48px));
+        margin: 0 auto;
+        padding: 36px 0 64px;
+        flex: 1 0 auto;
+        box-sizing: border-box;
+      }
+      nav.top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 32px;
+        font: 13px var(--mono);
+        letter-spacing: 0.02em;
+      }
+      .public {
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 6px 11px;
+        background: var(--panel);
+      }
       /* Click-to-copy share pill — same pattern as the public file page. */
-      button.public { appearance:none; -webkit-appearance:none; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; gap:6px; }
-      button.public:hover, button.public:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
+      button.public {
+        appearance: none;
+        -webkit-appearance: none;
+        cursor: pointer;
+        font-family: inherit;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      button.public:hover,
+      button.public:focus-visible {
+        border-color: var(--accent);
+        color: var(--accent);
+        outline: none;
+      }
       /* Icon lives in ::before, not a child node — CopyAsControls' handler replaces
          button.textContent on copy, which would otherwise destroy an inline <svg>. */
-      .sharelink::before { content:""; width:11px; height:11px; flex:none; background:currentColor; -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E") center/contain no-repeat; mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E") center/contain no-repeat; }
-      .crumbs { margin-bottom:12px; color:var(--muted); font:13px var(--mono); overflow-wrap:anywhere; }
-      .crumbs .count { color:var(--muted); }
-      .filehead { margin:0 0 16px; min-width:0; }
-      .filetitle { margin:0; color:var(--fg); font:600 17px var(--mono); letter-spacing:-.01em; overflow-wrap:anywhere; }
-      .stage { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-lg); overflow:hidden; }
+      .sharelink::before {
+        content: "";
+        width: 11px;
+        height: 11px;
+        flex: none;
+        background: currentColor;
+        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
+          center/contain no-repeat;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
+          center/contain no-repeat;
+      }
+      .crumbs {
+        margin-bottom: 12px;
+        color: var(--muted);
+        font: 13px var(--mono);
+        overflow-wrap: anywhere;
+      }
+      .crumbs .count {
+        color: var(--muted);
+      }
+      .filehead {
+        margin: 0 0 16px;
+        min-width: 0;
+      }
+      .filetitle {
+        margin: 0;
+        color: var(--fg);
+        font: 600 17px var(--mono);
+        letter-spacing: -0.01em;
+        overflow-wrap: anywhere;
+      }
+      .stage {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+      }
       /* Video / non-image fallbacks only — images use ImagePreview. */
-      .media { min-height:320px; max-height:78vh; background:var(--bg); display:grid; place-items:center; overflow:hidden; }
-      .media video { max-width:100%; max-height:78vh; width:auto; height:auto; object-fit:contain; display:block; }
-      .fallback { padding:60px 30px; text-align:center; color:var(--muted); font:13px/1.6 var(--mono); }
-      .fallback strong { display:block; color:var(--fg); margin-bottom:8px; }
-      .fallback a { color:var(--fg); overflow-wrap:anywhere; }
+      .media {
+        min-height: 320px;
+        max-height: 78vh;
+        background: var(--bg);
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+      }
+      .media video {
+        max-width: 100%;
+        max-height: 78vh;
+        width: auto;
+        height: auto;
+        object-fit: contain;
+        display: block;
+      }
+      .fallback {
+        padding: 60px 30px;
+        text-align: center;
+        color: var(--muted);
+        font: 13px/1.6 var(--mono);
+      }
+      .fallback strong {
+        display: block;
+        color: var(--fg);
+        margin-bottom: 8px;
+      }
+      .fallback a {
+        color: var(--fg);
+        overflow-wrap: anywhere;
+      }
       /* Right rail: same section gap as the public file page. */
-      .details { display:flex; flex-direction:column; gap:22px; padding:18px 20px 22px; border-top:1px solid var(--line); }
-      .details > * { min-width:0; }
-      .caption { margin:0; color:var(--body); font-size:15px; line-height:1.6; white-space:pre-wrap; }
-      dl.meta { display:grid; grid-template-columns:auto 1fr; gap:6px 16px; margin:0; font:12px var(--mono); }
-      dl.meta dt { color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-size:11px; }
-      dl.meta dd { margin:0; color:var(--body); overflow-wrap:anywhere; }
-      .details :global(.actions) { margin-top:0; }
+      .details {
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+        padding: 18px 20px 22px;
+        border-top: 1px solid var(--line);
+      }
+      .details > * {
+        min-width: 0;
+      }
+      .caption {
+        margin: 0;
+        color: var(--body);
+        font-size: 15px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+      }
+      dl.meta {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 6px 16px;
+        margin: 0;
+        font: 12px var(--mono);
+      }
+      dl.meta dt {
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 11px;
+      }
+      dl.meta dd {
+        margin: 0;
+        color: var(--body);
+        overflow-wrap: anywhere;
+      }
+      .details :global(.actions) {
+        margin-top: 0;
+      }
       /* Subordinate to everything above — margin-top:auto sinks it to the bottom of the
          rail on tall pages, no-op on short ones. */
-      .footnote { margin:auto 0 0; color:var(--muted); font:11.5px/1.5 var(--mono); }
-      .pager { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:22px 0 0; font:13px var(--mono); }
-      .pager a, .pager span.disabled { display:inline-block; padding:10px 16px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel); color:var(--fg); text-decoration:none; }
-      .pager a:hover, .pager a:focus-visible { border-color:var(--accent); color:var(--accent); outline:none; }
-      .pager span.disabled { color:var(--muted); }
-      .error { padding:70px 24px; border:1px solid var(--line); border-radius:var(--radius-lg); text-align:center; background:var(--panel); color:var(--body); }
-      .error code { color:var(--accent); font-family:var(--mono); }
-      a { color:var(--fg); text-decoration-color:color-mix(in srgb,var(--accent) 55%,transparent); text-underline-offset:3px; }
+      .footnote {
+        margin: auto 0 0;
+        color: var(--muted);
+        font: 11.5px/1.5 var(--mono);
+      }
+      .pager {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 22px 0 0;
+        font: 13px var(--mono);
+      }
+      .pager a,
+      .pager span.disabled {
+        display: inline-block;
+        padding: 10px 16px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: var(--panel);
+        color: var(--fg);
+        text-decoration: none;
+      }
+      .pager a:hover,
+      .pager a:focus-visible {
+        border-color: var(--accent);
+        color: var(--accent);
+        outline: none;
+      }
+      .pager span.disabled {
+        color: var(--muted);
+      }
+      .error {
+        padding: 70px 24px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        text-align: center;
+        background: var(--panel);
+        color: var(--body);
+      }
+      .error code {
+        color: var(--accent);
+        font-family: var(--mono);
+      }
+      a {
+        color: var(--fg);
+        text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+        text-underline-offset: 3px;
+      }
       @media (min-width: 1080px) {
         /* align with signed-in --bp-rail (1080px); media queries can't read custom props */
-        .shell { width: min(1200px, calc(100% - 48px)); }
+        .shell {
+          width: min(1200px, calc(100% - 48px));
+        }
         .stage {
           display: grid;
           grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
@@ -167,9 +353,17 @@ const footnoteLine = footnoteParts.join(" · ");
         }
       }
       @media (max-width: 760px) {
-        .shell { width: min(100% - 32px, 1080px); padding-top: 24px; }
-        .media { min-height: 220px; }
-        .pager a, .pager span.disabled { padding: 8px 12px; }
+        .shell {
+          width: min(100% - 32px, 1080px);
+          padding-top: 24px;
+        }
+        .media {
+          min-height: 220px;
+        }
+        .pager a,
+        .pager span.disabled {
+          padding: 8px 12px;
+        }
       }
     </style>
   </head>
@@ -177,60 +371,123 @@ const footnoteLine = footnoteParts.join(" · ");
     <main class="shell">
       <nav class="top">
         <Brand />
-        {/* Button only when CopyAsControls renders — its delegated
-           `button[data-copy]` handler is what makes the pill copy. */}
-        {embedFormats.length > 0 ? (
-          <button
-            type="button"
-            class="public sharelink"
-            data-copy={canonical}
-            title="Copy link — anyone with this link can view this page"
-          >
-            Public link
-          </button>
-        ) : (
-          <span class="public">public gallery</span>
-        )}
+        {
+          /* Button only when CopyAsControls renders — its delegated
+           `button[data-copy]` handler is what makes the pill copy. */
+        }
+        {
+          embedFormats.length > 0 ? (
+            <button
+              type="button"
+              class="public sharelink"
+              data-copy={canonical}
+              title="Copy link — anyone with this link can view this page"
+            >
+              Public link
+            </button>
+          ) : (
+            <span class="public">public gallery</span>
+          )
+        }
       </nav>
-      {gallery && item ? (
-        <>
-          <div class="crumbs"><a href={listPath}>{gallery.title}</a> · <span class="count">{index + 1} of {items.length}</span></div>
-          <header class="filehead">
-            <h1 class="filetitle">{item.filename}</h1>
-            <GalleryReferences references={gallery.references} variant="header" />
-          </header>
-          <figure class="stage" style="margin:0">
-            {kind(item) === "image" && item.url ? (
-              <ImagePreview src={item.url} alt={item.altText ?? item.caption ?? item.filename} />
-            ) : (
-              <div class="media">
-                {kind(item) === "video" && <video src={item.url!} controls playsinline preload="metadata" aria-describedby="item-caption">Your browser cannot play this video.</video>}
-                {kind(item) === "file" && <div class="fallback"><strong>Preview unavailable</strong><a href={item.url!} rel="noopener noreferrer">Open {item.filename}</a></div>}
-                {kind(item) === "unsupported" && <div class="fallback"><strong>Unsupported media type</strong><span>This item cannot be opened inline.</span></div>}
-                {kind(item) === "missing" && <div class="fallback"><strong>Removed or expired</strong><span>This item remains in the gallery to preserve its place.</span></div>}
-              </div>
-            )}
-            <figcaption class="details" id="item-caption">
-              {item.caption && <div class="caption">{item.caption}</div>}
-              {item.status === "available" && (
-                <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
-                  {kind(item) !== "unsupported" && item.url && (
-                    <a class="original" href={item.url} rel="noopener noreferrer">Open original ↗</a>
+      {
+        gallery && item ? (
+          <>
+            <div class="crumbs">
+              <a href={listPath}>{gallery.title}</a> ·{" "}
+              <span class="count">
+                {index + 1} of {items.length}
+              </span>
+            </div>
+            <header class="filehead">
+              <h1 class="filetitle">{item.filename}</h1>
+              <GalleryReferences references={gallery.references} variant="header" />
+            </header>
+            <figure class="stage" style="margin:0">
+              {kind(item) === "image" && item.url ? (
+                <ImagePreview src={item.url} alt={item.altText ?? item.caption ?? item.filename} />
+              ) : (
+                <div class="media">
+                  {kind(item) === "video" && (
+                    <video
+                      src={item.url!}
+                      controls
+                      playsinline
+                      preload="metadata"
+                      aria-describedby="item-caption"
+                    >
+                      Your browser cannot play this video.
+                    </video>
                   )}
-                </CopyAsControls>
+                  {kind(item) === "file" && (
+                    <div class="fallback">
+                      <strong>Preview unavailable</strong>
+                      <a href={item.url!} rel="noopener noreferrer">
+                        Open {item.filename}
+                      </a>
+                    </div>
+                  )}
+                  {kind(item) === "unsupported" && (
+                    <div class="fallback">
+                      <strong>Unsupported media type</strong>
+                      <span>This item cannot be opened inline.</span>
+                    </div>
+                  )}
+                  {kind(item) === "missing" && (
+                    <div class="fallback">
+                      <strong>Removed or expired</strong>
+                      <span>This item remains in the gallery to preserve its place.</span>
+                    </div>
+                  )}
+                </div>
               )}
-              {footnoteLine && <p class="footnote">{footnoteLine}</p>}
-            </figcaption>
-          </figure>
-          <nav class="pager" aria-label="Gallery items">
-            {previous ? <a href={itemPath(previous)} rel="prev">← {previous.filename}</a> : <span class="disabled">← Start</span>}
-            <a href={listPath}>All items</a>
-            {next ? <a href={itemPath(next)} rel="next">{next.filename} →</a> : <span class="disabled">End →</span>}
-          </nav>
-        </>
-      ) : (
-        <section class="error"><code>{result.status === "unavailable" ? "gallery.unavailable" : "gallery.item_not_found"}</code><h1>{result.status === "unavailable" ? "Gallery temporarily unavailable" : "Media not found"}</h1><p>{result.status === "unavailable" ? "The gallery service could not be reached. Please try again shortly." : "This item may have been removed, or the link is incorrect."}</p>{result.status !== "unavailable" && <p><a href={listPath}>View the gallery</a></p>}</section>
-      )}
+              <figcaption class="details" id="item-caption">
+                {item.caption && <div class="caption">{item.caption}</div>}
+                {item.status === "available" && (
+                  <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
+                    {kind(item) !== "unsupported" && item.url && (
+                      <a class="original" href={item.url} rel="noopener noreferrer">
+                        Open original ↗
+                      </a>
+                    )}
+                  </CopyAsControls>
+                )}
+                {footnoteLine && <p class="footnote">{footnoteLine}</p>}
+              </figcaption>
+            </figure>
+            <nav class="pager" aria-label="Gallery items">
+              {previous ? (
+                <a href={itemPath(previous)} rel="prev">
+                  ← {previous.filename}
+                </a>
+              ) : (
+                <span class="disabled">← Start</span>
+              )}
+              <a href={listPath}>All items</a>
+              {next ? (
+                <a href={itemPath(next)} rel="next">
+                  {next.filename} →
+                </a>
+              ) : (
+                <span class="disabled">End →</span>
+              )}
+            </nav>
+          </>
+        ) : (
+          <section class="error">
+            <p>
+              {result.status === "unavailable"
+                ? "The gallery service could not be reached. Please try again shortly."
+                : "This item may have been removed, or the link is incorrect."}
+            </p>
+            {result.status !== "unavailable" && (
+              <p>
+                <a href={listPath}>View the gallery</a>
+              </p>
+            )}
+          </section>
+        )
+      }
     </main>
     <Footer />
   </body>

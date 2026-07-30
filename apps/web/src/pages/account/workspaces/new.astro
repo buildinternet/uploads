@@ -8,67 +8,72 @@ export const prerender = false;
 <AccountLayout section="workspaces" creating title="New workspace">
   <section class="card settings-page" id="create">
     <div class="settings-section">
-    <h2>New workspace</h2>
-    <p class="settings-note muted">
-      Shared bucket · 1&nbsp;GB · 25&nbsp;MB/file ·
-      <code>storage.uploads.sh/&lt;name&gt;/…</code>
-    </p>
+      <h2>New workspace</h2>
+      <p class="settings-note muted">
+        Shared bucket · 1&nbsp;GB · 25&nbsp;MB/file ·
+        <code>storage.uploads.sh/&lt;name&gt;/…</code>
+      </p>
 
-    <form class="ws-form" data-create-form>
-      <div class="input-group">
-        <label class="input-group__field">
-          <span class="sr-only">Workspace name</span>
-          <input
-            name="name"
-            required
-            pattern="[a-z0-9][a-z0-9-]{1,62}"
-            placeholder="workspace-name"
-            autocomplete="off"
-            spellcheck="false"
-          />
-        </label>
-        <button type="submit" class="input-group__action">Create</button>
-      </div>
-      <p class="ws-hint muted">2–63 chars · lowercase letters, digits, hyphens</p>
-    </form>
+      <form class="ws-form" data-create-form>
+        <div class="input-group">
+          <label class="input-group__field">
+            <span class="sr-only">Workspace name</span>
+            <input
+              name="name"
+              required
+              pattern="[a-z0-9][a-z0-9-]{1,62}"
+              placeholder="workspace-name"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </label>
+          <button type="submit" class="input-group__action">Create</button>
+        </div>
+        <p class="ws-hint muted">2–63 chars · lowercase letters, digits, hyphens</p>
+      </form>
 
-    <div class="ws-messages">
-      <div class="ul-callout" data-create-success role="status" hidden>
-        <p><strong data-created-name></strong> is ready. Upload from the terminal:</p>
-        <div class="command">
-          <code>npm install -g @buildinternet/uploads</code>
-          <button type="button" data-copy="npm install -g @buildinternet/uploads" aria-live="polite">copy</button>
+      <div class="ws-messages">
+        <div class="ul-callout" data-create-success role="status" hidden>
+          <p><strong data-created-name></strong> is ready. Upload from the terminal:</p>
+          <div class="command">
+            <code>npm install -g @buildinternet/uploads</code>
+            <button
+              type="button"
+              data-copy="npm install -g @buildinternet/uploads"
+              aria-live="polite">copy</button
+            >
+          </div>
+          <div class="command">
+            <code>uploads login</code>
+            <button type="button" data-copy="uploads login" aria-live="polite">copy</button>
+          </div>
+          <div class="command">
+            <code>uploads put ./screenshot.png</code>
+            <button type="button" data-copy="uploads put ./screenshot.png" aria-live="polite"
+              >copy</button
+            >
+          </div>
+          <p class="muted cli-note">
+            Agents: <code>uploads install</code> adds the skill + MCP.
+          </p>
+          <p class="muted cli-note">
+            <a data-open-workspace href="/account/workspaces">Open this workspace →</a>
+          </p>
         </div>
-        <div class="command">
-          <code>uploads login</code>
-          <button type="button" data-copy="uploads login" aria-live="polite">copy</button>
-        </div>
-        <div class="command">
-          <code>uploads put ./screenshot.png</code>
-          <button type="button" data-copy="uploads put ./screenshot.png" aria-live="polite">copy</button>
-        </div>
-        <p class="muted cli-note">
-          Agents: <code>uploads install</code> adds the skill + MCP.
+        <p class="muted cli-note" data-create-cap role="status" hidden>
+          <span data-cap-message></span>&#32;<a href={MANAGE_WORKSPACES_HREF}>Manage workspaces →</a
+          >
         </p>
-        <p class="muted cli-note">
-          <a data-open-workspace href="/account/workspaces">Open this workspace →</a>
+        <p class="muted cli-note" data-create-error role="alert" hidden></p>
+        <p class="muted cli-note" data-create-github role="status" hidden>
+          Requires a linked GitHub account.
+          <button type="button" class="text-btn" data-connect-github>Connect GitHub</button>
+        </p>
+        <p class="muted cli-note" data-github-error role="alert" hidden>
+          GitHub linking isn't available —
+          <a href="/account/profile">try from your profile</a>.
         </p>
       </div>
-      <p class="muted cli-note" data-create-cap role="status" hidden>
-        <span data-cap-message></span>&#32;<a href={MANAGE_WORKSPACES_HREF}
-          >Manage workspaces →</a
-        >
-      </p>
-      <p class="muted cli-note" data-create-error role="alert" hidden></p>
-      <p class="muted cli-note" data-create-github role="status" hidden>
-        Requires a linked GitHub account.
-        <button type="button" class="text-btn" data-connect-github>Connect GitHub</button>
-      </p>
-      <p class="muted cli-note" data-github-error role="alert" hidden>
-        GitHub linking isn't available —
-        <a href="/account/profile">try from your profile</a>.
-      </p>
-    </div>
     </div>
   </section>
 
@@ -97,137 +102,137 @@ export const prerender = false;
     onAstroPageLoad(() => {
       if (!document.querySelector("[data-create-form]")) return;
 
-    const w = window as unknown as {
-      __UPLOADS_API_ORIGIN__: string;
-      __UPLOADS_AUTH_ORIGIN__: string;
-    };
-    const apiOrigin = w.__UPLOADS_API_ORIGIN__;
-    const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
-    const page = "create workspace";
+      const w = window as unknown as {
+        __UPLOADS_API_ORIGIN__: string;
+        __UPLOADS_AUTH_ORIGIN__: string;
+      };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+      const authOrigin = w.__UPLOADS_AUTH_ORIGIN__;
+      const page = "create workspace";
 
-    const form = requireElement<HTMLFormElement>("[data-create-form]", page);
-    const errorEl = requireElement<HTMLElement>("[data-create-error]", page);
-    const githubEl = requireElement<HTMLElement>("[data-create-github]", page);
-    const successEl = requireElement<HTMLElement>("[data-create-success]", page);
-    const createdName = requireElement<HTMLElement>("[data-created-name]", page);
-    const githubError = requireElement<HTMLElement>("[data-github-error]", page);
-    const connectBtn = requireElement<HTMLButtonElement>("[data-connect-github]", page);
-    const openLink = requireElement<HTMLAnchorElement>("[data-open-workspace]", page);
-    const input = form.elements.namedItem("name") as HTMLInputElement;
-    const submit = form.querySelector<HTMLButtonElement>("button[type='submit']");
+      const form = requireElement<HTMLFormElement>("[data-create-form]", page);
+      const errorEl = requireElement<HTMLElement>("[data-create-error]", page);
+      const githubEl = requireElement<HTMLElement>("[data-create-github]", page);
+      const successEl = requireElement<HTMLElement>("[data-create-success]", page);
+      const createdName = requireElement<HTMLElement>("[data-created-name]", page);
+      const githubError = requireElement<HTMLElement>("[data-github-error]", page);
+      const connectBtn = requireElement<HTMLButtonElement>("[data-connect-github]", page);
+      const openLink = requireElement<HTMLAnchorElement>("[data-open-workspace]", page);
+      const input = form.elements.namedItem("name") as HTMLInputElement;
+      const submit = form.querySelector<HTMLButtonElement>("button[type='submit']");
 
-    // `?next=` (same-origin path) returns the user to an interrupted flow —
-    // the OAuth consent page sends `/oauth/consent?<signed query>` so a
-    // workspace-less user can create one mid-authorization and resume.
-    const nextPath = safeSameOriginPath(new URLSearchParams(location.search).get("next"));
+      // `?next=` (same-origin path) returns the user to an interrupted flow —
+      // the OAuth consent page sends `/oauth/consent?<signed query>` so a
+      // workspace-less user can create one mid-authorization and resume.
+      const nextPath = safeSameOriginPath(new URLSearchParams(location.search).get("next"));
 
-    void listAccounts(authOrigin).then((accounts) => {
-      if (accounts && !accounts.some((a) => a.providerId === "github")) githubEl.hidden = false;
-    });
-
-    // This page is directly linkable, so it checks the cap itself rather
-    // than trusting that an entry point already did — turning a
-    // submit-then-403 into an up-front explanation. Fails open: no quota
-    // (older build, unreachable API) leaves the form enabled, and POST
-    // /v1/workspaces still refuses.
-    const capEl = requireElement<HTMLElement>("[data-create-cap]", page);
-    const capMessage = requireElement<HTMLElement>("[data-cap-message]", page);
-
-    // Symmetric on purpose: the cached paint below can be stale in either
-    // direction, so revalidation has to be able to LIFT the cap as well as
-    // apply it — otherwise a user who just upgraded stares at a disabled
-    // form until they reload.
-    function applyQuota(quota: WorkspaceCreateQuota | undefined): void {
-      const capped = !!quota && !canCreateWorkspace(quota);
-      if (capped) capMessage.textContent = workspaceCapMessage(quota.cap);
-      capEl.hidden = !capped;
-      input.disabled = capped;
-      if (submit) submit.disabled = capped;
-    }
-
-    // Cached value paints immediately; `loadWorkspaces` then revalidates,
-    // sharing the one request the account shell is already making for the
-    // switcher rather than issuing a second.
-    applyQuota(readCachedQuota());
-    onSession(() => {
-      void loadWorkspaces(apiOrigin).then((result) => {
-        if (result.kind === "success") applyQuota(result.quota);
+      void listAccounts(authOrigin).then((accounts) => {
+        if (accounts && !accounts.some((a) => a.providerId === "github")) githubEl.hidden = false;
       });
-    });
 
-    if (new URLSearchParams(location.search).get("error")) githubError.hidden = false;
+      // This page is directly linkable, so it checks the cap itself rather
+      // than trusting that an entry point already did — turning a
+      // submit-then-403 into an up-front explanation. Fails open: no quota
+      // (older build, unreachable API) leaves the form enabled, and POST
+      // /v1/workspaces still refuses.
+      const capEl = requireElement<HTMLElement>("[data-create-cap]", page);
+      const capMessage = requireElement<HTMLElement>("[data-cap-message]", page);
 
-    connectBtn.addEventListener("click", () => {
-      void (async () => {
-        githubError.hidden = true;
-        connectBtn.disabled = true;
-        connectBtn.textContent = "Redirecting…";
-        // Thread `next` through the GitHub redirect hop so the return trip
-        // still knows where the user was headed.
-        const returnTo = nextPath
-          ? `${location.origin}/account/workspaces/new?next=${encodeURIComponent(nextPath)}`
-          : `${location.origin}/account/workspaces/new`;
-        if (!(await linkGitHub(authOrigin, returnTo))) {
-          connectBtn.disabled = false;
-          connectBtn.textContent = "Connect GitHub";
-          githubError.hidden = false;
-        }
-      })();
-    });
+      // Symmetric on purpose: the cached paint below can be stale in either
+      // direction, so revalidation has to be able to LIFT the cap as well as
+      // apply it — otherwise a user who just upgraded stares at a disabled
+      // form until they reload.
+      function applyQuota(quota: WorkspaceCreateQuota | undefined): void {
+        const capped = !!quota && !canCreateWorkspace(quota);
+        if (capped) capMessage.textContent = workspaceCapMessage(quota.cap);
+        capEl.hidden = !capped;
+        input.disabled = capped;
+        if (submit) submit.disabled = capped;
+      }
 
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      void (async () => {
-        errorEl.hidden = true;
-        githubEl.hidden = true;
-        successEl.hidden = true;
-        const name = input.value.trim();
-        if (submit) submit.disabled = true;
-        const result = await createWorkspace(apiOrigin, name);
-        if (submit) submit.disabled = false;
-        if (result.kind === "created") {
-          // Drop the sidebar membership cache so the next paint includes this
-          // workspace (revalidated on the destination page's /me/workspaces).
-          clearCachedWorkspaces();
-          // Interrupted-flow return (OAuth consent): skip the CLI-setup card
-          // and go straight back — the user's goal is the pending authorize
-          // request, not terminal setup.
-          if (nextPath) {
-            location.href = nextPath;
+      // Cached value paints immediately; `loadWorkspaces` then revalidates,
+      // sharing the one request the account shell is already making for the
+      // switcher rather than issuing a second.
+      applyQuota(readCachedQuota());
+      onSession(() => {
+        void loadWorkspaces(apiOrigin).then((result) => {
+          if (result.kind === "success") applyQuota(result.quota);
+        });
+      });
+
+      if (new URLSearchParams(location.search).get("error")) githubError.hidden = false;
+
+      connectBtn.addEventListener("click", () => {
+        void (async () => {
+          githubError.hidden = true;
+          connectBtn.disabled = true;
+          connectBtn.textContent = "Redirecting…";
+          // Thread `next` through the GitHub redirect hop so the return trip
+          // still knows where the user was headed.
+          const returnTo = nextPath
+            ? `${location.origin}/account/workspaces/new?next=${encodeURIComponent(nextPath)}`
+            : `${location.origin}/account/workspaces/new`;
+          if (!(await linkGitHub(authOrigin, returnTo))) {
+            connectBtn.disabled = false;
+            connectBtn.textContent = "Connect GitHub";
+            githubError.hidden = false;
+          }
+        })();
+      });
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void (async () => {
+          errorEl.hidden = true;
+          githubEl.hidden = true;
+          successEl.hidden = true;
+          const name = input.value.trim();
+          if (submit) submit.disabled = true;
+          const result = await createWorkspace(apiOrigin, name);
+          if (submit) submit.disabled = false;
+          if (result.kind === "created") {
+            // Drop the sidebar membership cache so the next paint includes this
+            // workspace (revalidated on the destination page's /me/workspaces).
+            clearCachedWorkspaces();
+            // Interrupted-flow return (OAuth consent): skip the CLI-setup card
+            // and go straight back — the user's goal is the pending authorize
+            // request, not terminal setup.
+            if (nextPath) {
+              location.href = nextPath;
+              return;
+            }
+            input.value = "";
+            createdName.textContent = name;
+            openLink.href = `/account/workspaces/${encodeURIComponent(name)}`;
+            successEl.hidden = false;
             return;
           }
-          input.value = "";
-          createdName.textContent = name;
-          openLink.href = `/account/workspaces/${encodeURIComponent(name)}`;
-          successEl.hidden = false;
-          return;
-        }
-        if (result.kind === "error" && result.code === "github_required") {
-          githubEl.hidden = false;
-          return;
-        }
-        errorEl.textContent =
-          result.kind === "unavailable"
-            ? "The API is unreachable right now — try again shortly."
-            : createErrorCopy(result.code);
-        errorEl.hidden = false;
-      })();
-    });
-
-    bindCopyButtons(requireElement<HTMLElement>("#create", page));
-
-    onSession((user) => {
-      if (input.value) return;
-      // Email local-part first so the field is never empty while the network
-      // call is in flight; the GitHub-derived name (issue #506) is the better
-      // guess, so it replaces the heuristic when it arrives — but only if the
-      // user hasn't started typing in the meantime.
-      const heuristic = suggestedWorkspaceName(user.email);
-      if (heuristic) input.value = heuristic;
-      void getSuggestedWorkspaceName(apiOrigin).then((suggestion) => {
-        if (suggestion && (!input.value || input.value === heuristic)) input.value = suggestion;
+          if (result.kind === "error" && result.code === "github_required") {
+            githubEl.hidden = false;
+            return;
+          }
+          errorEl.textContent =
+            result.kind === "unavailable"
+              ? "The API is unreachable right now — try again shortly."
+              : createErrorCopy(result.code);
+          errorEl.hidden = false;
+        })();
       });
-    });
+
+      bindCopyButtons(requireElement<HTMLElement>("#create", page));
+
+      onSession((user) => {
+        if (input.value) return;
+        // Email local-part first so the field is never empty while the network
+        // call is in flight; the GitHub-derived name (issue #506) is the better
+        // guess, so it replaces the heuristic when it arrives — but only if the
+        // user hasn't started typing in the meantime.
+        const heuristic = suggestedWorkspaceName(user.email);
+        if (heuristic) input.value = heuristic;
+        void getSuggestedWorkspaceName(apiOrigin).then((suggestion) => {
+          if (suggestion && (!input.value || input.value === heuristic)) input.value = suggestion;
+        });
+      });
     });
   </script>
 </AccountLayout>

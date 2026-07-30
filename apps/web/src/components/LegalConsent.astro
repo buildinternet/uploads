@@ -16,11 +16,17 @@
  *
  * NOT shown on /invite — that page creates no account, it hands off to
  * `uploads login`, which comes back through /device or /login.
+ *
+ * Spaces around the links use explicit `{" "}` expressions so a formatter can
+ * wrap the markup without Astro collapsing whitespace between text and tags.
  */
 ---
 
 <p class="legal-consent">
-  By continuing, you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.
+  By continuing, you agree to the{" "}
+  <a href="/terms">Terms of Service</a>
+  {" "}and{" "}
+  <a href="/privacy">Privacy Policy</a>.
 </p>
 
 <style>

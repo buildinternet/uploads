@@ -34,7 +34,9 @@ const authOrigin =
     <meta name="robots" content="noindex, nofollow, noarchive" />
     <title>uploads.sh console</title>
     <style>
-      * { box-sizing: border-box; }
+      * {
+        box-sizing: border-box;
+      }
       body {
         margin: 0;
         min-height: 100dvh;
@@ -42,7 +44,9 @@ const authOrigin =
         color: var(--fg);
         font: 14px/1.5 var(--mono);
         font-variant-ligatures: none;
-        font-feature-settings: "calt" 0, "liga" 0;
+        font-feature-settings:
+          "calt" 0,
+          "liga" 0;
         display: flex;
         flex-direction: column;
         padding: 0;
@@ -56,8 +60,16 @@ const authOrigin =
         flex: 1 0 auto;
         box-sizing: border-box;
       }
-      h1 { font-size: 1.15rem; font-weight: 600; margin: 0; }
-      p.muted { color: var(--muted); margin: 0; font-size: 0.9rem; }
+      h1 {
+        font-size: 1.15rem;
+        font-weight: 600;
+        margin: 0;
+      }
+      p.muted {
+        color: var(--muted);
+        margin: 0;
+        font-size: 0.9rem;
+      }
       label {
         display: grid;
         gap: 6px;
@@ -74,8 +86,15 @@ const authOrigin =
         padding: 10px 12px;
         font: 14px var(--mono);
       }
-      input:focus-visible { border-color: var(--accent); outline: none; }
-      .row { display: flex; flex-wrap: wrap; gap: 10px; }
+      input:focus-visible {
+        border-color: var(--accent);
+        outline: none;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
       button {
         font: 12px var(--mono);
         letter-spacing: 0.04em;
@@ -87,7 +106,10 @@ const authOrigin =
         cursor: pointer;
       }
       button:hover,
-      button:focus-visible { border-color: var(--accent); outline: none; }
+      button:focus-visible {
+        border-color: var(--accent);
+        outline: none;
+      }
       pre {
         background: var(--panel);
         border: 1px solid var(--line);
@@ -107,8 +129,14 @@ const authOrigin =
         text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
         text-underline-offset: 3px;
       }
-      a:hover, a:focus-visible { color: var(--accent); outline: none; }
-      code { color: var(--fg); }
+      a:hover,
+      a:focus-visible {
+        color: var(--accent);
+        outline: none;
+      }
+      code {
+        color: var(--fg);
+      }
       .admin {
         display: grid;
         gap: 16px;
@@ -123,7 +151,9 @@ const authOrigin =
         text-transform: uppercase;
         margin: 0;
       }
-      [hidden] { display: none !important; }
+      [hidden] {
+        display: none !important;
+      }
       .sr-only {
         position: absolute;
         width: 1px;
@@ -136,8 +166,17 @@ const authOrigin =
         white-space: nowrap;
         border: 0;
       }
-      .session-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-      .lockup { display: inline-flex; align-items: center; gap: 9px; }
+      .session-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .lockup {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+      }
       .pill {
         font-size: 11px;
         letter-spacing: 0.08em;
@@ -148,7 +187,9 @@ const authOrigin =
         padding: 2px 9px;
         background: var(--bg);
       }
-      .session-bar a { font-size: 12px; }
+      .session-bar a {
+        font-size: 12px;
+      }
       .session-bar button {
         font: 12px var(--mono);
         color: var(--accent);
@@ -200,8 +241,8 @@ const authOrigin =
       <section class="admin" aria-label="Invites">
         <h2 class="sect-head"># invites — admin token required</h2>
         <p class="muted">
-          Creates a single-use enrollment code for the workspace above and prints the
-          magic link. Uses the token field as the admin bearer token.
+          Creates a single-use enrollment code for the workspace above and prints the magic link.
+          Uses the token field as the admin bearer token.
         </p>
         <label>
           Email invite to (optional)
@@ -209,14 +250,20 @@ const authOrigin =
         </label>
         <label>
           Label (optional)
-          <input id="invite-label" type="text" placeholder="who or what this invite is for" autocomplete="off" />
+          <input
+            id="invite-label"
+            type="text"
+            placeholder="who or what this invite is for"
+            autocomplete="off"
+          />
         </label>
         <div class="row">
           <button type="button" id="btn-invite">Create invite</button>
-          <button type="button" id="btn-invite-copy" hidden aria-live="polite">Copy invite link</button>
+          <button type="button" id="btn-invite-copy" hidden aria-live="polite"
+            >Copy invite link</button
+          >
         </div>
       </section>
-
     </main>
     <Footer />
     <script define:vars={{ authOrigin }}>
@@ -343,7 +390,11 @@ const authOrigin =
           }
           inviteLink = `${location.origin}/invite?id=${encodeURIComponent(body.pageId)}#code=${encodeURIComponent(body.code)}`;
           const emailedNote =
-            body.emailed === undefined ? "" : body.emailed ? `\nemailed:  ${email}` : "\nemailed:  send FAILED — share the link yourself";
+            body.emailed === undefined
+              ? ""
+              : body.emailed
+                ? `\nemailed:  ${email}`
+                : "\nemailed:  send FAILED — share the link yourself";
           out.textContent =
             `Invite created for "${ws}" — the link below is shown once. Treat it like a password.\n\n` +
             `${inviteLink}\n\nexpires:  ${body.expiresAt ?? "?"}${emailedNote}`;

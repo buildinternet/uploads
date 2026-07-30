@@ -120,24 +120,26 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       <div class="cs-ghc" role="img" aria-label="Preview of the managed GitHub attachments comment">
         <div class="cs-ghc-avatar" aria-hidden="true">
           <svg viewBox="0 0 32 32" shape-rendering="crispEdges">
-            <path d="M4 0H28V4H32V28H28V32H4V28H0V4H4Z" fill="#0d1117" />
+            <path d="M4 0H28V4H32V28H28V32H4V28H0V4H4Z" fill="#0d1117"></path>
             <g fill="#c27eff">
-              <path d="M14 4h4v4h-4z M10 6h4v4h-4z M18 6h4v4h-4z M6 8h4v4h-4z M22 8h4v4h-4z" />
+              <path d="M14 4h4v4h-4z M10 6h4v4h-4z M18 6h4v4h-4z M6 8h4v4h-4z M22 8h4v4h-4z"></path>
               <path
                 opacity=".55"
                 d="M14 12h4v4h-4z M10 14h4v4h-4z M18 14h4v4h-4z M6 16h4v4h-4z M22 16h4v4h-4z"
-              />
+              ></path>
               <path
                 opacity=".28"
                 d="M14 20h4v4h-4z M10 22h4v4h-4z M18 22h4v4h-4z M6 24h4v4h-4z M22 24h4v4h-4z"
-              />
+              ></path>
             </g>
           </svg>
         </div>
         <div class="cs-ghc-bubble">
           <div class="cs-ghc-head">
-            {/* Name only — the `bot` chip beside it is what GitHub renders, so
-                spelling it "uploads-sh[bot]" here would double-label. */}
+            {
+              /* Name only — the `bot` chip beside it is what GitHub renders, so
+                spelling it "uploads-sh[bot]" here would double-label. */
+            }
             <span class="cs-ghc-user">uploads-sh</span>
             <span class="cs-ghc-bot-chip">bot</span>
             <span>commented just now</span>
@@ -301,7 +303,11 @@ if (!workspace) return Astro.redirect("/account/workspaces");
     import { renderDetailsHtml } from "../../../../lib/workspace-rail";
     import { escapeHtml } from "../../../../lib/workspace-ui";
 
-    const SOURCE_LABEL: Record<string, string> = { repo: "repo", workspace: "workspace", auto: "auto" };
+    const SOURCE_LABEL: Record<string, string> = {
+      repo: "repo",
+      workspace: "workspace",
+      auto: "auto",
+    };
     const SOURCE_BADGE_CLASS: Record<string, string> = {
       repo: "ul-badge--accent",
       workspace: "ul-badge--ok",

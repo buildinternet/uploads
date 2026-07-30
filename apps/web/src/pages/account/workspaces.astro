@@ -99,7 +99,9 @@ if (isBrowseWorkspace(legacyWs)) {
           return;
         }
 
-        const open = managing ? null : resolveDefaultWorkspace(workspaces, readCachedActiveWorkspace());
+        const open = managing
+          ? null
+          : resolveDefaultWorkspace(workspaces, readCachedActiveWorkspace());
         if (open) {
           status.textContent = "Opening…";
           location.replace(`/account/workspaces/${encodeURIComponent(open)}`);
@@ -112,9 +114,7 @@ if (isBrowseWorkspace(legacyWs)) {
           .map((ws) => {
             const name = ws.organization.name || ws.workspace;
             const href = `/account/workspaces/${encodeURIComponent(ws.workspace)}`;
-            const badge = shouldShowProBadge(ws.plan)
-              ? ` <span class="pro-badge">Pro</span>`
-              : "";
+            const badge = shouldShowProBadge(ws.plan) ? ` <span class="pro-badge">Pro</span>` : "";
             return `<li>
               <a href="${escapeHtml(href)}">${escapeHtml(name)}</a>${badge}
               <span class="slug">${escapeHtml(ws.role)}</span>

@@ -28,7 +28,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         </div>
         <a class="text-btn" id="ws-back" href={`/account/workspaces/${workspace}`}>← Workspace</a>
       </div>
-      <div id="ws-members" class="member-list" aria-busy="true" set:html={renderMembersPlaceholderHtml()} />
+      <div
+        id="ws-members"
+        class="member-list"
+        aria-busy="true"
+        set:html={renderMembersPlaceholderHtml()}
+      />
     </div>
 
     <div class="settings-section" id="ws-invite-section" hidden>
@@ -138,8 +143,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         invites: { id: string; email: string; status: string }[],
       ): void {
         const memberHtml = members.length ? renderMembersHtml(members, memberOpts) : "";
-        const inviteHtml =
-          memberOpts.canManage && invites.length ? renderInvitesHtml(invites) : "";
+        const inviteHtml = memberOpts.canManage && invites.length ? renderInvitesHtml(invites) : "";
         const html = memberHtml + inviteHtml;
         membersEl.innerHTML = html || '<p class="muted">Just you so far.</p>';
         // Unlike the innerHTML assignments above, `aria-busy` here lives on
@@ -149,10 +153,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         membersEl.removeAttribute("aria-busy");
       }
 
-      function applyMemberOpts(result: {
-        canManage: boolean;
-        role: string;
-      }): void {
+      function applyMemberOpts(result: { canManage: boolean; role: string }): void {
         memberOpts = {
           canManage: result.canManage,
           viewerRole: result.role,

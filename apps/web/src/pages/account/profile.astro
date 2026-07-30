@@ -32,7 +32,8 @@ export const prerender = false;
         <div class="cli-upgrade__actions">
           <div class="command">
             <code id="cli-upgrade-cmd"></code>
-            <button type="button" id="cli-upgrade-copy" data-copy="" aria-live="polite">copy</button>
+            <button type="button" id="cli-upgrade-copy" data-copy="" aria-live="polite">copy</button
+            >
           </div>
           <button type="button" class="text-btn" id="cli-upgrade-dismiss">Dismiss</button>
         </div>
@@ -55,8 +56,8 @@ export const prerender = false;
           <span class="ws-rail__rule"></span>
         </div>
         <p class="account-rail-tip">
-          Have a workspace under another email? Connect GitHub here (or sign in
-          with that email via magic link, then connect) to link the two.
+          Have a workspace under another email? Connect GitHub here (or sign in with that email via
+          magic link, then connect) to link the two.
         </p>
       </section>
     </div>
@@ -116,124 +117,125 @@ export const prerender = false;
     onAstroPageLoad(() => {
       if (!document.getElementById("acct-email")) return;
 
-    const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
-      .__UPLOADS_AUTH_ORIGIN__;
+      const authOrigin = (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string })
+        .__UPLOADS_AUTH_ORIGIN__;
 
-    const escapeHtml = (value: string) =>
-      value.replace(/[&<>"']/g, (ch) =>
-        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
-      );
+      const escapeHtml = (value: string) =>
+        value.replace(
+          /[&<>"']/g,
+          (ch) =>
+            ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
+        );
 
-    function showStatus(
-      el: HTMLElement,
-      content: string,
-      { html = false }: { html?: boolean } = {},
-    ): void {
-      el.hidden = false;
-      if (html) {
-        el.innerHTML = content;
-      } else {
-        el.textContent = content;
-      }
-    }
-
-    function asNonEmptyString(value: unknown): string | null {
-      return typeof value === "string" && value.length > 0 ? value : null;
-    }
-
-    function setAccountsError(message: string | null): void {
-      const error = requireElement<HTMLElement>("#accounts-error", "account profile");
-      error.textContent = message ?? "";
-      error.hidden = !message;
-    }
-
-    // Official GitHub mark (same path as releases AccountIcon) — not a Lucide
-    // brand icon; Lucide dropped brand logos.
-    const GITHUB_ICON = githubMarkSvg({ size: 14, className: "detail-icon" });
-
-    function githubDetail(account: LinkedAccount, info: ProviderAccountInfo | null): string {
-      const parts: string[] = [];
-      const login = asNonEmptyString(info?.data?.login);
-      if (login) parts.push(`@${login}`);
-      const email =
-        asNonEmptyString(info?.user?.email) ?? asNonEmptyString(info?.data?.email);
-      if (email) parts.push(email);
-      parts.push(`id ${account.accountId}`);
-      if (account.scopes?.length) parts.push(`scopes ${account.scopes.join(", ")}`);
-      return parts.join(" · ");
-    }
-
-    type MethodRow = {
-      title: string;
-      detail: string;
-      ok: boolean;
-      icon?: string;
-      connectGithub?: boolean;
-    };
-
-    async function loadAccounts(): Promise<void> {
-      const status = requireElement<HTMLElement>("#accounts-status", "account profile");
-      const list = requireElement<HTMLUListElement>("#accounts-list", "account profile");
-      list.hidden = true;
-      showStatus(status, "Loading…");
-
-      const accounts = await listAccounts(authOrigin);
-      if (accounts === null) {
-        showStatus(status, "Couldn’t load sign-in methods.");
-        return;
+      function showStatus(
+        el: HTMLElement,
+        content: string,
+        { html = false }: { html?: boolean } = {},
+      ): void {
+        el.hidden = false;
+        if (html) {
+          el.innerHTML = content;
+        } else {
+          el.textContent = content;
+        }
       }
 
-      // Live GitHub profile when linked (account-info needs list-accounts id).
-      const github = accounts.find((a) => a.providerId === "github");
-      const githubInfo = github
-        ? await getAccountInfo(authOrigin, {
-            providerId: "github",
-            accountId: github.accountId,
-          })
-        : null;
+      function asNonEmptyString(value: unknown): string | null {
+        return typeof value === "string" && value.length > 0 ? value : null;
+      }
 
-      const rows: MethodRow[] =
-        accounts.length > 0
-          ? accounts.map((a) => {
-              if (a.providerId === "github") {
-                return {
-                  title: "GitHub",
-                  detail: githubDetail(a, githubInfo),
-                  ok: true,
-                  icon: GITHUB_ICON,
-                };
-              }
-              return {
-                title: a.providerId,
-                detail: a.createdAt ? `Linked ${formatSessionTime(a.createdAt)}` : "Connected",
-                ok: true,
-              };
+      function setAccountsError(message: string | null): void {
+        const error = requireElement<HTMLElement>("#accounts-error", "account profile");
+        error.textContent = message ?? "";
+        error.hidden = !message;
+      }
+
+      // Official GitHub mark (same path as releases AccountIcon) — not a Lucide
+      // brand icon; Lucide dropped brand logos.
+      const GITHUB_ICON = githubMarkSvg({ size: 14, className: "detail-icon" });
+
+      function githubDetail(account: LinkedAccount, info: ProviderAccountInfo | null): string {
+        const parts: string[] = [];
+        const login = asNonEmptyString(info?.data?.login);
+        if (login) parts.push(`@${login}`);
+        const email = asNonEmptyString(info?.user?.email) ?? asNonEmptyString(info?.data?.email);
+        if (email) parts.push(email);
+        parts.push(`id ${account.accountId}`);
+        if (account.scopes?.length) parts.push(`scopes ${account.scopes.join(", ")}`);
+        return parts.join(" · ");
+      }
+
+      type MethodRow = {
+        title: string;
+        detail: string;
+        ok: boolean;
+        icon?: string;
+        connectGithub?: boolean;
+      };
+
+      async function loadAccounts(): Promise<void> {
+        const status = requireElement<HTMLElement>("#accounts-status", "account profile");
+        const list = requireElement<HTMLUListElement>("#accounts-list", "account profile");
+        list.hidden = true;
+        showStatus(status, "Loading…");
+
+        const accounts = await listAccounts(authOrigin);
+        if (accounts === null) {
+          showStatus(status, "Couldn’t load sign-in methods.");
+          return;
+        }
+
+        // Live GitHub profile when linked (account-info needs list-accounts id).
+        const github = accounts.find((a) => a.providerId === "github");
+        const githubInfo = github
+          ? await getAccountInfo(authOrigin, {
+              providerId: "github",
+              accountId: github.accountId,
             })
-          : [{ title: "Email", detail: "Magic link sign-in", ok: true }];
+          : null;
 
-      if (!github) {
-        rows.push({
-          title: "GitHub",
-          detail: "Not connected",
-          ok: false,
-          icon: GITHUB_ICON,
-          connectGithub: true,
-        });
-      }
+        const rows: MethodRow[] =
+          accounts.length > 0
+            ? accounts.map((a) => {
+                if (a.providerId === "github") {
+                  return {
+                    title: "GitHub",
+                    detail: githubDetail(a, githubInfo),
+                    ok: true,
+                    icon: GITHUB_ICON,
+                  };
+                }
+                return {
+                  title: a.providerId,
+                  detail: a.createdAt ? `Linked ${formatSessionTime(a.createdAt)}` : "Connected",
+                  ok: true,
+                };
+              })
+            : [{ title: "Email", detail: "Magic link sign-in", ok: true }];
 
-      status.hidden = true;
-      list.hidden = false;
-      list.innerHTML = rows
-        .map((row) => {
-          const action = row.connectGithub
-            ? `<div class="detail-action">
+        if (!github) {
+          rows.push({
+            title: "GitHub",
+            detail: "Not connected",
+            ok: false,
+            icon: GITHUB_ICON,
+            connectGithub: true,
+          });
+        }
+
+        status.hidden = true;
+        list.hidden = false;
+        list.innerHTML = rows
+          .map((row) => {
+            const action = row.connectGithub
+              ? `<div class="detail-action">
                 <button type="button" class="text-btn" data-connect-github>Connect</button>
               </div>`
-            : "";
-          const badge = row.ok
-            ? `<span class="ul-badge ul-badge--ok">Connected</span>`
-            : `<span class="ul-badge">Not connected</span>`;
-          return `<li>
+              : "";
+            const badge = row.ok
+              ? `<span class="ul-badge ul-badge--ok">Connected</span>`
+              : `<span class="ul-badge">Not connected</span>`;
+            return `<li>
             <div class="detail-main">
               <div class="detail-title">
                 ${row.icon ?? ""}
@@ -244,104 +246,104 @@ export const prerender = false;
             </div>
             ${action}
           </li>`;
-        })
-        .join("");
-    }
-
-    let currentToken: string | undefined;
-
-    async function maybeShowCliUpgrade(sessions: AuthSession[]): Promise<void> {
-      const box = requireElement<HTMLElement>("#cli-upgrade", "account profile");
-      const msg = requireElement<HTMLElement>("#cli-upgrade-msg", "account profile");
-      const cmd = requireElement<HTMLElement>("#cli-upgrade-cmd", "account profile");
-      const copyBtn = requireElement<HTMLButtonElement>("#cli-upgrade-copy", "account profile");
-      box.hidden = true;
-
-      const current = bestCliVersion(sessions);
-      if (!current) return;
-
-      let latest: string | undefined;
-      try {
-        const res = await fetch("/cli-version.json", { credentials: "same-origin" });
-        if (!res.ok) return;
-        const body = (await res.json()) as { latest?: unknown };
-        if (typeof body.latest === "string") latest = body.latest;
-      } catch {
-        return;
+          })
+          .join("");
       }
 
-      const prompt = resolveUpgradePrompt(current, latest);
-      if (!prompt || isUpgradeDismissed(prompt.latest, sessionStorage)) return;
+      let currentToken: string | undefined;
 
-      msg.textContent = prompt.message;
-      cmd.textContent = prompt.installCmd;
-      copyBtn.dataset.copy = prompt.installCmd;
-      box.hidden = false;
-      box.dataset.latest = prompt.latest;
-    }
+      async function maybeShowCliUpgrade(sessions: AuthSession[]): Promise<void> {
+        const box = requireElement<HTMLElement>("#cli-upgrade", "account profile");
+        const msg = requireElement<HTMLElement>("#cli-upgrade-msg", "account profile");
+        const cmd = requireElement<HTMLElement>("#cli-upgrade-cmd", "account profile");
+        const copyBtn = requireElement<HTMLButtonElement>("#cli-upgrade-copy", "account profile");
+        box.hidden = true;
 
-    async function loadSessions(): Promise<void> {
-      const status = requireElement<HTMLElement>("#sessions-status", "account profile");
-      const list = requireElement<HTMLUListElement>("#sessions-list", "account profile");
-      const recover = requireElement<HTMLElement>("#sessions-recover", "account profile");
-      const reauth = requireElement<HTMLAnchorElement>("#sessions-reauth", "account profile");
-      const error = requireElement<HTMLElement>("#sessions-error", "account profile");
-      const upgradeBox = requireElement<HTMLElement>("#cli-upgrade", "account profile");
-      error.hidden = true;
-      list.hidden = true;
-      recover.hidden = true;
-      upgradeBox.hidden = true;
-      showStatus(status, "Loading…");
+        const current = bestCliVersion(sessions);
+        if (!current) return;
 
-      // Point recovery at this page so re-auth lands back on the sessions list.
-      reauth.href = `/login?callbackURL=${encodeURIComponent(`${location.origin}/account/profile`)}`;
+        let latest: string | undefined;
+        try {
+          const res = await fetch("/cli-version.json", { credentials: "same-origin" });
+          if (!res.ok) return;
+          const body = (await res.json()) as { latest?: unknown };
+          if (typeof body.latest === "string") latest = body.latest;
+        } catch {
+          return;
+        }
 
-      const [sessionResult, sessions] = await Promise.all([
-        getSession(authOrigin),
-        listSessions(authOrigin),
-      ]);
+        const prompt = resolveUpgradePrompt(current, latest);
+        if (!prompt || isUpgradeDismissed(prompt.latest, sessionStorage)) return;
 
-      if (sessionResult.kind === "signed_in") {
-        const token = sessionResult.session.session?.token;
-        currentToken = typeof token === "string" ? token : undefined;
+        msg.textContent = prompt.message;
+        cmd.textContent = prompt.installCmd;
+        copyBtn.dataset.copy = prompt.installCmd;
+        box.hidden = false;
+        box.dataset.latest = prompt.latest;
       }
 
-      if (sessions === null) {
+      async function loadSessions(): Promise<void> {
+        const status = requireElement<HTMLElement>("#sessions-status", "account profile");
+        const list = requireElement<HTMLUListElement>("#sessions-list", "account profile");
+        const recover = requireElement<HTMLElement>("#sessions-recover", "account profile");
+        const reauth = requireElement<HTMLAnchorElement>("#sessions-reauth", "account profile");
+        const error = requireElement<HTMLElement>("#sessions-error", "account profile");
+        const upgradeBox = requireElement<HTMLElement>("#cli-upgrade", "account profile");
+        error.hidden = true;
+        list.hidden = true;
+        recover.hidden = true;
+        upgradeBox.hidden = true;
+        showStatus(status, "Loading…");
+
+        // Point recovery at this page so re-auth lands back on the sessions list.
+        reauth.href = `/login?callbackURL=${encodeURIComponent(`${location.origin}/account/profile`)}`;
+
+        const [sessionResult, sessions] = await Promise.all([
+          getSession(authOrigin),
+          listSessions(authOrigin),
+        ]);
+
+        if (sessionResult.kind === "signed_in") {
+          const token = sessionResult.session.session?.token;
+          currentToken = typeof token === "string" ? token : undefined;
+        }
+
+        if (sessions === null) {
+          status.hidden = true;
+          recover.hidden = false;
+          return;
+        }
+        if (!sessions.length) {
+          showStatus(status, "No active sessions.");
+          return;
+        }
+
+        const ordered = sessions.toSorted((a, b) => {
+          if (currentToken && a.token === currentToken) return -1;
+          if (currentToken && b.token === currentToken) return 1;
+          return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+        });
+
         status.hidden = true;
-        recover.hidden = false;
-        return;
-      }
-      if (!sessions.length) {
-        showStatus(status, "No active sessions.");
-        return;
-      }
-
-      const ordered = sessions.toSorted((a, b) => {
-        if (currentToken && a.token === currentToken) return -1;
-        if (currentToken && b.token === currentToken) return 1;
-        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-      });
-
-      status.hidden = true;
-      list.hidden = false;
-      list.innerHTML = ordered
-        .map((s) => {
-          const current = currentToken != null && s.token === currentToken;
-          const badge = current
-            ? `<span class="ul-badge ul-badge--accent">This device</span>`
-            : isCliUserAgent(s.userAgent)
-              ? `<span class="ul-badge">CLI</span>`
-              : "";
-          const meta = [
-            s.ipAddress ? escapeHtml(s.ipAddress) : null,
-            `Active ${escapeHtml(formatSessionTime(s.updatedAt))}`,
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          const action = current
-            ? `<span class="detail-current">Current</span>`
-            : `<button type="button" class="text-btn" data-revoke="${escapeHtml(s.token)}">Sign out</button>`;
-          return `<li>
+        list.hidden = false;
+        list.innerHTML = ordered
+          .map((s) => {
+            const current = currentToken != null && s.token === currentToken;
+            const badge = current
+              ? `<span class="ul-badge ul-badge--accent">This device</span>`
+              : isCliUserAgent(s.userAgent)
+                ? `<span class="ul-badge">CLI</span>`
+                : "";
+            const meta = [
+              s.ipAddress ? escapeHtml(s.ipAddress) : null,
+              `Active ${escapeHtml(formatSessionTime(s.updatedAt))}`,
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            const action = current
+              ? `<span class="detail-current">Current</span>`
+              : `<button type="button" class="text-btn" data-revoke="${escapeHtml(s.token)}">Sign out</button>`;
+            return `<li>
             <div class="detail-main">
               <div class="detail-title">
                 <span>${escapeHtml(deviceLabel(s.userAgent, { cliVersion: s.cliVersion }))}</span>
@@ -351,108 +353,108 @@ export const prerender = false;
             </div>
             <div class="detail-action">${action}</div>
           </li>`;
-        })
-        .join("");
+          })
+          .join("");
 
-      void maybeShowCliUpgrade(sessions);
-    }
+        void maybeShowCliUpgrade(sessions);
+      }
 
-    requireElement<HTMLElement>("#cli-upgrade", "account profile").addEventListener(
-      "click",
-      (event) => {
-        void (async () => {
-          const target = event.target as HTMLElement;
-          const dismiss = target.closest<HTMLButtonElement>("#cli-upgrade-dismiss");
-          if (dismiss) {
-            const box = requireElement<HTMLElement>("#cli-upgrade", "account profile");
-            const latest = box.dataset.latest;
-            if (latest) dismissUpgrade(latest, sessionStorage);
-            box.hidden = true;
-            return;
-          }
-          const button = target.closest<HTMLButtonElement>("#cli-upgrade-copy");
-          if (!button?.dataset.copy) return;
-          try {
-            await navigator.clipboard.writeText(button.dataset.copy);
-            const previous = button.textContent;
-            button.textContent = "copied ✓";
-            setTimeout(() => {
-              button.textContent = previous;
-            }, 1500);
-          } catch {
-            // Clipboard blocked.
-          }
-        })();
-      },
-    );
-
-    requireElement<HTMLUListElement>("#sessions-list", "account profile").addEventListener(
-      "click",
-      (event) => {
-        void (async () => {
-          const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
-            "button[data-revoke]",
-          );
-          if (!button?.dataset.revoke) return;
-          button.disabled = true;
-          button.textContent = "Signing out…";
-          const error = requireElement<HTMLElement>("#sessions-error", "account profile");
-          error.hidden = true;
-          if (!(await revokeSession(authOrigin, button.dataset.revoke))) {
-            error.textContent = "Couldn’t sign out that session.";
-            error.hidden = false;
-            button.disabled = false;
-            button.textContent = "Sign out";
-            return;
-          }
-          await loadSessions();
-        })();
-      },
-    );
-
-    requireElement<HTMLUListElement>("#accounts-list", "account profile").addEventListener(
-      "click",
-      (event) => {
-        void (async () => {
-          const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
-            "button[data-connect-github]",
-          );
-          if (!button) return;
-          setAccountsError(null);
-          button.disabled = true;
-          button.textContent = "Redirecting…";
-          const returnTo = `${location.origin}/account/profile`;
-          if (!(await linkGitHub(authOrigin, returnTo))) {
-            setAccountsError("GitHub linking isn’t available right now.");
-            button.disabled = false;
-            button.textContent = "Connect";
-          }
-        })();
-      },
-    );
-
-    // Better Auth link-social failures redirect back with ?error=.
-    const linkError = new URLSearchParams(location.search).get("error");
-    if (linkError) {
-      setAccountsError(
-        linkError === "account_already_linked_to_different_user"
-          ? "That GitHub account is already linked to a different uploads.sh user."
-          : "Couldn’t connect GitHub. Try again.",
+      requireElement<HTMLElement>("#cli-upgrade", "account profile").addEventListener(
+        "click",
+        (event) => {
+          void (async () => {
+            const target = event.target as HTMLElement;
+            const dismiss = target.closest<HTMLButtonElement>("#cli-upgrade-dismiss");
+            if (dismiss) {
+              const box = requireElement<HTMLElement>("#cli-upgrade", "account profile");
+              const latest = box.dataset.latest;
+              if (latest) dismissUpgrade(latest, sessionStorage);
+              box.hidden = true;
+              return;
+            }
+            const button = target.closest<HTMLButtonElement>("#cli-upgrade-copy");
+            if (!button?.dataset.copy) return;
+            try {
+              await navigator.clipboard.writeText(button.dataset.copy);
+              const previous = button.textContent;
+              button.textContent = "copied ✓";
+              setTimeout(() => {
+                button.textContent = previous;
+              }, 1500);
+            } catch {
+              // Clipboard blocked.
+            }
+          })();
+        },
       );
-      const clean = new URL(location.href);
-      clean.searchParams.delete("error");
-      clean.searchParams.delete("error_description");
-      history.replaceState(null, "", clean.pathname + clean.search + clean.hash);
-    }
 
-    onSession((user) => {
-      requireElement<HTMLElement>("#acct-email", "account profile").textContent = user.email;
-      requireElement<HTMLElement>("#acct-name", "account profile").textContent = user.name || "—";
-      requireElement<HTMLElement>("#acct-role", "account profile").textContent =
-        user.role || "member";
-      void loadAccounts();
-      void loadSessions();
-    });
+      requireElement<HTMLUListElement>("#sessions-list", "account profile").addEventListener(
+        "click",
+        (event) => {
+          void (async () => {
+            const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+              "button[data-revoke]",
+            );
+            if (!button?.dataset.revoke) return;
+            button.disabled = true;
+            button.textContent = "Signing out…";
+            const error = requireElement<HTMLElement>("#sessions-error", "account profile");
+            error.hidden = true;
+            if (!(await revokeSession(authOrigin, button.dataset.revoke))) {
+              error.textContent = "Couldn’t sign out that session.";
+              error.hidden = false;
+              button.disabled = false;
+              button.textContent = "Sign out";
+              return;
+            }
+            await loadSessions();
+          })();
+        },
+      );
+
+      requireElement<HTMLUListElement>("#accounts-list", "account profile").addEventListener(
+        "click",
+        (event) => {
+          void (async () => {
+            const button = (event.target as HTMLElement).closest<HTMLButtonElement>(
+              "button[data-connect-github]",
+            );
+            if (!button) return;
+            setAccountsError(null);
+            button.disabled = true;
+            button.textContent = "Redirecting…";
+            const returnTo = `${location.origin}/account/profile`;
+            if (!(await linkGitHub(authOrigin, returnTo))) {
+              setAccountsError("GitHub linking isn’t available right now.");
+              button.disabled = false;
+              button.textContent = "Connect";
+            }
+          })();
+        },
+      );
+
+      // Better Auth link-social failures redirect back with ?error=.
+      const linkError = new URLSearchParams(location.search).get("error");
+      if (linkError) {
+        setAccountsError(
+          linkError === "account_already_linked_to_different_user"
+            ? "That GitHub account is already linked to a different uploads.sh user."
+            : "Couldn’t connect GitHub. Try again.",
+        );
+        const clean = new URL(location.href);
+        clean.searchParams.delete("error");
+        clean.searchParams.delete("error_description");
+        history.replaceState(null, "", clean.pathname + clean.search + clean.hash);
+      }
+
+      onSession((user) => {
+        requireElement<HTMLElement>("#acct-email", "account profile").textContent = user.email;
+        requireElement<HTMLElement>("#acct-name", "account profile").textContent = user.name || "—";
+        requireElement<HTMLElement>("#acct-role", "account profile").textContent =
+          user.role || "member";
+        void loadAccounts();
+        void loadSessions();
+      });
     });
   </script>
 </AccountLayout>

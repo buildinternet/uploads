@@ -15,7 +15,11 @@ const REPO = "https://github.com/buildinternet/uploads";
   active="reference"
 >
   <section class="lead" id="manage">
-    <h2>Manage what you uploaded <a class="anchor" href="#manage" aria-label="Link to this section">#</a></h2>
+    <h2>
+      Manage what you uploaded <a class="anchor" href="#manage" aria-label="Link to this section"
+        >#</a
+      >
+    </h2>
     <div class="cmd">
       <span class="text">uploads list <span class="cm"># see your files</span></span>
       <button type="button" data-copy="uploads list" aria-live="polite">copy</button>
@@ -25,11 +29,15 @@ const REPO = "https://github.com/buildinternet/uploads";
       <button type="button" data-copy="uploads delete" aria-live="polite">copy</button>
     </div>
     <div class="cmd">
-      <span class="text">uploads usage <span class="cm"># storage used by your workspace</span></span>
+      <span class="text"
+        >uploads usage <span class="cm"># storage used by your workspace</span></span
+      >
       <button type="button" data-copy="uploads usage" aria-live="polite">copy</button>
     </div>
     <div class="cmd">
-      <span class="text">uploads staged <span class="cm"># what's queued for this branch</span></span>
+      <span class="text"
+        >uploads staged <span class="cm"># what's queued for this branch</span></span
+      >
       <button type="button" data-copy="uploads staged" aria-live="polite">copy</button>
     </div>
     <div class="cmd">
@@ -39,51 +47,56 @@ const REPO = "https://github.com/buildinternet/uploads";
   </section>
 
   <section id="good-to-know">
-    <h2>Good to know <a class="anchor" href="#good-to-know" aria-label="Link to this section">#</a></h2>
+    <h2>
+      Good to know <a class="anchor" href="#good-to-know" aria-label="Link to this section">#</a>
+    </h2>
     <ul>
       <li>
-        <strong>Hosted files are public.</strong> Anyone with the URL can view them, even
-        media attached to private repositories. Don't upload secrets or sensitive UI —
-        if a capture shows credentials, solid-redact them first with&#32;
+        <strong>Hosted files are public.</strong> Anyone with the URL can view them, even media attached
+        to private repositories. Don't upload secrets or sensitive UI — if a capture shows credentials,
+        solid-redact them first with&#32;
         <a href="/docs/attach-pull-request-images#annotate"><code>uploads annotate</code></a>&#32;
         or <code>screenshot --annotate</code> (blurred text can be recoverable).
       </li>
       <li>
-        <strong>The visibility toggle unlists — it doesn't lock down bytes.</strong> Marking a
-        file "private" hides it from your workspace's public file listing and gates the
+        <strong>The visibility toggle unlists — it doesn't lock down bytes.</strong> Marking a file "private"
+        hides it from your workspace's public file listing and gates the
         <code>/f/…</code> page behind sign-in. The raw file URL (<code>storage.uploads.sh/…</code>)
-        keeps serving the same bytes to anyone who already has it, and edge caches can keep
-        serving recently-public bytes for a short window after the toggle. Treat it as
-        "unlisted," not "private." True byte-level privacy would require a workspace with no
-        public domain (signed URLs only), which isn't how uploads.sh workspaces work today.
+        keeps serving the same bytes to anyone who already has it, and edge caches can keep serving
+        recently-public bytes for a short window after the toggle. Treat it as "unlisted," not
+        "private." True byte-level privacy would require a workspace with no public domain (signed
+        URLs only), which isn't how uploads.sh workspaces work today.
       </li>
       <li>
-        <strong>Share pages support embeds.</strong> Every public file and gallery has a
-        page at <code>/f/…</code> or <code>/g/…</code> with
-        <a href="https://oembed.com/">oEmbed</a> discovery, so tools that unfurl links can
-        show the media. The endpoint is
+        <strong>Share pages support embeds.</strong> Every public file and gallery has a page at <code
+          >/f/…</code
+        > or <code>/g/…</code> with
+        <a href="https://oembed.com/">oEmbed</a> discovery, so tools that unfurl links can show the media.
+        The endpoint is
         <code>GET /oembed?url=&lt;page-url&gt;&amp;format=json</code>.
       </li>
       <li>
-        <strong>Getting access.</strong> Sign in and create your own workspace with a linked
-        GitHub account, or get invited to an existing one by a workspace admin. Questions? Reach
-        out via <a href={REPO}>the GitHub repo</a>.
+        <strong>Getting access.</strong> Sign in and create your own workspace with a linked GitHub account,
+        or get invited to an existing one by a workspace admin. Questions? Reach out via <a
+          href={REPO}>the GitHub repo</a
+        >.
       </li>
       <li>
-        <strong>Everything lands in your workspace.</strong> Files are stored under a prefix
-        for your workspace, and PR/issue attachments get stable, predictable paths, so
-        re-attaching an updated screenshot replaces the old URL's spot instead of littering.
+        <strong>Everything lands in your workspace.</strong> Files are stored under a prefix for your
+        workspace, and PR/issue attachments get stable, predictable paths, so re-attaching an updated
+        screenshot replaces the old URL's spot instead of littering.
       </li>
       <li>
-        <strong>Under active development.</strong> uploads.sh is built in the open, so APIs
-        (including auth) can still change. Feedback is welcome — open an issue on&#32;
+        <strong>Under active development.</strong> uploads.sh is built in the open, so APIs (including
+        auth) can still change. Feedback is welcome — open an issue on&#32;
         <a href={REPO}>the GitHub repo</a>.
       </li>
     </ul>
     <div class="note">
-      Looking for deeper material like the REST API, enrollment internals, self-hosting, or
-      operator docs? It all lives in <a href={REPO}>the GitHub repository</a>. Agents can also
-      read <a href="/llms.txt">/llms.txt</a> for a machine-friendly index.
+      Looking for deeper material like the REST API, enrollment internals, self-hosting, or operator
+      docs? It all lives in <a href={REPO}>the GitHub repository</a>. Agents can also read <a
+        href="/llms.txt">/llms.txt</a
+      > for a machine-friendly index.
     </div>
   </section>
 
