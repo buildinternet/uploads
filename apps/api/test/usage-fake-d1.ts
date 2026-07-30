@@ -3,6 +3,7 @@
  * and optional no-op auth_tokens lookups for route tests.
  */
 
+import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { PrActivityTable } from "./helpers/fake-pr-activity-table";
 import { RepoLinksTable } from "./helpers/fake-repo-links-table";
@@ -18,14 +19,17 @@ export type UsageRow = {
 
 export class UsageFakeD1 {
   usage = new Map<string, UsageRow>();
-  /** Backs `delete_usage_claims` (issue #570) — key is `workspace\\0object_key`. */
-  deleteUsageClaims = new Map<string, string>();
   // Backs `file_metadata` so putObject/deleteObject's D1 metadata
   // cascade (Task 2) doesn't blow up in suites that only care about the
   // usage ledger.
   private fileMetadataTable = new FileMetadataTable();
   get fileMetadata() {
     return this.fileMetadataTable.metadata;
+  }
+  // Single-winner delete metering claims (issue #570).
+  private deleteUsageClaimsTable = new DeleteUsageClaimsTable();
+  get deleteUsageClaims() {
+    return this.deleteUsageClaimsTable.claims;
   }
   // Backs `github_repo_links` for implicit-claim (comment/promote routes)
   // and webhook auto-promotion tests.
@@ -81,26 +85,8 @@ export class UsageFakeD1 {
         if (linkResult) return linkResult;
         const activityResult = this.prActivityTable.tryRun(normalized, values);
         if (activityResult) return activityResult;
-        // Single-winner delete metering claims (issue #570).
-        if (normalized.startsWith("INSERT OR IGNORE INTO delete_usage_claims")) {
-          const [workspace, objectKey, claimedAt] = values as [string, string, string];
-          const claimKey = `${workspace}\0${objectKey}`;
-          if (this.deleteUsageClaims.has(claimKey)) {
-            return { success: true as const, meta: { changes: 0 }, results: [] };
-          }
-          this.deleteUsageClaims.set(claimKey, claimedAt);
-          return { success: true as const, meta: { changes: 1 }, results: [] };
-        }
-        if (normalized.startsWith("DELETE FROM delete_usage_claims")) {
-          const [workspace, objectKey] = values as [string, string];
-          const claimKey = `${workspace}\0${objectKey}`;
-          const existed = this.deleteUsageClaims.delete(claimKey);
-          return {
-            success: true as const,
-            meta: { changes: existed ? 1 : 0 },
-            results: [],
-          };
-        }
+        const claimResult = this.deleteUsageClaimsTable.tryRun(normalized, values);
+        if (claimResult) return claimResult;
         if (normalized.startsWith("INSERT OR IGNORE INTO workspace_usage")) {
           // applyUsageDelta: (ws, period, updatedAt) with zeros
           // setUsageTotals: (ws, bytes, objects, period, updatedAt)

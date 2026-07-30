@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
+import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
 
@@ -7,6 +8,7 @@ const USER = { id: "user-1", email: "z@example.com", name: "Z" };
 
 function makeFakeDB() {
   const table = new FileMetadataTable();
+  const deleteClaims = new DeleteUsageClaimsTable();
   return {
     metadata: table.metadata,
     prepare(sql: string) {
@@ -22,7 +24,12 @@ function makeFakeDB() {
         },
         async run() {
           return (
-            table.tryRun(normalized, args) ?? { success: true, meta: { changes: 0 }, results: [] }
+            table.tryRun(normalized, args) ??
+            deleteClaims.tryRun(normalized, args) ?? {
+              success: true,
+              meta: { changes: 0 },
+              results: [],
+            }
           );
         },
         async all<T>() {
