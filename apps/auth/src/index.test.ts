@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { app, ROBOTS_TXT } from "./index";
+import { app } from "./index";
+import { ROBOTS_TXT } from "./robots";
 import type { AuthEnv } from "./auth";
 import { LOCAL_STACK_AUTH_ORIGIN, LOCAL_STACK_WEB_ORIGIN } from "./local-demo";
 import { createFakeD1 } from "./test/fake-d1";
