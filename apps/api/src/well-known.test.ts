@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { app, ROBOTS_TXT } from "./index";
+import { app } from "./index";
+import { ROBOTS_TXT } from "./robots";
 
 // The route reads only c.env.WEB_ORIGIN (with a fallback), no bindings.
 const env = {} as unknown as Env;

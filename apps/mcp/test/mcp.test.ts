@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
-import app, { ROBOTS_TXT } from "../src/index";
+import app from "../src/index";
+import { ROBOTS_TXT } from "../src/robots";
 import { sha256Hex, type WorkspaceRecord } from "@uploads/api/workspace";
 import { FakeR2Bucket } from "@uploads/storage/test/fake-r2";
 import { resetOAuthJwksCacheForTests } from "../src/oauth";

@@ -35,6 +35,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import pkg from "../package.json";
 import { createRemoteTools } from "./tools";
 import { invalidTokenChallenge, isJwtShaped, missingTokenChallenge, verifyOAuthJwt } from "./oauth";
+import { ROBOTS_TXT } from "./robots";
 
 /**
  * Both prod hostnames this worker answers on (see wrangler.jsonc routes) are
@@ -288,18 +289,6 @@ function respondProtectedResource(c: Context<WorkspaceVars>): Response {
     { "Cache-Control": "public, max-age=300", "Access-Control-Allow-Origin": "*" },
   );
 }
-
-/**
- * Service-host crawl policy. agents.uploads.sh / mcp.uploads.sh is an MCP
- * endpoint — not a content surface — so every bot is told to stay out.
- * Marketing + docs live on https://uploads.sh.
- */
-export const ROBOTS_TXT = `# https://agents.uploads.sh — MCP server only; do not crawl.
-# Public docs and marketing: https://uploads.sh
-
-User-agent: *
-Disallow: /
-`;
 
 const app = new Hono<WorkspaceVars>()
   .get("/health", (c) => c.json({ ok: true }))
