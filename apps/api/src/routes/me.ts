@@ -31,7 +31,7 @@ import {
   META_KEY_RE,
   validateMetadataFilters,
 } from "../file-metadata";
-import { badKey, listObjects, setObjectVisibility } from "../files-core";
+import { badKey, deleteObject, listObjects, setObjectVisibility } from "../files-core";
 import { listGalleries } from "../galleries";
 import { galleryListSummaries } from "../gallery-service";
 import {
@@ -778,6 +778,27 @@ export const me = new Hono<SessionVars>()
     await setObjectVisibility(store, key, requested as "public" | "private");
 
     return c.json({ key, visibility: sanitizeVisibility(requested) ?? "public" });
+  })
+
+  // Delete a file — member-gated web administration (spec 2026-07-30). Same
+  // key convention and gate ordering as the visibility route above; all
+  // storage/D1/ledger mechanics live in files-core's deleteObject (shared
+  // with the token-authed DELETE /v1/:workspace/files/:key). Any member may
+  // delete — parity with the CLI, where any member token can `uploads delete`.
+  .delete("/workspaces/:name/files", async (c) => {
+    const name = c.req.param("name");
+    await memberWorkspaceOr404(c.env, requireUserId(c), name);
+    const key = c.req.query("key") ?? "";
+    if (badKey(key)) throw new NotFoundError();
+
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) throw new NotFoundError();
+
+    return c.json(await deleteObject(c.env, record, key, name));
   })
 
   // files-sdk's folder-aware browser gateway. Authorization happens before a
