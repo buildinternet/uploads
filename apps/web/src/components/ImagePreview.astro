@@ -138,6 +138,29 @@ const counterpartUrl = compare?.src ?? null;
       });
     }
 
+    /**
+     * Full width sizes the compare box to the taller of the two layers, so a
+     * before layer longer than the after image isn't clipped in the one mode
+     * whose whole job is showing the image whole (#552). Only the ratio needs
+     * measuring — the box's width there is already the stage's — so this is a
+     * single custom property, and `aspect-ratio`'s `auto` fallback means an
+     * image that never loads leaves the box exactly as it is today.
+     *
+     * Deliberately not applied in fit mode: that box is capped at
+     * `--preview-max-h`, so sizing it to the taller layer would let one long
+     * screenshot shrink the whole stage — an 800×3000 before against an
+     * 800×600 after would squeeze the after down to a ~187px-wide stamp.
+     * Fit clips instead, and full width is one click away.
+     */
+    const sizePairBox = () => {
+      const layers = [...wrap.querySelectorAll<HTMLImageElement>("img[slot]")];
+      if (layers.length !== 2) return;
+      if (!layers.every((el) => el.complete && el.naturalWidth > 0)) return;
+      const ratio = Math.max(...layers.map((el) => el.naturalHeight / el.naturalWidth));
+      if (!Number.isFinite(ratio) || ratio <= 0) return;
+      wrap.style.setProperty("--pair-ratio", `1 / ${ratio}`);
+    };
+
     // `loading="lazy"` keeps the counterpart out of the initial page fetch,
     // but in fit mode the second slot is `width: auto` — its box derives from
     // its own intrinsic size, which is 0×0 until it loads, and the host
@@ -150,8 +173,10 @@ const counterpartUrl = compare?.src ?? null;
     const activateImages = () => {
       if (imagesActivated) return;
       imagesActivated = true;
-      for (const el of wrap.querySelectorAll<HTMLImageElement>("img[loading='lazy']")) {
-        el.loading = "eager";
+      for (const el of wrap.querySelectorAll<HTMLImageElement>("img[slot]")) {
+        if (el.loading === "lazy") el.loading = "eager";
+        if (el.complete) sizePairBox();
+        else el.addEventListener("load", sizePairBox, { once: true });
       }
     };
 
@@ -341,10 +366,19 @@ const counterpartUrl = compare?.src ?? null;
   /* Full width: host fills the stage, same contract as the single image's
      full-width mode. Fit mode intentionally leaves the host at its shadow
      default (`inline-block`) so it shrink-wraps the sized image below rather
-     than forcing a width the image itself doesn't fill. */
+     than forcing a width the image itself doesn't fill.
+
+     The ratio is the taller of the two layers' (set by `sizePairBox` once both
+     have loaded), which grows the box to whichever layer needs the room
+     instead of clipping the before layer against the after image's height.
+     Safe here and only here: the width is the stage's either way, so a long
+     layer can only add height — it can never shrink the other one, which is
+     what sizing the fit-mode box this way would do. Unset until both images
+     load, and `auto` is plain shrink-to-content — the box today. */
   .image-preview[data-mode="full"] img-comparison-slider {
     display: block;
     width: 100%;
+    aspect-ratio: var(--pair-ratio, auto);
   }
 
   .image-preview img-comparison-slider img {
@@ -362,21 +396,6 @@ const counterpartUrl = compare?.src ?? null;
     max-height: var(--preview-max-h);
   }
 
-  /* Fit, first slot ("before"): the component absolutely positions this
-     layer's shadow container at 100%/100% of the box the second slot just
-     established, so it is excluded from the shrink-to-fit computation above.
-     Real before/after pairs routinely differ by a few pixels (content length
-     changed), so nothing guarantees the two share intrinsic dimensions. Fill
-     the box the after image set and letterbox to it — `contain` never crops,
-     and top-left (not centered) is the shared origin of two screenshots of
-     the same page, since any mismatch is extra content below the fold. */
-  .image-preview[data-mode="fit"] img-comparison-slider img[slot="first"] {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    object-position: left top;
-  }
-
   /* Full, second slot ("after"): same fill-the-stage sizing as the single
      image in full mode. Still the layer that drives the host's width. */
   .image-preview[data-mode="full"] img-comparison-slider img[slot="second"] {
@@ -384,15 +403,33 @@ const counterpartUrl = compare?.src ?? null;
     max-height: none;
   }
 
-  /* Full, first slot ("before"): same reasoning as the fit-mode override
-     above — fill the box the after image established (here, the full stage
-     width) and letterbox to it rather than resolving its own intrinsic
-     ratio inside an overlay sized to a possibly different-ratio after image. */
-  .image-preview[data-mode="full"] img-comparison-slider img[slot="first"] {
+  /* Both modes, first slot ("before"): the component absolutely positions this
+     layer's shadow container at 100%/100% of the box the second slot
+     established, so it is excluded from the shrink-to-fit computation above
+     and has no box of its own to derive. Give it the box's full width and let
+     its own ratio pick its height — the same rule in either mode, since the
+     mode only changes how wide that box is.
+
+     Width, not "whichever axis fits first", is the shared unit: two shots of
+     the same page differ in length, not in width, so normalizing on width is
+     what puts the same content under the same x in both layers. It is also
+     what every other before/after slider does with mismatched sources.
+     `object-fit: contain` used to size this layer here, which on a several-
+     fold length mismatch made it height-bound instead — it shrank to a
+     fraction of the box's width and left dead space beside it (#552).
+
+     A before layer longer than the box now overflows it and the component's
+     own `.first-overlay` (`overflow: hidden`) clips the tail at the box's
+     bottom edge, trading a slice of below-the-fold content — still readable
+     in "This image" on the before file's own page — for two layers that stay
+     registered. A shorter one letterboxes at the bottom, as it did before. */
+  .image-preview img-comparison-slider img[slot="first"] {
     width: 100%;
-    height: 100%;
-    object-fit: contain;
-    object-position: left top;
+    height: auto;
+    /* Without this, the stage's fit-mode cap further down applies to this
+       layer's height while its width is pinned to the box, squashing its
+       aspect ratio. The box it fills is capped already. */
+    max-height: none;
   }
 
   .compare-label {
