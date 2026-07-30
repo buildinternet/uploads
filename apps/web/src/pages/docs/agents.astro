@@ -95,7 +95,9 @@ import DocsLayout from "../../layouts/DocsLayout.astro";
       >. The&#32;
       <strong>MCP server</strong> gives agents the same tools (<code>put</code>,&#32;
       <code>attach</code>, <code>list</code>, <code>delete</code>, and more) over HTTP, using the
-      same token as the CLI. There's also a local stdio variant — register&#32;
+      same token as the CLI. Hosted <code>put</code>/<code>comment</code> honor a repo's&#32;
+      <a href="/docs/comment-config"><code>.uploads.yml</code></a> the same way the bot does. There's
+      also a local stdio variant — register&#32;
       <code>uploads mcp</code> with any MCP client, e.g.:
     </p>
     <div class="cmd">

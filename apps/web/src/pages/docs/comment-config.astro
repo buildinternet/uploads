@@ -2,7 +2,8 @@
 // uploads.sh — docs / .uploads.yml comment config. A repo-committed file that
 // controls how the managed attachments comment renders for that repo: image
 // width, inline-image cap, caption metadata, the file-page link, and an
-// optional note. Read by both the bot and the CLI's gh-fallback path.
+// optional note. Read by the bot, the hosted MCP comment path, and the CLI's
+// gh-fallback path.
 import DocsLayout from "../../layouts/DocsLayout.astro";
 
 const TOC = [
@@ -92,7 +93,8 @@ const TOC = [
       File location <a class="anchor" href="#file-location" aria-label="Link to this section">#</a>
     </h2>
     <p>
-      The bot and the CLI both check these locations, in order, and use the first one they find:
+      The GitHub App bot, the hosted MCP, the REST comment endpoint, and the CLI's local&#32;
+      <code>gh</code>-fallback all check these locations, in order, and use the first one they find:
     </p>
     <ul>
       <li><code>.uploads.yml</code></li>
@@ -154,10 +156,10 @@ const TOC = [
     </p>
     <p>
       The server caches a repo's config for about five minutes, so a commit that changes or removes
-      the file can take up to that long to take effect on the next bot comment. The CLI's <code
-        >gh</code
-      >-fallback path reads the file straight from your local working tree instead, with no cache,
-      so both paths end up honoring the same file.
+      the file can take up to that long to take effect on the next server-side comment. The
+      CLI's&#32;
+      <code>gh</code>-fallback path reads the file from your local working tree instead, with no
+      cache, so every path ends up honoring the same file.
     </p>
   </section>
 

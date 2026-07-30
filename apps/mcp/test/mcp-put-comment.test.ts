@@ -1,11 +1,10 @@
 /**
  * Hosted `put` PR/issue targeting + managed comment sync (issue #392). The
  * gather/check/upsert logic itself is exercised end-to-end by
- * apps/api/src/routes/github-comment-route.test.ts (now via
- * `postManagedComment`, apps/api/src/github-comment-service.ts) — these tests
- * cover only the hosted MCP `put` tool's new surface: targeting args, the
- * default comment sync with pr/issue (#537 parity; `comment: false` opts
- * out), and that a decline/failure never fails the upload.
+ * apps/api/src/routes/github-comment-route.test.ts (via `postManagedComment`)
+ * — these tests cover the hosted MCP surface: targeting args, default
+ * comment sync with pr/issue (#537), decline/failure never failing the
+ * upload, and `.uploads.yml` shaping the posted body (issue #536).
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import app from "../src/index";
@@ -574,6 +573,53 @@ describe("hosted put: comment sync (issue #392)", () => {
     // than turning a previously-valid write-only upload into an error.
     expect(result.structuredContent?.comment).toBeUndefined();
     expect(result.structuredContent?.commentError).toBeUndefined();
+  });
+
+  // Shared gather path already resolves .uploads.yml (issue #536); pin it
+  // through the hosted put tool so a future split can't drop it silently.
+  it("honors the repo's .uploads.yml when rendering the managed comment (issue #536)", async () => {
+    const { env, githubCache } = await makeEnv({ boundTo: WS });
+    githubCache.store.set("ghinst:acme/widgets", { value: "42" });
+    githubCache.store.set("ghtok:42", { value: "cached-token" });
+    let postedBody: string | undefined;
+    const restore = stubGithubFetch((url, init) => {
+      if (url.includes("/contents/.uploads.yml")) {
+        return new Response("comment:\n  note: Screenshots from CI.\n  imageWidth: full\n", {
+          status: 200,
+        });
+      }
+      if (url.includes("/issues/12/comments")) {
+        if (init.method === "POST") {
+          postedBody = (JSON.parse(String(init.body ?? "{}")) as { body?: string }).body;
+          return new Response(
+            JSON.stringify({ id: 5, html_url: "https://github.com/acme/widgets/pull/12#c5" }),
+            { status: 201 },
+          );
+        }
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response("nf", { status: 404 });
+    });
+    try {
+      const result = await callTool(env, "put", {
+        contentBase64: PNG_B64,
+        filename: "hero.png",
+        pr: 12,
+        repo: "acme/widgets",
+        comment: true,
+      });
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent?.comment).toMatchObject({
+        posted: true,
+        action: "created",
+        count: 1,
+      });
+      expect(postedBody).toContain("Screenshots from CI.");
+      // imageWidth: full omits the fixed width the auto path would emit
+      expect(postedBody).not.toMatch(/<img[^>]*\swidth="/);
+    } finally {
+      restore();
+    }
   });
 });
 

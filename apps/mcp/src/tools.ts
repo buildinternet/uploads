@@ -195,11 +195,12 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
 
   /**
    * Best-effort managed-comment sync after a successful `put` (issue #392),
-   * reusing the REST route's in-process service. A comment failure — a
-   * decline (not_installed/not_authorized/forbidden/...) is NOT a failure,
-   * it's returned honestly in `comment` — never fails the tool call; a throw
-   * (e.g. an unexpected GitHub API error) is caught into `commentError`, same
-   * shape as the stdio tools' `syncComment`.
+   * reusing the REST route's in-process service (so a repo's `.uploads.yml`
+   * applies the same way as on the bot path; issue #536). A comment failure
+   * — a decline (not_installed/not_authorized/forbidden/...) is NOT a
+   * failure, it's returned honestly in `comment` — never fails the tool
+   * call; a throw (e.g. an unexpected GitHub API error) is caught into
+   * `commentError`, same shape as the stdio tools' `syncComment`.
    */
   async function attachComment(
     target: GhTarget,
@@ -438,7 +439,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     {
       name: "put",
       description:
-        "Upload base64-encoded content to the workspace and get a public URL plus GitHub-ready embed markdown (the returned `markdown` is ready to paste into a PR or issue). Single file: pass `contentBase64` + `filename` (flat result). Multiple files: pass `files` (uploaded in parallel; returns `uploads` + `failures`, one bad item does not abort the rest). The key defaults to <prefix>/<repo>/<ref>/<name>-<hash>.<ext>; pass `key` for an explicit path instead (single-file only). With `pr`/`issue` (+ required `repo`) the key is stable instead (gh/…, always overwrites) and the managed attachments comment is synced by default as uploads-sh[bot] (bot-only on this hosted server, no local gh fallback) — pass `comment: false` to skip it. Uploads are public regardless of GitHub repository visibility; explicit predictable keys must contain only non-sensitive media. The stored content type is sniffed from the bytes and restricted to the workspace's allowlist (images plus mp4/webm by default).",
+        "Upload base64-encoded content to the workspace and get a public URL plus GitHub-ready embed markdown (the returned `markdown` is ready to paste into a PR or issue). Single file: pass `contentBase64` + `filename` (flat result). Multiple files: pass `files` (uploaded in parallel; returns `uploads` + `failures`, one bad item does not abort the rest). The key defaults to <prefix>/<repo>/<ref>/<name>-<hash>.<ext>; pass `key` for an explicit path instead (single-file only). With `pr`/`issue` (+ required `repo`) the key is stable instead (gh/…, always overwrites) and the managed attachments comment is synced by default as uploads-sh[bot] (bot-only on this hosted server, no local gh fallback; body honors the repo's `.uploads.yml` when present) — pass `comment: false` to skip it. Uploads are public regardless of GitHub repository visibility; explicit predictable keys must contain only non-sensitive media. The stored content type is sniffed from the bytes and restricted to the workspace's allowlist (images plus mp4/webm by default).",
       inputSchema: {
         type: "object",
         properties: {
@@ -507,7 +508,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           comment: {
             type: "boolean",
             description:
-              "With pr/issue: after a successful upload, create or update the managed attachments comment via the uploads.sh GitHub App (bot-only on this hosted server — no local gh fallback). Defaults to true when pr/issue is given (requires the files:read scope; a write-only token skips the sync unless comment is explicitly true); pass false to skip. Requires pr or issue. A comment failure never fails the upload; see the response's `comment`/`commentError`.",
+              "With pr/issue: after a successful upload, create or update the managed attachments comment via the uploads.sh GitHub App (bot-only on this hosted server — no local gh fallback; body honors the repo's `.uploads.yml` when present). Defaults to true when pr/issue is given (requires the files:read scope; a write-only token skips the sync unless comment is explicitly true); pass false to skip. Requires pr or issue. A comment failure never fails the upload; see the response's `comment`/`commentError`.",
           },
           alt: {
             type: "string",
@@ -814,7 +815,7 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     {
       name: "comment",
       description:
-        "Create or update the managed attachments comment on a GitHub PR or issue, listing everything this workspace has uploaded for it. Refreshes the comment WITHOUT re-uploading — use after deleting media to re-sync (e.g. it will show a neutral empty state once the last attachment is removed). Posts as uploads-sh[bot] via the uploads.sh GitHub App — bot-only on this hosted server, no local gh fallback; if the App isn't installed/authorized the decline is returned honestly. Requires repo (owner/name — no git context on this server) and exactly one of pr/issue.",
+        "Create or update the managed attachments comment on a GitHub PR or issue, listing everything this workspace has uploaded for it. Refreshes the comment WITHOUT re-uploading — use after deleting media to re-sync (e.g. it will show a neutral empty state once the last attachment is removed). Posts as uploads-sh[bot] via the uploads.sh GitHub App — bot-only on this hosted server, no local gh fallback; body honors the repo's `.uploads.yml` when present (same as the bot path). If the App isn't installed/authorized the decline is returned honestly. Requires repo (owner/name — no git context on this server) and exactly one of pr/issue.",
       inputSchema: {
         type: "object",
         properties: {
