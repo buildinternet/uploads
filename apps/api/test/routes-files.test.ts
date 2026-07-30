@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
+import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { app } from "../src/index";
 import { getFileMetadata } from "../src/file-metadata";
@@ -40,6 +41,7 @@ interface FakeAuthToken {
 
 function makeFakeDB(authToken?: FakeAuthToken) {
   const table = new FileMetadataTable();
+  const deleteClaims = new DeleteUsageClaimsTable();
   const statements: { sql: string; args: unknown[] }[] = [];
 
   return {
@@ -75,7 +77,11 @@ function makeFakeDB(authToken?: FakeAuthToken) {
         },
         async run() {
           return (
-            table.tryRun(normalized, args) ?? { success: true, meta: { changes: 0 }, results: [] }
+            table.tryRun(normalized, args) ??
+            deleteClaims.tryRun(normalized, args) ??
+              // Default changes:0 is fine for no-op ledger SQL; delete-usage
+              // claims must not fall through here (they gate metering on changes).
+              { success: true, meta: { changes: 0 }, results: [] }
           );
         },
         async all<T>() {

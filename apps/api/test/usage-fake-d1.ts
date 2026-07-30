@@ -3,6 +3,7 @@
  * and optional no-op auth_tokens lookups for route tests.
  */
 
+import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { PrActivityTable } from "./helpers/fake-pr-activity-table";
 import { RepoLinksTable } from "./helpers/fake-repo-links-table";
@@ -24,6 +25,11 @@ export class UsageFakeD1 {
   private fileMetadataTable = new FileMetadataTable();
   get fileMetadata() {
     return this.fileMetadataTable.metadata;
+  }
+  // Single-winner delete metering claims (issue #570).
+  private deleteUsageClaimsTable = new DeleteUsageClaimsTable();
+  get deleteUsageClaims() {
+    return this.deleteUsageClaimsTable.claims;
   }
   // Backs `github_repo_links` for implicit-claim (comment/promote routes)
   // and webhook auto-promotion tests.
@@ -79,6 +85,8 @@ export class UsageFakeD1 {
         if (linkResult) return linkResult;
         const activityResult = this.prActivityTable.tryRun(normalized, values);
         if (activityResult) return activityResult;
+        const claimResult = this.deleteUsageClaimsTable.tryRun(normalized, values);
+        if (claimResult) return claimResult;
         if (normalized.startsWith("INSERT OR IGNORE INTO workspace_usage")) {
           // applyUsageDelta: (ws, period, updatedAt) with zeros
           // setUsageTotals: (ws, bytes, objects, period, updatedAt)

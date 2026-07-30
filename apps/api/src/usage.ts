@@ -340,6 +340,75 @@ export async function recordUsageSafe(
 }
 
 /**
+ * Single-winner gate for delete usage accounting (issue #570).
+ *
+ * Two concurrent DELETEs can both observe an object via head and both attempt
+ * a negative ledger delta. `INSERT OR IGNORE` on `(workspace, object_key)`
+ * admits only the first claimer; the loser skips metering. Call after the
+ * storage delete succeeds so a failed delete never burns the claim.
+ *
+ * On D1 failure returns `true` so metering falls back to pre-claim behavior
+ * (prefer a possible double-debit under infrastructure failure over silently
+ * dropping a successful single delete's accounting).
+ */
+export async function claimDeleteUsageSafe(
+  db: D1Database,
+  workspace: string,
+  objectKey: string,
+  now = new Date(),
+): Promise<boolean> {
+  try {
+    const result = await db
+      .prepare(
+        `INSERT OR IGNORE INTO delete_usage_claims (workspace, object_key, claimed_at)
+         VALUES (?, ?, ?)`,
+      )
+      .bind(workspace, objectKey, now.toISOString())
+      .run();
+    return (result.meta?.changes ?? 0) > 0;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      JSON.stringify({
+        message: "delete usage claim failed",
+        workspace,
+        objectKey,
+        error: message,
+      }),
+    );
+    return true;
+  }
+}
+
+/**
+ * Drop a prior delete-usage claim so a re-uploaded key can be metered on its
+ * next delete. Best-effort: a leftover claim only under-counts a future delete
+ * (reconcile repairs absolute totals).
+ */
+export async function clearDeleteUsageClaimSafe(
+  db: D1Database,
+  workspace: string,
+  objectKey: string,
+): Promise<void> {
+  try {
+    await db
+      .prepare(`DELETE FROM delete_usage_claims WHERE workspace = ? AND object_key = ?`)
+      .bind(workspace, objectKey)
+      .run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      JSON.stringify({
+        message: "delete usage claim clear failed",
+        workspace,
+        objectKey,
+        error: message,
+      }),
+    );
+  }
+}
+
+/**
  * Replace absolute bytes/objects from a storage scan (reconcile).
  * Preserves uploads_in_period for the current period when the row exists.
  */
