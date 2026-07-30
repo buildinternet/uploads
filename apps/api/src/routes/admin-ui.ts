@@ -5,6 +5,7 @@
  * the ops/CI `/admin` surface stays untouched. Backs the /admin page's
  * Workspaces slot on apps/web.
  */
+import { NOTE_MAX_CHARS } from "@uploads/comment-config";
 import {
   ForbiddenError,
   NotFoundError,
@@ -261,35 +262,113 @@ async function adminSubscriptionInfo(env: Env, workspaceName: string, record: Wo
   };
 }
 
-/** The per-workspace managed-comment booleans (issues #304, #365). */
-const GITHUB_COMMENT_SETTING_KEYS = [
+/**
+ * Per-workspace managed-comment defaults on the operator admin-ui surface
+ * (issues #304, #365, #307 / #535). Record-field keys (not the short me.ts
+ * names) — operators patch the KV record shape directly. Bounds for the
+ * three #534 fields match `validateCommentSettingsPatch` in me.ts.
+ */
+const COMMENT_IMAGE_WIDTH_MIN = 160;
+const COMMENT_IMAGE_WIDTH_MAX = 1000;
+const COMMENT_MAX_INLINE_IMAGES_MIN = 1;
+const COMMENT_MAX_INLINE_IMAGES_MAX = 48;
+
+const GITHUB_COMMENT_BOOLEAN_KEYS = [
   "githubCommentLinkToFilePage",
   "githubCommentShowMetadata",
 ] as const;
 
-type GithubCommentSettingsPatch = Partial<
-  Record<(typeof GITHUB_COMMENT_SETTING_KEYS)[number], boolean>
->;
+type GithubCommentSettingsPatch = {
+  githubCommentLinkToFilePage?: boolean;
+  githubCommentShowMetadata?: boolean;
+  githubCommentImageWidth?: "full" | number | null;
+  githubCommentMaxInlineImages?: number | null;
+  githubCommentNote?: string | null;
+};
 
 /**
- * Validates a PATCH body for the github-comment settings route. Only the known
- * booleans are accepted; when present each must be a boolean. An omitted key
- * means "leave unchanged" — distinct from a validation error, mirroring
- * `validateLimitsPatch`'s omit-vs-invalid distinction.
+ * Validates a PATCH body for the github-comment settings route. Known keys
+ * only; omitted means leave unchanged. Reject-all-or-apply-all. For the three
+ * #534 fields, explicit `null` clears (same as me.ts comment-settings).
+ * Unknown keys are ignored (validateLimitsPatch precedent).
  */
 function validateGithubCommentSettingsPatch(body: unknown): GithubCommentSettingsPatch {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new ValidationError("request body must be an object", { code: "invalid_settings" });
   }
+  const record = body as Record<string, unknown>;
   const patch: GithubCommentSettingsPatch = {};
-  for (const key of GITHUB_COMMENT_SETTING_KEYS) {
-    const raw = (body as Record<string, unknown>)[key];
+
+  for (const key of GITHUB_COMMENT_BOOLEAN_KEYS) {
+    const raw = record[key];
     if (raw === undefined) continue;
     if (typeof raw !== "boolean") {
       throw new ValidationError(`${key} must be a boolean`, { code: "invalid_settings" });
     }
     patch[key] = raw;
   }
+
+  if ("githubCommentImageWidth" in record) {
+    const value = record.githubCommentImageWidth;
+    if (value === null) {
+      patch.githubCommentImageWidth = null;
+    } else if (value === "full") {
+      patch.githubCommentImageWidth = "full";
+    } else if (
+      typeof value === "number" &&
+      Number.isInteger(value) &&
+      value >= COMMENT_IMAGE_WIDTH_MIN &&
+      value <= COMMENT_IMAGE_WIDTH_MAX
+    ) {
+      patch.githubCommentImageWidth = value;
+    } else {
+      throw new ValidationError(
+        `githubCommentImageWidth must be "full", an integer ${COMMENT_IMAGE_WIDTH_MIN}–${COMMENT_IMAGE_WIDTH_MAX}, or null`,
+        { code: "invalid_settings", details: { field: "githubCommentImageWidth" } },
+      );
+    }
+  }
+
+  if ("githubCommentMaxInlineImages" in record) {
+    const value = record.githubCommentMaxInlineImages;
+    if (value === null) {
+      patch.githubCommentMaxInlineImages = null;
+    } else if (
+      typeof value === "number" &&
+      Number.isInteger(value) &&
+      value >= COMMENT_MAX_INLINE_IMAGES_MIN &&
+      value <= COMMENT_MAX_INLINE_IMAGES_MAX
+    ) {
+      patch.githubCommentMaxInlineImages = value;
+    } else {
+      throw new ValidationError(
+        `githubCommentMaxInlineImages must be an integer ${COMMENT_MAX_INLINE_IMAGES_MIN}–${COMMENT_MAX_INLINE_IMAGES_MAX} or null`,
+        { code: "invalid_settings", details: { field: "githubCommentMaxInlineImages" } },
+      );
+    }
+  }
+
+  if ("githubCommentNote" in record) {
+    const value = record.githubCommentNote;
+    if (value === null) {
+      patch.githubCommentNote = null;
+    } else if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed.length === 0 || trimmed.length > NOTE_MAX_CHARS) {
+        throw new ValidationError(
+          `githubCommentNote must be 1–${NOTE_MAX_CHARS} characters after trimming`,
+          { code: "invalid_settings", details: { field: "githubCommentNote" } },
+        );
+      }
+      patch.githubCommentNote = trimmed;
+    } else {
+      throw new ValidationError("githubCommentNote must be a string or null", {
+        code: "invalid_settings",
+        details: { field: "githubCommentNote" },
+      });
+    }
+  }
+
   return patch;
 }
 
@@ -300,6 +379,9 @@ function githubCommentSettingsResponse(name: string, record: WorkspaceRecord) {
     settings: {
       githubCommentLinkToFilePage: record.githubCommentLinkToFilePage ?? null,
       githubCommentShowMetadata: record.githubCommentShowMetadata ?? null,
+      githubCommentImageWidth: record.githubCommentImageWidth ?? null,
+      githubCommentMaxInlineImages: record.githubCommentMaxInlineImages ?? null,
+      githubCommentNote: record.githubCommentNote ?? null,
     },
   };
 }
@@ -590,20 +672,18 @@ export const adminUi = new Hono<SessionVars>()
     return c.json({ ...planResponse(name, record), ...subscriptionInfo });
   })
 
-  // Read the per-workspace managed-comment settings: whether attachments
-  // link to their `/f/` file page or raw object bytes (issue #304), and
-  // whether the comment shows an upload's `path`/`state` metadata (issue
-  // #365).
+  // Read the per-workspace managed-comment settings (file-page linking #304,
+  // path/state metadata #365, image width / inline cap / note #307 / #535).
   .get("/workspaces/:name/settings", async (c) => {
     const name = c.req.param("name");
     const record = await loadEditableWorkspace(c.env, name);
     return c.json(githubCommentSettingsResponse(name, record));
   })
 
-  // Patch the managed-comment settings above (file-page linking, #304; the
-  // path/state metadata toggle, #365). Either key may be omitted to leave it
-  // unchanged; the whole record is read-modify-written so other fields
-  // (limits, tokens, etc.) survive untouched.
+  // Patch the managed-comment settings above. Omitted keys leave fields
+  // unchanged; for the three #534 fields an explicit null clears. The whole
+  // record is read-modify-written so other fields (limits, tokens, etc.)
+  // survive untouched.
   .patch("/workspaces/:name/settings", async (c) => {
     const name = c.req.param("name");
     if (!(await allowWrite(c.env, name))) {
@@ -621,8 +701,20 @@ export const adminUi = new Hono<SessionVars>()
       name,
       (current) => {
         const next = { ...current };
-        for (const key of GITHUB_COMMENT_SETTING_KEYS) {
+        for (const key of GITHUB_COMMENT_BOOLEAN_KEYS) {
           if (key in patch) next[key] = patch[key];
+        }
+        if ("githubCommentImageWidth" in patch) {
+          if (patch.githubCommentImageWidth === null) delete next.githubCommentImageWidth;
+          else next.githubCommentImageWidth = patch.githubCommentImageWidth;
+        }
+        if ("githubCommentMaxInlineImages" in patch) {
+          if (patch.githubCommentMaxInlineImages === null) delete next.githubCommentMaxInlineImages;
+          else next.githubCommentMaxInlineImages = patch.githubCommentMaxInlineImages;
+        }
+        if ("githubCommentNote" in patch) {
+          if (patch.githubCommentNote === null) delete next.githubCommentNote;
+          else next.githubCommentNote = patch.githubCommentNote;
         }
         return next;
       },
