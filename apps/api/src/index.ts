@@ -30,6 +30,7 @@ import { githubHealth } from "./routes/github-health";
 import { githubActivity } from "./routes/github-activity";
 import { internalBilling } from "./routes/internal-billing";
 import { protectedResourceMetadata, requestOrigin } from "./well-known";
+import { ROBOTS_TXT } from "./robots";
 
 // Lets the browser console on the web origin (and local dev) call the token-
 // authenticated endpoints. CORS is not the security boundary — bearer tokens
@@ -68,18 +69,6 @@ const adminUiCors = cors({
   allowHeaders: ["Content-Type"],
   maxAge: 86400,
 });
-
-/**
- * Service-host crawl policy. api.uploads.sh is a REST API — not a content
- * surface — so every bot is told to stay out. Marketing + docs live on
- * https://uploads.sh (which has its own, more open robots.txt).
- */
-export const ROBOTS_TXT = `# https://api.uploads.sh — REST API only; do not crawl.
-# Public docs and marketing: https://uploads.sh
-
-User-agent: *
-Disallow: /
-`;
 
 /** Hono app — also re-exported for vitest (`app.request`). */
 export const app = new Hono<WorkspaceVars>()

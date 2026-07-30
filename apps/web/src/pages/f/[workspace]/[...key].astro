@@ -465,6 +465,74 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
           min-height: 220px;
         }
       }
+      .danger-zone {
+        position: relative;
+        font: 12px var(--mono);
+      }
+      .delete-link {
+        appearance: none;
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        font: inherit;
+        color: var(--muted);
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+      .delete-link:hover,
+      .delete-link:focus-visible {
+        color: var(--red);
+        outline: none;
+      }
+      .delete-pop {
+        position: absolute;
+        bottom: calc(100% + 8px);
+        left: 0;
+        width: min(260px, 80vw);
+        padding: 12px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+        z-index: 3;
+      }
+      .delete-pop__text {
+        margin: 0 0 10px;
+        color: var(--body);
+        font-size: 12px;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+      }
+      .delete-pop__gh,
+      .delete-pop__error {
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+      .delete-pop__error {
+        color: var(--red);
+        margin: 0 0 10px;
+      }
+      .delete-pop__btn {
+        display: block;
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: var(--bg);
+        color: var(--red);
+        font: 12px var(--mono);
+        cursor: pointer;
+      }
+      .delete-pop__btn[data-armed] {
+        background: var(--red);
+        border-color: var(--red);
+        color: #fff;
+      }
+      .delete-pop__btn:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
     </style>
   </head>
   <body>
@@ -620,6 +688,33 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
                   </div>
                 )}
                 {footnoteLine && <p class="footnote">{footnoteLine}</p>}
+                <div class="danger-zone" id="delete-zone" hidden>
+                  <button type="button" class="delete-link" id="delete-open">
+                    Delete file…
+                  </button>
+                  <div
+                    class="delete-pop"
+                    id="delete-pop"
+                    role="alertdialog"
+                    aria-label={`Delete ${filename}`}
+                    hidden
+                  >
+                    <p class="delete-pop__text">
+                      Permanently delete <strong>{filename}</strong> for everyone? Links and embeds
+                      will break.
+                    </p>
+                    {gh && (
+                      <p class="delete-pop__text delete-pop__gh">
+                        This file is attached to {ghRef}. The managed comment will keep a broken
+                        link until its next sync.
+                      </p>
+                    )}
+                    <p class="delete-pop__error" id="delete-error" hidden />
+                    <button type="button" class="delete-pop__btn" id="delete-step">
+                      Delete file
+                    </button>
+                  </div>
+                </div>
                 <ReportAbuse
                   apiOrigin={origin}
                   pageUrl={canonical}
@@ -628,6 +723,14 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
                 />
               </figcaption>
             </figure>
+            <section class="error" id="deleted-state" hidden>
+              <code>file.deleted</code>
+              <h1>File deleted</h1>
+              <p>This file has been permanently removed.</p>
+              <a class="signin" href={`/account/workspaces/${workspace}`}>
+                Workspace files
+              </a>
+            </section>
           </>
         ) : result.status === "auth_required" ? (
           <section class="error" id="auth-required">
@@ -709,6 +812,107 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
           // Network hiccup / signed-out — leave the sign-in state as-is.
         }
         if (checking) checking.hidden = true;
+      })();
+
+      // Member-only delete control (spec 2026-07-30). Reveal is progressive
+      // enhancement: the same /me/workspaces/:name/file-url probe the unlisted
+      // flow uses doubles as the membership check — 200 means member.
+      (async function () {
+        const zone = document.getElementById("delete-zone");
+        if (!zone) return;
+        const endpoint = new URL(
+          `/me/workspaces/${encodeURIComponent(workspace)}/file-url`,
+          apiOrigin,
+        );
+        endpoint.searchParams.set("key", key);
+        try {
+          const probe = await fetch(endpoint, {
+            credentials: "include",
+            headers: { Accept: "application/json" },
+            cache: "no-store",
+          });
+          if (!probe.ok) return;
+        } catch (e) {
+          return;
+        }
+        zone.hidden = false;
+
+        const pop = document.getElementById("delete-pop");
+        const openBtn = document.getElementById("delete-open");
+        const stepBtn = document.getElementById("delete-step");
+        const errorEl = document.getElementById("delete-error");
+        let disarmTimer = null;
+
+        // Once a DELETE is in flight, close/Escape must not re-enable the
+        // button — a re-click would fire a second concurrent request.
+        var deleteInFlight = false;
+
+        function reset() {
+          if (deleteInFlight) return;
+          pop.hidden = true;
+          stepBtn.textContent = "Delete file";
+          stepBtn.removeAttribute("data-armed");
+          stepBtn.disabled = false;
+          errorEl.hidden = true;
+          if (disarmTimer) clearTimeout(disarmTimer);
+        }
+
+        openBtn.addEventListener("click", function () {
+          if (pop.hidden) {
+            pop.hidden = false;
+            stepBtn.focus();
+          } else {
+            reset();
+          }
+        });
+        document.addEventListener("click", function (event) {
+          if (!pop.hidden && !zone.contains(event.target)) reset();
+        });
+        document.addEventListener("keydown", function (event) {
+          if (event.key === "Escape") reset();
+        });
+
+        stepBtn.addEventListener("click", async function () {
+          if (!stepBtn.hasAttribute("data-armed")) {
+            // First click arms; auto-disarm after DELETE_DISARM_MS. Twin of
+            // the React confirm in WorkspaceFileTable.tsx (this page ships no
+            // framework JS) — keep the timing and semantics in sync.
+            var DELETE_DISARM_MS = 5000;
+            stepBtn.setAttribute("data-armed", "");
+            stepBtn.textContent = "Confirm delete";
+            disarmTimer = setTimeout(function () {
+              stepBtn.removeAttribute("data-armed");
+              stepBtn.textContent = "Delete file";
+            }, DELETE_DISARM_MS);
+            return;
+          }
+          if (disarmTimer) clearTimeout(disarmTimer);
+          deleteInFlight = true;
+          stepBtn.disabled = true;
+          try {
+            const target = new URL(
+              `/me/workspaces/${encodeURIComponent(workspace)}/files`,
+              apiOrigin,
+            );
+            target.searchParams.set("key", key);
+            const response = await fetch(target, { method: "DELETE", credentials: "include" });
+            if (!response.ok) throw new Error(String(response.status));
+            // Swap the page to the deleted state.
+            const figure = document.querySelector(".stage");
+            const head = document.querySelector(".filehead");
+            if (figure) figure.remove();
+            if (head) head.remove();
+            const done = document.getElementById("deleted-state");
+            if (done) done.hidden = false;
+          } catch (e) {
+            deleteInFlight = false;
+            errorEl.textContent = "Couldn't delete this file. Try again shortly.";
+            errorEl.hidden = false;
+            stepBtn.disabled = false;
+            stepBtn.removeAttribute("data-armed");
+            stepBtn.textContent = "Delete file";
+          }
+        });
       })();
     </script>
   </body>

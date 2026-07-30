@@ -9,6 +9,7 @@ import { runAuthRetentionSweep } from "./retention-sweep";
 import { sweepOauthClients } from "./oauth-client-reaper";
 import { BILLING_OUTBOX_CRON, drainBillingOutbox } from "./billing-outbox";
 import { billingPricesResponseBody } from "./billing-prices";
+import { ROBOTS_TXT } from "./robots";
 
 // Credentialed CORS for the web origin (+ dev origins), scoped to /api/auth/*
 // only — this worker has no other public surface (D1: "CORS becomes trivial").
@@ -56,18 +57,6 @@ const billingPricesCors = cors({
   allowMethods: ["GET", "OPTIONS"],
   maxAge: 86400,
 });
-
-/**
- * Service-host crawl policy. auth.uploads.sh is the sign-in / OAuth AS —
- * not a content surface — so every bot is told to stay out. Marketing +
- * docs live on https://uploads.sh.
- */
-export const ROBOTS_TXT = `# https://auth.uploads.sh — auth / OAuth only; do not crawl.
-# Public docs and marketing: https://uploads.sh
-
-User-agent: *
-Disallow: /
-`;
 
 export const app = new Hono<{ Bindings: AuthEnv }>()
   .get("/health", (c) => c.json({ ok: true }))

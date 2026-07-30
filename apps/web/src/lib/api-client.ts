@@ -341,6 +341,29 @@ export async function setFileVisibility(
   return { kind: "success", visibility: body.visibility };
 }
 
+export type DeleteWorkspaceFileResult =
+  | { kind: "success" }
+  | { kind: "unavailable"; reason: RequestFailure | "server" };
+
+/**
+ * DELETE /me/workspaces/:name/files — permanently deletes a file (spec
+ * 2026-07-30). Key travels as a query param, matching `file-url` and the
+ * visibility route.
+ */
+export async function deleteWorkspaceFile(
+  apiOrigin: string,
+  name: string,
+  key: string,
+): Promise<DeleteWorkspaceFileResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files?key=${encodeURIComponent(key)}`,
+    { method: "DELETE", credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable") return result;
+  if (!result.response.ok) return { kind: "unavailable", reason: "server" };
+  return { kind: "success" };
+}
+
 export type InviteResult =
   | {
       kind: "ok";

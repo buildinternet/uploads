@@ -1,0 +1,817 @@
+# Web File-Delete Workflow Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Let workspace members delete a file from the web — a session-authed DELETE endpoint, a two-step-confirm popover on the public `/f/` file page, and a delete item in the workspace file table's per-row menu.
+
+**Architecture:** New `DELETE /me/workspaces/:name/files?key=` route in the API delegating to the existing `deleteObject()`; the `/f/` Astro page reveals a delete control after the existing signed-in member probe (no framework JS); the React file table extends its existing `⋯` menu. Spec: `docs/superpowers/specs/2026-07-30-file-delete-workflow-design.md`.
+
+**Tech Stack:** Hono (apps/api), Astro + vanilla JS (apps/web public pages), React island (WorkspaceFileTable), vitest.
+
+## Global Constraints
+
+- Repo formats with **oxfmt** (pre-commit hook runs it) — don't fight the formatter.
+- Public `/f/` pages ship **no framework JS** — vanilla inline `<script>` only.
+- Member-gated `/me` routes return **uniform 404 `workspace_not_found`** for non-members (never 403), and **404 for bad/missing keys** (matching `file-url` and the visibility route — the spec's "400" line is superseded by this codebase convention).
+- Rate limit via `allowWrite(c.env, name)` **after** the membership gate.
+- Run tests from repo root: `pnpm --filter @uploads/api test -- <file>` / `pnpm --filter @uploads/web test -- <file>`.
+- Commit after each task with a conventional-commits message.
+
+---
+
+### Task 1: API route `DELETE /me/workspaces/:name/files`
+
+**Files:**
+
+- Modify: `apps/api/src/routes/me.ts` (add route after the `.patch("/workspaces/:name/files/visibility", …)` handler ending at ~line 781; add `deleteObject` to the existing `../files-core` import at line 34)
+- Test: `apps/api/test/routes-me-file-delete.test.ts` (create)
+
+**Interfaces:**
+
+- Consumes: `deleteObject(env, record, key, name)` from `apps/api/src/files-core.ts:831` (returns `{ key, deleted: true }`); `memberWorkspaceOr404`, `requireUserId`, `allowWrite`, `badKey`, `loadWorkspaceRecord` — all already imported/defined in `me.ts`.
+- Produces: `DELETE /me/workspaces/:name/files?key=<key>` → 200 `{ key, deleted: true }`; 401 signed-out; 404 non-member/bad key/unknown workspace; 429 rate-limited. Tasks 2–4 call this endpoint.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `apps/api/test/routes-me-file-delete.test.ts`. It mounts the `me` router directly with a faked env: `AUTH.fetch` answers both `get-session` and `/internal/memberships`; `REGISTRY` holds the workspace record; `UPLOADS_DEFAULT` is the shared `FakeR2Bucket`; `DB` reuses the `FileMetadataTable`-backed fake pattern from `routes-files.test.ts` (metadata table + no-op usage ledger); `WRITE_LIMITER.limit` is stubbed.
+
+```ts
+import { describe, expect, it } from "vitest";
+import { FakeR2Bucket } from "./fake-r2";
+import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
+import { me } from "../src/routes/me";
+
+const USER = { id: "user-1", email: "z@example.com", name: "Z" };
+
+function makeFakeDB() {
+  const table = new FileMetadataTable();
+  return {
+    metadata: table.metadata,
+    prepare(sql: string) {
+      const normalized = sql.replace(/\s+/g, " ").trim();
+      let args: unknown[] = [];
+      return {
+        bind(...values: unknown[]) {
+          args = values;
+          return this;
+        },
+        async first() {
+          return null;
+        },
+        async run() {
+          return (
+            table.tryRun(normalized, args) ?? { success: true, meta: { changes: 0 }, results: [] }
+          );
+        },
+        async all<T>() {
+          return (
+            table.tryAll<T>(normalized, args) ?? { success: true, results: [] as T[], meta: {} }
+          );
+        },
+      };
+    },
+    async batch(stmts: { run: () => Promise<unknown> }[]) {
+      return Promise.all(stmts.map((s) => s.run()));
+    },
+  };
+}
+
+function makeEnv(opts: { session?: boolean; member?: boolean; rateLimitOk?: boolean } = {}) {
+  const { session = true, member = true, rateLimitOk = true } = opts;
+  const bucket = new FakeR2Bucket();
+  const record = {
+    provider: "r2",
+    bucket: "uploads-default",
+    binding: "UPLOADS_DEFAULT",
+    prefix: "acme/",
+    publicBaseUrl: "https://storage.uploads.sh",
+  };
+  const db = makeFakeDB();
+  const env = {
+    REGISTRY: {
+      // loadWorkspaceRecord reads `ws:<name>` with { type: "json" }
+      get: async (key: string) => (key === "ws:acme" ? record : null),
+    },
+    UPLOADS_DEFAULT: bucket,
+    DB: db,
+    WRITE_LIMITER: { limit: async () => ({ success: rateLimitOk }) },
+    AUTH: {
+      fetch: async (url: string) => {
+        if (url.includes("/api/auth/get-session")) {
+          if (!session) return Response.json(null);
+          return Response.json({ session: {}, user: USER });
+        }
+        if (url.includes("/internal/memberships")) {
+          return Response.json(
+            member
+              ? [
+                  {
+                    organizationId: "org-1",
+                    organizationSlug: "acme",
+                    organizationName: "Acme",
+                    role: "member",
+                  },
+                ]
+              : [],
+          );
+        }
+        return new Response("unexpected", { status: 500 });
+      },
+    },
+  } as unknown as Env;
+  return { env, bucket, db };
+}
+
+async function seed(bucket: FakeR2Bucket) {
+  await bucket.put("acme/shots/a.png", new Uint8Array([1, 2, 3]).buffer, {
+    httpMetadata: { contentType: "image/png" },
+  });
+}
+
+function del(env: Env, key = "shots/a.png", workspace = "acme") {
+  return me.request(
+    `/workspaces/${workspace}/files?key=${encodeURIComponent(key)}`,
+    { method: "DELETE" },
+    env,
+  );
+}
+
+describe("DELETE /me/workspaces/:name/files", () => {
+  it("deletes the object and its metadata for a member", async () => {
+    const { env, bucket, db } = makeEnv();
+    await seed(bucket);
+    db.metadata.set("acme shots/a.png", { note: "x" } as never);
+
+    const response = await del(env);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ key: "shots/a.png", deleted: true });
+    expect(await bucket.head("acme/shots/a.png")).toBeNull();
+    expect(db.metadata.has("acme shots/a.png")).toBe(false);
+  });
+
+  it("404s for a signed-in non-member (uniform workspace_not_found)", async () => {
+    const { env, bucket } = makeEnv({ member: false });
+    await seed(bucket);
+    const response = await del(env);
+    expect(response.status).toBe(404);
+    const body = (await response.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("workspace_not_found");
+    expect(await bucket.head("acme/shots/a.png")).not.toBeNull();
+  });
+
+  it("401s when signed out", async () => {
+    const { env } = makeEnv({ session: false });
+    const response = await del(env);
+    expect(response.status).toBe(401);
+  });
+
+  it("404s on an invalid key", async () => {
+    const { env } = makeEnv();
+    const response = await del(env, "../escape");
+    expect(response.status).toBe(404);
+  });
+
+  it("429s when the write limiter says no — after the membership gate", async () => {
+    const { env, bucket } = makeEnv({ rateLimitOk: false });
+    await seed(bucket);
+    const response = await del(env);
+    expect(response.status).toBe(429);
+    expect(await bucket.head("acme/shots/a.png")).not.toBeNull();
+  });
+});
+```
+
+Adjust the two `db.metadata` lines to `FileMetadataTable`'s real key/row shape — read `apps/api/test/helpers/fake-file-metadata-table.ts` first and mirror how `routes-files.test.ts` asserts metadata-cascade deletion (search it for `deleteObject` / `metadata`). If `FakeR2Bucket.put`'s signature differs, mirror its usage in `routes-files.test.ts`. If the `me` router's error responses aren't shaped `{ error: { code } }`, mirror the shape the `@uploads/errors` handler actually produces (check any existing route test asserting a `code`).
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `pnpm --filter @uploads/api test -- routes-me-file-delete`
+Expected: FAIL — the 200-path test gets a 404 (route doesn't exist yet). The 401/404-member tests may already pass (middleware is mounted router-wide); that's fine.
+
+- [ ] **Step 3: Implement the route**
+
+In `apps/api/src/routes/me.ts`: add `deleteObject` to the `../files-core` import (line 34). Insert directly after the visibility `.patch(…)` handler (after line 781):
+
+```ts
+  // Delete a file — member-gated web administration (spec 2026-07-30). Same
+  // key convention and gate ordering as the visibility route above; all
+  // storage/D1/ledger mechanics live in files-core's deleteObject (shared
+  // with the token-authed DELETE /v1/:workspace/files/:key). Any member may
+  // delete — parity with the CLI, where any member token can `uploads delete`.
+  .delete("/workspaces/:name/files", async (c) => {
+    const name = c.req.param("name");
+    await memberWorkspaceOr404(c.env, requireUserId(c), name);
+    const key = c.req.query("key") ?? "";
+    if (badKey(key)) throw new NotFoundError();
+
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) throw new NotFoundError();
+
+    return c.json(await deleteObject(c.env, record, key, name));
+  })
+```
+
+- [ ] **Step 4: Run the test to verify it passes**
+
+Run: `pnpm --filter @uploads/api test -- routes-me-file-delete`
+Expected: PASS (all 5).
+
+- [ ] **Step 5: Full API test suite + typecheck**
+
+Run: `pnpm --filter @uploads/api test && pnpm --filter @uploads/api exec tsc --noEmit`
+Expected: PASS. (Known noise: stale `worker-configuration.d.ts` can produce unrelated typecheck warnings — pre-existing failures unrelated to this change are not yours to fix.)
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add apps/api/src/routes/me.ts apps/api/test/routes-me-file-delete.test.ts
+git commit -m "feat(api): session-authed file delete for workspace members"
+```
+
+---
+
+### Task 2: Web API client `deleteWorkspaceFile`
+
+**Files:**
+
+- Modify: `apps/web/src/lib/api-client.ts` (add after `setFileVisibility`, ~line 342)
+- Test: `apps/web/src/lib/api-client.test.ts` (add a describe block after the `setFileVisibility` one, ~line 210)
+
+**Interfaces:**
+
+- Consumes: Task 1's endpoint; local helpers `fetchWithTimeout`, `trimOrigin`, and type `RequestFailure` (already in `api-client.ts`).
+- Produces: `deleteWorkspaceFile(apiOrigin: string, name: string, key: string): Promise<DeleteWorkspaceFileResult>` where `DeleteWorkspaceFileResult = { kind: "success" } | { kind: "unavailable"; reason: RequestFailure | "server" }`. Task 3 imports both names.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `api-client.test.ts` (import `deleteWorkspaceFile` in the existing import list at the top):
+
+```ts
+describe("deleteWorkspaceFile", () => {
+  it("DELETEs with credentials and reports success", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe(
+        "http://127.0.0.1:8787/me/workspaces/acme/files?key=f%2Fx%2Fshot.png",
+      );
+      expect(init?.method).toBe("DELETE");
+      expect(init?.credentials).toBe("include");
+      return Response.json({ key: "f/x/shot.png", deleted: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      deleteWorkspaceFile("http://127.0.0.1:8787", "acme", "f/x/shot.png"),
+    ).resolves.toEqual({ kind: "success" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("reports non-2xx responses as unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    await expect(deleteWorkspaceFile("http://127.0.0.1:8787", "acme", "a.png")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "server",
+    });
+  });
+});
+```
+
+Mirror however the surrounding tests reset the fetch stub (e.g. an existing `afterEach`/`vi.unstubAllGlobals` — reuse, don't duplicate).
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `pnpm --filter @uploads/web test -- api-client`
+Expected: FAIL — `deleteWorkspaceFile` is not exported.
+
+- [ ] **Step 3: Implement**
+
+In `api-client.ts` after `setFileVisibility`:
+
+```ts
+export type DeleteWorkspaceFileResult =
+  | { kind: "success" }
+  | { kind: "unavailable"; reason: RequestFailure | "server" };
+
+/**
+ * DELETE /me/workspaces/:name/files — permanently deletes a file (spec
+ * 2026-07-30). Key travels as a query param, matching `file-url` and the
+ * visibility route.
+ */
+export async function deleteWorkspaceFile(
+  apiOrigin: string,
+  name: string,
+  key: string,
+): Promise<DeleteWorkspaceFileResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files?key=${encodeURIComponent(key)}`,
+    { method: "DELETE", credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable") return result;
+  if (!result.response.ok) return { kind: "unavailable", reason: "server" };
+  return { kind: "success" };
+}
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `pnpm --filter @uploads/web test -- api-client`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/web/src/lib/api-client.ts apps/web/src/lib/api-client.test.ts
+git commit -m "feat(web): api-client helper for member file deletion"
+```
+
+---
+
+### Task 3: File table delete item + two-step confirm
+
+**Files:**
+
+- Modify: `apps/web/src/components/WorkspaceFileTable.tsx`
+  - `FileActionsMenu` (line 247) — add the delete item + confirm panel
+  - component body — add `deleteFile` handler near `toggleVisibility` (line 614) and thread props at both call sites (lines 1171 and 1238)
+- Modify: `apps/web/src/styles/account-content.css` (after the `.wft-menu__item:disabled` rule, ~line 1426)
+
+**Interfaces:**
+
+- Consumes: `deleteWorkspaceFile` from Task 2 (add to the existing `./lib/api-client`-style import in this file — match the path the file already uses for `setFileVisibility`).
+- Produces: UI only; nothing downstream.
+
+There is no component-level test harness for this file (no existing `.test.tsx` — verify with `ls apps/web/src/components/*.test.*`); behavior is covered by Task 5's browser verification. Keep logic inside the existing patterns so review is the safety net.
+
+- [ ] **Step 1: Extend `FileActionsMenu`**
+
+Replace the component with a version that owns a small `confirm` state (`"closed" | "confirm" | "armed"`). The parent's existing outside-click/Escape effect (line 535) closes the whole menu, which unmounts the panel and resets state naturally.
+
+```tsx
+function FileActionsMenu({
+  open,
+  busy,
+  isPrivate,
+  filename,
+  onToggle,
+  onCopy,
+  onToggleVisibility,
+  onDelete,
+}: {
+  open: boolean;
+  busy: boolean;
+  isPrivate: boolean;
+  filename: string;
+  onToggle: () => void;
+  onCopy: (button: HTMLButtonElement) => void;
+  onToggleVisibility: () => void;
+  onDelete: () => void;
+}) {
+  // Two-step destructive confirm (spec 2026-07-30): "delete…" swaps the menu
+  // for a warning panel; its button arms a red confirm that auto-disarms.
+  const [confirm, setConfirm] = useState<"closed" | "confirm" | "armed">("closed");
+  const disarmTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!open) setConfirm("closed");
+  }, [open]);
+  useEffect(() => {
+    if (confirm !== "armed") return;
+    disarmTimer.current = window.setTimeout(() => setConfirm("confirm"), 5000);
+    return () => {
+      if (disarmTimer.current !== null) window.clearTimeout(disarmTimer.current);
+    };
+  }, [confirm]);
+
+  return (
+    <div className="wft-menu">
+      <button
+        type="button"
+        className="wft-menu__trigger"
+        aria-expanded={open}
+        aria-label="File actions"
+        onClick={onToggle}
+      >
+        ⋯
+      </button>
+      {open && confirm === "closed" && (
+        <div role="menu" className="wft-menu__popover">
+          <button
+            type="button"
+            role="menuitem"
+            className="wft-menu__item"
+            onClick={(e) => onCopy(e.currentTarget)}
+          >
+            copy link
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="wft-menu__item"
+            disabled={busy}
+            onClick={onToggleVisibility}
+          >
+            {isPrivate ? "make public" : "unlist"}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="wft-menu__item wft-menu__item--danger"
+            onClick={() => setConfirm("confirm")}
+          >
+            delete…
+          </button>
+        </div>
+      )}
+      {open && confirm !== "closed" && (
+        <div
+          className="wft-menu__popover wft-confirm"
+          role="alertdialog"
+          aria-label={`Delete ${filename}`}
+        >
+          <p className="wft-confirm__text">
+            Permanently delete <strong>{filename}</strong> for everyone? Links and embeds will
+            break.
+          </p>
+          {confirm === "confirm" ? (
+            <button
+              type="button"
+              className="wft-menu__item wft-menu__item--danger"
+              disabled={busy}
+              onClick={() => setConfirm("armed")}
+            >
+              Delete file
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="wft-menu__item wft-confirm__armed"
+              disabled={busy}
+              onClick={onDelete}
+            >
+              Confirm delete
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+(`useRef`/`useEffect`/`useState` are already imported in this file — verify the import line and extend it if any is missing.)
+
+- [ ] **Step 2: Add the `deleteFile` handler in `WorkspaceFileTable`**
+
+Next to `toggleVisibility` (line 614), reusing `togglingKeys` as the shared busy set:
+
+```tsx
+const deleteFile = async (file: FileTableRow) => {
+  setTogglingKeys((prev) => new Set(prev).add(file.key));
+  setActionError(null);
+  try {
+    const result = await deleteWorkspaceFile(apiOrigin, workspace, file.key);
+    if (result.kind === "success") {
+      setState((prev) =>
+        prev.status === "ok"
+          ? { ...prev, files: prev.files.filter((f) => f.key !== file.key) }
+          : prev,
+      );
+      setOpenMenuKey(null);
+    } else {
+      setActionError(`Couldn't delete "${leafName(file.key)}". Try again shortly.`);
+    }
+  } finally {
+    setTogglingKeys((prev) => {
+      const copy = new Set(prev);
+      copy.delete(file.key);
+      return copy;
+    });
+  }
+};
+```
+
+- [ ] **Step 3: Thread props at both call sites**
+
+At lines 1171 and 1238, add to each `<FileActionsMenu … />`:
+
+```tsx
+filename={leafName(file.key)}
+onDelete={() => void deleteFile(file)}
+```
+
+(`leafName` is already used nearby — confirm it's in scope.)
+
+- [ ] **Step 4: Add CSS**
+
+In `apps/web/src/styles/account-content.css` after `.wft-menu__item:disabled` (~line 1426), matching the file's existing token usage (`var(--line)`, `var(--muted)`, etc. — check neighbors for the exact danger/red token; if none exists, use `color-mix(in srgb, red 70%, var(--fg))`-style derivation consistent with the file):
+
+```css
+.wft-menu__item--danger {
+  color: var(--danger, #c0392b);
+}
+.wft-confirm {
+  width: 220px;
+  padding: 10px;
+}
+.wft-confirm__text {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--body);
+  overflow-wrap: anywhere;
+}
+.wft-confirm__armed {
+  color: #fff;
+  background: var(--danger, #c0392b);
+  border-radius: 6px;
+  text-align: center;
+}
+```
+
+Before writing, check whether a `--danger` (or similar) custom property already exists (`grep -rn "danger\|--red" apps/web/src/styles packages/ui/src`); prefer the existing token.
+
+- [ ] **Step 5: Typecheck + lint**
+
+Run: `pnpm --filter @uploads/web test && pnpm --filter @uploads/web exec astro check` (or the repo's web typecheck script — check `apps/web/package.json` scripts; `pnpm types` is type _generation_, not typecheck).
+Expected: PASS / no new errors.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add apps/web/src/components/WorkspaceFileTable.tsx apps/web/src/styles/account-content.css
+git commit -m "feat(web): delete action with two-step confirm in the file table menu"
+```
+
+---
+
+### Task 4: `/f/` page delete popover
+
+**Files:**
+
+- Modify: `apps/web/src/pages/f/[workspace]/[...key].astro`
+  - markup: delete control + popover between the `.footnote` (line 622) and `<ReportAbuse>` (line 623)
+  - styles: append to the page `<style>` block (~line 468)
+  - script: extend the existing bottom `define:vars` script (lines 669–713)
+
+**Interfaces:**
+
+- Consumes: Task 1's endpoint; the existing `GET /me/workspaces/:name/file-url` probe as the membership check; page-scope values already computed: `file`, `filename`, `workspace`, `key`, `gh` (truthy when the file has `gh.*` GitHub context), `origin`.
+- Produces: UI only.
+
+No unit-test seam exists for Astro page scripts in this repo; Task 5's browser pass verifies behavior. The CSP already allows `connect-src` to the API origin (line 39–41), so the DELETE fetch needs no header changes.
+
+- [ ] **Step 1: Add markup**
+
+Inside the `figcaption.details`, between the footnote and `<ReportAbuse>`:
+
+```astro
+{footnoteLine && <p class="footnote">{footnoteLine}</p>}
+<div class="danger-zone" id="delete-zone" hidden>
+  <button type="button" class="delete-link" id="delete-open">Delete file…</button>
+  <div class="delete-pop" id="delete-pop" role="alertdialog" aria-label={`Delete ${filename}`} hidden>
+    <p class="delete-pop__text">
+      Permanently delete <strong>{filename}</strong> for everyone? Links and embeds will break.
+    </p>
+    {
+      gh && (
+        <p class="delete-pop__text delete-pop__gh">
+          This file is attached to {ghRef}. The managed comment will keep a broken link until its
+          next sync.
+        </p>
+      )
+    }
+    <p class="delete-pop__error" id="delete-error" hidden></p>
+    <button type="button" class="delete-pop__btn" id="delete-step">Delete file</button>
+  </div>
+</div>
+<ReportAbuse … />
+```
+
+(Keep the existing `<ReportAbuse>` invocation untouched.)
+
+Also add a hidden deleted-state section as a sibling of the error sections (inside `<main class="shell">`, after the `figure` — visible only via script):
+
+```astro
+<section class="error" id="deleted-state" hidden>
+  <code>file.deleted</code>
+  <h1>File deleted</h1>
+  <p>This file has been permanently removed.</p>
+  <a class="signin" href={`/account/workspaces/${workspace}`}>Workspace files</a>
+</section>
+```
+
+Astro conditional-rendering note: the whole `file ? (…)` branch is one JSX expression; place `#deleted-state` inside that branch (after `</figure>`, within the fragment) so it only exists on file pages.
+
+- [ ] **Step 2: Add styles**
+
+Append to the page's `<style>`:
+
+```css
+.danger-zone {
+  position: relative;
+  font: 12px var(--mono);
+}
+.delete-link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.delete-link:hover,
+.delete-link:focus-visible {
+  color: var(--danger, #c0392b);
+  outline: none;
+}
+.delete-pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: min(260px, 80vw);
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+  z-index: 3;
+}
+.delete-pop__text {
+  margin: 0 0 10px;
+  color: var(--body);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.delete-pop__gh,
+.delete-pop__error {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.delete-pop__error {
+  color: var(--danger, #c0392b);
+  margin: 0 0 10px;
+}
+.delete-pop__btn {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--danger, #c0392b);
+  font: 12px var(--mono);
+  cursor: pointer;
+}
+.delete-pop__btn[data-armed] {
+  background: var(--danger, #c0392b);
+  border-color: var(--danger, #c0392b);
+  color: #fff;
+}
+.delete-pop__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+```
+
+Same token check as Task 3 Step 4 — reuse an existing danger token if one exists.
+
+- [ ] **Step 3: Extend the inline script**
+
+The existing script early-returns unless `authRequired`. Restructure: keep that probe exactly as-is, and add a second IIFE for the delete flow (same `define:vars` — add `filename` to the vars object). The member probe for the delete control is the same `file-url` endpoint; run it only when the page actually rendered a file (detect via `document.getElementById("delete-zone")`).
+
+```js
+// Member-only delete control (spec 2026-07-30). Reveal is progressive
+// enhancement: the same /me/workspaces/:name/file-url probe the unlisted
+// flow uses doubles as the membership check — 200 means member.
+(async function () {
+  const zone = document.getElementById("delete-zone");
+  if (!zone) return;
+  const endpoint = new URL(`/me/workspaces/${encodeURIComponent(workspace)}/file-url`, apiOrigin);
+  endpoint.searchParams.set("key", key);
+  try {
+    const probe = await fetch(endpoint, {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!probe.ok) return;
+  } catch (e) {
+    return;
+  }
+  zone.hidden = false;
+
+  const pop = document.getElementById("delete-pop");
+  const openBtn = document.getElementById("delete-open");
+  const stepBtn = document.getElementById("delete-step");
+  const errorEl = document.getElementById("delete-error");
+  let disarmTimer = null;
+
+  function reset() {
+    pop.hidden = true;
+    stepBtn.textContent = "Delete file";
+    stepBtn.removeAttribute("data-armed");
+    stepBtn.disabled = false;
+    errorEl.hidden = true;
+    if (disarmTimer) clearTimeout(disarmTimer);
+  }
+
+  openBtn.addEventListener("click", function () {
+    if (pop.hidden) {
+      pop.hidden = false;
+      stepBtn.focus();
+    } else {
+      reset();
+    }
+  });
+  document.addEventListener("click", function (event) {
+    if (!pop.hidden && !zone.contains(event.target)) reset();
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") reset();
+  });
+
+  stepBtn.addEventListener("click", async function () {
+    if (!stepBtn.hasAttribute("data-armed")) {
+      // First click arms; auto-disarm after 5s.
+      stepBtn.setAttribute("data-armed", "");
+      stepBtn.textContent = "Confirm delete";
+      disarmTimer = setTimeout(function () {
+        stepBtn.removeAttribute("data-armed");
+        stepBtn.textContent = "Delete file";
+      }, 5000);
+      return;
+    }
+    if (disarmTimer) clearTimeout(disarmTimer);
+    stepBtn.disabled = true;
+    try {
+      const target = new URL(`/me/workspaces/${encodeURIComponent(workspace)}/files`, apiOrigin);
+      target.searchParams.set("key", key);
+      const response = await fetch(target, { method: "DELETE", credentials: "include" });
+      if (!response.ok) throw new Error(String(response.status));
+      // Swap the page to the deleted state.
+      const figure = document.querySelector(".stage");
+      const head = document.querySelector(".filehead");
+      if (figure) figure.remove();
+      if (head) head.remove();
+      const done = document.getElementById("deleted-state");
+      if (done) done.hidden = false;
+    } catch (e) {
+      errorEl.textContent = "Couldn't delete this file. Try again shortly.";
+      errorEl.hidden = false;
+      stepBtn.disabled = false;
+      stepBtn.removeAttribute("data-armed");
+      stepBtn.textContent = "Delete file";
+    }
+  });
+})();
+```
+
+Note the file's comment at lines 664–668: the script must stay a single top-level `<script define:vars>` (prettier-plugin-astro can't parse `define:vars` inside JSX). Add this IIFE inside the existing script tag.
+
+- [ ] **Step 4: Typecheck/build**
+
+Run: `pnpm --filter @uploads/web test` and the web build/check used in Task 3 Step 5.
+Expected: PASS / no new errors.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add "apps/web/src/pages/f/[workspace]/[...key].astro"
+git commit -m "feat(web): member-only delete popover on the file page"
+```
+
+---
+
+### Task 5: Browser verification (signed-in local stack)
+
+**Files:** none (verification only)
+
+**Interfaces:** Consumes everything above.
+
+Per the memory note "uploads local browser-verify recipe": the **stack-raw on 127.0.0.1** recipe is the only way to get a signed-in session in the in-app browser (portless `https://uploads.localhost` cannot work there). Find the recipe in `AGENTS.md` / `CONTRIBUTING.md` (`grep -rn "stack-raw" AGENTS.md CONTRIBUTING.md package.json .claude/launch.json`) and follow it, including seeding a dev session.
+
+- [ ] **Step 1: Start the local stack** via `preview_start` with the launch.json entry for the raw stack (never Bash).
+- [ ] **Step 2: Seed a signed-in session and a test file** — upload a throwaway file into a workspace the dev user belongs to (use the `uploads` CLI against the local API, or the repo's seed script if the recipe names one).
+- [ ] **Step 3: Verify the /f/ page, signed out** — open the file's `/f/` page in a fresh context: the "Delete file…" control must NOT appear.
+- [ ] **Step 4: Verify the /f/ page, signed in** — control appears; popover opens; Escape and outside-click close+disarm; first click arms (red "Confirm delete"), 5s disarm works; confirm deletes; page swaps to the "File deleted" state; reloading the URL 404s.
+- [ ] **Step 5: Verify the file table** — upload a second throwaway file; in `/account/workspaces/:name` files tab, open the row `⋯` menu → "delete…" → confirm panel → arm → confirm; row disappears; a failed delete (e.g. stop the API worker briefly) surfaces the action error text.
+- [ ] **Step 6: Screenshot proof** — capture the /f/ popover (armed state) and the table confirm panel; share both.
+- [ ] **Step 7: Commit any fixes** found during verification with focused messages.
+
+---
+
+## Self-Review (completed)
+
+- **Spec coverage:** endpoint (Task 1), client helper (Task 2), table surface (Task 3), /f/ surface incl. gh-managed warning + deleted state (Task 4), signed-out hiding + both-surface verification (Task 5). Spec's "invalid key → 400" superseded by the codebase's 404 convention — recorded in Global Constraints.
+- **Placeholder scan:** all code steps carry real code; the two "mirror the existing shape" notes in Task 1 Step 1 are verification instructions against named files, not deferred design.
+- **Type consistency:** `deleteWorkspaceFile(apiOrigin, name, key)` consistent across Tasks 2–3; `FileActionsMenu` new props (`filename`, `onDelete`) match Task 3 Step 3's call-site threading.
