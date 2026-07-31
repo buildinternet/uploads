@@ -23,7 +23,7 @@ import {
   RateLimitedError,
   ValidationError,
 } from "@uploads/errors";
-import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
+import { createFilesRouter, signedDownloadUrl, type R2Jurisdiction } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
 import { sealCredentialFieldsStrict } from "../secrets";
@@ -1157,6 +1157,10 @@ export const me = new Hono<SessionVars>()
         next.secretAccessKey = sealed.secretAccessKey;
         if (candidate.publicBaseUrl) next.publicBaseUrl = candidate.publicBaseUrl;
         else delete next.publicBaseUrl;
+        // Cast is safe: `storageVerify` above already ran the shape check
+        // (storage-verify.ts) that 422s on anything outside R2_JURISDICTIONS.
+        if (candidate.jurisdiction) next.jurisdiction = candidate.jurisdiction as R2Jurisdiction;
+        else delete next.jurisdiction;
         next.storageConfiguredAt = nowIso;
         next.storageVerifiedAt = nowIso;
         next.storageConfiguredBy = userId;
@@ -1247,6 +1251,7 @@ export const me = new Hono<SessionVars>()
         delete next.accountId;
         delete next.accessKeyId;
         delete next.secretAccessKey;
+        delete next.jurisdiction;
         delete next.storageConfiguredAt;
         delete next.storageVerifiedAt;
         delete next.storageConfiguredBy;

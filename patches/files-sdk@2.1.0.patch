@@ -1,5 +1,22 @@
+diff --git a/dist/r2/index.d.ts b/dist/r2/index.d.ts
+index 4359929d2d8a9f7ef0586a482b5e06dcb4013bbc..804cc074efaf5e3696f5254e88f1587238897ec9 100644
+--- a/dist/r2/index.d.ts
++++ b/dist/r2/index.d.ts
+@@ -31,6 +31,12 @@ export interface R2HttpOptions {
+      * Defaults to 3600.
+      */
+     defaultUrlExpiresIn?: number;
++    /**
++     * Override the S3 API endpoint. Defaults to
++     * `https://<accountId>.r2.cloudflarestorage.com`; set for jurisdiction
++     * buckets (e.g. `https://<accountId>.eu.r2.cloudflarestorage.com`).
++     */
++    endpoint?: string;
+ }
+ export interface R2BindingOptions {
+     /** Workers `R2Bucket` binding. Reads and writes go through the binding. */
 diff --git a/dist/r2/index.js b/dist/r2/index.js
-index 291ca05dee674c7845e5e18868d481a3e4168b10..237e9726bd3e49ea5246cdf50acf62f37a54b035 100644
+index 291ca05dee674c7845e5e18868d481a3e4168b10..a6cff0082dae9e0fef44aad0b73d9257a8e3af15 100644
 --- a/dist/r2/index.js
 +++ b/dist/r2/index.js
 @@ -231,7 +231,11 @@ var r2FromBinding = (opts) => {
@@ -15,3 +32,12 @@ index 291ca05dee674c7845e5e18868d481a3e4168b10..237e9726bd3e49ea5246cdf50acf62f3
          });
        } catch (error) {
          throw mapR2Error(error);
+@@ -336,7 +340,7 @@ var r2FromHttp = (opts) => {
+     ...opts.defaultUrlExpiresIn !== undefined && {
+       defaultUrlExpiresIn: opts.defaultUrlExpiresIn
+     },
+-    endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
++    endpoint: opts.endpoint ?? `https://${accountId}.r2.cloudflarestorage.com`,
+     forcePathStyle: true,
+     ...opts.publicBaseUrl && { publicBaseUrl: opts.publicBaseUrl },
+     region: "auto"

@@ -2675,6 +2675,32 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
       expect(reconciled).toEqual([]);
     });
 
+    it("stamps jurisdiction on save, and GET status echoes it", async () => {
+      const { env, registry } = storageEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: true },
+        usage: { objects: 0 },
+      });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const res = await app().request(
+        "/me/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...CANDIDATE_BODY, jurisdiction: "eu" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(registry.record<{ jurisdiction?: string }>("acme")?.jurisdiction).toBe("eu");
+
+      const statusRes = await app().request("/me/workspaces/acme/storage", {}, env);
+      expect(statusRes.status).toBe(200);
+      expect((await statusRes.json()) as { jurisdiction?: string }).toMatchObject({
+        jurisdiction: "eu",
+      });
+    });
+
     it("503s (secrets_key_unconfigured) when WORKSPACE_SECRETS_KEY is unset, and leaves the record untouched", async () => {
       const { env: baseEnv, registry } = storageEnv({
         role: "owner",
@@ -2789,6 +2815,14 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
       );
       expect(res.status).toBe(200);
       expect(registry.record<{ bucket?: string }>("acme")?.bucket).toBe("uploads-default");
+    });
+
+    it("clears jurisdiction on detach", async () => {
+      const record = { ...BYO_RECORD, jurisdiction: "eu" };
+      const { env, registry } = storageEnv({ role: "owner", record, usage: { objects: 0 } });
+      const res = await app().request("/me/workspaces/acme/storage", { method: "DELETE" }, env);
+      expect(res.status).toBe(200);
+      expect(registry.record<{ jurisdiction?: string }>("acme")?.jurisdiction).toBeUndefined();
     });
   });
 });

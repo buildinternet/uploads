@@ -239,6 +239,18 @@ if (!workspace) return Astro.redirect("/account/workspaces");
               />
             </div>
             <div class="cs-field">
+              <label for="storage-jurisdiction">Jurisdiction</label>
+              <select id="storage-jurisdiction" class="ul-select">
+                <option value="">Default (no jurisdiction)</option>
+                <option value="eu">European Union (eu)</option>
+                <option value="fedramp">FedRAMP (fedramp)</option>
+              </select>
+              <p class="ul-field__hint">
+                Jurisdiction is chosen at bucket creation on Cloudflare and can't be changed later —
+                pick the one the bucket was created with.
+              </p>
+            </div>
+            <div class="cs-field">
               <label for="storage-access-key-id">Access key ID</label>
               <input
                 type="text"
@@ -838,6 +850,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
       const storageForm = requireElement<HTMLFormElement>("#storage-form", page);
       const storageAccountId = requireElement<HTMLInputElement>("#storage-account-id", page);
       const storageBucket = requireElement<HTMLInputElement>("#storage-bucket", page);
+      // Same worker-configuration.d.ts `Element.remove()` workaround as the
+      // tri-state selects above.
+      const storageJurisdiction = requireElement<HTMLElement>(
+        "#storage-jurisdiction",
+        page,
+      ) as unknown as HTMLSelectElement;
       const storageAccessKeyId = requireElement<HTMLInputElement>("#storage-access-key-id", page);
       const storageSecretAccessKey = requireElement<HTMLInputElement>(
         "#storage-secret-access-key",
@@ -888,6 +906,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           ["Public base URL", status.publicBaseUrl ?? "Signed-only (no public URL)"],
           ["Verified", formatTimestamp(status.verifiedAt)],
         ];
+        if (status.jurisdiction) rows.push(["Jurisdiction", status.jurisdiction]);
         storageByoDetails.innerHTML = rows
           .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`)
           .join("");
@@ -921,6 +940,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           // masked tail, never the plaintext — so the field starts blank.
           storageBucket.value = prefill.bucket ?? "";
           storagePublicBaseUrl.value = prefill.publicBaseUrl ?? "";
+          storageJurisdiction.value = prefill.jurisdiction ?? "";
           goToWizardStep(2);
         } else {
           goToWizardStep(1);
@@ -939,6 +959,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
           accessKeyId: storageAccessKeyId.value.trim(),
           secretAccessKey: storageSecretAccessKey.value,
           publicBaseUrl: storagePublicBaseUrl.value.trim() || undefined,
+          jurisdiction: storageJurisdiction.value || undefined,
           // Rotating credentials targets the bucket this workspace already
           // owns and is actively serving from, so its non-empty contents are
           // expected, not a mistake — same rationale as the PUT route's

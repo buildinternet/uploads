@@ -139,6 +139,18 @@ describe("verifyStorageConfig — shape", () => {
       expect(listSpy).not.toHaveBeenCalled();
     }
   });
+
+  it("rejects an invalid jurisdiction", async () => {
+    const result = await run({ ...VALID, jurisdiction: "us" }, new FakeStorageClient());
+    expect(result.ok).toBe(false);
+    expect(result.checks[0].hint).toMatch(/jurisdiction must be one of: eu, fedramp/);
+  });
+
+  it("passes shape with a valid jurisdiction", async () => {
+    const result = await run({ ...VALID, jurisdiction: "eu" }, new FakeStorageClient());
+    const shape = result.checks.find((c) => c.id === "shape")!;
+    expect(shape.ok).toBe(true);
+  });
 });
 
 describe("verifyStorageConfig — auth/reachability", () => {

@@ -9,6 +9,10 @@ import { r2 } from "files-sdk/r2";
  */
 export type StorageProvider = "r2";
 
+/** R2 jurisdictions with dedicated S3 endpoints (Cloudflare: eu = European Union, fedramp = FedRAMP). */
+export const R2_JURISDICTIONS = ["eu", "fedramp"] as const;
+export type R2Jurisdiction = (typeof R2_JURISDICTIONS)[number];
+
 export interface StorageConfig {
   provider: StorageProvider;
   bucket: string;
@@ -20,6 +24,13 @@ export interface StorageConfig {
   accountId?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
+  /**
+   * R2 jurisdiction the bucket was created in. Jurisdiction buckets are only
+   * reachable at `https://<accountId>.<jurisdiction>.r2.cloudflarestorage.com`,
+   * so this switches the HTTP adapter's endpoint. Ignored in binding mode
+   * (the wrangler binding declaration carries the jurisdiction there).
+   */
+  jurisdiction?: R2Jurisdiction;
   /**
    * Key prefix all operations are confined under (e.g. "myws/"). Must end
    * with "/". Applied via files-sdk's instance prefix; clients never see it.
@@ -43,9 +54,17 @@ export function createStorage(config: StorageConfig): Files {
         publicBaseUrl: config.publicBaseUrl,
       };
       // Binding mode (hybrid when HTTP creds are also set) vs pure HTTP mode.
+      // Jurisdiction only applies to the HTTP endpoint — a binding's jurisdiction
+      // is fixed by the wrangler bucket declaration, not by anything we pass here.
       const adapter = config.r2Binding
         ? r2({ binding: config.r2Binding, bucket: config.bucket, ...shared })
-        : r2({ bucket: config.bucket, ...shared });
+        : r2({
+            bucket: config.bucket,
+            ...shared,
+            ...(config.jurisdiction && {
+              endpoint: `https://${config.accountId}.${config.jurisdiction}.r2.cloudflarestorage.com`,
+            }),
+          });
       return new Files({ adapter, prefix: config.prefix });
     }
     default:

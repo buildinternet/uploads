@@ -156,6 +156,12 @@ describe("signedDownloadUrl", () => {
     expect(url).toContain("X-Amz-Expires=60");
   });
 
+  it("targets the jurisdiction-specific endpoint when configured", async () => {
+    const files = createStorage({ ...base, jurisdiction: "eu" });
+    const url = await signedDownloadUrl(files, "a.png");
+    expect(url).toMatch(/^https:\/\/acct\.eu\.r2\.cloudflarestorage\.com\/shared\/a\.png\?/);
+  });
+
   it("returns null for a binding-only R2 workspace with no signing credentials", async () => {
     const files = createStorage({
       provider: "r2",

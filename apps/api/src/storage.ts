@@ -74,6 +74,7 @@ export async function storageConfig(env: Env, ws: WorkspaceRecord): Promise<Stor
     accountId: ws.accountId,
     accessKeyId: opened.accessKeyId,
     secretAccessKey: opened.secretAccessKey,
+    jurisdiction: ws.jurisdiction,
   };
 }
 

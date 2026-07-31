@@ -16,7 +16,12 @@
  *
  * Never include credential values in any check result, hint, or log line.
  */
-import { createStorage, type StorageConfig } from "@uploads/storage";
+import {
+  createStorage,
+  R2_JURISDICTIONS,
+  type R2Jurisdiction,
+  type StorageConfig,
+} from "@uploads/storage";
 
 /** Candidate config a workspace admin is trying to attach — not yet saved. */
 export interface StorageVerifyCandidate {
@@ -32,6 +37,8 @@ export interface StorageVerifyCandidate {
    * empty-bucket guard (required check `not-empty`).
    */
   adoptExistingContents?: boolean;
+  /** R2 jurisdiction of the bucket; validated by the shape check. */
+  jurisdiction?: string;
 }
 
 export interface StorageVerifyCheck {
@@ -70,6 +77,10 @@ export function defaultStorageClientFactory(candidate: StorageVerifyCandidate): 
     accessKeyId: candidate.accessKeyId,
     secretAccessKey: candidate.secretAccessKey,
     publicBaseUrl: candidate.publicBaseUrl,
+    // Safe: this factory only ever runs after `checkShape` has validated
+    // `jurisdiction` against R2_JURISDICTIONS (verifyStorageConfig short-
+    // circuits on shape failure before calling the factory).
+    jurisdiction: candidate.jurisdiction as R2Jurisdiction | undefined,
   };
   return createStorage(config);
 }
@@ -111,6 +122,14 @@ function checkShape(candidate: StorageVerifyCandidate): StorageVerifyCheck {
   if (candidate.publicBaseUrl) {
     const urlProblem = checkPublicBaseUrlShape(candidate.publicBaseUrl);
     if (urlProblem) problems.push(urlProblem);
+  }
+  if (
+    candidate.jurisdiction !== undefined &&
+    !(R2_JURISDICTIONS as readonly string[]).includes(candidate.jurisdiction)
+  ) {
+    problems.push(
+      `jurisdiction must be one of: ${R2_JURISDICTIONS.join(", ")} (or omitted for the default endpoint)`,
+    );
   }
   return {
     id: "shape",

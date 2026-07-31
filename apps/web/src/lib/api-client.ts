@@ -1284,6 +1284,7 @@ export interface WorkspaceStorageStatus {
   publicBaseUrl?: string;
   configuredAt?: string;
   verifiedAt?: string;
+  jurisdiction?: string;
 }
 
 function toWorkspaceStorageStatus(body: unknown): WorkspaceStorageStatus | null {
@@ -1299,6 +1300,7 @@ function toWorkspaceStorageStatus(body: unknown): WorkspaceStorageStatus | null 
     publicBaseUrl: typeof b.publicBaseUrl === "string" ? b.publicBaseUrl : undefined,
     configuredAt: typeof b.configuredAt === "string" ? b.configuredAt : undefined,
     verifiedAt: typeof b.verifiedAt === "string" ? b.verifiedAt : undefined,
+    jurisdiction: typeof b.jurisdiction === "string" ? b.jurisdiction : undefined,
   };
 }
 
@@ -1382,6 +1384,7 @@ export interface StorageCandidate {
   secretAccessKey: string;
   publicBaseUrl?: string;
   adoptExistingContents?: boolean;
+  jurisdiction?: string;
 }
 
 export type StorageVerifyApiResult =

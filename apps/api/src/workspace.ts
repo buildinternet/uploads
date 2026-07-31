@@ -1,6 +1,6 @@
 import { ForbiddenError, InsufficientScopeError, UnauthorizedError } from "@uploads/errors";
 import type { MiddlewareHandler } from "hono";
-import type { StorageProvider } from "@uploads/storage";
+import type { R2Jurisdiction, StorageProvider } from "@uploads/storage";
 import {
   FILE_SCOPES,
   findActiveToken,
@@ -48,6 +48,8 @@ export interface WorkspaceRecord {
   accountId?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
+  /** R2 jurisdiction of a BYO bucket (issue #593). Only ever "eu" or "fedramp"; absent = default endpoint. */
+  jurisdiction?: R2Jurisdiction;
   /** Max bytes for a single image upload. Falls back to DEFAULT_MAX_UPLOAD_BYTES. */
   maxUploadBytes?: number;
   /**
