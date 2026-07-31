@@ -1350,14 +1350,27 @@ function toStorageVerifyResult(body: unknown): StorageVerifyResult | null {
   if (!body || typeof body !== "object") return null;
   const b = body as Record<string, unknown>;
   if (typeof b.ok !== "boolean" || !Array.isArray(b.checks)) return null;
-  const checks = b.checks.filter(
-    (c): c is StorageVerifyCheck =>
-      !!c &&
-      typeof c === "object" &&
-      typeof (c as StorageVerifyCheck).id === "string" &&
-      typeof (c as StorageVerifyCheck).ok === "boolean" &&
-      typeof (c as StorageVerifyCheck).required === "boolean",
-  );
+  const checks = b.checks.flatMap((c): StorageVerifyCheck[] => {
+    if (!c || typeof c !== "object") return [];
+    const check = c as Record<string, unknown>;
+    if (
+      typeof check.id !== "string" ||
+      typeof check.ok !== "boolean" ||
+      typeof check.required !== "boolean"
+    ) {
+      return [];
+    }
+    return [
+      {
+        id: check.id,
+        ok: check.ok,
+        required: check.required,
+        // Normalized rather than passed through: a non-string hint would
+        // reach the checklist renderer typed as string.
+        hint: typeof check.hint === "string" ? check.hint : undefined,
+      },
+    ];
+  });
   return { ok: b.ok, checks };
 }
 

@@ -292,7 +292,7 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
         <div class="storage-wizard-step" id="storage-step-3" hidden>
           <h3>3. Verify</h3>
-          <ul class="storage-checklist" id="storage-checklist"></ul>
+          <ul class="storage-checklist" id="storage-checklist" aria-live="polite"></ul>
           <div class="storage-actions">
             <button type="button" class="ul-btn ul-btn--solid" id="storage-save-btn" disabled
               >Save</button
@@ -529,6 +529,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
     import { renderDetailsHtml } from "../../../../lib/workspace-rail";
     import { escapeHtml } from "../../../../lib/workspace-ui";
+
+    function formatTimestamp(value: string | undefined): string {
+      if (!value) return "—";
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
+    }
 
     const SOURCE_LABEL: Record<string, string> = {
       repo: "repo",
@@ -874,12 +880,6 @@ if (!workspace) return Astro.redirect("/account/workspaces");
         storageErrorEl.textContent = message;
       }
 
-      function formatTimestamp(value: string | undefined): string {
-        if (!value) return "—";
-        const d = new Date(value);
-        return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
-      }
-
       function renderByoDetails(status: WorkspaceStorageStatus): void {
         const rows: [string, string][] = [
           ["Bucket", status.bucket ?? "—"],
@@ -1038,8 +1038,15 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 
       storageRotateBtn.addEventListener("click", () => {
         void (async () => {
+          storageActionStatus.textContent = "";
+          storageActionStatus.removeAttribute("data-state");
           const result = await getWorkspaceStorageStatus(apiOrigin, workspaceName);
-          if (!stillHere() || result.kind !== "ok") return;
+          if (!stillHere()) return;
+          if (result.kind !== "ok") {
+            storageActionStatus.textContent = "Couldn’t reach the server. Try again.";
+            storageActionStatus.dataset.state = "error";
+            return;
+          }
           openWizard("rotate", result.status);
         })();
       });
@@ -1090,9 +1097,31 @@ if (!workspace) return Astro.redirect("/account/workspaces");
             return;
           }
           if (result.kind === "conflict") {
+            // The server's guard: the BYO bucket still holds files. Without a
+            // forced retry the workspace would be stuck on BYO storage with no
+            // UI path back to shared — so offer the same escape hatch the API
+            // documents, spelling out what force does (and doesn't) touch.
             showStorageError(result.message);
             storageActionStatus.textContent = "";
-            return;
+            if (
+              !confirm(
+                "This workspace still has files on your bucket. Detach anyway? " +
+                  "Your files stay on your bucket untouched, but this workspace stops serving them.",
+              )
+            ) {
+              return;
+            }
+            storageDisconnectBtn.disabled = true;
+            const forced = await deleteWorkspaceStorage(apiOrigin, workspaceName, { force: true });
+            if (!stillHere()) return;
+            storageDisconnectBtn.disabled = false;
+            if (forced.kind === "ok") {
+              showStorageError(null);
+              applyStatus(forced.status);
+              storageActionStatus.textContent = "Disconnected.";
+              storageActionStatus.dataset.state = "ok";
+              return;
+            }
           }
           storageActionStatus.textContent = "Couldn’t disconnect. Try again.";
           storageActionStatus.dataset.state = "error";
