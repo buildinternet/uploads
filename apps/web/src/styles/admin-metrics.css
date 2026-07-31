@@ -14,10 +14,14 @@
 
 .metrics-tiles {
   display: grid;
-  gap: 12px;
+  gap: 14px;
   grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
   margin: 0;
   padding: 0;
+}
+
+#metrics-tiles {
+  margin-bottom: 32px;
 }
 
 .metrics-tile {
@@ -58,8 +62,19 @@
   border-color: var(--accent);
 }
 
+/* Vertical rhythm between sections: a hairline + generous top padding on
+   every section after the first, matching the .admin-subsection separator
+   idiom in admin.css (border-top + padding-top, not just a margin) so
+   headings read as clearly starting a new region rather than trailing off
+   the previous one. */
+.metrics-section + .metrics-section {
+  margin-top: 8px;
+  padding-top: 32px;
+  border-top: 1px solid var(--line);
+}
+
 .metrics-section h3 {
-  margin: 0 0 10px;
+  margin: 0 0 14px;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -141,6 +156,7 @@
 /* Wide content scrolls inside its own container; the page body never
    scrolls horizontally. */
 .metrics-table-wrap {
+  margin-top: 12px;
   overflow-x: auto;
 }
 
@@ -158,7 +174,7 @@
    .admin-page-header p, scoped to this page since no other /admin/* section
    currently needs one. */
 .admin-hint {
-  margin: 0 0 10px;
+  margin: 0 0 12px;
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
@@ -166,11 +182,15 @@
 
 #breakdown-panel label {
   display: inline-block;
-  margin: 0 8px 10px 0;
+  margin: 0 8px 12px 0;
   font-size: 13px;
   color: var(--body);
 }
 
 #breakdown-panel #breakdown-status {
   margin: 8px 0;
+}
+
+#breakdown-panel .metrics-table-wrap {
+  margin-top: 16px;
 }
