@@ -167,6 +167,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       .prompt {
         color: var(--accent);
         user-select: none;
+        margin-right: 0.5ch;
       }
       .cmd {
         color: var(--fg);
@@ -274,14 +275,6 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         border-radius: 999px;
         padding: 0 6px;
         background: transparent;
-      }
-      .ghc .head .badge {
-        font: 11px var(--mono);
-        color: #8b949e;
-        border: 1px solid #30363d;
-        border-radius: 999px;
-        padding: 1px 8px;
-        margin-left: auto;
       }
       .ghc .body {
         padding: 14px;
@@ -434,6 +427,14 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         border-radius: var(--radius-md);
         padding: 10px 12px;
       }
+      /* Snippet pattern: whole row is the hit target; the real <button>
+         keeps keyboard + screen-reader affordance. */
+      .cmdrow:has(button[data-copy]) {
+        cursor: pointer;
+      }
+      .cmdrow:has(button[data-copy]):hover {
+        border-color: var(--accent);
+      }
       .cmdrow .tag {
         color: var(--muted);
         font-size: 10.5px;
@@ -447,8 +448,9 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         scrollbar-width: none;
       }
       .cmdrow .cmdtext::before {
-        content: "$ ";
+        content: "$";
         color: var(--accent);
+        margin-right: 0.5ch;
       }
       .cmdrow .cmdtext .comment {
         color: var(--muted);
@@ -520,6 +522,10 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         border-color: var(--accent);
         font-weight: 600;
       }
+      .hero-install:hover {
+        border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
+        background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+      }
       .hero-install button:hover,
       .hero-install button:focus-visible {
         background: color-mix(in srgb, var(--accent) 88%, #fff);
@@ -529,6 +535,9 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         color: var(--bg);
         background: var(--green);
         border-color: var(--green);
+      }
+      .hero-install:has(button.done) {
+        border-color: color-mix(in srgb, var(--green) 55%, var(--line));
       }
 
       /* ---------- closing CTA ---------- */
@@ -614,9 +623,9 @@ Source (and where to look if something breaks): https://github.com/buildinternet
     <main>
       <h1>The missing upload command for <span class="nb">coding agents.</span></h1>
       <p class="lede">
-        GitHub has no real way for an agent to show their work. Capture screenshots as you go —
-        they're staged for the branch automatically — and by the time the PR opens, it's already
-        furnished with one tidy comment.
+        GitHub has no real way for an agent to show their work. With Uploads, agents can capture
+        screenshots as you go. They're staged for the branch automatically — and by the time the PR
+        opens, all screenshots appear with one tidy comment.
       </p>
 
       <div class="cmdrow hero-install">
@@ -646,6 +655,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             note: staged for branch feat/nav — auto-attaches to this branch's PR when it opens…
           </p>
           <div class="gap hidden"></div>
+          <p class="line out hidden"># open your pull request like usual</p>
           <p class="line hidden">
             <span class="prompt">$</span>
             <span class="cmd">gh pr create</span>
@@ -693,7 +703,6 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             <span class="user">uploads-sh</span>
             <span class="bot-chip">bot</span>
             <span>commented just now</span>
-            <span class="badge">managed by uploads.sh</span>
           </div>
           <div class="body">
             <p class="md-title">📎 Attachments</p>
@@ -893,6 +902,19 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             btn.textContent = label;
             btn.classList.remove("done");
           }, 1500);
+        });
+      }
+
+      // Clicking anywhere on a cmdrow copies — same as CopyAsControls snippet:
+      // forward to the real button so feedback/keyboard stay in one place.
+      for (const row of document.querySelectorAll(".cmdrow")) {
+        const copyBtn = row.querySelector("button[data-copy]");
+        if (!(copyBtn instanceof HTMLButtonElement)) continue;
+        row.addEventListener("click", (event) => {
+          const target = event.target;
+          if (!(target instanceof Node)) return;
+          if (target === copyBtn || copyBtn.contains(target)) return;
+          copyBtn.click();
         });
       }
     </script>
