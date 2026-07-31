@@ -947,6 +947,7 @@ describe("getWorkspaceStorageStatus", () => {
           publicBaseUrl: "https://media.example.com",
           configuredAt: "2026-07-01T00:00:00.000Z",
           verifiedAt: "2026-07-01T00:00:00.000Z",
+          jurisdiction: "eu",
         }),
       ),
     );
@@ -963,6 +964,7 @@ describe("getWorkspaceStorageStatus", () => {
         publicBaseUrl: "https://media.example.com",
         configuredAt: "2026-07-01T00:00:00.000Z",
         verifiedAt: "2026-07-01T00:00:00.000Z",
+        jurisdiction: "eu",
       },
     });
   });

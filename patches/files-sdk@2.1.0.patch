@@ -1,7 +1,46 @@
+diff --git a/dist/r2/index.d.ts b/dist/r2/index.d.ts
+index 4359929d2d8a9f7ef0586a482b5e06dcb4013bbc..b1c9bf5315f0ef3dc0010839c72f9c89374d5035 100644
+--- a/dist/r2/index.d.ts
++++ b/dist/r2/index.d.ts
+@@ -31,6 +31,12 @@ export interface R2HttpOptions {
+      * Defaults to 3600.
+      */
+     defaultUrlExpiresIn?: number;
++    /**
++     * Override the S3 API endpoint. Defaults to
++     * `https://<accountId>.r2.cloudflarestorage.com`; set for jurisdiction
++     * buckets (e.g. `https://<accountId>.eu.r2.cloudflarestorage.com`).
++     */
++    endpoint?: string;
+ }
+ export interface R2BindingOptions {
+     /** Workers `R2Bucket` binding. Reads and writes go through the binding. */
+@@ -62,6 +68,12 @@ export interface R2BindingOptions {
+      * signing (hybrid mode without `publicBaseUrl`). Defaults to 3600.
+      */
+     defaultUrlExpiresIn?: number;
++    /**
++     * Hybrid mode: override the S3 API endpoint used for signing. Defaults to
++     * `https://<accountId>.r2.cloudflarestorage.com`; set for jurisdiction
++     * buckets (e.g. `https://<accountId>.eu.r2.cloudflarestorage.com`).
++     */
++    endpoint?: string;
+ }
+ export type R2AdapterOptions = R2BindingOptions | R2HttpOptions;
+ export type R2Adapter = Adapter<S3Client | R2Bucket>;
 diff --git a/dist/r2/index.js b/dist/r2/index.js
-index 291ca05dee674c7845e5e18868d481a3e4168b10..237e9726bd3e49ea5246cdf50acf62f37a54b035 100644
+index 291ca05dee674c7845e5e18868d481a3e4168b10..654e4b2a617aba3d4eff1074d9dbcf8ed5cf4e3a 100644
 --- a/dist/r2/index.js
 +++ b/dist/r2/index.js
+@@ -137,7 +137,7 @@ var r2FromBinding = (opts) => {
+     ...opts.defaultUrlExpiresIn !== undefined && {
+       defaultUrlExpiresIn: opts.defaultUrlExpiresIn
+     },
+-    endpoint: `https://${opts.accountId}.r2.cloudflarestorage.com`,
++    endpoint: opts.endpoint ?? `https://${opts.accountId}.r2.cloudflarestorage.com`,
+     forcePathStyle: true,
+     region: "auto"
+   }) : null;
 @@ -231,7 +231,11 @@ var r2FromBinding = (opts) => {
            ...options?.prefix && { prefix: options.prefix },
            ...options?.limit !== undefined && { limit: options.limit },
@@ -15,3 +54,12 @@ index 291ca05dee674c7845e5e18868d481a3e4168b10..237e9726bd3e49ea5246cdf50acf62f3
          });
        } catch (error) {
          throw mapR2Error(error);
+@@ -336,7 +340,7 @@ var r2FromHttp = (opts) => {
+     ...opts.defaultUrlExpiresIn !== undefined && {
+       defaultUrlExpiresIn: opts.defaultUrlExpiresIn
+     },
+-    endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
++    endpoint: opts.endpoint ?? `https://${accountId}.r2.cloudflarestorage.com`,
+     forcePathStyle: true,
+     ...opts.publicBaseUrl && { publicBaseUrl: opts.publicBaseUrl },
+     region: "auto"

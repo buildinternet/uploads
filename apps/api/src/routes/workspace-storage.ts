@@ -43,6 +43,7 @@ export interface StorageStatusResponse {
   publicBaseUrl?: string;
   configuredAt?: string;
   verifiedAt?: string;
+  jurisdiction?: string;
 }
 
 /**
@@ -70,6 +71,7 @@ export function storageStatusResponse(
     accessKeyIdLast4: byo ? record.storageAccessKeyIdLast4 : undefined,
     configuredAt: record.storageConfiguredAt,
     verifiedAt: record.storageVerifiedAt,
+    jurisdiction: byo ? record.jurisdiction : undefined,
   };
 }
 
@@ -135,5 +137,7 @@ export function candidateFromBody(body: unknown): StorageVerifyCandidate {
     secretAccessKey: typeof b.secretAccessKey === "string" ? b.secretAccessKey : "",
     publicBaseUrl: typeof b.publicBaseUrl === "string" ? b.publicBaseUrl : undefined,
     adoptExistingContents: b.adoptExistingContents === true,
+    jurisdiction:
+      typeof b.jurisdiction === "string" && b.jurisdiction !== "" ? b.jurisdiction : undefined,
   };
 }

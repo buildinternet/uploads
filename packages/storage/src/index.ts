@@ -9,6 +9,15 @@ import { r2 } from "files-sdk/r2";
  */
 export type StorageProvider = "r2";
 
+/** R2 jurisdictions with dedicated S3 endpoints (Cloudflare: eu = European Union, fedramp = FedRAMP). */
+export const R2_JURISDICTIONS = ["eu", "fedramp"] as const;
+export type R2Jurisdiction = (typeof R2_JURISDICTIONS)[number];
+
+/** Type guard for {@link R2Jurisdiction} — use on untrusted strings before they reach `StorageConfig`. */
+export function isR2Jurisdiction(value: string): value is R2Jurisdiction {
+  return (R2_JURISDICTIONS as readonly string[]).includes(value);
+}
+
 export interface StorageConfig {
   provider: StorageProvider;
   bucket: string;
@@ -20,6 +29,15 @@ export interface StorageConfig {
   accountId?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
+  /**
+   * R2 jurisdiction the bucket was created in. Jurisdiction buckets are only
+   * reachable at `https://<accountId>.<jurisdiction>.r2.cloudflarestorage.com`,
+   * so this switches the S3 endpoint used for HTTP I/O and hybrid-mode
+   * signing. Ignored only in pure binding mode (no HTTP credentials), where
+   * the wrangler binding declaration carries the jurisdiction and nothing
+   * ever touches the S3 endpoint.
+   */
+  jurisdiction?: R2Jurisdiction;
   /**
    * Key prefix all operations are confined under (e.g. "myws/"). Must end
    * with "/". Applied via files-sdk's instance prefix; clients never see it.
@@ -41,6 +59,12 @@ export function createStorage(config: StorageConfig): Files {
         accessKeyId: config.accessKeyId,
         secretAccessKey: config.secretAccessKey,
         publicBaseUrl: config.publicBaseUrl,
+        // Jurisdiction switches the S3 endpoint for HTTP I/O and hybrid-mode
+        // signing alike; pure binding mode (no HTTP creds) never builds an S3
+        // client, so the extra option is inert there.
+        ...(config.jurisdiction && {
+          endpoint: `https://${config.accountId}.${config.jurisdiction}.r2.cloudflarestorage.com`,
+        }),
       };
       // Binding mode (hybrid when HTTP creds are also set) vs pure HTTP mode.
       const adapter = config.r2Binding

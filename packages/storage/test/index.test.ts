@@ -156,6 +156,12 @@ describe("signedDownloadUrl", () => {
     expect(url).toContain("X-Amz-Expires=60");
   });
 
+  it("targets the jurisdiction-specific endpoint when configured", async () => {
+    const files = createStorage({ ...base, jurisdiction: "eu" });
+    const url = await signedDownloadUrl(files, "a.png");
+    expect(url).toMatch(/^https:\/\/acct\.eu\.r2\.cloudflarestorage\.com\/shared\/a\.png\?/);
+  });
+
   it("returns null for a binding-only R2 workspace with no signing credentials", async () => {
     const files = createStorage({
       provider: "r2",
@@ -174,5 +180,18 @@ describe("signedDownloadUrl", () => {
     });
     const url = await signedDownloadUrl(files, "a.png");
     expect(url).toMatch(/^https:\/\/acct\.r2\.cloudflarestorage\.com\/shared\/acme\/a\.png\?/);
+  });
+
+  it("hybrid signing targets the jurisdiction-specific endpoint when configured", async () => {
+    const files = createStorage({
+      ...base,
+      r2Binding: new FakeR2Bucket() as unknown as R2Bucket,
+      prefix: "acme/",
+      jurisdiction: "fedramp",
+    });
+    const url = await signedDownloadUrl(files, "a.png");
+    expect(url).toMatch(
+      /^https:\/\/acct\.fedramp\.r2\.cloudflarestorage\.com\/shared\/acme\/a\.png\?/,
+    );
   });
 });

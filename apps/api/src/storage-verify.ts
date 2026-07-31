@@ -16,7 +16,12 @@
  *
  * Never include credential values in any check result, hint, or log line.
  */
-import { createStorage, type StorageConfig } from "@uploads/storage";
+import {
+  createStorage,
+  isR2Jurisdiction,
+  R2_JURISDICTIONS,
+  type StorageConfig,
+} from "@uploads/storage";
 
 /** Candidate config a workspace admin is trying to attach — not yet saved. */
 export interface StorageVerifyCandidate {
@@ -32,6 +37,8 @@ export interface StorageVerifyCandidate {
    * empty-bucket guard (required check `not-empty`).
    */
   adoptExistingContents?: boolean;
+  /** R2 jurisdiction of the bucket; validated by the shape check. */
+  jurisdiction?: string;
 }
 
 export interface StorageVerifyCheck {
@@ -63,6 +70,13 @@ export type StorageClientFactory = (candidate: StorageVerifyCandidate) => Storag
 
 /** Default factory: routes through the same `createStorage` seam production I/O uses. */
 export function defaultStorageClientFactory(candidate: StorageVerifyCandidate): StorageProbeClient {
+  // `verifyStorageConfig` shape-checks before calling this, but the factory is
+  // exported — re-guard so a direct caller can never interpolate an arbitrary
+  // string into the S3 endpoint.
+  const { jurisdiction } = candidate;
+  if (jurisdiction !== undefined && !isR2Jurisdiction(jurisdiction)) {
+    throw new Error(`invalid jurisdiction: ${JSON.stringify(jurisdiction)}`);
+  }
   const config: StorageConfig = {
     provider: "r2",
     bucket: candidate.bucket,
@@ -70,6 +84,7 @@ export function defaultStorageClientFactory(candidate: StorageVerifyCandidate): 
     accessKeyId: candidate.accessKeyId,
     secretAccessKey: candidate.secretAccessKey,
     publicBaseUrl: candidate.publicBaseUrl,
+    jurisdiction,
   };
   return createStorage(config);
 }
@@ -111,6 +126,11 @@ function checkShape(candidate: StorageVerifyCandidate): StorageVerifyCheck {
   if (candidate.publicBaseUrl) {
     const urlProblem = checkPublicBaseUrlShape(candidate.publicBaseUrl);
     if (urlProblem) problems.push(urlProblem);
+  }
+  if (candidate.jurisdiction !== undefined && !isR2Jurisdiction(candidate.jurisdiction)) {
+    problems.push(
+      `jurisdiction must be one of: ${R2_JURISDICTIONS.join(", ")} (or omitted for the default endpoint)`,
+    );
   }
   return {
     id: "shape",
