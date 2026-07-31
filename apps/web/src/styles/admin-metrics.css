@@ -228,3 +228,19 @@
 #breakdown-panel .metrics-table-wrap {
   margin-top: 16px;
 }
+
+/* Loading placeholder emitted by workspace-ui.ts's skeletonBarHtml (reused by
+   admin-ui.ts's skeleton table rows). Duplicated from account-shell.css
+   because this page renders under AdminLayout, which doesn't load that
+   stylesheet — without this rule the bars are invisible unstyled spans and
+   the reserved row heights collapse. Keep in sync with account-shell.css. */
+.ws-skel {
+  display: inline-block;
+  width: var(--ws-skel-w, 100%);
+  min-height: 1em;
+  vertical-align: middle;
+  border-radius: 3px;
+  background: var(--panel);
+  /* Purely decorative and aria-hidden — nothing here should be selectable. */
+  user-select: none;
+}
