@@ -252,6 +252,7 @@ staged files are promoted into the PR's attachments comment automatically.
 - Agents: https://uploads.sh/docs/agents
 - Reference: https://uploads.sh/docs/reference
 - Plans & limits: https://uploads.sh/docs/limits
+- Bring your own bucket: https://uploads.sh/docs/byo-bucket
 - Agent walkthrough: https://uploads.sh/github-screenshots
 - Source: https://github.com/buildinternet/uploads
 
