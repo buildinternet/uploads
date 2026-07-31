@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  hasCustomerCredentials,
   hexToBytes,
   isPurgedTombstone,
   isSha256Hex,
@@ -105,7 +104,7 @@ describe("isSha256Hex / hexToBytes (corrupt token-hash guard)", () => {
   });
 });
 
-describe("isUnprefixedDedicatedBucket / hasCustomerCredentials (#583 lifecycle guards)", () => {
+describe("isUnprefixedDedicatedBucket (#583 lifecycle guards)", () => {
   it("is false for a prefixed shared-bucket record", () => {
     expect(isUnprefixedDedicatedBucket(RECORD)).toBe(false);
   });
@@ -126,21 +125,5 @@ describe("isUnprefixedDedicatedBucket / hasCustomerCredentials (#583 lifecycle g
 
   it("treats an empty-string prefix the same as absent (unprefixed)", () => {
     expect(isUnprefixedDedicatedBucket({ ...RECORD, prefix: "" })).toBe(true);
-  });
-
-  it("hasCustomerCredentials requires all three fields", () => {
-    expect(hasCustomerCredentials(RECORD)).toBe(false);
-    expect(hasCustomerCredentials({ ...RECORD, accessKeyId: "key" })).toBe(false);
-    expect(
-      hasCustomerCredentials({ ...RECORD, accessKeyId: "key", secretAccessKey: "secret" }),
-    ).toBe(false);
-    expect(
-      hasCustomerCredentials({
-        ...RECORD,
-        accountId: "a".repeat(32),
-        accessKeyId: "key",
-        secretAccessKey: "secret",
-      }),
-    ).toBe(true);
   });
 });

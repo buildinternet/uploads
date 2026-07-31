@@ -76,6 +76,7 @@ export async function teardownWorkspace(
 ): Promise<TeardownResult> {
   const force = opts.force ?? true;
   const skipObjects = isUnprefixedDedicatedBucket(record) && !opts.purgeObjects;
+  const objectsSkipped = skipObjects ? ("dedicated-bucket" as const) : undefined;
 
   let objectCount = 0;
   let freedBytes = 0;
@@ -127,14 +128,9 @@ export async function teardownWorkspace(
       objectsDeleted: objectCount,
       freedBytes,
       galleriesDeleted: galleries,
-      objectsSkipped: skipObjects ? "dedicated-bucket" : undefined,
+      objectsSkipped,
     }),
   );
 
-  return {
-    objectsDeleted: objectCount,
-    freedBytes,
-    galleriesDeleted: galleries,
-    ...(skipObjects ? { objectsSkipped: "dedicated-bucket" as const } : {}),
-  };
+  return { objectsDeleted: objectCount, freedBytes, galleriesDeleted: galleries, objectsSkipped };
 }

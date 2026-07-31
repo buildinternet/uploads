@@ -229,17 +229,6 @@ export function isUnprefixedDedicatedBucket(record: WorkspaceRecord): boolean {
   return !record.prefix;
 }
 
-/**
- * True when the record carries customer-supplied R2 credentials (BYO
- * bucket) rather than resolving I/O through a platform wrangler `binding`.
- * Both are "unprefixed dedicated buckets" per the predicate above and are
- * guarded the same way by default; this only distinguishes the two for
- * logging/telemetry, since only this case is literally not our bucket.
- */
-export function hasCustomerCredentials(record: WorkspaceRecord): boolean {
-  return Boolean(record.accessKeyId && record.secretAccessKey && record.accountId);
-}
-
 function bearerToken(header: string | undefined): string {
   return header?.startsWith("Bearer ") ? header.slice(7) : "";
 }

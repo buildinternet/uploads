@@ -70,6 +70,6 @@ export async function reconcileWorkspaceUsage(
     previous: { bytes: previous.bytes, objects: previous.objects },
     changed: previous.bytes !== bytes || previous.objects !== objects,
     usage,
-    ...(unprefixedBucket ? { unprefixedBucket: true } : {}),
+    unprefixedBucket: unprefixedBucket || undefined,
   };
 }

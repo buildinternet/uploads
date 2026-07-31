@@ -668,7 +668,7 @@ export const admin = new Hono<{ Bindings: Env }>()
       objectsDeleted: result.objectsDeleted,
       freedBytes: result.freedBytes,
       galleriesDeleted: result.galleriesDeleted,
-      ...(result.objectsSkipped ? { objectsSkipped: result.objectsSkipped } : {}),
+      objectsSkipped: result.objectsSkipped,
     });
   })
 
