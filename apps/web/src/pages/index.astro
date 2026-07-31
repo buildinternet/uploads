@@ -1,7 +1,7 @@
 ---
-// uploads.sh — landing. Beats: headline + star CTA, install for humans and a
+// uploads.sh — landing. Beats: headline + byline + lede, install for humans and a
 // copyable setup prompt for agents, the attach demo terminal, the GitHub
-// comment it produces, tag-and-find, what else it does, and setup rows.
+// comment it produces, path metadata, capture/markup/gallery extras, and setup.
 import BaseHead from "../components/BaseHead.astro";
 import Footer from "../components/Footer.astro";
 import GitHubMark from "../components/GitHubMark.astro";
@@ -11,7 +11,7 @@ import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../lib/og";
 
 const pageTitle = "uploads.sh — the missing upload command for coding agents";
 const pageDescription =
-  "The missing upload command for coding agents. Screenshots stage on the branch as the agent works, so the PR opens with one tidy attachments comment.";
+  "GitHub has no real way for agents to upload files. By default, pull requests and issues won't include screenshots. Uploads gives Claude, Codex, and other agents a way to host files and show their work on pull requests automatically. They're staged for the branch automatically — and by the time the PR opens, all screenshots appear with one tidy comment.";
 
 // Static page (no `prerender = false`) — auth origin is baked at build time,
 // not read from request-time env. See src/lib/auth-client.ts.
@@ -124,6 +124,11 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       h1 .nb {
         white-space: nowrap;
       }
+      .byline {
+        font: 500 16px/1.4 var(--sans);
+        color: var(--fg);
+        margin: 0;
+      }
       .lede {
         font: 15px/1.65 var(--sans);
         color: var(--body);
@@ -212,6 +217,13 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       }
       .flow-note .arrow {
         color: var(--accent);
+      }
+      /* Sits under the comment wireframe, indented to the bubble column. */
+      .ghc-note {
+        font-size: 12px;
+        color: var(--muted);
+        margin: -6px 0 0;
+        padding-left: 52px; /* avatar 40 + gap 12 */
       }
 
       /* ---------- wireframe github comment ---------- */
@@ -622,10 +634,12 @@ Source (and where to look if something breaks): https://github.com/buildinternet
     <SiteHeader star authOrigin={authOrigin} />
     <main>
       <h1>The missing upload command for <span class="nb">coding agents.</span></h1>
+      <p class="byline">Add screenshots to pull requests.</p>
       <p class="lede">
-        GitHub has no real way for an agent to show their work. With Uploads, agents can capture
-        screenshots as you go. They're staged for the branch automatically — and by the time the PR
-        opens, all screenshots appear with one tidy comment.
+        GitHub has no real way for agents to upload files. By default, pull requests and issues
+        won't include screenshots. Uploads gives Claude, Codex, and other agents a way to host files
+        and show their work on pull requests automatically. They're staged for the branch
+        automatically — and by the time the PR opens, all screenshots appear with one tidy comment.
       </p>
 
       <div class="cmdrow hero-install">
@@ -733,13 +747,16 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           </div>
         </div>
       </section>
+      <p class="ghc-note">
+        The bot adds new files automatically, and replaces outdated versions with the latest
+        revision (with <a href="/docs/github-app">GitHub App</a> installed).
+      </p>
 
       <section class="features" aria-label="Features">
-        <h2 class="sect-head"># tag it, find it later</h2>
+        <h2 class="sect-head"># "Which page was that?"</h2>
         <p class="sect-lede">
-          Every upload can carry custom tags — add your own with <code>--meta</code>, and&#32;
-          <code>uploads find</code> brings it all back. Use it to organize visuals from specific parts
-          of your app, form factor, etc.
+          Most useful tag: which page is this from? Attach a path (or anything else) with&#32;
+          <code>--meta</code>, then <code>uploads find</code> brings it back.
         </p>
         <div class="example-screen">
           <p class="line out"># tag it on the way up (source URL, app, etc)</p>
@@ -768,15 +785,21 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           </p>
         </div>
 
-        <h2 class="sect-head later"># what else it does</h2>
+        <h2 class="sect-head later"># more than file-hosting</h2>
         <div class="grid">
           <div class="feature">
-            <h3>stage as you go</h3>
+            <h3>capture and host</h3>
             <p>
-              A plain upload on a branch stages automatically — no extra flag needed. A staged view
-              (<code>uploads staged</code>) shows what's queued and whether it'll auto-attach, and
-              re-running it later updates the same comment instead of adding a new one. Promotion
-              never breaks a URL you've already embedded.
+              <code>uploads screenshot &lt;url&gt;</code> captures and hosts in one step, with both local
+              and remote browser support.
+            </p>
+          </div>
+          <div class="feature">
+            <h3>point at the change</h3>
+            <p>
+              Bake hand-drawn boxes, arrows, labels, and solid redactions into a capture with&#32;
+              <code>screenshot --annotate</code> or <code>uploads annotate</code> — so reviewers see what
+              changed without hunting.
             </p>
           </div>
           <div class="feature">
@@ -788,22 +811,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             </p>
           </div>
           <div class="feature">
-            <h3>one-shot screenshots</h3>
-            <p>
-              <code>uploads screenshot &lt;url&gt;</code> captures and hosts in one step, with both local
-              and remote browser support.
-            </p>
-          </div>
-          <div class="feature">
-            <h3>annotations</h3>
-            <p>
-              Bake hand-drawn boxes, arrows, labels, and solid redactions into a capture with&#32;
-              <code>screenshot --annotate</code> or <code>uploads annotate</code> — so reviewers see what
-              changed without hunting.
-            </p>
-          </div>
-          <div class="feature">
-            <h3>shareable galleries</h3>
+            <h3>group into a gallery</h3>
             <p>
               Group uploads into a gallery that can live across multiple PRs — one link for the
               whole set that shows linked issues and pull requests.
@@ -844,11 +852,15 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           </p>
         </div>
         <div class="cta-row">
-          <a class="cta-solid" href="/login">
-            <GitHubMark size={15} />
-            sign in with GitHub
+          <a class="cta-solid" href="/login" data-home-cta>
+            <span data-home-cta-icon aria-hidden="true">
+              <GitHubMark size={15} />
+            </span>
+            <span data-home-cta-label>sign in with GitHub</span>
           </a>
-          <span class="cta-note">free to start in the cloud · open source to self-host</span>
+          <span class="cta-note" data-home-cta-note
+            >free to start in the cloud · open source to self-host</span
+          >
         </div>
       </section>
     </main>
@@ -858,6 +870,74 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         viewport at shell width — same contract as releases.sh. */
     }
     <Footer />
+
+    <script>
+      // Auth origin is already set by AuthIndicator in the site header.
+      import { getSession } from "../lib/auth-client";
+      import {
+        clearCachedSessionUser,
+        onAstroPageLoad,
+        readCachedSessionUser,
+        writeCachedSessionUser,
+      } from "../lib/account-shell";
+      import { readCachedActiveWorkspace } from "../lib/workspaces-nav";
+
+      /** Signed-in landing CTA: last-used workspace when known, else the list. */
+      function workspaceHref(): string {
+        const ws = readCachedActiveWorkspace();
+        return ws ? `/account/workspaces/${encodeURIComponent(ws)}` : "/account/workspaces";
+      }
+
+      function paintHomeCta(signedIn: boolean): void {
+        const cta = document.querySelector<HTMLAnchorElement>("[data-home-cta]");
+        if (!cta) return;
+        const icon = cta.querySelector<HTMLElement>("[data-home-cta-icon]");
+        const label = cta.querySelector<HTMLElement>("[data-home-cta-label]");
+        const note = document.querySelector<HTMLElement>("[data-home-cta-note]");
+        if (signedIn) {
+          cta.href = workspaceHref();
+          if (icon) icon.hidden = true;
+          if (label) label.textContent = "go to workspace";
+          if (note) note.hidden = true;
+        } else {
+          cta.href = "/login";
+          if (icon) icon.hidden = false;
+          if (label) label.textContent = "sign in with GitHub";
+          if (note) note.hidden = false;
+        }
+      }
+
+      function bootHomeCta(): void {
+        const cta = document.querySelector<HTMLAnchorElement>("[data-home-cta]");
+        // Fresh node after ClientRouter body swap; skip double-boot on first paint.
+        if (!cta || cta.dataset.booted === "1") return;
+        cta.dataset.booted = "1";
+
+        // Optimistic: same sessionStorage cache as the header auth indicator.
+        if (readCachedSessionUser()) paintHomeCta(true);
+
+        const origin =
+          (window as unknown as { __UPLOADS_AUTH_ORIGIN__: string }).__UPLOADS_AUTH_ORIGIN__ ||
+          "https://auth.uploads.sh";
+
+        void getSession(origin).then((result) => {
+          if (cta.dataset.booted !== "1" || !document.contains(cta)) return;
+          if (result.kind === "signed_in") {
+            writeCachedSessionUser(result.session.user);
+            paintHomeCta(true);
+            return;
+          }
+          if (result.kind === "signed_out") {
+            clearCachedSessionUser();
+            paintHomeCta(false);
+          }
+          // "unavailable": leave optimistic paint (or default sign-in) alone.
+        });
+      }
+
+      bootHomeCta();
+      onAstroPageLoad(bootHomeCta);
+    </script>
 
     <script>
       // Replay the terminal session; content below the fold-line is static.
