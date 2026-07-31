@@ -1,5 +1,18 @@
 # @buildinternet/uploads
 
+## 0.37.1
+
+### Patch Changes
+
+- 5f1a5f6: Recognize the server's new `actor_not_authorized` managed-comment decline (issue #297 control 2, workspace opt-in actor-on-PR gate): like `not_authorized`, the CLI surfaces the server's guidance instead of falling back to a local `gh` post.
+- 83416c0: Managed attachments comments size images by how many are inlined (larger for one or a few shots, compact when dense), and render path/state captions as inline code.
+- 444bde1: `uploads doctor` now reports on bring-your-own-bucket storage status. Since
+  `GET /me/workspaces/:name/storage` requires a signed-in session and the CLI
+  only ever holds a workspace token, doctor honestly says it can't check
+  storage mode from the CLI today and points to the web settings page instead
+  of guessing.
+- 3cd05bb: Clarify the bare-put staging note: "auto-comments to pull request when opened" instead of "auto-attaches to this branch's PR when it opens".
+
 ## 0.37.0
 
 ### Minor Changes
