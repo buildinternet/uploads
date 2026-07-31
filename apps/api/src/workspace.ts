@@ -126,6 +126,17 @@ export interface WorkspaceRecord {
    * repos whose visibility uploads.sh does not check.
    */
   githubCommentShowMetadata?: boolean;
+  /**
+   * Actor-on-PR gate for the managed GitHub comment (issue #297, control 2).
+   * When `true`, a comment call whose token carries a resolvable GitHub
+   * identity is declined (`actor_not_authorized`) unless that identity is the
+   * target PR/issue's author, an assignee, or a requested reviewer. Default
+   * (undefined/false) = log-only dry-run: the check still runs and logs a
+   * would-decline, but never blocks. Best-effort augment by construction — a
+   * token with no minting user, or any lookup failure, always skips the
+   * check; the structural repo binding above it stays the real gate.
+   */
+  githubCommentRequireActorOnPr?: boolean;
   /** Workspace default for managed-comment image width (issue #307):
    * "full" omits the width attribute; a number (160–1000) forces that px.
    * Absent = auto (filename-heuristic sizing). Repo `.uploads.yml` overrides. */

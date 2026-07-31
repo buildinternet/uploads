@@ -301,6 +301,24 @@ describe("syncAttachmentsComment", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("does not fall back to gh on actor_not_authorized (issue #297 control 2) either", async () => {
+    const client = fakeClient({
+      upsertGithubComment: async () => ({
+        posted: false,
+        reason: "actor_not_authorized",
+        message: "Your linked GitHub account isn't on acme/web#12.",
+      }),
+    });
+    const run = vi.fn(); // gh runner must NOT be called
+    await expect(
+      syncAttachmentsComment(client, { repo: "acme/web", num: 12, kind: "pull" }, run),
+    ).rejects.toThrow(GithubCommentAuthorizationError);
+    await expect(
+      syncAttachmentsComment(client, { repo: "acme/web", num: 12, kind: "pull" }, run),
+    ).rejects.toThrow(/authorized thread participant/);
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("falls back to the gh path when the endpoint throws (self-hosted 404)", async () => {
     const client = fakeClient({
       upsertGithubComment: async () => {

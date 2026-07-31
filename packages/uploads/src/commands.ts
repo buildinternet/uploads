@@ -674,8 +674,10 @@ export function commentViaSuffix(via: AttachmentsCommentResult["via"]): string {
 
 /**
  * Thrown by `syncAttachmentsComment` when the server declines with
- * `not_authorized` (issue #297 baseline control) — this repo is bound to a
- * different workspace. Deliberately not caught by the generic "bot endpoint
+ * `not_authorized` (issue #297 baseline control — this repo is bound to a
+ * different workspace) or `actor_not_authorized` (issue #297 control 2 — the
+ * workspace requires the caller to be on the target PR/issue thread).
+ * Deliberately not caught by the generic "bot endpoint
  * unreachable" fallback below: falling back to gh here would let the
  * human's own credentials post anyway, defeating the point of the
  * server-side gate.
@@ -717,6 +719,16 @@ export async function syncAttachmentsComment(
         `${bot.message ?? `${target.repo} is not authorized for this workspace.`}\n` +
           `Run \`uploads github link --status --repo ${target.repo}\` to see who owns the ` +
           `binding, use that workspace instead, or post the comment manually with gh.`,
+      );
+    }
+    // Actor-on-PR gate (issue #297 control 2, workspace opt-in): same
+    // no-gh-fallback rule as not_authorized — the workspace explicitly asked
+    // the server to hold this line, so the CLI shouldn't route around it.
+    if (bot.reason === "actor_not_authorized") {
+      throw new GithubCommentAuthorizationError(
+        `${bot.message ?? `You are not an actor on ${target.repo}#${target.num}.`}\n` +
+          `Ask an authorized thread participant to run this, or post the ` +
+          `comment manually with gh.`,
       );
     }
     // Installed-but-unapproved is a fixable misconfiguration, not a silent

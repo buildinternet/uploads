@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   appEventSubscriptions,
   appJwt,
+  fetchPrActors,
   githubAppConfig,
   installationForRepo,
   installationToken,
@@ -134,6 +135,75 @@ describe("installationForRepo", () => {
     const fetchImpl = (async () => new Response("", { status: 502 })) as typeof fetch;
     expect(await installationForRepo(envWith(kv), cfgWith(pem), "o/r", fetchImpl)).toBeNull();
     expect(kv.store.size).toBe(0);
+  });
+});
+
+describe("fetchPrActors", () => {
+  function kvWithToken(): FakeKv {
+    const kv = new FakeKv();
+    kv.store.set("ghtok:42", { value: "cached-token" });
+    return kv;
+  }
+
+  it("collects author, assignee, and requested-reviewer ids and caches them for 60s", async () => {
+    const { pem } = await testKeyPair();
+    const kv = kvWithToken();
+    let calls = 0;
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      calls++;
+      expect(String(input)).toBe("https://api.github.com/repos/o/r/pulls/7");
+      return new Response(
+        JSON.stringify({
+          user: { id: 1 },
+          assignees: [{ id: 2 }, { id: 1 }],
+          requested_reviewers: [{ id: 3 }],
+        }),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+    const actors = await fetchPrActors(envWith(kv), cfgWith(pem), 42, "o/r", "pull", 7, fetchImpl);
+    expect(actors).toEqual([1, 2, 3]);
+    expect(kv.store.get("pr-actors:pull:o/r:7")).toEqual({ value: "[1,2,3]", expirationTtl: 60 });
+    expect(await fetchPrActors(envWith(kv), cfgWith(pem), 42, "o/r", "pull", 7, fetchImpl)).toEqual(
+      [1, 2, 3],
+    );
+    expect(calls).toBe(1);
+  });
+
+  it("uses the issues endpoint for kind issues", async () => {
+    const { pem } = await testKeyPair();
+    const kv = kvWithToken();
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("https://api.github.com/repos/o/r/issues/9");
+      return new Response(JSON.stringify({ user: { id: 5 } }), { status: 200 });
+    }) as typeof fetch;
+    expect(
+      await fetchPrActors(envWith(kv), cfgWith(pem), 42, "o/r", "issues", 9, fetchImpl),
+    ).toEqual([5]);
+  });
+
+  it("returns null (uncached) on an API error", async () => {
+    const { pem } = await testKeyPair();
+    const kv = kvWithToken();
+    const fetchImpl = (async () => new Response("", { status: 502 })) as typeof fetch;
+    expect(
+      await fetchPrActors(envWith(kv), cfgWith(pem), 42, "o/r", "pull", 7, fetchImpl),
+    ).toBeNull();
+    expect(kv.store.get("pr-actors:pull:o/r:7")).toBeUndefined();
+  });
+
+  it("returns null on a malformed repo or num without fetching", async () => {
+    const { pem } = await testKeyPair();
+    const kv = kvWithToken();
+    const fetchImpl = (async () => {
+      throw new Error("must not fetch");
+    }) as unknown as typeof fetch;
+    expect(
+      await fetchPrActors(envWith(kv), cfgWith(pem), 42, "o/../r", "pull", 7, fetchImpl),
+    ).toBeNull();
+    expect(
+      await fetchPrActors(envWith(kv), cfgWith(pem), 42, "o/r", "pull", 0, fetchImpl),
+    ).toBeNull();
   });
 });
 

@@ -204,6 +204,76 @@ export async function collaboratorPermission(
 }
 
 /**
+ * PR/issue actor cache TTL — deliberately short: assignees and requested
+ * reviewers change mid-review, and a stale allow/deny either lets one extra
+ * comment through or (in log-only mode) misreports — 60s bounds both.
+ */
+const PR_ACTORS_TTL = 60;
+
+/**
+ * Numeric GitHub user ids of the actors on `repo`'s PR/issue `num`: the
+ * author, assignees, and (pulls only) requested reviewers. `null` when the
+ * list can't be determined (no installation token, API failure, malformed
+ * input) — callers must treat null as "unknown", never as "empty" (issue
+ * #297 actor-on-PR gate: a lookup failure must skip the check, not decline).
+ * Cached in GITHUB_CACHE under `pr-actors:{kind}:{repo}:{num}`.
+ */
+export async function fetchPrActors(
+  env: Env,
+  cfg: GithubAppConfig,
+  installationId: number,
+  repo: string,
+  kind: "pull" | "issues",
+  num: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<number[] | null> {
+  if (!REPO_RE.test(repo) || !Number.isSafeInteger(num) || num < 1) return null;
+  const key = `pr-actors:${kind}:${repo}:${num}`;
+  const cached = (await env.GITHUB_CACHE.get(key)) as string | null;
+  if (cached !== null) {
+    try {
+      const ids = JSON.parse(cached) as unknown;
+      if (Array.isArray(ids) && ids.every((id) => typeof id === "number")) return ids;
+    } catch {
+      // Unparseable cache entry — fall through to a fresh fetch.
+    }
+  }
+  const token = await installationToken(env, cfg, installationId, fetchImpl);
+  if (!token) return null;
+  try {
+    const path = kind === "pull" ? "pulls" : "issues";
+    const res = await githubFetch(
+      fetchImpl,
+      `https://api.github.com/repos/${repo}/${path}/${num}`,
+      {
+        headers: githubHeaders(token),
+      },
+    );
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as {
+      user?: { id?: unknown };
+      assignees?: { id?: unknown }[];
+      requested_reviewers?: { id?: unknown }[];
+    } | null;
+    if (!body) return null;
+    const ids = new Set<number>();
+    // Safe integers only — an unsafe id would round and could collide with a
+    // different (also-rounded) id at comparison time. Same rule as
+    // resolveUploaderAccountId, so both sides of the gate agree.
+    if (Number.isSafeInteger(body.user?.id)) ids.add(body.user!.id as number);
+    for (const list of [body.assignees, body.requested_reviewers]) {
+      if (!Array.isArray(list)) continue;
+      for (const actor of list) if (Number.isSafeInteger(actor?.id)) ids.add(actor.id as number);
+    }
+    const actors = [...ids];
+    await env.GITHUB_CACHE.put(key, JSON.stringify(actors), { expirationTtl: PR_ACTORS_TTL });
+    return actors;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Short-lived installation token, KV-cached below its 60-minute life. Tokens
  * are read-only (App permissions) and expire server-side, so KV storage is an
  * accepted trade-off (spec §Components).

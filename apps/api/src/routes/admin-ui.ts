@@ -276,11 +276,13 @@ const COMMENT_MAX_INLINE_IMAGES_MAX = 48;
 const GITHUB_COMMENT_BOOLEAN_KEYS = [
   "githubCommentLinkToFilePage",
   "githubCommentShowMetadata",
+  "githubCommentRequireActorOnPr",
 ] as const;
 
 type GithubCommentSettingsPatch = {
   githubCommentLinkToFilePage?: boolean;
   githubCommentShowMetadata?: boolean;
+  githubCommentRequireActorOnPr?: boolean;
   githubCommentImageWidth?: "full" | number | null;
   githubCommentMaxInlineImages?: number | null;
   githubCommentNote?: string | null;
@@ -379,6 +381,7 @@ function githubCommentSettingsResponse(name: string, record: WorkspaceRecord) {
     settings: {
       githubCommentLinkToFilePage: record.githubCommentLinkToFilePage ?? null,
       githubCommentShowMetadata: record.githubCommentShowMetadata ?? null,
+      githubCommentRequireActorOnPr: record.githubCommentRequireActorOnPr ?? null,
       githubCommentImageWidth: record.githubCommentImageWidth ?? null,
       githubCommentMaxInlineImages: record.githubCommentMaxInlineImages ?? null,
       githubCommentNote: record.githubCommentNote ?? null,

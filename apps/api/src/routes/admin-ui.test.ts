@@ -860,6 +860,7 @@ describe("workspace github-comment settings editing", () => {
   const EMPTY_SETTINGS = {
     githubCommentLinkToFilePage: null,
     githubCommentShowMetadata: null,
+    githubCommentRequireActorOnPr: null,
     githubCommentImageWidth: null,
     githubCommentMaxInlineImages: null,
     githubCommentNote: null,
