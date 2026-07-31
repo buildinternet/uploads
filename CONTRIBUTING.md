@@ -125,7 +125,7 @@ uploads screenshot http://localhost:4321/settings --out after.png --state after
 ```
 
 On a non-default branch both commands stage the file automatically. When the PR
-opens, everything staged is promoted into one managed "📎 Attachments" comment.
+opens, everything staged is promoted into one managed comment.
 The [`github-screenshots`](skills/github-screenshots) skill has the full
 workflow.
 

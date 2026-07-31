@@ -1,24 +1,22 @@
 ---
-// uploads.sh — docs / bring your own bucket. How the self-serve BYO R2
-// flow works: the three customer-side setup steps, the serving matrix, what
-// degrades on a customer bucket, and how disconnect works. The wizard copy
-// on `/account/workspaces/[name]/settings.astro` (storage-step-1) is the
-// source of truth for the exact dashboard paths — keep this page's wording
-// in sync with it rather than re-deriving it.
+// uploads.sh — docs / bring your own bucket. Point a workspace at your own
+// Cloudflare R2 bucket. Wizard copy on
+// `/account/workspaces/[name]/settings.astro` (storage-step-1) is the
+// source of truth for dashboard paths — keep this page in sync with it.
 import DocsLayout from "../../layouts/DocsLayout.astro";
 
 const TOC = [
   { id: "status", label: "Current status" },
   { id: "setup", label: "Set up your bucket" },
   { id: "serving", label: "Serving: custom domain vs signed-only" },
-  { id: "degraded", label: "What's degraded" },
+  { id: "degraded", label: "What's different" },
   { id: "ownership", label: "Data ownership & disconnecting" },
 ];
 ---
 
 <DocsLayout
   title="Bring your own bucket"
-  description="Point a workspace at your own Cloudflare R2 bucket instead of the shared storage.uploads.sh bucket: setup steps, the serving matrix, what's degraded, and how disconnecting works."
+  description="Point a workspace at your own Cloudflare R2 bucket instead of the shared storage.uploads.sh bucket."
   path="/docs/byo-bucket"
   heading="Bring your own bucket"
   tagline="Point a workspace at storage you already pay for, instead of the shared bucket."
@@ -27,8 +25,8 @@ const TOC = [
 >
   <div class="callout" id="status">
     <strong>In preview.</strong> Bring-your-own-bucket is available to a small set of workspaces while
-    we finish testing, and we'll be rolling it out generally soon. If your workspace doesn't show a "Connect
-    your own bucket" option on its settings page yet, it isn't part of the preview.
+    we finish testing. If your workspace doesn't show "Connect your own bucket" on its settings page,
+    it isn't in the preview yet.
   </div>
 
   <section class="lead" id="setup">
@@ -36,50 +34,44 @@ const TOC = [
       Set up your bucket <a class="anchor" href="#setup" aria-label="Link to this section">#</a>
     </h2>
     <p>
-      A workspace admin runs the connect wizard from the workspace's settings page. It walks through
-      three steps on the Cloudflare dashboard, then verifies each one before saving anything.
+      A workspace admin runs the connect wizard from the workspace settings page. Three steps on the
+      Cloudflare dashboard, then verify before anything is saved.
     </p>
     <h3>1. Create an R2 bucket</h3>
     <p>
       Dashboard → <strong>R2</strong> → <strong>Create bucket</strong>. Any name that follows
-      Cloudflare's bucket-naming rules works (3–63 characters; lowercase letters, digits, and
-      hyphens). If you created the bucket in a jurisdiction (<code>eu</code>, or <code>fedramp</code
-      > — available to eligible Cloudflare accounts), pick that same jurisdiction in the wizard so verification
-      and serving target the jurisdiction-specific endpoint.
+      Cloudflare's rules works (3–63 characters; lowercase letters, digits, hyphens). If the bucket
+      is in a jurisdiction (<code>eu</code> or <code>fedramp</code>), pick that same jurisdiction in
+      the wizard.
     </p>
     <h3>2. Create a bucket-scoped API token</h3>
     <p>
       <strong>R2</strong> → <strong>Manage API Tokens</strong> → <strong>Create API Token</strong>,
-      permission <strong>Object Read &amp; Write</strong>, scoped to that one bucket only. This
-      yields an Access Key ID, a Secret Access Key, and your account ID.
+      permission <strong>Object Read &amp; Write</strong>, scoped to that one bucket. You get an
+      Access Key ID, a Secret Access Key, and your account ID.
     </p>
     <p class="note">
-      Scope the token to the one bucket, not your whole account. uploads.sh stores the key pair
-      encrypted, but a bucket-scoped token keeps the blast radius to that bucket if anything ever
-      goes wrong on either side.
+      Scope the token to one bucket, not the whole account. uploads.sh encrypts the key pair, but a
+      bucket-scoped token still limits the blast radius if anything goes wrong.
     </p>
-    <h3>3. Optional: connect a custom domain for public reads</h3>
+    <h3>3. Optional: custom domain for public reads</h3>
     <p>
       Bucket → <strong>Settings</strong> → <strong>Public access</strong> → <strong
         >Custom Domains</strong
-      >, and connect a domain on a Cloudflare zone in your account. Cloudflare provisions the DNS
-      record and certificate; paste the resulting URL (for example <code
-        >https://media.example.com</code
-      >) into the wizard as the public base URL. See the serving matrix below for what this step
-      buys you.
+      >, connect a domain on a Cloudflare zone in your account, then paste the URL (for example&#32;
+      <code>https://media.example.com</code>) into the wizard as the public base URL. See the
+      serving matrix below for what this buys you.
     </p>
     <p>
-      Paste the account ID, bucket name, and key pair into the wizard's form, then run verify. It
-      checks the shape of what you entered, confirms the token can authenticate against the bucket,
-      round-trips a test object to prove the token is read <em>and</em> write, and (for a first-time attach)
-      confirms the bucket is empty unless you explicitly say to adopt its existing contents. Only a passing
-      verify lets you save.
+      Enter the account ID, bucket name, and key pair, then run verify. It checks the inputs,
+      authenticates against the bucket, round-trips a test object, and (on first attach) confirms
+      the bucket is empty unless you choose to adopt existing contents. Only a passing verify can
+      save.
     </p>
     <p class="note">
-      Connecting is only available at workspace creation or on an otherwise-empty existing workspace
-      — there's no migration path yet for moving a workspace that already has files onto a different
-      bucket, because every published URL for those files would break. Upload limits (file size,
-      video size) still apply on a BYO bucket even though the storage-quota budget doesn't.
+      You can only connect at workspace creation or on an empty workspace — there's no migration
+      path yet for workspaces that already have files (every published URL would break). File-size
+      and video-size limits still apply on a BYO bucket; the storage-quota budget does not.
     </p>
   </section>
 
@@ -102,21 +94,20 @@ const TOC = [
       <tbody>
         <tr>
           <th scope="row">Custom domain</th>
-          <td>Direct public URL under your domain, same as a normal share link.</td>
+          <td>Direct public URL under your domain.</td>
           <td>Recommended — needs a domain on a Cloudflare zone in your account.</td>
         </tr>
         <tr>
           <th scope="row">No public URL</th>
           <td>Signed URLs, generated on demand.</td>
-          <td>Works for viewing files, but GitHub embeds won't render (see below).</td>
+          <td>Fine for viewing; GitHub embeds won't render (see below).</td>
         </tr>
         <tr>
           <th scope="row"><code>r2.dev</code> managed URL</th>
           <td>—</td>
           <td
-            ><strong>Not supported right now.</strong> The wizard rejects an <code>r2.dev</code> public
-            base URL outright — connect a custom domain instead, or save without a public URL for signed-only
-            access.</td
+            ><strong>Not supported.</strong> The wizard rejects <code>r2.dev</code> base URLs — connect
+            a custom domain, or save without a public URL for signed-only access.</td
           >
         </tr>
       </tbody>
@@ -125,25 +116,23 @@ const TOC = [
 
   <section id="degraded">
     <h2>
-      What's degraded <a class="anchor" href="#degraded" aria-label="Link to this section">#</a>
+      What's different <a class="anchor" href="#degraded" aria-label="Link to this section">#</a>
     </h2>
     <ul>
       <li>
-        <strong>GitHub embeds.</strong> Images on the shared bucket get an embed-friendly twin host that
-        GitHub's image proxy (Camo) revalidates cleanly after an overwrite. That twin doesn't extend to
-        a custom domain, so an image on a BYO bucket without a public URL — or served only through signed
-        URLs — won't render inline in a GitHub comment. It still uploads and still gets a share page;
-        only the inline-image rendering is affected.
+        <strong>GitHub embeds.</strong> Shared-bucket images get an embed host that GitHub's Camo proxy
+        revalidates after overwrite. That twin doesn't extend to a custom domain, so a BYO image without
+        a public URL (signed-only) won't render inline in a GitHub comment. The file still uploads and
+        still has a share page.
       </li>
       <li>
-        <strong><code>retentionDays</code> auto-cleanup.</strong> The age-based retention sweep walks
-        a prefix on the shared bucket. A BYO bucket has no shared prefix to confine that walk to, so automatic
-        retention isn't available — delete old files yourself if you need that.
+        <strong><code>retentionDays</code> auto-cleanup.</strong> Age-based retention walks a prefix on
+        the shared bucket. A BYO bucket has no shared prefix, so automatic retention isn't available —
+        delete old files yourself if you need that.
       </li>
       <li>
-        <strong>Storage quota.</strong> While a workspace is on a BYO bucket, the plan's storage budget
-        doesn't apply (you're paying Cloudflare directly for that bucket) — but file-size and video-size
-        upload limits still do.
+        <strong>Storage quota.</strong> On a BYO bucket the plan's storage budget doesn't apply (you pay
+        Cloudflare for the bucket). File-size and video-size upload limits still do.
       </li>
     </ul>
   </section>
@@ -157,15 +146,13 @@ const TOC = [
       >
     </h2>
     <p>
-      The bucket and everything in it are yours. uploads.sh stores only the encrypted credentials
-      and a pointer to the bucket in the workspace record — never a copy of your files' bytes
-      anywhere else.
+      The bucket and everything in it are yours. uploads.sh stores only encrypted credentials and a
+      pointer to the bucket — never a copy of your files.
     </p>
     <p>
-      Disconnecting from workspace settings never touches your objects. It removes the stored
-      credentials and points the workspace back at the shared bucket; your bucket, and everything in
-      it, is left exactly as it was. Re-running the connect wizard afterward is a fresh attach, same
-      as the first time.
+      Disconnecting never touches your objects. It removes the stored credentials and points the
+      workspace back at the shared bucket. Your bucket stays as it was. Connecting again is a fresh
+      attach, same as the first time.
     </p>
   </section>
 

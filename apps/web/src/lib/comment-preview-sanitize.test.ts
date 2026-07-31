@@ -101,7 +101,7 @@ describe("formatCommentPreviewBody", () => {
   });
 
   it("converts a line-start ### heading to <h3>", () => {
-    expect(formatCommentPreviewBody("### 📎 Attachments")).toBe("<h3>📎 Attachments</h3>");
+    expect(formatCommentPreviewBody("### 🖼️ Galleries")).toBe("<h3>🖼️ Galleries</h3>");
   });
 
   it("converts a line-start #### heading to <h4>, keeping embedded HTML intact (no double-escaping)", () => {
@@ -164,17 +164,15 @@ describe("formatCommentPreviewBody", () => {
 });
 
 describe("renderCommentPreviewHtml (format + sanitize combined)", () => {
-  it("renders a realistic managed-comment body: marker gone, heading real, image kept, footer joined", () => {
+  it("renders a realistic managed-comment body: marker gone, image kept, footer joined", () => {
     const raw =
       "<!-- uploads.sh:attachments ws=acme -->\n" +
-      "### 📎 Attachments\n\n" +
       '<a href="https://uploads.sh/f/x"><img width="720" alt="x.png" src="https://embed.uploads.sh/x.png"></a>\n' +
       "<sub><code>/settings</code> · <code>after</code></sub>\n\n" +
       "<sub>Maintained by uploads.sh.</sub>\n" +
       "<sub>Add media: <code>uploads put</code></sub>";
     const out = renderCommentPreviewHtml(raw);
     expect(out).not.toContain("uploads.sh:attachments");
-    expect(out).toContain("<h3>📎 Attachments</h3>");
     expect(out).toContain('<img width="720" alt="x.png" src="https://embed.uploads.sh/x.png">');
     expect(out).toContain("<sub><code>/settings</code> · <code>after</code></sub>");
     expect(out).toContain(

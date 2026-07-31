@@ -23,8 +23,8 @@ The intended loop is **stage as you go**:
 1. Capture a visual (your browser tools, or `uploads screenshot`).
 2. On a non-default git branch, bare `uploads put ./shot.png --state after`
    stages under a branch key automatically — no PR required.
-3. When the PR opens, staged files promote into one managed "📎 Attachments"
-   comment (GitHub App webhook, or the next `uploads attach` / `attach --promote`).
+3. When the PR opens, staged files promote into one managed comment
+   (GitHub App webhook, or the next `uploads attach` / `attach --promote`).
 4. Re-upload the same filename on a stable `gh/…` key; the URL never changes.
 
 Prefer `embedUrl` (https://embed.uploads.sh/…) in GitHub markdown so Camo

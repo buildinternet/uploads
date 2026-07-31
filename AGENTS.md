@@ -38,10 +38,10 @@ uploads screenshot http://localhost:4321/settings --out after.png --state after
 uploads attach ./after.png --branch --state after              # explicit form, either way
 ```
 
-Opening a PR automatically promotes everything staged for the branch into the
-managed "📎 Attachments" comment (via the GitHub App webhook, or the next
-`uploads attach` / `uploads attach --promote` without it). See
-`skills/github-screenshots` for the full workflow.
+Opening a PR automatically promotes everything staged for the branch into one
+managed comment (via the GitHub App webhook, or the next `uploads attach` /
+`uploads attach --promote` without it). See `skills/github-screenshots` for
+the full workflow.
 
 Keep API and web separate deployables. All storage access goes through
 `createStorage()` in `packages/storage` — never import files-sdk adapters or

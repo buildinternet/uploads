@@ -19,10 +19,10 @@ const TOC = [
 
 <DocsLayout
   title="Comment config"
-  description="Reference for .uploads.yml — a repo-committed file that controls image width, inline-image caps, caption metadata, and an optional note on the uploads-sh attachments comment."
+  description="Reference for .uploads.yml — a repo-committed file that controls image width, inline-image caps, caption metadata, and an optional note on the managed PR/issue comment."
   path="/docs/comment-config"
   heading="Comment config"
-  tagline="A repo-committed file that shapes how the attachments comment renders."
+  tagline="A repo-committed file that shapes how the managed comment renders."
   active="comment-config"
   toc={TOC}
 >
@@ -34,14 +34,14 @@ const TOC = [
     </h2>
     <p>
       Every key is optional and lives under a top-level <code>comment:</code> map. All of it is presentation
-      only — it changes how the attachments comment looks, never what gets uploaded or where.
+      only — it changes how the managed comment looks, never what gets uploaded or where.
     </p>
     <ul>
       <li><strong>Image width</strong> for inline images, pair cells, and video posters.</li>
       <li><strong>How many images</strong> render inline before the rest collapse to links.</li>
       <li><strong>Caption metadata</strong> — the path and state labels under each image.</li>
       <li><strong>Whether images link</strong> to the file's share page.</li>
-      <li><strong>A short note</strong> shown under the comment header.</li>
+      <li><strong>A short note</strong> shown at the top of the comment.</li>
     </ul>
     <p>
       Nothing in the file can change which files get uploaded, where they're hosted, or which repo a
@@ -75,9 +75,9 @@ const TOC = [
   # setting.
   linkToFilePage: true
 
-  # Optional short markdown shown under the comment header, before the
-  # attachments — repo-specific context, a link to a contributing guide, and
-  # so on. Trimmed, capped at 500 characters, rendered as-is: it's
+  # Optional short markdown at the top of the comment, before the media —
+  # repo-specific context, a link to a contributing guide, and so on.
+  # Trimmed, capped at 500 characters, rendered as-is: it's
   # repo-owner-authored markdown in the owner's own repo, the same trust
   # level as a PR description. Empty or whitespace-only counts as absent.
   note: ""</pre>
@@ -131,9 +131,8 @@ const TOC = [
   <section id="note">
     <h2>The note field <a class="anchor" href="#note" aria-label="Link to this section">#</a></h2>
     <p>
-      <code>note</code> renders directly under the comment header, before the attachments themselves —
-      a good place for "these are staging shots" or a link to a contributing guide. It's capped at 500
-      characters.
+      <code>note</code> renders at the top of the comment, before the media — a good place for "these
+      are staging shots" or a link to a contributing guide. It's capped at 500 characters.
     </p>
     <p>
       A note over the cap is dropped whole, not cut short. Truncating mid-sentence could post a note
