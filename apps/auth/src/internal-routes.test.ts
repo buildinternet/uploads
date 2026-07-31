@@ -1116,6 +1116,60 @@ describe("DB-backed behavior", () => {
     });
   });
 
+  describe("GET /internal/users/:id/github-account", () => {
+    it("returns the numeric account id and stored login when both are present", async () => {
+      const user = await seedUser({ id: "u1" });
+      await orm.insert(schema.account).values({
+        id: crypto.randomUUID(),
+        userId: user.id,
+        accountId: "999",
+        providerId: "github",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await orm.insert(schema.githubIdentity).values({
+        accountId: "999",
+        login: "octocat",
+        updatedAt: new Date(),
+      });
+
+      const res = await app().request(`/internal/users/${user.id}/github-account`, {}, dbEnv());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ githubAccountId: "999", githubLogin: "octocat" });
+    });
+
+    it("returns a null login when the account was linked before #580 (no captured login)", async () => {
+      const user = await seedUser({ id: "u2" });
+      await orm.insert(schema.account).values({
+        id: crypto.randomUUID(),
+        userId: user.id,
+        accountId: "1000",
+        providerId: "github",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const res = await app().request(`/internal/users/${user.id}/github-account`, {}, dbEnv());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ githubAccountId: "1000", githubLogin: null });
+    });
+
+    it("returns nulls for both when no GitHub account is linked (including unknown user)", async () => {
+      const user = await seedUser();
+      const res = await app().request(`/internal/users/${user.id}/github-account`, {}, dbEnv());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ githubAccountId: null, githubLogin: null });
+
+      const unknownRes = await app().request(
+        `/internal/users/${crypto.randomUUID()}/github-account`,
+        {},
+        dbEnv(),
+      );
+      expect(unknownRes.status).toBe(200);
+      expect(await unknownRes.json()).toEqual({ githubAccountId: null, githubLogin: null });
+    });
+  });
+
   describe("GET /internal/users/:id/github-linked", () => {
     it("true when an account row with providerId github exists", async () => {
       const user = await seedUser({ id: "u1" });

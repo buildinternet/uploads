@@ -1,5 +1,8 @@
+import { drizzle } from "drizzle-orm/d1";
 import { describe, expect, it } from "vitest";
-import { deriveCookieDomain, isCliSessionUserAgent } from "./auth";
+import { deriveCookieDomain, isCliSessionUserAgent, upsertGithubLogin } from "./auth";
+import * as schema from "./schema";
+import { createFakeD1 } from "./test/fake-d1";
 
 describe("isCliSessionUserAgent", () => {
   it("matches the uploads CLI device-flow User-Agent", () => {
@@ -57,5 +60,38 @@ describe("deriveCookieDomain", () => {
 
   it("returns undefined when the URL is undefined", () => {
     expect(deriveCookieDomain(undefined)).toBeUndefined();
+  });
+});
+
+// Issue #580: captured via the github socialProvider's mapProfileToUser hook
+// (see src/auth.ts), which runs on every completed GitHub OAuth callback —
+// this exercises just the upsert itself, not the wiring through Better Auth.
+describe("upsertGithubLogin", () => {
+  function orm() {
+    return drizzle(createFakeD1(), { schema });
+  }
+
+  it("inserts a new row for a first-time link", async () => {
+    const db = orm();
+    await upsertGithubLogin(db, "123", "octocat");
+    const rows = await db.select().from(schema.githubIdentity);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ accountId: "123", login: "octocat" });
+  });
+
+  it("last-write-wins: a re-authentication with a renamed login overwrites the stored value", async () => {
+    const db = orm();
+    await upsertGithubLogin(db, "123", "octocat");
+    await upsertGithubLogin(db, "123", "octocat-renamed");
+    const rows = await db.select().from(schema.githubIdentity);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ accountId: "123", login: "octocat-renamed" });
+  });
+
+  it("never throws — swallows a write failure (e.g. blank inputs are no-ops)", async () => {
+    const db = orm();
+    await expect(upsertGithubLogin(db, "", "octocat")).resolves.toBeUndefined();
+    await expect(upsertGithubLogin(db, "123", "")).resolves.toBeUndefined();
+    expect(await db.select().from(schema.githubIdentity)).toHaveLength(0);
   });
 });
