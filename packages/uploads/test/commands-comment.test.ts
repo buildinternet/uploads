@@ -315,7 +315,7 @@ describe("syncAttachmentsComment", () => {
     ).rejects.toThrow(GithubCommentAuthorizationError);
     await expect(
       syncAttachmentsComment(client, { repo: "acme/web", num: 12, kind: "pull" }, run),
-    ).rejects.toThrow(/author \(or an assignee\/reviewer\)/);
+    ).rejects.toThrow(/authorized thread participant/);
     expect(run).not.toHaveBeenCalled();
   });
 

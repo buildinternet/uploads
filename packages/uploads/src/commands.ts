@@ -727,7 +727,7 @@ export async function syncAttachmentsComment(
     if (bot.reason === "actor_not_authorized") {
       throw new GithubCommentAuthorizationError(
         `${bot.message ?? `You are not an actor on ${target.repo}#${target.num}.`}\n` +
-          `Ask the PR author (or an assignee/reviewer) to run this, or post the ` +
+          `Ask an authorized thread participant to run this, or post the ` +
           `comment manually with gh.`,
       );
     }

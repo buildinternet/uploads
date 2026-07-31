@@ -51,4 +51,11 @@ describe("resolveUploaderAccountId", () => {
     expect(await resolveUploaderAccountId(env, "user_1")).toBeNull();
     expect(kv.store.get("ghacct:user_1")?.value).toBe("\0none");
   });
+
+  it("rejects an id beyond Number.MAX_SAFE_INTEGER (would round on conversion)", async () => {
+    const kv = new FakeKv();
+    const env = envWith(kv, () => Response.json({ githubAccountId: "99999999999999999999" }));
+    expect(await resolveUploaderAccountId(env, "user_1")).toBeNull();
+    expect(kv.store.get("ghacct:user_1")?.value).toBe("\0none");
+  });
 });

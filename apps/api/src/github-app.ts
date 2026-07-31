@@ -257,10 +257,13 @@ export async function fetchPrActors(
     } | null;
     if (!body) return null;
     const ids = new Set<number>();
-    if (typeof body.user?.id === "number") ids.add(body.user.id);
+    // Safe integers only — an unsafe id would round and could collide with a
+    // different (also-rounded) id at comparison time. Same rule as
+    // resolveUploaderAccountId, so both sides of the gate agree.
+    if (Number.isSafeInteger(body.user?.id)) ids.add(body.user!.id as number);
     for (const list of [body.assignees, body.requested_reviewers]) {
       if (!Array.isArray(list)) continue;
-      for (const actor of list) if (typeof actor?.id === "number") ids.add(actor.id);
+      for (const actor of list) if (Number.isSafeInteger(actor?.id)) ids.add(actor.id as number);
     }
     const actors = [...ids];
     await env.GITHUB_CACHE.put(key, JSON.stringify(actors), { expirationTtl: PR_ACTORS_TTL });
