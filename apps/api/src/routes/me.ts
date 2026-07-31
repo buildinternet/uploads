@@ -16,10 +16,17 @@ import {
   type OptionSource,
   type ResolvedCommentOptions,
 } from "@uploads/comment-config";
-import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  RateLimitedError,
+  ValidationError,
+} from "@uploads/errors";
 import { createFilesRouter, signedDownloadUrl } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
+import { sealCredentialFieldsStrict } from "../secrets";
 import { throwForInviteError } from "../invite-error";
 import { parseExternalReference } from "../external-references";
 import { previewFixtureItems } from "../comment-preview-fixtures";
@@ -55,12 +62,19 @@ import {
   type OrgMember,
 } from "../org-workspaces";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
+import { selfServeWorkspaceRecord } from "../self-serve-defaults";
 import { objectPublicUrls, publicUrl, storage, storageConfig } from "../storage";
 import { getWorkspaceUsage } from "../usage";
 import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
-import { loadWorkspaceRecord, type WorkspaceRecord } from "../workspace";
+import { byoBucketAllowed, loadWorkspaceRecord, type WorkspaceRecord } from "../workspace";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { planResponse, planSourceFor } from "../workspace-plan";
+import {
+  candidateFromBody,
+  storageReconcile,
+  storageStatusResponse,
+  storageVerify,
+} from "./workspace-storage";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -1034,4 +1048,227 @@ export const me = new Hono<SessionVars>()
     });
 
     return c.json({ resolved, source, repoConfig, body, sample });
+  })
+
+  // Self-serve BYO R2 bucket (issue #583 Task 1.1): read/verify/write/detach
+  // of a workspace's storage config. Same audience as the comment-settings
+  // triple above (admin/owner only) — storage config is workspace-wide and
+  // security sensitive. Readable regardless of `byoBucketEnabled` (the
+  // settings UI needs the flag value to decide whether to show the panel at
+  // all); verify/write/detach 403 when the flag is off (fail-closed, see
+  // `byoBucketAllowed` in workspace.ts). Never returns credential values —
+  // `storageStatusResponse` (workspace-storage.ts) projects masked/presence
+  // fields only, same posture as `GET /admin/workspaces/:name` (admin.ts).
+  .get("/workspaces/:name/storage", async (c) => {
+    const name = c.req.param("name");
+    await adminWorkspaceOr403(c.env, requireUserId(c), name);
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    return c.json(storageStatusResponse(record, byoBucketAllowed(record)));
+  })
+
+  // Runs the verify pipeline (storage-verify.ts) against the request body —
+  // never saved state — so an admin can iterate on credentials before
+  // anything is persisted. Rate-limited via `allowWrite` like every other
+  // mutating-adjacent route here: each call does real remote I/O (auth
+  // probe + a write/read/delete round-trip against the candidate bucket).
+  .post("/workspaces/:name/storage/verify", async (c) => {
+    const name = c.req.param("name");
+    const userId = requireUserId(c);
+    await adminWorkspaceOr403(c.env, userId, name);
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    if (!byoBucketAllowed(record)) {
+      throw new ForbiddenError("BYO storage is not enabled for this workspace", {
+        code: "byo_bucket_disabled",
+      });
+    }
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+
+    const body = await c.req.json().catch(() => null);
+    const candidate = candidateFromBody(body);
+    const result = await storageVerify(candidate);
+    return c.json(result);
+  })
+
+  // Persist a verified BYO config. Never trusts a client-side "verified"
+  // claim — re-runs the same pipeline server-side against the request body,
+  // and only writes on a pass. On a fail, responds with the verify result
+  // (422) so the UI can render the same checklist the standalone verify
+  // route would have. `mutateWorkspaceRecord` (with `requireServing`) both
+  // re-checks the workspace hasn't been soft-deleted since the request
+  // started and gives us the read-immediately-before-write window issue #387
+  // exists for; sealing happens *inside* that callback (precedent:
+  // `reencrypt-registry.ts`), never on data read earlier in the request.
+  .put("/workspaces/:name/storage", async (c) => {
+    const name = c.req.param("name");
+    const userId = requireUserId(c);
+    await adminWorkspaceOr403(c.env, userId, name);
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    if (!byoBucketAllowed(record)) {
+      throw new ForbiddenError("BYO storage is not enabled for this workspace", {
+        code: "byo_bucket_disabled",
+      });
+    }
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+
+    const body = await c.req.json().catch(() => null);
+    const candidate = candidateFromBody(body);
+    const result = await storageVerify(candidate);
+    if (!result.ok) {
+      return c.json(result, 422);
+    }
+
+    // No migration of populated workspaces in v1 (plan's global constraints):
+    // attaching a BYO bucket to a workspace that already holds files would
+    // orphan them on the shared bucket. Checked against the D1 usage ledger
+    // *before* the mutation — a KV-only read inside the callback can't see
+    // this — accepting the narrow race where a concurrent upload lands
+    // between this check and the write (the callback's `requireServing`
+    // re-check guards the record itself, not usage).
+    const usage = await getWorkspaceUsage(c.env.DB, name);
+    if (usage.objects > 0 && candidate.adoptExistingContents !== true) {
+      throw new ConflictError(
+        "this workspace already has files — BYO storage can only be attached to an empty workspace",
+        { code: "workspace_storage_not_empty" },
+      );
+    }
+
+    const nowIso = new Date().toISOString();
+    const updated = await mutateWorkspaceRecord(
+      c.env,
+      name,
+      async (current) => {
+        const sealed = await sealCredentialFieldsStrict(c.env.WORKSPACE_SECRETS_KEY, {
+          accessKeyId: candidate.accessKeyId,
+          secretAccessKey: candidate.secretAccessKey,
+        });
+        const next: WorkspaceRecord = { ...current };
+        delete next.prefix;
+        delete next.binding;
+        next.bucket = candidate.bucket;
+        next.accountId = candidate.accountId;
+        next.accessKeyId = sealed.accessKeyId;
+        next.secretAccessKey = sealed.secretAccessKey;
+        if (candidate.publicBaseUrl) next.publicBaseUrl = candidate.publicBaseUrl;
+        else delete next.publicBaseUrl;
+        next.storageConfiguredAt = nowIso;
+        next.storageVerifiedAt = nowIso;
+        next.storageConfiguredBy = userId;
+        // Display fragment for the settings UI, captured from the plaintext
+        // before sealing — `next.accessKeyId` is ciphertext from here on.
+        next.storageAccessKeyIdLast4 = candidate.accessKeyId.slice(-4);
+        return next;
+      },
+      { requireServing: true },
+    );
+
+    console.log(JSON.stringify({ event: "workspace_storage_configured", workspace: name, userId }));
+
+    // `adoptExistingContents` bypassed the emptiness guard, so the D1 usage
+    // ledger still describes the old backing storage while the adopted
+    // bucket's contents are what this workspace now serves. Rebuild the
+    // ledger from the new bucket so it's honest immediately (it's dormant
+    // for `maxStorageBytes` while BYO is active — `storageBudgetApplies` —
+    // but powers the settings UI and becomes authoritative again on detach).
+    // Best-effort: the config write above already succeeded, and reconcile
+    // can be re-run any time.
+    if (candidate.adoptExistingContents === true) {
+      await storageReconcile(c.env, updated, name).catch((err) =>
+        console.error("workspace storage attach: usage reconcile failed for", name, err),
+      );
+    }
+
+    return c.json({ ...storageStatusResponse(updated, true), verify: result });
+  })
+
+  // Detach BYO storage and restore shared-bucket defaults. Never touches the
+  // customer's bucket or its objects — only the platform's own KV record.
+  // Blocked unless the workspace's usage ledger reports zero objects, or the
+  // caller explicitly passes `force` (query `?force=true` or a JSON body
+  // `{ "force": true }`) — mirrors the empty-workspace guard on PUT above,
+  // in the opposite direction. Shared-bucket fields (bucket/binding/prefix/
+  // publicBaseUrl) come from `selfServeWorkspaceRecord` so this can't drift
+  // from what a brand-new self-serve workspace actually gets; everything
+  // else on the record (limits, github links, comment settings, plan, other
+  // flags) is preserved untouched.
+  .delete("/workspaces/:name/storage", async (c) => {
+    const name = c.req.param("name");
+    const userId = requireUserId(c);
+    await adminWorkspaceOr403(c.env, userId, name);
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    if (!byoBucketAllowed(record)) {
+      throw new ForbiddenError("BYO storage is not enabled for this workspace", {
+        code: "byo_bucket_disabled",
+      });
+    }
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+
+    const queryForce = c.req.query("force");
+    const bodyForce = await c.req
+      .json<{ force?: unknown }>()
+      .then((b) => b?.force === true)
+      .catch(() => false);
+    const force = queryForce === "true" || queryForce === "1" || bodyForce;
+
+    if (!force) {
+      const usage = await getWorkspaceUsage(c.env.DB, name);
+      if (usage.objects > 0) {
+        throw new ConflictError(
+          "this workspace still has files on its BYO bucket — pass force to detach anyway",
+          { code: "workspace_storage_not_empty" },
+        );
+      }
+    }
+
+    const updated = await mutateWorkspaceRecord(
+      c.env,
+      name,
+      (current) => {
+        const shared = selfServeWorkspaceRecord({
+          name,
+          userId: current.createdByUserId ?? userId,
+          now: new Date(),
+        });
+        const next: WorkspaceRecord = { ...current };
+        next.bucket = shared.bucket;
+        next.binding = shared.binding;
+        next.prefix = shared.prefix;
+        if (shared.publicBaseUrl) next.publicBaseUrl = shared.publicBaseUrl;
+        else delete next.publicBaseUrl;
+        delete next.accountId;
+        delete next.accessKeyId;
+        delete next.secretAccessKey;
+        delete next.storageConfiguredAt;
+        delete next.storageVerifiedAt;
+        delete next.storageConfiguredBy;
+        delete next.storageAccessKeyIdLast4;
+        return next;
+      },
+      { requireServing: true },
+    );
+
+    console.log(JSON.stringify({ event: "workspace_storage_detached", workspace: name, userId }));
+
+    // `force` bypassed the emptiness guard, so the ledger still describes
+    // the detached BYO bucket — but `maxStorageBytes` enforcement resumes on
+    // the shared bucket the moment this record is restored, and stale counts
+    // could leave the workspace permanently over-budget with nothing to
+    // delete. Rebuild from the restored shared-bucket prefix (best-effort,
+    // same rationale as the attach path above).
+    if (force) {
+      await storageReconcile(c.env, updated, name).catch((err) =>
+        console.error("workspace storage detach: usage reconcile failed for", name, err),
+      );
+    }
+
+    return c.json(storageStatusResponse(updated, byoBucketAllowed(updated)));
   });

@@ -157,6 +157,41 @@ export interface WorkspaceRecord {
   deletedAt?: string;
   /** `deletedAt` + the grace window (`WORKSPACE_DELETE_GRACE_DAYS`); the retention sweep finalizes at/after this. */
   purgeAt?: string;
+  /**
+   * Self-serve BYO-bucket feature gate (issue #583 Task 1.3). Fail-closed:
+   * only `true` unlocks the storage-config surface (verify/write routes,
+   * settings UI panel, create-flow branch). Default (undefined/false) keeps
+   * every workspace on the shared bucket. Only an operator can set this
+   * today (admin-ui limits/plan PATCH pattern) — no self-serve opt-in exists
+   * yet. See `byoBucketAllowed` below (precedent: `videoPosterEnabled`).
+   */
+  byoBucketEnabled?: boolean;
+  /** ISO timestamp of the most recent successful `PUT /me/workspaces/:name/storage` (self-serve storage-config save). Provenance for the settings UI, not read for any gating decision. */
+  storageConfiguredAt?: string;
+  /** ISO timestamp of the most recent successful storage verification (either at save time or a standalone re-verify). Powers the settings UI's "verified ✓ N days ago" line. */
+  storageVerifiedAt?: string;
+  /** Better Auth user id that most recently configured this workspace's storage via the self-serve flow. */
+  storageConfiguredBy?: string;
+  /**
+   * Last 4 characters of the *plaintext* access key id, captured at seal time
+   * for the settings UI. Never derive a display fragment from `accessKeyId`
+   * itself — that field holds the sealed (`enc:v1:`) blob after a self-serve
+   * save, so its trailing characters are ciphertext.
+   */
+  storageAccessKeyIdLast4?: string;
+}
+
+/**
+ * Fail-closed gate for the self-serve BYO-bucket surface (issue #583 Task
+ * 1.3): only an explicit `true` unlocks it. Undefined, false, or any other
+ * value is treated as blocked — same posture as `posterGenerationAllowed`'s
+ * kill switches (`apps/api/src/poster.ts`), chosen because losing access to
+ * an unshipped surface costs nothing, while accidentally exposing
+ * customer-credential storage config to a workspace that was never enabled
+ * for it would be a real incident. Only an operator can flip this today.
+ */
+export function byoBucketAllowed(record: Pick<WorkspaceRecord, "byoBucketEnabled">): boolean {
+  return record.byoBucketEnabled === true;
 }
 
 /** Days a soft-deleted workspace's data is retained before the retention sweep finalizes it. */

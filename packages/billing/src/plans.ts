@@ -38,6 +38,18 @@ export interface PlanDefinition {
    * special-casing plan ids.
    */
   marketsMemberCap: boolean;
+  /**
+   * Whether this plan may use the self-serve BYO-bucket surface (issue #583
+   * Task 1.3). Ships dark: `true` on every plan today, and nothing reads it
+   * for enforcement yet — the short-term gate is the per-workspace
+   * `byoBucketEnabled` record flag (`apps/api/src/workspace.ts`'s
+   * `byoBucketAllowed`), off by default and operator-set only. This field
+   * exists so a future billing decision (e.g. Pro-only) is a one-line flip
+   * here rather than new plumbing. See `packages/billing/src/byo-bucket.ts`
+   * — callers read that predicate, never switch on plan id (precedent:
+   * `marketsMemberCap`).
+   */
+  byoBucket: boolean;
   defaultLimits: WorkspacePlanLimits;
 }
 
@@ -48,6 +60,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     blurb: "Everything you need to host screenshots and files for your projects.",
     available: true,
     marketsMemberCap: true,
+    byoBucket: true,
     defaultLimits: {
       maxStorageBytes: 250_000_000,
       maxUploadsPerPeriod: 3000,
@@ -63,6 +76,7 @@ export const PLANS: Record<PlanId, PlanDefinition> = {
     blurb: "10 GB of storage and files up to 100 MB.",
     available: true,
     marketsMemberCap: false,
+    byoBucket: true,
     // Decided 2026-07-22 (first-paid-plan memo): two marketed meters —
     // storage and one unified file cap (video ceiling = upload ceiling on
     // pro; only free carves video out). maxUploadsPerPeriod is an internal

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { resolveBudgetLimits } from "./budget";
+import { checkPutBudget, resolveBudgetLimits, storageBudgetApplies } from "./budget";
+import type { WorkspaceUsage } from "./usage";
 
 describe("resolveBudgetLimits — plan-aware resolution", () => {
   // Controller ruling (post-BLOCKED review): plan defaults apply ONLY when
@@ -53,5 +54,73 @@ describe("resolveBudgetLimits — plan-aware resolution", () => {
       maxStorageBytes: 1_000,
       maxUploadsPerPeriod: 100_000,
     });
+  });
+});
+
+describe("storageBudgetApplies (#583 Task 1.2 — BYO storage-ownership signal)", () => {
+  it("applies to a plain shared-bucket record (no creds, no binding)", () => {
+    expect(storageBudgetApplies({})).toBe(true);
+  });
+
+  it("applies to a binding-mode dedicated-bucket record, even with stray credential fields", () => {
+    expect(
+      storageBudgetApplies({
+        binding: "UPLOADS_DEFAULT",
+        accountId: "a".repeat(32),
+        accessKeyId: "key",
+        secretAccessKey: "secret",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not apply to an HTTP-credential BYO record (no binding, full cred triple)", () => {
+    expect(
+      storageBudgetApplies({
+        accountId: "a".repeat(32),
+        accessKeyId: "key",
+        secretAccessKey: "secret",
+      }),
+    ).toBe(false);
+  });
+
+  it("applies when the credential triple is incomplete (not really BYO yet)", () => {
+    expect(storageBudgetApplies({ accountId: "a".repeat(32), accessKeyId: "key" })).toBe(true);
+  });
+});
+
+describe("checkPutBudget — storage cap skipped for BYO, upload cap unaffected", () => {
+  const usage: WorkspaceUsage = {
+    workspace: "acme",
+    bytes: 900,
+    objects: 1,
+    uploadsInPeriod: 2,
+    periodStart: "2026-07",
+    updatedAt: "2026-07-31T00:00:00.000Z",
+  };
+
+  const byoLimits = {
+    maxStorageBytes: 1_000,
+    maxUploadsPerPeriod: 3,
+    accountId: "a".repeat(32),
+    accessKeyId: "key",
+    secretAccessKey: "secret",
+  };
+
+  it("denies a storage-exceeding put on a shared-bucket workspace", () => {
+    const denial = checkPutBudget(usage, { maxStorageBytes: 1_000 }, { bytes: 200, uploads: 1 });
+    expect(denial?.code).toBe("storage_quota_exceeded");
+  });
+
+  it("allows the same over-cap put on a BYO workspace (storage cap skipped)", () => {
+    const denial = checkPutBudget(usage, byoLimits, { bytes: 200, uploads: 1 });
+    expect(denial).toBeNull();
+  });
+
+  it("still enforces maxUploadsPerPeriod on a BYO workspace", () => {
+    const denial = checkPutBudget({ ...usage, uploadsInPeriod: 3 }, byoLimits, {
+      bytes: 0,
+      uploads: 1,
+    });
+    expect(denial?.code).toBe("upload_budget_exceeded");
   });
 });
