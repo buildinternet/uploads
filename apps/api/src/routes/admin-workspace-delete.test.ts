@@ -195,6 +195,9 @@ describe("DELETE /admin/workspaces/:name", () => {
       await bucket.put("one.png", new Uint8Array([1, 2, 3]));
       const sqlite = new SqliteD1(MIGRATIONS);
       try {
+        await createGallery(database(sqlite), { workspace: "acme", title: "Gallery" });
+
+        let deletedOrgSlug: string | undefined;
         const {
           app,
           env,
@@ -204,20 +207,30 @@ describe("DELETE /admin/workspaces/:name", () => {
           kvRecords: { "ws:acme": UNPREFIXED_RECORD },
           bucket,
           db: sqlite,
+          onDeleteOrg: (slug) => {
+            deletedOrgSlug = slug;
+          },
         });
 
         const res = await app.request(deleteRequest("acme", { force: true, hard: true }), {}, env);
         expect(res.status).toBe(200);
         const body = (await res.json()) as {
           objectsDeleted: number;
+          galleriesDeleted: number;
           objectsSkipped?: string;
         };
         expect(body.objectsDeleted).toBe(0);
         expect(body.objectsSkipped).toBe("dedicated-bucket");
 
+        // The skip means no bucket scan at all, not just no deletes — a
+        // listAll() over a large remote BYO bucket is itself the hazard.
+        expect(envBucket.listCalls).toBe(0);
         // Object left in place...
         expect(envBucket.store.has("one.png")).toBe(true);
-        // ...but the KV record is still gone (slug freed, platform state torn down).
+        // ...while platform state is still torn down: galleries, org, and
+        // the KV record (slug freed).
+        expect(body.galleriesDeleted).toBe(1);
+        expect(deletedOrgSlug).toBe("acme");
         expect(registry.store.has("ws:acme")).toBe(false);
       } finally {
         sqlite.close();
