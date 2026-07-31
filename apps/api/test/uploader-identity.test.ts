@@ -3,7 +3,9 @@ import { hasGithubTags, uploaderTags } from "../src/uploader-identity";
 import { GITHUB_APP_CFG_ENV } from "./github-app-env";
 
 /** Minimal env: in-memory KV, stubbable AUTH, no GitHub App config. */
-function makeEnv(opts: { accountId?: string | null; authStatus?: number } = {}) {
+function makeEnv(
+  opts: { accountId?: string | null; login?: string | null; authStatus?: number } = {},
+) {
   const kv = new Map<string, string>();
   const authCalls: string[] = [];
   const env = {
@@ -17,9 +19,13 @@ function makeEnv(opts: { accountId?: string | null; authStatus?: number } = {}) 
       fetch: async (url: string) => {
         authCalls.push(url);
         if (opts.authStatus) return new Response("nope", { status: opts.authStatus });
-        return new Response(JSON.stringify({ githubAccountId: opts.accountId ?? null }), {
-          headers: { "content-type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            githubAccountId: opts.accountId ?? null,
+            githubLogin: opts.login ?? null,
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
       },
     },
   } as unknown as Env;
@@ -54,6 +60,24 @@ describe("uploaderTags", () => {
     const again = await uploaderTags(env, "user-1", undefined, githubFetch("changed"));
     expect(again?.["gh.uploader"]).toBe("octocat");
     expect(authCalls).toHaveLength(1);
+  });
+
+  // Issue #580: a login captured at OAuth-link time short-circuits the
+  // GitHub API chain entirely — no fetchImpl call at all.
+  it("prefers the login AUTH captured at OAuth-link time over the GitHub API chain", async () => {
+    const { env, kv, authCalls } = makeEnv({ accountId: "583231", login: "octocat" });
+    const tags = await uploaderTags(env, "user-1", undefined, githubFetch("never-called"));
+    expect(tags).toEqual({ "gh.uploader-id": "user-1", "gh.uploader": "octocat" });
+    expect(kv.get("ghlogin:user-1")).toBe("octocat");
+    expect(authCalls).toHaveLength(1);
+  });
+
+  // Accounts linked before #580 landed have no stored login (AUTH returns
+  // githubLogin: null) — the lazy GitHub API chain is the fallback.
+  it("falls back to the GitHub API chain when no login was captured at link time", async () => {
+    const { env } = makeEnv({ accountId: "583231", login: null });
+    const tags = await uploaderTags(env, "user-1", undefined, githubFetch("octocat"));
+    expect(tags).toEqual({ "gh.uploader-id": "user-1", "gh.uploader": "octocat" });
   });
 
   it("degrades to id-only when no GitHub account is linked, and caches the miss", async () => {

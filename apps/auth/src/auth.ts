@@ -303,6 +303,43 @@ export type AuthEnv = GitHubCredentialsEnv &
 export type BetterAuthInstance = ReturnType<typeof buildAuth>;
 
 /**
+ * Issue #580: capture the GitHub login at OAuth-link time. Called from the
+ * github social provider's `mapProfileToUser` (below) — the only point in
+ * Better Auth's OAuth flow that sees the raw GitHub profile (`login`), and
+ * one that runs on every completed callback (first link AND every
+ * re-authentication of an already-linked account), not just account
+ * creation. See src/schema.ts's `githubIdentity` doc comment for why this
+ * lands in a companion table keyed by the numeric GitHub account id rather
+ * than a column on `account` itself. Last-write-wins by design (a GitHub
+ * rename should overwrite the stored login); never throws — a failure here
+ * must not block sign-in.
+ */
+export async function upsertGithubLogin(
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  githubAccountId: string,
+  login: string,
+): Promise<void> {
+  if (!githubAccountId || !login) return;
+  try {
+    await db
+      .insert(schema.githubIdentity)
+      .values({ accountId: githubAccountId, login, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: schema.githubIdentity.accountId,
+        set: { login, updatedAt: new Date() },
+      });
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message: "github login capture failed",
+        githubAccountId,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
+}
+
+/**
  * Derive the cookie domain for `advanced.crossSubDomainCookies` from
  * BETTER_AUTH_URL: `https://auth.uploads.sh` -> `.uploads.sh`, so a session
  * cookie set on the auth worker is visible on `uploads.sh` and
@@ -378,7 +415,27 @@ function buildAuth(
     experimental: { joins: true },
     // D3: gate GitHub on both id+secret resolving; adding a provider later is
     // just another resolved secret pair, no code change here.
-    socialProviders: github ? { github } : {},
+    //
+    // Issue #580: `mapProfileToUser` is intended for mapping the raw provider
+    // profile onto `user.additionalFields`, but it's also the only Better
+    // Auth hook that sees the raw GitHub profile (`profile.login`) — so it
+    // doubles as the write path for `upsertGithubLogin` above, keyed off
+    // `profile.id` (the numeric GitHub account id). It returns `{}`: no
+    // fields are actually mapped onto `user`, since the login lives in
+    // `githubIdentity` instead.
+    socialProviders: github
+      ? {
+          github: {
+            ...github,
+            mapProfileToUser: async (profile: { id: number | string; login?: string }) => {
+              if (typeof profile.login === "string" && profile.login) {
+                await upsertGithubLogin(db, String(profile.id), profile.login);
+              }
+              return {};
+            },
+          },
+        }
+      : {},
     // Magic-link first, then Connect GitHub on /account/profile (link-social).
     // Issue #233: a GitHub sign-in (or explicit /account/profile "Connect")
     // whose GitHub-reported email is verified attaches to an existing user

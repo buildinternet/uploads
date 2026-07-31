@@ -478,6 +478,31 @@ export const billingPlanOutbox = sqliteTable("billing_plan_outbox", {
 });
 
 /**
+ * GitHub login capture at OAuth-link time (issue #580). Better Auth's
+ * `account` row only ever gets the fixed field set the library writes on
+ * link/sign-in (tokens, `accountId`, `providerId`) — there is no hook that
+ * receives the raw provider profile at that point, so a `githubLogin` column
+ * bolted onto `account` would have no write path. This table is instead
+ * populated as a side effect of `mapProfileToUser` (see src/auth.ts's github
+ * provider config), which DOES see the raw profile (including `login`) and
+ * runs on every completed GitHub OAuth callback — first link AND every
+ * re-authentication of an already-linked account — so last-write-wins holds
+ * for renames without depending on Better Auth's internal account
+ * create/update timing. Keyed by the numeric GitHub account id (same value
+ * stored in `account.accountId` for `providerId = 'github'`), not by user id,
+ * so a write here never races the user/account rows Better Auth creates
+ * afterward for a brand-new sign-up.
+ *
+ * Paired migration: `migrations/20260731120000_github_identity.sql`.
+ */
+export const githubIdentity = sqliteTable("github_identity", {
+  /** Numeric GitHub account id, as a string (matches `account.accountId`). */
+  accountId: text("account_id").primaryKey(),
+  login: text("login").notNull(),
+  updatedAt: timestampCol("updated_at"),
+});
+
+/**
  * Drizzle relations for Better Auth `experimental.joins` (adapter needs these
  * on the same schema object as the tables). No SQL/migration impact.
  *
@@ -553,6 +578,7 @@ export type AuthOrganization = typeof organization.$inferSelect;
 export type AuthMember = typeof member.$inferSelect;
 export type AuthInvitation = typeof invitation.$inferSelect;
 export type AuthDeviceCode = typeof deviceCode.$inferSelect;
+export type GithubIdentity = typeof githubIdentity.$inferSelect;
 export type AuthOauthClient = typeof oauthClient.$inferSelect;
 export type AuthOauthWorkspaceChoice = typeof oauthWorkspaceChoice.$inferSelect;
 export type AuthSubscription = typeof subscription.$inferSelect;

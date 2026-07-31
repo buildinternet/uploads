@@ -977,15 +977,26 @@ export const internal = new Hono<{ Bindings: AuthEnv }>()
   // (numeric, as a string — Better Auth stores provider account ids as TEXT),
   // or null when no GitHub account is linked. The api worker resolves this to
   // a login via the GitHub API and caches it.
+  //
+  // Issue #580: also returns `githubLogin` when captured at OAuth-link time
+  // (`githubIdentity`, populated by src/auth.ts's github mapProfileToUser
+  // hook — see that table's doc comment). `null` here means either no
+  // GitHub account is linked, or it was linked before #580 landed — the api
+  // worker's resolveUploaderLogin falls back to its lazy GitHub API chain
+  // for that case. Backfilling pre-existing links is explicitly out of scope.
   .get("/users/:id/github-account", async (c) => {
     const userId = c.req.param("id");
     const db = drizzle(c.env.DB, { schema });
     const [row] = await db
-      .select({ accountId: schema.account.accountId })
+      .select({ accountId: schema.account.accountId, login: schema.githubIdentity.login })
       .from(schema.account)
+      .leftJoin(
+        schema.githubIdentity,
+        eq(schema.githubIdentity.accountId, schema.account.accountId),
+      )
       .where(and(eq(schema.account.userId, userId), eq(schema.account.providerId, "github")))
       .limit(1);
-    return c.json({ githubAccountId: row?.accountId ?? null });
+    return c.json({ githubAccountId: row?.accountId ?? null, githubLogin: row?.login ?? null });
   })
   // Self-serve gate: does this user have a linked GitHub account?
   .get("/users/:id/github-linked", async (c) => {
