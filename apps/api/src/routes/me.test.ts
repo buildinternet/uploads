@@ -2,9 +2,10 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { Hono } from "hono";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { respondError } from "../error-response";
 import { me } from "./me";
+import { setStorageVerifyForTests } from "./workspace-storage";
 import { fakeRegistry, FakeKv } from "../../test/fake-kv";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
 import { FakeR2Bucket } from "../../test/fake-r2";
@@ -2312,5 +2313,416 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)", () => {
+  const SECRET = "test-workspace-secrets-key-0000";
+  const SHARED_RECORD = { provider: "r2", bucket: "uploads-default", prefix: "acme/" };
+  const BYO_RECORD = {
+    provider: "r2",
+    bucket: "customer-bucket",
+    accountId: "a".repeat(32),
+    accessKeyId: "AKIDEXAMPLE1234",
+    secretAccessKey: "enc:v1:already-sealed",
+    publicBaseUrl: "https://media.example.com",
+    byoBucketEnabled: true,
+    storageConfiguredAt: "2026-01-01T00:00:00.000Z",
+    storageVerifiedAt: "2026-01-01T00:00:00.000Z",
+    storageConfiguredBy: "u-plain",
+  };
+
+  function storageEnv(opts: {
+    workspace?: string;
+    role: string;
+    record?: unknown;
+    usage?: { objects: number; bytes?: number };
+    secretsKey?: string;
+  }) {
+    const { workspace = "acme", role, record, usage, secretsKey = SECRET } = opts;
+    const registry = fakeRegistry(record !== undefined ? { [workspace]: record } : {});
+    const db = new UsageFakeD1();
+    if (usage) {
+      db.usage.set(workspace, {
+        workspace,
+        bytes: usage.bytes ?? 0,
+        objects: usage.objects,
+        uploads_in_period: 0,
+        period_start: "2026-07",
+        updated_at: "2026-07-01T00:00:00.000Z",
+      });
+    }
+    const auth = stubAuth((req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/api/auth/get-session") {
+        return new Response(JSON.stringify({ session: {}, user: USER }), { status: 200 });
+      }
+      if (url.pathname === "/internal/memberships") {
+        return Response.json([
+          {
+            organizationId: "org1",
+            organizationSlug: workspace,
+            organizationName: workspace,
+            role,
+          },
+        ]);
+      }
+      return new Response(null, { status: 404 });
+    });
+    const env = {
+      AUTH: auth,
+      DB: db,
+      REGISTRY: registry,
+      WORKSPACE_SECRETS_KEY: secretsKey,
+    } as unknown as Env;
+    return { env, registry, db };
+  }
+
+  const okVerifyResult = {
+    ok: true,
+    checks: [
+      { id: "shape", ok: true, required: true },
+      { id: "auth", ok: true, required: true },
+      { id: "round-trip", ok: true, required: true },
+      { id: "not-empty", ok: true, required: true },
+    ],
+  };
+
+  const CANDIDATE_BODY = {
+    bucket: "customer-bucket",
+    accountId: "a".repeat(32),
+    accessKeyId: "AKIDEXAMPLE1234",
+    secretAccessKey: "super-secret-value",
+    publicBaseUrl: "https://media.example.com",
+  };
+
+  afterEach(() => {
+    setStorageVerifyForTests(undefined);
+  });
+
+  describe("GET /me/workspaces/:name/storage", () => {
+    it("is readable even when byoBucketEnabled is off, reporting shared mode", async () => {
+      const { env } = storageEnv({ role: "admin", record: SHARED_RECORD });
+      const res = await app().request("/me/workspaces/acme/storage", {}, env);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        mode: "shared",
+        byoBucketEnabled: false,
+        bucket: "uploads-default",
+      });
+    });
+
+    it("403s for a non-admin member", async () => {
+      const { env } = storageEnv({ role: "member", record: SHARED_RECORD });
+      const res = await app().request("/me/workspaces/acme/storage", {}, env);
+      expect(res.status).toBe(403);
+    });
+
+    it("reports byo mode with masked credentials and no secret values anywhere in the payload", async () => {
+      const { env } = storageEnv({ role: "owner", record: BYO_RECORD });
+      const res = await app().request("/me/workspaces/acme/storage", {}, env);
+      expect(res.status).toBe(200);
+      const raw = await res.text();
+      expect(raw).not.toContain("AKIDEXAMPLE1234");
+      expect(raw).not.toContain("already-sealed");
+      expect(JSON.parse(raw)).toEqual({
+        mode: "byo",
+        byoBucketEnabled: true,
+        bucket: "customer-bucket",
+        publicBaseUrl: "https://media.example.com",
+        accountIdMasked: `…${"a".repeat(4)}`,
+        accessKeyIdLast4: "1234",
+        configuredAt: "2026-01-01T00:00:00.000Z",
+        verifiedAt: "2026-01-01T00:00:00.000Z",
+      });
+    });
+  });
+
+  describe("POST /me/workspaces/:name/storage/verify", () => {
+    it("403s (byo_bucket_disabled) when the workspace flag is off", async () => {
+      const { env } = storageEnv({ role: "owner", record: SHARED_RECORD });
+      const res = await app().request(
+        "/me/workspaces/acme/storage/verify",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY),
+        },
+        env,
+      );
+      expect(res.status).toBe(403);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "byo_bucket_disabled" },
+      });
+    });
+
+    it("runs the injected verify pipeline against the request body and persists nothing", async () => {
+      const { env, registry } = storageEnv({ role: "owner", record: BYO_RECORD });
+      setStorageVerifyForTests(async (candidate) => {
+        expect(candidate.bucket).toBe("customer-bucket");
+        return okVerifyResult;
+      });
+      const before = registry.record("acme");
+      const res = await app().request(
+        "/me/workspaces/acme/storage/verify",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual(okVerifyResult);
+      expect(registry.record("acme")).toEqual(before);
+    });
+
+    it("429s when the write limiter is over budget", async () => {
+      const { env: baseEnv } = storageEnv({ role: "owner", record: BYO_RECORD });
+      const env = {
+        ...baseEnv,
+        WRITE_LIMITER: { limit: async () => ({ success: false }) },
+      } as unknown as Env;
+      const res = await app().request(
+        "/me/workspaces/acme/storage/verify",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY),
+        },
+        env,
+      );
+      expect(res.status).toBe(429);
+    });
+  });
+
+  describe("PUT /me/workspaces/:name/storage", () => {
+    it("403s (byo_bucket_disabled) when the workspace flag is off", async () => {
+      const { env } = storageEnv({ role: "owner", record: SHARED_RECORD });
+      const res = await app().request(
+        "/me/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY),
+        },
+        env,
+      );
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects with the verify result (422) when server-side verification fails, and leaves the record untouched", async () => {
+      const { env, registry } = storageEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: true },
+      });
+      const failResult = {
+        ok: false,
+        checks: [
+          { id: "shape", ok: true, required: true },
+          {
+            id: "auth",
+            ok: false,
+            required: true,
+            hint: "the access key was rejected",
+          },
+        ],
+      };
+      setStorageVerifyForTests(async () => failResult);
+      const before = registry.record("acme");
+      const res = await app().request(
+        "/me/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY),
+        },
+        env,
+      );
+      expect(res.status).toBe(422);
+      expect(await res.json()).toEqual(failResult);
+      expect(registry.record("acme")).toEqual(before);
+    });
+
+    it("rejects when the workspace already has files and adoptExistingContents wasn't set", async () => {
+      const { env, registry } = storageEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: true },
+        usage: { objects: 3 },
+      });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const before = registry.record("acme");
+      const res = await app().request(
+        "/me/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY),
+        },
+        env,
+      );
+      expect(res.status).toBe(409);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "workspace_storage_not_empty" },
+      });
+      expect(registry.record("acme")).toEqual(before);
+    });
+
+    it("saves on a passing verify: seals credentials, drops prefix/binding, stamps provenance", async () => {
+      const { env, registry } = storageEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: true },
+        usage: { objects: 0 },
+      });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const res = await app().request(
+        "/me/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { mode: string; verify: { ok: boolean } };
+      expect(body.mode).toBe("byo");
+      expect(body.verify).toEqual(okVerifyResult);
+
+      const saved = registry.record<{
+        prefix?: string;
+        binding?: string;
+        bucket?: string;
+        accountId?: string;
+        accessKeyId?: string;
+        secretAccessKey?: string;
+        storageConfiguredAt?: string;
+        storageVerifiedAt?: string;
+        storageConfiguredBy?: string;
+      }>("acme");
+      expect(saved?.prefix).toBeUndefined();
+      expect(saved?.binding).toBeUndefined();
+      expect(saved?.bucket).toBe("customer-bucket");
+      expect(saved?.accountId).toBe("a".repeat(32));
+      expect(saved?.accessKeyId).toMatch(/^enc:v1:/);
+      expect(saved?.secretAccessKey).toMatch(/^enc:v1:/);
+      expect(saved?.storageConfiguredAt).toBeTruthy();
+      expect(saved?.storageVerifiedAt).toBeTruthy();
+      expect(saved?.storageConfiguredBy).toBe("u-plain");
+    });
+
+    it("allows attaching to a non-empty workspace when adoptExistingContents is set", async () => {
+      const { env, registry } = storageEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: true },
+        usage: { objects: 5 },
+      });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const res = await app().request(
+        "/me/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...CANDIDATE_BODY, adoptExistingContents: true }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(registry.record<{ bucket?: string }>("acme")?.bucket).toBe("customer-bucket");
+    });
+
+    it("500s (secrets_key_unconfigured) when WORKSPACE_SECRETS_KEY is unset, and leaves the record untouched", async () => {
+      const { env: baseEnv, registry } = storageEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: true },
+        usage: { objects: 0 },
+      });
+      const env = { ...baseEnv, WORKSPACE_SECRETS_KEY: undefined } as unknown as Env;
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const before = registry.record("acme");
+      const res = await app().request(
+        "/me/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY),
+        },
+        env,
+      );
+      expect(res.status).toBe(503);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "secrets_key_unconfigured" },
+      });
+      expect(registry.record("acme")).toEqual(before);
+    });
+  });
+
+  describe("DELETE /me/workspaces/:name/storage", () => {
+    it("403s (byo_bucket_disabled) when the workspace flag is off", async () => {
+      const { env } = storageEnv({ role: "owner", record: SHARED_RECORD });
+      const res = await app().request("/me/workspaces/acme/storage", { method: "DELETE" }, env);
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects detach when the BYO bucket still has files and force wasn't passed", async () => {
+      const { env, registry } = storageEnv({
+        role: "owner",
+        record: BYO_RECORD,
+        usage: { objects: 2 },
+      });
+      const before = registry.record("acme");
+      const res = await app().request("/me/workspaces/acme/storage", { method: "DELETE" }, env);
+      expect(res.status).toBe(409);
+      expect((await res.json()) as { error: { code: string } }).toMatchObject({
+        error: { code: "workspace_storage_not_empty" },
+      });
+      expect(registry.record("acme")).toEqual(before);
+    });
+
+    it("detaches, restores shared-bucket defaults, and preserves unrelated fields", async () => {
+      const record = {
+        ...BYO_RECORD,
+        // Non-storage fields that must survive detach untouched.
+        maxMembers: 7,
+        plan: "pro",
+        githubCommentNote: "keep me",
+      };
+      const { env, registry } = storageEnv({ role: "owner", record, usage: { objects: 0 } });
+      const res = await app().request("/me/workspaces/acme/storage", { method: "DELETE" }, env);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ mode: "shared", byoBucketEnabled: true });
+
+      const saved = registry.record<Record<string, unknown>>("acme");
+      expect(saved?.bucket).toBe("uploads-default");
+      expect(saved?.binding).toBe("UPLOADS_DEFAULT");
+      expect(saved?.prefix).toBe("acme/");
+      expect(saved?.publicBaseUrl).toBe("https://storage.uploads.sh");
+      expect(saved?.accountId).toBeUndefined();
+      expect(saved?.accessKeyId).toBeUndefined();
+      expect(saved?.secretAccessKey).toBeUndefined();
+      expect(saved?.storageConfiguredAt).toBeUndefined();
+      expect(saved?.storageVerifiedAt).toBeUndefined();
+      expect(saved?.storageConfiguredBy).toBeUndefined();
+      // Preserved.
+      expect(saved?.maxMembers).toBe(7);
+      expect(saved?.plan).toBe("pro");
+      expect(saved?.githubCommentNote).toBe("keep me");
+      expect(saved?.byoBucketEnabled).toBe(true);
+    });
+
+    it("detaches with force=true query param even when the bucket still has files", async () => {
+      const { env, registry } = storageEnv({
+        role: "owner",
+        record: BYO_RECORD,
+        usage: { objects: 9 },
+      });
+      const res = await app().request(
+        "/me/workspaces/acme/storage?force=true",
+        { method: "DELETE" },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(registry.record<{ bucket?: string }>("acme")?.bucket).toBe("uploads-default");
+    });
   });
 });

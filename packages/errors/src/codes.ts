@@ -84,6 +84,10 @@ export const ERROR_CODES = [
   "storage_misconfigured",
   "storage_credentials_unreadable",
   "secrets_key_unconfigured",
+
+  // Self-serve BYO storage config (apps/api/src/routes/me.ts storage routes)
+  "byo_bucket_disabled",
+  "workspace_storage_not_empty",
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
