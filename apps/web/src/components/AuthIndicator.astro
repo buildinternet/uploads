@@ -277,6 +277,13 @@ const MENU_ITEMS = [
   .auth-indicator :global(.auth-indicator__signin) {
     text-decoration: none;
     white-space: nowrap;
+    /* ul-btn--sm (9px vertical padding, 1.65 line-height) stands ~9px taller
+       than the sibling .star-cta (12.5px font + 6px padding + normal line
+       height, SiteHeader.astro) — match its vertical rhythm so the header
+       controls read as one row. */
+    padding-top: 6px;
+    padding-bottom: 6px;
+    line-height: 1.4;
   }
 
   .auth-indicator :global(.auth-menu) {

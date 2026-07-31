@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  planTitleRepaint,
-  renderConnectedWorkHtml,
-  renderDetailsHtml,
-  renderDetailsPlaceholderHtml,
-} from "./workspace-rail";
+import { planTitleRepaint, renderConnectedWorkHtml, renderDetailsHtml } from "./workspace-rail";
 import type { GhWorkItem } from "./gh-context";
 
 function ghItem(overrides: Partial<GhWorkItem> = {}): GhWorkItem {
@@ -149,17 +144,6 @@ describe("renderDetailsHtml", () => {
     });
     expect(html).not.toContain("<img");
     expect(html).toContain("&lt;img");
-  });
-});
-
-describe("renderDetailsPlaceholderHtml", () => {
-  it("keeps the real details labels and only masks the values", () => {
-    const html = renderDetailsPlaceholderHtml();
-    // Labels are Tier 0 — they are known without any request.
-    expect(html).toContain(">slug<");
-    expect(html).toContain(">base url<");
-    expect(html).toContain("ws-rail__dt");
-    expect(html).toContain("ws-skel");
   });
 });
 

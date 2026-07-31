@@ -14,9 +14,13 @@ const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
 
 const createCmd = 'uploads gallery create --title "Release screenshots"';
+
+const tip = {
+  body: "link a gallery to a PR and the public link stays current as you add shots.",
+};
 ---
 
-<WorkspaceLayout workspace={workspace}>
+<WorkspaceLayout workspace={workspace} tip={tip}>
   <div id="ws-status" class="ul-callout status" role="status" hidden></div>
   <button id="ws-retry" type="button" hidden>Try again</button>
 

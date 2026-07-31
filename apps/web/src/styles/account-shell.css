@@ -10,7 +10,7 @@
    reserves the track. Shell is left-aligned so the nav does not re-center
    as the viewport grows. */
 .account-shell {
-  --width-shell: 1200px;
+  --width-shell: 1440px;
 }
 .account-shell .shell {
   margin-left: 0;
@@ -36,10 +36,10 @@
 }
 .account-shell nav.side .side-link {
   display: block;
-  padding: 5px var(--side-inset);
+  padding: 7px var(--side-inset);
   margin: 0;
   border: 0;
-  border-radius: 0;
+  border-radius: 6px;
   background: transparent;
   color: var(--muted);
   text-decoration: none;
@@ -50,59 +50,98 @@
   background: transparent;
   outline: none;
 }
+/* Active item — soft rounded pill. Same accent color-mix wash the switcher
+   menu's hover/current rows already use (below), just applied at rest. */
 .account-shell nav.side .side-link[aria-current] {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   border: 0;
-  border-radius: 0;
+  border-radius: 6px;
 }
 
-/* Section labels (PERSONAL). Same horizontal inset as side-links. */
+/* Section labels (PERSONAL / workspace). Same horizontal inset as
+   side-links. ~20px above each group (releases' spacing) reads the two
+   groups as distinct rather than one long list. */
 .account-shell nav.side .side-label {
-  margin: 14px 0 4px;
+  margin: 20px 0 6px;
   padding: 0 var(--side-inset);
   color: var(--muted);
   font-size: 10.5px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
+/* First label in the nav (the workspace-section one, when present) shouldn't
+   add extra air above the switcher card it directly follows. */
+.account-shell nav.side .ws-switcher + .side-label {
+  margin-top: 10px;
+}
 
-/* Workspace switcher — first nav item. */
+/* Workspace switcher — first nav item. Two-line bordered card: name (+ Pro
+   badge, painted by workspaces-nav.ts right after the label element) on line
+   one, a muted "workspace" subtitle on line two, chevron pinned right and
+   vertically centered via the grid. */
 .account-shell nav.side .ws-switcher {
   position: relative;
   margin: 0 0 4px;
 }
 /* Beat signed-in-shell's `nav.side button` (red hover / mono foot). */
 .account-shell nav.side .ws-switcher .ws-switcher__trigger {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   width: 100%;
   max-width: 100%;
-  padding: 0 var(--side-inset);
+  padding: 9px 10px;
   margin: 0;
-  border: 0;
-  border-radius: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
   background: none;
-  color: var(--muted);
+  color: var(--fg);
   font: inherit;
-  font-size: 10.5px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
   text-align: left;
   cursor: pointer;
 }
 .account-shell nav.side .ws-switcher .ws-switcher__trigger:hover,
 .account-shell nav.side .ws-switcher .ws-switcher__trigger:focus-visible,
 .account-shell nav.side .ws-switcher .ws-switcher__trigger[aria-expanded="true"] {
-  color: var(--fg);
+  border-color: var(--accent);
   outline: none;
+}
+.account-shell nav.side .ws-switcher__body {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.account-shell nav.side .ws-switcher__line1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 .account-shell nav.side .ws-switcher__label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+}
+.account-shell nav.side .ws-switcher__subtitle {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+/* Trigger's own Pro badge (workspaces-nav.ts paintTriggerBadge, inserted as
+   `label`'s next sibling) — same `.pro-badge` idiom as the menu rows
+   (account-content.css). Lands inside `.ws-switcher__line1` alongside the
+   label, so it stays on the name line rather than pushed to the subtitle. */
+.account-shell nav.side .ws-switcher .ws-switcher__trigger .pro-badge {
+  flex: none;
+  font-size: 9px;
+  padding: 0 5px;
 }
 /* Visible switcher affordance — boxed chevron, not tiny label-tracking text. */
 .account-shell nav.side .ws-switcher__chevron {
@@ -112,7 +151,6 @@
   justify-content: center;
   width: 16px;
   height: 16px;
-  margin-left: auto;
   border: 1px solid color-mix(in srgb, var(--line) 90%, var(--muted));
   border-radius: 3px;
   color: var(--fg);

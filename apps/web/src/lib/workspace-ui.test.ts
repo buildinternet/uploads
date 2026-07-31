@@ -5,6 +5,8 @@ import {
   formatGalleryDate,
   formatMarketedBytes,
   orderOrgsOldestFirst,
+  renderDetailListPlaceholderHtml,
+  renderFilesPlaceholderHtml,
   renderGalleriesEmptyHtml,
   renderGalleriesPlaceholderHtml,
   renderGalleriesTableHtml,
@@ -13,6 +15,7 @@ import {
   renderMembersPlaceholderHtml,
   renderUsageHtml,
   renderUsagePlaceholderHtml,
+  renderWorkspacesPlaceholderHtml,
   safeSameOriginPath,
   skeletonBarHtml,
 } from "./workspace-ui";
@@ -364,5 +367,38 @@ describe("renderGalleriesEmptyHtml", () => {
 
   it("escapes a command containing markup", () => {
     expect(renderGalleriesEmptyHtml('a<b>"c"')).not.toContain("<b>");
+  });
+
+  it("skips the restated body sentence — the page note and details block above/below it already cover it", () => {
+    const html = renderGalleriesEmptyHtml(cmd);
+    expect(html).not.toContain("ws-empty-state__body");
+    expect(html).not.toContain("public link");
+  });
+});
+
+describe("placeholder builders reuse the real markup's classes", () => {
+  it("renderWorkspacesPlaceholderHtml mirrors the real dev-links row shape", () => {
+    const html = renderWorkspacesPlaceholderHtml(2);
+    expect(html.match(/<li>/g)).toHaveLength(2);
+    expect(html).toContain('class="slug"');
+  });
+
+  it("renderDetailListPlaceholderHtml mirrors the real detail-list row shape", () => {
+    const html = renderDetailListPlaceholderHtml(2);
+    expect(html.match(/<li>/g)).toHaveLength(2);
+    expect(html).toContain("detail-main");
+    expect(html).toContain("detail-title");
+    expect(html).toContain("detail-meta");
+  });
+
+  it("renderFilesPlaceholderHtml mirrors the real toolbar + table chrome", () => {
+    const html = renderFilesPlaceholderHtml(3);
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain("wft-filterbar");
+    expect(html).toContain("wft-sectionhead");
+    // Real column headers — static text, since they never depend on data.
+    expect(html).toContain(">name<");
+    expect(html).toContain(">visibility<");
+    expect(html.match(/class="wft-row"/g)).toHaveLength(3);
   });
 });

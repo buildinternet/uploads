@@ -537,6 +537,21 @@ button.text-btn:disabled {
   opacity: 0.55;
   cursor: default;
 }
+/* Boxed variant — visible border at rest, for actions that must read as a
+   button without hover discovery (e.g. the sign-in-methods Connect, whose
+   row deliberately has no state badge to carry that weight). */
+a.text-btn--boxed,
+button.text-btn--boxed {
+  border-color: var(--line);
+  color: var(--fg);
+}
+a.text-btn--boxed:hover,
+a.text-btn--boxed:focus-visible,
+button.text-btn--boxed:hover,
+button.text-btn--boxed:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 ul.detail-list .detail-meta {
   color: var(--muted);
   font-size: 11px;
@@ -1004,6 +1019,19 @@ section.card .ws-messages .command {
 }
 .wft-filterbar .input-group__field input {
   font-size: 12.5px;
+}
+/* Loading-skeleton stand-in for the filter input/button (workspace-ui.ts's
+   `renderFilesPlaceholderHtml`, mirrored in WorkspaceFileTable's own loading
+   render): `.input-group__field`/`__action` size themselves from the real
+   `<input>`/`<button>` they normally wrap, so a bare `.ws-skel` bar dropped
+   in without them collapses shorter and the swap to the real toolbar shifts
+   the whole page down. This reproduces just enough of that height. */
+.wft-field-skel {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  min-height: 36px;
+  box-sizing: border-box;
 }
 
 .wft-suggest {

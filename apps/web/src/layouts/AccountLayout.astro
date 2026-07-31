@@ -101,7 +101,18 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
                 aria-haspopup="true"
                 aria-controls="ws-switcher-menu"
               >
-                <span class="ws-switcher__label" id="ws-switcher-label">{switcherHeading}</span>
+                <span class="ws-switcher__body">
+                  <span class="ws-switcher__line1">
+                    {
+                      /* workspaces-nav.ts's paintTriggerBadge inserts the Pro
+                        badge right after this label — keeping the label in
+                        its own line1 wrapper is what keeps the badge on the
+                        name line instead of drifting onto the subtitle. */
+                    }
+                    <span class="ws-switcher__label" id="ws-switcher-label">{switcherHeading}</span>
+                  </span>
+                  <span class="ws-switcher__subtitle">workspace</span>
+                </span>
                 <span class="ws-switcher__chevron" aria-hidden="true" title="Switch workspace"
                   >▾</span
                 >
@@ -122,6 +133,12 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
               </div>
             </div>
 
+            {
+              /* Symmetric eyebrow with "Personal" below — same `.side-label`
+                idiom, shown only once a workspace is active (id lets the
+                optimistic boot script below unhide it alongside the nav). */
+            }
+            <div class="side-label" id="workspace-section-label" hidden={!workspace}>workspace</div>
             <div
               id="workspace-section-nav"
               class="ws-section-nav"
@@ -221,6 +238,8 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
           }
           section.innerHTML = html;
           section.hidden = false;
+          var sectionLabel = document.getElementById("workspace-section-label");
+          if (sectionLabel) sectionLabel.hidden = false;
         } catch (e) {}
       })();
     </script>

@@ -19,7 +19,7 @@
  */
 import { Callout } from "@uploads/ui";
 import "@uploads/ui/styles.css";
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { ConnectedWorkSetter } from "../lib/workspace-rail";
 import { applyGhTitles, connectedWork, exactPrMatch, type GhWorkItem } from "../lib/gh-context";
 import {
@@ -427,6 +427,98 @@ function openFile(
   });
 }
 
+// ── Loading skeleton ───────────────────────────────────────────────────
+// Same idea as `workspace-ui.ts`'s HTML-string placeholders (three-tier
+// loading, PR #526): occupy the exact box the real content will occupy so
+// landing data doesn't shift the page. Kept as JSX here (not the HTML-string
+// builders) because this component's loading states render mid-tree, not as
+// a `set:html` swap — but `renderFilesPlaceholderHtml` in workspace-ui.ts
+// mirrors this markup 1:1 for the pre-mount gap in `[name].astro`, so the
+// two hand-offs (static HTML → this component's own loading render → real
+// data) are visually seamless throughout.
+
+/** One masked bar — `--ws-skel-w` drives width, same custom property `.ws-skel` reads. */
+function SkelBar({ width }: { width: string }) {
+  return (
+    <span
+      className="ws-skel"
+      aria-hidden="true"
+      style={{ "--ws-skel-w": width } as CSSProperties}
+    />
+  );
+}
+
+const SKEL_ROW_WIDTHS = ["62%", "48%", "70%", "40%", "55%", "35%"];
+
+/** `wft-row`-shaped skeleton rows — same grid columns as a real row. */
+function FileRowsSkeleton({ rows }: { rows: number }) {
+  return (
+    <>
+      {Array.from({ length: rows }, (_, i) => (
+        <div className="wft-row" key={i}>
+          <span className="wft-name">
+            <SkelBar width={SKEL_ROW_WIDTHS[i % SKEL_ROW_WIDTHS.length]} />
+          </span>
+          <span className="wft-size">
+            <SkelBar width="32px" />
+          </span>
+          <span className="wft-type">
+            <SkelBar width="28px" />
+          </span>
+          <span className="wft-vis">
+            <SkelBar width="52px" />
+          </span>
+          <span />
+        </div>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Full toolbar-and-table skeleton for the initial `info.status === "loading"`
+ * render, when nothing about the workspace (so nothing about the real
+ * filterbar or section head) is known yet. `wft-field-skel` (account-content
+ * .css) gives the filter input/button their real height, since
+ * `.input-group__field`/`__action` normally size themselves from the
+ * `<input>`/`<button>` they wrap. The table head's labels are real text, not
+ * skeleton bars — "name/size/type/visibility" never depend on data.
+ */
+function FilesLoadingSkeleton() {
+  return (
+    <div className="wft" aria-busy="true">
+      <div className="wft-filter">
+        <div className="wft-filterbar input-group">
+          <span className="input-group__field wft-field-skel">
+            <SkelBar width="60%" />
+          </span>
+          <span className="input-group__action wft-field-skel">
+            <SkelBar width="28px" />
+          </span>
+        </div>
+      </div>
+      <div className="wft-sectionhead">
+        <span className="wft-sectionhead__rule wft-sectionhead__rule--lead" />
+        <span className="wft-sectionhead__label">files</span>
+        <span className="wft-sectionhead__rule" />
+        <span className="wft-sectionhead__count">
+          <SkelBar width="44px" />
+        </span>
+      </div>
+      <div className="wft-grid">
+        <div className="wft-head">
+          <span>name</span>
+          <span className="wft-head__size">size</span>
+          <span className="wft-head__type">type</span>
+          <span>visibility</span>
+          <span />
+        </div>
+        <FileRowsSkeleton rows={6} />
+      </div>
+    </div>
+  );
+}
+
 // ── Component ──────────────────────────────────────────────────────────
 
 export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableProps) {
@@ -768,7 +860,7 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
   };
 
   if (info.status === "loading") {
-    return <p className="wft-status">Loading workspace…</p>;
+    return <FilesLoadingSkeleton />;
   }
 
   if (info.status === "unavailable") {
@@ -1215,7 +1307,7 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
       )}
 
       {view === "list" ? (
-        <div className="wft-grid">
+        <div className="wft-grid" aria-busy={state.status === "loading" || undefined}>
           <div className="wft-head">
             <span>name</span>
             <span className="wft-head__size">size</span>
@@ -1223,6 +1315,12 @@ export function WorkspaceFileTable({ apiOrigin, workspace }: WorkspaceFileTableP
             <span>visibility</span>
             <span />
           </div>
+
+          {/* `folders`/`files` are already `[]` while `state.status ===
+              "loading"` (see above), so this doesn't double up with the
+              real rows below — it's the only content in the grid until the
+              fetch resolves. */}
+          {state.status === "loading" && <FileRowsSkeleton rows={6} />}
 
           {folders.map((folder) => (
             <button

@@ -454,12 +454,16 @@ export function renderUsagePlaceholderHtml(meters = 2): string {
  * Built as the page's primary element rather than a muted footnote: when a
  * workspace has no galleries, "you have none, here is how to make one" *is*
  * the content, and burying it under a command block inverted the hierarchy.
+ *
+ * No body sentence: the page-header note above this block and the "Working
+ * with galleries" details block below it already explain what a gallery is —
+ * a third restatement here was stacking, not informing. This stays down to
+ * the state plus the one action that resolves it.
  */
 export function renderGalleriesEmptyHtml(createCmd: string): string {
   const safe = escapeHtml(createCmd);
   return `<div class="ws-empty-state">
   <p class="ws-empty-state__title">No galleries yet</p>
-  <p class="ws-empty-state__body">A gallery collects screenshots behind one public link you can drop in a pull request.</p>
   <div class="command ws-empty__command">
     <code>${safe}</code>
     <button type="button" data-copy="${safe}" aria-live="polite">copy</button>
@@ -493,5 +497,84 @@ export function renderGalleriesPlaceholderHtml(rows = 3): string {
   </thead>
   <tbody>${body}</tbody>
 </table>
+</div>`;
+}
+
+/**
+ * Workspaces-index placeholder — same `ul.dev-links li` row (link + role
+ * slug) the real list renders, so the swap from placeholder to data doesn't
+ * change row count or height, only content.
+ */
+export function renderWorkspacesPlaceholderHtml(rows = 2): string {
+  const widths = ["132px", "104px"];
+  return Array.from(
+    { length: rows },
+    (_, i) =>
+      `<li>${skeletonBarHtml(widths[i % widths.length])}<span class="slug">${skeletonBarHtml("48px")}</span></li>`,
+  ).join("");
+}
+
+/**
+ * Generic `ul.detail-list` placeholder (profile's sign-in-methods and
+ * sessions lists) — mirrors the real row's title/meta stack so a row's
+ * height doesn't change when data replaces the skeleton.
+ */
+export function renderDetailListPlaceholderHtml(rows = 2): string {
+  const widths = ["120px", "150px"];
+  return Array.from(
+    { length: rows },
+    (_, i) =>
+      `<li><div class="detail-main">` +
+      `<div class="detail-title">${skeletonBarHtml(widths[i % widths.length])}</div>` +
+      `<div class="detail-meta">${skeletonBarHtml("90px")}</div>` +
+      `</div></li>`,
+  ).join("");
+}
+
+/**
+ * Files-tab placeholder for the pre-hydration mount gap in
+ * `[name].astro` — the page dynamic-imports React and `WorkspaceFileTable`,
+ * so the mount point is otherwise empty until that resolves. Mirrors the
+ * component's own `info.status === "loading"` skeleton (same class names:
+ * `wft-filter`/`wft-filterbar`, `wft-sectionhead`, `wft-head`, `wft-row`) so
+ * the static-HTML-to-React handoff is visually seamless, and the real table
+ * head labels (name/size/type/visibility) are static text here too since
+ * they never depend on data.
+ */
+export function renderFilesPlaceholderHtml(rows = 6): string {
+  const widths = ["62%", "48%", "70%", "40%", "55%", "35%"];
+  const rowsHtml = Array.from({ length: rows }, (_, i) => {
+    const w = widths[i % widths.length];
+    return `<div class="wft-row">
+  <span class="wft-name">${skeletonBarHtml(w)}</span>
+  <span class="wft-size">${skeletonBarHtml("32px")}</span>
+  <span class="wft-type">${skeletonBarHtml("28px")}</span>
+  <span class="wft-vis">${skeletonBarHtml("52px")}</span>
+  <span></span>
+</div>`;
+  }).join("");
+  return `<div class="wft" aria-busy="true">
+  <div class="wft-filter">
+    <div class="wft-filterbar input-group">
+      <span class="input-group__field wft-field-skel">${skeletonBarHtml("60%")}</span>
+      <span class="input-group__action wft-field-skel">${skeletonBarHtml("28px")}</span>
+    </div>
+  </div>
+  <div class="wft-sectionhead">
+    <span class="wft-sectionhead__rule wft-sectionhead__rule--lead"></span>
+    <span class="wft-sectionhead__label">files</span>
+    <span class="wft-sectionhead__rule"></span>
+    <span class="wft-sectionhead__count">${skeletonBarHtml("44px")}</span>
+  </div>
+  <div class="wft-grid">
+    <div class="wft-head">
+      <span>name</span>
+      <span class="wft-head__size">size</span>
+      <span class="wft-head__type">type</span>
+      <span>visibility</span>
+      <span></span>
+    </div>
+    ${rowsHtml}
+  </div>
 </div>`;
 }
