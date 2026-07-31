@@ -175,3 +175,37 @@ export async function platformStorage(
     .first<{ workspaces: number; storedBytes: number }>();
   return { workspaces: row?.workspaces ?? 0, storedBytes: row?.storedBytes ?? 0 };
 }
+
+/** One workspace with more than one distinct minting user actively minting tokens. */
+export interface MultiIdentityWorkspace {
+  workspace: string;
+  users: number;
+}
+
+/**
+ * Workspaces whose `auth_tokens` carry two or more distinct non-null
+ * `minting_user_id` values — a revisit trigger for the actor-on-PR gate
+ * (issue #579): once multiple people mint tokens for the same workspace, the
+ * "is the caller the actor" gate starts mattering more than it does for a
+ * single-identity workspace. Read-only; no writes. All tokens count
+ * (revoked/expired included) since the signal is "has this workspace ever
+ * had multiple minters", not "how many active tokens exist right now".
+ */
+export async function multiIdentityWorkspaces(
+  db: D1Database,
+  limit = DEFAULT_LIMIT,
+): Promise<MultiIdentityWorkspace[]> {
+  const result = await db
+    .prepare(
+      `SELECT workspace, COUNT(DISTINCT minting_user_id) AS users
+       FROM auth_tokens
+       WHERE minting_user_id IS NOT NULL
+       GROUP BY workspace
+       HAVING COUNT(DISTINCT minting_user_id) >= 2
+       ORDER BY users DESC, workspace ASC
+       LIMIT ?`,
+    )
+    .bind(limit)
+    .all<MultiIdentityWorkspace>();
+  return result.results;
+}
