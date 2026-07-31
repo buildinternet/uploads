@@ -306,6 +306,15 @@ export function switcherLabel(workspaces: MyWorkspace[], active: string): string
   return match ? displayName(match) : active;
 }
 
+/** Whether the collapsed switcher trigger should show a Pro badge next to
+ * the active workspace name — same rule as the menu row (shouldShowProBadge),
+ * just resolved against whichever workspace is currently active. */
+export function shouldShowTriggerBadge(workspaces: MyWorkspace[], active: string): boolean {
+  if (!active) return false;
+  const match = workspaces.find((ws) => ws.workspace === active);
+  return shouldShowProBadge(match?.plan);
+}
+
 type SwitcherEls = {
   trigger: HTMLButtonElement;
   label: HTMLElement;
@@ -316,6 +325,27 @@ type SwitcherEls = {
 function closeMenu(els: SwitcherEls): void {
   els.trigger.setAttribute("aria-expanded", "false");
   els.menu.hidden = true;
+}
+
+/**
+ * Paint (or remove) the trigger's Pro badge as a sibling element right after
+ * `els.label` — never via innerHTML with the (untrusted) workspace name, so
+ * the label stays a plain textContent write and the badge is its own node.
+ * Re-entrant: repeated calls reuse the existing badge node rather than
+ * creating a new one each paint.
+ */
+function paintTriggerBadge(els: SwitcherEls, workspaces: MyWorkspace[], active: string): void {
+  const existing = els.trigger.querySelector<HTMLElement>("[data-ws-switcher-badge]");
+  if (!shouldShowTriggerBadge(workspaces, active)) {
+    existing?.remove();
+    return;
+  }
+  if (existing) return;
+  const badge = document.createElement("span");
+  badge.dataset.wsSwitcherBadge = "";
+  badge.className = "pro-badge";
+  badge.textContent = "Pro";
+  els.label.insertAdjacentElement("afterend", badge);
 }
 
 function paint(els: SwitcherEls, workspaces: MyWorkspace[], opts: WorkspacesNavOptions): void {
@@ -329,6 +359,7 @@ function paint(els: SwitcherEls, workspaces: MyWorkspace[], opts: WorkspacesNavO
   const activeTab = opts.activeTab || "";
 
   els.label.textContent = switcherLabel(workspaces, active);
+  paintTriggerBadge(els, workspaces, active);
   els.menu.innerHTML = renderSwitcherMenuHtml(workspaces, { active, quota: opts.quota });
 
   if (active) {

@@ -5,6 +5,7 @@
  */
 import WorkspaceLayout from "../../../layouts/WorkspaceLayout.astro";
 import { isBrowseWorkspace } from "../../../lib/workspace-browse-url";
+import { renderFilesPlaceholderHtml } from "../../../lib/workspace-ui";
 
 export const prerender = false;
 
@@ -14,7 +15,12 @@ if (!workspace) return Astro.redirect("/account/workspaces");
 ---
 
 <WorkspaceLayout workspace={workspace}>
-  <div id="ws-files-table"></div>
+  {
+    /* React (dynamic-imported below) replaces this wholesale on mount — it
+      exists only to fill the gap before that import resolves, so it mirrors
+      WorkspaceFileTable's own `info.status === "loading"` render exactly. */
+  }
+  <div id="ws-files-table" set:html={renderFilesPlaceholderHtml()} />
 
   <script>
     import { onAstroPageLoad } from "../../../lib/account-shell";

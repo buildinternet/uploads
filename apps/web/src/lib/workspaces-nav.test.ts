@@ -12,6 +12,7 @@ import {
   renderWorkspaceSectionNavHtml,
   resolveDefaultWorkspace,
   resolveSidebarWorkspace,
+  shouldShowTriggerBadge,
   switcherLabel,
   workspaceTabFromPathname,
   writeCachedActiveWorkspace,
@@ -296,6 +297,24 @@ describe("switcherLabel", () => {
     expect(switcherLabel(sample, "buildinternet")).toBe("buildinternet");
     expect(switcherLabel(sample, "unknown")).toBe("unknown");
     expect(switcherLabel(sample, "")).toBe("workspaces");
+  });
+});
+
+describe("shouldShowTriggerBadge", () => {
+  const withPlans: MyWorkspace[] = [
+    { ...sample[0]!, plan: "pro" },
+    { ...sample[1]!, plan: "free" },
+  ];
+
+  it("shows only for the active workspace's own pro plan", () => {
+    expect(shouldShowTriggerBadge(withPlans, "buildinternet")).toBe(true);
+    expect(shouldShowTriggerBadge(withPlans, "side")).toBe(false);
+  });
+
+  it("is false with no active workspace, an unknown one, or a missing plan", () => {
+    expect(shouldShowTriggerBadge(withPlans, "")).toBe(false);
+    expect(shouldShowTriggerBadge(withPlans, "unknown")).toBe(false);
+    expect(shouldShowTriggerBadge(sample, "buildinternet")).toBe(false);
   });
 });
 

@@ -7,6 +7,7 @@
  */
 import AccountLayout from "../../layouts/AccountLayout.astro";
 import { isBrowseWorkspace } from "../../lib/workspace-browse-url";
+import { renderWorkspacesPlaceholderHtml } from "../../lib/workspace-ui";
 
 export const prerender = false;
 
@@ -31,9 +32,14 @@ if (isBrowseWorkspace(legacyWs)) {
         Choose a workspace, or&#32;<a href="/account/workspaces/new">create one</a>.
       </p>
       <p class="settings-note muted" id="orgs-cap" hidden></p>
-      <div id="orgs-status" class="ws-status muted">Loading…</div>
+      <div id="orgs-status" class="ws-status muted" hidden></div>
       <button id="orgs-retry" type="button" hidden>Try again</button>
-      <ul class="dev-links" id="orgs-list" hidden></ul>
+      <ul
+        class="dev-links"
+        id="orgs-list"
+        aria-busy="true"
+        set:html={renderWorkspacesPlaceholderHtml()}
+      />
     </div>
   </section>
 
@@ -48,7 +54,7 @@ if (isBrowseWorkspace(legacyWs)) {
     } from "../../lib/workspaces-nav";
     import { workspaceCapMessage } from "@uploads/billing";
     import { shouldShowProBadge } from "../../lib/plan-badge";
-    import { escapeHtml } from "../../lib/workspace-ui";
+    import { escapeHtml, renderWorkspacesPlaceholderHtml } from "../../lib/workspace-ui";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("orgs-status")) return;
@@ -67,17 +73,31 @@ if (isBrowseWorkspace(legacyWs)) {
       // renders.
       const managing = isManageRequest(location.search);
 
-      async function loadIndex(): Promise<void> {
-        status.hidden = false;
-        list.hidden = true;
+      function showLoading(): void {
+        status.hidden = true;
         retry.hidden = true;
-        status.textContent = "Loading…";
+        list.hidden = false;
+        list.setAttribute("aria-busy", "true");
+        list.innerHTML = renderWorkspacesPlaceholderHtml();
+      }
+
+      function showListError(message: string, retryable: boolean): void {
+        list.hidden = true;
+        list.removeAttribute("aria-busy");
+        status.hidden = false;
+        status.textContent = message;
+        retry.hidden = !retryable;
+      }
+
+      async function loadIndex(): Promise<void> {
+        showLoading();
 
         const result = await loadWorkspaces(apiOrigin);
         if (result.kind === "unavailable") {
-          status.textContent =
-            "Workspaces are temporarily unavailable. Check the local stack or try again.";
-          retry.hidden = false;
+          showListError(
+            "Workspaces are temporarily unavailable. Check the local stack or try again.",
+            true,
+          );
           return;
         }
 
@@ -94,6 +114,9 @@ if (isBrowseWorkspace(legacyWs)) {
         // No memberships means nothing owned, so the cap can't be reached
         // here — the offer always stands.
         if (!workspaces.length) {
+          list.hidden = true;
+          list.removeAttribute("aria-busy");
+          status.hidden = false;
           status.innerHTML =
             'No workspaces yet — <a href="/account/workspaces/new">create one</a>, or accept an invite.';
           return;
@@ -103,6 +126,9 @@ if (isBrowseWorkspace(legacyWs)) {
           ? null
           : resolveDefaultWorkspace(workspaces, readCachedActiveWorkspace());
         if (open) {
+          list.hidden = true;
+          list.removeAttribute("aria-busy");
+          status.hidden = false;
           status.textContent = "Opening…";
           location.replace(`/account/workspaces/${encodeURIComponent(open)}`);
           return;
@@ -110,6 +136,7 @@ if (isBrowseWorkspace(legacyWs)) {
 
         status.hidden = true;
         list.hidden = false;
+        list.removeAttribute("aria-busy");
         list.innerHTML = workspaces
           .map((ws) => {
             const name = ws.organization.name || ws.workspace;

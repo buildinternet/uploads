@@ -10,7 +10,7 @@
    reserves the track. Shell is left-aligned so the nav does not re-center
    as the viewport grows. */
 .account-shell {
-  --width-shell: 1200px;
+  --width-shell: 1440px;
 }
 .account-shell .shell {
   margin-left: 0;
@@ -103,6 +103,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Trigger's own Pro badge (workspaces-nav.ts paintTriggerBadge) — same
+   `.pro-badge` idiom as the menu rows (account-content.css), but the
+   uppercase/tracked trigger label needs it pinned so ellipsis on a long
+   workspace name can't push it out of view, and a hair smaller so it doesn't
+   compete with the 10.5px label for the trigger's tight height. */
+.account-shell nav.side .ws-switcher .ws-switcher__trigger .pro-badge {
+  flex: none;
+  font-size: 9px;
+  padding: 0 5px;
 }
 /* Visible switcher affordance — boxed chevron, not tiny label-tracking text. */
 .account-shell nav.side .ws-switcher__chevron {

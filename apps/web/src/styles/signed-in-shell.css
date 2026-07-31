@@ -9,7 +9,15 @@
 
      --bp-rail       1080px   Below this the fixed 272px right rail has no
                               room beside the content grid, so it restacks
-                              under the main column (account-shell.css).
+                              under the main column (account-shell.css). This
+                              is a viewport-width pinch point (nav + rail +
+                              gutters is a fixed ~530px overhead regardless of
+                              content), not a function of `--width-shell`
+                              (account-shell.css, 1440px): that variable only
+                              caps how wide the shell grows on viewports
+                              already bigger than it, so raising it widens the
+                              content column above ~1080px without moving
+                              where the rail stops fitting below it.
      --bp-stack       680px   At/below this the nav + layout collapse to a
                               single full-width column (this file +
                               account-shell.css). The mid-width rail tier is

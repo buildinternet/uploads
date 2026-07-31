@@ -1,5 +1,6 @@
 ---
 import AccountLayout from "../../layouts/AccountLayout.astro";
+import { renderDetailListPlaceholderHtml } from "../../lib/workspace-ui";
 
 export const prerender = false;
 ---
@@ -19,8 +20,13 @@ export const prerender = false;
 
     <div class="settings-section">
       <h2>Sign-in methods</h2>
-      <div id="accounts-status" class="muted detail-status">Loading…</div>
-      <ul class="detail-list" id="accounts-list" hidden></ul>
+      <div id="accounts-status" class="muted detail-status" hidden></div>
+      <ul
+        class="detail-list"
+        id="accounts-list"
+        aria-busy="true"
+        set:html={renderDetailListPlaceholderHtml()}
+      />
       <p id="accounts-error" class="detail-error" role="alert" hidden></p>
     </div>
 
@@ -38,8 +44,13 @@ export const prerender = false;
           <button type="button" class="text-btn" id="cli-upgrade-dismiss">Dismiss</button>
         </div>
       </div>
-      <div id="sessions-status" class="muted detail-status">Loading…</div>
-      <ul class="detail-list" id="sessions-list" hidden></ul>
+      <div id="sessions-status" class="muted detail-status" hidden></div>
+      <ul
+        class="detail-list"
+        id="sessions-list"
+        aria-busy="true"
+        set:html={renderDetailListPlaceholderHtml()}
+      />
       <div id="sessions-recover" class="sessions-recover" hidden>
         <p class="muted">Couldn’t load sessions — sign in again to refresh.</p>
         <a class="text-btn" id="sessions-reauth" href="/login">Sign in again</a>
@@ -113,6 +124,7 @@ export const prerender = false;
       resolveUpgradePrompt,
     } from "../../lib/cli-upgrade";
     import { deviceLabel, formatSessionTime, isCliUserAgent } from "../../lib/session-device";
+    import { renderDetailListPlaceholderHtml } from "../../lib/workspace-ui";
 
     onAstroPageLoad(() => {
       if (!document.getElementById("acct-email")) return;
@@ -176,11 +188,15 @@ export const prerender = false;
       async function loadAccounts(): Promise<void> {
         const status = requireElement<HTMLElement>("#accounts-status", "account profile");
         const list = requireElement<HTMLUListElement>("#accounts-list", "account profile");
-        list.hidden = true;
-        showStatus(status, "Loading…");
+        status.hidden = true;
+        list.hidden = false;
+        list.setAttribute("aria-busy", "true");
+        list.innerHTML = renderDetailListPlaceholderHtml();
 
         const accounts = await listAccounts(authOrigin);
         if (accounts === null) {
+          list.hidden = true;
+          list.removeAttribute("aria-busy");
           showStatus(status, "Couldn’t load sign-in methods.");
           return;
         }
@@ -225,6 +241,7 @@ export const prerender = false;
 
         status.hidden = true;
         list.hidden = false;
+        list.removeAttribute("aria-busy");
         list.innerHTML = rows
           .map((row) => {
             const action = row.connectGithub
@@ -290,10 +307,12 @@ export const prerender = false;
         const error = requireElement<HTMLElement>("#sessions-error", "account profile");
         const upgradeBox = requireElement<HTMLElement>("#cli-upgrade", "account profile");
         error.hidden = true;
-        list.hidden = true;
+        status.hidden = true;
+        list.hidden = false;
+        list.setAttribute("aria-busy", "true");
+        list.innerHTML = renderDetailListPlaceholderHtml();
         recover.hidden = true;
         upgradeBox.hidden = true;
-        showStatus(status, "Loading…");
 
         // Point recovery at this page so re-auth lands back on the sessions list.
         reauth.href = `/login?callbackURL=${encodeURIComponent(`${location.origin}/account/profile`)}`;
@@ -309,11 +328,15 @@ export const prerender = false;
         }
 
         if (sessions === null) {
+          list.hidden = true;
+          list.removeAttribute("aria-busy");
           status.hidden = true;
           recover.hidden = false;
           return;
         }
         if (!sessions.length) {
+          list.hidden = true;
+          list.removeAttribute("aria-busy");
           showStatus(status, "No active sessions.");
           return;
         }
@@ -326,6 +349,7 @@ export const prerender = false;
 
         status.hidden = true;
         list.hidden = false;
+        list.removeAttribute("aria-busy");
         list.innerHTML = ordered
           .map((s) => {
             const current = currentToken != null && s.token === currentToken;

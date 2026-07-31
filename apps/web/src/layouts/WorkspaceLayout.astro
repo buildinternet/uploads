@@ -3,6 +3,10 @@
  * Workspace shell: `AccountLayout` + content slot + right-rail summary.
  * Section links live in the sidebar switcher; tab routes only wrap content.
  * Rail data is filled by `initWorkspaceRail` (connected work / usage / details).
+ * The usage section only renders with `showUsage` — billing is the only tab
+ * that sets it, since meters repeated on every tab were pure noise
+ * (issue #365 follow-up). `initWorkspaceRail` tolerates `[data-rail-usage]`
+ * being absent from the DOM on every other tab.
  */
 import { GITHUB_APP_INSTALL_URL } from "../lib/github-app";
 import { renderUsagePlaceholderHtml } from "../lib/workspace-ui";
@@ -11,9 +15,11 @@ import AccountLayout from "./AccountLayout.astro";
 
 interface Props {
   workspace: string;
+  /** Show the rail's usage section. Billing only — see module doc. */
+  showUsage?: boolean;
 }
 
-const { workspace } = Astro.props;
+const { workspace, showUsage = false } = Astro.props;
 
 const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`;
 ---
@@ -31,13 +37,17 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
         <div class="ws-rail__connected-list" data-rail-connected-list></div>
       </section>
 
-      <section class="ws-rail__section">
-        <div class="ws-rail__head">
-          <span class="ws-rail__label">usage</span>
-          <span class="ws-rail__rule"></span>
-        </div>
-        <div class="ws-rail__usage" data-rail-usage set:html={renderUsagePlaceholderHtml()} />
-      </section>
+      {
+        showUsage && (
+          <section class="ws-rail__section">
+            <div class="ws-rail__head">
+              <span class="ws-rail__label">usage</span>
+              <span class="ws-rail__rule" />
+            </div>
+            <div class="ws-rail__usage" data-rail-usage set:html={renderUsagePlaceholderHtml()} />
+          </section>
+        )
+      }
 
       <section class="ws-rail__section">
         <div class="ws-rail__head">

@@ -1005,6 +1005,19 @@ section.card .ws-messages .command {
 .wft-filterbar .input-group__field input {
   font-size: 12.5px;
 }
+/* Loading-skeleton stand-in for the filter input/button (workspace-ui.ts's
+   `renderFilesPlaceholderHtml`, mirrored in WorkspaceFileTable's own loading
+   render): `.input-group__field`/`__action` size themselves from the real
+   `<input>`/`<button>` they normally wrap, so a bare `.ws-skel` bar dropped
+   in without them collapses shorter and the swap to the real toolbar shifts
+   the whole page down. This reproduces just enough of that height. */
+.wft-field-skel {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  min-height: 36px;
+  box-sizing: border-box;
+}
 
 .wft-suggest {
   position: absolute;
