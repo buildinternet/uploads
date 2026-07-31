@@ -362,12 +362,20 @@ function paint(els: SwitcherEls, workspaces: MyWorkspace[], opts: WorkspacesNavO
   paintTriggerBadge(els, workspaces, active);
   els.menu.innerHTML = renderSwitcherMenuHtml(workspaces, { active, quota: opts.quota });
 
+  // The "workspace" eyebrow above the section nav tracks it 1:1. Toggled
+  // here (not via a `:has(+ …:not([hidden]))` rule in account-shell.css)
+  // because Chromium fails to re-resolve that selector when this function
+  // flips the sibling's `hidden` — the rule matches on paper and still
+  // computes `display: none`.
+  const sectionLabel = document.getElementById("workspace-section-label");
   if (active) {
     els.section.hidden = false;
     els.section.innerHTML = renderWorkspaceSectionNavHtml(active, activeTab);
+    if (sectionLabel) sectionLabel.hidden = false;
   } else {
     els.section.hidden = true;
     els.section.innerHTML = "";
+    if (sectionLabel) sectionLabel.hidden = true;
   }
 }
 

@@ -234,20 +234,6 @@
   display: none;
 }
 
-/* The "workspace" eyebrow's visibility tracks its next sibling
-   (#workspace-section-nav) rather than its own `hidden` attribute:
-   workspaces-nav.ts (not editable from here) toggles the nav's `hidden` on
-   session resolve for personal routes with a last-used workspace, and never
-   learned about this label — a forward `:has()` check keeps the two in sync
-   through every render path (SSR, the optimistic boot script, and the real
-   nav module) without touching that file. */
-.account-shell nav.side #workspace-section-label {
-  display: none;
-}
-.account-shell nav.side #workspace-section-label:has(+ #workspace-section-nav:not([hidden])) {
-  display: block;
-}
-
 /* Right rail — always a grid track; content from the `rail` slot. */
 .account-shell aside.rail {
   display: grid;
