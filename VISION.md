@@ -2,8 +2,9 @@
 
 An agent restyles a settings page and captures a before and an after with
 `uploads put` — no PR exists yet, so the files stage against the branch. Three
-commits later a PR opens, already furnished: one attachments comment, the pair
-rendered side by side, every capture from the branch in its place. The reviewer
+commits later a PR opens with screenshots already attached: one attachments
+comment, the pair rendered side by side, every capture from the branch in its
+place. The reviewer
 sees the change before reading a line of the diff.
 
 That is the whole vision, played forward: **when agents do the work, the
@@ -154,8 +155,8 @@ Shipped and running in production: the staging loop, GitHub App promotion,
 before/after pairing, managed-comment self-healing, hosted and local MCP,
 OAuth 2.1, self-serve workspaces, plans and billing, galleries, the screenshot
 renderer, screenshot annotations (`uploads annotate` /
-`screenshot --annotate`), and the agent skills. This repo furnishes its own
-PRs with the tool it ships.
+`screenshot --annotate`), and the agent skills. This repo attaches screenshots
+to its own PRs with the tool it ships.
 
 Under active development, in the open. APIs (including auth) can still change.
 Feedback is welcome — open an issue.
