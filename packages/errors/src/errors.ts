@@ -1,5 +1,5 @@
-import { AppError } from "./base";
-import { type ErrorCodeInput } from "./codes";
+import { AppError } from "./base.ts";
+import { type ErrorCodeInput } from "./codes.ts";
 
 interface SubclassOpts {
   code?: ErrorCodeInput;

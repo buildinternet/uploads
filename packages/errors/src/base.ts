@@ -1,6 +1,6 @@
-import { type ErrorCodeInput } from "./codes";
-import { statusForType, type ErrorType } from "./types";
-import { type ErrorEnvelope } from "./wire";
+import { type ErrorCodeInput } from "./codes.ts";
+import { statusForType, type ErrorType } from "./types.ts";
+import { type ErrorEnvelope } from "./wire.ts";
 
 export const GENERIC_MESSAGE = "Something went wrong.";
 

@@ -3525,6 +3525,19 @@ export interface DoctorReport {
   scopes?: string[];
   /** Workspace/token mismatch warning (also present in hints). */
   warning?: string;
+  /**
+   * Bring-your-own-bucket storage status (issue #583 Phase 3). `GET
+   * /me/workspaces/:name/storage` is session-gated (Better Auth cookie or
+   * bearer via the AUTH service — see `session-auth.ts`); the CLI only ever
+   * holds a minted `up_<workspace>_…` workspace token, never a session
+   * bearer, so doctor cannot reach that route today. Until a token-authed
+   * read path exists, this is an honest "can't check from here" rather than
+   * a fabricated mode.
+   */
+  storage: {
+    checked: false;
+    note: string;
+  };
   hints: string[];
   /** `screenshot`'s local-browser detection (fs scans only — never launches a browser). */
   browser: {
@@ -3668,6 +3681,10 @@ export async function buildDoctorReport(
     usage,
     scopes,
     warning: mismatch,
+    storage: {
+      checked: false,
+      note: "not checked from the CLI — storage settings (shared vs. bring-your-own-bucket) live behind a signed-in session; sign in on the web (Account → workspace → Settings) to view mode and verification status",
+    },
     hints,
     browser,
   };
@@ -3710,6 +3727,7 @@ export async function runDoctor(ctx: CliContext, args: string[], help = false): 
   } else {
     lines.push(`browser:   ${report.browser.note ?? "not supported in this runtime"}`);
   }
+  lines.push(`storage:   ${report.storage.note}`);
   if (report.warning) lines.push(`warning:   ${report.warning}`);
   for (const h of report.hints) if (h !== report.warning) lines.push(`hint:      ${h}`);
   await writeStdout(lines.join("\n") + "\n");

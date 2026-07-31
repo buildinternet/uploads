@@ -53,10 +53,16 @@ import {
   type SessionVars,
 } from "../session-auth";
 import { getWorkspaceUsage } from "../usage";
-import { isPurgedTombstone, loadWorkspaceRecordRaw, type WorkspaceRecord } from "../workspace";
+import {
+  byoBucketAllowed,
+  isPurgedTombstone,
+  loadWorkspaceRecordRaw,
+  type WorkspaceRecord,
+} from "../workspace";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { LIMIT_FIELDS, validateLimitsPatch } from "../workspace-limits";
 import { planResponse, planSourceFor, validatePlanPatch } from "../workspace-plan";
+import { storageStatusResponse } from "./workspace-storage";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BAN_REASON_MAX = 500;
@@ -433,6 +439,47 @@ async function limitsResponse(env: Env, name: string, record: WorkspaceRecord) {
   return { workspace: name, limits, usage };
 }
 
+/**
+ * Response body shared by GET and PATCH /admin-ui/workspaces/:name/storage
+ * (issue #583 Task 3.3). Wraps the same `storageStatusResponse` projection
+ * `GET /me/workspaces/:name/storage` returns (never credential values, only
+ * masked/presence fields — precedent noted on that function) and adds
+ * `configuredBy`: the Better Auth user id that most recently ran the
+ * self-serve save, useful to an operator investigating a workspace but not
+ * something the self-serve UI itself needs to show.
+ */
+function adminStorageResponse(name: string, record: WorkspaceRecord) {
+  return {
+    workspace: name,
+    ...storageStatusResponse(record, byoBucketAllowed(record)),
+    configuredBy: record.storageConfiguredBy ?? null,
+  };
+}
+
+/**
+ * Validates the PATCH body for /admin-ui/workspaces/:name/storage — today
+ * this route only flips the `byoBucketEnabled` gate (workspace.ts's
+ * fail-closed BYO feature switch; issue #583 Task 1.3 notes this is the only
+ * way to turn it on until self-serve opt-in ships). A single required
+ * boolean, same posture as the boolean settings in
+ * `validateGithubCommentSettingsPatch` above — no null-clear needed since
+ * `false` already expresses "off".
+ */
+function validateByoBucketPatch(body: unknown): boolean {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new ValidationError("request body must be a JSON object", {
+      code: "invalid_storage_flag",
+    });
+  }
+  const value = (body as Record<string, unknown>).byoBucketEnabled;
+  if (typeof value !== "boolean") {
+    throw new ValidationError("byoBucketEnabled must be a boolean", {
+      code: "invalid_storage_flag",
+    });
+  }
+  return value;
+}
+
 export const adminUi = new Hono<SessionVars>()
   .use("/*", sessionAuth, requireSessionUser, requireAdminUser)
 
@@ -673,6 +720,44 @@ export const adminUi = new Hono<SessionVars>()
     });
     const subscriptionInfo = await adminSubscriptionInfo(c.env, name, record);
     return c.json({ ...planResponse(name, record), ...subscriptionInfo });
+  })
+
+  // Read the storage mode (shared/BYO), the `byoBucketEnabled` gate, and
+  // configure/verify provenance (issue #583 Task 3.3). Same "presence
+  // booleans/masked values only" posture as `GET /me/workspaces/:name/storage`
+  // — never a credential value — plus `configuredBy` for operator triage.
+  .get("/workspaces/:name/storage", async (c) => {
+    const name = c.req.param("name");
+    const record = await loadEditableWorkspace(c.env, name);
+    return c.json(adminStorageResponse(name, record));
+  })
+
+  // Flip the `byoBucketEnabled` feature gate — the only way a workspace gets
+  // onto the BYO-bucket surface today (workspace.ts's `byoBucketAllowed`
+  // doc comment: no self-serve opt-in exists yet). Same limits/plan PATCH
+  // shape: rate-limited, read-modify-write via `mutateWorkspaceRecord`, 404 on
+  // an unknown/soft-deleted workspace.
+  .patch("/workspaces/:name/storage", async (c) => {
+    const name = c.req.param("name");
+    if (!(await allowWrite(c.env, name))) {
+      throw new RateLimitedError("rate limit exceeded");
+    }
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      throw new ValidationError("request body must be valid JSON", {
+        code: "invalid_storage_flag",
+      });
+    }
+    const byoBucketEnabled = validateByoBucketPatch(body);
+    const record = await mutateWorkspaceRecord(
+      c.env,
+      name,
+      (current) => ({ ...current, byoBucketEnabled }),
+      { requireServing: true },
+    );
+    return c.json(adminStorageResponse(name, record));
   })
 
   // Read the per-workspace managed-comment settings (file-page linking #304,

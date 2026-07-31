@@ -1,5 +1,5 @@
-import { AppError } from "./base";
-import { isErrorEnvelope } from "./wire";
+import { AppError } from "./base.ts";
+import { isErrorEnvelope } from "./wire.ts";
 
 /**
  * Decode an API error body into an AppError. Reconstructs a generic AppError

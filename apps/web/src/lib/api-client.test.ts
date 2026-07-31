@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   deleteWorkspaceFile,
+  deleteWorkspaceStorage,
   getGithubInstalled,
   getMyWorkspaces,
   getSuggestedWorkspaceName,
@@ -8,13 +9,17 @@ import {
   getWorkspaceFacetValues,
   getWorkspaceInvites,
   getWorkspaceMembers,
+  getWorkspaceStorageStatus,
   inviteToWorkspace,
   listWorkspaceFolder,
+  putWorkspaceStorage,
   removeWorkspaceMember,
   revokeWorkspaceInvite,
   searchWorkspaceFiles,
   setFileVisibility,
   updateWorkspaceMemberRole,
+  verifyWorkspaceStorage,
+  type StorageCandidate,
 } from "./api-client";
 
 afterEach(() => {
@@ -900,5 +905,292 @@ describe("getSuggestedWorkspaceName", () => {
       }),
     );
     expect(await getSuggestedWorkspaceName("http://127.0.0.1:8787")).toBe("");
+  });
+});
+
+const CANDIDATE: StorageCandidate = {
+  bucket: "my-bucket",
+  accountId: "a".repeat(32),
+  accessKeyId: "AKIA1234",
+  secretAccessKey: "shh",
+};
+
+describe("getWorkspaceStorageStatus", () => {
+  it("GETs with credentials and returns the shared/byo status", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/storage");
+      expect(init?.credentials).toBe("include");
+      return Response.json({
+        mode: "shared",
+        byoBucketEnabled: true,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getWorkspaceStorageStatus("http://127.0.0.1:8787", "acme")).resolves.toEqual({
+      kind: "ok",
+      status: { mode: "shared", byoBucketEnabled: true },
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("parses the full byo-mode projection", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          mode: "byo",
+          byoBucketEnabled: true,
+          bucket: "my-bucket",
+          accountIdMasked: "…cdef",
+          accessKeyIdLast4: "1234",
+          publicBaseUrl: "https://media.example.com",
+          configuredAt: "2026-07-01T00:00:00.000Z",
+          verifiedAt: "2026-07-01T00:00:00.000Z",
+        }),
+      ),
+    );
+
+    const result = await getWorkspaceStorageStatus("http://127.0.0.1:8787", "acme");
+    expect(result).toEqual({
+      kind: "ok",
+      status: {
+        mode: "byo",
+        byoBucketEnabled: true,
+        bucket: "my-bucket",
+        accountIdMasked: "…cdef",
+        accessKeyIdLast4: "1234",
+        publicBaseUrl: "https://media.example.com",
+        configuredAt: "2026-07-01T00:00:00.000Z",
+        verifiedAt: "2026-07-01T00:00:00.000Z",
+      },
+    });
+  });
+
+  it("reports 403 as forbidden — non-admin members get no panel at all", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 403 })),
+    );
+    await expect(getWorkspaceStorageStatus("http://127.0.0.1:8787", "acme")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "forbidden",
+    });
+  });
+
+  it("reports 404 as not_found", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    await expect(getWorkspaceStorageStatus("http://127.0.0.1:8787", "acme")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "not_found",
+    });
+  });
+
+  it("reports a malformed body as unavailable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ nope: true })),
+    );
+    await expect(getWorkspaceStorageStatus("http://127.0.0.1:8787", "acme")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "server",
+    });
+  });
+
+  it("propagates network failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new TypeError("network down"))),
+    );
+    await expect(getWorkspaceStorageStatus("http://127.0.0.1:8787", "acme")).resolves.toEqual({
+      kind: "unavailable",
+      reason: "network",
+    });
+  });
+});
+
+describe("verifyWorkspaceStorage", () => {
+  it("POSTs the candidate and returns the check list", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/storage/verify");
+      expect(init?.method).toBe("POST");
+      expect(init?.credentials).toBe("include");
+      expect(JSON.parse(init!.body as string)).toEqual(CANDIDATE);
+      return Response.json({
+        ok: false,
+        checks: [
+          { id: "shape", ok: true, required: true },
+          { id: "auth", ok: false, required: true, hint: "check your keys" },
+          { id: "public-url", ok: false, required: false, hint: "r2.dev is not supported" },
+        ],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      verifyWorkspaceStorage("http://127.0.0.1:8787", "acme", CANDIDATE),
+    ).resolves.toEqual({
+      kind: "ok",
+      result: {
+        ok: false,
+        checks: [
+          { id: "shape", ok: true, required: true },
+          { id: "auth", ok: false, required: true, hint: "check your keys" },
+          { id: "public-url", ok: false, required: false, hint: "r2.dev is not supported" },
+        ],
+      },
+    });
+  });
+
+  it("reports 403 as forbidden — byo_bucket_disabled", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 403 })),
+    );
+    await expect(
+      verifyWorkspaceStorage("http://127.0.0.1:8787", "acme", CANDIDATE),
+    ).resolves.toEqual({ kind: "unavailable", reason: "forbidden" });
+  });
+
+  it("propagates network failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Promise.reject(new TypeError("network down"))),
+    );
+    await expect(
+      verifyWorkspaceStorage("http://127.0.0.1:8787", "acme", CANDIDATE),
+    ).resolves.toEqual({ kind: "unavailable", reason: "network" });
+  });
+});
+
+describe("putWorkspaceStorage", () => {
+  it("PUTs the candidate and returns the resulting status on success", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/storage");
+      expect(init?.method).toBe("PUT");
+      expect(init?.credentials).toBe("include");
+      expect(JSON.parse(init!.body as string)).toEqual(CANDIDATE);
+      return Response.json({
+        mode: "byo",
+        byoBucketEnabled: true,
+        bucket: "my-bucket",
+        accessKeyIdLast4: "1234",
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(putWorkspaceStorage("http://127.0.0.1:8787", "acme", CANDIDATE)).resolves.toEqual({
+      kind: "ok",
+      status: {
+        mode: "byo",
+        byoBucketEnabled: true,
+        bucket: "my-bucket",
+        accessKeyIdLast4: "1234",
+      },
+    });
+  });
+
+  it("surfaces a 422 verify failure as the invalid checklist", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { ok: false, checks: [{ id: "auth", ok: false, required: true, hint: "bad keys" }] },
+          { status: 422 },
+        ),
+      ),
+    );
+
+    await expect(putWorkspaceStorage("http://127.0.0.1:8787", "acme", CANDIDATE)).resolves.toEqual({
+      kind: "invalid",
+      result: { ok: false, checks: [{ id: "auth", ok: false, required: true, hint: "bad keys" }] },
+    });
+  });
+
+  it("surfaces a 409 conflict message verbatim", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: {
+              message: "this workspace already has files",
+              code: "workspace_storage_not_empty",
+            },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+
+    await expect(putWorkspaceStorage("http://127.0.0.1:8787", "acme", CANDIDATE)).resolves.toEqual({
+      kind: "conflict",
+      message: "this workspace already has files",
+    });
+  });
+
+  it("reports 403 as forbidden", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 403 })),
+    );
+    await expect(putWorkspaceStorage("http://127.0.0.1:8787", "acme", CANDIDATE)).resolves.toEqual({
+      kind: "unavailable",
+      reason: "forbidden",
+    });
+  });
+});
+
+describe("deleteWorkspaceStorage", () => {
+  it("DELETEs without force by default", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/storage");
+      expect(init?.method).toBe("DELETE");
+      expect(init?.credentials).toBe("include");
+      return Response.json({ mode: "shared", byoBucketEnabled: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(deleteWorkspaceStorage("http://127.0.0.1:8787", "acme")).resolves.toEqual({
+      kind: "ok",
+      status: { mode: "shared", byoBucketEnabled: true },
+    });
+  });
+
+  it("appends ?force=true when force is requested", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/storage?force=true");
+      return Response.json({ mode: "shared", byoBucketEnabled: true });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await deleteWorkspaceStorage("http://127.0.0.1:8787", "acme", { force: true });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces a 409 conflict message verbatim", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            error: {
+              message:
+                "this workspace still has files on its BYO bucket — pass force to detach anyway",
+              code: "workspace_storage_not_empty",
+            },
+          },
+          { status: 409 },
+        ),
+      ),
+    );
+
+    await expect(deleteWorkspaceStorage("http://127.0.0.1:8787", "acme")).resolves.toEqual({
+      kind: "conflict",
+      message: "this workspace still has files on its BYO bucket — pass force to detach anyway",
+    });
   });
 });

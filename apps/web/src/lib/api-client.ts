@@ -1266,3 +1266,248 @@ export async function getWorkspaceCommentPreview(
     },
   };
 }
+
+/**
+ * Self-serve BYO R2 bucket (issue #583 Phase 2). Mirrors the
+ * comment-settings pair above: `credentials: "include"`, 403/404 collapsed
+ * to `"forbidden"`/`"not_found"` `unavailable` reasons, 400 messages
+ * surfaced verbatim from `error.message`. Backed by
+ * `storageStatusResponse`/`StorageVerifyResult` in
+ * `apps/api/src/routes/workspace-storage.ts` — field names match exactly.
+ */
+export interface WorkspaceStorageStatus {
+  mode: "shared" | "byo";
+  byoBucketEnabled: boolean;
+  bucket?: string;
+  accountIdMasked?: string;
+  accessKeyIdLast4?: string;
+  publicBaseUrl?: string;
+  configuredAt?: string;
+  verifiedAt?: string;
+}
+
+function toWorkspaceStorageStatus(body: unknown): WorkspaceStorageStatus | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as Record<string, unknown>;
+  if (b.mode !== "shared" && b.mode !== "byo") return null;
+  return {
+    mode: b.mode,
+    byoBucketEnabled: b.byoBucketEnabled === true,
+    bucket: typeof b.bucket === "string" ? b.bucket : undefined,
+    accountIdMasked: typeof b.accountIdMasked === "string" ? b.accountIdMasked : undefined,
+    accessKeyIdLast4: typeof b.accessKeyIdLast4 === "string" ? b.accessKeyIdLast4 : undefined,
+    publicBaseUrl: typeof b.publicBaseUrl === "string" ? b.publicBaseUrl : undefined,
+    configuredAt: typeof b.configuredAt === "string" ? b.configuredAt : undefined,
+    verifiedAt: typeof b.verifiedAt === "string" ? b.verifiedAt : undefined,
+  };
+}
+
+export type WorkspaceStorageStatusResult =
+  | { kind: "ok"; status: WorkspaceStorageStatus }
+  | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
+
+/**
+ * GET /me/workspaces/:name/storage — admin/owner only, but readable
+ * regardless of `byoBucketEnabled` so the settings panel can decide whether
+ * to reveal itself at all (mirrors `loadCommentSettings`'s
+ * hidden-until-`ok` convention in settings.astro).
+ */
+export async function getWorkspaceStorageStatus(
+  apiOrigin: string,
+  name: string,
+): Promise<WorkspaceStorageStatusResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/storage`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const status = toWorkspaceStorageStatus(await response.json().catch(() => null));
+  if (!status) return { kind: "unavailable", reason: "server" };
+  return { kind: "ok", status };
+}
+
+export interface StorageVerifyCheck {
+  /** Stable check id — `"shape" | "auth" | "round-trip" | "not-empty" | "public-url"`. */
+  id: string;
+  ok: boolean;
+  /** Required checks gate `ok`; recommended (e.g. `public-url`) only ever warn. */
+  required: boolean;
+  /** Human remediation text, present when `ok` is false. Surfaced verbatim. */
+  hint?: string;
+}
+
+export interface StorageVerifyResult {
+  /** True only when every required check passed. */
+  ok: boolean;
+  checks: StorageVerifyCheck[];
+}
+
+function toStorageVerifyResult(body: unknown): StorageVerifyResult | null {
+  if (!body || typeof body !== "object") return null;
+  const b = body as Record<string, unknown>;
+  if (typeof b.ok !== "boolean" || !Array.isArray(b.checks)) return null;
+  const checks = b.checks.flatMap((c): StorageVerifyCheck[] => {
+    if (!c || typeof c !== "object") return [];
+    const check = c as Record<string, unknown>;
+    if (
+      typeof check.id !== "string" ||
+      typeof check.ok !== "boolean" ||
+      typeof check.required !== "boolean"
+    ) {
+      return [];
+    }
+    return [
+      {
+        id: check.id,
+        ok: check.ok,
+        required: check.required,
+        // Normalized rather than passed through: a non-string hint would
+        // reach the checklist renderer typed as string.
+        hint: typeof check.hint === "string" ? check.hint : undefined,
+      },
+    ];
+  });
+  return { ok: b.ok, checks };
+}
+
+/** Candidate config the wizard is trying to attach — never saved until a PUT. */
+export interface StorageCandidate {
+  bucket: string;
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  publicBaseUrl?: string;
+  adoptExistingContents?: boolean;
+}
+
+export type StorageVerifyApiResult =
+  | { kind: "ok"; result: StorageVerifyResult }
+  | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
+
+/**
+ * POST /me/workspaces/:name/storage/verify — runs the server-side probe
+ * pipeline against `candidate` without persisting anything (step 3 of the
+ * connect wizard). 403 means `byoBucketEnabled` is off for this workspace.
+ */
+export async function verifyWorkspaceStorage(
+  apiOrigin: string,
+  name: string,
+  candidate: StorageCandidate,
+): Promise<StorageVerifyApiResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/storage/verify`,
+    {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(candidate),
+    },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const verify = toStorageVerifyResult(await response.json().catch(() => null));
+  if (!verify) return { kind: "unavailable", reason: "server" };
+  return { kind: "ok", result: verify };
+}
+
+export type StorageSaveResult =
+  | { kind: "ok"; status: WorkspaceStorageStatus }
+  /** 422 — the server re-ran verify and it failed; render the same checklist. */
+  | { kind: "invalid"; result: StorageVerifyResult }
+  /** 409 `workspace_storage_not_empty` — message surfaced verbatim. */
+  | { kind: "conflict"; message: string }
+  | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
+
+/**
+ * PUT /me/workspaces/:name/storage — attach or rotate a BYO config. The
+ * server re-verifies `candidate` itself (never trusts a client-side
+ * "verified" claim), so a 422 here carries a fresh `StorageVerifyResult`
+ * the wizard can render exactly like the standalone verify call's.
+ */
+export async function putWorkspaceStorage(
+  apiOrigin: string,
+  name: string,
+  candidate: StorageCandidate,
+): Promise<StorageSaveResult> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/storage`,
+    {
+      method: "PUT",
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(candidate),
+    },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 422) {
+    const verify = toStorageVerifyResult(await response.json().catch(() => null));
+    if (verify) return { kind: "invalid", result: verify };
+    return { kind: "unavailable", reason: "server" };
+  }
+  if (response.status === 409) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    return {
+      kind: "conflict",
+      message: body?.error?.message ?? "This workspace already has files.",
+    };
+  }
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const status = toWorkspaceStorageStatus(await response.json().catch(() => null));
+  if (!status) return { kind: "unavailable", reason: "server" };
+  return { kind: "ok", status };
+}
+
+export type StorageDetachResult =
+  | { kind: "ok"; status: WorkspaceStorageStatus }
+  /** 409 `workspace_storage_not_empty` — message surfaced verbatim. */
+  | { kind: "conflict"; message: string }
+  | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
+
+/**
+ * DELETE /me/workspaces/:name/storage — detach BYO storage and restore
+ * shared-bucket defaults. `force: true` bypasses the empty-bucket guard
+ * (caller must have already confirmed with the user — never touches the
+ * customer's bucket or its objects either way).
+ */
+export async function deleteWorkspaceStorage(
+  apiOrigin: string,
+  name: string,
+  opts: { force?: boolean } = {},
+): Promise<StorageDetachResult> {
+  const qs = opts.force ? "?force=true" : "";
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/storage${qs}`,
+    { method: "DELETE", credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (response.status === 409) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    return {
+      kind: "conflict",
+      message: body?.error?.message ?? "This workspace still has files on its BYO bucket.",
+    };
+  }
+  if (response.status === 403) return { kind: "unavailable", reason: "forbidden" };
+  if (response.status === 404) return { kind: "unavailable", reason: "not_found" };
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const status = toWorkspaceStorageStatus(await response.json().catch(() => null));
+  if (!status) return { kind: "unavailable", reason: "server" };
+  return { kind: "ok", status };
+}

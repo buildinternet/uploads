@@ -61,6 +61,17 @@ describe("buildDoctorReport token scopes", () => {
   });
 });
 
+describe("buildDoctorReport storage section", () => {
+  it("honestly reports it can't check storage settings from a workspace token", async () => {
+    // GET /me/workspaces/:name/storage is session-gated (Better Auth cookie
+    // or bearer); the CLI only ever holds a minted up_<workspace>_… token,
+    // so doctor must not fabricate a shared/byo mode it can't verify.
+    const report = await buildDoctorReport(fakeConfig(), fakeClient());
+    expect(report.storage.checked).toBe(false);
+    expect(report.storage.note).toMatch(/sign in on the web/);
+  });
+});
+
 describe("buildDoctorReport browser section", () => {
   it("reports a browser section (fs scans only — never launches a browser)", async () => {
     const report = await buildDoctorReport(fakeConfig(), fakeClient());

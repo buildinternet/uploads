@@ -836,6 +836,191 @@ describe("workspace plan editing", () => {
   });
 });
 
+describe("workspace storage admin panel (issue #583 Task 3.3)", () => {
+  function storageEnv(user: typeof ADMIN_USER | null, record: Record<string, unknown> | null) {
+    const registry = fakeRegistry(record ? { acme: record } : {});
+    const store = registry.store;
+    const base = stubEnv(user, () => new Response(null, { status: 404 }));
+    const env = {
+      ...base,
+      REGISTRY: registry,
+    } as unknown as Env;
+    return { env, store };
+  }
+
+  const SHARED_REC = {
+    provider: "r2",
+    bucket: "uploads-default",
+    prefix: "acme/",
+  };
+
+  const BYO_REC = {
+    accountId: "acct123",
+    bucket: "customer-bucket",
+    accessKeyId: "enc:v1:sealed",
+    secretAccessKey: "enc:v1:sealed",
+    publicBaseUrl: "https://files.example.com",
+    byoBucketEnabled: true,
+    storageConfiguredAt: "2026-07-20T00:00:00.000Z",
+    storageVerifiedAt: "2026-07-21T00:00:00.000Z",
+    storageConfiguredBy: "u-owner",
+    storageAccessKeyIdLast4: "abcd",
+  };
+
+  it("GET reports shared mode with no credential values for a shared-bucket workspace", async () => {
+    const { env } = storageEnv(ADMIN_USER, SHARED_REC);
+    const res = await app().request("/admin-ui/workspaces/acme/storage", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      workspace: "acme",
+      mode: "shared",
+      byoBucketEnabled: false,
+      bucket: "uploads-default",
+      publicBaseUrl: undefined,
+      accountIdMasked: undefined,
+      accessKeyIdLast4: undefined,
+      configuredAt: undefined,
+      verifiedAt: undefined,
+      configuredBy: null,
+    });
+  });
+
+  it("GET reports byo mode, masked provenance, and configuredBy for a BYO workspace — never a credential value", async () => {
+    const { env } = storageEnv(ADMIN_USER, BYO_REC);
+    const res = await app().request("/admin-ui/workspaces/acme/storage", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      workspace: "acme",
+      mode: "byo",
+      byoBucketEnabled: true,
+      bucket: "customer-bucket",
+      publicBaseUrl: "https://files.example.com",
+      accountIdMasked: "…t123",
+      accessKeyIdLast4: "abcd",
+      configuredAt: "2026-07-20T00:00:00.000Z",
+      verifiedAt: "2026-07-21T00:00:00.000Z",
+      configuredBy: "u-owner",
+    });
+    // The sealed credential blobs themselves never appear anywhere in the body.
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain("enc:v1:sealed");
+  });
+
+  it("PATCH flips byoBucketEnabled on, written through mutateWorkspaceRecord", async () => {
+    const { env, store } = storageEnv(ADMIN_USER, SHARED_REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/storage",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ byoBucketEnabled: true }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { byoBucketEnabled: boolean }).byoBucketEnabled).toBe(true);
+    const saved = JSON.parse(store.get("ws:acme")!);
+    expect(saved.byoBucketEnabled).toBe(true);
+    // Written through mutateWorkspaceRecord (issue #387), not a bare put.
+    expect(saved.version).toBe(1);
+  });
+
+  it("PATCH flips byoBucketEnabled off, preserving other fields", async () => {
+    const { env, store } = storageEnv(ADMIN_USER, BYO_REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/storage",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ byoBucketEnabled: false }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const saved = JSON.parse(store.get("ws:acme")!);
+    expect(saved.byoBucketEnabled).toBe(false);
+    expect(saved.bucket).toBe("customer-bucket"); // preserved
+    expect(saved.storageConfiguredBy).toBe("u-owner"); // preserved
+  });
+
+  it("PATCH 400s on a non-boolean value", async () => {
+    const { env } = storageEnv(ADMIN_USER, SHARED_REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/storage",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ byoBucketEnabled: "yes" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    const payload = (await res.json()) as { error?: { code?: string } };
+    expect(payload.error?.code).toBe("invalid_storage_flag");
+  });
+
+  it("PATCH 400s on malformed JSON (not a silent no-op)", async () => {
+    const { env, store } = storageEnv(ADMIN_USER, SHARED_REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/storage",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: "{ not valid json",
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(store.get("ws:acme")).toBe(JSON.stringify(SHARED_REC));
+  });
+
+  it("GET 404s for an unknown workspace", async () => {
+    const { env } = storageEnv(ADMIN_USER, null);
+    const res = await app().request("/admin-ui/workspaces/acme/storage", {}, env);
+    expect(res.status).toBe(404);
+  });
+
+  it("GET 404s for a soft-deleted workspace", async () => {
+    const { env } = storageEnv(ADMIN_USER, {
+      ...SHARED_REC,
+      deletedAt: "2026-07-01T00:00:00.000Z",
+    });
+    const res = await app().request("/admin-ui/workspaces/acme/storage", {}, env);
+    expect(res.status).toBe(404);
+  });
+
+  it("403s for a non-admin session", async () => {
+    const { env } = storageEnv(NON_ADMIN_USER, SHARED_REC);
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/storage",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ byoBucketEnabled: true }),
+      },
+      env,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("PATCH 429s when the per-workspace write budget is exhausted", async () => {
+    const { env } = storageEnv(ADMIN_USER, SHARED_REC);
+    (env as Env & { WRITE_LIMITER: { limit: () => Promise<{ success: boolean }> } }).WRITE_LIMITER =
+      { limit: async () => ({ success: false }) };
+    const res = await app().request(
+      "/admin-ui/workspaces/acme/storage",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ byoBucketEnabled: true }),
+      },
+      env,
+    );
+    expect(res.status).toBe(429);
+  });
+});
+
 describe("workspace github-comment settings editing", () => {
   /** Env with a mutable ws:acme record and a session user (no usage needed). */
   function settingsEnv(user: typeof ADMIN_USER | null, record: Record<string, unknown> | null) {

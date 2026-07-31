@@ -1,4 +1,4 @@
-import { ERROR_TYPES, type ErrorType } from "./types";
+import { ERROR_TYPES, type ErrorType } from "./types.ts";
 
 /**
  * The single on-the-wire error shape (nested `error`, Stripe-style).
