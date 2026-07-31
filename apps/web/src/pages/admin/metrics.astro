@@ -7,8 +7,32 @@
  */
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import "../../styles/admin-metrics.css";
+import { renderAdminTableSkeletonRowsHtml } from "../../lib/admin-ui";
 
 export const prerender = false;
+
+// Skeleton rows reserve close-to-real table height before the first
+// `/admin-ui/metrics/overview` response lands (issue #586) — see
+// `renderAdminTableSkeletonRowsHtml`'s doc comment for the swap-in-place
+// contract. Column widths are eyeballed against typical values, not exact:
+// the goal is "close to loaded height", not pixel parity.
+const workspaceActivitySkeleton = renderAdminTableSkeletonRowsHtml(
+  [
+    { width: "92px" },
+    { width: "34px", num: true },
+    { width: "58px", num: true },
+    { width: "76px" },
+  ],
+  5,
+);
+const multiIdentitySkeleton = renderAdminTableSkeletonRowsHtml(
+  [{ width: "108px" }, { width: "26px", num: true }],
+  2,
+);
+const breakdownSkeleton = renderAdminTableSkeletonRowsHtml(
+  [{ width: "96px" }, { width: "34px", num: true }, { width: "58px", num: true }],
+  5,
+);
 ---
 
 <AdminLayout section="metrics">
@@ -60,18 +84,36 @@ export const prerender = false;
 
       <section class="metrics-section">
         <h3>Uploads per day</h3>
-        <div id="chart-uploads"></div>
+        <div id="chart-uploads" aria-busy="true">
+          <div class="metrics-chart-skeleton" aria-hidden="true"></div>
+        </div>
       </section>
 
       <section class="metrics-section">
         <h3>Signups per day</h3>
-        <div id="chart-signups"></div>
+        <div id="chart-signups" aria-busy="true">
+          <div class="metrics-chart-skeleton" aria-hidden="true"></div>
+        </div>
       </section>
 
       <section class="metrics-section">
         <h3>Workspace activity</h3>
         <div class="metrics-table-wrap">
-          <table class="admin-table" id="workspace-activity" aria-label="Workspace activity">
+          <table
+            class="admin-table"
+            id="workspace-activity"
+            aria-label="Workspace activity"
+            aria-busy="true"
+          >
+            <thead>
+              <tr>
+                <th class="keep" scope="col">Workspace</th>
+                <th class="keep num" scope="col">Uploads</th>
+                <th class="keep num" scope="col">Bytes</th>
+                <th class="keep" scope="col">Last active</th>
+              </tr>
+            </thead>
+            <tbody set:html={workspaceActivitySkeleton} />
           </table>
         </div>
       </section>
@@ -110,7 +152,15 @@ export const prerender = false;
             class="admin-table"
             id="multi-identity-table"
             aria-label="Multi-identity workspaces"
+            aria-busy="true"
           >
+            <thead>
+              <tr>
+                <th class="keep" scope="col">Workspace</th>
+                <th class="keep num" scope="col">Distinct minters</th>
+              </tr>
+            </thead>
+            <tbody set:html={multiIdentitySkeleton} />
           </table>
         </div>
       </section>
@@ -127,7 +177,21 @@ export const prerender = false;
         </select>
         <div id="breakdown-status" class="admin-status" role="status" hidden></div>
         <div class="metrics-table-wrap">
-          <table class="admin-table" id="breakdown-table" aria-label="Upload breakdown"></table>
+          <table
+            class="admin-table"
+            id="breakdown-table"
+            aria-label="Upload breakdown"
+            aria-busy="true"
+          >
+            <thead>
+              <tr>
+                <th class="keep" scope="col">Value</th>
+                <th class="keep num" scope="col">Uploads</th>
+                <th class="keep num" scope="col">Bytes</th>
+              </tr>
+            </thead>
+            <tbody set:html={breakdownSkeleton} />
+          </table>
         </div>
       </section>
     </div>
@@ -304,6 +368,11 @@ export const prerender = false;
       ): void {
         const container = document.getElementById(elementId);
         if (!container) return;
+        // The container's own `aspect-ratio: 480 / 200` (admin-metrics.css)
+        // reserves the same box for the skeleton, the "No data yet." message,
+        // and the chart below — clearing aria-busy here (not per-branch)
+        // keeps that in one place.
+        container.removeAttribute("aria-busy");
         if (!points.length) {
           container.innerHTML = `<p class="muted">No data yet.</p>`;
           return;
@@ -508,6 +577,11 @@ export const prerender = false;
           tile(id, num(overview.features[key] ?? 0));
         }
 
+        // The <thead> is now static server HTML (issue #586) — only the
+        // <tbody> is swapped, in place, from its skeleton rows
+        // (`renderAdminTableSkeletonRowsHtml` in the frontmatter) to real
+        // ones, so a window-selector refetch never drops or re-adds the
+        // header.
         const table = requireElement<HTMLElement>("#workspace-activity", "admin metrics");
         // tr.admin-row: .admin-table's cell padding/border rules are scoped
         // to tr.admin-row (see admin.css) — a bare <tr> falls through to
@@ -521,14 +595,9 @@ export const prerender = false;
               )
               .join("")
           : `<tr class="admin-row"><td colspan="4" class="muted">No workspace activity in this window.</td></tr>`;
-        // th.keep: this table is only 4 narrow columns, so all of them stay
-        // visible at the .admin-table mobile breakpoint instead of the
-        // wider workspaces table's "hide the optional ones" collapse — a
-        // bare `th` (no `keep`) is dropped there, which would leave the
-        // data row without column labels.
-        table.innerHTML =
-          `<thead><tr><th class="keep" scope="col">Workspace</th><th class="keep num" scope="col">Uploads</th><th class="keep num" scope="col">Bytes</th><th class="keep" scope="col">Last active</th></tr></thead>` +
-          `<tbody>${rows}</tbody>`;
+        const tableBody = table.querySelector<HTMLElement>("tbody");
+        if (tableBody) tableBody.innerHTML = rows;
+        table.removeAttribute("aria-busy");
 
         const multiIdentityTable = requireElement<HTMLElement>(
           "#multi-identity-table",
@@ -542,9 +611,9 @@ export const prerender = false;
               )
               .join("")
           : `<tr class="admin-row"><td colspan="2" class="muted">No multi-identity workspaces yet.</td></tr>`;
-        multiIdentityTable.innerHTML =
-          `<thead><tr><th class="keep" scope="col">Workspace</th><th class="keep num" scope="col">Distinct minters</th></tr></thead>` +
-          `<tbody>${multiIdentityRows}</tbody>`;
+        const multiIdentityBody = multiIdentityTable.querySelector<HTMLElement>("tbody");
+        if (multiIdentityBody) multiIdentityBody.innerHTML = multiIdentityRows;
+        multiIdentityTable.removeAttribute("aria-busy");
 
         drawChart(
           "chart-uploads",
@@ -590,8 +659,10 @@ export const prerender = false;
             | { available: true; rows: { value: string; events: number; bytes: number }[] }
             | { available: false; reason: string };
           if (seq !== breakdownSeq) return;
+          const tableBody = table.querySelector<HTMLElement>("tbody");
           if (!body.available) {
-            table.innerHTML = "";
+            if (tableBody) tableBody.innerHTML = "";
+            table.removeAttribute("aria-busy");
             panelStatus.hidden = false;
             panelStatus.textContent =
               body.reason === "not_configured"
@@ -606,18 +677,27 @@ export const prerender = false;
           // requests, so escapeHtml is load-bearing here, not decorative.
           // The numeric columns are typed `number` but arrive as untyped
           // JSON from an external API, so they are coerced rather than
-          // trusted.
-          table.innerHTML =
-            `<thead><tr><th class="keep" scope="col">Value</th><th class="keep num" scope="col">Uploads</th><th class="keep num" scope="col">Bytes</th></tr></thead><tbody>` +
-            body.rows
+          // trusted. Only the <tbody> is swapped — the <thead> is static
+          // server HTML (issue #586), same convention as the workspace
+          // activity and multi-identity tables above.
+          if (tableBody) {
+            tableBody.innerHTML = body.rows
               .map(
                 (row) =>
                   `<tr class="admin-row"><td>${escapeHtml(row.value || "(none)")}</td><td class="num">${num(row.events)}</td><td class="num">${bytes(row.bytes)}</td></tr>`,
               )
-              .join("") +
-            `</tbody>`;
+              .join("");
+          }
+          table.removeAttribute("aria-busy");
         } catch {
           if (seq !== breakdownSeq) return;
+          // Leave the table's current content (skeleton on first load, prior
+          // rows on a dimension/window refetch) rather than clearing it —
+          // clearing here would itself introduce the collapse-on-refetch
+          // this change exists to avoid. aria-busy comes off either way: the
+          // skeleton's implicit "still loading" state no longer applies once
+          // the request has failed.
+          table.removeAttribute("aria-busy");
           panelStatus.hidden = false;
           panelStatus.textContent = "Breakdown is temporarily unavailable.";
         }

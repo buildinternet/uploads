@@ -82,8 +82,42 @@
   color: var(--fg);
 }
 
+/*
+ * Progressive loading (issue #586), following the three-tier pattern PR #526
+ * shipped for /account: static chrome up front (the section heading and, for
+ * tables, the `<thead>`, both now server-rendered), then a skeleton reserving
+ * the real content's footprint until data lands.
+ *
+ * The chart containers (#chart-uploads / #chart-signups) fix `aspect-ratio`
+ * to the SVG's own `viewBox` ratio (480 / 200, see the `drawChart` script)
+ * so the box is the same size whether it holds the skeleton, the rendered
+ * chart, or the "No data yet." empty state — swapping `innerHTML` never
+ * changes the container's own size, so there is nothing to shift.
+ */
 .metrics-chart-wrap {
   position: relative;
+}
+
+#chart-uploads,
+#chart-signups {
+  aspect-ratio: 480 / 200;
+}
+
+/* Centers the "No data yet." message in the same reserved box, rather than
+   letting a lone <p> collapse to its line height. */
+#chart-uploads:has(> p.muted),
+#chart-signups:has(> p.muted) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.metrics-chart-skeleton {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--panel);
 }
 
 .metrics-chart {
