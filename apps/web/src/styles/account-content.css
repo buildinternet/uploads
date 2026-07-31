@@ -537,6 +537,21 @@ button.text-btn:disabled {
   opacity: 0.55;
   cursor: default;
 }
+/* Boxed variant — visible border at rest, for actions that must read as a
+   button without hover discovery (e.g. the sign-in-methods Connect, whose
+   row deliberately has no state badge to carry that weight). */
+a.text-btn--boxed,
+button.text-btn--boxed {
+  border-color: var(--line);
+  color: var(--fg);
+}
+a.text-btn--boxed:hover,
+a.text-btn--boxed:focus-visible,
+button.text-btn--boxed:hover,
+button.text-btn--boxed:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 ul.detail-list .detail-meta {
   color: var(--muted);
   font-size: 11px;

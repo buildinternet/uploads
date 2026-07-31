@@ -246,12 +246,12 @@ export const prerender = false;
           .map((row) => {
             const action = row.connectGithub
               ? `<div class="detail-action">
-                <button type="button" class="text-btn" data-connect-github>Connect</button>
+                <button type="button" class="text-btn text-btn--boxed" data-connect-github>Connect</button>
               </div>`
               : "";
-            const badge = row.ok
-              ? `<span class="ul-badge ul-badge--ok">Connected</span>`
-              : `<span class="ul-badge">Not connected</span>`;
+            // Unconnected rows carry no badge: the meta line already says
+            // "Not connected", and the boxed Connect button is the state cue.
+            const badge = row.ok ? `<span class="ul-badge ul-badge--ok">Connected</span>` : "";
             return `<li>
             <div class="detail-main">
               <div class="detail-title">
