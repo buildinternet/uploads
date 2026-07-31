@@ -99,6 +99,22 @@ export const prerender = false;
         </dl>
       </section>
 
+      <section class="metrics-section" id="multi-identity-panel">
+        <h3>Multi-identity workspaces</h3>
+        <p class="admin-hint">
+          Workspaces with two or more people minting tokens — a revisit trigger for the actor-on-PR
+          gate (issue #579). All-time, not scoped to the selected window.
+        </p>
+        <div class="metrics-table-wrap">
+          <table
+            class="admin-table"
+            id="multi-identity-table"
+            aria-label="Multi-identity workspaces"
+          >
+          </table>
+        </div>
+      </section>
+
       <section class="metrics-section" id="breakdown-panel">
         <h3>Upload breakdown</h3>
         <p class="admin-hint">Last 90 days, from Analytics Engine. Sampled and approximate.</p>
@@ -145,6 +161,10 @@ export const prerender = false;
         bytes: number;
         lastActive: string;
       }
+      interface MultiIdentityWorkspaceRow {
+        workspace: string;
+        users: number;
+      }
       // Mirrors apps/api/src/metrics-overview.ts's MetricsOverview exactly.
       // `totals.workspaces` is workspaces with >=1 recorded upload — not the
       // registration count (idle workspaces have no workspace_usage row).
@@ -166,6 +186,7 @@ export const prerender = false;
         series: { uploads: DayPoint[]; users: SignupPoint[]; orgs: SignupPoint[] };
         features: Record<string, number>;
         workspaces: WorkspaceRow[];
+        multiIdentityWorkspaces: MultiIdentityWorkspaceRow[];
       }
 
       let days = 30;
@@ -508,6 +529,22 @@ export const prerender = false;
         table.innerHTML =
           `<thead><tr><th class="keep" scope="col">Workspace</th><th class="keep num" scope="col">Uploads</th><th class="keep num" scope="col">Bytes</th><th class="keep" scope="col">Last active</th></tr></thead>` +
           `<tbody>${rows}</tbody>`;
+
+        const multiIdentityTable = requireElement<HTMLElement>(
+          "#multi-identity-table",
+          "admin metrics",
+        );
+        const multiIdentityRows = overview.multiIdentityWorkspaces.length
+          ? overview.multiIdentityWorkspaces
+              .map(
+                (row) =>
+                  `<tr class="admin-row"><td>${escapeHtml(row.workspace)}</td><td class="num">${num(row.users)}</td></tr>`,
+              )
+              .join("")
+          : `<tr class="admin-row"><td colspan="2" class="muted">No multi-identity workspaces yet.</td></tr>`;
+        multiIdentityTable.innerHTML =
+          `<thead><tr><th class="keep" scope="col">Workspace</th><th class="keep num" scope="col">Distinct minters</th></tr></thead>` +
+          `<tbody>${multiIdentityRows}</tbody>`;
 
         drawChart(
           "chart-uploads",

@@ -21,6 +21,7 @@ export const ADOPTION_METRICS = [
   "workspace_created",
   "gallery_created",
   "comment_posted",
+  "comment_actor_dryrun_decline",
   "repo_linked",
 ] as const;
 

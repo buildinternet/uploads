@@ -113,6 +113,10 @@ async function checkActorAuthorization(
         actorId,
       }),
     );
+    await recordAdoptionSafe(env, {
+      metric: "comment_actor_dryrun_decline",
+      workspace: workspaceName,
+    });
     return null;
   }
   return {

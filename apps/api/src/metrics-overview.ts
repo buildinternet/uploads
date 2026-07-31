@@ -12,11 +12,13 @@
 import {
   activeWorkspacesSince,
   featureTotals,
+  multiIdentityWorkspaces,
   platformSeries,
   platformStorage,
   windowStart,
   workspaceActivity,
   type DayPoint,
+  type MultiIdentityWorkspace,
   type WorkspaceActivity,
 } from "./adoption-queries";
 
@@ -55,6 +57,13 @@ export interface MetricsOverview {
   };
   features: Record<string, number>;
   workspaces: WorkspaceActivity[];
+  /**
+   * Workspaces with two or more distinct `minting_user_id` values in
+   * `auth_tokens` — a read-only revisit trigger for the actor-on-PR gate
+   * (issue #579). Not window-scoped: `auth_tokens` has no window semantics,
+   * so this is all-time, same as `totals.users`/`totals.orgs`.
+   */
+  multiIdentityWorkspaces: MultiIdentityWorkspace[];
 }
 
 interface AuthMetrics {
@@ -112,7 +121,7 @@ export async function buildOverview(
   const since7 = windowStart(7, now);
   const since30 = windowStart(30, now);
 
-  const [uploads, features, table, active30, storage, auth] = await Promise.all([
+  const [uploads, features, table, active30, storage, auth, multiIdentity] = await Promise.all([
     platformSeries(env.DB, "upload", since),
     featureTotals(env.DB, since),
     workspaceActivity(env.DB, since),
@@ -124,6 +133,7 @@ export async function buildOverview(
     activeWorkspacesSince(env.DB, since30),
     platformStorage(env.DB),
     authMetrics(env, since),
+    multiIdentityWorkspaces(env.DB),
   ]);
 
   return {
@@ -141,6 +151,7 @@ export async function buildOverview(
     series: { uploads, users: auth.users, orgs: auth.orgs },
     features,
     workspaces: table,
+    multiIdentityWorkspaces: multiIdentity,
   };
 }
 

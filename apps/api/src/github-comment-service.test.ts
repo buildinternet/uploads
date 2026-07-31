@@ -162,6 +162,16 @@ describe("postManagedComment actor-on-PR gate (issue #297 control 2)", () => {
       postManagedComment(env, ws, workspaceName, "user_1", TARGET),
     );
     expect(r).toMatchObject({ posted: true, action: "updated" });
+
+    // issue #579: the dry-run decline records an adoption event — one
+    // per-workspace row and one platform-total row, same two-row shape as
+    // comment_posted (never zero, never duplicated) — so /admin/metrics can
+    // show would-decline volume as a revisit trigger.
+    const { results: dryrunRows } = await env.DB.prepare(
+      `SELECT workspace FROM daily_metrics WHERE metric = 'comment_actor_dryrun_decline'`,
+    ).all<{ workspace: string }>();
+    expect(dryrunRows).toHaveLength(2);
+    expect(dryrunRows.map((row) => row.workspace).sort()).toEqual(["", "acme"]);
   });
 });
 

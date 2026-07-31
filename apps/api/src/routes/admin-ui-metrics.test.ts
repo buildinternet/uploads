@@ -5,9 +5,12 @@ import { SqliteD1, database } from "../../test/helpers/sqlite-d1";
 import { respondError } from "../error-response";
 import { adminUi } from "./admin-ui";
 
-// Both: buildOverview reads daily_metrics AND workspace_usage.
+// buildOverview reads daily_metrics, workspace_usage, AND auth_tokens (for
+// the multi-identity workspaces surface, issue #579).
 const MIGRATIONS = [
+  "migrations/20260710120000_auth.sql",
   "migrations/20260710140000_workspace_usage.sql",
+  "migrations/20260712230000_token_minting_user.sql",
   "migrations/20260728120000_daily_metrics.sql",
 ];
 const ADMIN_USER = { id: "u-admin", email: "admin@b.com", name: "Admin", role: "admin" };
@@ -87,6 +90,16 @@ async function seededDb() {
               ('beta', 50, 1, 1, '2026-07', '2026-07-28T00:00:00Z')`,
     )
     .run();
+  // Multi-identity fixture (issue #579): 'acme' has two distinct minters —
+  // it should surface; 'beta' has one — it should not.
+  await db
+    .prepare(
+      `INSERT INTO auth_tokens (id, workspace, token_hash, scopes, created_at, minting_user_id)
+       VALUES ('t-1', 'acme', 'hash-1', '[]', '2026-07-27T00:00:00Z', 'user-1'),
+              ('t-2', 'acme', 'hash-2', '[]', '2026-07-28T00:00:00Z', 'user-2'),
+              ('t-3', 'beta', 'hash-3', '[]', '2026-07-28T00:00:00Z', 'user-1')`,
+    )
+    .run();
   return { sqlite, db };
 }
 
@@ -141,6 +154,7 @@ describe("GET /admin-ui/metrics/overview", () => {
         series: { uploads: unknown[]; users: unknown[] };
         features: Record<string, number>;
         workspaces: { workspace: string; uploads: number }[];
+        multiIdentityWorkspaces: { workspace: string; users: number }[];
       };
       expect(body.window.days).toBe(30);
       expect(body.totals.users).toBe(12);
@@ -152,6 +166,9 @@ describe("GET /admin-ui/metrics/overview", () => {
       expect(body.totals.activeWorkspaces30d).toBe(2);
       expect(body.features.gallery_created).toBe(1);
       expect(body.workspaces.map((w) => w.workspace).sort()).toEqual(["acme", "beta"]);
+      // issue #579: only 'acme' has >=2 distinct minters in the auth_tokens
+      // fixture — 'beta' (one minter) must not surface.
+      expect(body.multiIdentityWorkspaces).toEqual([{ workspace: "acme", users: 2 }]);
     } finally {
       sqlite.close();
     }
