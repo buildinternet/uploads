@@ -222,9 +222,39 @@ they're back under. To comp an exception, edit the workspace record: clear
 
 ## Bring-your-own-bucket
 
-Register with `--bucket` and the record points at a dedicated bucket (own
-binding or S3 credentials, own `publicBaseUrl`, no prefix). The `buildinternet`
-workspace on `buildinternet-dev` is the reference example.
+A workspace can point at a dedicated bucket instead of the shared one (own
+`accountId`/S3 credentials, own `publicBaseUrl`, no prefix — an unprefixed
+instance sees the whole bucket, so the record never has both a BYO credential
+set and a `prefix`). Two ways to get there:
+
+**Self-serve (product feature, flag-gated).** A workspace admin runs a
+connect wizard from the workspace's settings page: three Cloudflare
+dashboard steps (create a bucket, mint a bucket-scoped "Object Read & Write"
+API token, optionally connect a custom domain for public reads), then a
+server-side verify pipeline (`apps/api/src/storage-verify.ts`,
+`POST /me/workspaces/:name/storage/verify`) that checks shape, auth, a
+write/read/delete round-trip, and — for a first attach — that the bucket is
+empty. Only a passing verify unlocks save (`PUT /me/workspaces/:name/storage`).
+Full customer-facing detail (setup steps, the serving matrix, what's
+degraded) lives at [uploads.sh/docs/byo-bucket](https://uploads.sh/docs/byo-bucket)
+(source: `apps/web/src/pages/docs/byo-bucket.astro`). This whole surface sits
+behind the per-workspace
+`byoBucketEnabled` flag (`byoBucketAllowed` in `apps/api/src/workspace.ts`,
+same pattern as `videoPosterEnabled`) — off by default, and readable but not
+writable until an operator turns it on for a workspace. R2-only,
+HTTP-credential-mode only in v1: no per-customer Workers bindings, since a
+binding needs a config edit and a deploy per customer. Attach is limited to
+workspace creation or an otherwise-empty existing workspace — there's no
+migration path yet for a populated workspace, since every published URL
+would break.
+
+**Operator script (internal/platform buckets).** Register with `--bucket`
+and the record points at a dedicated bucket the same way, but through
+`pnpm workspace:add` rather than the self-serve wizard — no verify pipeline,
+no flag gate. This is still how `apps/api/scripts/add-workspace.mjs`
+provisions internal buckets; see [Register a workspace](#register-a-workspace)
+below. The `buildinternet` workspace on `buildinternet-dev` is the reference
+example — a Workers-binding prototype, not the self-serve pattern.
 
 ## R2 credential paths
 
