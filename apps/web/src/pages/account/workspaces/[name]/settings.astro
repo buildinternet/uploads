@@ -18,7 +18,9 @@ const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
 
 const tip = {
-  body: "repo config in <code>.uploads.yml</code> overrides these workspace defaults per repository.",
+  body: "Commit <code>.uploads.yml</code> in a repo to override these defaults for that repository.",
+  href: "/docs/comment-config",
+  linkLabel: "Comment config docs →",
 };
 ---
 
@@ -34,8 +36,9 @@ const tip = {
     <div class="settings-section" id="cs-section" hidden>
       <h2>GitHub comment</h2>
       <p class="settings-note muted">
-        Defaults every linked repo's managed comment uses, unless a repo's <code>.uploads.yml</code>
-        overrides them.
+        Defaults every linked repo's managed comment uses. Commit&#32;
+        <a href="/docs/comment-config"><code>.uploads.yml</code></a> in a repo to override them — see
+        the&#32;<a href="/docs/comment-config">comment config docs</a> for keys, file locations, and precedence.
       </p>
 
       <div id="cs-error" class="ul-callout" data-state="error" role="alert" hidden></div>
@@ -162,7 +165,9 @@ const tip = {
 
       <div id="storage-shared">
         <p class="settings-note muted">
-          Your files live on <code>storage.uploads.sh</code>.
+          Your files live on <code>storage.uploads.sh</code>. You can point this workspace at your
+          own Cloudflare R2 bucket instead — see the&#32;
+          <a href="/docs/byo-bucket">bring your own bucket</a> docs.
         </p>
         <div class="storage-actions">
           <button type="button" class="ul-btn ul-btn--solid" id="storage-connect-btn"

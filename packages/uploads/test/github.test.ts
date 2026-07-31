@@ -200,7 +200,7 @@ describe("attachmentsCommentBody", () => {
     expect(body).toContain(
       `<a href="https://uploads.test/g/gal_a?x=1&amp;y=2">A &lt;gallery&gt; &amp; &quot;quotes&quot;</a>`,
     );
-    expect(body).not.toContain("### 📎 Attachments");
+    expect(body).not.toContain("Attachments");
   });
 
   it("renders up to three inline previews that link back to the gallery", () => {
@@ -236,7 +236,7 @@ describe("attachmentsCommentBody", () => {
       [{ key: "gh/o/r/pull/1/after.png", url: "https://x.test/after.png" }],
       [{ title: "Release screenshots", url: "https://uploads.test/g/gal_release" }],
     );
-    expect(body.indexOf("### 🖼️ Galleries")).toBeLessThan(body.indexOf("### 📎 Attachments"));
+    expect(body.indexOf("### 🖼️ Galleries")).toBeLessThan(body.indexOf("after.png"));
     expect(body).toContain("Release screenshots");
     expect(body).toContain("after.png");
   });
@@ -257,7 +257,7 @@ describe("attachmentsCommentBody", () => {
     const body = attachmentsCommentBody([], []);
     expect(body).toContain(ATTACHMENTS_MARKER);
     expect(body).not.toContain("### 🖼️ Galleries");
-    expect(body).toContain("### 📎 Attachments");
+    expect(body).toContain("_No attachments are currently associated with this pull request._");
   });
 
   it("links an image to its pageUrl (not raw url) when present", () => {

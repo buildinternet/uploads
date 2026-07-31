@@ -472,7 +472,6 @@ export function attachmentsCommentBody(
     }
     lines.push("");
   }
-  if (sorted.length > 0 || sortedGalleries.length === 0) lines.push("### 📎 Attachments", "");
   const isImageAt = sorted.map((item) => {
     const name = item.key.slice(item.key.lastIndexOf("/") + 1);
     const src = item.embedUrl ?? item.url;
@@ -573,9 +572,8 @@ export function attachmentsCommentBody(
   }
   // Emptied state: a PR/issue whose attachments and galleries were all removed
   // still keeps its managed comment (a later push can repopulate it) — show a
-  // neutral resting state under the heading rather than a bare heading. Only
-  // the truly-empty case (no attachments, no galleries); a galleries-only
-  // comment has no Attachments heading and must not get this line.
+  // neutral resting state rather than a bare footer. Only the truly-empty case
+  // (no attachments, no galleries); a galleries-only comment must not get this.
   if (sorted.length === 0 && sortedGalleries.length === 0) {
     lines.push("_No attachments are currently associated with this pull request._", "");
   }

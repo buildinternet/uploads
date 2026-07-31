@@ -150,8 +150,8 @@ meta — don't ignore it. Viewport is derived for you on `screenshot` — see th
 
 **The PR comment assembles itself — you don't drive that step.** Once the PR
 opens (whether via `gh pr create` or the GitHub UI), every branch-staged file
-gets promoted into that PR's attachments and the managed "📎 Attachments"
-comment is created automatically:
+gets promoted into that PR's attachments and the managed comment is created
+automatically:
 
 - **With the uploads-sh GitHub App installed** on the repo, a webhook does
   this the moment the PR opens, reopens, or gets a new commit — no CLI call
