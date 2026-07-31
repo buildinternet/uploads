@@ -200,8 +200,8 @@ export const MAX_INLINE_ATTACHMENT_IMAGES = 16;
 
 /**
  * Per-render knobs for the managed comment (issue #307), sourced from repo
- * comment config. `imageWidth: "auto"` preserves today's per-item width
- * heuristics (`attachmentImageWidth`/`posterImageWidth`/pair cap); `"full"`
+ * comment config. `imageWidth: "auto"` uses per-item filename heuristics plus
+ * density-aware sizing (solo/sparse/dense from the inlined count); `"full"`
  * omits the `width` attribute entirely; a number overrides every width site.
  */
 export interface CommentRenderOptions {
@@ -256,29 +256,67 @@ export interface GalleryCommentItem {
   previews?: { url: string; alt: string; embedUrl?: string | null; itemUrl?: string }[];
 }
 
-/** Default max width for images in the managed attachments comment (HTML img). */
+/**
+ * How crowded the managed comment is. Sparse comments (one shot, a single
+ * before/after) get larger embeds; dense comments keep compact historical sizes.
+ */
+export type AttachmentDensity = "solo" | "sparse" | "dense";
+
+/** Dense (historical) default max width for images in the managed comment. */
 export const ATTACHMENT_IMAGE_WIDTH_DEFAULT = 400;
 /** Portrait / device mockups — keep phones readable, not full-column. */
 export const ATTACHMENT_IMAGE_WIDTH_PORTRAIT = 280;
 /** Wide UI / browser chrome. */
 export const ATTACHMENT_IMAGE_WIDTH_WIDE = 640;
+/** Dense pair-cell cap (side-by-side before/after). */
+export const ATTACHMENT_IMAGE_WIDTH_PAIR = 320;
+
+/** Per-density widths for `imageWidth: "auto"`. Dense reuses the exports above. */
+const WIDTH_BY_DENSITY = {
+  solo: { default: 720, portrait: 360, wide: 800, pair: 400 },
+  sparse: { default: 560, portrait: 300, wide: 720, pair: 380 },
+  dense: {
+    default: ATTACHMENT_IMAGE_WIDTH_DEFAULT,
+    portrait: ATTACHMENT_IMAGE_WIDTH_PORTRAIT,
+    wide: ATTACHMENT_IMAGE_WIDTH_WIDE,
+    pair: ATTACHMENT_IMAGE_WIDTH_PAIR,
+  },
+} as const satisfies Record<
+  AttachmentDensity,
+  { default: number; portrait: number; wide: number; pair: number }
+>;
+
+/** Map an inlined-media count onto a density tier. */
+export function attachmentDensityForCount(inlinedCount: number): AttachmentDensity {
+  if (inlinedCount <= 1) return "solo";
+  if (inlinedCount <= 3) return "sparse";
+  return "dense";
+}
+
+/** Pair-cell cap for the given density. */
+export function attachmentPairWidth(density: AttachmentDensity = "dense"): number {
+  return WIDTH_BY_DENSITY[density].pair;
+}
 
 /**
- * Pick a display width for GitHub comment embeds. Filenames are a weak but
- * practical signal (we don't re-fetch dimensions when rebuilding the comment).
+ * Display width for a GitHub comment embed. Filenames are a weak but practical
+ * signal (we don't re-fetch dimensions when rebuilding the comment). `density`
+ * only affects managed-comment auto layout; other callers leave it `"dense"`.
  */
-export function attachmentImageWidth(filename: string): number {
+export function attachmentImageWidth(
+  filename: string,
+  density: AttachmentDensity = "dense",
+): number {
+  const table = WIDTH_BY_DENSITY[density];
   const n = filename.toLowerCase();
-  if (/(?:^|[-_.])(browser|desktop|dashboard|wide)(?:[-_.]|$)/.test(n)) {
-    return ATTACHMENT_IMAGE_WIDTH_WIDE;
-  }
+  if (/(?:^|[-_.])(browser|desktop|dashboard|wide)(?:[-_.]|$)/.test(n)) return table.wide;
   if (
     /(?:^|[-_.])(phone|iphone|ipad|pixel|android|mobile|device)(?:[-_.]|$)/.test(n) ||
     /iphone|pixel-?\d/.test(n)
   ) {
-    return ATTACHMENT_IMAGE_WIDTH_PORTRAIT;
+    return table.portrait;
   }
-  return ATTACHMENT_IMAGE_WIDTH_DEFAULT;
+  return table.default;
 }
 
 /** `m:ss` under an hour, `h:mm:ss` at or above one. */
@@ -294,19 +332,19 @@ function formatDuration(seconds: number): string {
 
 /**
  * Display width for a video poster. Real dimensions only *select* among the
- * width constants — a raw 1920 would blow out the comment column — and the
- * result is capped at the real width so a small clip is never upscaled.
+ * density table's tiers — a raw 1920 would blow out the comment column — and
+ * the result is capped at the real width so a small clip is never upscaled.
  */
-function posterImageWidth(videoMeta: AttachmentItem["videoMeta"], filename: string): number {
+function posterImageWidth(
+  videoMeta: AttachmentItem["videoMeta"],
+  filename: string,
+  density: AttachmentDensity = "dense",
+): number {
   const w = videoMeta?.width ?? 0;
   const h = videoMeta?.height ?? 0;
-  if (w <= 0 || h <= 0) return attachmentImageWidth(filename);
-  const chosen =
-    h > w
-      ? ATTACHMENT_IMAGE_WIDTH_PORTRAIT
-      : w / h >= 16 / 9
-        ? ATTACHMENT_IMAGE_WIDTH_WIDE
-        : ATTACHMENT_IMAGE_WIDTH_DEFAULT;
+  if (w <= 0 || h <= 0) return attachmentImageWidth(filename, density);
+  const table = WIDTH_BY_DENSITY[density];
+  const chosen = h > w ? table.portrait : w / h >= 16 / 9 ? table.wide : table.default;
   return Math.min(chosen, w);
 }
 
@@ -329,47 +367,39 @@ function escapeMarkdownText(s: string): string {
 }
 
 /**
- * An attachment's caption parts — `path`, then `state` (issue #365). Empty
- * when neither is usable, so callers emit nothing at all and a body with no
- * metadata stays byte-identical to the pre-#365 render.
- *
- * Neither value is pre-sanitized: metadata values are printable ASCII up to
- * 512 chars, and while the CLI validates `--state` against a closed enum,
- * `PATCH /v1/:workspace/files/:key` can set any valid metadata value. A
- * whitespace-only value passes that validation (length-1 printable ASCII), so
- * treat it as absent rather than rendering a dangling separator.
- *
- * Bare `/` is stored/searchable but omitted from captions (issue #375) —
- * alone it is a stray character, and as a prefix next to `state` it is
- * noise. Only exact `/` after trim is suppressed.
+ * Collect path then state for a caption (issue #365). Bare `/` and
+ * whitespace-only values are omitted (issue #375). Empty when nothing usable.
  */
-function metaCaptionParts(meta: AttachmentItem["meta"], options: CommentRenderOptions): string[] {
-  const parts: string[] = [];
+function metaCaptionValues(meta: AttachmentItem["meta"], options: CommentRenderOptions): string[] {
+  const values: string[] = [];
   const path = meta?.path?.trim();
-  if (options.metaPath && path && path !== "/") parts.push(path);
+  if (options.metaPath && path && path !== "/") values.push(path);
   const state = meta?.state?.trim();
-  if (options.metaState && state) parts.push(state);
-  return parts;
-}
-
-/** `<sub>` caption body for an inline image, or null when there is nothing to say. */
-function metaCaptionHtml(
-  meta: AttachmentItem["meta"],
-  options: CommentRenderOptions,
-): string | null {
-  const parts = metaCaptionParts(meta, options);
-  return parts.length > 0 ? parts.map(escapeHtmlText).join(" · ") : null;
+  if (options.metaState && state) values.push(state);
+  return values;
 }
 
 /**
- * ` · …` suffix for a markdown list row, or `""` when there is nothing to add.
- * HTML-escapes first, then markdown-escapes: HTML escaping introduces no
- * backslashes or brackets, so the markdown pass cannot corrupt its entities.
+ * Format path/state as code tokens. HTML → `<code>…</code>`; markdown →
+ * `` `…` `` (backslash-escape if the value itself contains a backtick).
+ * Returns `""` when there is nothing to say.
  */
-function metaCaptionMarkdown(meta: AttachmentItem["meta"], options: CommentRenderOptions): string {
-  const parts = metaCaptionParts(meta, options);
-  if (parts.length === 0) return "";
-  return ` · ${parts.map((p) => escapeMarkdownText(escapeHtmlText(p))).join(" · ")}`;
+function formatMetaCaption(
+  meta: AttachmentItem["meta"],
+  options: CommentRenderOptions,
+  mode: "html" | "markdown",
+): string {
+  const values = metaCaptionValues(meta, options);
+  if (values.length === 0) return "";
+  if (mode === "html") {
+    return values.map((v) => `<code>${escapeHtmlText(v)}</code>`).join(" · ");
+  }
+  return values
+    .map((v) => {
+      const esc = escapeHtmlText(v);
+      return esc.includes("`") ? escapeMarkdownText(esc) : `\`${esc}\``;
+    })
+    .join(" · ");
 }
 
 /** Resolved pixel width for an image site, or `null` meaning "omit the width
@@ -485,38 +515,47 @@ function pairAttachments(
   return { partnerOf, roleOf };
 }
 
-/** Max display width for one image inside a before/after pair row — smaller
- * than a standalone image so two side by side stay under GitHub's comment
- * column width (and don't overflow on mobile). */
-export const ATTACHMENT_IMAGE_WIDTH_PAIR = 320;
-
 function renderPairCell(
   item: AttachmentItem,
   label: "Before" | "After",
   options: CommentRenderOptions,
+  density: AttachmentDensity,
 ): string {
   const name = item.key.slice(item.key.lastIndexOf("/") + 1);
   const src = item.embedUrl ?? item.url;
   const link = item.pageUrl ?? item.url;
-  const autoPx = Math.min(attachmentImageWidth(name), ATTACHMENT_IMAGE_WIDTH_PAIR);
+  const autoPx = Math.min(attachmentImageWidth(name, density), attachmentPairWidth(density));
   const w = resolvedWidth(autoPx, options);
   const alt = escapeHtmlAttr(name);
   const href = escapeHtmlAttr((link ?? src) as string);
   const imgSrc = escapeHtmlAttr(src as string);
-  const caption = metaCaptionHtml(item.meta, options);
+  const caption = formatMetaCaption(item.meta, options, "html");
   const captionHtml = caption ? `<br><sub>${caption}</sub>` : "";
   return `<td align="center"><sub><strong>${label}</strong></sub><br><a href="${href}">${imgTag(w, alt, imgSrc)}</a>${captionHtml}</td>`;
 }
 
-/** One side-by-side before/after row (issue #419): a single HTML table so
- * GitHub renders both images on one line, with `Before`/`After` labels and
- * each side's usual path/state caption preserved underneath. */
+/** One side-by-side before/after row (issue #419). */
 function renderPairRow(
   beforeItem: AttachmentItem,
   afterItem: AttachmentItem,
   options: CommentRenderOptions,
+  density: AttachmentDensity,
 ): string {
-  return `<table><tr>${renderPairCell(beforeItem, "Before", options)}${renderPairCell(afterItem, "After", options)}</tr></table>`;
+  return `<table><tr>${renderPairCell(beforeItem, "Before", options, density)}${renderPairCell(afterItem, "After", options, density)}</tr></table>`;
+}
+
+/** How many image/poster items will fit under `maxInlineImages` (for density). */
+function countInlinableMedia(sorted: AttachmentItem[], maxInlineImages: number): number {
+  let count = 0;
+  for (const item of sorted) {
+    if (count >= maxInlineImages) break;
+    const name = item.key.slice(item.key.lastIndexOf("/") + 1);
+    const src = item.embedUrl ?? item.url;
+    const isImage = Boolean(src) && inferContentType(name).startsWith("image/");
+    const isPoster = Boolean(item.posterUrl) && inferContentType(name).startsWith("video/");
+    if (isImage || isPoster) count++;
+  }
+  return count;
 }
 
 /**
@@ -559,6 +598,11 @@ export function attachmentsCommentBody(
     return Boolean(src) && inferContentType(name).startsWith("image/");
   });
   const { partnerOf, roleOf } = pairAttachments(sorted, isImageAt);
+  // One screenshot → large; a wall of shots → compact historical sizes.
+  const density =
+    options.imageWidth === "auto"
+      ? attachmentDensityForCount(countInlinableMedia(sorted, options.maxInlineImages))
+      : "dense";
   const consumedByPair = new Set<number>();
 
   let inlinedImages = 0;
@@ -574,7 +618,7 @@ export function attachmentsCommentBody(
         consumedByPair.add(partnerIdx);
         const beforeItem = roleOf.get(idx) === "before" ? item : partner;
         const afterItem = roleOf.get(idx) === "before" ? partner : item;
-        lines.push(renderPairRow(beforeItem, afterItem, options), "");
+        lines.push(renderPairRow(beforeItem, afterItem, options, density), "");
         continue;
       }
       // Cap already full for a two-image row — degrade this pair to two
@@ -598,7 +642,7 @@ export function attachmentsCommentBody(
     }
     if (isPosterVideo) {
       inlinedImages++;
-      const autoPx = posterImageWidth(item.videoMeta, name);
+      const autoPx = posterImageWidth(item.videoMeta, name, density);
       const w = resolvedWidth(autoPx, options);
       const href = escapeHtmlAttr(link ?? (item.posterUrl as string));
       lines.push(
@@ -610,25 +654,28 @@ export function attachmentsCommentBody(
       if (item.videoMeta?.durationSeconds != null) {
         parts.push(formatDuration(item.videoMeta.durationSeconds));
       }
-      parts.push(...metaCaptionParts(item.meta, options).map(escapeHtmlText));
+      const metaCap = formatMetaCaption(item.meta, options, "html");
+      if (metaCap) parts.push(metaCap);
       lines.push(`<sub>${parts.join(" · ")}</sub>`, "");
     } else if (isImage) {
       inlinedImages++;
       // Markdown ![]() has no width control — phone frames become full-column giants.
       // img src uses embed host when available (Camo revalidates); click-through prefers the file page.
-      const autoPx = attachmentImageWidth(name);
+      const autoPx = attachmentImageWidth(name, density);
       const w = resolvedWidth(autoPx, options);
       const alt = escapeHtmlAttr(name);
       const href = escapeHtmlAttr(link ?? (src as string));
       const imgSrc = escapeHtmlAttr(src as string);
       lines.push(`<a href="${href}">${imgTag(w, alt, imgSrc)}</a>`);
-      const caption = metaCaptionHtml(item.meta, options);
+      const caption = formatMetaCaption(item.meta, options, "html");
       if (caption) lines.push(`<sub>${caption}</sub>`);
       lines.push("");
     } else if (link) {
-      lines.push(`- [${name}](${link})${metaCaptionMarkdown(item.meta, options)}`);
+      const cap = formatMetaCaption(item.meta, options, "markdown");
+      lines.push(`- [${name}](${link})${cap ? ` · ${cap}` : ""}`);
     } else {
-      lines.push(`- ${name}${metaCaptionMarkdown(item.meta, options)}`);
+      const cap = formatMetaCaption(item.meta, options, "markdown");
+      lines.push(`- ${name}${cap ? ` · ${cap}` : ""}`);
     }
   }
   if (overflowImages.length > 0) {
@@ -637,7 +684,8 @@ export function attachmentsCommentBody(
     for (const item of overflowImages) {
       const name = item.key.slice(item.key.lastIndexOf("/") + 1);
       const link = item.pageUrl ?? item.url;
-      const suffix = metaCaptionMarkdown(item.meta, options);
+      const cap = formatMetaCaption(item.meta, options, "markdown");
+      const suffix = cap ? ` · ${cap}` : "";
       lines.push(link ? `- [${name}](${link})${suffix}` : `- ${name}${suffix}`);
     }
     lines.push("", "</details>", "");

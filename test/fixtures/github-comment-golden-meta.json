@@ -5,21 +5,30 @@
       "url": "https://uploads.sh/f/after.webp",
       "embedUrl": "https://embed.uploads.sh/f/after.webp",
       "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/after.webp",
-      "meta": { "path": "/settings", "state": "after" }
+      "meta": {
+        "path": "/settings",
+        "state": "after"
+      }
     },
     {
       "key": "gh/acme/web/pull/12/before.webp",
       "url": "https://uploads.sh/f/before.webp",
       "embedUrl": "https://embed.uploads.sh/f/before.webp",
       "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/before.webp",
-      "meta": { "path": "/settings", "state": "before" }
+      "meta": {
+        "path": "/settings",
+        "state": "before"
+      }
     },
     {
       "key": "gh/acme/web/pull/12/build.log",
       "url": "https://uploads.sh/f/build.log",
       "embedUrl": null,
       "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log",
-      "meta": { "path": "/admin?a=1&b=2", "state": "error" }
+      "meta": {
+        "path": "/admin?a=1&b=2",
+        "state": "error"
+      }
     },
     {
       "key": "gh/acme/web/pull/12/hero.png",
@@ -32,14 +41,18 @@
       "url": "https://uploads.sh/f/only-path.webp",
       "embedUrl": "https://embed.uploads.sh/f/only-path.webp",
       "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/only-path.webp",
-      "meta": { "path": "/pricing" }
+      "meta": {
+        "path": "/pricing"
+      }
     },
     {
       "key": "gh/acme/web/pull/12/only-state.webp",
       "url": "https://uploads.sh/f/only-state.webp",
       "embedUrl": "https://embed.uploads.sh/f/only-state.webp",
       "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/only-state.webp",
-      "meta": { "state": "empty" }
+      "meta": {
+        "state": "empty"
+      }
     },
     {
       "key": "gh/acme/web/pull/12/plain.log",
@@ -52,23 +65,31 @@
       "url": "https://uploads.sh/f/root-only.webp",
       "embedUrl": "https://embed.uploads.sh/f/root-only.webp",
       "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/root-only.webp",
-      "meta": { "path": "/" }
+      "meta": {
+        "path": "/"
+      }
     },
     {
       "key": "gh/acme/web/pull/12/root-state.webp",
       "url": "https://uploads.sh/f/root-state.webp",
       "embedUrl": "https://embed.uploads.sh/f/root-state.webp",
       "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/root-state.webp",
-      "meta": { "path": "/", "state": "before" }
+      "meta": {
+        "path": "/",
+        "state": "before"
+      }
     },
     {
       "key": "gh/acme/web/pull/12/ws.webp",
       "url": "https://uploads.sh/f/ws.webp",
       "embedUrl": "https://embed.uploads.sh/f/ws.webp",
       "pageUrl": "https://uploads.sh/f/acme/gh/acme/web/pull/12/ws.webp",
-      "meta": { "path": "   ", "state": "after" }
+      "meta": {
+        "path": "   ",
+        "state": "after"
+      }
     }
   ],
   "galleries": [],
-  "expected": "<!-- uploads.sh:attachments -->\n### 📎 Attachments\n\n<table><tr><td align=\"center\"><sub><strong>Before</strong></sub><br><a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/before.webp\"><img width=\"320\" alt=\"before.webp\" src=\"https://embed.uploads.sh/f/before.webp\"></a><br><sub>/settings · before</sub></td><td align=\"center\"><sub><strong>After</strong></sub><br><a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/after.webp\"><img width=\"320\" alt=\"after.webp\" src=\"https://embed.uploads.sh/f/after.webp\"></a><br><sub>/settings · after</sub></td></tr></table>\n\n- [build.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log) · /admin?a=1&amp;b=2 · error\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img width=\"400\" alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/only-path.webp\"><img width=\"400\" alt=\"only-path.webp\" src=\"https://embed.uploads.sh/f/only-path.webp\"></a>\n<sub>/pricing</sub>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/only-state.webp\"><img width=\"400\" alt=\"only-state.webp\" src=\"https://embed.uploads.sh/f/only-state.webp\"></a>\n<sub>empty</sub>\n\n- [plain.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/plain.log)\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/root-only.webp\"><img width=\"400\" alt=\"root-only.webp\" src=\"https://embed.uploads.sh/f/root-only.webp\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/root-state.webp\"><img width=\"400\" alt=\"root-state.webp\" src=\"https://embed.uploads.sh/f/root-state.webp\"></a>\n<sub>before</sub>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/ws.webp\"><img width=\"400\" alt=\"ws.webp\" src=\"https://embed.uploads.sh/f/ws.webp\"></a>\n<sub>after</sub>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>\n<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
+  "expected": "<!-- uploads.sh:attachments -->\n### 📎 Attachments\n\n<table><tr><td align=\"center\"><sub><strong>Before</strong></sub><br><a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/before.webp\"><img width=\"320\" alt=\"before.webp\" src=\"https://embed.uploads.sh/f/before.webp\"></a><br><sub><code>/settings</code> · <code>before</code></sub></td><td align=\"center\"><sub><strong>After</strong></sub><br><a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/after.webp\"><img width=\"320\" alt=\"after.webp\" src=\"https://embed.uploads.sh/f/after.webp\"></a><br><sub><code>/settings</code> · <code>after</code></sub></td></tr></table>\n\n- [build.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/build.log) · `/admin?a=1&amp;b=2` · `error`\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/hero.png\"><img width=\"400\" alt=\"hero.png\" src=\"https://embed.uploads.sh/f/hero.png\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/only-path.webp\"><img width=\"400\" alt=\"only-path.webp\" src=\"https://embed.uploads.sh/f/only-path.webp\"></a>\n<sub><code>/pricing</code></sub>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/only-state.webp\"><img width=\"400\" alt=\"only-state.webp\" src=\"https://embed.uploads.sh/f/only-state.webp\"></a>\n<sub><code>empty</code></sub>\n\n- [plain.log](https://uploads.sh/f/acme/gh/acme/web/pull/12/plain.log)\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/root-only.webp\"><img width=\"400\" alt=\"root-only.webp\" src=\"https://embed.uploads.sh/f/root-only.webp\"></a>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/root-state.webp\"><img width=\"400\" alt=\"root-state.webp\" src=\"https://embed.uploads.sh/f/root-state.webp\"></a>\n<sub><code>before</code></sub>\n\n<a href=\"https://uploads.sh/f/acme/gh/acme/web/pull/12/ws.webp\"><img width=\"400\" alt=\"ws.webp\" src=\"https://embed.uploads.sh/f/ws.webp\"></a>\n<sub><code>after</code></sub>\n\n<sub>Maintained by <a href=\"https://uploads.sh\">uploads.sh</a> — re-uploading a file with the same name updates it everywhere it is embedded.</sub>\n<sub>Add media: <code>uploads put &lt;file&gt; --pr &lt;N&gt; --comment</code> (or <code>--issue &lt;N&gt;</code>) · <a href=\"https://uploads.sh/docs/github-app\">docs</a></sub>"
 }

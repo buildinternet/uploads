@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  attachmentDensityForCount,
+  attachmentImageWidth,
+  attachmentPairWidth,
   attachmentsCommentBody,
   AUTO_RENDER_OPTIONS,
   type AttachmentItem,
@@ -84,7 +87,9 @@ describe("attachmentsCommentBody (api copy)", () => {
         meta: { path: "src/app", state: "after" },
       },
     ]);
-    expect(body).toContain("<sub>▶ Play video · 0:14 · src/app · after</sub>");
+    expect(body).toContain(
+      "<sub>▶ Play video · 0:14 · <code>src/app</code> · <code>after</code></sub>",
+    );
   });
 
   it("caps inline images at 16, collapsing the rest into a details block", () => {
@@ -116,10 +121,10 @@ describe("attachmentsCommentBody (api copy)", () => {
 
     // Markdown context: the metacharacters are backslash-escaped.
     expect(body).toContain(
-      "- [shot-17.png](https://uploads.sh/f/acme/shot-17.png) · /a\\_b\\[c\\]\\*d\\~e\\~ · after",
+      "- [shot-17.png](https://uploads.sh/f/acme/shot-17.png) · `/a_b[c]*d~e~` · `after`",
     );
     // HTML context: <sub> needs no markdown escaping, so the value is verbatim.
-    expect(body).toContain("<sub>/a_b[c]*d~e~ · after</sub>");
+    expect(body).toContain("<sub><code>/a_b[c]*d~e~</code> · <code>after</code></sub>");
   });
 
   describe("before/after pairing (issue #419)", () => {
@@ -145,8 +150,8 @@ describe("attachmentsCommentBody (api copy)", () => {
       expect(beforeIdx).toBeGreaterThan(-1);
       expect(beforeIdx).toBeLessThan(afterIdx);
       // Each side's own path/state caption is preserved.
-      expect(body).toContain("/settings · before");
-      expect(body).toContain("/settings · after");
+      expect(body).toContain("<code>/settings</code> · <code>before</code>");
+      expect(body).toContain("<code>/settings</code> · <code>after</code>");
       // Only one table row — no leftover standalone <img> rendering for these two.
       expect(body.match(/<table>/g)).toHaveLength(1);
     });
@@ -205,7 +210,7 @@ describe("attachmentsCommentBody (api copy)", () => {
       expect(body).not.toContain("<table>");
       expect(body).toContain("lonely-before.webp");
       expect(body).toContain("other.webp");
-      expect(body).toContain("/x · loading");
+      expect(body).toContain("<code>/x</code> · <code>loading</code>");
     });
 
     it("does not pair an ambiguous group (two befores for the same path)", () => {
@@ -263,6 +268,46 @@ describe("attachmentsCommentBody (api copy)", () => {
         img("gh/acme/web/pull/12/shot.webp", { meta: { path: "/x", state: "after" } }),
       ]);
       expect(body).not.toContain("<table>");
+    });
+  });
+
+  describe("density-aware auto widths", () => {
+    it("maps inlined counts onto solo/sparse/dense tiers", () => {
+      expect(attachmentDensityForCount(0)).toBe("solo");
+      expect(attachmentDensityForCount(1)).toBe("solo");
+      expect(attachmentDensityForCount(2)).toBe("sparse");
+      expect(attachmentDensityForCount(3)).toBe("sparse");
+      expect(attachmentDensityForCount(4)).toBe("dense");
+      expect(attachmentPairWidth("solo")).toBe(400);
+      expect(attachmentPairWidth("dense")).toBe(320);
+      expect(attachmentImageWidth("hero.png", "solo")).toBe(720);
+      expect(attachmentImageWidth("hero.png", "dense")).toBe(400);
+    });
+
+    it("renders a single screenshot large enough to read without clicking", () => {
+      const body = attachmentsCommentBody([
+        {
+          key: "gh/acme/web/pull/12/settings.webp",
+          url: "https://uploads.sh/f/settings.webp",
+          embedUrl: "https://embed.uploads.sh/f/settings.webp",
+          pageUrl: "https://uploads.sh/f/acme/settings.webp",
+          meta: { path: "/settings", state: "after" },
+        },
+      ]);
+      expect(body).toContain('width="720"');
+      expect(body).toContain("<sub><code>/settings</code> · <code>after</code></sub>");
+    });
+
+    it("keeps dense historical widths once four or more images are inlined", () => {
+      const items = Array.from({ length: 4 }, (_, i) => ({
+        key: `gh/acme/web/pull/12/shot-${i}.png`,
+        url: `https://uploads.sh/f/shot-${i}.png`,
+        embedUrl: `https://embed.uploads.sh/f/shot-${i}.png`,
+      }));
+      const body = attachmentsCommentBody(items);
+      expect(body).toContain('width="400"');
+      expect(body).not.toContain('width="720"');
+      expect(body).not.toContain('width="560"');
     });
   });
 

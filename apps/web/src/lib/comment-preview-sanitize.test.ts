@@ -117,6 +117,13 @@ describe("formatCommentPreviewBody", () => {
     );
   });
 
+  it("keeps a caption suffix on list items and turns path/state code spans into <code>", () => {
+    const raw = "- [build.log](https://uploads.sh/f/build.log) · `/admin` · `error`";
+    expect(formatCommentPreviewBody(raw)).toBe(
+      '<ul><li><a href="https://uploads.sh/f/build.log">build.log</a> · <code>/admin</code> · <code>error</code></li></ul>',
+    );
+  });
+
   it("groups consecutive list lines into one <ul>", () => {
     const raw = "- [One](https://a)\n- [Two](https://b)";
     expect(formatCommentPreviewBody(raw)).toBe(
@@ -161,13 +168,15 @@ describe("renderCommentPreviewHtml (format + sanitize combined)", () => {
     const raw =
       "<!-- uploads.sh:attachments ws=acme -->\n" +
       "### 📎 Attachments\n\n" +
-      '<a href="https://uploads.sh/f/x"><img width="400" alt="x.png" src="https://embed.uploads.sh/x.png"></a>\n\n' +
+      '<a href="https://uploads.sh/f/x"><img width="720" alt="x.png" src="https://embed.uploads.sh/x.png"></a>\n' +
+      "<sub><code>/settings</code> · <code>after</code></sub>\n\n" +
       "<sub>Maintained by uploads.sh.</sub>\n" +
       "<sub>Add media: <code>uploads put</code></sub>";
     const out = renderCommentPreviewHtml(raw);
     expect(out).not.toContain("uploads.sh:attachments");
     expect(out).toContain("<h3>📎 Attachments</h3>");
-    expect(out).toContain('<img width="400" alt="x.png" src="https://embed.uploads.sh/x.png">');
+    expect(out).toContain('<img width="720" alt="x.png" src="https://embed.uploads.sh/x.png">');
+    expect(out).toContain("<sub><code>/settings</code> · <code>after</code></sub>");
     expect(out).toContain(
       "<sub>Maintained by uploads.sh.</sub><br><sub>Add media: <code>uploads put</code></sub>",
     );

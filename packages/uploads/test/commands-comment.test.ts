@@ -361,7 +361,7 @@ describe("syncAttachmentsComment", () => {
 
     await syncAttachmentsComment(client, { repo: "acme/web", num: 12, kind: "pull" }, run, "acme");
 
-    expect(posted).toContain("<sub>/settings · before</sub>");
+    expect(posted).toContain("<sub><code>/settings</code> · <code>before</code></sub>");
     expect(posted).not.toContain("iPhone");
     expect(posted).not.toContain("Photoshop");
   });

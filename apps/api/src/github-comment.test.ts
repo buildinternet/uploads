@@ -202,7 +202,7 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
       kind: "pull",
     });
 
-    expect(result.body).toContain("<sub>/settings · before</sub>");
+    expect(result.body).toContain("<sub><code>/settings</code> · <code>before</code></sub>");
   });
 
   it("never fetches or renders EXIF-derived keys", async () => {
@@ -220,7 +220,7 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
     });
 
     const body = result.body;
-    expect(body).toContain("<sub>/settings</sub>");
+    expect(body).toContain("<sub><code>/settings</code></sub>");
     expect(body).not.toContain("iPhone");
     expect(body).not.toContain("Photoshop");
   });
@@ -283,7 +283,7 @@ describe("gatherCommentBody attachment metadata (issue #365)", () => {
     });
 
     const body = result.body;
-    expect(body).toContain("<sub>/settings · before</sub>");
+    expect(body).toContain("<sub><code>/settings</code> · <code>before</code></sub>");
     expect(body).not.toContain("/intruder-path");
     expect(body).not.toContain("compromised");
   });
