@@ -8,12 +8,22 @@
  * Ordering is fail-safe: the KV record — the thing that actually grants
  * storage access — is written/deleted last, so a failure partway through
  * leaves the workspace inert rather than half-deleted-but-still-reachable.
+ *
+ * R2 objects are only walked-and-deleted for prefixed shared-bucket records
+ * by default; an unprefixed dedicated bucket (platform-provisioned, or once
+ * self-serve BYO ships, a customer's own) is skipped unless the caller
+ * passes `purgeObjects: true` (see `TeardownOptions`, issue #583) — platform
+ * state is still torn down either way.
  */
 import { deleteFileMetadataForWorkspace } from "./file-metadata";
 import { deleteGalleriesForWorkspace } from "./galleries";
 import { deleteOrg } from "./org-workspaces";
 import { storage } from "./storage";
-import type { PurgedTombstone, WorkspaceRecord } from "./workspace";
+import {
+  isUnprefixedDedicatedBucket,
+  type PurgedTombstone,
+  type WorkspaceRecord,
+} from "./workspace";
 
 // files-sdk bulk-delete batch size — mirrors retention.ts's DELETE_BATCH
 // (stays under R2/S3's 1000-key DeleteObjects cap while bounding memory).
@@ -34,12 +44,28 @@ export interface TeardownOptions {
    * reserved. When false/omitted, the key is deleted (frees the slug).
    */
   replaceWithTombstone?: boolean;
+  /**
+   * Explicit opt-in to walk-and-delete R2 objects on an unprefixed
+   * dedicated-bucket record (`isUnprefixedDedicatedBucket`). Default false:
+   * those records skip the object purge (see `objectsSkipped` below) because
+   * the bucket may not be ours to empty. Operator-only — thread this from a
+   * caller that has confirmed the bucket is platform-owned, never from an
+   * automated sweep. Ignored (has no effect) on prefixed shared-bucket
+   * records, which are always fully purged.
+   */
+  purgeObjects?: boolean;
 }
 
 export interface TeardownResult {
   objectsDeleted: number;
   freedBytes: number;
   galleriesDeleted: number;
+  /**
+   * Set when the R2 object walk-and-delete was skipped because the record
+   * is an unprefixed dedicated bucket and `purgeObjects` wasn't passed.
+   * Platform state (KV/D1/galleries) is still torn down normally.
+   */
+  objectsSkipped?: "dedicated-bucket";
 }
 
 export async function teardownWorkspace(
@@ -49,23 +75,26 @@ export async function teardownWorkspace(
   opts: TeardownOptions,
 ): Promise<TeardownResult> {
   const force = opts.force ?? true;
+  const skipObjects = isUnprefixedDedicatedBucket(record) && !opts.purgeObjects;
 
-  const store = await storage(env, record);
   let objectCount = 0;
   let freedBytes = 0;
-  let batch: string[] = [];
-  for await (const item of store.listAll()) {
-    objectCount += 1;
-    freedBytes += item.size ?? 0;
-    if (force) {
-      batch.push(item.key);
-      if (batch.length >= R2_DELETE_BATCH) {
-        await store.delete(batch);
-        batch = [];
+  if (!skipObjects) {
+    const store = await storage(env, record);
+    let batch: string[] = [];
+    for await (const item of store.listAll()) {
+      objectCount += 1;
+      freedBytes += item.size ?? 0;
+      if (force) {
+        batch.push(item.key);
+        if (batch.length >= R2_DELETE_BATCH) {
+          await store.delete(batch);
+          batch = [];
+        }
       }
     }
+    if (batch.length > 0) await store.delete(batch);
   }
-  if (batch.length > 0) await store.delete(batch);
 
   const { galleries } = await deleteGalleriesForWorkspace(env.DB, name);
   await deleteFileMetadataForWorkspace(env.DB, name);
@@ -98,8 +127,14 @@ export async function teardownWorkspace(
       objectsDeleted: objectCount,
       freedBytes,
       galleriesDeleted: galleries,
+      objectsSkipped: skipObjects ? "dedicated-bucket" : undefined,
     }),
   );
 
-  return { objectsDeleted: objectCount, freedBytes, galleriesDeleted: galleries };
+  return {
+    objectsDeleted: objectCount,
+    freedBytes,
+    galleriesDeleted: galleries,
+    ...(skipObjects ? { objectsSkipped: "dedicated-bucket" as const } : {}),
+  };
 }

@@ -1,3 +1,4 @@
+import { ServiceUnavailableError } from "@uploads/errors";
 import { describe, expect, it } from "vitest";
 import {
   decryptSecret,
@@ -6,6 +7,7 @@ import {
   openCredentialFields,
   resealCredentialFields,
   sealCredentialFields,
+  sealCredentialFieldsStrict,
   secretsKeyRingFromEnv,
 } from "../src/secrets";
 
@@ -88,5 +90,27 @@ describe("workspace secret encryption", () => {
   it("leaves fields alone without master secret", async () => {
     const fields = { accessKeyId: "AKIA", secretAccessKey: "secret" };
     expect(await sealCredentialFields(undefined, fields)).toEqual(fields);
+  });
+
+  describe("sealCredentialFieldsStrict", () => {
+    it("throws secrets_key_unconfigured without a master secret, instead of returning plaintext", async () => {
+      const fields = { accessKeyId: "AKIA", secretAccessKey: "secret" };
+      await expect(sealCredentialFieldsStrict(undefined, fields)).rejects.toMatchObject({
+        code: "secrets_key_unconfigured",
+      });
+      await expect(sealCredentialFieldsStrict(undefined, fields)).rejects.toBeInstanceOf(
+        ServiceUnavailableError,
+      );
+    });
+
+    it("seals fields the same way as sealCredentialFields when a master secret is present", async () => {
+      const fields = { accessKeyId: "AKIA", secretAccessKey: "secret" };
+      const sealed = await sealCredentialFieldsStrict(CURRENT, fields);
+      expect(isEncryptedSecret(sealed.accessKeyId!)).toBe(true);
+      expect(isEncryptedSecret(sealed.secretAccessKey!)).toBe(true);
+      const opened = await openCredentialFields(CURRENT, sealed);
+      expect(opened.accessKeyId).toBe("AKIA");
+      expect(opened.secretAccessKey).toBe("secret");
+    });
   });
 });

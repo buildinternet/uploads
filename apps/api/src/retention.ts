@@ -15,7 +15,7 @@
 import { positiveLimit } from "./budget";
 import { reconcileWorkspaceUsage, type ReconcileResult } from "./reconcile";
 import { storage } from "./storage";
-import type { WorkspaceRecord } from "./workspace";
+import { isUnprefixedDedicatedBucket, type WorkspaceRecord } from "./workspace";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Cap listed deleted keys in the response so agents don't get huge payloads. */
@@ -58,6 +58,14 @@ export async function purgeExpiredObjects(
   workspaceName: string,
   now = new Date(),
 ): Promise<PurgeExpiredResult | { skipped: true; reason: string }> {
+  // retentionDays is unsupported on unprefixed/dedicated buckets in v1 — a
+  // BYO bucket manages its own lifecycle, and a full-bucket listAll() here
+  // would walk storage that isn't ours. Checked before the retentionDays
+  // read so a record that somehow has both is still reported as this case.
+  if (isUnprefixedDedicatedBucket(ws)) {
+    return { skipped: true, reason: "retentionDays unsupported on unprefixed/dedicated buckets" };
+  }
+
   const days = positiveLimit(ws.retentionDays);
   if (days === undefined) {
     return { skipped: true, reason: "retentionDays not set on workspace" };

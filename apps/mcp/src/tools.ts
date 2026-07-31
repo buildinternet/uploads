@@ -407,6 +407,10 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
           ) {
             throw err;
           }
+          // Typed storage errors (storage_misconfigured, storage_credentials_unreadable,
+          // …) carry a caller-useful message already — pass them through rather
+          // than flattening into a generic message that loses the code.
+          if (err instanceof AppError) throw err;
           throw new Error("gallery storage unavailable", { cause: err });
         }
         const result = unwrapMutation(

@@ -1,3 +1,4 @@
+import { ServiceUnavailableError } from "@uploads/errors";
 import {
   createStorage,
   publicAndEmbedUrls,
@@ -28,15 +29,33 @@ export async function storageConfig(env: Env, ws: WorkspaceRecord): Promise<Stor
   if (ws.binding) {
     const candidate: unknown = Reflect.get(env, ws.binding);
     if (!candidate || typeof (candidate as R2Bucket).get !== "function") {
-      throw new Error(`workspace references unknown R2 binding "${ws.binding}"`);
+      // A config/deploy mismatch (wrangler.jsonc binding renamed or removed
+      // while the workspace record still names it) — an operator fix, not a
+      // caller mistake, so 503 rather than a 4xx. Never a 500: the route
+      // layer's onError translates AppError subclasses via respondError.
+      throw new ServiceUnavailableError(`workspace references unknown R2 binding "${ws.binding}"`, {
+        code: "storage_misconfigured",
+        details: { binding: ws.binding },
+      });
     }
     binding = candidate as R2Bucket;
   }
   const ring = secretsKeyRingFromEnv(env);
-  const opened = await openCredentialFields(ring, {
-    accessKeyId: ws.accessKeyId,
-    secretAccessKey: ws.secretAccessKey,
-  });
+  let opened: Awaited<ReturnType<typeof openCredentialFields>>;
+  try {
+    opened = await openCredentialFields(ring, {
+      accessKeyId: ws.accessKeyId,
+      secretAccessKey: ws.secretAccessKey,
+    });
+  } catch (err) {
+    // Missing/rotated WORKSPACE_SECRETS_KEY, or corrupt ciphertext — surface
+    // as a typed, non-retryable-looking 503 with a settings-page hint instead
+    // of letting the raw decrypt error bubble as an opaque 500.
+    throw new ServiceUnavailableError(
+      "workspace storage credentials could not be decrypted; reconfigure storage in workspace settings",
+      { code: "storage_credentials_unreadable", cause: err },
+    );
+  }
   // During rotation, previous-key decrypts still work; re-seal offline with the script.
   if (opened.usedPrevious) {
     console.log(

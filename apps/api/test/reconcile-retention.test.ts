@@ -84,6 +84,20 @@ describe("POST /usage/reconcile", () => {
     expect(body.usage.bytes).toBe(PNG.byteLength);
   });
 
+  it("flags an unprefixed/dedicated-bucket record in the result (#583 telemetry)", async () => {
+    const { env, bucket } = await makeEnv({ prefix: undefined });
+    await bucket.put("orphan.png", PNG, { httpMetadata: { contentType: "image/png" } });
+
+    const res = await app.request(
+      "/v1/default/usage/reconcile",
+      { method: "POST", headers: auth },
+      env as never,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { unprefixedBucket?: boolean };
+    expect(body.unprefixedBucket).toBe(true);
+  });
+
   it("requires files:write", async () => {
     const { env } = await makeEnv();
     // No auth
@@ -131,5 +145,23 @@ describe("POST /usage/purge-expired", () => {
     expect(bucket.store.has("default/new.png")).toBe(true);
     expect(body.reconcile.objects).toBe(1);
     expect(body.reconcile.bytes).toBe(PNG.byteLength);
+  });
+
+  it("skips an unprefixed/dedicated-bucket record even with retentionDays set (#583)", async () => {
+    const { env, bucket } = await makeEnv({ retentionDays: 30, prefix: undefined });
+    await bucket.put("old.png", PNG, { httpMetadata: { contentType: "image/png" } });
+    bucket.setUploaded("old.png", new Date("2020-01-01T00:00:00Z"));
+
+    const res = await app.request(
+      "/v1/default/usage/purge-expired",
+      { method: "POST", headers: auth },
+      env as never,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { skipped: true; reason: string };
+    expect(body.skipped).toBe(true);
+    expect(body.reason).toMatch(/unprefixed|dedicated/);
+    // Nothing was touched.
+    expect(bucket.store.has("old.png")).toBe(true);
   });
 });

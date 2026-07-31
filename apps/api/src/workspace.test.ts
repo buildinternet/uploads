@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  hasCustomerCredentials,
   hexToBytes,
   isPurgedTombstone,
   isSha256Hex,
+  isUnprefixedDedicatedBucket,
   loadWorkspaceRecord,
   loadWorkspaceRecordRaw,
   WORKSPACE_DELETE_GRACE_DAYS,
@@ -100,5 +102,45 @@ describe("isSha256Hex / hexToBytes (corrupt token-hash guard)", () => {
     expect(isSha256Hex("")).toBe(false);
     expect(isSha256Hex("a".repeat(63))).toBe(false);
     expect(isSha256Hex("a".repeat(65))).toBe(false);
+  });
+});
+
+describe("isUnprefixedDedicatedBucket / hasCustomerCredentials (#583 lifecycle guards)", () => {
+  it("is false for a prefixed shared-bucket record", () => {
+    expect(isUnprefixedDedicatedBucket(RECORD)).toBe(false);
+  });
+
+  it("is true for a record with no prefix, regardless of credential mode", () => {
+    expect(isUnprefixedDedicatedBucket({ ...RECORD, prefix: undefined })).toBe(true);
+    expect(
+      isUnprefixedDedicatedBucket({
+        ...RECORD,
+        prefix: undefined,
+        binding: undefined,
+        accountId: "a".repeat(32),
+        accessKeyId: "key",
+        secretAccessKey: "secret",
+      }),
+    ).toBe(true);
+  });
+
+  it("treats an empty-string prefix the same as absent (unprefixed)", () => {
+    expect(isUnprefixedDedicatedBucket({ ...RECORD, prefix: "" })).toBe(true);
+  });
+
+  it("hasCustomerCredentials requires all three fields", () => {
+    expect(hasCustomerCredentials(RECORD)).toBe(false);
+    expect(hasCustomerCredentials({ ...RECORD, accessKeyId: "key" })).toBe(false);
+    expect(
+      hasCustomerCredentials({ ...RECORD, accessKeyId: "key", secretAccessKey: "secret" }),
+    ).toBe(false);
+    expect(
+      hasCustomerCredentials({
+        ...RECORD,
+        accountId: "a".repeat(32),
+        accessKeyId: "key",
+        secretAccessKey: "secret",
+      }),
+    ).toBe(true);
   });
 });
