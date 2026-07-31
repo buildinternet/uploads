@@ -45,6 +45,26 @@ const MENU_ITEMS = [
     readCachedSessionUser,
     writeCachedSessionUser,
   } from "../lib/account-shell";
+  import { readCachedActiveWorkspace } from "../lib/workspaces-nav";
+
+  /** Last-used workspace files, else the workspaces list (same as home CTA). */
+  function filesHref(): string {
+    const ws = readCachedActiveWorkspace();
+    return ws ? `/account/workspaces/${encodeURIComponent(ws)}` : "/account/workspaces";
+  }
+
+  /** SiteHeader's signed-in-only Files link (absent on pages without the header). */
+  function paintHeaderFiles(signedIn: boolean): void {
+    const link = document.querySelector<HTMLAnchorElement>("[data-header-files]");
+    if (!link) return;
+    if (signedIn) {
+      link.href = filesHref();
+      link.hidden = false;
+    } else {
+      link.hidden = true;
+      link.href = "/account/workspaces";
+    }
+  }
 
   function bootAuthIndicator(): void {
     const root = document.querySelector<HTMLElement>("[data-auth-indicator]");
@@ -89,17 +109,20 @@ const MENU_ITEMS = [
     };
 
     const paintSignedOut = () => {
+      paintHeaderFiles(false);
       slot.innerHTML =
         '<a class="ul-btn ul-btn--solid ul-btn--sm auth-indicator__signin" href="/login">Sign in</a>';
     };
 
     const paintUnavailable = () => {
+      paintHeaderFiles(false);
       slot.innerHTML = '<span class="auth-indicator__muted">auth unavailable</span>';
     };
 
     let menuListeners: AbortController | null = null;
 
     const paintUser = (user: SessionUser) => {
+      paintHeaderFiles(true);
       const initials = escapeHtml(initialsFor(user));
       const email = escapeHtml(user.email);
       const label = escapeHtml(user.name || user.email || "Account");
@@ -173,6 +196,7 @@ const MENU_ITEMS = [
         "click",
         () => {
           clearCachedSessionUser();
+          paintHeaderFiles(false);
           void signOut(origin).then(() => {
             location.href = "/login";
           });
