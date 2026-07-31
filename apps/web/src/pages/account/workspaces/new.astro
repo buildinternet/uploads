@@ -30,6 +30,12 @@ export const prerender = false;
           <button type="submit" class="input-group__action">Create</button>
         </div>
         <p class="ws-hint muted">2–63 chars · lowercase letters, digits, hyphens</p>
+
+        <label class="storage-byo-option muted" id="byo-option" hidden>
+          <input type="checkbox" id="byo-checkbox" />
+          Bring your own storage bucket
+          <span class="muted">— set up after the workspace is created.</span>
+        </label>
       </form>
 
       <div class="ws-messages">
@@ -76,6 +82,19 @@ export const prerender = false;
       </div>
     </div>
   </section>
+
+  <style>
+    .storage-byo-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      font-size: 13px;
+    }
+    .storage-byo-option input {
+      margin: 0;
+    }
+  </style>
 
   <script>
     import { onAstroPageLoad, onSession, requireElement } from "../../../lib/account-shell";
@@ -125,6 +144,20 @@ export const prerender = false;
       // the OAuth consent page sends `/oauth/consent?<signed query>` so a
       // workspace-less user can create one mid-authorization and resume.
       const nextPath = safeSameOriginPath(new URLSearchParams(location.search).get("next"));
+
+      // "Bring your own storage bucket" (issue #583 Task 2.1). There's no
+      // pre-creation capability signal to check — `byoBucketEnabled` is a
+      // per-workspace record flag that only exists once a workspace exists,
+      // and it's off by default for everyone. Rather than always showing an
+      // option that 403s for virtually every user, or inventing a new
+      // capability endpoint, this reveals the checkbox only for `?byo=1`
+      // (shared out-of-band with early-access workspaces/orgs) — an honest
+      // client-side gate the settings page's own `byoBucketEnabled` check
+      // still enforces for real: an unflagged workspace just lands on a
+      // normal settings page after creation.
+      const byoOption = requireElement<HTMLElement>("#byo-option", page);
+      const byoCheckbox = requireElement<HTMLInputElement>("#byo-checkbox", page);
+      if (new URLSearchParams(location.search).get("byo") === "1") byoOption.hidden = false;
 
       void listAccounts(authOrigin).then((accounts) => {
         if (accounts && !accounts.some((a) => a.providerId === "github")) githubEl.hidden = false;
@@ -187,7 +220,13 @@ export const prerender = false;
           githubEl.hidden = true;
           successEl.hidden = true;
           const name = input.value.trim();
+          const wantsByo = !byoOption.hidden && byoCheckbox.checked;
           if (submit) submit.disabled = true;
+          // Creation itself stays one unchanged transaction — shared-bucket
+          // record, normal path — regardless of the BYO checkbox. BYO is
+          // attach-immediately-after via the settings redirect below, so a
+          // wizard abandoned halfway just leaves a normal empty workspace,
+          // never a broken one.
           const result = await createWorkspace(apiOrigin, name);
           if (submit) submit.disabled = false;
           if (result.kind === "created") {
@@ -199,6 +238,14 @@ export const prerender = false;
             // request, not terminal setup.
             if (nextPath) {
               location.href = nextPath;
+              return;
+            }
+            if (wantsByo) {
+              // Drop straight into the storage wizard for the new (still
+              // empty) workspace — settings.astro's `loadStorage()` opens it
+              // automatically on `#storage` once it confirms
+              // `byoBucketEnabled` for real.
+              location.href = `/account/workspaces/${encodeURIComponent(name)}/settings#storage`;
               return;
             }
             input.value = "";

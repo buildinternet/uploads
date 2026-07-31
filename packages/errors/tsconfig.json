@@ -4,6 +4,10 @@
     "lib": ["ES2022"],
     "module": "ESNext",
     "moduleResolution": "bundler",
+    // Relative imports carry explicit .ts extensions so plain Node (type
+    // stripping) can load this package — apps/api/scripts/add-workspace.mjs
+    // imports it outside any bundler (see #583 Phase 0).
+    "allowImportingTsExtensions": true,
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,

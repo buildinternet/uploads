@@ -377,6 +377,106 @@ export const prerender = false;
         return body;
       }
 
+      // Issue #583 Task 3.3: operator read-out of a workspace's storage mode
+      // + the `byoBucketEnabled` gate + configure/verify provenance. Mirrors
+      // `GET /me/workspaces/:name/storage`'s projection (never a credential
+      // value, only masked/presence fields — see workspace-storage.ts) plus
+      // `configuredBy` (admin-ui-only, like `stripeCustomerId` on the plan
+      // response above).
+      interface StorageResponse {
+        workspace: string;
+        mode: "shared" | "byo";
+        byoBucketEnabled: boolean;
+        bucket?: string;
+        accountIdMasked?: string;
+        accessKeyIdLast4?: string;
+        publicBaseUrl?: string;
+        configuredAt?: string;
+        verifiedAt?: string;
+        configuredBy: string | null;
+      }
+
+      function renderStorageForm(
+        host: HTMLElement,
+        workspace: string,
+        data: StorageResponse,
+      ): void {
+        const provenance =
+          data.mode === "byo"
+            ? `<ul class="admin-mini-list storage-provenance">
+              ${data.bucket ? `<li><span>Bucket</span><span class="mono">${escapeHtml(data.bucket)}</span></li>` : ""}
+              ${data.accountIdMasked ? `<li><span>Account</span><span class="mono">${escapeHtml(data.accountIdMasked)}</span></li>` : ""}
+              ${data.accessKeyIdLast4 ? `<li><span>Access key</span><span class="mono">${escapeHtml(data.accessKeyIdLast4)}</span></li>` : ""}
+              ${data.publicBaseUrl ? `<li><span>Public URL</span><span class="mono">${escapeHtml(data.publicBaseUrl)}</span></li>` : ""}
+              <li><span>Configured</span><span>${
+                data.configuredAt
+                  ? `${escapeHtml(formatDate(data.configuredAt) ?? data.configuredAt)}${data.configuredBy ? ` by ${escapeHtml(data.configuredBy)}` : ""}`
+                  : `<span class="muted">Not configured</span>`
+              }</span></li>
+              <li><span>Verified</span><span>${data.verifiedAt ? escapeHtml(formatDate(data.verifiedAt) ?? data.verifiedAt) : `<span class="muted">Not verified</span>`}</span></li>
+            </ul>`
+            : `<p class="muted storage-shared-note">Using the shared platform bucket.</p>`;
+
+        host.innerHTML = `
+        <h4 class="storage-heading">Storage</h4>
+        <p class="muted storage-mode">Mode: ${data.mode === "byo" ? "Bring your own bucket" : "Shared"}</p>
+        ${provenance}
+        <form class="storage-form">
+          <label class="storage-enabled"><input type="checkbox" class="storage-enabled-check" ${data.byoBucketEnabled ? "checked" : ""} /> Allow bring-your-own bucket</label>
+          <button type="submit">Save</button>
+          <div class="storage-status" role="status" aria-live="polite" hidden></div>
+        </form>`;
+
+        const form = host.querySelector<HTMLFormElement>(".storage-form");
+        const statusEl = host.querySelector<HTMLElement>(".storage-status");
+        form?.addEventListener("submit", (event) => {
+          void (async () => {
+            event.preventDefault();
+            if (statusEl) statusEl.hidden = true;
+            const checkbox = host.querySelector<HTMLInputElement>(".storage-enabled-check");
+            const byoBucketEnabled = checkbox?.checked ?? false;
+            const submitBtn = form.querySelector<HTMLButtonElement>("button[type=submit]");
+            if (submitBtn) submitBtn.disabled = true;
+            try {
+              const res = await fetch(
+                `${apiOrigin}/admin-ui/workspaces/${encodeURIComponent(workspace)}/storage`,
+                {
+                  method: "PATCH",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ byoBucketEnabled }),
+                },
+              );
+              if (!res.ok) {
+                const payload = (await res.json().catch(() => null)) as {
+                  error?: { message?: string };
+                } | null;
+                throw new Error(payload?.error?.message || `save failed: ${res.status}`);
+              }
+              const updated = (await res.json()) as StorageResponse;
+              renderStorageForm(host, workspace, updated);
+              const freshStatus = host.querySelector<HTMLElement>(".storage-status");
+              if (freshStatus) {
+                freshStatus.dataset.state = "ready";
+                freshStatus.textContent = "Saved.";
+                freshStatus.hidden = false;
+              }
+            } catch (err) {
+              if (statusEl) {
+                statusEl.dataset.state = "error";
+                statusEl.textContent =
+                  err instanceof Error && err.message
+                    ? err.message
+                    : "Couldn't save storage settings.";
+                statusEl.hidden = false;
+              }
+            } finally {
+              if (submitBtn) submitBtn.disabled = false;
+            }
+          })();
+        });
+      }
+
       interface GithubLink {
         repo: string;
         workspace: string;
@@ -424,6 +524,7 @@ export const prerender = false;
             <div class="invites admin-detail-block"></div>
             <div class="plan admin-detail-block" data-state="unloaded"></div>
             <div class="limits admin-detail-block" data-state="unloaded"></div>
+            <div class="storage admin-detail-block" data-state="unloaded"></div>
             <div class="github-links admin-detail-block" data-state="unloaded"></div>
             ${
               ws.organization
@@ -453,6 +554,7 @@ export const prerender = false;
         const membersLoaded = { done: false };
         const planLoaded = { done: false };
         const limitsLoaded = { done: false };
+        const storageLoaded = { done: false };
         const githubLinksLoaded = { done: false };
 
         function loadDetail() {
@@ -514,6 +616,20 @@ export const prerender = false;
             } catch {
               limitsEl.innerHTML = `<p class="muted">Failed to load limits.</p>`;
               throw new Error("limits");
+            }
+          });
+
+          loadOnce(storageLoaded, async () => {
+            const storageEl = group.querySelector<HTMLElement>(".storage");
+            if (!storageEl) return;
+            try {
+              const storageData = await apiGet<StorageResponse>(
+                `/admin-ui/workspaces/${encodeURIComponent(ws.workspace)}/storage`,
+              );
+              renderStorageForm(storageEl, ws.workspace, storageData);
+            } catch {
+              storageEl.innerHTML = `<p class="muted">Failed to load storage.</p>`;
+              throw new Error("storage");
             }
           });
 
