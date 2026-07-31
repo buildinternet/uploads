@@ -6,6 +6,8 @@ import { runMeta, type CliContext } from "../src/commands.js";
 function fakeClient() {
   const getCalls: string[] = [];
   const patchCalls: { key: string; set?: Record<string, string>; delete?: string[] }[] = [];
+  let keysCalled = 0;
+  const valuesCalls: string[] = [];
   const client = {
     getMetadata: async (key: string) => {
       getCalls.push(key);
@@ -18,8 +20,35 @@ function fakeClient() {
       patchCalls.push({ key, ...opts });
       return { metadata: { ...opts.set } };
     },
+    listMetadataKeys: async () => {
+      keysCalled += 1;
+      return {
+        keys: [
+          { key: "gh.repo", count: 2, distinctValues: 1 },
+          { key: "app", count: 1, distinctValues: 1 },
+        ],
+        truncated: false,
+      };
+    },
+    listMetadataValues: async (key: string) => {
+      valuesCalls.push(key);
+      return {
+        key,
+        values: [
+          { value: "web", count: 2 },
+          { value: "api", count: 1 },
+        ],
+        truncated: false,
+      };
+    },
   } as unknown as UploadsClient;
-  return { client, getCalls, patchCalls };
+  return {
+    client,
+    getCalls,
+    patchCalls,
+    keysCalled: () => keysCalled,
+    valuesCalls,
+  };
 }
 
 function ctxWith(client: UploadsClient): CliContext {
@@ -166,6 +195,45 @@ describe("runMeta set", () => {
     await expect(
       runMeta(ctxWith(client), ["set", "screenshots/a.png", "nokeyvalue"], false),
     ).rejects.toThrow(UsageError);
+  });
+});
+
+describe("runMeta keys / values (issue #528)", () => {
+  it("lists workspace metadata keys", async () => {
+    const { client, keysCalled } = fakeClient();
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      stdout.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      expect(await runMeta(ctxWith(client), ["keys"], false)).toBe(0);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(keysCalled()).toBe(1);
+    expect(stdout.join("")).toBe("gh.repo  count=2  distinct=1\napp  count=1  distinct=1\n");
+  });
+
+  it("lists values for one metadata key", async () => {
+    const { client, valuesCalls } = fakeClient();
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((chunk: unknown) => {
+      stdout.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      expect(await runMeta(ctxWith(client), ["values", "app"], false)).toBe(0);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(valuesCalls).toEqual(["app"]);
+    expect(stdout.join("")).toBe("web  count=2\napi  count=1\n");
+  });
+
+  it("requires a key for values", async () => {
+    const { client } = fakeClient();
+    await expect(runMeta(ctxWith(client), ["values"], false)).rejects.toThrow(UsageError);
   });
 });
 

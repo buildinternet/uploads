@@ -65,6 +65,11 @@ export interface ListOptions {
 export interface FindFilesOptions {
   prefix?: string;
   limit?: number;
+  /**
+   * Case-insensitive substring match on object keys (`?name=`).
+   * At least one of non-empty `filters` or `name` is required.
+   */
+  name?: string;
 }
 
 export interface FindFilesItem {
@@ -76,6 +81,19 @@ export interface FindFilesItem {
 export interface FindFilesResult {
   items: FindFilesItem[];
   cursor: string | null;
+  /** Present when a `name` term was used — true if the underlying query hit its cap. */
+  truncated?: boolean;
+}
+
+export interface MetadataKeysResult {
+  keys: Array<{ key: string; count: number; distinctValues: number }>;
+  truncated: boolean;
+}
+
+export interface MetadataValuesResult {
+  key: string;
+  values: Array<{ value: string; count: number }>;
+  truncated: boolean;
 }
 
 export interface GetMetadataResult {
@@ -1000,18 +1018,34 @@ export function createUploadsClient(config: UploadsClientConfig) {
     },
 
     /**
-     * `GET /v1/:workspace/files?meta.<k>=<v>&…` — ANDed equality filter over
-     * queryable metadata. `filters` must be pre-validated (see `metadata.ts`).
+     * `GET /v1/:workspace/files?meta.<k>=<v>&…&name=…` — ANDed equality filter
+     * over queryable metadata and/or a case-insensitive filename substring.
+     * At least one of non-empty `filters` or `opts.name` is required.
+     * `filters` must be pre-validated when present (see `metadata.ts`).
      */
     async findFiles(
-      filters: Record<string, string>,
+      filters: Record<string, string> = {},
       opts: FindFilesOptions = {},
     ): Promise<FindFilesResult> {
       const params = new URLSearchParams();
       for (const [k, v] of Object.entries(filters)) params.append(`meta.${k}`, v);
+      if (opts.name) params.set("name", opts.name);
       if (opts.prefix) params.set("prefix", opts.prefix);
       if (opts.limit != null) params.set("limit", String(opts.limit));
       return request<FindFilesResult>("GET", `${filesBase(config)}?${params.toString()}`);
+    },
+
+    /** `GET /v1/:workspace/files/facets` — workspace metadata key vocabulary. */
+    async listMetadataKeys(): Promise<MetadataKeysResult> {
+      return request<MetadataKeysResult>("GET", `${filesBase(config)}/facets`);
+    },
+
+    /** `GET /v1/:workspace/files/facets?key=` — distinct values for one key. */
+    async listMetadataValues(key: string): Promise<MetadataValuesResult> {
+      return request<MetadataValuesResult>(
+        "GET",
+        `${filesBase(config)}/facets?${new URLSearchParams({ key })}`,
+      );
     },
 
     async head(key: string): Promise<HeadResult> {

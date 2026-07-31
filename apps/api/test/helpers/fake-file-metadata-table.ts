@@ -143,6 +143,53 @@ export class FileMetadataTable {
       }
       return { success: true, results: results as T[], meta: {} };
     }
+    // facetKeys: distinct meta keys with counts (issue #528).
+    if (
+      normalizedSql.startsWith(
+        "SELECT meta_key, COUNT(*) AS count, COUNT(DISTINCT meta_value) AS distinct_values",
+      )
+    ) {
+      const [workspace, limit] = args as [string, number];
+      const scopePrefix = `${workspace} `;
+      const byKey = new Map<string, { count: number; values: Set<string> }>();
+      for (const [scopedKey, map] of this.metadata) {
+        if (!scopedKey.startsWith(scopePrefix)) continue;
+        for (const [meta_key, meta_value] of map.entries()) {
+          // Mirror EXCLUDE_SERVER_KEYS (video.* today).
+          if (meta_key.startsWith("video.")) continue;
+          const entry = byKey.get(meta_key) ?? { count: 0, values: new Set<string>() };
+          entry.count += 1;
+          entry.values.add(meta_value);
+          byKey.set(meta_key, entry);
+        }
+      }
+      const results = [...byKey.entries()]
+        .map(([meta_key, entry]) => ({
+          meta_key,
+          count: entry.count,
+          distinct_values: entry.values.size,
+        }))
+        .sort((a, b) => b.count - a.count || a.meta_key.localeCompare(b.meta_key))
+        .slice(0, limit);
+      return { success: true, results: results as T[], meta: {} };
+    }
+    // facetValues: distinct values for one meta key (issue #528).
+    if (normalizedSql.startsWith("SELECT meta_value, COUNT(*) AS count FROM file_metadata")) {
+      const [workspace, key, limit] = args as [string, string, number];
+      const scopePrefix = `${workspace} `;
+      const counts = new Map<string, number>();
+      for (const [scopedKey, map] of this.metadata) {
+        if (!scopedKey.startsWith(scopePrefix)) continue;
+        const value = map.get(key);
+        if (value === undefined) continue;
+        counts.set(value, (counts.get(value) ?? 0) + 1);
+      }
+      const results = [...counts.entries()]
+        .map(([meta_value, count]) => ({ meta_value, count }))
+        .sort((a, b) => b.count - a.count || a.meta_value.localeCompare(b.meta_value))
+        .slice(0, limit);
+      return { success: true, results: results as T[], meta: {} };
+    }
     return undefined;
   }
 }

@@ -190,15 +190,17 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
   },
   {
     name: "find",
-    usage: "find k=v...",
-    summary: "List objects matching metadata (alias for list --meta)",
+    usage: "find [k=v...] [--name <term>]",
+    summary: "Find objects by metadata and/or filename substring",
   },
   {
     name: "meta",
-    summary: "Get/set an object's queryable metadata",
+    summary: "Get/set object metadata; discover workspace keys/values",
     subcommands: [
       { name: "get", summary: "Show metadata for an object" },
       { name: "set", summary: "Merge-set and/or delete metadata pairs" },
+      { name: "keys", summary: "List distinct metadata keys in the workspace" },
+      { name: "values", summary: "List distinct values for one metadata key" },
     ],
   },
   {

@@ -72,6 +72,8 @@ export {
   type FindFilesOptions,
   type FindFilesItem,
   type FindFilesResult,
+  type MetadataKeysResult,
+  type MetadataValuesResult,
   type GetMetadataResult,
   type PatchMetadataOptions,
 } from "./client.js";

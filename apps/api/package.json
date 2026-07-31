@@ -10,6 +10,7 @@
     "./storage": "./src/storage.ts",
     "./files": "./src/files-core.ts",
     "./file-metadata": "./src/file-metadata.ts",
+    "./file-search": "./src/file-search.ts",
     "./guards": "./src/guards.ts",
     "./budget": "./src/budget.ts",
     "./usage": "./src/usage.ts",

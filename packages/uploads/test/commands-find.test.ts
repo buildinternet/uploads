@@ -4,16 +4,28 @@ import type { UploadsClient } from "../src/client.js";
 import { runFind, type CliContext } from "../src/commands.js";
 
 function fakeClient() {
-  const calls: { filters: Record<string, string>; prefix?: string; limit?: number }[] = [];
+  const calls: {
+    filters: Record<string, string>;
+    prefix?: string;
+    limit?: number;
+    name?: string;
+  }[] = [];
   const client = {
     findFiles: async (
       filters: Record<string, string>,
-      opts: { prefix?: string; limit?: number } = {},
+      opts: { prefix?: string; limit?: number; name?: string } = {},
     ) => {
-      calls.push({ filters, prefix: opts.prefix, limit: opts.limit });
+      calls.push({ filters, prefix: opts.prefix, limit: opts.limit, name: opts.name });
       return {
-        items: [{ key: "gh/o/r/pull/123/a.png", url: "https://x.test/a.png", metadata: filters }],
+        items: [
+          {
+            key: "gh/o/r/pull/123/a.png",
+            url: "https://x.test/a.png",
+            metadata: Object.keys(filters).length > 0 ? filters : { app: "web" },
+          },
+        ],
         cursor: null,
+        truncated: opts.name ? false : undefined,
       };
     },
   } as unknown as UploadsClient;
@@ -59,14 +71,37 @@ describe("runFind", () => {
     expect(calls[0].filters).toEqual({ path: "/settings", state: "after" });
   });
 
-  it("requires at least one pair, and says so instead of dumping help (#545)", async () => {
+  it("requires at least one pair or name, and says so instead of dumping help (#545)", async () => {
     const { client } = fakeClient();
     await expect(runFind(ctxWith(client), [], false)).rejects.toThrow(/find requires at least one/);
   });
 
-  it("rejects a malformed pair", async () => {
+  it("accepts a bare positional as the filename name term (#528)", async () => {
+    const { client, calls } = fakeClient();
+    const code = await runFind(ctxWith(client), ["hero"], false);
+    expect(code).toBe(0);
+    expect(calls[0]).toMatchObject({ filters: {}, name: "hero" });
+  });
+
+  it("accepts --name and combines it with meta filters", async () => {
+    const { client, calls } = fakeClient();
+    const code = await runFind(ctxWith(client), ["app=web", "--name", "hero"], false);
+    expect(code).toBe(0);
+    expect(calls[0]).toMatchObject({ filters: { app: "web" }, name: "hero" });
+  });
+
+  it("rejects both a bare name and --name together", async () => {
     const { client } = fakeClient();
-    await expect(runFind(ctxWith(client), ["nokeyvalue"], false)).rejects.toThrow(UsageError);
+    await expect(runFind(ctxWith(client), ["hero", "--name", "shot"], false)).rejects.toThrow(
+      UsageError,
+    );
+  });
+
+  it("rejects a malformed pair that is not a bare name", async () => {
+    const { client } = fakeClient();
+    // "nokeyvalue" is a bare name term (no `=`), so it is accepted as --name.
+    // A real malformed k=v has `=` but fails parseMetaFlags.
+    await expect(runFind(ctxWith(client), ["=novalue"], false)).rejects.toThrow(UsageError);
   });
 
   it("combines with --prefix and --limit", async () => {

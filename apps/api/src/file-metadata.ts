@@ -447,6 +447,8 @@ export async function replaceFileMetadata(
 
 const FIND_DEFAULT_LIMIT = 50;
 const FIND_MAX_LIMIT = 500;
+/** Allow one extra row so callers can probe truncation with `limit + 1`. */
+const FIND_PROBE_MAX_LIMIT = FIND_MAX_LIMIT + 1;
 
 /**
  * Escapes SQL LIKE metacharacters (`%`, `_`, and the escape character itself)
@@ -479,7 +481,9 @@ export async function findObjectsByMetadata(
   const entries = Object.entries(filters);
   if (entries.length === 0) return [];
 
-  const limit = Math.max(1, Math.min(opts.limit ?? FIND_DEFAULT_LIMIT, FIND_MAX_LIMIT));
+  // FIND_PROBE_MAX_LIMIT lets callers request `pageSize + 1` for an exact
+  // truncated signal (name search over-fetches the D1 window; see file-search.ts).
+  const limit = Math.max(1, Math.min(opts.limit ?? FIND_DEFAULT_LIMIT, FIND_PROBE_MAX_LIMIT));
   const params: unknown[] = [];
   const legs = entries.map(([key, value]) => {
     params.push(workspace, key, value);
@@ -606,6 +610,38 @@ export async function facetValues(
     values: rows.map((row) => ({ value: row.meta_value, count: row.count })),
     truncated,
   };
+}
+
+export type FacetKeysResult = {
+  keys: Array<{ key: string; count: number; distinctValues: number }>;
+  truncated: boolean;
+};
+
+export type FacetValuesResult = {
+  key: string;
+  values: Array<{ value: string; count: number }>;
+  truncated: boolean;
+};
+
+/**
+ * Facet discovery shared by token `/files/facets`, session `/me/.../files/facets`,
+ * and hosted MCP `list_metadata_keys`. No `key` → workspace key list; with
+ * `key` → that key's values (validated against `META_KEY_RE`).
+ */
+export async function listFacets(
+  db: D1Database,
+  workspace: string,
+  key?: string,
+): Promise<FacetKeysResult | FacetValuesResult> {
+  if (key === undefined) return facetKeys(db, workspace);
+  if (!META_KEY_RE.test(key)) {
+    throw new ValidationError(`invalid metadata key: ${key}`, {
+      code: "file_metadata_invalid_key",
+      details: { key },
+    });
+  }
+  const { values, truncated } = await facetValues(db, workspace, key);
+  return { key, values, truncated };
 }
 
 /** Max object keys bound into a single `object_key IN (...)` statement (SQLite's ~999 host-parameter limit, kept well under it). */
