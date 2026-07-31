@@ -2715,35 +2715,55 @@ export async function runGallery(ctx: CliContext, args: string[], help = false):
 
 // --- list ---
 
-const LIST_HELP = `uploads list [--prefix <p>] [--pr <num> | --issue <num>] [--repo <owner/name>] [--limit <n>] [--cursor <c>] [--all] [--meta <k=v>]... [--workspace <name>]
+const LIST_HELP = `uploads list [--prefix <p>] [--pr <num> | --issue <num>] [--repo <owner/name>] [--limit <n>] [--cursor <c>] [--all] [--meta <k=v>]... [--name <term>] [--workspace <name>]
 
 Default prefix: UPLOADS_DEFAULT_PREFIX (screenshots if unset).
 
---meta <k=v> (repeatable, ANDed) switches to the metadata filter endpoint —
-returned items include their matched metadata. Combines with --prefix, not
-with --pr/--issue/--all. See also: uploads find (positional-pair alias).
+--meta <k=v> (repeatable, ANDed) and/or --name <term> switch to the search
+endpoint — returned items include their matched metadata. Combines with
+--prefix, not with --pr/--issue/--all. --name is a case-insensitive
+substring match on object keys. See also: uploads find.
 
 Examples:
   uploads list --prefix screenshots/
   uploads list --pr 123
   uploads list --all --json
   uploads list --meta gh.repo=buildinternet/uploads --meta gh.number=123
+  uploads list --name hero --meta app=web
 `;
 
-/** `--meta k=v` (repeatable) filter path, shared by `runList` and `runFind`. */
+/** Human-mode stderr note when a paged API response was capped server-side. */
+function writeTruncatedNotice(
+  truncated: boolean | undefined,
+  quiet: boolean,
+  detail: string,
+): void {
+  if (truncated && !quiet) {
+    process.stderr.write(`truncated: true (${detail})\n`);
+  }
+}
+
+/** `--meta` / `--name` search path, shared by `runList` and `runFind`. */
 async function runFindFiles(
   ctx: CliContext,
   filters: Record<string, string>,
   flags: CommandFlags["flags"],
+  name?: string,
 ): Promise<number> {
   if (flagString(flags, "--cursor") !== undefined) {
-    throw new UsageError("--cursor is not supported with metadata filters");
+    throw new UsageError("--cursor is not supported with metadata or name filters");
   }
   const prefix = flagString(flags, "--prefix");
   const limit = flagInt(flags, "--limit", "--limit");
-  const result = await ctx.client.findFiles(filters, { prefix, limit });
+  const nameTerm = name ?? flagString(flags, "--name");
+  if (Object.keys(filters).length === 0 && !nameTerm) {
+    throw new UsageError("find requires at least one k=v pair, --meta k=v, or --name <term>", {
+      example: "uploads find path=/settings state=after",
+    });
+  }
+  const result = await ctx.client.findFiles(filters, { prefix, limit, name: nameTerm });
   if (ctx.json) await writeJson(result);
-  else
+  else {
     for (const item of result.items) {
       // LIST_HELP promises matched metadata in the output; render it inline
       // (sorted for stable output) so human mode honors that, not just --json.
@@ -2755,6 +2775,8 @@ async function runFindFiles(
         `${item.key}${item.url ? `  ${item.url}` : ""}${meta ? `  ${meta}` : ""}\n`,
       );
     }
+    writeTruncatedNotice(result.truncated, ctx.quiet, "more matches may exist beyond this page");
+  }
   return 0;
 }
 
@@ -2770,14 +2792,20 @@ export async function runList(
     return 0;
   }
   const metaPairs = flagValues(parsed.flags, "--meta");
-  if (metaPairs.length > 0) {
+  const nameFlag = flagString(parsed.flags, "--name");
+  if (metaPairs.length > 0 || nameFlag !== undefined) {
     if (ghTargetFromFlags(parsed.flags, run)) {
-      throw new UsageError("--meta cannot be combined with --pr/--issue");
+      throw new UsageError("--meta/--name cannot be combined with --pr/--issue");
     }
     if (flagBool(parsed.flags, "--all")) {
-      throw new UsageError("--meta cannot be combined with --all");
+      throw new UsageError("--meta/--name cannot be combined with --all");
     }
-    return runFindFiles(ctx, parseMetaFlags(metaPairs), parsed.flags);
+    return runFindFiles(
+      ctx,
+      metaPairs.length > 0 ? parseMetaFlags(metaPairs) : {},
+      parsed.flags,
+      nameFlag,
+    );
   }
   const defaults = resolvePutDefaults({ envFile: ctx.envFile });
   const prefixFlag = flagString(parsed.flags, "--prefix");
@@ -2812,15 +2840,21 @@ export async function runList(
 
 // --- find ---
 
-const FIND_HELP = `uploads find k=v [k=v...] [--prefix <p>] [--limit <n>] [--workspace <name>]
+const FIND_HELP = `uploads find [k=v...] [--meta k=v]... [--name <term>] [--prefix <p>] [--limit <n>] [--workspace <name>]
 
-Human-friendly alias for \`uploads list --meta k=v...\` — same metadata filter
-(ANDed equality), same output; pairs are positional, or spelled --meta k=v.
+Find objects by queryable metadata (ANDed equality) and/or a case-insensitive
+filename substring. Same output as \`uploads list --meta\` / \`--name\`.
+
+Pairs are positional k=v, or spelled --meta k=v. A bare positional without
+\`=\` is treated as --name (e.g. \`uploads find hero\`). At least one of a
+meta pair or a name term is required.
 
 Examples:
   uploads find gh.repo=buildinternet/uploads gh.number=123
   uploads find path=/settings state=after --prefix screenshots/
   uploads find --meta path=/settings
+  uploads find hero
+  uploads find --name hero --meta app=web
 `;
 
 export async function runFind(ctx: CliContext, args: string[], help = false): Promise<number> {
@@ -2831,14 +2865,33 @@ export async function runFind(ctx: CliContext, args: string[], help = false): Pr
   }
   // Same flag/positional symmetry as `meta set` (issue #545): `find` is the
   // alias for `list --meta`, so `find --meta k=v` must not dead-end.
-  const pairs = [...parsed.positionals, ...flagValues(parsed.flags, "--meta")];
-  if (pairs.length === 0) {
-    throw new UsageError("find requires at least one k=v pair (or --meta k=v)", {
-      example: "uploads find path=/settings state=after",
+  // Bare positionals without `=` are the filename term (issue #528) so
+  // `uploads find hero` works without a flag. Empty input is rejected inside
+  // `runFindFiles` (shared with `list --name` / `--meta`).
+  const nameFlag = flagString(parsed.flags, "--name");
+  const kvPositionals: string[] = [];
+  const bareNames: string[] = [];
+  for (const pos of parsed.positionals) {
+    if (pos.includes("=")) kvPositionals.push(pos);
+    else bareNames.push(pos);
+  }
+  if (bareNames.length > 1) {
+    throw new UsageError("find accepts at most one bare name term (or use --name)", {
+      example: "uploads find hero --meta app=web",
     });
   }
-  const filters = parseMetaFlags(pairs);
-  return runFindFiles(ctx, filters, parsed.flags);
+  if (bareNames.length === 1 && nameFlag !== undefined) {
+    throw new UsageError("pass the name term either as a bare positional or --name, not both", {
+      example: "uploads find hero",
+    });
+  }
+  const pairs = [...kvPositionals, ...flagValues(parsed.flags, "--meta")];
+  return runFindFiles(
+    ctx,
+    pairs.length > 0 ? parseMetaFlags(pairs) : {},
+    parsed.flags,
+    nameFlag ?? bareNames[0],
+  );
 }
 
 // --- meta ---
@@ -2846,11 +2899,14 @@ export async function runFind(ctx: CliContext, args: string[], help = false): Pr
 const META_HELP = `uploads meta <command> [args]
 
 Read/write an object's queryable custom metadata (D1-backed key-value pairs;
-distinct from the R2 provenance headers put on upload).
+distinct from the R2 provenance headers put on upload). Discover which keys
+and values exist in the workspace before filtering with find/list.
 
 Commands:
   get <key>                            Show metadata for an object
   set <key> k=v [k=v...] [--delete k]...   Merge-set and/or delete pairs
+  keys                                 List distinct metadata keys (with counts)
+  values <meta-key>                    List distinct values for one key
 
 Pairs take either form: positional k=v, or --meta k=v (same spelling as
 put/screenshot/list). Both can appear in one call.
@@ -2860,6 +2916,8 @@ Examples:
   uploads meta set screenshots/myapp/42/shot.png path=/settings state=after
   uploads meta set screenshots/myapp/42/shot.png --meta path=/settings
   uploads meta set screenshots/myapp/42/shot.png --delete path --delete state
+  uploads meta keys
+  uploads meta values app
 `;
 
 export async function runMeta(ctx: CliContext, args: string[], help = false): Promise<number> {
@@ -2870,7 +2928,7 @@ export async function runMeta(ctx: CliContext, args: string[], help = false): Pr
     return 0;
   }
   if (!action) {
-    throw new UsageError("meta requires a subcommand: get or set", {
+    throw new UsageError("meta requires a subcommand: get, set, keys, or values", {
       example: "uploads meta set screenshots/myapp/42/shot.png --meta path=/settings",
     });
   }
@@ -2920,8 +2978,38 @@ export async function runMeta(ctx: CliContext, args: string[], help = false): Pr
       await resyncCommentAfterMetaSet(ctx, key, [...Object.keys(set ?? {}), ...del]);
       return 0;
     }
+    case "keys": {
+      // Workspace vocabulary discovery (issue #528) — which meta keys exist
+      // and how common they are, before agents guess at find filters.
+      const result = await ctx.client.listMetadataKeys();
+      if (ctx.json) await writeJson(result);
+      else {
+        for (const row of result.keys) {
+          await writeStdout(`${row.key}  count=${row.count}  distinct=${row.distinctValues}\n`);
+        }
+        writeTruncatedNotice(result.truncated, ctx.quiet, "more keys may exist beyond this page");
+      }
+      return 0;
+    }
+    case "values": {
+      const key = parsed.positionals[1];
+      if (!key) {
+        throw new UsageError("meta values requires a metadata key", {
+          example: "uploads meta values app",
+        });
+      }
+      const result = await ctx.client.listMetadataValues(key);
+      if (ctx.json) await writeJson(result);
+      else {
+        for (const row of result.values) {
+          await writeStdout(`${row.value}  count=${row.count}\n`);
+        }
+        writeTruncatedNotice(result.truncated, ctx.quiet, "more values may exist beyond this page");
+      }
+      return 0;
+    }
     default:
-      throw new UsageError(`unknown meta command: ${action} (expected get or set)`, {
+      throw new UsageError(`unknown meta command: ${action} (expected get, set, keys, or values)`, {
         example: "uploads meta get screenshots/myapp/42/shot.png",
       });
   }

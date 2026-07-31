@@ -579,11 +579,18 @@ uploads meta set screenshots/myapp/42/settings.webp --meta path=/onboarding  # s
 uploads list --meta app=web --meta path=/settings   # ANDed, repeatable
 uploads find app=web path=/settings                 # same filter, positional pairs
 uploads find --meta app=web                         # --meta works here too
+uploads find hero                                   # bare name = filename substring
+uploads find --name hero --meta app=web             # name + meta, either order
+uploads meta keys                                   # which meta keys exist here
+uploads meta values app                             # values (with counts) for one key
 ```
 
 `meta set` and `find` accept pairs in either spelling: positional `k=v`, or the
 repeatable `--meta k=v` that `put`, `attach`, `screenshot`, and `list` use. Both
-forms can appear in one call.
+forms can appear in one call. `find` also takes a case-insensitive filename
+substring (`--name <term>`, or a bare positional without `=`). When you don't
+know which keys exist, start with `meta keys` / `meta values <key>` (or the MCP
+`list_metadata_keys` tool) — keys are user/agent-defined, not a fixed schema.
 
 On the default `screenshots/…` path, `put` also auto-derives GitHub context and
 stamps `gh.repo`/`gh.kind`/`gh.number`/`gh.ref` from the current branch's PR (or
@@ -777,11 +784,15 @@ comment --body-file` over inline HEREDOCs.
 uploads list --prefix screenshots/        # list objects (key + url)
 uploads list --pr 123                      # everything attached to a PR
 uploads list --meta app=myapp              # filter by metadata (repeatable, ANDed)
+uploads list --name hero --meta app=web    # filename substring (+ optional meta)
 uploads find app=myapp page=settings       # same filter, human-friendly positional pairs
+uploads find hero                          # filename substring alone
 uploads list --all --json                  # paginate fully, machine-readable
 uploads meta get <key>                     # show an object's metadata
 uploads meta set <key> k=v [k=v…] [--delete k]…   # merge-set / delete metadata pairs
 uploads meta set <key> --meta k=v                  # same, in put/list's flag spelling
+uploads meta keys                          # discover workspace metadata keys
+uploads meta values <meta-key>             # distinct values for one key
 uploads delete <key>                       # remove an object
 uploads delete <key> --dry-run             # show what would be deleted
 uploads usage                              # storage / monthly upload counters (+ limits)
@@ -865,8 +876,10 @@ uploads --api-url http://localhost:8787 doctor
 - **MCP:** `uploads mcp` (stdio) mirrors CLI tools; hosted MCP at
   `https://agents.uploads.sh/mcp` — the one to reach for when an agent has no
   local filesystem or git checkout to shell out from (send base64 content
-  directly). Metadata: `get_metadata` / `set_metadata` / `find_files` (same as
-  `meta get` / `meta set` / `find`). Both support multi-file `put` in one call
+  directly). Metadata: `get_metadata` / `set_metadata` / `find_files` /
+  `list_metadata_keys` (same as `meta get` / `meta set` / `find` /
+  `meta keys`|`meta values`). `find_files` accepts optional `name` (filename
+  substring) with or without `filters`. Both support multi-file `put` in one call
   — stdio takes `files` as paths, hosted takes
   `files: [{ filename, contentBase64, alt? }]` (max 20/call; per-item `alt`
   overrides the top-level one) — returning `{ uploads, failures }` with

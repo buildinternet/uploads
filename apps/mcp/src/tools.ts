@@ -45,13 +45,18 @@ import {
   type PromoteResult,
 } from "@uploads/api/github-promote-service";
 import {
-  findObjectsByMetadata,
   getFileMetadata,
+  listFacets,
   META_MAX_KEYS,
   setFileMetadata,
   validateMetadataEntries,
   validateMetadataFilters,
 } from "@uploads/api/file-metadata";
+import {
+  clampSearchLimit,
+  normalizeSearchName,
+  searchFilesByNameAndMeta,
+} from "@uploads/api/file-search";
 import { hasGithubTags, uploaderTags } from "@uploads/api/uploader-identity";
 import { deriveRepoBinding, findRepoLink } from "@uploads/api/github-repo-binding";
 import {
@@ -1018,49 +1023,80 @@ export function createRemoteTools(ctx: RemoteToolContext): McpTool[] {
     {
       name: "find_files",
       description:
-        "Find objects in the workspace whose queryable custom metadata matches ALL of `filters` (ANDed equality). Returns each match's key, public URL, and full metadata map. Same as the CLI/local MCP's `find_files` tool.",
+        "Find objects whose queryable custom metadata matches ALL of `filters` (ANDed equality) and/or whose key contains `name` (case-insensitive substring). At least one of `filters` or `name` is required. Returns each match's key, public URL, full metadata map, and optional `truncated`. Same as the CLI/local MCP's `find_files` tool.",
       inputSchema: {
         type: "object",
         properties: {
           filters: {
             ...metadataProp,
-            description: "Metadata equality filters (at least one pair). " + METADATA_DESCRIPTION,
+            description:
+              "Metadata equality filters (optional when `name` is set). " + METADATA_DESCRIPTION,
+          },
+          name: {
+            type: "string",
+            description:
+              "Case-insensitive substring match on object keys (1–128 chars). Optional when `filters` is non-empty.",
           },
           prefix: {
             type: "string",
-            description: "Key prefix filter, combinable with filters.",
+            description: "Key prefix filter, combinable with filters/name.",
           },
           limit: {
             type: "number",
             description: "Page size (default 50, max 500).",
           },
         },
-        required: ["filters"],
         additionalProperties: false,
       },
       async handler(args) {
         requireScope("files:read");
-        const filters = optStringRecord(args, "filters");
-        if (!filters || Object.keys(filters).length === 0) {
-          usage("filters must have at least one key");
+        const filters = optStringRecord(args, "filters") ?? {};
+        const rawName = optString(args, "name");
+        const hasMeta = Object.keys(filters).length > 0;
+        if (!hasMeta && !rawName) {
+          usage("find_files requires filters and/or name");
         }
         // Shares the count cap + key-format checks with the REST list endpoint's meta.* filters.
-        validateMetadataFilters(filters);
-        const [cfg, matches] = await Promise.all([
+        if (hasMeta) validateMetadataFilters(filters);
+        const nameTerm = rawName === undefined ? undefined : normalizeSearchName(rawName);
+        const pageSize = clampSearchLimit(optPosInt(args, "limit"));
+        const [cfg, result] = await Promise.all([
           storageConfig(env, workspace),
-          findObjectsByMetadata(env.DB, workspaceName, filters, {
+          searchFilesByNameAndMeta(env, workspace, workspaceName, {
+            filters: hasMeta ? filters : undefined,
+            nameTerm,
             prefix: optString(args, "prefix"),
-            limit: optPosInt(args, "limit"),
+            pageSize,
           }),
         ]);
-        return {
-          items: matches.map((match) => ({
-            key: match.key,
-            url: publicUrl(cfg, match.key),
-            metadata: match.metadata,
-          })),
-          cursor: null,
-        };
+        const items = result.matches.map((match) => ({
+          key: match.key,
+          url: publicUrl(cfg, match.key),
+          metadata: match.metadata,
+        }));
+        // Meta-only keeps the pre-#528 shape (no truncated).
+        if (nameTerm === undefined) return { items, cursor: null };
+        return { items, cursor: null, truncated: result.truncated };
+      },
+    },
+    {
+      name: "list_metadata_keys",
+      description:
+        "List the distinct queryable metadata keys present in the workspace, with file counts and distinct-value counts. Use this to discover what is filterable before calling find_files — keys are user/agent-defined, not a fixed schema. Same as the CLI's `uploads meta keys`. Pass optional `key` to list that key's values instead (`uploads meta values <key>`).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: {
+            type: "string",
+            description:
+              "When set, return distinct values for this metadata key (with counts) instead of the key list.",
+          },
+        },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        requireScope("files:read");
+        return listFacets(env.DB, workspaceName, optString(args, "key"));
       },
     },
     {

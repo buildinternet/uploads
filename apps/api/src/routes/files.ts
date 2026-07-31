@@ -15,13 +15,18 @@ import {
   putObject,
 } from "../files-core";
 import {
-  findObjectsByMetadata,
   getFileMetadata,
   getMetadataForKeys,
+  listFacets,
   META_MAX_KEYS,
   setFileMetadata,
-  validateMetadataFilters,
 } from "../file-metadata";
+import {
+  clampSearchLimit,
+  normalizeSearchName,
+  parseMetaQueryFilters,
+  searchFilesByNameAndMeta,
+} from "../file-search";
 import { splitUploadMetaHeaders } from "../provenance";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { requireScope, type WorkspaceVars } from "../workspace";
@@ -228,57 +233,46 @@ export const files = new Hono<WorkspaceVars>()
     return c.json({ workspace: c.get("workspaceName"), ...result }, 201);
   })
 
-  // Repeatable `meta.<key>=<value>` params switch the listing to the D1
-  // metadata index (ANDed equality across all given pairs) instead of the
-  // R2 prefix-list below; see file-metadata.ts's `findObjectsByMetadata`.
-  // No `meta.*` params at all leaves the existing R2 path untouched.
-  // Contract caveat: D1-path items carry no `visibility` annotation (that
-  // lives in R2 custom metadata and would cost a HEAD per result to
-  // hydrate); callers needing the private marker must HEAD the object.
+  // Repeatable `meta.<key>=<value>` params and optional `?name=` switch the
+  // listing to the shared D1/storage search path (issue #528) instead of the
+  // R2 prefix-list below. No `meta.*` and no `name` leaves the existing R2
+  // path untouched. Contract caveat: search-path items carry no `visibility`
+  // annotation (that lives in R2 custom metadata and would cost a HEAD per
+  // result to hydrate); callers needing the private marker must HEAD the
+  // object. Meta-only responses omit `truncated` (pre-#528 shape); name
+  // searches include it.
   .get("/", requireScope("files:read"), async (c) => {
     const query = c.req.query();
-    const metaParamKeys = Object.keys(query).filter((k) => k.startsWith("meta."));
+    const rawName = c.req.query("name");
+    const nameTerm = rawName === undefined ? undefined : normalizeSearchName(rawName);
+    const filters = parseMetaQueryFilters(query, (param) => c.req.queries(param));
+    const hasMeta = Object.keys(filters).length > 0;
 
-    if (metaParamKeys.length > 0) {
-      // Duplicate-param detection is query-string-specific (repeated same
-      // key), so it stays here; count cap + key format are shared with the
-      // MCP find_files tool via validateMetadataFilters.
-      const filters: Record<string, string> = {};
-      for (const param of metaParamKeys) {
-        const key = param.slice("meta.".length);
-        const values = c.req.queries(param) ?? [];
-        if (values.length > 1) {
-          throw new ValidationError(`repeated metadata filter for key: ${key}`, {
-            code: "file_metadata_duplicate_filter",
-            details: { key },
-          });
-        }
-        filters[key] = values[0] ?? query[param];
-      }
-      validateMetadataFilters(filters);
-
+    if (hasMeta || nameTerm !== undefined) {
       const ws = c.get("workspace");
       const limitParam = c.req.query("limit");
-      const limit = limitParam ? Number(limitParam) || undefined : undefined;
-      const [cfg, matches] = await Promise.all([
+      const pageSize = clampSearchLimit(limitParam ? Number(limitParam) || undefined : undefined);
+      const [cfg, result] = await Promise.all([
         storageConfig(c.env, ws),
-        findObjectsByMetadata(c.env.DB, c.get("workspaceName"), filters, {
+        searchFilesByNameAndMeta(c.env, ws, c.get("workspaceName"), {
+          filters: hasMeta ? filters : undefined,
+          nameTerm,
           prefix: query.prefix,
-          limit,
+          pageSize,
         }),
       ]);
-      return c.json({
-        items: matches.map((match) => {
-          const urls = objectPublicUrls(c.env, cfg, match.key);
-          return {
-            key: match.key,
-            url: urls.url,
-            embedUrl: urls.embedUrl,
-            metadata: match.metadata,
-          };
-        }),
-        cursor: null,
+      const items = result.matches.map((match) => {
+        const urls = objectPublicUrls(c.env, cfg, match.key);
+        return {
+          key: match.key,
+          url: urls.url,
+          embedUrl: urls.embedUrl,
+          metadata: match.metadata,
+        };
       });
+      // Meta-only keeps the pre-#528 envelope (no `truncated` field).
+      if (nameTerm === undefined) return c.json({ items, cursor: null });
+      return c.json({ items, cursor: null, truncated: result.truncated });
     }
 
     const { prefix, cursor } = query;
@@ -302,6 +296,15 @@ export const files = new Hono<WorkspaceVars>()
       ...page,
       items: page.items.map((item) => ({ ...item, metadata: metaByKey.get(item.key) })),
     });
+  })
+
+  // Facet discovery (issue #528) — token-authed twin of
+  // `GET /me/workspaces/:name/files/facets`. Keys are user/agent-defined, so
+  // agents need this to discover what is filterable before calling find_files.
+  // Static path must register before `/:key{.+}` so "facets" is not treated
+  // as an object key.
+  .get("/facets", requireScope("files:read"), async (c) => {
+    return c.json(await listFacets(c.env.DB, c.get("workspaceName"), c.req.query("key")));
   })
 
   // Metadata now lives on the key-at-tail routes (same shape PUT/GET/DELETE

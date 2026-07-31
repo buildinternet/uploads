@@ -151,11 +151,15 @@ async function makeEnv(
 /** PUT the standard test key with auth, letting each test vary body/headers/env. */
 function putShot(
   env: Parameters<typeof app.request>[2],
-  { body = PNG as BodyInit, headers = {} as Record<string, string> } = {},
+  {
+    body = PNG as BodyInit,
+    headers = {} as Record<string, string>,
+    key = "screenshots/shot.png",
+  } = {},
 ) {
   // Nested key so auto-prefix of bare basenames does not rewrite the path.
   return app.request(
-    "/v1/default/files/screenshots/shot.png",
+    `/v1/default/files/${key}`,
     {
       method: "PUT",
       headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "image/png", ...headers },
@@ -1313,6 +1317,114 @@ describe("GET /v1/:workspace/files list + meta.* filter", () => {
 
     const json = (await res.json()) as { items: { metadata?: object }[] };
     expect(json.items[0].metadata).toBeUndefined();
+  });
+
+  it("matches filenames case-insensitively by substring with ?name=", async () => {
+    const { env } = await makeEnv();
+    await putShot(env, { key: "screenshots/Hero-Shot.png" });
+    await putShot(env, { key: "screenshots/footer.png" });
+
+    const res = await listFiles(env, "?name=hero");
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { items: ListedFile[]; truncated: boolean };
+    expect(json.items.map((i) => i.key)).toEqual(["screenshots/Hero-Shot.png"]);
+    expect(json.truncated).toBe(false);
+  });
+
+  it("narrows metadata results by name without walking storage", async () => {
+    const { env, bucket } = await makeEnv();
+    await putShot(env, {
+      key: "f/hero.png",
+      headers: { "X-Uploads-Meta-App": "web" },
+    });
+    await putShot(env, {
+      key: "f/footer.png",
+      headers: { "X-Uploads-Meta-App": "web" },
+    });
+    // Clear the bucket after the puts so only D1 retains the keys — if the
+    // name+meta path walked storage it would return nothing.
+    bucket.store.clear();
+    const listCallsBefore = bucket.listCalls;
+
+    const res = await listFiles(env, "?meta.app=web&name=hero");
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { items: ListedFile[]; truncated: boolean };
+    expect(json.items.map((i) => i.key)).toEqual(["f/hero.png"]);
+    expect(bucket.listCalls).toBe(listCallsBefore);
+  });
+
+  it("rejects a blank name with file_search_invalid_name", async () => {
+    const { env } = await makeEnv();
+    const res = await listFiles(env, "?name=%20%20");
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "file_search_invalid_name" },
+    });
+  });
+
+  it("treats the name term as a literal substring, not a glob", async () => {
+    const { env } = await makeEnv();
+    await putShot(env, { key: "report.png" });
+    const res = await listFiles(env, "?name=re*ort");
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { items: unknown[] }).items).toEqual([]);
+  });
+});
+
+describe("GET /v1/:workspace/files/facets", () => {
+  it("lists the workspace's metadata keys with counts", async () => {
+    const { env } = await makeEnv();
+    await putShot(env, {
+      key: "a.png",
+      headers: { "X-Uploads-Meta-App": "web", "X-Uploads-Meta-Gh.Repo": "o/r" },
+    });
+    await putShot(env, {
+      key: "b.png",
+      headers: { "X-Uploads-Meta-Gh.Repo": "o/r" },
+    });
+
+    const res = await listFiles(env, "/facets");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      keys: [
+        { key: "gh.repo", count: 2, distinctValues: 1 },
+        { key: "app", count: 1, distinctValues: 1 },
+      ],
+      truncated: false,
+    });
+  });
+
+  it("lists one key's values when ?key= is given", async () => {
+    const { env } = await makeEnv();
+    await putShot(env, { key: "a.png", headers: { "X-Uploads-Meta-App": "web" } });
+    await putShot(env, { key: "b.png", headers: { "X-Uploads-Meta-App": "web" } });
+    await putShot(env, { key: "c.png", headers: { "X-Uploads-Meta-App": "api" } });
+
+    const res = await listFiles(env, "/facets?key=app");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      key: "app",
+      values: [
+        { value: "web", count: 2 },
+        { value: "api", count: 1 },
+      ],
+      truncated: false,
+    });
+  });
+
+  it("rejects a malformed key with file_metadata_invalid_key", async () => {
+    const { env } = await makeEnv();
+    const res = await listFiles(env, "/facets?key=BadKey");
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: { code: string } }).toMatchObject({
+      error: { code: "file_metadata_invalid_key" },
+    });
+  });
+
+  it("requires authentication", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(`/v1/default/files/facets`, {}, env);
+    expect(res.status).toBe(401);
   });
 });
 

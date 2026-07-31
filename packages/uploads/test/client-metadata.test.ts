@@ -131,6 +131,77 @@ describe("metadata CRUD client methods", () => {
     expect(result.items[0].key).toBe("gh/o/r/pull/123/a.png");
     expect(result.cursor).toBeNull();
   });
+
+  it("findFiles sends ?name= with optional empty filters", async () => {
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      expect(url.pathname).toBe("/v1/test/files");
+      expect(url.searchParams.get("name")).toBe("hero");
+      expect(url.searchParams.getAll("meta.app")).toEqual(["web"]);
+      return new Response(
+        JSON.stringify({
+          items: [{ key: "f/hero.png", url: "https://x.test/hero.png", metadata: { app: "web" } }],
+          cursor: null,
+          truncated: false,
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = createUploadsClient({
+      apiUrl: "https://api.test",
+      workspace: "test",
+      token: "up_test_x",
+    });
+    const result = await client.findFiles({ app: "web" }, { name: "hero" });
+    expect(result.items[0].key).toBe("f/hero.png");
+    expect(result.truncated).toBe(false);
+  });
+
+  it("listMetadataKeys GETs /files/facets", async () => {
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      expect(String(input)).toBe("https://api.test/v1/test/files/facets");
+      return new Response(
+        JSON.stringify({
+          keys: [{ key: "app", count: 2, distinctValues: 1 }],
+          truncated: false,
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = createUploadsClient({
+      apiUrl: "https://api.test",
+      workspace: "test",
+      token: "up_test_x",
+    });
+    expect(await client.listMetadataKeys()).toEqual({
+      keys: [{ key: "app", count: 2, distinctValues: 1 }],
+      truncated: false,
+    });
+  });
+
+  it("listMetadataValues GETs /files/facets?key=", async () => {
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      expect(String(input)).toBe("https://api.test/v1/test/files/facets?key=app");
+      return new Response(
+        JSON.stringify({
+          key: "app",
+          values: [{ value: "web", count: 2 }],
+          truncated: false,
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = createUploadsClient({
+      apiUrl: "https://api.test",
+      workspace: "test",
+      token: "up_test_x",
+    });
+    expect(await client.listMetadataValues("app")).toEqual({
+      key: "app",
+      values: [{ value: "web", count: 2 }],
+      truncated: false,
+    });
+  });
 });
 
 describe("list metadata hydration", () => {

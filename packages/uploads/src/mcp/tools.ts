@@ -1204,32 +1204,65 @@ export function createUploadsMcpTools(opts: {
     {
       name: "find_files",
       description:
-        "Find objects in the workspace whose queryable custom metadata matches ALL of `filters` (ANDed equality). Returns each match's key, public URL, and full metadata map. Same as `uploads find k=v...` / `uploads list --meta k=v`.",
+        "Find objects whose queryable custom metadata matches ALL of `filters` (ANDed equality) and/or whose key contains `name` (case-insensitive substring). At least one of `filters` or `name` is required. Returns each match's key, public URL, full metadata map, and optional `truncated`. Same as `uploads find k=v...` / `uploads find --name <term>`.",
       inputSchema: {
         type: "object",
         properties: {
           filters: {
             ...metadataProp,
-            description: "Metadata equality filters (at least one pair). " + METADATA_DESCRIPTION,
+            description:
+              "Metadata equality filters (optional when `name` is set). " + METADATA_DESCRIPTION,
           },
-          prefix: { type: "string", description: "Key prefix filter, combinable with filters." },
+          name: {
+            type: "string",
+            description:
+              "Case-insensitive substring match on object keys (1–128 chars). Optional when `filters` is non-empty.",
+          },
+          prefix: {
+            type: "string",
+            description: "Key prefix filter, combinable with filters/name.",
+          },
           limit: { type: "number", description: "Page size (default 50, max 500)." },
           workspace: workspaceProp,
         },
-        required: ["filters"],
         additionalProperties: false,
       },
       async handler(args) {
-        const filters = optStringRecord(args, "filters");
-        if (!filters || Object.keys(filters).length === 0) {
-          usage("filters must have at least one key");
+        const filters = optStringRecord(args, "filters") ?? {};
+        const name = optString(args, "name");
+        const hasMeta = Object.keys(filters).length > 0;
+        if (!hasMeta && !name) {
+          usage("find_files requires filters and/or name");
         }
-        validateMetaMap(filters);
+        if (hasMeta) validateMetaMap(filters);
         const { client } = clientFor(args);
         return client.findFiles(filters, {
+          name,
           prefix: optString(args, "prefix"),
           limit: optPosInt(args, "limit"),
         });
+      },
+    },
+    {
+      name: "list_metadata_keys",
+      description:
+        "List the distinct queryable metadata keys present in the workspace, with file counts and distinct-value counts. Use this to discover what is filterable before calling find_files — keys are user/agent-defined, not a fixed schema. Same as `uploads meta keys`. Pass optional `key` to list that key's values instead (`uploads meta values <key>`).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          key: {
+            type: "string",
+            description:
+              "When set, return distinct values for this metadata key (with counts) instead of the key list.",
+          },
+          workspace: workspaceProp,
+        },
+        additionalProperties: false,
+      },
+      async handler(args) {
+        const { client } = clientFor(args);
+        const key = optString(args, "key");
+        return key ? client.listMetadataValues(key) : client.listMetadataKeys();
       },
     },
     {

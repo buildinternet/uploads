@@ -245,6 +245,52 @@ async function makeEnv(
               }
               return { success: true, results: results as T[], meta: {} };
             }
+            // facetKeys (issue #528)
+            if (
+              normalized.startsWith(
+                "SELECT meta_key, COUNT(*) AS count, COUNT(DISTINCT meta_value) AS distinct_values",
+              )
+            ) {
+              const [ws, limit] = values as [string, number];
+              const scopePrefix = `${ws} `;
+              const byKey = new Map<string, { count: number; values: Set<string> }>();
+              for (const [scoped, map] of metadata.entries()) {
+                if (!scoped.startsWith(scopePrefix)) continue;
+                for (const [meta_key, meta_value] of map.entries()) {
+                  if (meta_key.startsWith("video.")) continue;
+                  const entry = byKey.get(meta_key) ?? { count: 0, values: new Set<string>() };
+                  entry.count += 1;
+                  entry.values.add(meta_value);
+                  byKey.set(meta_key, entry);
+                }
+              }
+              const results = [...byKey.entries()]
+                .map(([meta_key, entry]) => ({
+                  meta_key,
+                  count: entry.count,
+                  distinct_values: entry.values.size,
+                }))
+                .sort((a, b) => b.count - a.count || a.meta_key.localeCompare(b.meta_key))
+                .slice(0, limit);
+              return { success: true, results: results as T[], meta: {} };
+            }
+            // facetValues (issue #528)
+            if (normalized.startsWith("SELECT meta_value, COUNT(*) AS count FROM file_metadata")) {
+              const [ws, key, limit] = values as [string, string, number];
+              const scopePrefix = `${ws} `;
+              const counts = new Map<string, number>();
+              for (const [scoped, map] of metadata.entries()) {
+                if (!scoped.startsWith(scopePrefix)) continue;
+                const value = map.get(key);
+                if (value === undefined) continue;
+                counts.set(value, (counts.get(value) ?? 0) + 1);
+              }
+              const results = [...counts.entries()]
+                .map(([meta_value, count]) => ({ meta_value, count }))
+                .sort((a, b) => b.count - a.count || a.meta_value.localeCompare(b.meta_value))
+                .slice(0, limit);
+              return { success: true, results: results as T[], meta: {} };
+            }
             return { success: true, results: [] as T[], meta: {} };
           },
         };
@@ -581,6 +627,7 @@ describe("mcp worker", () => {
       "get_metadata",
       "health",
       "list",
+      "list_metadata_keys",
       "promote",
       "purge_expired",
       "put",
@@ -1096,13 +1143,72 @@ describe("mcp worker", () => {
     });
   });
 
-  it("find_files requires at least one filter", async () => {
+  it("find_files requires filters and/or name", async () => {
     const { env } = await makeEnv();
     const result = await callTool(env, "find_files", { filters: {} });
     expect(result.isError).toBe(true);
-    expect(result.content).toEqual([
-      { type: "text", text: "filters must have at least one key (USAGE)" },
-    ]);
+    expect((result.content[0] as { text: string }).text).toMatch(/filters and\/or name/);
+  });
+
+  it("find_files matches filenames by substring with name", async () => {
+    const { env } = await makeEnv();
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "Hero-Shot.png",
+      key: "shots/Hero-Shot.png",
+    });
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "footer.png",
+      key: "shots/footer.png",
+    });
+
+    const result = await callTool(env, "find_files", { name: "hero" });
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent).toMatchObject({
+      items: [{ key: "shots/Hero-Shot.png" }],
+      truncated: false,
+    });
+  });
+
+  it("list_metadata_keys returns workspace keys and per-key values", async () => {
+    const { env } = await makeEnv();
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "a.png",
+      key: "shots/a.png",
+      metadata: { app: "web" },
+    });
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "b.png",
+      key: "shots/b.png",
+      metadata: { app: "web" },
+    });
+    await callTool(env, "put", {
+      contentBase64: PNG_B64,
+      filename: "c.png",
+      key: "shots/c.png",
+      metadata: { app: "api" },
+    });
+
+    const keys = await callTool(env, "list_metadata_keys", {});
+    expect(keys.isError).toBe(false);
+    expect(keys.structuredContent).toEqual({
+      keys: [{ key: "app", count: 3, distinctValues: 2 }],
+      truncated: false,
+    });
+
+    const values = await callTool(env, "list_metadata_keys", { key: "app" });
+    expect(values.isError).toBe(false);
+    expect(values.structuredContent).toEqual({
+      key: "app",
+      values: [
+        { value: "web", count: 2 },
+        { value: "api", count: 1 },
+      ],
+      truncated: false,
+    });
   });
 
   it("computes the default screenshot key without git derivation", async () => {

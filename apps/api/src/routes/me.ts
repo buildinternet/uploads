@@ -23,14 +23,12 @@ import { usageWithLimits } from "../budget";
 import { throwForInviteError } from "../invite-error";
 import { parseExternalReference } from "../external-references";
 import { previewFixtureItems } from "../comment-preview-fixtures";
+import { getMetadataForKeys, listFacets } from "../file-metadata";
 import {
-  facetKeys,
-  facetValues,
-  findObjectsByMetadata,
-  getMetadataForKeys,
-  META_KEY_RE,
-  validateMetadataFilters,
-} from "../file-metadata";
+  normalizeSearchName,
+  parseMetaQueryFilters,
+  searchFilesByNameAndMeta,
+} from "../file-search";
 import { badKey, deleteObject, listObjects, setObjectVisibility } from "../files-core";
 import { listGalleries } from "../galleries";
 import { galleryListSummaries } from "../gallery-service";
@@ -214,26 +212,6 @@ function commentSettingsResponse(record: WorkspaceRecord) {
 
 /** `?repo=` shape for the comment preview endpoint: exactly one `/`, no empty segments. */
 const REPO_SHAPE_RE = /^[^/\s]+\/[^/\s]+$/;
-
-/** Max characters accepted in a `?name=` filename search term. */
-const SEARCH_NAME_MAX = 128;
-
-/**
- * Validate and normalize a `?name=` term. Lowercased here so the substring
- * comparison against object keys needs no per-row casing work. Always passed
- * to files-sdk as a `substring` pattern, never `glob` or `regex`: glob would
- * make `*` and `?` silently meaningful in a box where people type filenames,
- * and a user-supplied regex would be a denial-of-service vector.
- */
-function normalizeSearchName(raw: string): string {
-  const term = raw.trim();
-  if (term.length === 0 || term.length > SEARCH_NAME_MAX) {
-    throw new ValidationError("name must be 1–128 characters", {
-      code: "file_search_invalid_name",
-    });
-  }
-  return term.toLowerCase();
-}
 
 interface MyWorkspace {
   workspace: string;
@@ -581,9 +559,11 @@ export const me = new Hono<SessionVars>()
   })
 
   // Metadata search — the session-authed twin of the token route's
-  // `GET /v1/:workspace/files?meta.*` (files.ts). Same AND-of-equality
-  // semantics and shared validators; scoped to one workspace, member-gated.
-  // Results carry no `visibility` (it isn't in the D1 index — accepted caveat).
+  // `GET /v1/:workspace/files?meta.*` / `?name=` (files.ts). Same AND-of-
+  // equality semantics and shared helpers; scoped to one workspace, member-
+  // gated. Results carry no `visibility` (it isn't in the D1 index — accepted
+  // caveat). Always returns `truncated` (session contract differs from the
+  // token meta-only envelope).
   .get("/workspaces/:name/files/search", async (c) => {
     const name = c.req.param("name");
     await memberWorkspaceOr404(c.env, requireUserId(c), name);
@@ -594,76 +574,29 @@ export const me = new Hono<SessionVars>()
     }
 
     const query = c.req.query();
-    const metaParamKeys = Object.keys(query).filter((k) => k.startsWith("meta."));
     const rawName = c.req.query("name");
     const nameTerm = rawName === undefined ? undefined : normalizeSearchName(rawName);
+    const filters = parseMetaQueryFilters(query, (param) => c.req.queries(param));
+    const hasMeta = Object.keys(filters).length > 0;
 
-    if (metaParamKeys.length === 0 && nameTerm === undefined) {
+    if (!hasMeta && nameTerm === undefined) {
       throw new ValidationError("at least one meta.* filter or name is required", {
         code: "file_metadata_invalid_key",
       });
     }
 
-    const filters: Record<string, string> = {};
-    for (const param of metaParamKeys) {
-      const key = param.slice("meta.".length);
-      const values = c.req.queries(param) ?? [];
-      if (values.length > 1) {
-        throw new ValidationError(`repeated metadata filter for key: ${key}`, {
-          code: "file_metadata_duplicate_filter",
-          details: { key },
-        });
-      }
-      filters[key] = values[0] ?? query[param];
-    }
-    if (metaParamKeys.length > 0) validateMetadataFilters(filters);
-
+    // Session search keeps a fixed page of 100 (same as before #528).
     const SEARCH_LIMIT = 100;
     const cfg = await storageConfig(c.env, record);
+    const { matches, truncated } = await searchFilesByNameAndMeta(c.env, record, name, {
+      filters: hasMeta ? filters : undefined,
+      nameTerm,
+      prefix: query.prefix,
+      pageSize: SEARCH_LIMIT,
+    });
 
-    // Two paths. With metadata filters the D1 index is the selective one and
-    // already caps at SEARCH_LIMIT, so a name term narrows those rows in
-    // memory and storage is never walked. Name alone has no index to use, so
-    // it walks via files-sdk `search()` — `maxResults` stops the walk as soon
-    // as the cap is reached rather than traversing the whole workspace.
-    //
-    // `truncated` must reflect whether the *underlying* query hit its cap,
-    // not the post-filter match count: on the metadata path, a `?name=` term
-    // narrows the D1 result set in memory, and a cap hit there can still
-    // leave a name-matching count at or below SEARCH_LIMIT even though rows
-    // beyond the D1 window (in object_key order) were never fetched at all.
-    let matches: Array<{ key: string; metadata: Record<string, string> }>;
-    let truncated: boolean;
-    if (metaParamKeys.length > 0) {
-      const found = await findObjectsByMetadata(c.env.DB, name, filters, {
-        prefix: query.prefix,
-        limit: SEARCH_LIMIT + 1,
-      });
-      // The name-filtered set is a subset of `found`, which is capped at
-      // SEARCH_LIMIT + 1, so this subsumes checking the post-filter count.
-      truncated = found.length > SEARCH_LIMIT;
-      matches = nameTerm
-        ? found.filter((match) => match.key.toLowerCase().includes(nameTerm))
-        : found;
-    } else {
-      const store = await storage(c.env, record);
-      const keys: string[] = [];
-      for await (const file of store.search(nameTerm!, {
-        match: "substring",
-        caseInsensitive: true,
-        maxResults: SEARCH_LIMIT + 1,
-        ...(query.prefix ? { prefix: query.prefix } : {}),
-      })) {
-        keys.push(file.key);
-      }
-      const metaByKey = await getMetadataForKeys(c.env.DB, name, keys);
-      matches = keys.map((key) => ({ key, metadata: metaByKey.get(key) ?? {} }));
-      truncated = matches.length > SEARCH_LIMIT;
-    }
-
-    const page = truncated ? matches.slice(0, SEARCH_LIMIT) : matches;
     return c.json({
-      items: page.map((match) => {
+      items: matches.map((match) => {
         const urls = objectPublicUrls(c.env, cfg, match.key);
         return { key: match.key, url: urls.url, embedUrl: urls.embedUrl, metadata: match.metadata };
       }),
@@ -688,18 +621,7 @@ export const me = new Hono<SessionVars>()
       throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
     }
 
-    const key = c.req.query("key");
-    if (key === undefined) {
-      return c.json(await facetKeys(c.env.DB, name));
-    }
-    if (!META_KEY_RE.test(key)) {
-      throw new ValidationError(`invalid metadata key: ${key}`, {
-        code: "file_metadata_invalid_key",
-        details: { key },
-      });
-    }
-    const { values, truncated } = await facetValues(c.env.DB, name, key);
-    return c.json({ key, values, truncated });
+    return c.json(await listFacets(c.env.DB, name, c.req.query("key")));
   })
 
   // Resolve a selected browser item to a usable URL, by storage capability

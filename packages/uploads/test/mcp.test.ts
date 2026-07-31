@@ -36,6 +36,13 @@ function fakeFactory() {
   }> = [];
   const deletes: string[] = [];
   const configs: UploadsClientConfig[] = [];
+  const findCalls: Array<{
+    filters: Record<string, string>;
+    prefix?: string;
+    limit?: number;
+    name?: string;
+  }> = [];
+  const facetCalls: Array<{ kind: "keys" } | { kind: "values"; key: string }> = [];
   // Keyed by object key, mirroring the server's per-key metadata rows well
   // enough to exercise set_metadata/find_files wiring without a real API.
   const metadataStore = new Map<string, Record<string, string>>();
@@ -100,21 +107,38 @@ function fakeFactory() {
         return { metadata: current };
       },
       findFiles: async (
-        filters: Record<string, string>,
-        opts: { prefix?: string; limit?: number } = {},
+        filters: Record<string, string> = {},
+        opts: { prefix?: string; limit?: number; name?: string } = {},
       ) => {
+        findCalls.push({ filters, ...opts });
         const items = [...metadataStore.entries()]
           .filter(([key, meta]) => {
             if (opts.prefix && !key.startsWith(opts.prefix)) return false;
+            if (opts.name && !key.toLowerCase().includes(opts.name.toLowerCase())) return false;
             return Object.entries(filters).every(([k, v]) => meta[k] === v);
           })
           .slice(0, opts.limit ?? 50)
           .map(([key, meta]) => ({ key, url: `https://x.test/${key}`, metadata: meta }));
-        return { items, cursor: null };
+        return { items, cursor: null, truncated: opts.name ? false : undefined };
+      },
+      listMetadataKeys: async () => {
+        facetCalls.push({ kind: "keys" });
+        return {
+          keys: [{ key: "app", count: 2, distinctValues: 1 }],
+          truncated: false,
+        };
+      },
+      listMetadataValues: async (key: string) => {
+        facetCalls.push({ kind: "values", key });
+        return {
+          key,
+          values: [{ value: "web", count: 2 }],
+          truncated: false,
+        };
       },
     } as unknown as UploadsClient;
   };
-  return { factory, puts, deletes, configs, metadataStore };
+  return { factory, puts, deletes, configs, metadataStore, findCalls, facetCalls };
 }
 
 /** In-memory gallery API contract used to exercise the MCP mutation workflow. */
@@ -247,7 +271,7 @@ function serverWith(overrides?: {
   runner?: CommandRunner;
   factory?: (config: UploadsClientConfig) => UploadsClient;
 }) {
-  const { factory, puts, deletes, configs, metadataStore } = fakeFactory();
+  const { factory, puts, deletes, configs, metadataStore, findCalls, facetCalls } = fakeFactory();
   const server = createMcpServer({
     serverInfo: { name: "uploads", version: "0.0.0-test" },
     validator,
@@ -257,7 +281,7 @@ function serverWith(overrides?: {
       clientFactory: overrides?.factory ?? factory,
     }),
   });
-  return { server, puts, deletes, configs, metadataStore };
+  return { server, puts, deletes, configs, metadataStore, findCalls, facetCalls };
 }
 
 const PNG_B64 = Buffer.from("png-bytes").toString("base64");
@@ -417,6 +441,7 @@ describe("tools/list", () => {
       "get_metadata",
       "set_metadata",
       "find_files",
+      "list_metadata_keys",
       "usage",
       "reconcile",
       "purge_expired",
@@ -1114,11 +1139,47 @@ describe("tools/call get_metadata, set_metadata, find_files", () => {
     });
   });
 
-  it("requires at least one filter", async () => {
+  it("requires filters and/or name", async () => {
     const { server } = serverWith();
     const res = await rpc(server, "tools/call", { name: "find_files", arguments: { filters: {} } });
     expect(res.result.isError).toBe(true);
-    expect(res.result.content[0].text).toContain("filters");
+    expect(res.result.content[0].text).toMatch(/filters|name/);
+  });
+
+  it("finds by name alone", async () => {
+    const { server, findCalls } = serverWith();
+    const res = await rpc(server, "tools/call", {
+      name: "find_files",
+      arguments: { name: "hero" },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(findCalls[0]).toMatchObject({ filters: {}, name: "hero" });
+  });
+
+  it("list_metadata_keys returns keys and values shapes", async () => {
+    const { server, facetCalls } = serverWith();
+    const keys = await rpc(server, "tools/call", {
+      name: "list_metadata_keys",
+      arguments: {},
+    });
+    expect(keys.result.isError).toBe(false);
+    expect(keys.result.structuredContent).toEqual({
+      keys: [{ key: "app", count: 2, distinctValues: 1 }],
+      truncated: false,
+    });
+    expect(facetCalls).toEqual([{ kind: "keys" }]);
+
+    const values = await rpc(server, "tools/call", {
+      name: "list_metadata_keys",
+      arguments: { key: "app" },
+    });
+    expect(values.result.isError).toBe(false);
+    expect(values.result.structuredContent).toEqual({
+      key: "app",
+      values: [{ value: "web", count: 2 }],
+      truncated: false,
+    });
+    expect(facetCalls).toEqual([{ kind: "keys" }, { kind: "values", key: "app" }]);
   });
 });
 
