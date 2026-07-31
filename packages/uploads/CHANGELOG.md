@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.37.2
+
+### Patch Changes
+
+- 76b16e9: Managed GitHub comments no longer open with a "📎 Attachments" heading — the media starts immediately under any optional note.
+
 ## 0.37.1
 
 ### Patch Changes
