@@ -2,6 +2,7 @@
  * Tiny shared helpers for the operator admin tables (/admin/*).
  * Pages still own their data fetches; this only covers markup plumbing.
  */
+import { skeletonBarHtml } from "./workspace-ui";
 
 /** Escape text for insertion into HTML attribute/text nodes. */
 export function escapeHtml(value: string): string {
@@ -9,6 +10,30 @@ export function escapeHtml(value: string): string {
     /[&<>"']/g,
     (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch] ?? ch,
   );
+}
+
+export interface AdminSkeletonColumn {
+  /** CSS length passed to `skeletonBarHtml` (e.g. "88px"). */
+  width: string;
+  /** Adds `class="num"`, matching `.admin-table td.num`'s right alignment. */
+  num?: boolean;
+}
+
+/**
+ * Placeholder `<tr class="admin-row">` rows for an `.admin-table`'s `<tbody>`,
+ * reserving close-to-real height before async data lands. Pairs with a
+ * static `<thead>` already present in the page's server HTML — callers swap
+ * only the `<tbody>` in place once data arrives, same as `workspace-ui.ts`'s
+ * `renderGalleriesPlaceholderHtml` reserves for its table.
+ */
+export function renderAdminTableSkeletonRowsHtml(columns: AdminSkeletonColumn[], rows = 3): string {
+  return Array.from(
+    { length: rows },
+    () =>
+      `<tr class="admin-row">${columns
+        .map((c) => `<td${c.num ? ' class="num"' : ""}>${skeletonBarHtml(c.width)}</td>`)
+        .join("")}</tr>`,
+  ).join("");
 }
 
 /** Remove previously rendered expand-row groups from a table. */
