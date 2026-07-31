@@ -11,7 +11,7 @@ import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../lib/og";
 
 const pageTitle = "uploads.sh — the missing upload command for coding agents";
 const pageDescription =
-  "GitHub has no real way for agents to upload files. By default, pull requests and issues won't include screenshots. Uploads gives Claude, Codex, and other agents a way to host files and show their work on pull requests automatically. They're staged for the branch automatically — and by the time the PR opens, all screenshots appear with one tidy comment.";
+  "GitHub has no API for file uploads, so agents can't include screenshots in pull requests and issues. Uploads gives agents a way to host files and show their work. They're staged for the branch automatically — and when the PR opens, all screenshots appear in one tidy comment without cluttering your repo.";
 
 // Static page (no `prerender = false`) — auth origin is baked at build time,
 // not read from request-time env. See src/lib/auth-client.ts.
@@ -634,12 +634,12 @@ Source (and where to look if something breaks): https://github.com/buildinternet
     <SiteHeader star authOrigin={authOrigin} />
     <main>
       <h1>The missing upload command for <span class="nb">coding agents.</span></h1>
-      <p class="byline">Add screenshots to pull requests.</p>
+      <p class="byline">Now Claude and Codex can add screenshots to pull requests</p>
       <p class="lede">
-        GitHub has no real way for agents to upload files. By default, pull requests and issues
-        won't include screenshots. Uploads gives Claude, Codex, and other agents a way to host files
-        and show their work on pull requests automatically. They're staged for the branch
-        automatically — and by the time the PR opens, all screenshots appear with one tidy comment.
+        GitHub has no API for file uploads, so agents can't include screenshots in pull requests and
+        issues. Uploads gives agents a way to host files and show their work. They're staged for the
+        branch automatically — and when the PR opens, all screenshots appear in one tidy comment
+        without cluttering your repo.
       </p>
 
       <div class="cmdrow hero-install">
@@ -685,7 +685,9 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         </div>
       </section>
 
-      <p class="flow-note"><span class="arrow">└─▶</span> your PR opens already furnished:</p>
+      <p class="flow-note">
+        <span class="arrow">└─▶</span> your PR opens with screenshots already attached:
+      </p>
 
       <section
         class="ghc"

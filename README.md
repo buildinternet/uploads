@@ -8,8 +8,8 @@
 
 A lightweight file-hosting service on Cloudflare Workers. Agents capture
 screenshots as they work — each one staged to the branch automatically — so by
-the time the PR opens it is already furnished with one tidy attachments
-comment. Built on [files-sdk](https://files-sdk.dev) so the storage layer is
+the time the PR opens it has screenshots already attached in one tidy
+attachments comment. Built on [files-sdk](https://files-sdk.dev) so the storage layer is
 provider-agnostic (R2 today; any files-sdk adapter later).
 
 <p>
