@@ -2,24 +2,35 @@
 /**
  * Workspace shell: `AccountLayout` + content slot + right-rail summary.
  * Section links live in the sidebar switcher; tab routes only wrap content.
- * Rail data is filled by `initWorkspaceRail` (connected work / usage / details).
- * The usage section only renders with `showUsage` — billing is the only tab
- * that sets it, since meters repeated on every tab were pure noise
- * (issue #365 follow-up). `initWorkspaceRail` tolerates `[data-rail-usage]`
- * being absent from the DOM on every other tab.
+ * Rail data is filled by `initWorkspaceRail` (connected work / usage). The
+ * usage section only renders with `showUsage` — billing is the only tab that
+ * sets it, since meters repeated on every tab were pure noise (issue #365
+ * follow-up). `initWorkspaceRail` tolerates `[data-rail-usage]` being absent
+ * from the DOM on every other tab.
+ *
+ * The details section (slug + base URL) that used to sit here was dropped —
+ * the switcher/URL already carries the slug and the settings tab has its own
+ * slug/public-url summary, so the rail copy was pure duplication. Slug and
+ * base URL still render via `renderDetailsHtml`, just on the settings page
+ * only.
+ *
+ * `tip` is a per-page static hint, server-rendered (no JS, no placeholder):
+ * one short line, optionally linked. Omit it on pages with nothing worth
+ * saying (billing's usage meters already occupy the rail).
  */
 import { GITHUB_APP_INSTALL_URL } from "../lib/github-app";
 import { renderUsagePlaceholderHtml } from "../lib/workspace-ui";
-import { renderDetailsPlaceholderHtml } from "../lib/workspace-rail";
 import AccountLayout from "./AccountLayout.astro";
 
 interface Props {
   workspace: string;
   /** Show the rail's usage section. Billing only — see module doc. */
   showUsage?: boolean;
+  /** Static per-tab hint. `body` may include inline markup (e.g. `<code>`). */
+  tip?: { body: string; href?: string; linkLabel?: string; label?: string };
 }
 
-const { workspace, showUsage = false } = Astro.props;
+const { workspace, showUsage = false, tip } = Astro.props;
 
 const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`;
 ---
@@ -49,26 +60,22 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
         )
       }
 
-      <section class="ws-rail__section">
-        <div class="ws-rail__head">
-          <span class="ws-rail__label">details</span>
-          <span class="ws-rail__rule"></span>
-        </div>
-        {
-          /* `aria-busy` sits on the <dl> itself, not inside the placeholder like
-            the usage section's does: `innerHTML` replaces this element's
-            children but not the element, so the attribute survives the repaint
-            and `paint()` has to clear it explicitly. Without it the skeleton
-            bars are `aria-hidden`, so a screen reader would meet two empty
-            <dd>s with no indication anything is still loading. */
-        }
-        <dl
-          class="ws-rail__kv"
-          data-rail-details
-          aria-busy="true"
-          set:html={renderDetailsPlaceholderHtml()}
-        />
-      </section>
+      {
+        tip && (
+          <section class="ws-rail__section ws-rail__tip">
+            <div class="ws-rail__head">
+              <span class="ws-rail__label">{tip.label ?? "tip"}</span>
+              <span class="ws-rail__rule" />
+            </div>
+            <p class="ws-rail__tip-body" set:html={tip.body} />
+            {tip.href && (
+              <a class="ws-rail__tip-link" href={tip.href}>
+                {tip.linkLabel ?? tip.href}
+              </a>
+            )}
+          </section>
+        )
+      }
 
       <section class="ws-rail__section">
         <div class="ws-rail__head">
@@ -169,29 +176,36 @@ const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`
     color: var(--muted);
   }
 
-  /* Details — dt/dd pairs are innerHTML-injected by renderDetailsHtml. */
-  .ws-rail__kv {
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 6px 18px;
-    margin: 0;
+  /* Tip — server-rendered, static. Filled panel (vs. the plain-list other
+     sections use) so it reads as an aside rather than another data section. */
+  .ws-rail__tip {
+    padding: 12px 14px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
   }
-  :global(.account-shell) .ws-rail :global(.ws-rail__dt) {
+  .ws-rail__tip .ws-rail__head {
+    margin-bottom: 6px;
+  }
+  .ws-rail__tip-body {
+    margin: 0;
     color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.55;
+    text-wrap: pretty;
   }
-  :global(.account-shell) .ws-rail :global(.ws-rail__dd) {
-    margin: 0;
-    text-align: right;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .ws-rail__tip-body :global(code) {
+    font-size: 11.5px;
   }
-  :global(.account-shell) .ws-rail :global(.ws-rail__link) {
+  .ws-rail__tip-link {
+    display: inline-block;
+    margin-top: 6px;
     color: var(--fg);
+    font-size: 12px;
     text-decoration: none;
   }
-  :global(.account-shell) .ws-rail :global(.ws-rail__link:hover),
-  :global(.account-shell) .ws-rail :global(.ws-rail__link:focus-visible) {
+  .ws-rail__tip-link:hover,
+  .ws-rail__tip-link:focus-visible {
     color: var(--accent);
     outline: none;
   }

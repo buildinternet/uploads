@@ -16,9 +16,13 @@ export const prerender = false;
 const nameParam = Astro.params.name ?? "";
 const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
+
+const tip = {
+  body: "repo config in <code>.uploads.yml</code> overrides these workspace defaults per repository.",
+};
 ---
 
-<WorkspaceLayout workspace={workspace}>
+<WorkspaceLayout workspace={workspace} tip={tip}>
   <section class="card settings-page">
     <div class="settings-section">
       <details class="ws-settings-summary" open>

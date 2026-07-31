@@ -12,9 +12,13 @@ export const prerender = false;
 const nameParam = Astro.params.name ?? "";
 const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
 if (!workspace) return Astro.redirect("/account/workspaces");
+
+const tip = {
+  body: "attach uploads to a pull request with <code>uploads put ./shot.png --pr 123</code> — they collect into one managed comment.",
+};
 ---
 
-<WorkspaceLayout workspace={workspace}>
+<WorkspaceLayout workspace={workspace} tip={tip}>
   {
     /* React (dynamic-imported below) replaces this wholesale on mount — it
       exists only to fill the gap before that import resolves, so it mirrors
