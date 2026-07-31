@@ -19,7 +19,7 @@ Landed on the GitHub monorepo instead? Start at [repo llms.txt](https://github.c
 - [Docs: agents](https://uploads.sh/docs/agents): install the agent skills and MCP server, or the all-in-one Claude Code plugin
 - [Docs: reference](https://uploads.sh/docs/reference): manage uploads (list/delete/usage) and what to know before relying on it
 - [Docs: plans & limits](https://uploads.sh/docs/limits): storage/file-size/member caps per plan, behavior at each cap, and the GitHub attachment-cap comparison
-- [Docs: bring your own bucket](https://uploads.sh/docs/byo-bucket): point a workspace at your own Cloudflare R2 bucket instead of the shared one — setup steps, the serving matrix, what's degraded, disconnecting (feature-flagged, not GA)
+- [Docs: bring your own bucket](https://uploads.sh/docs/byo-bucket): point a workspace at your own Cloudflare R2 bucket instead of the shared one — setup steps, the serving matrix, what's degraded, disconnecting (in preview)
 - [Agent guide](https://uploads.sh/github-screenshots): how to get coding agents to upload screenshots & video to GitHub PRs and issues
 - [Auth for agents](https://uploads.sh/auth.md): self-serve and invitation enrollment, bearer tokens, and the hosted-MCP OAuth authorization server
 - [Source & docs](https://github.com/buildinternet/uploads): repository, roadmap, and operator docs
