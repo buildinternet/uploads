@@ -22,6 +22,43 @@ export interface WorkspaceBudgetLimits {
    * defaults applied) — NOT a free-tier fallback. See `resolveBudgetLimits`.
    */
   plan?: string;
+  /** Name of an R2 binding, when I/O uses one. See `storageBudgetApplies`. */
+  binding?: string;
+  /** HTTP credentials — presence (with no `binding`) is the BYO signal. See `storageBudgetApplies`. */
+  accountId?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+}
+
+/**
+ * Whether `maxStorageBytes` should be enforced against `record` (issue #583
+ * Task 1.2). False for a self-serve BYO/customer-credential record — their
+ * disk, their bill — while `maxUploadBytes` / `maxVideoUploadBytes` /
+ * `maxUploadsPerPeriod` (platform-compute protections, decided 2026-07-31)
+ * stay enforced for everyone, BYO included.
+ *
+ * The precise signal is deliberately **not** `isUnprefixedDedicatedBucket`
+ * (`workspace.ts`) — that predicate answers a layout question ("does this
+ * record's I/O span an entire bucket, or a confined shared-bucket prefix?"),
+ * which matters for lifecycle jobs (teardown/retention) but says nothing
+ * about who owns the storage: an unprefixed *binding*-mode record is still a
+ * platform-owned dedicated bucket, wrangler-provisioned and platform-billed.
+ * Storage ownership is the question here, so the signal is customer HTTP
+ * credentials with no binding — `binding` always means Workers-provisioned,
+ * platform-owned storage regardless of prefix, and a bound record is never
+ * customer-billed even if it also happens to carry stray credential fields.
+ *
+ * Usage is still recorded on BYO records either way — see `usage.ts`'s
+ * header comment — this predicate only gates the `maxStorageBytes` cap
+ * itself.
+ */
+export function storageBudgetApplies(record: WorkspaceBudgetLimits): boolean {
+  const isCustomerCredentialStorage =
+    !record.binding &&
+    Boolean(record.accountId) &&
+    Boolean(record.accessKeyId) &&
+    Boolean(record.secretAccessKey);
+  return !isCustomerCredentialStorage;
 }
 
 export type BudgetDenialCode = "storage_quota_exceeded" | "upload_budget_exceeded";
@@ -145,10 +182,13 @@ export function checkPutBudget(
     }
   }
 
-  if (maxStorageBytes !== undefined && delta.bytes > 0) {
-    if (usage.bytes + delta.bytes > maxStorageBytes) {
-      return storageBudgetDenial(usage, maxStorageBytes, delta.bytes);
-    }
+  if (
+    maxStorageBytes !== undefined &&
+    delta.bytes > 0 &&
+    storageBudgetApplies(limits) &&
+    usage.bytes + delta.bytes > maxStorageBytes
+  ) {
+    return storageBudgetDenial(usage, maxStorageBytes, delta.bytes);
   }
 
   return null;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  byoBucketAllowed,
   hexToBytes,
   isPurgedTombstone,
   isSha256Hex,
@@ -125,5 +126,19 @@ describe("isUnprefixedDedicatedBucket (#583 lifecycle guards)", () => {
 
   it("treats an empty-string prefix the same as absent (unprefixed)", () => {
     expect(isUnprefixedDedicatedBucket({ ...RECORD, prefix: "" })).toBe(true);
+  });
+});
+
+describe("byoBucketAllowed (#583 Task 1.3 feature gate)", () => {
+  it("is false when byoBucketEnabled is absent (fail-closed default)", () => {
+    expect(byoBucketAllowed({})).toBe(false);
+  });
+
+  it("is false when byoBucketEnabled is explicitly false", () => {
+    expect(byoBucketAllowed({ byoBucketEnabled: false })).toBe(false);
+  });
+
+  it("is true only when byoBucketEnabled is explicitly true", () => {
+    expect(byoBucketAllowed({ byoBucketEnabled: true })).toBe(true);
   });
 });

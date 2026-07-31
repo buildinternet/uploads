@@ -7,6 +7,12 @@
  *
  * Metering write failures never fail the storage op. Budget checks read this
  * ledger before put (see budget.ts) when the workspace record sets caps.
+ *
+ * The ledger records usage for every workspace, BYO bucket included: even
+ * though `budget.ts`'s `storageBudgetApplies` predicate skips `maxStorageBytes`
+ * enforcement on self-serve BYO records (their disk, their bill), this table
+ * still tracks their bytes/objects/uploads for the settings UI and any future
+ * gateway pricing (issue #583 Task 1.2).
  */
 
 export interface WorkspaceUsage {
