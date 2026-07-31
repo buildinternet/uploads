@@ -11,7 +11,7 @@
  */
 import { storage } from "./storage";
 import { getWorkspaceUsage, setUsageTotals, type WorkspaceUsage } from "./usage";
-import type { WorkspaceRecord } from "./workspace";
+import { isUnprefixedDedicatedBucket, type WorkspaceRecord } from "./workspace";
 
 export interface ReconcileResult {
   workspace: string;
@@ -23,6 +23,15 @@ export interface ReconcileResult {
   /** True when bytes or objects changed. */
   changed: boolean;
   usage: WorkspaceUsage;
+  /**
+   * True when this workspace has no `prefix` — the listAll() walk below
+   * scans an entire dedicated bucket rather than a confined slice. This
+   * function is only ever invoked on-demand for a single workspace today
+   * (no bulk/scheduled caller), so behavior is unchanged; the flag just
+   * makes a surprisingly large remote list diagnosable if a BYO bucket ever
+   * triggers one.
+   */
+  unprefixedBucket?: boolean;
 }
 
 /** Walk every object under the workspace prefix and replace ledger bytes/objects. */
@@ -34,6 +43,16 @@ export async function reconcileWorkspaceUsage(
 ): Promise<ReconcileResult> {
   const previous = await getWorkspaceUsage(env.DB, workspaceName, now);
   const store = await storage(env, ws);
+  const unprefixedBucket = isUnprefixedDedicatedBucket(ws);
+  if (unprefixedBucket) {
+    console.log(
+      JSON.stringify({
+        event: "reconcile_unprefixed_bucket_scan",
+        workspace: workspaceName,
+        bucket: ws.bucket,
+      }),
+    );
+  }
 
   let bytes = 0;
   let objects = 0;
@@ -51,5 +70,6 @@ export async function reconcileWorkspaceUsage(
     previous: { bytes: previous.bytes, objects: previous.objects },
     changed: previous.bytes !== bytes || previous.objects !== objects,
     usage,
+    unprefixedBucket: unprefixedBucket || undefined,
   };
 }

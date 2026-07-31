@@ -68,10 +68,14 @@ function appWith(opts: {
   return { app, env, registry, bucket };
 }
 
-function deleteRequest(name: string, opts?: { force?: boolean; hard?: boolean }) {
+function deleteRequest(
+  name: string,
+  opts?: { force?: boolean; hard?: boolean; purgeObjects?: boolean },
+) {
   const url = new URL(`https://api.uploads.sh/admin/workspaces/${name}`);
   if (opts?.force) url.searchParams.set("force", "1");
   if (opts?.hard) url.searchParams.set("hard", "1");
+  if (opts?.purgeObjects) url.searchParams.set("purgeObjects", "1");
   return new Request(url, {
     method: "DELETE",
     headers: { authorization: `Bearer ${ADMIN_TOKEN}` },
@@ -181,6 +185,114 @@ describe("DELETE /admin/workspaces/:name", () => {
     } finally {
       sqlite.close();
     }
+  });
+
+  describe("dedicated-bucket guard on ?hard=1 (#583)", () => {
+    const UNPREFIXED_RECORD = { ...RECORD, prefix: undefined };
+
+    it("tears down platform state but skips R2 objects for an unprefixed record", async () => {
+      const bucket = new FakeR2Bucket();
+      await bucket.put("one.png", new Uint8Array([1, 2, 3]));
+      const sqlite = new SqliteD1(MIGRATIONS);
+      try {
+        await createGallery(database(sqlite), { workspace: "acme", title: "Gallery" });
+
+        let deletedOrgSlug: string | undefined;
+        const {
+          app,
+          env,
+          registry,
+          bucket: envBucket,
+        } = appWith({
+          kvRecords: { "ws:acme": UNPREFIXED_RECORD },
+          bucket,
+          db: sqlite,
+          onDeleteOrg: (slug) => {
+            deletedOrgSlug = slug;
+          },
+        });
+
+        const res = await app.request(deleteRequest("acme", { force: true, hard: true }), {}, env);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+          objectsDeleted: number;
+          galleriesDeleted: number;
+          objectsSkipped?: string;
+        };
+        expect(body.objectsDeleted).toBe(0);
+        expect(body.objectsSkipped).toBe("dedicated-bucket");
+
+        // The skip means no bucket scan at all, not just no deletes — a
+        // listAll() over a large remote BYO bucket is itself the hazard.
+        expect(envBucket.listCalls).toBe(0);
+        // Object left in place...
+        expect(envBucket.store.has("one.png")).toBe(true);
+        // ...while platform state is still torn down: galleries, org, and
+        // the KV record (slug freed).
+        expect(body.galleriesDeleted).toBe(1);
+        expect(deletedOrgSlug).toBe("acme");
+        expect(registry.store.has("ws:acme")).toBe(false);
+      } finally {
+        sqlite.close();
+      }
+    });
+
+    it("purges objects on an unprefixed record when ?purgeObjects=1 is passed", async () => {
+      const bucket = new FakeR2Bucket();
+      await bucket.put("one.png", new Uint8Array([1, 2, 3]));
+      const sqlite = new SqliteD1(MIGRATIONS);
+      try {
+        const {
+          app,
+          env,
+          bucket: envBucket,
+        } = appWith({
+          kvRecords: { "ws:acme": UNPREFIXED_RECORD },
+          bucket,
+          db: sqlite,
+        });
+
+        const res = await app.request(
+          deleteRequest("acme", { force: true, hard: true, purgeObjects: true }),
+          {},
+          env,
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { objectsDeleted: number; objectsSkipped?: string };
+        expect(body.objectsDeleted).toBe(1);
+        expect(body.objectsSkipped).toBeUndefined();
+        expect(envBucket.store.has("one.png")).toBe(false);
+      } finally {
+        sqlite.close();
+      }
+    });
+
+    it("still fully purges a prefixed shared-bucket record without purgeObjects", async () => {
+      // Regression guard: the flag must not be required for the common case.
+      const bucket = new FakeR2Bucket();
+      await bucket.put("acme/one.png", new Uint8Array([1, 2, 3]));
+      const sqlite = new SqliteD1(MIGRATIONS);
+      try {
+        const {
+          app,
+          env,
+          bucket: envBucket,
+        } = appWith({
+          kvRecords: { "ws:acme": RECORD },
+          bucket,
+          db: sqlite,
+        });
+
+        const res = await app.request(deleteRequest("acme", { force: true, hard: true }), {}, env);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { objectsDeleted: number; objectsSkipped?: string };
+        expect(body.objectsDeleted).toBe(1);
+        expect(body.objectsSkipped).toBeUndefined();
+        expect(envBucket.store.has("acme/one.png")).toBe(false);
+      } finally {
+        sqlite.close();
+      }
+    });
   });
 
   describe("soft delete (default)", () => {

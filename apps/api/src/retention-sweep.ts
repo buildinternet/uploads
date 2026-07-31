@@ -26,6 +26,8 @@ export interface SweepResult {
     freedBytes: number;
     galleriesDeleted: number;
     error?: string;
+    /** Set when the record has no `prefix` — the sweep never force-purges those (operator-only escape hatch, see `teardownWorkspace`'s `purgeObjects`). */
+    objectsSkipped?: "dedicated-bucket";
   }>;
   orgsSwept: Array<{
     slug: string;
@@ -92,6 +94,10 @@ export async function runRetentionSweep(env: Env): Promise<SweepResult> {
         if (Date.now() < purgeAtMs) continue;
 
         try {
+          // No `purgeObjects` here — the sweep is automated, not an
+          // operator confirming the bucket is platform-owned, so an
+          // unprefixed record always keeps its objects (objectsSkipped)
+          // while platform state (KV/D1/galleries) is still torn down.
           const result = await teardownWorkspace(env, name, record, {
             reason: "grace_period_expired",
             force: true,
@@ -102,6 +108,7 @@ export async function runRetentionSweep(env: Env): Promise<SweepResult> {
             objectsDeleted: result.objectsDeleted,
             freedBytes: result.freedBytes,
             galleriesDeleted: result.galleriesDeleted,
+            ...(result.objectsSkipped ? { objectsSkipped: result.objectsSkipped } : {}),
           });
           console.log(
             JSON.stringify({
@@ -110,6 +117,7 @@ export async function runRetentionSweep(env: Env): Promise<SweepResult> {
               objectsDeleted: result.objectsDeleted,
               freedBytes: result.freedBytes,
               galleriesDeleted: result.galleriesDeleted,
+              objectsSkipped: result.objectsSkipped,
             }),
           );
         } catch (err) {

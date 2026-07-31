@@ -12,6 +12,8 @@
  * then remove PREVIOUS after verification.
  */
 
+import { ServiceUnavailableError } from "@uploads/errors";
+
 const PREFIX = "enc:v1:";
 
 /** Current + optional previous master secrets for decrypt during rotation. */
@@ -140,6 +142,26 @@ export async function sealCredentialFields(
     out.secretAccessKey = await encryptSecret(masterSecret, fields.secretAccessKey);
   }
   return out;
+}
+
+/**
+ * Strict variant of {@link sealCredentialFields} for self-serve write paths
+ * (self-serve BYO bucket save/rotate): throws `secrets_key_unconfigured`
+ * instead of silently falling through to plaintext when the KEK is missing.
+ * Existing migration/operator paths keep using `sealCredentialFields` —
+ * this does not change that function's behavior.
+ */
+export async function sealCredentialFieldsStrict(
+  masterSecret: string | undefined,
+  fields: { accessKeyId?: string; secretAccessKey?: string },
+): Promise<{ accessKeyId?: string; secretAccessKey?: string }> {
+  if (!masterSecret) {
+    throw new ServiceUnavailableError(
+      "WORKSPACE_SECRETS_KEY is not configured; storage credentials cannot be saved",
+      { code: "secrets_key_unconfigured" },
+    );
+  }
+  return sealCredentialFields(masterSecret, fields);
 }
 
 /**

@@ -574,7 +574,10 @@ export const admin = new Hono<{ Bindings: Env }>()
    * `?hard=1`: immediate permanent teardown via `teardownWorkspace` — R2
    * objects, file_metadata + galleries rows, best-effort auth org, then the
    * `ws:<name>` KV key is deleted outright (the only path that frees the
-   * slug). Non-empty workspaces still require `?force=1` on top.
+   * slug). Non-empty workspaces still require `?force=1` on top. For a
+   * record with no `prefix` (dedicated bucket), R2 objects are left alone
+   * unless `?purgeObjects=1` is also passed (`objectsSkipped` in the
+   * response otherwise) — that bucket may not be platform-owned.
    */
   .delete("/workspaces/:name", async (c) => {
     const name = c.req.param("name");
@@ -588,6 +591,13 @@ export const admin = new Hono<{ Bindings: Env }>()
 
     const hard = c.req.query("hard") === "1" || c.req.query("hard") === "true";
     const force = c.req.query("force") === "1" || c.req.query("force") === "true";
+    // Escape hatch for a record with no `prefix` (dedicated bucket):
+    // teardownWorkspace skips the R2 object walk-and-delete by default for
+    // those, since the bucket may be a customer's own. This flag is the
+    // operator's explicit confirmation that it's platform-owned and really
+    // meant to be emptied.
+    const purgeObjects =
+      c.req.query("purgeObjects") === "1" || c.req.query("purgeObjects") === "true";
 
     if (!hard) {
       // The already-deleted guard lives inside the mutation so it sees the
@@ -646,6 +656,7 @@ export const admin = new Hono<{ Bindings: Env }>()
     const result = await teardownWorkspace(c.env, name, record, {
       reason: "admin_hard_delete",
       force: true,
+      purgeObjects,
     });
 
     return c.json({
@@ -657,6 +668,7 @@ export const admin = new Hono<{ Bindings: Env }>()
       objectsDeleted: result.objectsDeleted,
       freedBytes: result.freedBytes,
       galleriesDeleted: result.galleriesDeleted,
+      objectsSkipped: result.objectsSkipped,
     });
   })
 

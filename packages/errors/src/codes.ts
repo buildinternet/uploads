@@ -79,6 +79,11 @@ export const ERROR_CODES = [
   "invalid_expires",
   "invalid_limit",
   "hash_prefix_or_label_required",
+
+  // Storage seam (apps/api/src/storage.ts, apps/api/src/secrets.ts)
+  "storage_misconfigured",
+  "storage_credentials_unreadable",
+  "secrets_key_unconfigured",
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

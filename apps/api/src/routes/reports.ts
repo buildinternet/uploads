@@ -153,6 +153,12 @@ reports.post("/", async (c) => {
 
   // Attachment after D1 so failures don't orphan objects without a row.
   // If R2 fails, delete the D1 row so we never report success without a complete write.
+  //
+  // Deliberately pinned to the platform's own UPLOADS_DEFAULT binding, never
+  // routed through a workspace's storage() config: an abuse report isn't
+  // scoped to any workspace (this route has no workspace context at all), so
+  // there's no per-tenant bucket to prefer. Keep this direct even once BYO
+  // storage ships elsewhere in the API.
   if (attachmentBytesPayload && attachmentKey && c.env.UPLOADS_DEFAULT) {
     try {
       await c.env.UPLOADS_DEFAULT.put(attachmentKey, attachmentBytesPayload, {

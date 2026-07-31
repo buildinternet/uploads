@@ -228,6 +228,18 @@ export function workspaceTokenHashes(record: WorkspaceRecord): string[] {
   return record.tokens?.map((t) => t.hash) ?? (record.tokenHash ? [record.tokenHash] : []);
 }
 
+/**
+ * True when I/O for this record spans an entire dedicated bucket rather
+ * than a confined `prefix` slice of a shared one. Platform lifecycle jobs
+ * (teardown, retention, reconcile) must not assume they own every object in
+ * a bucket like this — once self-serve BYO ships (issue #583) an unprefixed
+ * record may be a customer's own bucket, where a `listAll()` + batch delete
+ * would erase everything they own, not just what uploads.sh wrote.
+ */
+export function isUnprefixedDedicatedBucket(record: WorkspaceRecord): boolean {
+  return !record.prefix;
+}
+
 function bearerToken(header: string | undefined): string {
   return header?.startsWith("Bearer ") ? header.slice(7) : "";
 }

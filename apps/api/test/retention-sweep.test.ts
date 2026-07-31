@@ -10,10 +10,14 @@ const MIGRATIONS = [
   "migrations/20260710140000_workspace_usage.sql",
 ];
 
+// Prefixed shared-bucket record — the common case, and the baseline these
+// tests confirm is unaffected by the dedicated-bucket teardown/retention
+// guards (see the dedicated-bucket describe blocks below for those).
 const RECORD: WorkspaceRecord = {
   provider: "r2",
   bucket: "shared",
   binding: "BUCKET",
+  prefix: "acme/",
   publicBaseUrl: "https://storage.uploads.sh",
 };
 
@@ -91,7 +95,7 @@ describe("runRetentionSweep — soft-delete finalization (#247)", () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     try {
       const bucket = new FakeR2Bucket();
-      await bucket.put("f/one.png", new Uint8Array([1, 2, 3]));
+      await bucket.put("acme/f/one.png", new Uint8Array([1, 2, 3]));
       const record: WorkspaceRecord = {
         ...RECORD,
         deletedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
@@ -120,7 +124,7 @@ describe("runRetentionSweep — soft-delete finalization (#247)", () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     try {
       const bucket = new FakeR2Bucket();
-      await bucket.put("f/one.png", new Uint8Array([1, 2, 3]));
+      await bucket.put("acme/f/one.png", new Uint8Array([1, 2, 3]));
       const record: WorkspaceRecord = {
         ...RECORD,
         deletedAt: new Date().toISOString(),
@@ -131,7 +135,7 @@ describe("runRetentionSweep — soft-delete finalization (#247)", () => {
       const result = await runRetentionSweep(env);
 
       expect(result.workspacesFinalized).toHaveLength(0);
-      expect(bucket.store.has("f/one.png")).toBe(true);
+      expect(bucket.store.has("acme/f/one.png")).toBe(true);
       expect(registry.store.get("ws:acme")).toEqual(record);
     } finally {
       sqlite.close();
@@ -142,7 +146,7 @@ describe("runRetentionSweep — soft-delete finalization (#247)", () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     try {
       const bucket = new FakeR2Bucket();
-      await bucket.put("f/one.png", new Uint8Array([1, 2, 3]));
+      await bucket.put("acme/f/one.png", new Uint8Array([1, 2, 3]));
       const record: WorkspaceRecord = {
         ...RECORD,
         deletedAt: new Date().toISOString(),
@@ -154,7 +158,7 @@ describe("runRetentionSweep — soft-delete finalization (#247)", () => {
 
       expect(result.workspacesFinalized).toHaveLength(1);
       expect(result.workspacesFinalized[0]?.error).toMatch(/unparseable purgeAt/);
-      expect(bucket.store.has("f/one.png")).toBe(true);
+      expect(bucket.store.has("acme/f/one.png")).toBe(true);
       expect(registry.store.get("ws:acme")).toEqual(record);
     } finally {
       sqlite.close();
@@ -185,10 +189,10 @@ describe("runRetentionSweep — soft-delete finalization (#247)", () => {
     const sqlite = new SqliteD1(MIGRATIONS);
     try {
       const bucket = new FakeR2Bucket();
-      await bucket.put("old.png", new Uint8Array([1, 2, 3]), {
+      await bucket.put("acme/old.png", new Uint8Array([1, 2, 3]), {
         httpMetadata: { contentType: "image/png" },
       });
-      bucket.setUploaded("old.png", new Date("2020-01-01T00:00:00Z"));
+      bucket.setUploaded("acme/old.png", new Date("2020-01-01T00:00:00Z"));
       const record: WorkspaceRecord = { ...RECORD, retentionDays: 30 };
       const { env } = makeEnv({ kvRecords: { "ws:acme": record }, bucket, db: sqlite });
 
@@ -196,7 +200,94 @@ describe("runRetentionSweep — soft-delete finalization (#247)", () => {
 
       expect(result.workspacesWithRetention).toBe(1);
       expect(result.purged).toEqual([{ workspace: "acme", deleted: 1, freedBytes: 3 }]);
-      expect(bucket.store.has("old.png")).toBe(false);
+      expect(bucket.store.has("acme/old.png")).toBe(false);
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("runRetentionSweep — unprefixed/dedicated-bucket guard (#583)", () => {
+  it("finalizes a past-purgeAt unprefixed record without deleting its objects", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const bucket = new FakeR2Bucket();
+      // No prefix: the fake bucket's raw keys ARE the workspace's objects.
+      await bucket.put("one.png", new Uint8Array([1, 2, 3]));
+      const record: WorkspaceRecord = {
+        ...RECORD,
+        prefix: undefined,
+        deletedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
+        purgeAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(),
+      };
+      const {
+        env,
+        registry,
+        bucket: b,
+      } = makeEnv({
+        kvRecords: { "ws:acme": record },
+        bucket,
+        db: sqlite,
+      });
+
+      const result = await runRetentionSweep(env);
+
+      expect(result.workspacesFinalized).toHaveLength(1);
+      expect(result.workspacesFinalized[0]).toMatchObject({
+        workspace: "acme",
+        objectsDeleted: 0,
+        objectsSkipped: "dedicated-bucket",
+      });
+      // Objects are left alone...
+      expect(b.store.has("one.png")).toBe(true);
+      // ...but platform state (the KV record) is still torn down to a tombstone.
+      const stored = registry.store.get("ws:acme") as PurgedTombstone;
+      expect(stored.status).toBe("purged");
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("still purges a prefixed shared-bucket record's objects on finalize", async () => {
+    // Regression guard for the case above: RECORD (with its "acme/" prefix)
+    // must keep the pre-existing full-purge finalize behavior.
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const bucket = new FakeR2Bucket();
+      await bucket.put("acme/one.png", new Uint8Array([1, 2, 3]));
+      const record: WorkspaceRecord = {
+        ...RECORD,
+        deletedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
+        purgeAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(),
+      };
+      const { env, bucket: b } = makeEnv({ kvRecords: { "ws:acme": record }, bucket, db: sqlite });
+
+      const result = await runRetentionSweep(env);
+
+      expect(result.workspacesFinalized[0]).toMatchObject({ objectsDeleted: 1 });
+      expect(result.workspacesFinalized[0]).not.toHaveProperty("objectsSkipped");
+      expect(b.store.has("acme/one.png")).toBe(false);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("skips retention purge for an unprefixed record even with retentionDays set", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const bucket = new FakeR2Bucket();
+      await bucket.put("old.png", new Uint8Array([1, 2, 3]));
+      bucket.setUploaded("old.png", new Date("2020-01-01T00:00:00Z"));
+      const record: WorkspaceRecord = { ...RECORD, prefix: undefined, retentionDays: 30 };
+      const { env, bucket: b } = makeEnv({ kvRecords: { "ws:acme": record }, bucket, db: sqlite });
+
+      const result = await runRetentionSweep(env);
+
+      expect(result.workspacesWithRetention).toBe(1);
+      expect(result.purged).toEqual([
+        { workspace: "acme", deleted: 0, freedBytes: 0, skipped: true },
+      ]);
+      expect(b.store.has("old.png")).toBe(true);
     } finally {
       sqlite.close();
     }
