@@ -181,4 +181,17 @@ describe("signedDownloadUrl", () => {
     const url = await signedDownloadUrl(files, "a.png");
     expect(url).toMatch(/^https:\/\/acct\.r2\.cloudflarestorage\.com\/shared\/acme\/a\.png\?/);
   });
+
+  it("hybrid signing targets the jurisdiction-specific endpoint when configured", async () => {
+    const files = createStorage({
+      ...base,
+      r2Binding: new FakeR2Bucket() as unknown as R2Bucket,
+      prefix: "acme/",
+      jurisdiction: "fedramp",
+    });
+    const url = await signedDownloadUrl(files, "a.png");
+    expect(url).toMatch(
+      /^https:\/\/acct\.fedramp\.r2\.cloudflarestorage\.com\/shared\/acme\/a\.png\?/,
+    );
+  });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  defaultStorageClientFactory,
   type StorageProbeClient,
   type StorageVerifyCandidate,
   verifyStorageConfig,
@@ -140,16 +141,28 @@ describe("verifyStorageConfig — shape", () => {
     }
   });
 
-  it("rejects an invalid jurisdiction", async () => {
-    const result = await run({ ...VALID, jurisdiction: "us" }, new FakeStorageClient());
+  it("rejects an invalid jurisdiction before any client is built", async () => {
+    const candidate = { ...VALID, jurisdiction: "us" };
+    const createClient = vi.fn(() => new FakeStorageClient());
+    const result = await verifyStorageConfig(candidate, { createClient });
     expect(result.ok).toBe(false);
     expect(result.checks[0].hint).toMatch(/jurisdiction must be one of: eu, fedramp/);
+    expect(createClient).not.toHaveBeenCalled();
   });
 
-  it("passes shape with a valid jurisdiction", async () => {
-    const result = await run({ ...VALID, jurisdiction: "eu" }, new FakeStorageClient());
+  it("passes shape with a valid jurisdiction and forwards it to the client factory", async () => {
+    const candidate = { ...VALID, jurisdiction: "eu" };
+    const createClient = vi.fn(() => new FakeStorageClient());
+    const result = await verifyStorageConfig(candidate, { createClient });
     const shape = result.checks.find((c) => c.id === "shape")!;
     expect(shape.ok).toBe(true);
+    expect(createClient).toHaveBeenCalledWith(expect.objectContaining({ jurisdiction: "eu" }));
+  });
+
+  it("defaultStorageClientFactory re-guards jurisdiction for direct callers", () => {
+    expect(() => defaultStorageClientFactory({ ...VALID, jurisdiction: "us" })).toThrow(
+      /invalid jurisdiction/,
+    );
   });
 });
 

@@ -13,6 +13,11 @@ export type StorageProvider = "r2";
 export const R2_JURISDICTIONS = ["eu", "fedramp"] as const;
 export type R2Jurisdiction = (typeof R2_JURISDICTIONS)[number];
 
+/** Type guard for {@link R2Jurisdiction} — use on untrusted strings before they reach `StorageConfig`. */
+export function isR2Jurisdiction(value: string): value is R2Jurisdiction {
+  return (R2_JURISDICTIONS as readonly string[]).includes(value);
+}
+
 export interface StorageConfig {
   provider: StorageProvider;
   bucket: string;
@@ -27,8 +32,10 @@ export interface StorageConfig {
   /**
    * R2 jurisdiction the bucket was created in. Jurisdiction buckets are only
    * reachable at `https://<accountId>.<jurisdiction>.r2.cloudflarestorage.com`,
-   * so this switches the HTTP adapter's endpoint. Ignored in binding mode
-   * (the wrangler binding declaration carries the jurisdiction there).
+   * so this switches the S3 endpoint used for HTTP I/O and hybrid-mode
+   * signing. Ignored only in pure binding mode (no HTTP credentials), where
+   * the wrangler binding declaration carries the jurisdiction and nothing
+   * ever touches the S3 endpoint.
    */
   jurisdiction?: R2Jurisdiction;
   /**
@@ -52,19 +59,17 @@ export function createStorage(config: StorageConfig): Files {
         accessKeyId: config.accessKeyId,
         secretAccessKey: config.secretAccessKey,
         publicBaseUrl: config.publicBaseUrl,
+        // Jurisdiction switches the S3 endpoint for HTTP I/O and hybrid-mode
+        // signing alike; pure binding mode (no HTTP creds) never builds an S3
+        // client, so the extra option is inert there.
+        ...(config.jurisdiction && {
+          endpoint: `https://${config.accountId}.${config.jurisdiction}.r2.cloudflarestorage.com`,
+        }),
       };
       // Binding mode (hybrid when HTTP creds are also set) vs pure HTTP mode.
-      // Jurisdiction only applies to the HTTP endpoint — a binding's jurisdiction
-      // is fixed by the wrangler bucket declaration, not by anything we pass here.
       const adapter = config.r2Binding
         ? r2({ binding: config.r2Binding, bucket: config.bucket, ...shared })
-        : r2({
-            bucket: config.bucket,
-            ...shared,
-            ...(config.jurisdiction && {
-              endpoint: `https://${config.accountId}.${config.jurisdiction}.r2.cloudflarestorage.com`,
-            }),
-          });
+        : r2({ bucket: config.bucket, ...shared });
       return new Files({ adapter, prefix: config.prefix });
     }
     default:
