@@ -69,7 +69,12 @@ import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
 import { byoBucketAllowed, loadWorkspaceRecord, type WorkspaceRecord } from "../workspace";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { planResponse, planSourceFor } from "../workspace-plan";
-import { candidateFromBody, storageStatusResponse, storageVerify } from "./workspace-storage";
+import {
+  candidateFromBody,
+  storageReconcile,
+  storageStatusResponse,
+  storageVerify,
+} from "./workspace-storage";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -1155,12 +1160,29 @@ export const me = new Hono<SessionVars>()
         next.storageConfiguredAt = nowIso;
         next.storageVerifiedAt = nowIso;
         next.storageConfiguredBy = userId;
+        // Display fragment for the settings UI, captured from the plaintext
+        // before sealing — `next.accessKeyId` is ciphertext from here on.
+        next.storageAccessKeyIdLast4 = candidate.accessKeyId.slice(-4);
         return next;
       },
       { requireServing: true },
     );
 
     console.log(JSON.stringify({ event: "workspace_storage_configured", workspace: name, userId }));
+
+    // `adoptExistingContents` bypassed the emptiness guard, so the D1 usage
+    // ledger still describes the old backing storage while the adopted
+    // bucket's contents are what this workspace now serves. Rebuild the
+    // ledger from the new bucket so it's honest immediately (it's dormant
+    // for `maxStorageBytes` while BYO is active — `storageBudgetApplies` —
+    // but powers the settings UI and becomes authoritative again on detach).
+    // Best-effort: the config write above already succeeded, and reconcile
+    // can be re-run any time.
+    if (candidate.adoptExistingContents === true) {
+      await storageReconcile(c.env, updated, name).catch((err) =>
+        console.error("workspace storage attach: usage reconcile failed for", name, err),
+      );
+    }
 
     return c.json({ ...storageStatusResponse(updated, true), verify: result });
   })
@@ -1228,12 +1250,25 @@ export const me = new Hono<SessionVars>()
         delete next.storageConfiguredAt;
         delete next.storageVerifiedAt;
         delete next.storageConfiguredBy;
+        delete next.storageAccessKeyIdLast4;
         return next;
       },
       { requireServing: true },
     );
 
     console.log(JSON.stringify({ event: "workspace_storage_detached", workspace: name, userId }));
+
+    // `force` bypassed the emptiness guard, so the ledger still describes
+    // the detached BYO bucket — but `maxStorageBytes` enforcement resumes on
+    // the shared bucket the moment this record is restored, and stale counts
+    // could leave the workspace permanently over-budget with nothing to
+    // delete. Rebuild from the restored shared-bucket prefix (best-effort,
+    // same rationale as the attach path above).
+    if (force) {
+      await storageReconcile(c.env, updated, name).catch((err) =>
+        console.error("workspace storage detach: usage reconcile failed for", name, err),
+      );
+    }
 
     return c.json(storageStatusResponse(updated, byoBucketAllowed(updated)));
   });

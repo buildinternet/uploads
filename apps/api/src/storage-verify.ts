@@ -84,6 +84,9 @@ export interface StorageVerifyOptions {
 /** Prefix every verify probe object lives under, excluded from the empty-bucket count. */
 const PROBE_PREFIX = "_internal/uploads-verify/";
 
+/** Deadline for the recommended public-URL probe; a stalled customer domain must not stall verify. */
+const PUBLIC_URL_PROBE_TIMEOUT_MS = 5_000;
+
 const ACCOUNT_ID_RE = /^[0-9a-f]{32}$/;
 /** R2 bucket naming rules: 3-63 chars, lowercase alphanumeric + hyphen, not leading/trailing hyphen. */
 const BUCKET_NAME_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
@@ -133,6 +136,19 @@ function checkPublicBaseUrlShape(publicBaseUrl: string): string | undefined {
     return "publicBaseUrl must use https";
   }
   const host = url.hostname.toLowerCase();
+  // Public custom domains only. The recommended probe fetches this host from
+  // inside the worker, so anything that could resolve to an internal name or
+  // literal address would turn verify into a reachability probe — reject
+  // before any network I/O happens.
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    !host.includes(".") ||
+    /^\d{1,3}(\.\d{1,3}){3}$/.test(host) ||
+    host.startsWith("[")
+  ) {
+    return "publicBaseUrl must be a public custom domain (not an IP address or internal hostname)";
+  }
   if (host === "r2.dev" || host.endsWith(".r2.dev")) {
     return "r2.dev URLs aren't supported right now — connect a custom domain, or save without a public URL for signed-only access";
   }
@@ -184,7 +200,10 @@ async function checkPublicUrl(
 ): Promise<StorageVerifyCheck> {
   const url = `${publicBaseUrl.replace(/\/$/, "")}/${probeKey}`;
   try {
-    const res = await fetchImpl(url, { redirect: "error" });
+    const res = await fetchImpl(url, {
+      redirect: "error",
+      signal: AbortSignal.timeout(PUBLIC_URL_PROBE_TIMEOUT_MS),
+    });
     if (!res.ok) {
       return {
         id: "public-url",

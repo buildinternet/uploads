@@ -13,18 +13,13 @@ import {
   type StorageVerifyResult,
 } from "../storage-verify";
 import { storageBudgetApplies } from "../budget";
+import { reconcileWorkspaceUsage } from "../reconcile";
 import type { WorkspaceRecord } from "../workspace";
 
 /** Last 4 chars only, prefixed with an ellipsis (e.g. `"…abcd"`). `undefined` for an empty/missing value. */
 export function maskTrailing(value: string | undefined): string | undefined {
   if (!value) return undefined;
   return `…${value.slice(-4)}`;
-}
-
-/** Bare last-4 (no ellipsis) — used for `accessKeyIdLast4`, matching the plan's field name. */
-export function lastFour(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  return value.slice(-4);
 }
 
 /**
@@ -69,7 +64,10 @@ export function storageStatusResponse(
     bucket: record.bucket,
     publicBaseUrl: record.publicBaseUrl,
     accountIdMasked: byo ? maskTrailing(record.accountId) : undefined,
-    accessKeyIdLast4: byo ? lastFour(record.accessKeyId) : undefined,
+    // Never derived from `record.accessKeyId` — after a self-serve save that
+    // field holds the sealed `enc:v1:` blob, so its last 4 characters would
+    // be ciphertext. The PUT route stamps the plaintext fragment at seal time.
+    accessKeyIdLast4: byo ? record.storageAccessKeyIdLast4 : undefined,
     configuredAt: record.storageConfiguredAt,
     verifiedAt: record.storageVerifiedAt,
   };
@@ -105,6 +103,26 @@ export function setStorageVerifyForTests(
     | undefined,
 ): void {
   runStorageVerify = fn ?? verifyStorageConfig;
+}
+
+/**
+ * Usage-ledger rebuild the storage routes call after a guard-bypassed
+ * backing-storage transition (`adoptExistingContents` on attach, `force` on
+ * detach) — same test-seam rationale as `storageVerify` above: the real
+ * `reconcileWorkspaceUsage` walks the (possibly remote) bucket.
+ */
+let runStorageReconcile: (env: Env, ws: WorkspaceRecord, name: string) => Promise<unknown> =
+  reconcileWorkspaceUsage;
+
+export function storageReconcile(env: Env, ws: WorkspaceRecord, name: string): Promise<unknown> {
+  return runStorageReconcile(env, ws, name);
+}
+
+/** Test-only: swap the reconcile implementation. Pass `undefined` to restore the real one. */
+export function setStorageReconcileForTests(
+  fn: ((env: Env, ws: WorkspaceRecord, name: string) => Promise<unknown>) | undefined,
+): void {
+  runStorageReconcile = fn ?? reconcileWorkspaceUsage;
 }
 
 /** Parses the request body into a `StorageVerifyCandidate` shape (no validation — `verifyStorageConfig`'s `shape` check does that). */

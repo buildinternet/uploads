@@ -172,6 +172,13 @@ export interface WorkspaceRecord {
   storageVerifiedAt?: string;
   /** Better Auth user id that most recently configured this workspace's storage via the self-serve flow. */
   storageConfiguredBy?: string;
+  /**
+   * Last 4 characters of the *plaintext* access key id, captured at seal time
+   * for the settings UI. Never derive a display fragment from `accessKeyId`
+   * itself — that field holds the sealed (`enc:v1:`) blob after a self-serve
+   * save, so its trailing characters are ciphertext.
+   */
+  storageAccessKeyIdLast4?: string;
 }
 
 /**

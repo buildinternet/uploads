@@ -121,6 +121,24 @@ describe("verifyStorageConfig — shape", () => {
     expect(result.ok).toBe(false);
     expect(result.checks[0].hint).toMatch(/uploads\.sh/);
   });
+
+  it("rejects non-public hosts (localhost, IP literals, single-label names) before any probe I/O", async () => {
+    for (const publicBaseUrl of [
+      "https://localhost",
+      "https://media.localhost",
+      "https://10.0.0.1",
+      "https://[::1]",
+      "https://intranet",
+    ]) {
+      const client = new FakeStorageClient();
+      const listSpy = vi.spyOn(client, "list");
+      const result = await run({ ...VALID, publicBaseUrl }, client);
+      expect(result.ok).toBe(false);
+      expect(result.checks[0].hint).toMatch(/public custom domain/);
+      // Shape short-circuits — nothing touches the bucket or the URL.
+      expect(listSpy).not.toHaveBeenCalled();
+    }
+  });
 });
 
 describe("verifyStorageConfig — auth/reachability", () => {
@@ -244,6 +262,35 @@ describe("verifyStorageConfig — recommended public-URL probe", () => {
     expect(publicUrl.hint).toMatch(/cached|stale/);
     // Recommended check never gates ok — required checks all passed.
     expect(result.ok).toBe(true);
+  });
+
+  it("reports a non-2xx response as a recommended failure carrying the status", async () => {
+    const client = new FakeStorageClient();
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 404 }));
+    const result = await run(
+      { ...VALID, publicBaseUrl: "https://media.example.com" },
+      client,
+      fetchImpl as unknown as typeof fetch,
+    );
+    const publicUrl = result.checks.find((c) => c.id === "public-url")!;
+    expect(publicUrl.ok).toBe(false);
+    expect(publicUrl.required).toBe(false);
+    expect(publicUrl.hint).toMatch(/HTTP 404/);
+    expect(result.ok).toBe(true);
+  });
+
+  it("sends the public-URL probe with an abort signal so a stalled domain can't hang verify", async () => {
+    const client = new FakeStorageClient();
+    const fetchImpl = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      return new Response(new Uint8Array([9]), { status: 200 });
+    });
+    await run(
+      { ...VALID, publicBaseUrl: "https://media.example.com" },
+      client,
+      fetchImpl as unknown as typeof fetch,
+    );
+    expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
   it("reports a fetch failure (DNS/timeout) as a recommended, non-gating failure", async () => {

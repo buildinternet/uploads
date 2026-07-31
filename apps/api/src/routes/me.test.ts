@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import { afterEach, describe, expect, it } from "vitest";
 import { respondError } from "../error-response";
 import { me } from "./me";
-import { setStorageVerifyForTests } from "./workspace-storage";
+import { setStorageReconcileForTests, setStorageVerifyForTests } from "./workspace-storage";
 import { fakeRegistry, FakeKv } from "../../test/fake-kv";
 import { UsageFakeD1 } from "../../test/usage-fake-d1";
 import { FakeR2Bucket } from "../../test/fake-r2";
@@ -2323,13 +2323,17 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
     provider: "r2",
     bucket: "customer-bucket",
     accountId: "a".repeat(32),
-    accessKeyId: "AKIDEXAMPLE1234",
+    // Credential fields hold sealed blobs at rest (what PUT actually stores)
+    // — the display fragment lives in `storageAccessKeyIdLast4`, stamped from
+    // the plaintext at seal time.
+    accessKeyId: "enc:v1:sealed-key-id",
     secretAccessKey: "enc:v1:already-sealed",
     publicBaseUrl: "https://media.example.com",
     byoBucketEnabled: true,
     storageConfiguredAt: "2026-01-01T00:00:00.000Z",
     storageVerifiedAt: "2026-01-01T00:00:00.000Z",
     storageConfiguredBy: "u-plain",
+    storageAccessKeyIdLast4: "1234",
   };
 
   function storageEnv(opts: {
@@ -2398,7 +2402,18 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
 
   afterEach(() => {
     setStorageVerifyForTests(undefined);
+    setStorageReconcileForTests(undefined);
   });
+
+  /** Installs a reconcile spy so guard-bypassed transitions don't walk a real bucket. */
+  function spyStorageReconcile() {
+    const calls: string[] = [];
+    setStorageReconcileForTests(async (_env, _ws, name) => {
+      calls.push(name);
+      return {};
+    });
+    return calls;
+  }
 
   describe("GET /me/workspaces/:name/storage", () => {
     it("is readable even when byoBucketEnabled is off, reporting shared mode", async () => {
@@ -2423,8 +2438,9 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
       const res = await app().request("/me/workspaces/acme/storage", {}, env);
       expect(res.status).toBe(200);
       const raw = await res.text();
-      expect(raw).not.toContain("AKIDEXAMPLE1234");
+      expect(raw).not.toContain("sealed-key-id");
       expect(raw).not.toContain("already-sealed");
+      expect(raw).not.toContain("enc:v1:");
       expect(JSON.parse(raw)).toEqual({
         mode: "byo",
         byoBucketEnabled: true,
@@ -2599,6 +2615,7 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
         storageConfiguredAt?: string;
         storageVerifiedAt?: string;
         storageConfiguredBy?: string;
+        storageAccessKeyIdLast4?: string;
       }>("acme");
       expect(saved?.prefix).toBeUndefined();
       expect(saved?.binding).toBeUndefined();
@@ -2609,15 +2626,20 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
       expect(saved?.storageConfiguredAt).toBeTruthy();
       expect(saved?.storageVerifiedAt).toBeTruthy();
       expect(saved?.storageConfiguredBy).toBe("u-plain");
+      // Plaintext display fragment, not the tail of the sealed blob.
+      expect(saved?.storageAccessKeyIdLast4).toBe("1234");
+      const body2 = body as unknown as { accessKeyIdLast4?: string };
+      expect(body2.accessKeyIdLast4).toBe("1234");
     });
 
-    it("allows attaching to a non-empty workspace when adoptExistingContents is set", async () => {
+    it("allows attaching to a non-empty workspace when adoptExistingContents is set, and reconciles the ledger from the adopted bucket", async () => {
       const { env, registry } = storageEnv({
         role: "owner",
         record: { ...SHARED_RECORD, byoBucketEnabled: true },
         usage: { objects: 5 },
       });
       setStorageVerifyForTests(async () => okVerifyResult);
+      const reconciled = spyStorageReconcile();
       const res = await app().request(
         "/me/workspaces/acme/storage",
         {
@@ -2629,9 +2651,31 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
       );
       expect(res.status).toBe(200);
       expect(registry.record<{ bucket?: string }>("acme")?.bucket).toBe("customer-bucket");
+      expect(reconciled).toEqual(["acme"]);
     });
 
-    it("500s (secrets_key_unconfigured) when WORKSPACE_SECRETS_KEY is unset, and leaves the record untouched", async () => {
+    it("does not reconcile the ledger on a plain empty-workspace save", async () => {
+      const { env } = storageEnv({
+        role: "owner",
+        record: { ...SHARED_RECORD, byoBucketEnabled: true },
+        usage: { objects: 0 },
+      });
+      setStorageVerifyForTests(async () => okVerifyResult);
+      const reconciled = spyStorageReconcile();
+      const res = await app().request(
+        "/me/workspaces/acme/storage",
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(CANDIDATE_BODY),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(reconciled).toEqual([]);
+    });
+
+    it("503s (secrets_key_unconfigured) when WORKSPACE_SECRETS_KEY is unset, and leaves the record untouched", async () => {
       const { env: baseEnv, registry } = storageEnv({
         role: "owner",
         record: { ...SHARED_RECORD, byoBucketEnabled: true },
@@ -2710,15 +2754,37 @@ describe("workspace storage routes (self-serve BYO bucket, issue #583 Task 1.1)"
       expect(saved?.byoBucketEnabled).toBe(true);
     });
 
-    it("detaches with force=true query param even when the bucket still has files", async () => {
+    it("detaches with force=true query param even when the bucket still has files, reconciling the ledger", async () => {
       const { env, registry } = storageEnv({
         role: "owner",
         record: BYO_RECORD,
         usage: { objects: 9 },
       });
+      const reconciled = spyStorageReconcile();
       const res = await app().request(
         "/me/workspaces/acme/storage?force=true",
         { method: "DELETE" },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(registry.record<{ bucket?: string }>("acme")?.bucket).toBe("uploads-default");
+      expect(reconciled).toEqual(["acme"]);
+    });
+
+    it("detaches when force is passed in the JSON body", async () => {
+      const { env, registry } = storageEnv({
+        role: "owner",
+        record: BYO_RECORD,
+        usage: { objects: 9 },
+      });
+      spyStorageReconcile();
+      const res = await app().request(
+        "/me/workspaces/acme/storage",
+        {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ force: true }),
+        },
         env,
       );
       expect(res.status).toBe(200);
