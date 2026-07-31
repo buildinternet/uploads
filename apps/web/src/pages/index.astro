@@ -149,17 +149,6 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         border-radius: var(--radius-lg);
         overflow: hidden;
       }
-      .titlebar {
-        display: flex;
-        align-items: center;
-        padding: 8px 14px;
-        border-bottom: 1px solid var(--line);
-        color: var(--muted);
-        font-family: var(--pixel);
-        font-variation-settings: "ELSH" var(--pixel-shape, 1);
-        font-size: 11px;
-        letter-spacing: 0.05em;
-      }
       .screen {
         padding: 20px 20px 24px;
         font-size: 13px;
@@ -459,11 +448,6 @@ Source (and where to look if something breaks): https://github.com/buildinternet
         white-space: nowrap;
         scrollbar-width: none;
       }
-      .cmdrow .cmdtext::before {
-        content: "$";
-        color: var(--accent);
-        margin-right: 0.5ch;
-      }
       .cmdrow .cmdtext .comment {
         color: var(--muted);
         user-select: none;
@@ -631,7 +615,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
     </style>
   </head>
   <body>
-    <SiteHeader star authOrigin={authOrigin} />
+    <SiteHeader authOrigin={authOrigin} />
     <main>
       <h1>The missing upload command for <span class="nb">coding agents.</span></h1>
       <p class="byline">Now Claude and Codex can add screenshots to pull requests</p>
@@ -655,9 +639,6 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       </p>
 
       <section class="terminal" aria-label="uploads.sh terminal">
-        <div class="titlebar" aria-hidden="true">
-          <span>bash</span>
-        </div>
         <div class="screen">
           <p class="line out"># capture as you work — no PR yet</p>
           <p class="line">
@@ -666,7 +647,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           </p>
           <p class="line out hidden">&gt;&gt; uploading ./after.png</p>
           <p class="line out hidden">
-            note: staged for branch feat/nav — auto-attaches to this branch's PR when it opens…
+            Staged for branch feat/nav - auto-comments to pull request when opened
           </p>
           <div class="gap hidden"></div>
           <p class="line out hidden"># open your pull request like usual</p>

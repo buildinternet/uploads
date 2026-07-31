@@ -726,7 +726,7 @@ describe("runScreenshot auto branch staging (issue #469 lever 1)", () => {
         ),
       );
       expect(stderr).toContain(
-        "note: staged for branch feature/thing — auto-attaches to this branch's PR when it opens " +
+        "note: staged for branch feature/thing — auto-comments to pull request when opened " +
           "(or run: uploads attach --promote once it exists). Use --ref/--prefix for a plain dated upload.",
       );
     });

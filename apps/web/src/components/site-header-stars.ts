@@ -1,8 +1,8 @@
 /**
  * Live GitHub star count for SiteHeader (1h localStorage).
- * Lives in a .ts module so SiteHeader.astro can keep the script behind the
- * `star` guard without prettier-plugin-astro choking on function bodies inside
- * a JSX-conditional `<script>` (issue #551).
+ * Lives in a .ts module imported from SiteHeader so the count re-fills after
+ * ClientRouter swaps without embedding function bodies in a JSX-conditional
+ * `<script>` (prettier-plugin-astro issue #551).
  */
 import { onAstroPageLoad } from "../lib/account-shell";
 

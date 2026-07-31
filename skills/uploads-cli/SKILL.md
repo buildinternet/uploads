@@ -341,9 +341,9 @@ writes it to stderr, `--format json` adds it as an additive optional `hint`
 field on the same response:
 
 ```text
-note: staged for branch fix-header — auto-attaches to this branch's PR when
-it opens (or run: uploads attach --promote once it exists). Use --ref/--prefix
-for a plain dated upload.
+note: staged for branch fix-header — auto-comments to pull request when opened
+(or run: uploads attach --promote once it exists). Use --ref/--prefix for a
+plain dated upload.
 ```
 
 If the same call also trips the stage-time binding warning (issue #398/#400

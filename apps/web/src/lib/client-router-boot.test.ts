@@ -84,3 +84,36 @@ describe("Error page chrome", () => {
     expect(readSrc("pages/500.astro")).toContain("ErrorLayout");
   });
 });
+
+describe("SiteHeader chrome", () => {
+  it("ships Docs + Star on every surface (no opt-in star prop)", () => {
+    const src = readSrc("components/SiteHeader.astro");
+    expect(src).toContain('href="/docs"');
+    expect(src).toContain("Star on GitHub");
+    expect(src).toContain("data-header-files");
+    expect(src).toContain('import "./site-header-stars"');
+    // Opt-in was the reason account/admin lacked the star CTA.
+    expect(src).not.toMatch(/star\s*\?\s*:/);
+    expect(src).not.toMatch(/star\s*=\s*false/);
+  });
+
+  it("AuthIndicator toggles the signed-in-only Files link", () => {
+    const src = readSrc("components/AuthIndicator.astro");
+    expect(src).toContain("paintHeaderFiles");
+    expect(src).toContain("data-header-files");
+    expect(src).toContain("readCachedActiveWorkspace");
+  });
+
+  it.each([
+    "layouts/AccountLayout.astro",
+    "layouts/AdminLayout.astro",
+    "layouts/DocsLayout.astro",
+    "layouts/LegalLayout.astro",
+    "layouts/ErrorLayout.astro",
+    "pages/index.astro",
+  ] as const)("%s uses SiteHeader without a star prop", (rel) => {
+    const src = readSrc(rel);
+    expect(src).toContain("SiteHeader");
+    expect(src).not.toMatch(/<SiteHeader[^>]*\sstar[\s/>]/);
+  });
+});

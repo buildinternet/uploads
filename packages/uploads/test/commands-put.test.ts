@@ -1731,7 +1731,7 @@ describe("runPut branch staging (issue #403)", () => {
         runPut({ ...ctxWith(client), quiet: false }, [tmpFile()], false, stagingRunner(staged)),
       );
       expect(stderr).toContain(
-        "note: staged for branch feature/thing — auto-attaches to this branch's PR when it opens " +
+        "note: staged for branch feature/thing — auto-comments to pull request when opened " +
           "(or run: uploads attach --promote once it exists). Use --ref/--prefix for a plain dated upload.",
       );
     });

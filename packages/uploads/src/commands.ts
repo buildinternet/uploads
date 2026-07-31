@@ -1895,7 +1895,7 @@ export function mergeStagingMeta(
  */
 export function putStagingNoteText(branch: string): string {
   return (
-    `note: staged for branch ${branch} — auto-attaches to this branch's PR when it opens ` +
+    `note: staged for branch ${branch} — auto-comments to pull request when opened ` +
     `(or run: uploads attach --promote once it exists). Use --ref/--prefix for a plain dated upload.`
   );
 }
