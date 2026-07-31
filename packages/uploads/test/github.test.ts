@@ -145,7 +145,7 @@ describe("attachmentsCommentBody", () => {
     ]);
     expect(body.startsWith(ATTACHMENTS_MARKER)).toBe(true);
     expect(body).toContain(
-      '<a href="https://x.test/gh/o/r/pull/1/after.png"><img width="400" alt="after.png" src="https://x.test/gh/o/r/pull/1/after.png"></a>',
+      '<a href="https://x.test/gh/o/r/pull/1/after.png"><img width="720" alt="after.png" src="https://x.test/gh/o/r/pull/1/after.png"></a>',
     );
     expect(body).not.toContain("![after.png]");
     expect(body).toContain("- [notes.txt](https://x.test/gh/o/r/pull/1/notes.txt)");
@@ -160,7 +160,7 @@ describe("attachmentsCommentBody", () => {
       },
     ]);
     expect(body).toContain(
-      '<a href="https://x.test/iphone.webp"><img width="280" alt="demo-mobile-iphone.webp"',
+      '<a href="https://x.test/iphone.webp"><img width="360" alt="demo-mobile-iphone.webp"',
     );
   });
 
@@ -169,7 +169,7 @@ describe("attachmentsCommentBody", () => {
       { key: "gh/o/r/pull/1/demo-web-browser.webp", url: "https://x.test/browser.webp" },
     ]);
     expect(body).toContain(
-      '<a href="https://x.test/browser.webp"><img width="640" alt="demo-web-browser.webp"',
+      '<a href="https://x.test/browser.webp"><img width="800" alt="demo-web-browser.webp"',
     );
   });
 
@@ -270,7 +270,7 @@ describe("attachmentsCommentBody", () => {
       },
     ]);
     expect(body).toContain(
-      '<a href="https://uploads.sh/f/ws/gh/o/r/pull/1/after.png"><img width="400" alt="after.png" src="https://embed.test/after.png"></a>',
+      '<a href="https://uploads.sh/f/ws/gh/o/r/pull/1/after.png"><img width="720" alt="after.png" src="https://embed.test/after.png"></a>',
     );
   });
 
@@ -309,6 +309,6 @@ describe("attachmentsCommentBody", () => {
     ]);
     expect(body).not.toContain("<sub>/</sub>");
     expect(body).not.toContain("/ · before");
-    expect(body).toContain("<sub>before</sub>");
+    expect(body).toContain("<sub><code>before</code></sub>");
   });
 });

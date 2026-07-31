@@ -174,8 +174,17 @@ export function sanitizeCommentPreviewHtml(html: string): string {
 const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
 const H4_LINE_RE = /^####\s+(.*)$/;
 const H3_LINE_RE = /^###\s+(.*)$/;
-/** `- [text](url)` — the one markdown-list shape the renderer's note/gallery text can contain. */
-const LIST_ITEM_LINE_RE = /^-\s+\[([^\]]*)\]\(([^)]*)\)\s*$/;
+/**
+ * `- [text](url)` with an optional caption suffix (path/state as `` `code` ``
+ * spans after ` · `). The suffix used to be rejected because the regex
+ * required end-of-line right after the closing `)`.
+ */
+const LIST_ITEM_LINE_RE = /^-\s+\[([^\]]*)\]\(([^)]*)\)(.*)$/;
+
+/** Turn markdown `` `code` `` spans into `<code>` after angle-escaping the rest. */
+function inlineCodeToHtml(text: string): string {
+  return escapeStrayAngles(text).replace(/`([^`]+)`/g, "<code>$1</code>");
+}
 
 /**
  * `attachmentsCommentBody` (apps/api/src/github-comment-render.ts) emits
@@ -238,10 +247,12 @@ export function formatCommentPreviewBody(raw: string): string {
     if (item) {
       flushParagraph();
       // Escape at construction — not just relying on the sanitize pass that
-      // runs after — so this transform is safe standalone.
+      // runs after — so this transform is safe standalone. Caption suffixes
+      // (path/state code spans) ride along as trailing text.
       const href = escapeAttrValue(item[2]);
       const text = escapeStrayAngles(item[1]);
-      listItems.push(`<li><a href="${href}">${text}</a></li>`);
+      const suffix = item[3] ? inlineCodeToHtml(item[3]) : "";
+      listItems.push(`<li><a href="${href}">${text}</a>${suffix}</li>`);
       continue;
     }
 
