@@ -284,6 +284,7 @@ export type GithubCommentDeclineReason =
   | "not_installed"
   | "forbidden"
   | "not_authorized"
+  | "actor_not_authorized"
   | "unavailable";
 
 export type GithubCommentResult =

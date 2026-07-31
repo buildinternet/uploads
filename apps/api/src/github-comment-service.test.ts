@@ -72,6 +72,99 @@ async function commentPostedRows(db: D1Database): Promise<{ workspace: string }[
   return results;
 }
 
+describe("postManagedComment actor-on-PR gate (issue #297 control 2)", () => {
+  /**
+   * Seeds the two KV caches the gate reads (`ghacct:` identity, `pr-actors:`
+   * thread actors) so no AUTH/GitHub round-trips happen — these tests are
+   * about the gate's decision table, not the resolution chains (covered in
+   * uploader-identity / github-app tests).
+   */
+  function seedActorCaches(env: Env, opts: { accountId?: string; actors?: number[] }) {
+    const kv = (env as unknown as { GITHUB_CACHE: FakeKv }).GITHUB_CACHE;
+    if (opts.accountId) kv.store.set("ghacct:user_1", { value: opts.accountId });
+    if (opts.actors)
+      kv.store.set("pr-actors:pull:acme/web:12", { value: JSON.stringify(opts.actors) });
+  }
+
+  /** Comment flow stub: marker comment 99 exists and can be patched. */
+  const commentFlowFetch = (async (url: string, init: RequestInit = {}) => {
+    if (String(url).includes("/issues/12/comments") && init.method !== "POST") {
+      return new Response(JSON.stringify([{ id: 99, body: `${attachmentsMarker("acme")}\nold` }]), {
+        status: 200,
+      });
+    }
+    if (String(url).includes("/issues/comments/99")) {
+      return new Response(
+        JSON.stringify({ id: 99, html_url: "https://github.com/acme/web/pull/12#c99" }),
+        { status: 200 },
+      );
+    }
+    return new Response("nf", { status: 404 });
+  }) as unknown as typeof fetch;
+
+  const TARGET = { repo: "acme/web", num: 12, kind: "pull" as const };
+
+  it("declines (actor_not_authorized) when opted in and the caller is not on the thread", async () => {
+    const { env, ws, workspaceName } = await makeTestEnv();
+    ws.githubCommentRequireActorOnPr = true;
+    seedActorCaches(env, { accountId: "500", actors: [1, 2] });
+    const r = await withFetch(commentFlowFetch, () =>
+      postManagedComment(env, ws, workspaceName, "user_1", TARGET),
+    );
+    expect(r).toMatchObject({ posted: false, reason: "actor_not_authorized" });
+    // Declined before gather/upsert — nothing recorded.
+    expect(await commentPostedRows(env.DB)).toHaveLength(0);
+  });
+
+  it("posts when opted in and the caller is an actor on the thread", async () => {
+    const { env, ws, workspaceName } = await makeTestEnv();
+    ws.githubCommentRequireActorOnPr = true;
+    seedActorCaches(env, { accountId: "500", actors: [500, 2] });
+    const r = await withFetch(commentFlowFetch, () =>
+      postManagedComment(env, ws, workspaceName, "user_1", TARGET),
+    );
+    expect(r).toMatchObject({ posted: true, action: "updated" });
+  });
+
+  it("skips the check when the token carries no identity (opted in)", async () => {
+    const { env, ws, workspaceName } = await makeTestEnv();
+    ws.githubCommentRequireActorOnPr = true;
+    seedActorCaches(env, { actors: [1, 2] });
+    const r = await withFetch(commentFlowFetch, () =>
+      postManagedComment(env, ws, workspaceName, null, TARGET),
+    );
+    expect(r).toMatchObject({ posted: true, action: "updated" });
+  });
+
+  it("skips the check when the actor lookup fails (opted in, degrade-safe)", async () => {
+    const { env, ws, workspaceName } = await makeTestEnv();
+    ws.githubCommentRequireActorOnPr = true;
+    // Identity resolves, but no pr-actors cache and the pulls fetch 502s →
+    // fetchPrActors returns null → allow.
+    seedActorCaches(env, { accountId: "500" });
+    const fetchImpl = (async (url: string, init: RequestInit = {}) => {
+      if (String(url).includes("/pulls/12")) return new Response("", { status: 502 });
+      return (commentFlowFetch as (u: string, i?: RequestInit) => Promise<Response>)(
+        String(url),
+        init,
+      );
+    }) as unknown as typeof fetch;
+    const r = await withFetch(fetchImpl, () =>
+      postManagedComment(env, ws, workspaceName, "user_1", TARGET),
+    );
+    expect(r).toMatchObject({ posted: true, action: "updated" });
+  });
+
+  it("allows (log-only dry-run) when NOT opted in and the caller is not on the thread", async () => {
+    const { env, ws, workspaceName } = await makeTestEnv();
+    seedActorCaches(env, { accountId: "500", actors: [1, 2] });
+    const r = await withFetch(commentFlowFetch, () =>
+      postManagedComment(env, ws, workspaceName, "user_1", TARGET),
+    );
+    expect(r).toMatchObject({ posted: true, action: "updated" });
+  });
+});
+
 describe("postManagedComment empty-state (issue #392 stretch)", () => {
   it("empties an existing comment (updated, count 0) when all media is removed", async () => {
     const { env, ws, workspaceName } = await makeTestEnv();

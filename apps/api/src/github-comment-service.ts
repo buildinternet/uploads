@@ -9,8 +9,10 @@
  */
 import { recordAdoptionSafe } from "./adoption";
 import { gatherCommentBody, upsertBotComment } from "./github-comment";
-import { githubAppConfig, installationForRepo } from "./github-app";
+import { fetchPrActors, githubAppConfig, installationForRepo } from "./github-app";
+import type { GithubAppConfig } from "./github-app";
 import { isEntitledToClaimRepo } from "./github-claim-authz";
+import { resolveUploaderAccountId } from "./uploader-identity";
 import { findRepoLinkStrict, recordRepoLink } from "./github-repo-links";
 import type { GhTarget } from "./github-comment-render";
 import type { WorkspaceRecord } from "./workspace";
@@ -72,6 +74,58 @@ async function checkRepoAuthorization(
 }
 
 /**
+ * Actor-on-PR gate (issue #297, control 2) — a best-effort augment on top of
+ * `checkRepoAuthorization`, never a replacement: it narrows *already-
+ * authorized* intra-workspace calls to actors actually on the target thread
+ * (author / assignee / requested reviewer, compared by numeric GitHub id).
+ *
+ * Degrade matrix, by design (every "can't tell" resolves to allow — a lookup
+ * failure must never produce a false decline):
+ * - token has no minting user (legacy/enrollment/shared) → skip
+ * - minting user has no linked GitHub account → skip
+ * - PR/issue actor fetch fails → skip
+ * - caller not on the thread + workspace opted in
+ *   (`githubCommentRequireActorOnPr: true`) → decline `actor_not_authorized`
+ * - caller not on the thread + workspace NOT opted in → log-only dry-run
+ *   (the signal for whether to ever flip the default)
+ */
+async function checkActorAuthorization(
+  env: Env,
+  cfg: GithubAppConfig,
+  ws: WorkspaceRecord,
+  workspaceName: string,
+  mintingUserId: string | null,
+  target: GhTarget,
+  installId: number,
+): Promise<{ posted: false; reason: "actor_not_authorized"; message: string } | null> {
+  const actorId = await resolveUploaderAccountId(env, mintingUserId);
+  if (actorId === null) return null;
+  const actors = await fetchPrActors(env, cfg, installId, target.repo, target.kind, target.num);
+  if (actors === null || actors.includes(actorId)) return null;
+  if (ws.githubCommentRequireActorOnPr !== true) {
+    console.log(
+      JSON.stringify({
+        message: "actor-on-pr dry-run: would decline",
+        workspace: workspaceName,
+        repo: target.repo,
+        num: target.num,
+        kind: target.kind,
+        actorId,
+      }),
+    );
+    return null;
+  }
+  return {
+    posted: false,
+    reason: "actor_not_authorized",
+    message:
+      `Your linked GitHub account isn't the author, an assignee, or a requested ` +
+      `reviewer on ${target.repo}#${target.num}, and this workspace requires the ` +
+      `caller to be on the thread before uploads-sh[bot] will comment there.`,
+  };
+}
+
+/**
  * Actionable body for a `forbidden` (App installed, write not yet approved)
  * decline. `fixUrl` is the org install's permission-review page — this product
  * installs on orgs, so the org form is the right target; the message stands on
@@ -95,6 +149,7 @@ export type PostCommentResult =
   | { posted: false; reason: "app_unconfigured" }
   | { posted: false; reason: "not_installed" }
   | { posted: false; reason: "not_authorized"; message: string }
+  | { posted: false; reason: "actor_not_authorized"; message: string }
   | { posted: false; reason: "unavailable" }
   | {
       posted: false;
@@ -143,6 +198,17 @@ export async function postManagedComment(
     installId,
   );
   if (decline) return decline;
+
+  const actorDecline = await checkActorAuthorization(
+    env,
+    cfg,
+    ws,
+    workspaceName,
+    mintingUserId,
+    target,
+    installId,
+  );
+  if (actorDecline) return actorDecline;
 
   const gathered = await gatherCommentBody(env, ws, workspaceName, target);
 
