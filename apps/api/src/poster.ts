@@ -20,7 +20,9 @@ import {
   ATTACHMENT_IMAGE_WIDTH_WIDE,
   attachmentImageWidth,
 } from "./github-comment-render";
+import type { StorageConfig } from "@uploads/storage";
 import { allowPoster, VIDEO_TYPES } from "./guards";
+import { objectPublicUrls } from "./storage";
 
 /** Server-owned namespace for derived artifacts — never listed to users. */
 export const POSTER_KEY_PREFIX = "_internal/posters/";
@@ -32,6 +34,49 @@ export const POSTER_KEY_PREFIX = "_internal/posters/";
  */
 export function posterKeyFor(key: string): string {
   return `${POSTER_KEY_PREFIX}${key}.jpg`;
+}
+
+/** Real display dimensions of a video, as stamped in `video.width`/`video.height`. */
+export interface VideoDimensions {
+  width: number;
+  height: number;
+}
+
+const POSITIVE_INT_RE_STRICT = /^[1-9][0-9]*$/;
+
+/** Parses a `video.width`/`video.height` D1 string pair into positive integers, or undefined. */
+export function parseVideoDimensions(
+  metadata: Record<string, string>,
+): VideoDimensions | undefined {
+  const widthRaw = metadata["video.width"];
+  const heightRaw = metadata["video.height"];
+  if (!widthRaw || !heightRaw) return undefined;
+  if (!POSITIVE_INT_RE_STRICT.test(widthRaw) || !POSITIVE_INT_RE_STRICT.test(heightRaw)) {
+    return undefined;
+  }
+  const width = Number(widthRaw);
+  const height = Number(heightRaw);
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height)) return undefined;
+  return { width, height };
+}
+
+/**
+ * Derived poster URL + real dimensions for a video object, from its D1
+ * `video.*` rows. `video.poster` is a presence flag only — the URL is always
+ * recomputed from the current storage config, never stored. Single home for
+ * that contract (public files route + gallery hydration).
+ */
+export function videoPresentation(
+  env: Env,
+  cfg: StorageConfig,
+  key: string,
+  metadata: Record<string, string>,
+): { posterUrl?: string; videoDimensions?: VideoDimensions } {
+  const posterUrl =
+    metadata["video.poster"] === "1"
+      ? (objectPublicUrls(env, cfg, posterKeyFor(key)).url ?? undefined)
+      : undefined;
+  return { posterUrl, videoDimensions: parseVideoDimensions(metadata) };
 }
 
 /** `m:ss` under an hour, `h:mm:ss` at or above one. */

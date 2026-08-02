@@ -3,7 +3,7 @@ import BaseHead from "../../../components/BaseHead.astro";
 import Brand from "../../../components/Brand.astro";
 import CopyAsControls from "../../../components/CopyAsControls.astro";
 import Footer from "../../../components/Footer.astro";
-import ImagePreview from "../../../components/ImagePreview.astro";
+import MediaStage from "../../../components/MediaStage.astro";
 import ReportAbuse from "../../../components/ReportAbuse.astro";
 import { GH_KIND_PATH } from "../../../lib/brand-icons";
 import {
@@ -25,7 +25,7 @@ import {
   sameUtcDay,
 } from "../../../lib/public-file";
 import { oembedDiscoveryHref } from "../../../lib/oembed";
-import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../../../lib/og";
+import { OG_DEFAULT_IMAGE, OG_SITE_NAME, ogImageFor } from "../../../lib/og";
 import { env } from "cloudflare:workers";
 
 export const prerender = false;
@@ -118,7 +118,9 @@ const compare =
   counterpart && ownState && kind(file!.contentType) === "image"
     ? { src: counterpart.url, ownState }
     : null;
-const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAULT_IMAGE;
+const ogImage = file
+  ? ogImageFor(kind(file.contentType), file.url, file.posterUrl)
+  : OG_DEFAULT_IMAGE;
 ---
 
 <!doctype html>
@@ -212,44 +214,6 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
         mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
           center/contain no-repeat;
       }
-      .stage {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: var(--radius-lg);
-        overflow: hidden;
-      }
-      /* Video / non-image fallbacks only — images use ImagePreview. */
-      .media {
-        min-height: 320px;
-        max-height: 78vh;
-        background: var(--bg);
-        display: grid;
-        place-items: center;
-        overflow: hidden;
-      }
-      .media video {
-        max-width: 100%;
-        max-height: 78vh;
-        width: auto;
-        height: auto;
-        object-fit: contain;
-        display: block;
-      }
-      .fallback {
-        padding: 60px 30px;
-        text-align: center;
-        color: var(--muted);
-        font: 13px/1.6 var(--mono);
-      }
-      .fallback strong {
-        display: block;
-        color: var(--fg);
-        margin-bottom: 8px;
-      }
-      .fallback a {
-        color: var(--fg);
-        overflow-wrap: anywhere;
-      }
       .filehead {
         margin: 0 0 16px;
         min-width: 0;
@@ -306,17 +270,7 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
       .gh-byline-ref {
         overflow-wrap: anywhere;
       }
-      /* Right rail: account-shell-like section gap; Details uses label + rule. */
-      .details {
-        display: flex;
-        flex-direction: column;
-        gap: 22px;
-        padding: 18px 20px 22px;
-        border-top: 1px solid var(--line);
-      }
-      .details > * {
-        min-width: 0;
-      }
+      /* Right rail content (slotted into MediaStage): Details uses label + rule. */
       .rail-head {
         display: flex;
         align-items: center;
@@ -352,9 +306,6 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
         margin: 0;
         color: var(--body);
         overflow-wrap: anywhere;
-      }
-      .details :global(.actions) {
-        margin-top: 0;
       }
       /* Subordinate to everything above — margin-top:auto sinks it (and ReportAbuse, right
          after it in flow) to the bottom of the rail on tall pages, no-op on short ones. */
@@ -445,24 +396,11 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
         .shell {
           width: min(1200px, calc(100% - 48px));
         }
-        .stage {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
-        }
-        .details {
-          border-top: none;
-          border-left: 1px solid var(--line);
-          max-height: 78vh;
-          overflow: auto;
-        }
       }
       @media (max-width: 760px) {
         .shell {
           width: min(100% - 32px, 1080px);
           padding-top: 24px;
-        }
-        .media {
-          min-height: 220px;
         }
       }
       .danger-zone {
@@ -602,127 +540,96 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
                 </a>
               )}
             </header>
-            <figure class="stage" style="margin:0">
-              {kind(file.contentType) === "image" ? (
-                <ImagePreview src={file.url} alt={filename} compare={compare} />
-              ) : (
-                <div class="media">
-                  {kind(file.contentType) === "video" && (
-                    <video
-                      src={file.url}
-                      poster={file.posterUrl ?? undefined}
-                      style={
-                        file.videoDimensions
-                          ? `aspect-ratio:${file.videoDimensions.width}/${file.videoDimensions.height}`
-                          : undefined
-                      }
-                      controls
-                      playsinline
-                      preload="metadata"
-                    >
-                      Your browser cannot play this video.
-                    </video>
-                  )}
-                  {kind(file.contentType) === "file" && (
-                    <div class="fallback">
-                      <strong>Preview unavailable</strong>
-                      <a href={file.url} rel="noopener noreferrer">
-                        Open {filename}
-                      </a>
-                    </div>
-                  )}
-                  {kind(file.contentType) === "unsupported" && (
-                    <div class="fallback">
-                      <strong>Unsupported media type</strong>
-                      <span>This file cannot be previewed inline.</span>
-                    </div>
-                  )}
+            <MediaStage
+              kind={kind(file.contentType)}
+              url={file.url}
+              filename={filename}
+              posterUrl={file.posterUrl}
+              videoDimensions={file.videoDimensions}
+              compare={compare}
+            >
+              <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
+                {kind(file.contentType) !== "unsupported" && (
+                  <a class="original" href={file.url} rel="noopener noreferrer">
+                    Open original ↗
+                  </a>
+                )}
+              </CopyAsControls>
+              {railRows && (
+                <div>
+                  <div class="rail-head">
+                    <span class="rail-label">Comparison</span>
+                    <span class="rail-rule" aria-hidden="true" />
+                  </div>
+                  <ul class="pairlist">
+                    {railRows.map((row) => (
+                      <li class="pairrow" data-current={row.current ? "true" : "false"}>
+                        {row.href ? (
+                          <a href={row.href} aria-label={`View the ${row.state} image`}>
+                            {row.state} ↗
+                          </a>
+                        ) : (
+                          <>
+                            <span>{row.state}</span>
+                            <span class="pairrow-note">this file</span>
+                          </>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
-              <figcaption class="details">
-                <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
-                  {kind(file.contentType) !== "unsupported" && (
-                    <a class="original" href={file.url} rel="noopener noreferrer">
-                      Open original ↗
-                    </a>
-                  )}
-                </CopyAsControls>
-                {railRows && (
-                  <div>
-                    <div class="rail-head">
-                      <span class="rail-label">Comparison</span>
-                      <span class="rail-rule" aria-hidden="true" />
-                    </div>
-                    <ul class="pairlist">
-                      {railRows.map((row) => (
-                        <li class="pairrow" data-current={row.current ? "true" : "false"}>
-                          {row.href ? (
-                            <a href={row.href} aria-label={`View the ${row.state} image`}>
-                              {row.state} ↗
-                            </a>
-                          ) : (
-                            <>
-                              <span>{row.state}</span>
-                              <span class="pairrow-note">this file</span>
-                            </>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
+              {metadataEntries.length > 0 && (
+                <div>
+                  <div class="rail-head">
+                    <span class="rail-label">Details</span>
+                    <span class="rail-rule" aria-hidden="true" />
                   </div>
-                )}
-                {metadataEntries.length > 0 && (
-                  <div>
-                    <div class="rail-head">
-                      <span class="rail-label">Details</span>
-                      <span class="rail-rule" aria-hidden="true" />
-                    </div>
-                    <dl class="meta">
-                      {metadataEntries.map(([metaKey, metaValue]) => (
-                        <>
-                          <dt>{metaKey}</dt>
-                          <dd>{metaValue}</dd>
-                        </>
-                      ))}
-                    </dl>
-                  </div>
-                )}
-                {footnoteLine && <p class="footnote">{footnoteLine}</p>}
-                <div class="danger-zone" id="delete-zone" hidden>
-                  <button type="button" class="delete-link" id="delete-open">
-                    Delete file…
-                  </button>
-                  <div
-                    class="delete-pop"
-                    id="delete-pop"
-                    role="alertdialog"
-                    aria-label={`Delete ${filename}`}
-                    hidden
-                  >
-                    <p class="delete-pop__text">
-                      Permanently delete <strong>{filename}</strong> for everyone? Links and embeds
-                      will break.
-                    </p>
-                    {gh && (
-                      <p class="delete-pop__text delete-pop__gh">
-                        This file is attached to {ghRef}. The managed comment will keep a broken
-                        link until its next sync.
-                      </p>
-                    )}
-                    <p class="delete-pop__error" id="delete-error" hidden />
-                    <button type="button" class="delete-pop__btn" id="delete-step">
-                      Delete file
-                    </button>
-                  </div>
+                  <dl class="meta">
+                    {metadataEntries.map(([metaKey, metaValue]) => (
+                      <>
+                        <dt>{metaKey}</dt>
+                        <dd>{metaValue}</dd>
+                      </>
+                    ))}
+                  </dl>
                 </div>
-                <ReportAbuse
-                  apiOrigin={origin}
-                  pageUrl={canonical}
-                  workspace={workspace}
-                  objectKey={key}
-                />
-              </figcaption>
-            </figure>
+              )}
+              {footnoteLine && <p class="footnote">{footnoteLine}</p>}
+              <div class="danger-zone" id="delete-zone" hidden>
+                <button type="button" class="delete-link" id="delete-open">
+                  Delete file…
+                </button>
+                <div
+                  class="delete-pop"
+                  id="delete-pop"
+                  role="alertdialog"
+                  aria-label={`Delete ${filename}`}
+                  hidden
+                >
+                  <p class="delete-pop__text">
+                    Permanently delete <strong>{filename}</strong> for everyone? Links and embeds
+                    will break.
+                  </p>
+                  {gh && (
+                    <p class="delete-pop__text delete-pop__gh">
+                      This file is attached to {ghRef}. The managed comment will keep a broken link
+                      until its next sync.
+                    </p>
+                  )}
+                  <p class="delete-pop__error" id="delete-error" hidden />
+                  <button type="button" class="delete-pop__btn" id="delete-step">
+                    Delete file
+                  </button>
+                </div>
+              </div>
+              <ReportAbuse
+                apiOrigin={origin}
+                pageUrl={canonical}
+                workspace={workspace}
+                objectKey={key}
+              />
+            </MediaStage>
             <section class="error" id="deleted-state" hidden>
               <code>file.deleted</code>
               <h1>File deleted</h1>
@@ -898,7 +805,7 @@ const ogImage = file && kind(file.contentType) === "image" ? file.url : OG_DEFAU
             const response = await fetch(target, { method: "DELETE", credentials: "include" });
             if (!response.ok) throw new Error(String(response.status));
             // Swap the page to the deleted state.
-            const figure = document.querySelector(".stage");
+            const figure = document.querySelector("[data-media-stage]");
             const head = document.querySelector(".filehead");
             if (figure) figure.remove();
             if (head) head.remove();

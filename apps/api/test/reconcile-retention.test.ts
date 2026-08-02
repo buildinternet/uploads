@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeR2Bucket } from "./fake-r2";
 import { app } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
@@ -49,7 +49,15 @@ async function makeEnv(overrides: Partial<WorkspaceRecord> = {}) {
 const auth = { Authorization: `Bearer ${TOKEN}` };
 
 describe("POST /usage/reconcile", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("rebuilds ledger totals from storage when metering drifted", async () => {
+    // Freeze Date inside the seeded billing period — reconcile resets
+    // uploads_in_period whenever period_start differs from the live month,
+    // so an unfrozen clock breaks this test every calendar rollover.
+    vi.useFakeTimers({ now: new Date("2026-07-15T12:00:00.000Z"), toFake: ["Date"] });
     const { env, bucket, db } = await makeEnv();
     // Object in R2 without going through put metering
     await bucket.put("default/orphan.png", PNG, { httpMetadata: { contentType: "image/png" } });
