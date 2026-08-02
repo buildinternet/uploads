@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { setServerFileMetadata } from "../src/file-metadata";
 import { MAX_GALLERY_ITEMS, MAX_GALLERY_REFERENCES } from "../src/galleries";
 import { app } from "../src/index";
 import { sha256Hex, stampSoftDelete, type WorkspaceRecord } from "../src/workspace";
@@ -283,6 +284,55 @@ describe("gallery routes with SQLite D1", () => {
     ).toBe(201);
     const usage = await request("/v1/alpha/usage");
     expect(await usage.json()).toMatchObject({ bytes: PNG_REPLACEMENT.byteLength, objects: 1 });
+  });
+
+  it("exposes posterUrl + videoDimensions on public gallery video items with the poster sentinel", async () => {
+    const key = "screenshots/clip.mp4";
+    await bucket.put(`alpha/${key}`, PNG, { httpMetadata: { contentType: "video/mp4" } });
+    await setServerFileMetadata(fakeDb as unknown as D1Database, "alpha", key, {
+      "video.poster": "1",
+      "video.width": "1920",
+      "video.height": "1080",
+    });
+    const gallery = await create();
+    const added = await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+      method: "POST",
+      body: JSON.stringify({ expectedVersion: 1, objectKey: key }),
+    });
+    expect(added.status).toBe(201);
+
+    const publicGallery = await app.request(`/public/galleries/${gallery.id}`, {}, env);
+    expect(publicGallery.status).toBe(200);
+    expect(await publicGallery.json()).toMatchObject({
+      items: [
+        {
+          status: "available",
+          contentType: "video/mp4",
+          posterUrl: "https://storage.uploads.sh/alpha/_internal/posters/screenshots/clip.mp4.jpg",
+          videoDimensions: { width: 1920, height: 1080 },
+        },
+      ],
+    });
+
+    // Owner view carries the same derived fields.
+    const owner = await request(`/v1/alpha/galleries/${gallery.id}`);
+    expect(await owner.json()).toMatchObject({
+      items: [{ posterUrl: expect.stringContaining("_internal/posters/") }],
+    });
+  });
+
+  it("omits posterUrl on video items without the sentinel", async () => {
+    const key = "screenshots/bare.mp4";
+    await bucket.put(`alpha/${key}`, PNG, { httpMetadata: { contentType: "video/mp4" } });
+    const gallery = await create();
+    await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+      method: "POST",
+      body: JSON.stringify({ expectedVersion: 1, objectKey: key }),
+    });
+    const publicGallery = await app.request(`/public/galleries/${gallery.id}`, {}, env);
+    const body = (await publicGallery.json()) as { items: Record<string, unknown>[] };
+    expect(body.items[0]).not.toHaveProperty("posterUrl");
+    expect(body.items[0]).not.toHaveProperty("videoDimensions");
   });
 
   it("adds only existing public objects and keeps deleted objects as tombstones", async () => {

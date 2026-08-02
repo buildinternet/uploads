@@ -114,6 +114,26 @@ describe("public gallery API", () => {
     expect(isPublicGallery({ ...gallery, items: [noEmbedUrl] })).toBe(false);
   });
 
+  it("accepts poster fields on video items and rejects malformed ones", () => {
+    const video = {
+      ...gallery.items[0],
+      filename: "clip.mp4",
+      contentType: "video/mp4",
+      posterUrl: "https://storage.uploads.sh/_internal/posters/clip.mp4.jpg",
+      videoDimensions: { width: 1920, height: 1080 },
+    };
+    expect(isPublicGallery({ ...gallery, items: [video] })).toBe(true);
+    expect(
+      isPublicGallery({ ...gallery, items: [{ ...video, posterUrl: "javascript:alert(1)" }] }),
+    ).toBe(false);
+    expect(
+      isPublicGallery({
+        ...gallery,
+        items: [{ ...video, videoDimensions: { width: 0, height: 1 } }],
+      }),
+    ).toBe(false);
+  });
+
   it("bounds and sanitizes external references, tolerating their absence", () => {
     const { references: _references, ...withoutReferences } = gallery;
     expect(isPublicGallery(withoutReferences)).toBe(true);

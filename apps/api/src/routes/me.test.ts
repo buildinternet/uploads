@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { Hono } from "hono";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { respondError } from "../error-response";
 import { me } from "./me";
 import { setStorageReconcileForTests, setStorageVerifyForTests } from "./workspace-storage";
@@ -50,6 +50,11 @@ function fakeKv(records: Record<string, unknown>): Pick<KVNamespace, "get"> {
 function app() {
   return new Hono<{ Bindings: Env }>().route("/me", me).onError((err, c) => respondError(c, err));
 }
+
+// Some tests below freeze Date (vi.useFakeTimers) to pin a billing period.
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("/me auth gate", () => {
   it("401s with no session cookie", async () => {
@@ -296,6 +301,9 @@ describe("GET /me/workspaces/:name/usage", () => {
   });
 
   it("returns usage + limits for a workspace the caller is a member of", async () => {
+    // Freeze Date inside the seeded period — getWorkspaceUsage zeroes
+    // uploadsInPeriod when period_start differs from the live month.
+    vi.useFakeTimers({ now: new Date("2026-07-15T12:00:00.000Z"), toFake: ["Date"] });
     const db = new UsageFakeD1();
     db.usage.set("acme", {
       workspace: "acme",
@@ -455,6 +463,8 @@ const R2_RECORD = {
 
 describe("GET /me/workspaces/:name/summary", () => {
   it("returns membership + usage + public URL in one payload", async () => {
+    // Freeze Date inside the seeded period — see the usage test above.
+    vi.useFakeTimers({ now: new Date("2026-07-15T12:00:00.000Z"), toFake: ["Date"] });
     const db = new UsageFakeD1();
     db.usage.set("acme", {
       workspace: "acme",

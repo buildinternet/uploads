@@ -5,7 +5,9 @@ import {
   ValidationError,
 } from "@uploads/errors";
 import { publicObjectDateFields } from "./files-core";
-import { displayTitle } from "./file-metadata";
+import { displayTitle, getMetadataForKeys } from "./file-metadata";
+import { VIDEO_TYPES } from "./guards";
+import { videoPresentation, type VideoDimensions } from "./poster";
 import {
   type GalleryCursor,
   type GalleryItemRecord,
@@ -48,6 +50,10 @@ export interface GalleryItemDto {
   uploaded: string | null;
   /** Last-modified ISO when it meaningfully differs from uploaded; else null. */
   modified: string | null;
+  /** Public URL of the derived poster frame (issue #299); videos with one only. */
+  posterUrl?: string;
+  /** Real video dimensions for reserving aspect ratio before playback. */
+  videoDimensions?: VideoDimensions;
 }
 export interface PublicGalleryItemDto {
   id: string;
@@ -65,6 +71,10 @@ export interface PublicGalleryItemDto {
   uploaded?: string;
   /** Distinct last-modified when it differs from uploaded. */
   modified?: string;
+  /** Public URL of the derived poster frame (issue #299); videos with one only. */
+  posterUrl?: string;
+  /** Real video dimensions for reserving aspect ratio before playback. */
+  videoDimensions?: VideoDimensions;
 }
 export interface GalleryDto {
   id: string;
@@ -268,42 +278,76 @@ export async function hydrateGalleryItems(
       cause,
     });
   }
-  return mapBounded(items, 8, async (item) => {
-    let meta: GalleryObjectHead | null;
+  const hydrated = await mapBounded(
+    items,
+    8,
+    async (item): Promise<Omit<GalleryItemDto, "pageUrl">> => {
+      let meta: GalleryObjectHead | null;
+      try {
+        meta = (await store.exists(item.object_key))
+          ? ((await store.head(item.object_key)) as GalleryObjectHead)
+          : null;
+      } catch (cause) {
+        throw new ServiceUnavailableError("Gallery storage unavailable.", {
+          code: "gallery_storage_unavailable",
+          cause,
+        });
+      }
+      const urls = meta
+        ? objectPublicUrls(env, config, item.object_key)
+        : { url: null, embedUrl: null };
+      if (meta && urls.url === null)
+        throw new ServiceUnavailableError("Gallery object is not publicly served.", {
+          code: "gallery_object_not_public",
+        });
+      const dates = meta ? publicObjectDateFields(meta) : {};
+      return {
+        id: item.id,
+        objectKey: item.object_key,
+        position: item.position,
+        caption: item.caption,
+        altText: item.alt_text,
+        createdAt: item.created_at,
+        status: meta ? "available" : "missing",
+        url: urls.url,
+        embedUrl: urls.embedUrl,
+        contentType: meta?.type ?? null,
+        size: meta?.size ?? null,
+        uploaded: dates.uploaded ?? null,
+        modified: dates.modified ?? null,
+      };
+    },
+  );
+
+  // Poster + real dimensions for videos (issue #299): the `video.*` sentinel
+  // rows live in D1 (server-owned, stamped at poster generation), so the
+  // object heads above can't tell us. One batched D1 read for all video items;
+  // failures degrade to bare <video> elements rather than failing the gallery.
+  const videoKeys = hydrated
+    .filter((item) => item.url !== null && VIDEO_TYPES.has(item.contentType ?? ""))
+    .map((item) => item.objectKey);
+  if (videoKeys.length > 0 && workspace.name) {
     try {
-      meta = (await store.exists(item.object_key))
-        ? ((await store.head(item.object_key)) as GalleryObjectHead)
-        : null;
-    } catch (cause) {
-      throw new ServiceUnavailableError("Gallery storage unavailable.", {
-        code: "gallery_storage_unavailable",
-        cause,
+      const metadataByKey = await getMetadataForKeys(env.DB, workspace.name, videoKeys, {
+        metaKeys: ["video.poster", "video.width", "video.height"],
       });
+      for (const item of hydrated) {
+        const metadata = metadataByKey.get(item.objectKey);
+        if (!metadata) continue;
+        const { posterUrl, videoDimensions } = videoPresentation(
+          env,
+          config,
+          item.objectKey,
+          metadata,
+        );
+        if (posterUrl) item.posterUrl = posterUrl;
+        if (videoDimensions) item.videoDimensions = videoDimensions;
+      }
+    } catch {
+      // D1 blip — render the videos without posters.
     }
-    const urls = meta
-      ? objectPublicUrls(env, config, item.object_key)
-      : { url: null, embedUrl: null };
-    if (meta && urls.url === null)
-      throw new ServiceUnavailableError("Gallery object is not publicly served.", {
-        code: "gallery_object_not_public",
-      });
-    const dates = meta ? publicObjectDateFields(meta) : {};
-    return {
-      id: item.id,
-      objectKey: item.object_key,
-      position: item.position,
-      caption: item.caption,
-      altText: item.alt_text,
-      createdAt: item.created_at,
-      status: meta ? "available" : "missing",
-      url: urls.url,
-      embedUrl: urls.embedUrl,
-      contentType: meta?.type ?? null,
-      size: meta?.size ?? null,
-      uploaded: dates.uploaded ?? null,
-      modified: dates.modified ?? null,
-    };
-  });
+  }
+  return hydrated;
 }
 
 export function galleryUrl(env: Env, id: string): string {
@@ -443,6 +487,8 @@ export async function hydratePublicGallery(
       size: item.size,
       ...(item.uploaded ? { uploaded: item.uploaded } : {}),
       ...(item.modified ? { modified: item.modified } : {}),
+      ...(item.posterUrl ? { posterUrl: item.posterUrl } : {}),
+      ...(item.videoDimensions ? { videoDimensions: item.videoDimensions } : {}),
     })),
     references: publicReferences,
   };

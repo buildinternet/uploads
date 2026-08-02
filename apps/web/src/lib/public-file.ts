@@ -163,7 +163,7 @@ function httpsUrl(value: unknown): value is string {
 }
 
 /** `httpsUrl`, but also accepts `null` — for optional-but-typed URL fields like `embedUrl`. */
-function nullableHttpsUrl(value: unknown): value is string | null {
+export function nullableHttpsUrl(value: unknown): value is string | null {
   return value === null || httpsUrl(value);
 }
 
@@ -220,7 +220,7 @@ function isGithubContext(value: unknown): value is GithubContext {
 }
 
 /** Bounded `videoDimensions` convenience object — both fields positive safe integers. */
-function isVideoDimensions(value: unknown): value is { width: number; height: number } {
+export function isVideoDimensions(value: unknown): value is { width: number; height: number } {
   if (typeof value !== "object" || value === null) return false;
   const dims = value as Record<string, unknown>;
   return (

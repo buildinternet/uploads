@@ -305,9 +305,10 @@ const oembedHref = gallery ? oembedDiscoveryHref(canonical, Astro.url.origin) : 
                       {kind(item) === "video" && (
                         <video
                           src={item.url!}
+                          poster={item.posterUrl ?? undefined}
                           controls
                           playsinline
-                          preload="metadata"
+                          preload={item.posterUrl ? "none" : "metadata"}
                           aria-describedby={`caption-${item.id}`}
                         >
                           Your browser cannot play this video.

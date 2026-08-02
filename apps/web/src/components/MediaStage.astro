@@ -1,0 +1,251 @@
+---
+/**
+ * Shared viewer stage for the public file page (/f/…) and gallery item page
+ * (/g/:id/:item) — one home for the media area (image via ImagePreview, video,
+ * fallbacks) and the stage/rail two-column layout, so the two pages can't
+ * drift apart again. Page-specific rail content (metadata, pager, delete zone,
+ * captions) is slotted in; its styles stay page-scoped.
+ *
+ * Videos use the native player deliberately: these pages ship no framework JS
+ * and the native element already covers controls, poster, PiP, and fullscreen.
+ * Poster + real aspect-ratio come from the derived `video.*` metadata
+ * (issue #299) so the stage doesn't reflow when metadata loads.
+ */
+import ImagePreview from "./ImagePreview.astro";
+import type { BeforeAfterState } from "../lib/before-after-view";
+import type { MediaKind } from "../lib/public-gallery";
+
+interface Props {
+  kind: MediaKind;
+  /** Public object URL; null only for missing (tombstone) items. */
+  url: string | null;
+  /** Basename shown in fallback links. */
+  filename: string;
+  /** Image alt text; falls back to the filename. */
+  alt?: string;
+  /** Derived poster frame URL for videos (issue #299), when one exists. */
+  posterUrl?: string | null;
+  /** Real video dimensions — reserves the aspect ratio before playback. */
+  videoDimensions?: { width: number; height: number } | null;
+  /** Before/after counterpart for images; /f/ only today. */
+  compare?: { src: string; ownState: BeforeAfterState } | null;
+  /** id for the rail figcaption, referenced by the video's aria-describedby. */
+  railId?: string;
+}
+
+const {
+  kind,
+  url,
+  filename,
+  alt = filename,
+  posterUrl = null,
+  videoDimensions = null,
+  compare = null,
+  railId,
+} = Astro.props;
+
+// Non-video, non-image states share one fallback shell.
+const fallback =
+  kind === "file" && url
+    ? { title: "Preview unavailable" }
+    : kind === "unsupported"
+      ? { title: "Unsupported media type", body: "This file cannot be previewed inline." }
+      : kind === "missing"
+        ? {
+            title: "Removed or expired",
+            body: "This item remains in the gallery to preserve its place.",
+          }
+        : null;
+---
+
+<figure class="stage" style="margin:0" data-media-stage>
+  {
+    kind === "image" && url ? (
+      <ImagePreview src={url} alt={alt} compare={compare} />
+    ) : (
+      <div class="media">
+        {kind === "video" && url && (
+          <div class="video-wrap" data-video-stage>
+            <div class="seek-toggle" role="group" aria-label="Skip">
+              <button type="button" data-seek="-10" aria-label="Back 10 seconds">
+                −10s
+              </button>
+              <button type="button" data-seek="10" aria-label="Forward 10 seconds">
+                +10s
+              </button>
+            </div>
+            <video
+              src={url}
+              poster={posterUrl ?? undefined}
+              style={
+                videoDimensions
+                  ? `aspect-ratio:${videoDimensions.width}/${videoDimensions.height}`
+                  : undefined
+              }
+              controls
+              playsinline
+              preload={posterUrl && videoDimensions ? "none" : "metadata"}
+              aria-describedby={railId}
+            >
+              Your browser cannot play this video.
+            </video>
+          </div>
+        )}
+        {fallback && (
+          <div class="fallback">
+            <strong>{fallback.title}</strong>
+            {kind === "file" && url ? (
+              <a href={url} rel="noopener noreferrer">
+                Open {filename}
+              </a>
+            ) : (
+              <span>{fallback.body}</span>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+  <figcaption class="details" id={railId}>
+    <slot />
+  </figcaption>
+</figure>
+
+<style>
+  .stage {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  /* Video / non-image fallbacks only — images use ImagePreview. */
+  .media {
+    min-height: 320px;
+    max-height: 78vh;
+    background: var(--bg);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+  }
+  .media video {
+    max-width: 100%;
+    max-height: 78vh;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    display: block;
+  }
+  /* Shrink-wraps the video so the overlay pins to its box, not the stage;
+     line-height:0 kills the inline descender gap under the video. */
+  .video-wrap {
+    position: relative;
+    max-width: 100%;
+    line-height: 0;
+  }
+  /* Skip ±10s overlay — visual twin of ImagePreview's size/view pills. */
+  .seek-toggle {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 2;
+    display: inline-flex;
+    padding: 3px;
+    gap: 2px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+    backdrop-filter: blur(8px);
+    line-height: normal;
+  }
+  .seek-toggle button {
+    appearance: none;
+    margin: 0;
+    padding: 5px 11px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font: 11px var(--mono);
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    line-height: 1.2;
+  }
+  .seek-toggle button:hover,
+  .seek-toggle button:focus-visible {
+    color: var(--fg);
+    outline: none;
+  }
+  .seek-toggle button:focus-visible {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  .fallback {
+    padding: 60px 30px;
+    text-align: center;
+    color: var(--muted);
+    font: 13px/1.6 var(--mono);
+  }
+  .fallback strong {
+    display: block;
+    color: var(--fg);
+    margin-bottom: 8px;
+  }
+  .fallback a {
+    color: var(--fg);
+    overflow-wrap: anywhere;
+  }
+  /* Right rail: account-shell-like section gap; content is slotted (page-scoped). */
+  .details {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    padding: 18px 20px 22px;
+    border-top: 1px solid var(--line);
+  }
+  .details > :global(*) {
+    min-width: 0;
+  }
+  .details :global(.actions) {
+    margin-top: 0;
+  }
+  @media (min-width: 1080px) {
+    /* aligns with signed-in --bp-rail (1080px); media queries can't read custom props */
+    .stage {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+    }
+    .details {
+      border-top: none;
+      border-left: 1px solid var(--line);
+      max-height: 78vh;
+      overflow: auto;
+    }
+  }
+  @media (max-width: 760px) {
+    .media {
+      min-height: 220px;
+    }
+  }
+</style>
+
+<script>
+  // Skip ±10s for the native player. Progressive enhancement only — without
+  // JS the buttons are inert and the native controls still work.
+  function bootVideoStages() {
+    for (const wrap of document.querySelectorAll<HTMLElement>("[data-video-stage]")) {
+      if (wrap.dataset.bound) continue;
+      wrap.dataset.bound = "1";
+      const video = wrap.querySelector("video");
+      if (!video) continue;
+      for (const button of wrap.querySelectorAll<HTMLButtonElement>("button[data-seek]")) {
+        button.addEventListener("click", () => {
+          const delta = Number(button.dataset.seek);
+          if (!Number.isFinite(delta)) return;
+          const duration = Number.isFinite(video.duration) ? video.duration : Infinity;
+          video.currentTime = Math.min(Math.max(video.currentTime + delta, 0), duration);
+        });
+      }
+    }
+  }
+  bootVideoStages();
+  document.addEventListener("astro:page-load", bootVideoStages);
+</script>

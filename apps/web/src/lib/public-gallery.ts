@@ -1,4 +1,5 @@
 import { CF_RUM_CONNECT_SRC, CF_RUM_SCRIPT_SRC, STYLE_SRC_SELF_AND_INLINE } from "./csp";
+import { fileKind, isVideoDimensions, nullableHttpsUrl } from "./public-file";
 
 export interface PublicGalleryItem {
   id: string;
@@ -17,6 +18,10 @@ export interface PublicGalleryItem {
   uploaded?: string | null;
   /** Distinct last-modified ISO when it differs from uploaded. */
   modified?: string | null;
+  /** Public URL of the derived poster frame (issue #299); present only for videos with one. */
+  posterUrl?: string | null;
+  /** Real video dimensions, for reserving aspect ratio before playback; omitted when unknown. */
+  videoDimensions?: { width: number; height: number };
 }
 
 export interface PublicGalleryReference {
@@ -50,15 +55,10 @@ export type GalleryFetchResult =
 
 export type MediaKind = "image" | "video" | "file" | "unsupported" | "missing";
 
-const imageTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"]);
-const videoTypes = new Set(["video/mp4", "video/webm"]);
-
+/** Gallery variant of `fileKind` (public-file.ts): one shared classifier plus tombstones. */
 export function mediaKind(item: PublicGalleryItem): MediaKind {
   if (item.status === "missing") return "missing";
-  if (imageTypes.has(item.contentType ?? "")) return "image";
-  if (videoTypes.has(item.contentType ?? "")) return "video";
-  if (item.contentType === "image/svg+xml") return "unsupported";
-  return "file";
+  return fileKind(item.contentType ?? "");
 }
 
 export function galleryPath(galleryId: string): string {
@@ -128,16 +128,6 @@ function nullableText(value: unknown, max: number): value is string | null {
   return value === null || text(value, max);
 }
 
-function safeUrl(value: unknown): value is string | null {
-  if (value === null) return true;
-  if (typeof value !== "string" || value.length > 4096) return false;
-  try {
-    return new URL(value).protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
 /** Optional public date field: omitted, null, or a parseable ISO string. */
 function optionalIsoDate(value: unknown): boolean {
   if (value === undefined || value === null) return true;
@@ -179,7 +169,7 @@ export function isPublicGallery(value: unknown): value is PublicGallery {
         text(reference.provider, 40) &&
         text(reference.resourceType, 40) &&
         text(reference.coordinate, 200) &&
-        safeUrl(reference.canonicalUrl) &&
+        nullableHttpsUrl(reference.canonicalUrl) &&
         titleOk &&
         kindOk
       );
@@ -195,7 +185,12 @@ export function isPublicGallery(value: unknown): value is PublicGallery {
       item.size === undefined ||
       item.size === null ||
       (Number.isSafeInteger(item.size) && (item.size as number) >= 0);
+    const posterUrlOk = item.posterUrl === undefined || nullableHttpsUrl(item.posterUrl);
+    const videoDimensionsOk =
+      item.videoDimensions === undefined || isVideoDimensions(item.videoDimensions);
     return (
+      posterUrlOk &&
+      videoDimensionsOk &&
       text(item.id, 64) &&
       text(item.filename, 1024) &&
       Number.isSafeInteger(item.position) &&
@@ -203,8 +198,8 @@ export function isPublicGallery(value: unknown): value is PublicGallery {
       nullableText(item.caption, 500) &&
       nullableText(item.altText, 300) &&
       (item.status === "available" || item.status === "missing") &&
-      safeUrl(item.url) &&
-      safeUrl(item.embedUrl) &&
+      nullableHttpsUrl(item.url) &&
+      nullableHttpsUrl(item.embedUrl) &&
       nullableText(item.contentType, 128) &&
       sizeOk &&
       optionalIsoDate(item.uploaded) &&

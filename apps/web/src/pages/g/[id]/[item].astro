@@ -4,7 +4,7 @@ import Brand from "../../../components/Brand.astro";
 import CopyAsControls from "../../../components/CopyAsControls.astro";
 import Footer from "../../../components/Footer.astro";
 import GalleryReferences from "../../../components/GalleryReferences.astro";
-import ImagePreview from "../../../components/ImagePreview.astro";
+import MediaStage from "../../../components/MediaStage.astro";
 import { buildEmbedFormats, type EmbedFormatOption } from "../../../lib/embed-formats";
 import {
   formatBytes,
@@ -22,7 +22,7 @@ import {
   type PublicGalleryItem,
 } from "../../../lib/public-gallery";
 import { oembedDiscoveryHref } from "../../../lib/oembed";
-import { OG_DEFAULT_IMAGE, OG_SITE_NAME } from "../../../lib/og";
+import { OG_DEFAULT_IMAGE, OG_SITE_NAME, ogImageFor } from "../../../lib/og";
 import { env } from "cloudflare:workers";
 
 export const prerender = false;
@@ -78,7 +78,7 @@ const withTime = Boolean(
 const uploadedLabel = uploadedIso ? formatFileDate(uploadedIso, { withTime }) : null;
 const modifiedLabel =
   showModified && modifiedIso ? formatFileDate(modifiedIso, { withTime }) : null;
-const ogImage = item && kind(item) === "image" ? item.url! : OG_DEFAULT_IMAGE;
+const ogImage = item ? ogImageFor(kind(item), item.url, item.posterUrl) : OG_DEFAULT_IMAGE;
 const sizeLabel =
   item && item.size != null && Number.isSafeInteger(item.size) ? formatBytes(item.size) : null;
 // Rail footnote (demoted from a Size/Uploaded/Modified dl — parity with the /f/ file page):
@@ -208,82 +208,13 @@ const footnoteLine = footnoteParts.join(" · ");
         letter-spacing: -0.01em;
         overflow-wrap: anywhere;
       }
-      .stage {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: var(--radius-lg);
-        overflow: hidden;
-      }
-      /* Video / non-image fallbacks only — images use ImagePreview. */
-      .media {
-        min-height: 320px;
-        max-height: 78vh;
-        background: var(--bg);
-        display: grid;
-        place-items: center;
-        overflow: hidden;
-      }
-      .media video {
-        max-width: 100%;
-        max-height: 78vh;
-        width: auto;
-        height: auto;
-        object-fit: contain;
-        display: block;
-      }
-      .fallback {
-        padding: 60px 30px;
-        text-align: center;
-        color: var(--muted);
-        font: 13px/1.6 var(--mono);
-      }
-      .fallback strong {
-        display: block;
-        color: var(--fg);
-        margin-bottom: 8px;
-      }
-      .fallback a {
-        color: var(--fg);
-        overflow-wrap: anywhere;
-      }
-      /* Right rail: same section gap as the public file page. */
-      .details {
-        display: flex;
-        flex-direction: column;
-        gap: 22px;
-        padding: 18px 20px 22px;
-        border-top: 1px solid var(--line);
-      }
-      .details > * {
-        min-width: 0;
-      }
+      /* Rail content (slotted into MediaStage). */
       .caption {
         margin: 0;
         color: var(--body);
         font-size: 15px;
         line-height: 1.6;
         white-space: pre-wrap;
-      }
-      dl.meta {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 6px 16px;
-        margin: 0;
-        font: 12px var(--mono);
-      }
-      dl.meta dt {
-        color: var(--muted);
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        font-size: 11px;
-      }
-      dl.meta dd {
-        margin: 0;
-        color: var(--body);
-        overflow-wrap: anywhere;
-      }
-      .details :global(.actions) {
-        margin-top: 0;
       }
       /* Subordinate to everything above — margin-top:auto sinks it to the bottom of the
          rail on tall pages, no-op on short ones. */
@@ -341,24 +272,11 @@ const footnoteLine = footnoteParts.join(" · ");
         .shell {
           width: min(1200px, calc(100% - 48px));
         }
-        .stage {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
-        }
-        .details {
-          border-top: none;
-          border-left: 1px solid var(--line);
-          max-height: 78vh;
-          overflow: auto;
-        }
       }
       @media (max-width: 760px) {
         .shell {
           width: min(100% - 32px, 1080px);
           padding-top: 24px;
-        }
-        .media {
-          min-height: 220px;
         }
         .pager a,
         .pager span.disabled {
@@ -403,58 +321,27 @@ const footnoteLine = footnoteParts.join(" · ");
               <h1 class="filetitle">{item.filename}</h1>
               <GalleryReferences references={gallery.references} variant="header" />
             </header>
-            <figure class="stage" style="margin:0">
-              {kind(item) === "image" && item.url ? (
-                <ImagePreview src={item.url} alt={item.altText ?? item.caption ?? item.filename} />
-              ) : (
-                <div class="media">
-                  {kind(item) === "video" && (
-                    <video
-                      src={item.url!}
-                      controls
-                      playsinline
-                      preload="metadata"
-                      aria-describedby="item-caption"
-                    >
-                      Your browser cannot play this video.
-                    </video>
+            <MediaStage
+              kind={kind(item)}
+              url={item.url}
+              filename={item.filename}
+              alt={item.altText ?? item.caption ?? item.filename}
+              posterUrl={item.posterUrl}
+              videoDimensions={item.videoDimensions}
+              railId="item-caption"
+            >
+              {item.caption && <div class="caption">{item.caption}</div>}
+              {item.status === "available" && (
+                <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
+                  {kind(item) !== "unsupported" && item.url && (
+                    <a class="original" href={item.url} rel="noopener noreferrer">
+                      Open original ↗
+                    </a>
                   )}
-                  {kind(item) === "file" && (
-                    <div class="fallback">
-                      <strong>Preview unavailable</strong>
-                      <a href={item.url!} rel="noopener noreferrer">
-                        Open {item.filename}
-                      </a>
-                    </div>
-                  )}
-                  {kind(item) === "unsupported" && (
-                    <div class="fallback">
-                      <strong>Unsupported media type</strong>
-                      <span>This item cannot be opened inline.</span>
-                    </div>
-                  )}
-                  {kind(item) === "missing" && (
-                    <div class="fallback">
-                      <strong>Removed or expired</strong>
-                      <span>This item remains in the gallery to preserve its place.</span>
-                    </div>
-                  )}
-                </div>
+                </CopyAsControls>
               )}
-              <figcaption class="details" id="item-caption">
-                {item.caption && <div class="caption">{item.caption}</div>}
-                {item.status === "available" && (
-                  <CopyAsControls formats={embedFormats} downloadUrl={downloadUrl}>
-                    {kind(item) !== "unsupported" && item.url && (
-                      <a class="original" href={item.url} rel="noopener noreferrer">
-                        Open original ↗
-                      </a>
-                    )}
-                  </CopyAsControls>
-                )}
-                {footnoteLine && <p class="footnote">{footnoteLine}</p>}
-              </figcaption>
-            </figure>
+              {footnoteLine && <p class="footnote">{footnoteLine}</p>}
+            </MediaStage>
             <nav class="pager" aria-label="Gallery items">
               {previous ? (
                 <a href={itemPath(previous)} rel="prev">

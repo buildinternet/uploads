@@ -10,32 +10,11 @@ import { badKey, downloadResponse, publicObjectDateFields } from "../files-core"
 import { displayTitle, getFileMetadata, isServerMetaKey } from "../file-metadata";
 import { githubAvatarProxyUrl, ownerFromRepo } from "../github-avatars";
 import { resolveTitles, withPublicTitleBudget } from "../github-titles";
-import { posterKeyFor } from "../poster";
+import { videoPresentation } from "../poster";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
 import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
 import { requestOrigin } from "../well-known";
-
-const POSITIVE_INT_RE_STRICT = /^[1-9][0-9]*$/;
-
-interface VideoDimensions {
-  width: number;
-  height: number;
-}
-
-/** Parses a `video.width`/`video.height` D1 string pair into positive integers, or undefined. */
-function parseVideoDimensions(metadata: Record<string, string>): VideoDimensions | undefined {
-  const widthRaw = metadata["video.width"];
-  const heightRaw = metadata["video.height"];
-  if (!widthRaw || !heightRaw) return undefined;
-  if (!POSITIVE_INT_RE_STRICT.test(widthRaw) || !POSITIVE_INT_RE_STRICT.test(heightRaw)) {
-    return undefined;
-  }
-  const width = Number(widthRaw);
-  const height = Number(heightRaw);
-  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height)) return undefined;
-  return { width, height };
-}
 
 type GithubKind = "pull" | "issue";
 
@@ -225,12 +204,7 @@ export const publicFiles = new Hono<WorkspaceVars>().get("/:workspace/:key{.+}",
     }
   }
 
-  let posterUrl: string | undefined;
-  if (metadata["video.poster"] === "1") {
-    const posterUrls = objectPublicUrls(env, cfg, posterKeyFor(key));
-    posterUrl = posterUrls.url ?? undefined;
-  }
-  const videoDimensions = parseVideoDimensions(metadata);
+  const { posterUrl, videoDimensions } = videoPresentation(env, cfg, key, metadata);
 
   // Live title (KV-cached App ladder) wins over stamped gh.title. Failures and
   // budget timeouts never 500 — keep the stamp or omit title entirely.
