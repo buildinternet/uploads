@@ -420,6 +420,26 @@ export async function deleteFileMetadataForWorkspace(
 }
 
 /**
+ * Deletes all metadata rows for a set of objects in one pass (e.g. the
+ * retention purge's delete batches). Chunked like `getMetadataForKeys` to
+ * stay under D1's bound-parameter limit. No-op on an empty list.
+ */
+export async function deleteFileMetadataForKeys(
+  db: D1Database,
+  workspace: string,
+  keys: string[],
+): Promise<void> {
+  for (let i = 0; i < keys.length; i += METADATA_LOOKUP_CHUNK) {
+    const chunk = keys.slice(i, i + METADATA_LOOKUP_CHUNK);
+    const placeholders = chunk.map(() => "?").join(", ");
+    await db
+      .prepare(`DELETE FROM file_metadata WHERE workspace = ? AND object_key IN (${placeholders})`)
+      .bind(workspace, ...chunk)
+      .run();
+  }
+}
+
+/**
  * Fully replaces an object's metadata: validates `metadata` once (there's no
  * prior state to merge against, so unlike `setFileMetadata` there's nothing
  * to re-read first), then deletes any existing rows and inserts the new set
