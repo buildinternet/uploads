@@ -11,6 +11,7 @@ import { recordAdoptionSafe, type UploadSurface } from "./adoption";
 import {
   budgetDenialError,
   checkPutBudget,
+  enforcedMaxStorageBytes,
   resolveBudgetLimits,
   storageBudgetDenial,
   uploadBudgetDenial,
@@ -440,7 +441,8 @@ export async function putObject(
   // bytes before the R2 write. Reservations ARE the ledger increments for
   // those fields, so post-put recordUsageSafe must not count them again; a
   // failed write releases both.
-  const { maxUploadsPerPeriod, maxStorageBytes } = resolveBudgetLimits(ws);
+  const { maxUploadsPerPeriod } = resolveBudgetLimits(ws);
+  const maxStorageBytes = enforcedMaxStorageBytes(ws);
   const uploadReservation = await reserveUploads(env.DB, workspaceName, 1, maxUploadsPerPeriod);
   if (!uploadReservation.ok) {
     throw budgetDenialError(
