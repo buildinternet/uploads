@@ -16,7 +16,9 @@ import {
   signedInCsp,
 } from "../lib/signed-in-page";
 import {
+  renderSettingsSubnavHtml,
   WORKSPACE_NAV_TABS,
+  workspaceSettingsSubpageFromPathname,
   workspaceTabFromPathname,
   type WorkspaceNavTab,
 } from "../lib/workspaces-nav";
@@ -38,9 +40,11 @@ interface Props {
   creating?: boolean;
   /** Optional document title override (e.g. workspace name). */
   title?: string;
+  /** Widen the right rail (~430px) for the comment-settings 3-column layout. */
+  railWide?: boolean;
 }
 
-const { section, workspace = "", creating = false, title } = Astro.props;
+const { section, workspace = "", creating = false, title, railWide = false } = Astro.props;
 const hasRail = Astro.slots.has("rail");
 
 const titles: Record<AccountSection, string> = {
@@ -54,6 +58,8 @@ const docTitle = `${pageHeading} · uploads.sh`;
 const activeTab: WorkspaceNavTab | "" = workspace
   ? workspaceTabFromPathname(Astro.url.pathname) || "files"
   : "";
+const settingsSubpage =
+  activeTab === "settings" ? workspaceSettingsSubpageFromPathname(Astro.url.pathname) : "";
 const workspaceBase = workspace ? `/account/workspaces/${encodeURIComponent(workspace)}` : "";
 const switcherHeading = workspace || "workspaces";
 
@@ -90,7 +96,7 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
       <SiteHeader authOrigin={authOrigin} />
 
       <div class="shell">
-        <div class="layout">
+        <div class="layout" data-rail-wide={railWide ? "" : undefined}>
           <nav class="side" aria-label="Account sections">
             <div class="ws-switcher" id="ws-switcher">
               <button
@@ -149,13 +155,20 @@ applyAuthSecurityHeaders(Astro.response.headers, signedInCsp(authOrigin, apiOrig
               {
                 workspace
                   ? WORKSPACE_NAV_TABS.map((tab) => (
-                      <a
-                        href={`${workspaceBase}${tab.path}`}
-                        class="side-link"
-                        aria-current={activeTab === tab.id ? "page" : undefined}
-                      >
-                        {tab.label}
-                      </a>
+                      <Fragment>
+                        <a
+                          href={`${workspaceBase}${tab.path}`}
+                          class="side-link"
+                          aria-current={activeTab === tab.id ? "page" : undefined}
+                        >
+                          {tab.label}
+                        </a>
+                        {tab.id === "settings" && settingsSubpage && (
+                          <Fragment
+                            set:html={renderSettingsSubnavHtml(workspace, settingsSubpage)}
+                          />
+                        )}
+                      </Fragment>
                     ))
                   : null
               }

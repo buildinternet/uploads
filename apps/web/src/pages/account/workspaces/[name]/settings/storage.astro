@@ -1,0 +1,778 @@
+---
+/**
+ * Workspace settings — storage sub-page: the workspace details summary
+ * (slug + base URL) and the Storage / BYO-bucket panel, split out of
+ * settings.astro (issue #365 redesign). Behavior is unchanged from before
+ * the split — this is the same markup, styles, and script logic, just
+ * without the `<details>` disclosure around the summary (it's its own page
+ * now, so there's nothing to collapse it under) and without the GitHub
+ * comment block, which stays on the parent settings page.
+ */
+import WorkspaceLayout from "../../../../../layouts/WorkspaceLayout.astro";
+import { isBrowseWorkspace } from "../../../../../lib/workspace-browse-url";
+
+export const prerender = false;
+
+const nameParam = Astro.params.name ?? "";
+const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
+if (!workspace) return Astro.redirect("/account/workspaces");
+---
+
+<WorkspaceLayout workspace={workspace}>
+  <section class="card settings-page">
+    <div class="settings-section">
+      <h2>Workspace details</h2>
+      <dl class="kv" data-ws-settings-details></dl>
+    </div>
+
+    <div class="settings-section" id="storage-section" hidden>
+      <h2>Storage</h2>
+
+      <div id="storage-error" class="ul-callout" data-state="error" role="alert" hidden></div>
+
+      <div id="storage-shared">
+        <p class="settings-note muted">
+          Your files live on <code>storage.uploads.sh</code>. You can point this workspace at your
+          own Cloudflare R2 bucket instead — see the&#32;
+          <a href="/docs/byo-bucket">bring your own bucket</a> docs.
+        </p>
+        <div class="storage-actions">
+          <button type="button" class="ul-btn ul-btn--solid" id="storage-connect-btn"
+            >Connect your own bucket</button
+          >
+        </div>
+
+        <div class="storage-summary" id="storage-summary">
+          <div class="storage-summary__step">
+            <span class="storage-summary__num">1</span>
+            <div class="storage-summary__body">
+              <div class="storage-summary__title">Set up your bucket on Cloudflare</div>
+              <div class="storage-summary__sub">
+                Dashboard → R2 → Create bucket, then a bucket-scoped API token with Object Read &
+                Write.
+              </div>
+            </div>
+          </div>
+          <div class="storage-summary__step">
+            <span class="storage-summary__num">2</span>
+            <div class="storage-summary__body">
+              <div class="storage-summary__title">Enter the bucket's credentials</div>
+              <div class="storage-summary__sub">
+                Account ID, bucket name, access keys — plus an optional public base URL.
+              </div>
+            </div>
+          </div>
+          <div class="storage-summary__step">
+            <span class="storage-summary__num">3</span>
+            <div class="storage-summary__body">
+              <div class="storage-summary__title">Verify and save</div>
+              <div class="storage-summary__sub">
+                We run auth, round-trip, and public-URL checks before switching the workspace over.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p class="muted settings-note" id="storage-connect-note" hidden>
+          Connecting is only available for an empty workspace — this workspace already has files.
+        </p>
+      </div>
+
+      <div id="storage-byo" hidden>
+        <dl class="kv" id="storage-byo-details"></dl>
+        <div class="storage-actions">
+          <button type="button" class="ul-btn" id="storage-reverify-btn">Re-run verification</button
+          >
+          <button type="button" class="ul-btn" id="storage-rotate-btn">Rotate credentials</button>
+          <button type="button" class="ul-btn ul-btn--danger" id="storage-disconnect-btn"
+            >Disconnect</button
+          >
+        </div>
+        <p class="muted" id="storage-action-status" role="status"></p>
+      </div>
+
+      <div id="storage-wizard" hidden>
+        <div class="storage-wizard-step" id="storage-step-1">
+          <h3>1. Set up your bucket on Cloudflare</h3>
+          <ol class="storage-instructions">
+            <li>
+              Create an R2 bucket: dashboard → <strong>R2</strong> →
+              <strong>Create bucket</strong>.
+            </li>
+            <li>
+              Create a bucket-scoped API token: <strong>R2</strong> →
+              <strong>Manage API Tokens</strong> → <strong>Create API Token</strong>, permission
+              <strong>Object Read & Write</strong>, scoped to that one bucket only. Copy the Access
+              Key ID, Secret Access Key, and your Account ID.
+            </li>
+            <li>
+              Optional — for public reads: bucket → <strong>Settings</strong> →
+              <strong>Public access</strong> → <strong>Custom Domains</strong>, connect a domain on
+              a Cloudflare zone in your account. <code>r2.dev</code> URLs aren't supported; skip this
+              for signed-only access.
+            </li>
+          </ol>
+          <div class="storage-actions">
+            <button type="button" class="ul-btn ul-btn--solid" id="storage-step1-next">Next</button>
+            <button type="button" class="ul-btn ul-btn--ghost" id="storage-wizard-cancel-1"
+              >Cancel</button
+            >
+          </div>
+        </div>
+
+        <div class="storage-wizard-step" id="storage-step-2" hidden>
+          <h3>2. Enter your bucket's credentials</h3>
+          <form class="ws-form" id="storage-form">
+            <div class="ul-field">
+              <label for="storage-account-id" class="ul-label">Account ID</label>
+              <input
+                type="text"
+                id="storage-account-id"
+                class="ul-input"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="32-character hex account id"
+                required
+              />
+            </div>
+            <div class="ul-field">
+              <label for="storage-bucket" class="ul-label">Bucket name</label>
+              <input
+                type="text"
+                id="storage-bucket"
+                class="ul-input"
+                autocomplete="off"
+                spellcheck="false"
+                required
+              />
+            </div>
+            <div class="ul-field">
+              <label for="storage-jurisdiction" class="ul-label">Jurisdiction</label>
+              <select id="storage-jurisdiction" class="ul-select">
+                <option value="">Default (no jurisdiction)</option>
+                <option value="eu">European Union (eu)</option>
+                <option value="fedramp">FedRAMP (fedramp)</option>
+              </select>
+              <p class="ul-field__hint">
+                Jurisdiction is chosen at bucket creation on Cloudflare and can't be changed later —
+                pick the one the bucket was created with.
+              </p>
+            </div>
+            <div class="ul-field">
+              <label for="storage-access-key-id" class="ul-label">Access key ID</label>
+              <input
+                type="text"
+                id="storage-access-key-id"
+                class="ul-input"
+                autocomplete="off"
+                spellcheck="false"
+                required
+              />
+            </div>
+            <div class="ul-field">
+              <label for="storage-secret-access-key" class="ul-label">Secret access key</label>
+              <input
+                type="password"
+                id="storage-secret-access-key"
+                class="ul-input"
+                autocomplete="off"
+                spellcheck="false"
+                required
+              />
+            </div>
+            <div class="ul-field">
+              <label for="storage-public-base-url" class="ul-label"
+                >Public base URL (optional)</label
+              >
+              <input
+                type="text"
+                id="storage-public-base-url"
+                class="ul-input"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="https://media.example.com"
+              />
+              <p class="ul-field__hint">
+                Leave blank for signed-only access. <code>r2.dev</code> URLs aren't supported.
+              </p>
+            </div>
+
+            <div class="storage-actions">
+              <button type="submit" class="ul-btn ul-btn--solid" id="storage-verify-btn"
+                >Verify</button
+              >
+              <button type="button" class="ul-btn ul-btn--ghost" id="storage-step2-back"
+                >Back</button
+              >
+              <button type="button" class="ul-btn ul-btn--ghost" id="storage-wizard-cancel-2"
+                >Cancel</button
+              >
+              <span class="muted" id="storage-verify-status" role="status"></span>
+            </div>
+          </form>
+        </div>
+
+        <div class="storage-wizard-step" id="storage-step-3" hidden>
+          <h3>3. Verify</h3>
+          <ul class="storage-checklist" id="storage-checklist" aria-live="polite"></ul>
+          <div class="storage-actions">
+            <button type="button" class="ul-btn ul-btn--solid" id="storage-save-btn" disabled
+              >Save</button
+            >
+            <button type="button" class="ul-btn ul-btn--ghost" id="storage-step3-back">Back</button>
+            <button type="button" class="ul-btn ul-btn--ghost" id="storage-wizard-cancel-3"
+              >Cancel</button
+            >
+            <span class="muted" id="storage-save-status" role="status"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <style>
+    /* ---------- Storage panel ---------- */
+    .storage-actions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    #storage-save-status[data-state="error"],
+    #storage-verify-status[data-state="error"],
+    #storage-action-status[data-state="error"] {
+      color: var(--red);
+    }
+    #storage-save-status[data-state="ok"],
+    #storage-verify-status[data-state="ok"],
+    #storage-action-status[data-state="ok"] {
+      color: var(--green);
+    }
+
+    /* Collapsed-state 3-step summary, shown alongside "Connect your own
+       bucket" before the wizard opens. Purely decorative overview — the
+       wizard below repeats the detail once the user actually starts. */
+    .storage-summary {
+      margin-top: 22px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--panel);
+    }
+    .storage-summary__step {
+      display: flex;
+      gap: 12px;
+      align-items: baseline;
+      padding: 13px 16px;
+    }
+    .storage-summary__step + .storage-summary__step {
+      border-top: 1px solid var(--line);
+    }
+    .storage-summary__num {
+      flex: none;
+      color: var(--accent);
+      font-size: 12px;
+    }
+    .storage-summary__body {
+      min-width: 0;
+      font-size: 13px;
+    }
+    .storage-summary__title {
+      color: var(--fg);
+    }
+    .storage-summary__sub {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .storage-instructions {
+      max-width: 42rem;
+      padding-left: 1.2em;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--muted);
+    }
+    .storage-instructions strong {
+      color: var(--fg);
+    }
+    #storage-form {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      max-width: 32rem;
+    }
+    .storage-checklist {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-width: 32rem;
+      padding: 0;
+    }
+    .storage-checklist li {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+    }
+    .storage-check-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .storage-check-hint {
+      font-size: 12px;
+      color: var(--muted);
+    }
+  </style>
+
+  <script>
+    import {
+      getPageVisit,
+      isCurrentPageVisit,
+      onAstroPageLoad,
+      onSession,
+      requireElement,
+    } from "../../../../../lib/account-shell";
+    import {
+      deleteWorkspaceStorage,
+      getMyWorkspaceUsage,
+      getWorkspaceStorageStatus,
+      putWorkspaceStorage,
+      verifyWorkspaceStorage,
+      type StorageCandidate,
+      type StorageVerifyResult,
+      type WorkspaceStorageStatus,
+    } from "../../../../../lib/api-client";
+    import { loadWorkspaces } from "../../../../../lib/workspaces-nav";
+    import { resolveActiveWorkspace } from "../../../../../lib/workspace-browse-url";
+    import { renderDetailsHtml } from "../../../../../lib/workspace-rail";
+    import { escapeHtml } from "../../../../../lib/workspace-ui";
+
+    function formatTimestamp(value: string | undefined): string {
+      if (!value) return "—";
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
+    }
+
+    onAstroPageLoad(() => {
+      const detailsEl = document.querySelector<HTMLElement>("[data-ws-settings-details]");
+      if (!detailsEl) return;
+
+      const page = "workspace storage settings";
+      const visit = getPageVisit();
+      const stillHere = (): boolean => isCurrentPageVisit(visit);
+      const w = window as unknown as {
+        __UPLOADS_API_ORIGIN__: string;
+        __UPLOADS_ACTIVE_WORKSPACE__: string;
+      };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+      // Prefer the URL over the layout global (ClientRouter sibling-nav safety).
+      const workspaceName = resolveActiveWorkspace(
+        window.location.pathname,
+        w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+      );
+
+      // Workspace details summary — slug + base URL. `loadWorkspaces` rather
+      // than a bare `getMyWorkspaces` so this shares the switcher's in-flight
+      // request (and its cache write) instead of firing a second one.
+      void loadWorkspaces(apiOrigin).then((result) => {
+        if (!stillHere() || result.kind !== "success") return;
+        const ws = result.workspaces.find((item) => item.workspace === workspaceName);
+        if (!ws) return;
+        detailsEl.innerHTML = renderDetailsHtml(ws);
+      });
+
+      // ---------- Storage panel (issue #583 Task 2.1) ----------
+      // Section starts hidden, a non-`ok` GET (or an `ok` GET reporting
+      // `byoBucketEnabled: false`) leaves it hidden for good, and every
+      // in-flight call re-checks `stillHere()` before touching the DOM.
+      const storageSection = requireElement<HTMLElement>("#storage-section", page);
+      const storageErrorEl = requireElement<HTMLElement>("#storage-error", page);
+      const storageSharedEl = requireElement<HTMLElement>("#storage-shared", page);
+      const storageByoEl = requireElement<HTMLElement>("#storage-byo", page);
+      const storageByoDetails = requireElement<HTMLElement>("#storage-byo-details", page);
+      const storageConnectBtn = requireElement<HTMLButtonElement>("#storage-connect-btn", page);
+      const storageSummary = requireElement<HTMLElement>("#storage-summary", page);
+      const storageConnectNote = requireElement<HTMLElement>("#storage-connect-note", page);
+      const storageReverifyBtn = requireElement<HTMLButtonElement>("#storage-reverify-btn", page);
+      const storageRotateBtn = requireElement<HTMLButtonElement>("#storage-rotate-btn", page);
+      const storageDisconnectBtn = requireElement<HTMLButtonElement>(
+        "#storage-disconnect-btn",
+        page,
+      );
+      const storageActionStatus = requireElement<HTMLElement>("#storage-action-status", page);
+      const storageWizard = requireElement<HTMLElement>("#storage-wizard", page);
+      const storageStep1 = requireElement<HTMLElement>("#storage-step-1", page);
+      const storageStep2 = requireElement<HTMLElement>("#storage-step-2", page);
+      const storageStep3 = requireElement<HTMLElement>("#storage-step-3", page);
+      const storageStep1Next = requireElement<HTMLButtonElement>("#storage-step1-next", page);
+      const storageStep2Back = requireElement<HTMLButtonElement>("#storage-step2-back", page);
+      const storageStep3Back = requireElement<HTMLButtonElement>("#storage-step3-back", page);
+      const storageForm = requireElement<HTMLFormElement>("#storage-form", page);
+      const storageAccountId = requireElement<HTMLInputElement>("#storage-account-id", page);
+      const storageBucket = requireElement<HTMLInputElement>("#storage-bucket", page);
+      // Same worker-configuration.d.ts `Element.remove()` workaround as the
+      // tri-state selects on the comment-settings page.
+      const storageJurisdiction = requireElement<HTMLElement>(
+        "#storage-jurisdiction",
+        page,
+      ) as unknown as HTMLSelectElement;
+      const storageAccessKeyId = requireElement<HTMLInputElement>("#storage-access-key-id", page);
+      const storageSecretAccessKey = requireElement<HTMLInputElement>(
+        "#storage-secret-access-key",
+        page,
+      );
+      const storagePublicBaseUrl = requireElement<HTMLInputElement>(
+        "#storage-public-base-url",
+        page,
+      );
+      const storageVerifyBtn = requireElement<HTMLButtonElement>("#storage-verify-btn", page);
+      const storageVerifyStatus = requireElement<HTMLElement>("#storage-verify-status", page);
+      const storageChecklist = requireElement<HTMLElement>("#storage-checklist", page);
+      const storageSaveBtn = requireElement<HTMLButtonElement>("#storage-save-btn", page);
+      const storageSaveStatus = requireElement<HTMLElement>("#storage-save-status", page);
+      const storageCancelBtns = [
+        "#storage-wizard-cancel-1",
+        "#storage-wizard-cancel-2",
+        "#storage-wizard-cancel-3",
+      ].map((sel) => requireElement<HTMLButtonElement>(sel, page));
+
+      /** Human labels for `StorageVerifyCheck.id` — kept here rather than trusting the API for copy. */
+      const STORAGE_CHECK_LABELS: Record<string, string> = {
+        shape: "Config looks valid",
+        auth: "Authentication",
+        "round-trip": "Upload / download round-trip",
+        "not-empty": "Bucket is empty",
+        "public-url": "Public URL reachable",
+      };
+
+      let wizardMode: "connect" | "rotate" = "connect";
+      let lastVerify: StorageVerifyResult | null = null;
+
+      function showStorageError(message: string | null): void {
+        if (!message) {
+          storageErrorEl.hidden = true;
+          storageErrorEl.textContent = "";
+          return;
+        }
+        storageErrorEl.hidden = false;
+        storageErrorEl.textContent = message;
+      }
+
+      function renderByoDetails(status: WorkspaceStorageStatus): void {
+        const rows: [string, string][] = [
+          ["Bucket", status.bucket ?? "—"],
+          ["Account ID", status.accountIdMasked ?? "—"],
+          ["Access key ID", status.accessKeyIdLast4 ? `…${status.accessKeyIdLast4}` : "—"],
+          ["Public base URL", status.publicBaseUrl ?? "Signed-only (no public URL)"],
+          ["Verified", formatTimestamp(status.verifiedAt)],
+        ];
+        if (status.jurisdiction) rows.push(["Jurisdiction", status.jurisdiction]);
+        storageByoDetails.innerHTML = rows
+          .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`)
+          .join("");
+      }
+
+      function resetWizardForm(): void {
+        storageForm.reset();
+        lastVerify = null;
+        storageChecklist.innerHTML = "";
+        storageVerifyStatus.textContent = "";
+        storageVerifyStatus.removeAttribute("data-state");
+        storageSaveStatus.textContent = "";
+        storageSaveStatus.removeAttribute("data-state");
+        storageSaveBtn.disabled = true;
+      }
+
+      function goToWizardStep(step: 1 | 2 | 3): void {
+        storageStep1.hidden = step !== 1;
+        storageStep2.hidden = step !== 2;
+        storageStep3.hidden = step !== 3;
+      }
+
+      function openWizard(mode: "connect" | "rotate", prefill?: WorkspaceStorageStatus): void {
+        wizardMode = mode;
+        resetWizardForm();
+        showStorageError(null);
+        storageWizard.hidden = false;
+        // The summary card is the collapsed stand-in for these same three
+        // steps — once the wizard is open it would just say them twice.
+        storageSummary.hidden = true;
+        if (mode === "rotate" && prefill) {
+          // "Same form, keys only": bucket/public URL are already known and
+          // prefilled; account id can't be — the API only ever returns the
+          // masked tail, never the plaintext — so the field starts blank.
+          storageBucket.value = prefill.bucket ?? "";
+          storagePublicBaseUrl.value = prefill.publicBaseUrl ?? "";
+          storageJurisdiction.value = prefill.jurisdiction ?? "";
+          goToWizardStep(2);
+        } else {
+          goToWizardStep(1);
+        }
+      }
+
+      function closeWizard(): void {
+        storageWizard.hidden = true;
+        storageSummary.hidden = false;
+        resetWizardForm();
+      }
+
+      function collectCandidate(): StorageCandidate {
+        return {
+          bucket: storageBucket.value.trim(),
+          accountId: storageAccountId.value.trim(),
+          accessKeyId: storageAccessKeyId.value.trim(),
+          secretAccessKey: storageSecretAccessKey.value,
+          publicBaseUrl: storagePublicBaseUrl.value.trim() || undefined,
+          jurisdiction: storageJurisdiction.value || undefined,
+          // Rotating credentials targets the bucket this workspace already
+          // owns and is actively serving from, so its non-empty contents are
+          // expected, not a mistake — same rationale as the PUT route's
+          // `adoptExistingContents` escape hatch for the empty-workspace guard.
+          adoptExistingContents: wizardMode === "rotate" ? true : undefined,
+        };
+      }
+
+      /** Required checks gate save; a failing recommended check (public-url) only warns. */
+      function renderChecklist(result: StorageVerifyResult): void {
+        storageChecklist.innerHTML = result.checks
+          .map((check) => {
+            const label = STORAGE_CHECK_LABELS[check.id] ?? check.id;
+            const badgeClass = check.ok
+              ? "ul-badge--ok"
+              : check.required
+                ? "ul-badge--danger"
+                : "ul-badge--accent";
+            const badgeText = check.ok ? "Pass" : check.required ? "Fail" : "Warning";
+            const hint =
+              !check.ok && check.hint
+                ? `<span class="storage-check-hint">${escapeHtml(check.hint)}</span>`
+                : "";
+            return `<li><div class="storage-check-row"><span class="ul-badge ${badgeClass}">${escapeHtml(badgeText)}</span><strong>${escapeHtml(label)}</strong></div>${hint}</li>`;
+          })
+          .join("");
+        storageSaveBtn.disabled = !result.ok;
+      }
+
+      storageStep1Next.addEventListener("click", () => goToWizardStep(2));
+      storageStep2Back.addEventListener("click", () => goToWizardStep(1));
+      storageStep3Back.addEventListener("click", () => goToWizardStep(2));
+      for (const btn of storageCancelBtns) {
+        btn.addEventListener("click", () => closeWizard());
+      }
+
+      storageForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void (async () => {
+          showStorageError(null);
+          storageVerifyStatus.textContent = "Verifying…";
+          storageVerifyStatus.removeAttribute("data-state");
+          storageVerifyBtn.disabled = true;
+          const candidate = collectCandidate();
+          const result = await verifyWorkspaceStorage(apiOrigin, workspaceName, candidate);
+          if (!stillHere()) return;
+          storageVerifyBtn.disabled = false;
+          if (result.kind !== "ok") {
+            storageVerifyStatus.textContent = "Couldn’t verify. Try again.";
+            storageVerifyStatus.dataset.state = "error";
+            return;
+          }
+          storageVerifyStatus.textContent = "";
+          lastVerify = result.result;
+          renderChecklist(result.result);
+          goToWizardStep(3);
+        })();
+      });
+
+      storageSaveBtn.addEventListener("click", () => {
+        void (async () => {
+          if (!lastVerify?.ok) return;
+          showStorageError(null);
+          storageSaveStatus.textContent = "Saving…";
+          storageSaveStatus.removeAttribute("data-state");
+          storageSaveBtn.disabled = true;
+          const candidate = collectCandidate();
+          const result = await putWorkspaceStorage(apiOrigin, workspaceName, candidate);
+          if (!stillHere()) return;
+          if (result.kind === "ok") {
+            // Never leave the secret in form state once it's been sent.
+            closeWizard();
+            applyStatus(result.status);
+            storageActionStatus.textContent = "Saved.";
+            storageActionStatus.dataset.state = "ok";
+            return;
+          }
+          storageSaveBtn.disabled = false;
+          if (result.kind === "invalid") {
+            lastVerify = result.result;
+            renderChecklist(result.result);
+            storageSaveStatus.textContent = "Verification failed — see the checklist above.";
+            storageSaveStatus.dataset.state = "error";
+            return;
+          }
+          if (result.kind === "conflict") {
+            showStorageError(result.message);
+            storageSaveStatus.textContent = "";
+            return;
+          }
+          storageSaveStatus.textContent = "Couldn’t save. Try again.";
+          storageSaveStatus.dataset.state = "error";
+        })();
+      });
+
+      storageConnectBtn.addEventListener("click", () => openWizard("connect"));
+
+      storageRotateBtn.addEventListener("click", () => {
+        void (async () => {
+          storageActionStatus.textContent = "";
+          storageActionStatus.removeAttribute("data-state");
+          const result = await getWorkspaceStorageStatus(apiOrigin, workspaceName);
+          if (!stillHere()) return;
+          if (result.kind !== "ok") {
+            storageActionStatus.textContent = "Couldn’t reach the server. Try again.";
+            storageActionStatus.dataset.state = "error";
+            return;
+          }
+          openWizard("rotate", result.status);
+        })();
+      });
+
+      storageReverifyBtn.addEventListener("click", () => {
+        void (async () => {
+          storageActionStatus.textContent = "Re-running verification…";
+          storageActionStatus.removeAttribute("data-state");
+          storageReverifyBtn.disabled = true;
+          const result = await getWorkspaceStorageStatus(apiOrigin, workspaceName);
+          if (!stillHere()) return;
+          storageReverifyBtn.disabled = false;
+          if (result.kind !== "ok") {
+            storageActionStatus.textContent = "Couldn’t reach the server. Try again.";
+            storageActionStatus.dataset.state = "error";
+            return;
+          }
+          // There's no standalone "re-verify saved config" route — verify only
+          // ever runs against a candidate body. Re-running against the same
+          // (masked) status merely confirms the settings loaded; a real
+          // credential check requires re-entering the secret, so this opens
+          // the rotate flow instead of silently no-op'ing.
+          openWizard("rotate", result.status);
+          storageActionStatus.textContent = "";
+        })();
+      });
+
+      storageDisconnectBtn.addEventListener("click", () => {
+        void (async () => {
+          if (
+            !confirm(
+              "Disconnect this bucket? Your workspace will go back to the shared storage.uploads.sh bucket. Nothing on your own bucket is touched or deleted.",
+            )
+          ) {
+            return;
+          }
+          showStorageError(null);
+          storageActionStatus.textContent = "Disconnecting…";
+          storageActionStatus.removeAttribute("data-state");
+          storageDisconnectBtn.disabled = true;
+          const result = await deleteWorkspaceStorage(apiOrigin, workspaceName);
+          if (!stillHere()) return;
+          storageDisconnectBtn.disabled = false;
+          if (result.kind === "ok") {
+            applyStatus(result.status);
+            storageActionStatus.textContent = "Disconnected.";
+            storageActionStatus.dataset.state = "ok";
+            return;
+          }
+          if (result.kind === "conflict") {
+            // The server's guard: the BYO bucket still holds files. Without a
+            // forced retry the workspace would be stuck on BYO storage with no
+            // UI path back to shared — so offer the same escape hatch the API
+            // documents, spelling out what force does (and doesn't) touch.
+            showStorageError(result.message);
+            storageActionStatus.textContent = "";
+            if (
+              !confirm(
+                "This workspace still has files on your bucket. Detach anyway? " +
+                  "Your files stay on your bucket untouched, but this workspace stops serving them.",
+              )
+            ) {
+              return;
+            }
+            storageDisconnectBtn.disabled = true;
+            const forced = await deleteWorkspaceStorage(apiOrigin, workspaceName, { force: true });
+            if (!stillHere()) return;
+            storageDisconnectBtn.disabled = false;
+            if (forced.kind === "ok") {
+              showStorageError(null);
+              applyStatus(forced.status);
+              storageActionStatus.textContent = "Disconnected.";
+              storageActionStatus.dataset.state = "ok";
+              return;
+            }
+          }
+          storageActionStatus.textContent = "Couldn’t disconnect. Try again.";
+          storageActionStatus.dataset.state = "error";
+        })();
+      });
+
+      function applyStatus(status: WorkspaceStorageStatus): void {
+        closeWizard();
+        storageActionStatus.textContent = "";
+        storageActionStatus.removeAttribute("data-state");
+        if (status.mode === "byo") {
+          storageSharedEl.hidden = true;
+          storageByoEl.hidden = false;
+          renderByoDetails(status);
+        } else {
+          storageByoEl.hidden = true;
+          storageSharedEl.hidden = false;
+          void applySharedUsageGate();
+        }
+      }
+
+      /** Disables "Connect your own bucket" (with an explanation) once the workspace has files —
+       * connecting only works on an empty workspace. Reuses the usage endpoint the account shell
+       * already calls elsewhere rather than inventing a new one. */
+      async function applySharedUsageGate(): Promise<void> {
+        const usage = await getMyWorkspaceUsage(apiOrigin, workspaceName);
+        if (!stillHere()) return;
+        const hasFiles = !!usage && usage.objects > 0;
+        storageConnectBtn.disabled = hasFiles;
+        storageConnectNote.hidden = !hasFiles;
+      }
+
+      async function loadStorage(): Promise<void> {
+        if (!stillHere()) return;
+        const result = await getWorkspaceStorageStatus(apiOrigin, workspaceName);
+        if (!stillHere()) return;
+        if (result.kind !== "ok" || !result.status.byoBucketEnabled) {
+          // Not an admin, no such workspace, or BYO isn't enabled for this
+          // workspace — the whole panel stays hidden, same as comment
+          // settings' non-admin behavior on the parent page.
+          return;
+        }
+        storageSection.hidden = false;
+        applyStatus(result.status);
+        // Create-flow hand-off (issue #583 Task 2.1): `new.astro` redirects
+        // here with `#storage` after creating a workspace with "bring your
+        // own bucket" checked. Only opens the wizard when the flag actually
+        // allows it — an unflagged workspace just lands on a normal storage
+        // page, matching the create form's honest client-side gate.
+        if (result.status.mode === "shared" && window.location.hash === "#storage") {
+          openWizard("connect");
+          storageSection.scrollIntoView({ block: "start" });
+        }
+      }
+
+      onSession(() => {
+        void loadStorage();
+      });
+    });
+  </script>
+</WorkspaceLayout>

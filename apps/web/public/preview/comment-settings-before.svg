@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="640" height="400" role="img" aria-label="Placeholder screenshot of a generic settings list, before state">
+  <rect width="640" height="400" fill="#141418"/>
+  <rect width="640" height="34" fill="#1c1c22"/>
+  <circle cx="17" cy="17" r="4" fill="#2e2e36"/>
+  <circle cx="31" cy="17" r="4" fill="#2e2e36"/>
+  <circle cx="45" cy="17" r="4" fill="#2e2e36"/>
+  <rect x="24" y="58" width="200" height="12" rx="3" fill="#3a3a44"/>
+  <rect x="24" y="96" width="592" height="60" rx="4" fill="#1c1c24"/>
+  <rect x="40" y="114" width="150" height="8" rx="2" fill="#2e2e36"/>
+  <rect x="40" y="132" width="230" height="6" rx="2" fill="#262630"/>
+  <rect x="516" y="116" width="84" height="22" rx="4" fill="#262630"/>
+  <rect x="24" y="172" width="592" height="60" rx="4" fill="#1c1c24"/>
+  <rect x="40" y="190" width="176" height="8" rx="2" fill="#2e2e36"/>
+  <rect x="40" y="208" width="204" height="6" rx="2" fill="#262630"/>
+  <rect x="516" y="192" width="84" height="22" rx="4" fill="#262630"/>
+  <rect x="24" y="248" width="592" height="60" rx="4" fill="#1c1c24"/>
+  <rect x="40" y="266" width="132" height="8" rx="2" fill="#2e2e36"/>
+  <rect x="40" y="284" width="248" height="6" rx="2" fill="#262630"/>
+  <rect x="516" y="268" width="84" height="22" rx="4" fill="#262630"/>
+</svg>

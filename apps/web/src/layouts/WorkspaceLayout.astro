@@ -17,6 +17,13 @@
  * `tip` is a per-page static hint, server-rendered (no JS, no placeholder):
  * one short line, optionally linked. Omit it on pages with nothing worth
  * saying (billing's usage meters already occupy the rail).
+ *
+ * The `preview` named slot puts page-specific content at the top of the
+ * rail, above connected work / usage / tip / quick actions — the comment-
+ * settings tab uses it for its live preview column. Filling it also hides
+ * the "connected work" section (a preview column and a work list are both
+ * "what's happening over here" content; showing both was noise) and, when
+ * paired with `wideRail`, widens the rail to ~430px for that column.
  */
 import { GITHUB_APP_INSTALL_URL } from "../lib/github-app";
 import { renderUsagePlaceholderHtml } from "../lib/workspace-ui";
@@ -28,25 +35,44 @@ interface Props {
   showUsage?: boolean;
   /** Static per-tab hint. `body` may include inline markup (e.g. `<code>`). */
   tip?: { body: string; href?: string; linkLabel?: string; label?: string };
+  /**
+   * Widen the rail to ~430px for the `preview` slot's 3-column comment-
+   * settings layout (design's third column). Only takes effect when the
+   * `preview` slot is actually filled — a page passing this without content
+   * gets the normal-width rail.
+   */
+  wideRail?: boolean;
 }
 
-const { workspace, showUsage = false, tip } = Astro.props;
+const { workspace, showUsage = false, tip, wideRail = false } = Astro.props;
+const hasPreview = Astro.slots.has("preview");
 
 const invitePath = `/account/workspaces/${encodeURIComponent(workspace)}/people`;
 ---
 
-<AccountLayout section="workspaces" workspace={workspace} title={workspace}>
+<AccountLayout
+  section="workspaces"
+  workspace={workspace}
+  title={workspace}
+  railWide={wideRail && hasPreview}
+>
   <slot />
 
   <Fragment slot="rail">
     <div class="ws-rail" data-workspace-rail>
-      <section class="ws-rail__section" data-rail-connected hidden>
-        <div class="ws-rail__head">
-          <span class="ws-rail__label">connected work</span>
-          <span class="ws-rail__rule"></span>
-        </div>
-        <div class="ws-rail__connected-list" data-rail-connected-list></div>
-      </section>
+      {hasPreview && <slot name="preview" />}
+
+      {
+        !hasPreview && (
+          <section class="ws-rail__section" data-rail-connected hidden>
+            <div class="ws-rail__head">
+              <span class="ws-rail__label">connected work</span>
+              <span class="ws-rail__rule" />
+            </div>
+            <div class="ws-rail__connected-list" data-rail-connected-list />
+          </section>
+        )
+      }
 
       {
         showUsage && (

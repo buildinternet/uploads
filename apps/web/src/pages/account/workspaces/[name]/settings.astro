@@ -1,12 +1,16 @@
 ---
 /**
- * Workspace settings tab — design 3A §5.3's slug/public-url summary, plus
- * the issue #307 GitHub-comment defaults block + live preview panel (Task
- * 7). Both new sections start `hidden` and reveal on session (same
- * progressive-reveal convention as the details `<dl>` below and the
- * PR #526 account pages) rather than blocking the tab's initial paint —
- * admin-gated data has nothing to show until the session/role check lands
- * anyway.
+ * Workspace settings — GitHub comment defaults (Task 7, issue #307) plus a
+ * live preview of the managed comment. Storage / BYO-bucket and the
+ * workspace details summary live on the sibling `settings/storage.astro`
+ * page now — see that file's doc comment. The comment-settings block still
+ * starts `hidden` and reveals on session (same progressive-reveal
+ * convention as the account pages generally): admin-gated data has nothing
+ * to show until the session/role check lands anyway.
+ *
+ * The preview lives in `WorkspaceLayout`'s `preview` rail slot (paired with
+ * `wideRail`) rather than in the content column — issue #365's redesign
+ * moves it into the right rail, above Tip and Quick actions.
  */
 import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
 import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
@@ -24,15 +28,8 @@ const tip = {
 };
 ---
 
-<WorkspaceLayout workspace={workspace} tip={tip}>
+<WorkspaceLayout workspace={workspace} tip={tip} wideRail>
   <section class="card settings-page">
-    <div class="settings-section">
-      <details class="ws-settings-summary" open>
-        <summary>Workspace details</summary>
-        <dl class="kv" data-ws-settings-details></dl>
-      </details>
-    </div>
-
     <div class="settings-section" id="cs-section" hidden>
       <h2>GitHub comment</h2>
       <p class="settings-note muted">
@@ -41,88 +38,208 @@ const tip = {
         the&#32;<a href="/docs/comment-config">comment config docs</a> for keys, file locations, and precedence.
       </p>
 
+      <div id="cs-repo-banner" class="ul-callout cs-repo-banner" hidden></div>
+
       <div id="cs-error" class="ul-callout" data-state="error" role="alert" hidden></div>
 
-      <form class="ws-form cs-form" id="cs-form">
-        <div class="cs-field">
-          <label for="cs-image-width">Image width</label>
-          <select id="cs-image-width" class="ul-select">
-            <option value="auto">Auto</option>
-            <option value="full">Full width</option>
-            <option value="custom">Custom (px)</option>
-          </select>
-          <input
-            type="number"
-            id="cs-image-width-px"
-            class="ul-input cs-image-width-px"
-            step="1"
-            min="160"
-            max="1000"
-            placeholder="160–1000"
-            hidden
-          />
+      <form class="ws-form" id="cs-form">
+        <div class="cs-row" id="cs-row-width">
+          <div class="cs-row__info">
+            <div class="cs-row__label-line">
+              <span class="cs-row__label">image width</span>
+              <span class="cs-row__chip-slot" id="cs-row-width-chip"></span>
+            </div>
+            <p class="cs-row__desc">How wide inline screenshots render in the comment.</p>
+          </div>
+          <div class="cs-row__control">
+            <div class="cs-seg" role="radiogroup" aria-label="Image width" id="cs-image-width">
+              <button
+                type="button"
+                class="cs-seg__btn"
+                role="radio"
+                aria-checked="true"
+                tabindex="0"
+                data-value="auto">auto</button
+              >
+              <button
+                type="button"
+                class="cs-seg__btn"
+                role="radio"
+                aria-checked="false"
+                tabindex="-1"
+                data-value="full">full</button
+              >
+              <button
+                type="button"
+                class="cs-seg__btn"
+                role="radio"
+                aria-checked="false"
+                tabindex="-1"
+                data-value="custom">custom</button
+              >
+            </div>
+            <input
+              type="number"
+              id="cs-image-width-px"
+              class="ul-input cs-image-width-px"
+              step="1"
+              min="160"
+              max="1000"
+              placeholder="160–1000"
+              hidden
+            />
+          </div>
         </div>
 
-        <div class="cs-field">
-          <label for="cs-max-inline">Max inline images</label>
-          <input
-            type="number"
-            id="cs-max-inline"
-            class="ul-input"
-            step="1"
-            min="1"
-            max="48"
-            placeholder="Auto (16)"
-          />
+        <div class="cs-row" id="cs-row-max-inline">
+          <div class="cs-row__info">
+            <div class="cs-row__label-line">
+              <span class="cs-row__label">max inline images</span>
+              <span class="cs-row__chip-slot" id="cs-row-max-inline-chip"></span>
+            </div>
+            <p class="cs-row__desc">Attachments beyond this collapse into a "more files" link.</p>
+          </div>
+          <div class="cs-row__control">
+            <input
+              type="number"
+              id="cs-max-inline"
+              class="ul-input"
+              step="1"
+              min="1"
+              max="48"
+              placeholder="auto (16)"
+            />
+          </div>
         </div>
 
-        <div class="cs-field">
-          <label for="cs-show-metadata">Show metadata captions</label>
-          <select id="cs-show-metadata" class="ul-select">
-            <option value="">Auto (on)</option>
-            <option value="true">On</option>
-            <option value="false">Off</option>
-          </select>
+        <div class="cs-row" id="cs-row-meta">
+          <div class="cs-row__info">
+            <div class="cs-row__label-line">
+              <span class="cs-row__label">metadata captions</span>
+              <span class="cs-row__chip-slot" id="cs-row-meta-chip"></span>
+            </div>
+            <p class="cs-row__desc">Filename, dimensions, and size under each image.</p>
+          </div>
+          <div class="cs-row__control">
+            <div
+              class="cs-seg"
+              role="radiogroup"
+              aria-label="Metadata captions"
+              id="cs-show-metadata"
+            >
+              <button
+                type="button"
+                class="cs-seg__btn"
+                role="radio"
+                aria-checked="true"
+                tabindex="0"
+                data-value="">auto (on)</button
+              >
+              <button
+                type="button"
+                class="cs-seg__btn"
+                role="radio"
+                aria-checked="false"
+                tabindex="-1"
+                data-value="true">on</button
+              >
+              <button
+                type="button"
+                class="cs-seg__btn"
+                role="radio"
+                aria-checked="false"
+                tabindex="-1"
+                data-value="false">off</button
+              >
+            </div>
+          </div>
         </div>
 
-        <div class="cs-field">
-          <label for="cs-link-to-file-page">Link to file pages</label>
-          <select id="cs-link-to-file-page" class="ul-select">
-            <option value="">Auto (on)</option>
-            <option value="true">On</option>
-            <option value="false">Off</option>
-          </select>
+        <div class="cs-row" id="cs-row-link">
+          <div class="cs-row__info">
+            <div class="cs-row__label-line">
+              <span class="cs-row__label">link to file pages</span>
+              <span class="cs-row__chip-slot" id="cs-row-link-chip"></span>
+            </div>
+            <p class="cs-row__desc">Filenames link to the hosted file page on uploads.sh.</p>
+          </div>
+          <div class="cs-row__control">
+            <div
+              class="cs-seg"
+              role="radiogroup"
+              aria-label="Link to file pages"
+              id="cs-link-to-file-page"
+            >
+              <button
+                type="button"
+                class="cs-seg__btn"
+                role="radio"
+                aria-checked="true"
+                tabindex="0"
+                data-value="">auto (on)</button
+              >
+              <button
+                type="button"
+                class="cs-seg__btn"
+                role="radio"
+                aria-checked="false"
+                tabindex="-1"
+                data-value="true">on</button
+              >
+              <button
+                type="button"
+                class="cs-seg__btn"
+                role="radio"
+                aria-checked="false"
+                tabindex="-1"
+                data-value="false">off</button
+              >
+            </div>
+          </div>
         </div>
 
-        <div class="cs-field">
-          <label for="cs-note">Note</label>
+        <div class="cs-row cs-row--note" id="cs-row-note">
+          <div class="cs-row__note-head">
+            <span class="cs-row__label">note</span>
+            <span class="cs-row__chip-slot" id="cs-row-note-chip"></span>
+            <span class="cs-row__note-count"><span id="cs-note-count">0</span>/500</span>
+          </div>
+          <p class="cs-row__desc">Optional line appended to every managed comment.</p>
           <textarea
             id="cs-note"
             class="ul-input cs-note"
             maxlength="500"
-            rows="3"
-            placeholder="Optional note appended to every managed comment"></textarea>
-          <p class="ul-field__hint"><span id="cs-note-count">0</span>/500</p>
+            rows="2"
+            placeholder="e.g. Screenshots update on every push."></textarea>
         </div>
 
         <div class="cs-actions">
-          <button type="submit" class="ul-btn ul-btn--solid" id="cs-save-btn">Save</button>
+          <button type="submit" class="ul-btn" id="cs-save-btn" disabled>Save</button>
           <span class="muted" id="cs-save-status" role="status"></span>
         </div>
       </form>
     </div>
+  </section>
 
-    <div class="settings-section" id="cs-preview-section" hidden>
-      <h2>Preview</h2>
+  <Fragment slot="preview">
+    <section class="ws-rail__section cs-preview-section" id="cs-preview-section" hidden>
+      <div class="cs-preview-head">
+        <h2 class="cs-preview-title">Preview</h2>
+        <span
+          class="ul-badge ul-badge--accent cs-preview-chip"
+          id="cs-preview-chip-dirty"
+          title="The preview still shows your saved settings — save to update it."
+          hidden>unsaved edits</span
+        >
+        <span class="ul-badge cs-preview-chip" id="cs-preview-chip-live">live</span>
+      </div>
 
-      <div class="cs-field">
-        <label for="cs-preview-repo">Repo</label>
-        <select id="cs-preview-repo" class="ul-select">
+      <div class="cs-preview-repo-field">
+        <label for="cs-preview-repo" class="sr-only">Repo</label>
+        <select id="cs-preview-repo" class="ul-select cs-preview-repo-select">
           <option value="">No repo config</option>
         </select>
       </div>
-
-      <div id="cs-preview-badges" class="cs-badges" aria-live="polite"></div>
 
       <div class="cs-ghc" role="img" aria-label="Preview of the managed GitHub attachments comment">
         <div class="cs-ghc-avatar" aria-hidden="true">
@@ -155,224 +272,152 @@ const tip = {
         </div>
       </div>
 
-      <p class="settings-note muted">GitHub's own styling may differ slightly.</p>
-    </div>
-
-    <div class="settings-section" id="storage-section" hidden>
-      <h2>Storage</h2>
-
-      <div id="storage-error" class="ul-callout" data-state="error" role="alert" hidden></div>
-
-      <div id="storage-shared">
-        <p class="settings-note muted">
-          Your files live on <code>storage.uploads.sh</code>. You can point this workspace at your
-          own Cloudflare R2 bucket instead — see the&#32;
-          <a href="/docs/byo-bucket">bring your own bucket</a> docs.
-        </p>
-        <div class="storage-actions">
-          <button type="button" class="ul-btn ul-btn--solid" id="storage-connect-btn"
-            >Connect your own bucket</button
-          >
-        </div>
-        <p class="muted settings-note" id="storage-connect-note" hidden>
-          Connecting is only available for an empty workspace — this workspace already has files.
-        </p>
-      </div>
-
-      <div id="storage-byo" hidden>
-        <dl class="kv" id="storage-byo-details"></dl>
-        <div class="storage-actions">
-          <button type="button" class="ul-btn" id="storage-reverify-btn">Re-run verification</button
-          >
-          <button type="button" class="ul-btn" id="storage-rotate-btn">Rotate credentials</button>
-          <button type="button" class="ul-btn ul-btn--danger" id="storage-disconnect-btn"
-            >Disconnect</button
-          >
-        </div>
-        <p class="muted" id="storage-action-status" role="status"></p>
-      </div>
-
-      <div id="storage-wizard" hidden>
-        <div class="storage-wizard-step" id="storage-step-1">
-          <h3>1. Set up your bucket on Cloudflare</h3>
-          <ol class="storage-instructions">
-            <li>
-              Create an R2 bucket: dashboard → <strong>R2</strong> →
-              <strong>Create bucket</strong>.
-            </li>
-            <li>
-              Create a bucket-scoped API token: <strong>R2</strong> →
-              <strong>Manage API Tokens</strong> → <strong>Create API Token</strong>, permission
-              <strong>Object Read & Write</strong>, scoped to that one bucket only. Copy the Access
-              Key ID, Secret Access Key, and your Account ID.
-            </li>
-            <li>
-              Optional — for public reads: bucket → <strong>Settings</strong> →
-              <strong>Public access</strong> → <strong>Custom Domains</strong>, connect a domain on
-              a Cloudflare zone in your account. <code>r2.dev</code> URLs aren't supported; skip this
-              for signed-only access.
-            </li>
-          </ol>
-          <div class="storage-actions">
-            <button type="button" class="ul-btn ul-btn--solid" id="storage-step1-next">Next</button>
-            <button type="button" class="ul-btn ul-btn--ghost" id="storage-wizard-cancel-1"
-              >Cancel</button
-            >
-          </div>
-        </div>
-
-        <div class="storage-wizard-step" id="storage-step-2" hidden>
-          <h3>2. Enter your bucket's credentials</h3>
-          <form class="ws-form" id="storage-form">
-            <div class="cs-field">
-              <label for="storage-account-id">Account ID</label>
-              <input
-                type="text"
-                id="storage-account-id"
-                class="ul-input"
-                autocomplete="off"
-                spellcheck="false"
-                placeholder="32-character hex account id"
-                required
-              />
-            </div>
-            <div class="cs-field">
-              <label for="storage-bucket">Bucket name</label>
-              <input
-                type="text"
-                id="storage-bucket"
-                class="ul-input"
-                autocomplete="off"
-                spellcheck="false"
-                required
-              />
-            </div>
-            <div class="cs-field">
-              <label for="storage-jurisdiction">Jurisdiction</label>
-              <select id="storage-jurisdiction" class="ul-select">
-                <option value="">Default (no jurisdiction)</option>
-                <option value="eu">European Union (eu)</option>
-                <option value="fedramp">FedRAMP (fedramp)</option>
-              </select>
-              <p class="ul-field__hint">
-                Jurisdiction is chosen at bucket creation on Cloudflare and can't be changed later —
-                pick the one the bucket was created with.
-              </p>
-            </div>
-            <div class="cs-field">
-              <label for="storage-access-key-id">Access key ID</label>
-              <input
-                type="text"
-                id="storage-access-key-id"
-                class="ul-input"
-                autocomplete="off"
-                spellcheck="false"
-                required
-              />
-            </div>
-            <div class="cs-field">
-              <label for="storage-secret-access-key">Secret access key</label>
-              <input
-                type="password"
-                id="storage-secret-access-key"
-                class="ul-input"
-                autocomplete="off"
-                spellcheck="false"
-                required
-              />
-            </div>
-            <div class="cs-field">
-              <label for="storage-public-base-url">Public base URL (optional)</label>
-              <input
-                type="text"
-                id="storage-public-base-url"
-                class="ul-input"
-                autocomplete="off"
-                spellcheck="false"
-                placeholder="https://media.example.com"
-              />
-              <p class="ul-field__hint">
-                Leave blank for signed-only access. <code>r2.dev</code> URLs aren't supported.
-              </p>
-            </div>
-
-            <div class="storage-actions">
-              <button type="submit" class="ul-btn ul-btn--solid" id="storage-verify-btn"
-                >Verify</button
-              >
-              <button type="button" class="ul-btn ul-btn--ghost" id="storage-step2-back"
-                >Back</button
-              >
-              <button type="button" class="ul-btn ul-btn--ghost" id="storage-wizard-cancel-2"
-                >Cancel</button
-              >
-              <span class="muted" id="storage-verify-status" role="status"></span>
-            </div>
-          </form>
-        </div>
-
-        <div class="storage-wizard-step" id="storage-step-3" hidden>
-          <h3>3. Verify</h3>
-          <ul class="storage-checklist" id="storage-checklist" aria-live="polite"></ul>
-          <div class="storage-actions">
-            <button type="button" class="ul-btn ul-btn--solid" id="storage-save-btn" disabled
-              >Save</button
-            >
-            <button type="button" class="ul-btn ul-btn--ghost" id="storage-step3-back">Back</button>
-            <button type="button" class="ul-btn ul-btn--ghost" id="storage-wizard-cancel-3"
-              >Cancel</button
-            >
-            <span class="muted" id="storage-save-status" role="status"></span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
+      <p class="settings-note muted cs-preview-footnote">
+        Rendered from your saved settings — GitHub's own styling may differ slightly.
+      </p>
+    </section>
+  </Fragment>
 
   <style>
-    .ws-settings-summary summary {
-      cursor: pointer;
-      list-style: none;
+    /* ---------- Comment settings rows ---------- */
+    .cs-repo-banner {
+      margin: 0 0 16px;
+      font-size: 12.5px;
+    }
+    /* Rows are label-left / control-right, so they want the full content
+       column — not `.ws-form`'s 28rem single-column measure. */
+    #cs-form {
+      max-width: none;
+    }
+    .cs-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px 28px;
+      align-items: center;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    #cs-form .cs-row:first-child {
+      padding-top: 4px;
+    }
+    /* Dimmed when a linked repo's `.uploads.yml` pins this row — its
+       workspace-default control still shows the value, just de-emphasized,
+       since the repo config wins regardless of what's picked here. */
+    .cs-row--dimmed {
+      opacity: 0.5;
+    }
+    .cs-row__info {
+      min-width: 0;
+    }
+    .cs-row__label-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .cs-row__label {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--fg);
+    }
+    .cs-row__desc {
+      margin: 4px 0 0;
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: var(--muted);
+      max-width: 44ch;
+      text-wrap: pretty;
+    }
+    .cs-row__control {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .cs-image-width-px {
+      width: 7rem;
+    }
+    /* Wide enough for the "auto (16)" placeholder, which the input's natural
+       size clips. */
+    #cs-max-inline {
+      width: 8rem;
+    }
+    /* Full-width row: the textarea sits under its own label line rather than
+       in the controls column, so this one opts out of the two-column grid. */
+    .cs-row--note {
+      display: block;
+      padding: 16px 0 0;
+      border-bottom: 0;
+    }
+    .cs-row__note-head {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .cs-row__note-count {
+      margin-left: auto;
       color: var(--muted);
       font-size: 11px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      margin-bottom: 12px;
     }
-    .ws-settings-summary summary::-webkit-details-marker {
-      display: none;
+    .cs-row--note textarea {
+      margin-top: 8px;
+      width: 100%;
+      box-sizing: border-box;
+      resize: vertical;
+      font-size: 13px;
+      line-height: 1.5;
     }
-    .ws-settings-summary summary:hover,
-    .ws-settings-summary summary:focus-visible {
+
+    /* Reusable segmented control (radiogroup of buttons). */
+    .cs-seg {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      overflow: hidden;
+    }
+    .cs-seg__btn {
+      font: 12px var(--mono);
+      letter-spacing: 0.02em;
+      padding: 6px 12px;
+      background: transparent;
+      color: var(--muted);
+      border: 0;
+      border-left: 1px solid var(--line);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .cs-seg__btn:first-child {
+      border-left: 0;
+    }
+    .cs-seg__btn[aria-checked="true"] {
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      color: var(--accent);
+    }
+    .cs-seg__btn:hover:not([aria-checked="true"]),
+    .cs-seg__btn:focus-visible {
       color: var(--fg);
       outline: none;
     }
 
-    .cs-form {
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-      max-width: 32rem;
+    /* --bp-stack (680px, see signed-in-shell.css): the two-column row has no
+       room left — the description and the control both end up too narrow to
+       read, so the control moves under its label. */
+    @media (max-width: 680px) {
+      .cs-row {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .cs-row__desc {
+        max-width: none;
+      }
     }
-    .cs-field {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .cs-field label {
-      font-size: 11px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-    .cs-image-width-px {
-      max-width: 10rem;
-    }
+
     .cs-actions {
       display: flex;
       align-items: center;
       gap: 12px;
-      margin-top: 4px;
+      margin-top: 14px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
     }
     #cs-save-status[data-state="error"] {
       color: var(--red);
@@ -381,11 +426,38 @@ const tip = {
       color: var(--green);
     }
 
-    .cs-badges {
+    /* ---------- Preview (rail slot) ---------- */
+    /* No `display` on `.cs-preview-section` itself: it starts `hidden` until
+       the settings GET succeeds, and any class-level `display` would outrank
+       the UA `[hidden]` rule (same trap as `.ws-rail__cta[hidden]`). */
+    .cs-preview-head {
       display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin: 4px 0 14px;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 12px;
+    }
+    .cs-preview-title {
+      margin: 0;
+      font: 600 15px/1.4 var(--sans);
+      color: var(--fg);
+    }
+    .cs-preview-chip {
+      margin-left: auto;
+    }
+    .cs-preview-repo-field {
+      margin-bottom: 14px;
+    }
+    .cs-preview-repo-select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 9px 12px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      font: 12.5px var(--mono);
+    }
+    .cs-preview-footnote {
+      margin-top: 10px;
     }
 
     /* ---------- GitHub comment chrome ---------- */
@@ -393,7 +465,6 @@ const tip = {
       display: grid;
       grid-template-columns: 40px 1fr;
       gap: 12px;
-      max-width: 42rem;
     }
     .cs-ghc-avatar {
       width: 40px;
@@ -454,69 +525,6 @@ const tip = {
       padding: 4px 8px;
       vertical-align: top;
     }
-
-    /* ---------- Storage panel ---------- */
-    .storage-actions {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-top: 12px;
-    }
-    #storage-save-status[data-state="error"],
-    #storage-verify-status[data-state="error"],
-    #storage-action-status[data-state="error"] {
-      color: var(--red);
-    }
-    #storage-save-status[data-state="ok"],
-    #storage-verify-status[data-state="ok"],
-    #storage-action-status[data-state="ok"] {
-      color: var(--green);
-    }
-    .storage-instructions {
-      max-width: 42rem;
-      padding-left: 1.2em;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      font-size: 13px;
-      line-height: 1.6;
-      color: var(--muted);
-    }
-    .storage-instructions strong {
-      color: var(--fg);
-    }
-    #storage-form {
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-      max-width: 32rem;
-    }
-    .storage-checklist {
-      list-style: none;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      max-width: 32rem;
-      padding: 0;
-    }
-    .storage-checklist li {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      padding: 8px 12px;
-      border: 1px solid var(--line);
-      border-radius: var(--radius-md);
-    }
-    .storage-check-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .storage-check-hint {
-      font-size: 12px;
-      color: var(--muted);
-    }
   </style>
 
   <script>
@@ -528,61 +536,41 @@ const tip = {
       requireElement,
     } from "../../../../lib/account-shell";
     import {
-      deleteWorkspaceStorage,
-      getMyWorkspaces,
-      getMyWorkspaceUsage,
-      getWorkspaceCommentSettings,
       getWorkspaceCommentPreview,
+      getWorkspaceCommentSettings,
       getWorkspaceRepoLinks,
-      getWorkspaceStorageStatus,
       patchWorkspaceCommentSettings,
-      putWorkspaceStorage,
-      verifyWorkspaceStorage,
+      type CommentOptionSource,
       type CommentPreview,
       type CommentPreviewResult,
       type CommentSettings,
-      type StorageCandidate,
-      type StorageVerifyResult,
-      type WorkspaceStorageStatus,
     } from "../../../../lib/api-client";
     import { renderCommentPreviewHtml } from "../../../../lib/comment-preview-sanitize";
-    import { writeCachedWorkspaces } from "../../../../lib/workspaces-nav";
     import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
-    import { renderDetailsHtml } from "../../../../lib/workspace-rail";
     import { escapeHtml } from "../../../../lib/workspace-ui";
 
-    function formatTimestamp(value: string | undefined): string {
-      if (!value) return "—";
-      const d = new Date(value);
-      return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
-    }
-
-    const SOURCE_LABEL: Record<string, string> = {
+    const SOURCE_LABEL: Record<CommentOptionSource, string> = {
       repo: "repo",
       workspace: "workspace",
       auto: "auto",
     };
-    const SOURCE_BADGE_CLASS: Record<string, string> = {
+    const SOURCE_BADGE_CLASS: Record<CommentOptionSource, string> = {
       repo: "ul-badge--accent",
       workspace: "ul-badge--ok",
       auto: "",
     };
-    /** Source-badge rows, each paired with the human label + the `source` key it reads. */
-    const BADGE_FIELDS: { label: string; key: keyof CommentPreview["source"] }[] = [
-      { label: "Image width", key: "imageWidth" },
-      { label: "Max inline images", key: "maxInlineImages" },
-      { label: "Metadata path", key: "metaPath" },
-      { label: "Metadata state", key: "metaState" },
-      { label: "Link to file page", key: "linkToFilePage" },
-      { label: "Note", key: "note" },
-    ];
+
+    /** repo beats workspace beats auto — used to combine metaPath + metaState
+     * into the single "metadata captions" row's chip/dim state. */
+    function combineSource(a: CommentOptionSource, b: CommentOptionSource): CommentOptionSource {
+      if (a === "repo" || b === "repo") return "repo";
+      if (a === "workspace" || b === "workspace") return "workspace";
+      return "auto";
+    }
 
     onAstroPageLoad(() => {
-      const detailsEl = document.querySelector<HTMLElement>("[data-ws-settings-details]");
       const csSectionEl = document.getElementById("cs-section");
-      if (!detailsEl || !csSectionEl) return;
-      // Narrowed local, not the outer possibly-null binding: TS doesn't carry
-      // the guard above into closures declared further down this function.
+      if (!csSectionEl) return;
       const csSection = csSectionEl;
 
       const page = "workspace comment settings";
@@ -599,94 +587,97 @@ const tip = {
         w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
       );
 
-      // Existing "Workspace details" disclosure — unrelated to the comment
-      // settings below, kept exactly as it was.
-      void getMyWorkspaces(apiOrigin).then((result) => {
-        if (!stillHere() || result.kind !== "success") return;
-        writeCachedWorkspaces(result.workspaces);
-        const ws = result.workspaces.find((item) => item.workspace === workspaceName);
-        if (!ws) return;
-        detailsEl.innerHTML = renderDetailsHtml(ws);
-      });
-
       const csPreviewSection = requireElement<HTMLElement>("#cs-preview-section", page);
       const errorEl = requireElement<HTMLElement>("#cs-error", page);
+      const repoBannerEl = requireElement<HTMLElement>("#cs-repo-banner", page);
       const form = requireElement<HTMLFormElement>("#cs-form", page);
-      // worker-configuration.d.ts's HTMLRewriter ambient `Element` redeclares
-      // `remove()`, which makes HTMLSelectElement fail requireElement's
-      // `T extends Element` constraint (same workaround as people.astro's
-      // role-select handler) — fetch as HTMLElement and cast.
-      const widthSelect = requireElement<HTMLElement>(
-        "#cs-image-width",
-        page,
-      ) as unknown as HTMLSelectElement;
+      const widthSeg = requireElement<HTMLElement>("#cs-image-width", page);
       const widthPxInput = requireElement<HTMLInputElement>("#cs-image-width-px", page);
       const maxInlineInput = requireElement<HTMLInputElement>("#cs-max-inline", page);
-      // Tri-state (Auto/On/Off) selects, not checkboxes: these fields
-      // resolve `true` when left at "auto" (AUTO_COMMENT_OPTIONS default),
-      // so a two-state checkbox couldn't represent "explicitly off" without
-      // being indistinguishable from "unset" — unchecking would clear an
-      // explicit `false` back to auto (which resolves true), the opposite
-      // of what unchecking should mean.
-      const showMetadataSelect = requireElement<HTMLElement>(
-        "#cs-show-metadata",
-        page,
-      ) as unknown as HTMLSelectElement;
-      const linkToFilePageSelect = requireElement<HTMLElement>(
-        "#cs-link-to-file-page",
-        page,
-      ) as unknown as HTMLSelectElement;
+      const metaSeg = requireElement<HTMLElement>("#cs-show-metadata", page);
+      const linkSeg = requireElement<HTMLElement>("#cs-link-to-file-page", page);
       const noteInput = requireElement<HTMLTextAreaElement>("#cs-note", page);
       const noteCount = requireElement<HTMLElement>("#cs-note-count", page);
       const saveBtn = requireElement<HTMLButtonElement>("#cs-save-btn", page);
       const saveStatus = requireElement<HTMLElement>("#cs-save-status", page);
+      // worker-configuration.d.ts's HTMLRewriter ambient `Element` redeclares
+      // `remove()`, which makes HTMLSelectElement fail requireElement's
+      // `T extends Element` constraint (same workaround as people.astro's
+      // role-select handler) — fetch as HTMLElement and cast.
       const repoSelect = requireElement<HTMLElement>(
         "#cs-preview-repo",
         page,
       ) as unknown as HTMLSelectElement;
-      const badgesEl = requireElement<HTMLElement>("#cs-preview-badges", page);
       const previewBodyEl = requireElement<HTMLElement>("#cs-preview-body", page);
+      const previewChipDirty = requireElement<HTMLElement>("#cs-preview-chip-dirty", page);
+      const previewChipLive = requireElement<HTMLElement>("#cs-preview-chip-live", page);
 
-      /** `null` -> "" (Auto), `true` -> "true", `false` -> "false" — for the tri-state selects. */
+      /** One entry per settings row. `source` reads the row's badge state out
+       * of a preview — the metadata row is the only one backed by two keys,
+       * so it folds them here rather than needing its own paint path. */
+      const chipRows: { id: string; source: (preview: CommentPreview) => CommentOptionSource }[] = [
+        { id: "width", source: (p) => p.source.imageWidth ?? "auto" },
+        { id: "max-inline", source: (p) => p.source.maxInlineImages ?? "auto" },
+        {
+          id: "meta",
+          source: (p) => combineSource(p.source.metaPath ?? "auto", p.source.metaState ?? "auto"),
+        },
+        { id: "link", source: (p) => p.source.linkToFilePage ?? "auto" },
+        { id: "note", source: (p) => p.source.note ?? "auto" },
+      ];
+      const chipTargets = chipRows.map((target) => ({
+        ...target,
+        row: requireElement<HTMLElement>(`#cs-row-${target.id}`, page),
+        chip: requireElement<HTMLElement>(`#cs-row-${target.id}-chip`, page),
+      }));
+
+      /** `null` -> "" (Auto), `true` -> "true", `false` -> "false" — for the tri-state segments. */
       function triStateToSelectValue(value: boolean | null): string {
         if (value === true) return "true";
         if (value === false) return "false";
         return "";
       }
-      /** Inverse of `triStateToSelectValue`, for reading a tri-state select back into a patch. */
+      /** Inverse of `triStateToSelectValue`, for reading a tri-state segment back into a patch. */
       function selectValueToTriState(value: string): boolean | null {
         if (value === "true") return true;
         if (value === "false") return false;
         return null;
       }
 
-      function applySettingsToForm(settings: CommentSettings): void {
-        if (settings.imageWidth === "full") {
-          widthSelect.value = "full";
-          widthPxInput.hidden = true;
-        } else if (typeof settings.imageWidth === "number") {
-          widthSelect.value = "custom";
-          widthPxInput.hidden = false;
-          widthPxInput.value = String(settings.imageWidth);
-        } else {
-          widthSelect.value = "auto";
-          widthPxInput.hidden = true;
-          widthPxInput.value = "";
-        }
-        maxInlineInput.value =
-          settings.maxInlineImages === null ? "" : String(settings.maxInlineImages);
-        showMetadataSelect.value = triStateToSelectValue(settings.showMetadata);
-        linkToFilePageSelect.value = triStateToSelectValue(settings.linkToFilePage);
-        noteInput.value = settings.note ?? "";
-        noteCount.textContent = String(noteInput.value.length);
+      /** Current selection of a `.cs-seg` radiogroup — `""` if somehow none is checked. */
+      function segValue(container: HTMLElement): string {
+        return (
+          container.querySelector<HTMLElement>('.cs-seg__btn[aria-checked="true"]')?.dataset
+            .value ?? ""
+        );
       }
-
-      function renderBadges(preview: CommentPreview): void {
-        badgesEl.innerHTML = BADGE_FIELDS.map(({ label, key }) => {
-          const source = preview.source[key] ?? "auto";
-          const cls = SOURCE_BADGE_CLASS[source] ?? "";
-          return `<span class="ul-badge ${cls}">${escapeHtml(label)}: ${escapeHtml(SOURCE_LABEL[source] ?? source)}</span>`;
-        }).join("");
+      function paintSegmented(container: HTMLElement, value: string): void {
+        for (const btn of container.querySelectorAll<HTMLButtonElement>(".cs-seg__btn")) {
+          const selected = (btn.dataset.value ?? "") === value;
+          btn.setAttribute("aria-checked", selected ? "true" : "false");
+          btn.tabIndex = selected ? 0 : -1;
+        }
+      }
+      /** Click + roving-tabindex arrow-key navigation for a `.cs-seg` radiogroup. */
+      function bindSegmented(container: HTMLElement, onChange: (value: string) => void): void {
+        container.addEventListener("click", (event) => {
+          const btn = (event.target as HTMLElement).closest<HTMLButtonElement>(".cs-seg__btn");
+          if (!btn || !container.contains(btn)) return;
+          paintSegmented(container, btn.dataset.value ?? "");
+          onChange(btn.dataset.value ?? "");
+        });
+        container.addEventListener("keydown", (event) => {
+          const forward = event.key === "ArrowRight" || event.key === "ArrowDown";
+          const backward = event.key === "ArrowLeft" || event.key === "ArrowUp";
+          if (!forward && !backward) return;
+          const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>(".cs-seg__btn"));
+          const idx = buttons.findIndex((b) => b === document.activeElement);
+          if (idx === -1) return;
+          event.preventDefault();
+          const next = buttons[(idx + (forward ? 1 : -1) + buttons.length) % buttons.length]!;
+          next.focus();
+          next.click();
+        });
       }
 
       /** Distinct, actionable copy per `CommentPreviewResult`'s `reason` (api-client.ts) — a
@@ -710,6 +701,132 @@ const tip = {
         }
       }
 
+      function applyChip(row: HTMLElement, chip: HTMLElement, source: CommentOptionSource): void {
+        row.classList.toggle("cs-row--dimmed", source === "repo");
+        chip.innerHTML =
+          source === "auto"
+            ? ""
+            : `<span class="ul-badge ${SOURCE_BADGE_CLASS[source]}">${escapeHtml(SOURCE_LABEL[source])}</span>`;
+      }
+
+      function applyRowSources(preview: CommentPreview): void {
+        for (const t of chipTargets) applyChip(t.row, t.chip, t.source(preview));
+      }
+
+      function applyRepoBanner(preview: CommentPreview | null, repoLabel: string): void {
+        if (!preview?.repoConfig?.found) {
+          repoBannerEl.hidden = true;
+          repoBannerEl.innerHTML = "";
+          return;
+        }
+        repoBannerEl.hidden = false;
+        repoBannerEl.innerHTML =
+          `Previewing <strong>${escapeHtml(repoLabel)}</strong> — rows marked ` +
+          `<span class="ul-badge ul-badge--accent">repo</span> are pinned by its ` +
+          `<code>.uploads.yml</code> and ignore the workspace default.`;
+      }
+
+      // ---------- Dirty-state tracking (drives the Save button + preview chip) ----------
+      let savedSettings: CommentSettings | null = null;
+      let savedFlash = false;
+
+      function currentFormAsSettings(): CommentSettings {
+        const widthMode = segValue(widthSeg);
+        let imageWidth: CommentSettings["imageWidth"];
+        if (widthMode === "full") {
+          imageWidth = "full";
+        } else if (widthMode === "custom") {
+          const raw = widthPxInput.value.trim();
+          const px = Number(raw);
+          imageWidth = raw !== "" && Number.isFinite(px) ? px : null;
+        } else {
+          imageWidth = null;
+        }
+        const rawMaxInline = maxInlineInput.value.trim();
+        return {
+          imageWidth,
+          maxInlineImages: rawMaxInline === "" ? null : Number(rawMaxInline),
+          showMetadata: selectValueToTriState(segValue(metaSeg)),
+          linkToFilePage: selectValueToTriState(segValue(linkSeg)),
+          note: noteInput.value.trim() === "" ? null : noteInput.value,
+        };
+      }
+
+      function isDirty(): boolean {
+        if (!savedSettings) return false;
+        return JSON.stringify(currentFormAsSettings()) !== JSON.stringify(savedSettings);
+      }
+
+      function updatePreviewDirtyChip(dirty: boolean): void {
+        previewChipDirty.hidden = !dirty;
+        previewChipLive.hidden = dirty;
+      }
+
+      function renderSaveState(): void {
+        const dirty = isDirty();
+        saveBtn.disabled = !dirty;
+        saveBtn.classList.toggle("ul-btn--solid", dirty);
+        if (savedFlash) {
+          saveStatus.textContent = "Saved.";
+          saveStatus.dataset.state = "ok";
+        } else if (dirty) {
+          // The mock computed its preview client-side and could claim the
+          // preview was already showing the edits; ours is server-rendered
+          // from saved settings, so it only refreshes after a save.
+          saveStatus.textContent = "Unsaved changes — save to update the preview.";
+          saveStatus.removeAttribute("data-state");
+        } else {
+          saveStatus.textContent = "";
+          saveStatus.removeAttribute("data-state");
+        }
+        updatePreviewDirtyChip(dirty);
+      }
+
+      function markEdited(): void {
+        savedFlash = false;
+        renderSaveState();
+      }
+
+      function applySettingsToForm(settings: CommentSettings): void {
+        let widthValue: string;
+        if (settings.imageWidth === "full") {
+          widthValue = "full";
+          widthPxInput.hidden = true;
+          widthPxInput.value = "";
+        } else if (typeof settings.imageWidth === "number") {
+          widthValue = "custom";
+          widthPxInput.hidden = false;
+          widthPxInput.value = String(settings.imageWidth);
+        } else {
+          widthValue = "auto";
+          widthPxInput.hidden = true;
+          widthPxInput.value = "";
+        }
+        paintSegmented(widthSeg, widthValue);
+        maxInlineInput.value =
+          settings.maxInlineImages === null ? "" : String(settings.maxInlineImages);
+        paintSegmented(metaSeg, triStateToSelectValue(settings.showMetadata));
+        paintSegmented(linkSeg, triStateToSelectValue(settings.linkToFilePage));
+        noteInput.value = settings.note ?? "";
+        noteCount.textContent = String(noteInput.value.length);
+        savedSettings = { ...settings };
+        savedFlash = false;
+        renderSaveState();
+      }
+
+      bindSegmented(widthSeg, (value) => {
+        widthPxInput.hidden = value !== "custom";
+        markEdited();
+      });
+      bindSegmented(metaSeg, () => markEdited());
+      bindSegmented(linkSeg, () => markEdited());
+      widthPxInput.addEventListener("input", () => markEdited());
+      maxInlineInput.addEventListener("input", () => markEdited());
+      noteInput.addEventListener("input", () => {
+        noteCount.textContent = String(noteInput.value.length);
+        markEdited();
+      });
+
       // Monotonic token guarding against out-of-order responses: each
       // repo-picker change (or save) starts a new, unsequenced loadPreview
       // call, and a slower earlier request landing after a faster later one
@@ -727,11 +844,12 @@ const tip = {
         if (!stillHere() || seq !== previewSeq) return;
         previewBodyEl.removeAttribute("aria-busy");
         if (result.kind !== "ok") {
-          badgesEl.innerHTML = "";
+          applyRepoBanner(null, "");
           previewBodyEl.textContent = previewErrorMessage(result.reason);
           return;
         }
-        renderBadges(result.preview);
+        applyRowSources(result.preview);
+        applyRepoBanner(result.preview, repoSelect.value);
         previewBodyEl.innerHTML = renderCommentPreviewHtml(result.preview.body);
       }
 
@@ -770,14 +888,6 @@ const tip = {
         void loadPreview();
       }
 
-      widthSelect.addEventListener("change", () => {
-        widthPxInput.hidden = widthSelect.value !== "custom";
-      });
-
-      noteInput.addEventListener("input", () => {
-        noteCount.textContent = String(noteInput.value.length);
-      });
-
       repoSelect.addEventListener("change", () => {
         void loadPreview();
       });
@@ -790,426 +900,30 @@ const tip = {
           saveStatus.removeAttribute("data-state");
           saveBtn.disabled = true;
 
-          const patch: Partial<CommentSettings> = {};
-          if (widthSelect.value === "full") {
-            patch.imageWidth = "full";
-          } else if (widthSelect.value === "custom") {
-            const raw = widthPxInput.value.trim();
-            const px = Number(raw);
-            patch.imageWidth = raw !== "" && Number.isFinite(px) ? px : null;
-          } else {
-            patch.imageWidth = null;
-          }
-          {
-            const rawMaxInline = maxInlineInput.value.trim();
-            patch.maxInlineImages = rawMaxInline === "" ? null : Number(rawMaxInline);
-          }
-          patch.showMetadata = selectValueToTriState(showMetadataSelect.value);
-          patch.linkToFilePage = selectValueToTriState(linkToFilePageSelect.value);
-          patch.note = noteInput.value.trim() === "" ? null : noteInput.value;
-
+          const patch = currentFormAsSettings();
           const result = await patchWorkspaceCommentSettings(apiOrigin, workspaceName, patch);
           if (!stillHere()) return;
-          saveBtn.disabled = false;
 
           if (result.kind === "ok") {
             applySettingsToForm(result.settings);
-            saveStatus.textContent = "Saved.";
-            saveStatus.dataset.state = "ok";
+            savedFlash = true;
+            renderSaveState();
             void loadPreview();
             return;
           }
           if (result.kind === "invalid") {
             showFormError(result.message);
-            saveStatus.textContent = "";
+            renderSaveState();
             return;
           }
           saveStatus.textContent = "Couldn’t save. Try again.";
           saveStatus.dataset.state = "error";
+          saveBtn.disabled = !isDirty();
         })();
       });
-
-      // ---------- Storage panel (issue #583 Task 2.1) ----------
-      // Same progressive-reveal + sequence-token conventions as the comment
-      // settings block above: section starts hidden, a non-`ok` GET (or an
-      // `ok` GET reporting `byoBucketEnabled: false`) leaves it hidden for
-      // good, and every in-flight call re-checks `stillHere()` before
-      // touching the DOM.
-      const storageSection = requireElement<HTMLElement>("#storage-section", page);
-      const storageErrorEl = requireElement<HTMLElement>("#storage-error", page);
-      const storageSharedEl = requireElement<HTMLElement>("#storage-shared", page);
-      const storageByoEl = requireElement<HTMLElement>("#storage-byo", page);
-      const storageByoDetails = requireElement<HTMLElement>("#storage-byo-details", page);
-      const storageConnectBtn = requireElement<HTMLButtonElement>("#storage-connect-btn", page);
-      const storageConnectNote = requireElement<HTMLElement>("#storage-connect-note", page);
-      const storageReverifyBtn = requireElement<HTMLButtonElement>("#storage-reverify-btn", page);
-      const storageRotateBtn = requireElement<HTMLButtonElement>("#storage-rotate-btn", page);
-      const storageDisconnectBtn = requireElement<HTMLButtonElement>(
-        "#storage-disconnect-btn",
-        page,
-      );
-      const storageActionStatus = requireElement<HTMLElement>("#storage-action-status", page);
-      const storageWizard = requireElement<HTMLElement>("#storage-wizard", page);
-      const storageStep1 = requireElement<HTMLElement>("#storage-step-1", page);
-      const storageStep2 = requireElement<HTMLElement>("#storage-step-2", page);
-      const storageStep3 = requireElement<HTMLElement>("#storage-step-3", page);
-      const storageStep1Next = requireElement<HTMLButtonElement>("#storage-step1-next", page);
-      const storageStep2Back = requireElement<HTMLButtonElement>("#storage-step2-back", page);
-      const storageStep3Back = requireElement<HTMLButtonElement>("#storage-step3-back", page);
-      const storageForm = requireElement<HTMLFormElement>("#storage-form", page);
-      const storageAccountId = requireElement<HTMLInputElement>("#storage-account-id", page);
-      const storageBucket = requireElement<HTMLInputElement>("#storage-bucket", page);
-      // Same worker-configuration.d.ts `Element.remove()` workaround as the
-      // tri-state selects above.
-      const storageJurisdiction = requireElement<HTMLElement>(
-        "#storage-jurisdiction",
-        page,
-      ) as unknown as HTMLSelectElement;
-      const storageAccessKeyId = requireElement<HTMLInputElement>("#storage-access-key-id", page);
-      const storageSecretAccessKey = requireElement<HTMLInputElement>(
-        "#storage-secret-access-key",
-        page,
-      );
-      const storagePublicBaseUrl = requireElement<HTMLInputElement>(
-        "#storage-public-base-url",
-        page,
-      );
-      const storageVerifyBtn = requireElement<HTMLButtonElement>("#storage-verify-btn", page);
-      const storageVerifyStatus = requireElement<HTMLElement>("#storage-verify-status", page);
-      const storageChecklist = requireElement<HTMLElement>("#storage-checklist", page);
-      const storageSaveBtn = requireElement<HTMLButtonElement>("#storage-save-btn", page);
-      const storageSaveStatus = requireElement<HTMLElement>("#storage-save-status", page);
-      const storageCancelBtns = [
-        "#storage-wizard-cancel-1",
-        "#storage-wizard-cancel-2",
-        "#storage-wizard-cancel-3",
-      ].map((sel) => requireElement<HTMLButtonElement>(sel, page));
-
-      /** Human labels for `StorageVerifyCheck.id` — kept here rather than trusting the API for copy. */
-      const STORAGE_CHECK_LABELS: Record<string, string> = {
-        shape: "Config looks valid",
-        auth: "Authentication",
-        "round-trip": "Upload / download round-trip",
-        "not-empty": "Bucket is empty",
-        "public-url": "Public URL reachable",
-      };
-
-      let wizardMode: "connect" | "rotate" = "connect";
-      let lastVerify: StorageVerifyResult | null = null;
-
-      function showStorageError(message: string | null): void {
-        if (!message) {
-          storageErrorEl.hidden = true;
-          storageErrorEl.textContent = "";
-          return;
-        }
-        storageErrorEl.hidden = false;
-        storageErrorEl.textContent = message;
-      }
-
-      function renderByoDetails(status: WorkspaceStorageStatus): void {
-        const rows: [string, string][] = [
-          ["Bucket", status.bucket ?? "—"],
-          ["Account ID", status.accountIdMasked ?? "—"],
-          ["Access key ID", status.accessKeyIdLast4 ? `…${status.accessKeyIdLast4}` : "—"],
-          ["Public base URL", status.publicBaseUrl ?? "Signed-only (no public URL)"],
-          ["Verified", formatTimestamp(status.verifiedAt)],
-        ];
-        if (status.jurisdiction) rows.push(["Jurisdiction", status.jurisdiction]);
-        storageByoDetails.innerHTML = rows
-          .map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`)
-          .join("");
-      }
-
-      function resetWizardForm(): void {
-        storageForm.reset();
-        lastVerify = null;
-        storageChecklist.innerHTML = "";
-        storageVerifyStatus.textContent = "";
-        storageVerifyStatus.removeAttribute("data-state");
-        storageSaveStatus.textContent = "";
-        storageSaveStatus.removeAttribute("data-state");
-        storageSaveBtn.disabled = true;
-      }
-
-      function goToWizardStep(step: 1 | 2 | 3): void {
-        storageStep1.hidden = step !== 1;
-        storageStep2.hidden = step !== 2;
-        storageStep3.hidden = step !== 3;
-      }
-
-      function openWizard(mode: "connect" | "rotate", prefill?: WorkspaceStorageStatus): void {
-        wizardMode = mode;
-        resetWizardForm();
-        showStorageError(null);
-        storageWizard.hidden = false;
-        if (mode === "rotate" && prefill) {
-          // "Same form, keys only": bucket/public URL are already known and
-          // prefilled; account id can't be — the API only ever returns the
-          // masked tail, never the plaintext — so the field starts blank.
-          storageBucket.value = prefill.bucket ?? "";
-          storagePublicBaseUrl.value = prefill.publicBaseUrl ?? "";
-          storageJurisdiction.value = prefill.jurisdiction ?? "";
-          goToWizardStep(2);
-        } else {
-          goToWizardStep(1);
-        }
-      }
-
-      function closeWizard(): void {
-        storageWizard.hidden = true;
-        resetWizardForm();
-      }
-
-      function collectCandidate(): StorageCandidate {
-        return {
-          bucket: storageBucket.value.trim(),
-          accountId: storageAccountId.value.trim(),
-          accessKeyId: storageAccessKeyId.value.trim(),
-          secretAccessKey: storageSecretAccessKey.value,
-          publicBaseUrl: storagePublicBaseUrl.value.trim() || undefined,
-          jurisdiction: storageJurisdiction.value || undefined,
-          // Rotating credentials targets the bucket this workspace already
-          // owns and is actively serving from, so its non-empty contents are
-          // expected, not a mistake — same rationale as the PUT route's
-          // `adoptExistingContents` escape hatch for the empty-workspace guard.
-          adoptExistingContents: wizardMode === "rotate" ? true : undefined,
-        };
-      }
-
-      /** Required checks gate save; a failing recommended check (public-url) only warns. */
-      function renderChecklist(result: StorageVerifyResult): void {
-        storageChecklist.innerHTML = result.checks
-          .map((check) => {
-            const label = STORAGE_CHECK_LABELS[check.id] ?? check.id;
-            const badgeClass = check.ok
-              ? "ul-badge--ok"
-              : check.required
-                ? "ul-badge--danger"
-                : "ul-badge--accent";
-            const badgeText = check.ok ? "Pass" : check.required ? "Fail" : "Warning";
-            const hint =
-              !check.ok && check.hint
-                ? `<span class="storage-check-hint">${escapeHtml(check.hint)}</span>`
-                : "";
-            return `<li><div class="storage-check-row"><span class="ul-badge ${badgeClass}">${escapeHtml(badgeText)}</span><strong>${escapeHtml(label)}</strong></div>${hint}</li>`;
-          })
-          .join("");
-        storageSaveBtn.disabled = !result.ok;
-      }
-
-      storageStep1Next.addEventListener("click", () => goToWizardStep(2));
-      storageStep2Back.addEventListener("click", () => goToWizardStep(1));
-      storageStep3Back.addEventListener("click", () => goToWizardStep(2));
-      for (const btn of storageCancelBtns) {
-        btn.addEventListener("click", () => closeWizard());
-      }
-
-      storageForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        void (async () => {
-          showStorageError(null);
-          storageVerifyStatus.textContent = "Verifying…";
-          storageVerifyStatus.removeAttribute("data-state");
-          storageVerifyBtn.disabled = true;
-          const candidate = collectCandidate();
-          const result = await verifyWorkspaceStorage(apiOrigin, workspaceName, candidate);
-          if (!stillHere()) return;
-          storageVerifyBtn.disabled = false;
-          if (result.kind !== "ok") {
-            storageVerifyStatus.textContent = "Couldn’t verify. Try again.";
-            storageVerifyStatus.dataset.state = "error";
-            return;
-          }
-          storageVerifyStatus.textContent = "";
-          lastVerify = result.result;
-          renderChecklist(result.result);
-          goToWizardStep(3);
-        })();
-      });
-
-      storageSaveBtn.addEventListener("click", () => {
-        void (async () => {
-          if (!lastVerify?.ok) return;
-          showStorageError(null);
-          storageSaveStatus.textContent = "Saving…";
-          storageSaveStatus.removeAttribute("data-state");
-          storageSaveBtn.disabled = true;
-          const candidate = collectCandidate();
-          const result = await putWorkspaceStorage(apiOrigin, workspaceName, candidate);
-          if (!stillHere()) return;
-          if (result.kind === "ok") {
-            // Never leave the secret in form state once it's been sent.
-            closeWizard();
-            applyStatus(result.status);
-            storageActionStatus.textContent = "Saved.";
-            storageActionStatus.dataset.state = "ok";
-            return;
-          }
-          storageSaveBtn.disabled = false;
-          if (result.kind === "invalid") {
-            lastVerify = result.result;
-            renderChecklist(result.result);
-            storageSaveStatus.textContent = "Verification failed — see the checklist above.";
-            storageSaveStatus.dataset.state = "error";
-            return;
-          }
-          if (result.kind === "conflict") {
-            showStorageError(result.message);
-            storageSaveStatus.textContent = "";
-            return;
-          }
-          storageSaveStatus.textContent = "Couldn’t save. Try again.";
-          storageSaveStatus.dataset.state = "error";
-        })();
-      });
-
-      storageConnectBtn.addEventListener("click", () => openWizard("connect"));
-
-      storageRotateBtn.addEventListener("click", () => {
-        void (async () => {
-          storageActionStatus.textContent = "";
-          storageActionStatus.removeAttribute("data-state");
-          const result = await getWorkspaceStorageStatus(apiOrigin, workspaceName);
-          if (!stillHere()) return;
-          if (result.kind !== "ok") {
-            storageActionStatus.textContent = "Couldn’t reach the server. Try again.";
-            storageActionStatus.dataset.state = "error";
-            return;
-          }
-          openWizard("rotate", result.status);
-        })();
-      });
-
-      storageReverifyBtn.addEventListener("click", () => {
-        void (async () => {
-          storageActionStatus.textContent = "Re-running verification…";
-          storageActionStatus.removeAttribute("data-state");
-          storageReverifyBtn.disabled = true;
-          const result = await getWorkspaceStorageStatus(apiOrigin, workspaceName);
-          if (!stillHere()) return;
-          storageReverifyBtn.disabled = false;
-          if (result.kind !== "ok") {
-            storageActionStatus.textContent = "Couldn’t reach the server. Try again.";
-            storageActionStatus.dataset.state = "error";
-            return;
-          }
-          // There's no standalone "re-verify saved config" route — verify only
-          // ever runs against a candidate body. Re-running against the same
-          // (masked) status merely confirms the settings loaded; a real
-          // credential check requires re-entering the secret, so this opens
-          // the rotate flow instead of silently no-op'ing.
-          openWizard("rotate", result.status);
-          storageActionStatus.textContent = "";
-        })();
-      });
-
-      storageDisconnectBtn.addEventListener("click", () => {
-        void (async () => {
-          if (
-            !confirm(
-              "Disconnect this bucket? Your workspace will go back to the shared storage.uploads.sh bucket. Nothing on your own bucket is touched or deleted.",
-            )
-          ) {
-            return;
-          }
-          showStorageError(null);
-          storageActionStatus.textContent = "Disconnecting…";
-          storageActionStatus.removeAttribute("data-state");
-          storageDisconnectBtn.disabled = true;
-          const result = await deleteWorkspaceStorage(apiOrigin, workspaceName);
-          if (!stillHere()) return;
-          storageDisconnectBtn.disabled = false;
-          if (result.kind === "ok") {
-            applyStatus(result.status);
-            storageActionStatus.textContent = "Disconnected.";
-            storageActionStatus.dataset.state = "ok";
-            return;
-          }
-          if (result.kind === "conflict") {
-            // The server's guard: the BYO bucket still holds files. Without a
-            // forced retry the workspace would be stuck on BYO storage with no
-            // UI path back to shared — so offer the same escape hatch the API
-            // documents, spelling out what force does (and doesn't) touch.
-            showStorageError(result.message);
-            storageActionStatus.textContent = "";
-            if (
-              !confirm(
-                "This workspace still has files on your bucket. Detach anyway? " +
-                  "Your files stay on your bucket untouched, but this workspace stops serving them.",
-              )
-            ) {
-              return;
-            }
-            storageDisconnectBtn.disabled = true;
-            const forced = await deleteWorkspaceStorage(apiOrigin, workspaceName, { force: true });
-            if (!stillHere()) return;
-            storageDisconnectBtn.disabled = false;
-            if (forced.kind === "ok") {
-              showStorageError(null);
-              applyStatus(forced.status);
-              storageActionStatus.textContent = "Disconnected.";
-              storageActionStatus.dataset.state = "ok";
-              return;
-            }
-          }
-          storageActionStatus.textContent = "Couldn’t disconnect. Try again.";
-          storageActionStatus.dataset.state = "error";
-        })();
-      });
-
-      function applyStatus(status: WorkspaceStorageStatus): void {
-        closeWizard();
-        storageActionStatus.textContent = "";
-        storageActionStatus.removeAttribute("data-state");
-        if (status.mode === "byo") {
-          storageSharedEl.hidden = true;
-          storageByoEl.hidden = false;
-          renderByoDetails(status);
-        } else {
-          storageByoEl.hidden = true;
-          storageSharedEl.hidden = false;
-          void applySharedUsageGate();
-        }
-      }
-
-      /** Disables "Connect your own bucket" (with an explanation) once the workspace has files —
-       * connecting only works on an empty workspace. Reuses the usage endpoint the account shell
-       * already calls elsewhere rather than inventing a new one. */
-      async function applySharedUsageGate(): Promise<void> {
-        const usage = await getMyWorkspaceUsage(apiOrigin, workspaceName);
-        if (!stillHere()) return;
-        const hasFiles = !!usage && usage.objects > 0;
-        storageConnectBtn.disabled = hasFiles;
-        storageConnectNote.hidden = !hasFiles;
-      }
-
-      async function loadStorage(): Promise<void> {
-        if (!stillHere()) return;
-        const result = await getWorkspaceStorageStatus(apiOrigin, workspaceName);
-        if (!stillHere()) return;
-        if (result.kind !== "ok" || !result.status.byoBucketEnabled) {
-          // Not an admin, no such workspace, or BYO isn't enabled for this
-          // workspace — the whole panel stays hidden, same as comment
-          // settings' non-admin behavior above.
-          return;
-        }
-        storageSection.hidden = false;
-        applyStatus(result.status);
-        // Create-flow hand-off (issue #583 Task 2.1): `new.astro` redirects
-        // here with `#storage` after creating a workspace with "bring your
-        // own bucket" checked. Only opens the wizard when the flag actually
-        // allows it — an unflagged workspace just lands on a normal settings
-        // page, matching the create form's honest client-side gate.
-        if (result.status.mode === "shared" && window.location.hash === "#storage") {
-          openWizard("connect");
-          storageSection.scrollIntoView({ block: "start" });
-        }
-      }
 
       onSession(() => {
         void loadCommentSettings();
-        void loadStorage();
       });
     });
   </script>
