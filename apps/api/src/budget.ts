@@ -61,6 +61,12 @@ export function storageBudgetApplies(record: WorkspaceBudgetLimits): boolean {
   return !isCustomerCredentialStorage;
 }
 
+/** Storage cap to *enforce*: undefined when the workspace owns its storage. */
+export function enforcedMaxStorageBytes(record: WorkspaceBudgetLimits): number | undefined {
+  if (!storageBudgetApplies(record)) return undefined;
+  return resolveBudgetLimits(record).maxStorageBytes;
+}
+
 export type BudgetDenialCode = "storage_quota_exceeded" | "upload_budget_exceeded";
 
 export interface BudgetDenial {
@@ -174,7 +180,8 @@ export function checkPutBudget(
   limits: WorkspaceBudgetLimits,
   delta: { bytes: number; uploads: number },
 ): BudgetDenial | null {
-  const { maxStorageBytes, maxUploadsPerPeriod } = resolveBudgetLimits(limits);
+  const { maxUploadsPerPeriod } = resolveBudgetLimits(limits);
+  const maxStorageBytes = enforcedMaxStorageBytes(limits);
 
   if (maxUploadsPerPeriod !== undefined && delta.uploads > 0) {
     if (usage.uploadsInPeriod + delta.uploads > maxUploadsPerPeriod) {
@@ -185,7 +192,6 @@ export function checkPutBudget(
   if (
     maxStorageBytes !== undefined &&
     delta.bytes > 0 &&
-    storageBudgetApplies(limits) &&
     usage.bytes + delta.bytes > maxStorageBytes
   ) {
     return storageBudgetDenial(usage, maxStorageBytes, delta.bytes);
@@ -197,6 +203,7 @@ export function checkPutBudget(
 /** Fields for GET /usage — limits + remaining when capped. */
 export function usageWithLimits(usage: WorkspaceUsage, limits: WorkspaceBudgetLimits) {
   const resolved = resolveBudgetLimits(limits);
+  const maxStorageBytes = enforcedMaxStorageBytes(limits);
   const out: Record<string, unknown> = {
     workspace: usage.workspace,
     bytes: usage.bytes,
@@ -206,9 +213,9 @@ export function usageWithLimits(usage: WorkspaceUsage, limits: WorkspaceBudgetLi
     updatedAt: usage.updatedAt,
   };
 
-  if (resolved.maxStorageBytes !== undefined) {
-    out.maxStorageBytes = resolved.maxStorageBytes;
-    out.storageRemainingBytes = Math.max(0, resolved.maxStorageBytes - usage.bytes);
+  if (maxStorageBytes !== undefined) {
+    out.maxStorageBytes = maxStorageBytes;
+    out.storageRemainingBytes = Math.max(0, maxStorageBytes - usage.bytes);
   }
   if (resolved.maxUploadsPerPeriod !== undefined) {
     out.maxUploadsPerPeriod = resolved.maxUploadsPerPeriod;

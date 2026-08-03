@@ -9,6 +9,10 @@
     // Origin of the invite page that magic links point at. Defaults to the API
     // host without the `api.` prefix; set explicitly for other deployments.
     "WEB_ORIGIN": "https://uploads.sh",
+    // Gates dev-only CORS origin reflection (localhost/127.0.0.1). Mirrors
+    // apps/auth's ENVIRONMENT convention: set to "production" here; unset in
+    // local dev so miniflare keeps reflecting loopback origins.
+    "ENVIRONMENT": "production",
     // GitHub App identity for server-side PR/issue title resolution (#267).
     // Both ids are public (visible in GitHub URLs); the private key is the
     // only true secret (GITHUB_APP_PRIVATE_KEY, via wrangler secret).

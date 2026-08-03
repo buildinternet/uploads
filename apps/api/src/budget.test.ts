@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { checkPutBudget, resolveBudgetLimits, storageBudgetApplies } from "./budget";
+import {
+  checkPutBudget,
+  enforcedMaxStorageBytes,
+  resolveBudgetLimits,
+  storageBudgetApplies,
+  usageWithLimits,
+} from "./budget";
 import type { WorkspaceUsage } from "./usage";
 
 describe("resolveBudgetLimits — plan-aware resolution", () => {
@@ -122,5 +128,50 @@ describe("checkPutBudget — storage cap skipped for BYO, upload cap unaffected"
       uploads: 1,
     });
     expect(denial?.code).toBe("upload_budget_exceeded");
+  });
+});
+
+describe("enforcedMaxStorageBytes (#365 BYO storage-budget fix)", () => {
+  it("returns undefined for a BYO record (HTTP credentials, no binding)", () => {
+    expect(
+      enforcedMaxStorageBytes({
+        maxStorageBytes: 1_000,
+        accountId: "a".repeat(32),
+        accessKeyId: "key",
+        secretAccessKey: "secret",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("returns the plan cap for a plain shared-bucket record", () => {
+    expect(enforcedMaxStorageBytes({ plan: "free" })).toBe(250_000_000);
+  });
+});
+
+describe("usageWithLimits — storage fields gated by storage ownership", () => {
+  const usage: WorkspaceUsage = {
+    workspace: "acme",
+    bytes: 900,
+    objects: 1,
+    uploadsInPeriod: 2,
+    periodStart: "2026-07",
+    updatedAt: "2026-07-31T00:00:00.000Z",
+  };
+
+  it("omits maxStorageBytes/storageRemainingBytes for a BYO record", () => {
+    const out = usageWithLimits(usage, {
+      maxStorageBytes: 1_000,
+      accountId: "a".repeat(32),
+      accessKeyId: "key",
+      secretAccessKey: "secret",
+    });
+    expect(out.maxStorageBytes).toBeUndefined();
+    expect(out.storageRemainingBytes).toBeUndefined();
+  });
+
+  it("includes maxStorageBytes/storageRemainingBytes for a shared-bucket record", () => {
+    const out = usageWithLimits(usage, { maxStorageBytes: 1_000 });
+    expect(out.maxStorageBytes).toBe(1_000);
+    expect(out.storageRemainingBytes).toBe(100);
   });
 });
