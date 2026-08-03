@@ -241,10 +241,15 @@ function displayName(ws: MyWorkspace): string {
 
 /**
  * Active workspace tab from `/account/workspaces/:name[/*]`.
- * Empty on the index, create page, or unrelated routes.
+ * Empty on the index, create page, or unrelated routes. `settings` is the one
+ * tab that spans two routes (`/settings` and `/settings/storage`), so a third
+ * segment is accepted only there — every other tab stays a strict single
+ * segment rather than silently matching paths that don't exist.
  */
 export function workspaceTabFromPathname(pathname: string): WorkspaceNavTab | "" {
-  const match = pathname.match(/^\/account\/workspaces\/([^/]+)(?:\/([^/]+))?\/?$/);
+  const match =
+    pathname.match(/^\/account\/workspaces\/([^/]+)(?:\/([^/]+))?\/?$/) ??
+    pathname.match(/^\/account\/workspaces\/([^/]+)\/(settings)\/[^/]+\/?$/);
   if (!match) return "";
   const slug = decodeURIComponent(match[1] ?? "");
   if (!slug || slug === "new") return "";
@@ -254,6 +259,24 @@ export function workspaceTabFromPathname(pathname: string): WorkspaceNavTab | ""
   if (segment === "people" || segment === "invite") return "people";
   if (segment === "billing") return "billing";
   if (segment === "settings") return "settings";
+  return "";
+}
+
+export type WorkspaceSettingsSubpage = "comment" | "storage";
+
+/**
+ * Which settings sub-page is active, for the sidebar's nested sub-nav
+ * (`AccountLayout`'s workspace section). `""` off the settings routes
+ * entirely — callers only render the sub-nav when this is non-empty.
+ */
+export function workspaceSettingsSubpageFromPathname(
+  pathname: string,
+): WorkspaceSettingsSubpage | "" {
+  const match = pathname.match(/^\/account\/workspaces\/[^/]+\/settings(?:\/([^/]+))?\/?$/);
+  if (!match) return "";
+  const sub = match[1] ?? "";
+  if (!sub) return "comment";
+  if (sub === "storage") return "storage";
   return "";
 }
 
@@ -285,17 +308,47 @@ export function renderSwitcherMenuHtml(
   return rows + (rows ? `<div class="ws-switcher__sep"></div>` : "") + trailer;
 }
 
+/**
+ * Nested sub-links shown under the "settings" tab once it's active — one
+ * source of markup shared by `AccountLayout.astro`'s server render and this
+ * module's client-side `paint()`, so the two can't drift apart. Empty when
+ * `subpage` is `""` (not on a settings route).
+ */
+export function renderSettingsSubnavHtml(
+  workspace: string,
+  subpage: WorkspaceSettingsSubpage | "",
+): string {
+  if (!subpage) return "";
+  const base = `/account/workspaces/${encodeURIComponent(workspace)}/settings`;
+  const links: { href: string; label: string; current: boolean }[] = [
+    { href: base, label: "github comment", current: subpage === "comment" },
+    { href: `${base}/storage`, label: "storage", current: subpage === "storage" },
+  ];
+  return `<div class="ws-settings-subnav">${links
+    .map(
+      (link) =>
+        `<a href="${escapeHtml(link.href)}" class="ws-settings-subnav__link"${
+          link.current ? ' aria-current="page"' : ""
+        }>${escapeHtml(link.label)}</a>`,
+    )
+    .join("")}</div>`;
+}
+
 /** Section links under the switcher. Empty when no workspace is active. */
 export function renderWorkspaceSectionNavHtml(
   workspace: string,
   activeTab: WorkspaceNavTab | "" = "",
+  settingsSubpage: WorkspaceSettingsSubpage | "" = "",
 ): string {
   if (!workspace) return "";
   const base = `/account/workspaces/${encodeURIComponent(workspace)}`;
   return WORKSPACE_NAV_TABS.map((tab) => {
     const href = `${base}${tab.path}`;
     const current = activeTab === tab.id ? ' aria-current="page"' : "";
-    return `<a href="${escapeHtml(href)}" class="side-link"${current}>${escapeHtml(tab.label)}</a>`;
+    const link = `<a href="${escapeHtml(href)}" class="side-link"${current}>${escapeHtml(tab.label)}</a>`;
+    const subnav =
+      tab.id === "settings" ? renderSettingsSubnavHtml(workspace, settingsSubpage) : "";
+    return link + subnav;
   }).join("");
 }
 
@@ -370,7 +423,9 @@ function paint(els: SwitcherEls, workspaces: MyWorkspace[], opts: WorkspacesNavO
   const sectionLabel = document.getElementById("workspace-section-label");
   if (active) {
     els.section.hidden = false;
-    els.section.innerHTML = renderWorkspaceSectionNavHtml(active, activeTab);
+    const settingsSubpage =
+      activeTab === "settings" ? workspaceSettingsSubpageFromPathname(location.pathname) : "";
+    els.section.innerHTML = renderWorkspaceSectionNavHtml(active, activeTab, settingsSubpage);
     if (sectionLabel) sectionLabel.hidden = false;
   } else {
     els.section.hidden = true;

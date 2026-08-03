@@ -242,10 +242,10 @@ export const prerender = false;
             }
             if (wantsByo) {
               // Drop straight into the storage wizard for the new (still
-              // empty) workspace — settings.astro's `loadStorage()` opens it
+              // empty) workspace — storage.astro's `loadStorage()` opens it
               // automatically on `#storage` once it confirms
               // `byoBucketEnabled` for real.
-              location.href = `/account/workspaces/${encodeURIComponent(name)}/settings#storage`;
+              location.href = `/account/workspaces/${encodeURIComponent(name)}/settings/storage#storage`;
               return;
             }
             input.value = "";

@@ -234,6 +234,44 @@
   display: none;
 }
 
+/* Settings sub-nav (github comment / storage) — indented under the settings
+   tab with a left hairline, shown only while a settings route is active. */
+.account-shell nav.side .ws-settings-subnav {
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 2px 12px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+.account-shell nav.side .ws-settings-subnav__link {
+  display: block;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: none;
+}
+.account-shell nav.side .ws-settings-subnav__link:hover,
+.account-shell nav.side .ws-settings-subnav__link:focus-visible {
+  color: var(--fg);
+  outline: none;
+}
+.account-shell nav.side .ws-settings-subnav__link[aria-current] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* Widened rail for the comment-settings 3-column layout (nav · content ·
+   preview). Only above --bp-rail (1080px, see signed-in-shell.css) — the
+   mid-width and stack breakpoints below already collapse `.layout` back to
+   two/one columns via the plain (lower-specificity) selector, and this rule
+   must stay out of their way rather than out-specificity them. */
+@media (min-width: 1081px) {
+  .account-shell .layout[data-rail-wide] {
+    grid-template-columns: 180px minmax(420px, 1fr) 430px;
+  }
+}
+
 /* Right rail — always a grid track; content from the `rail` slot. */
 .account-shell aside.rail {
   display: grid;

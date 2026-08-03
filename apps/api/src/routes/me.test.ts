@@ -2254,8 +2254,12 @@ describe("GET /me/workspaces/:name/comment-preview", () => {
     expect(body.body).toContain("dashboard-overview.png");
     // Fixture image origin is derived from WEB_ORIGIN (previewEnv sets
     // "https://uploads.test"), not hardcoded to production's uploads.sh.
-    expect(body.body).toContain('src="https://uploads.test/og/home.png"');
-    expect(body.body).not.toContain("uploads.sh/og/home.png");
+    expect(body.body).toContain('src="https://uploads.test/preview/comment-dashboard.svg"');
+    expect(body.body).not.toContain("uploads.sh/preview/");
+    // The before/after pair are two distinct drawings, not one image twice —
+    // a repeated image made the pairing look broken.
+    expect(body.body).toContain("/preview/comment-settings-before.svg");
+    expect(body.body).toContain("/preview/comment-settings-after.svg");
   });
 
   it("(e) repo not linked to this workspace -> 404", async () => {

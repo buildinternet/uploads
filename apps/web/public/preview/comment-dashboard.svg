@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="640" height="400" role="img" aria-label="Placeholder screenshot of a generic dashboard layout">
+  <rect width="640" height="400" fill="#141418"/>
+  <rect width="640" height="34" fill="#1c1c22"/>
+  <circle cx="17" cy="17" r="4" fill="#2e2e36"/>
+  <circle cx="31" cy="17" r="4" fill="#2e2e36"/>
+  <circle cx="45" cy="17" r="4" fill="#2e2e36"/>
+  <rect x="0" y="34" width="150" height="366" fill="#181820"/>
+  <rect x="16" y="54" width="90" height="8" rx="2" fill="#c27eff" opacity=".7"/>
+  <rect x="16" y="76" width="110" height="6" rx="2" fill="#2e2e36"/>
+  <rect x="16" y="94" width="96" height="6" rx="2" fill="#2e2e36"/>
+  <rect x="16" y="112" width="104" height="6" rx="2" fill="#2e2e36"/>
+  <rect x="174" y="58" width="260" height="12" rx="3" fill="#3a3a44"/>
+  <rect x="174" y="84" width="442" height="120" rx="4" fill="#1c1c24"/>
+  <rect x="190" y="100" width="180" height="8" rx="2" fill="#2e2e36"/>
+  <rect x="190" y="120" width="330" height="6" rx="2" fill="#262630"/>
+  <rect x="190" y="136" width="300" height="6" rx="2" fill="#262630"/>
+  <rect x="190" y="164" width="90" height="24" rx="4" fill="#c27eff" opacity=".8"/>
+  <rect x="174" y="222" width="213" height="140" rx="4" fill="#1c1c24"/>
+  <rect x="403" y="222" width="213" height="140" rx="4" fill="#1c1c24"/>
+</svg>
