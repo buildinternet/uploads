@@ -7,7 +7,7 @@ export interface PublicGalleryItem {
   position: number;
   caption: string | null;
   altText: string | null;
-  status: "available" | "missing";
+  status: "available" | "missing" | "withheld";
   url: string | null;
   /** Embed-host URL when the dual-host policy applies; null otherwise. Always present (see gallery-service.ts). */
   embedUrl: string | null;
@@ -57,7 +57,10 @@ export type MediaKind = "image" | "video" | "file" | "unsupported" | "missing";
 
 /** Gallery variant of `fileKind` (public-file.ts): one shared classifier plus tombstones. */
 export function mediaKind(item: PublicGalleryItem): MediaKind {
-  if (item.status === "missing") return "missing";
+  // "withheld" (private object) renders identically to "missing" — the
+  // public surface has no signal to distinguish an unlisted item from a
+  // deleted one, by design (see visibility.ts / plan 004).
+  if (item.status === "missing" || item.status === "withheld") return "missing";
   return fileKind(item.contentType ?? "");
 }
 
@@ -197,14 +200,16 @@ export function isPublicGallery(value: unknown): value is PublicGallery {
       (item.position as number) > 0 &&
       nullableText(item.caption, 500) &&
       nullableText(item.altText, 300) &&
-      (item.status === "available" || item.status === "missing") &&
+      (item.status === "available" || item.status === "missing" || item.status === "withheld") &&
       nullableHttpsUrl(item.url) &&
       nullableHttpsUrl(item.embedUrl) &&
       nullableText(item.contentType, 128) &&
       sizeOk &&
       optionalIsoDate(item.uploaded) &&
       optionalIsoDate(item.modified) &&
-      (item.status === "missing" ? item.url === null : item.url !== null)
+      (item.status === "missing" || item.status === "withheld"
+        ? item.url === null
+        : item.url !== null)
     );
   });
 }

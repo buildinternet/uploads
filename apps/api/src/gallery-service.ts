@@ -21,6 +21,7 @@ import {
 } from "./galleries";
 import { resolveTitles, withPublicTitleBudget, type TitleInfo } from "./github-titles";
 import { objectPublicUrls, storage, storageConfig } from "./storage";
+import { objectVisibility } from "./visibility";
 import { webOrigin } from "./web-url";
 import type { WorkspaceRecord } from "./workspace";
 
@@ -39,7 +40,7 @@ export interface GalleryItemDto {
   caption: string | null;
   altText: string | null;
   createdAt: string;
-  status: "available" | "missing";
+  status: "available" | "missing" | "withheld";
   url: string | null;
   /** Same object on the embed host when dual-host policy applies; for GitHub markdown. */
   embedUrl: string | null;
@@ -61,7 +62,7 @@ export interface PublicGalleryItemDto {
   position: number;
   caption: string | null;
   altText: string | null;
-  status: "available" | "missing";
+  status: "available" | "missing" | "withheld";
   url: string | null;
   embedUrl: string | null;
   contentType: string | null;
@@ -267,6 +268,7 @@ export async function hydrateGalleryItems(
   env: Env,
   workspace: WorkspaceRecord,
   items: GalleryItemRecord[],
+  opts: { audience: "owner" | "public" } = { audience: "owner" },
 ): Promise<Omit<GalleryItemDto, "pageUrl">[]> {
   let store: Awaited<ReturnType<typeof storage>>;
   let config: Awaited<ReturnType<typeof storageConfig>>;
@@ -293,14 +295,17 @@ export async function hydrateGalleryItems(
           cause,
         });
       }
-      const urls = meta
-        ? objectPublicUrls(env, config, item.object_key)
-        : { url: null, embedUrl: null };
-      if (meta && urls.url === null)
+      const isPrivate = meta ? objectVisibility(meta.metadata) === "private" : false;
+      const withheld = opts.audience === "public" && isPrivate;
+      const urls =
+        meta && !withheld
+          ? objectPublicUrls(env, config, item.object_key)
+          : { url: null, embedUrl: null };
+      if (meta && !withheld && urls.url === null)
         throw new ServiceUnavailableError("Gallery object is not publicly served.", {
           code: "gallery_object_not_public",
         });
-      const dates = meta ? publicObjectDateFields(meta) : {};
+      const dates = meta && !withheld ? publicObjectDateFields(meta) : {};
       return {
         id: item.id,
         objectKey: item.object_key,
@@ -308,11 +313,11 @@ export async function hydrateGalleryItems(
         caption: item.caption,
         altText: item.alt_text,
         createdAt: item.created_at,
-        status: meta ? "available" : "missing",
+        status: withheld ? "withheld" : meta ? "available" : "missing",
         url: urls.url,
         embedUrl: urls.embedUrl,
-        contentType: meta?.type ?? null,
-        size: meta?.size ?? null,
+        contentType: withheld ? null : (meta?.type ?? null),
+        size: withheld ? null : (meta?.size ?? null),
         uploaded: dates.uploaded ?? null,
         modified: dates.modified ?? null,
       };
@@ -409,10 +414,12 @@ export async function hydrateOwnerGallery(
     version: record.version,
     createdAt: record.created_at,
     updatedAt: record.updated_at,
-    items: (await hydrateGalleryItems(env, workspace, items)).map((item) => ({
-      ...item,
-      pageUrl: galleryItemUrl(env, record.id, item.id),
-    })),
+    items: (await hydrateGalleryItems(env, workspace, items, { audience: "owner" })).map(
+      (item) => ({
+        ...item,
+        pageUrl: galleryItemUrl(env, record.id, item.id),
+      }),
+    ),
   };
 }
 
@@ -469,7 +476,7 @@ export async function hydratePublicGallery(
   references: GalleryExternalReferenceRecord[] = [],
 ): Promise<PublicGalleryDto> {
   const [hydrated, publicReferences] = await Promise.all([
-    hydrateGalleryItems(env, workspace, items),
+    hydrateGalleryItems(env, workspace, items, { audience: "public" }),
     enrichPublicReferences(env, references),
   ]);
   return {

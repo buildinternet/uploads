@@ -4,6 +4,7 @@ import {
   fetchPublicGallery,
   galleryItemDownloadUrl,
   isPublicGallery,
+  mediaKind,
   PUBLIC_GALLERY_CSP,
 } from "./public-gallery";
 
@@ -131,6 +132,22 @@ describe("public gallery API", () => {
         ...gallery,
         items: [{ ...video, videoDimensions: { width: 0, height: 1 } }],
       }),
+    ).toBe(false);
+  });
+
+  it("accepts a withheld (private) item — url/contentType/size null, same shape as a tombstone", () => {
+    const withheld = {
+      ...gallery.items[0],
+      status: "withheld",
+      url: null,
+      embedUrl: null,
+      contentType: null,
+      size: null,
+    };
+    expect(isPublicGallery({ ...gallery, items: [withheld] })).toBe(true);
+    // A withheld item still can't carry a non-null url (would defeat the gate).
+    expect(
+      isPublicGallery({ ...gallery, items: [{ ...withheld, url: gallery.items[0].url }] }),
     ).toBe(false);
   });
 
@@ -264,6 +281,15 @@ describe("public gallery API", () => {
     await expect(
       fetchPublicGallery(ID, { origin: "http://[::1]:8787", fetch: fetcher }),
     ).resolves.toMatchObject({ status: "ok" });
+  });
+});
+
+describe("mediaKind", () => {
+  it("renders a withheld (private) item identically to a missing one", () => {
+    expect(mediaKind({ ...gallery.items[0], status: "missing", url: null })).toBe("missing");
+    expect(
+      mediaKind({ ...gallery.items[0], status: "withheld", url: null, contentType: null }),
+    ).toBe("missing");
   });
 });
 

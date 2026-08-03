@@ -4,6 +4,7 @@ import { downloadResponse } from "../files-core";
 import { listExternalReferences, listGalleryItems, resolvePublicGallery } from "../galleries";
 import { galleryItemFilename, hydratePublicGallery } from "../gallery-service";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
+import { objectVisibility } from "../visibility";
 import { loadWorkspaceRecord, type WorkspaceVars } from "../workspace";
 
 /** Runs `action`, mapping any thrown error to the 503 the gallery storage routes commit to. */
@@ -46,9 +47,15 @@ export const publicGalleries = new Hono<WorkspaceVars>()
 
     // Mirrors hydrateGalleryItems (gallery-service.ts): the object may have
     // been public at item-add time but the workspace's publicBaseUrl is
-    // mutable afterward. Withhold the bytes here exactly when the gallery's
-    // own read path would withhold the URL, so this route can't be used to
-    // bypass that gate.
+    // mutable afterward, or it may since have been marked private. Withhold
+    // the bytes here exactly when the gallery's own read path would withhold
+    // the item (uniform 404, never a distinct code), so this route can't be
+    // used to bypass that gate.
+    const head = await withGalleryStorageErrors(() => store.head(item.object_key));
+    if (objectVisibility((head as { metadata?: Record<string, string> } | null)?.metadata)) {
+      throw new NotFoundError("Gallery item not found.", { code: "gallery_item_not_found" });
+    }
+
     const config = await withGalleryStorageErrors(() => storageConfig(c.env, workspace));
     const urls = objectPublicUrls(c.env, config, item.object_key);
     if (!urls.url) {

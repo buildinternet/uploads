@@ -922,3 +922,95 @@ describe("GET /public/galleries/:id/items/:item/download", () => {
     });
   });
 });
+
+describe("private gallery items are withheld from the public surfaces (issue #365 / plan 004)", () => {
+  it("public gallery JSON withholds a private item but leaves the public item untouched", async () => {
+    await bucket.put("alpha/screenshots/secret.png", PNG, {
+      customMetadata: { visibility: "private" },
+    });
+    const gallery = await create();
+    const publicItem = (await (
+      await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+        method: "POST",
+        body: JSON.stringify({ expectedVersion: 1, objectKey: "screenshots/one.png" }),
+      })
+    ).json()) as { id: string };
+    const privateItem = (await (
+      await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+        method: "POST",
+        body: JSON.stringify({ expectedVersion: 2, objectKey: "screenshots/secret.png" }),
+      })
+    ).json()) as { id: string };
+
+    const publicGallery = await app.request(`/public/galleries/${gallery.id}`, {}, env);
+    expect(publicGallery.status).toBe(200);
+    const body = (await publicGallery.json()) as {
+      items: { id: string; status: string; url: string | null; embedUrl: string | null }[];
+    };
+    expect(body.items.find((item) => item.id === publicItem.id)).toMatchObject({
+      status: "available",
+    });
+    expect(body.items.find((item) => item.id === privateItem.id)).toMatchObject({
+      status: "withheld",
+      url: null,
+      embedUrl: null,
+      contentType: null,
+      size: null,
+    });
+  });
+
+  it("404s the public download route for a private item but streams the public one", async () => {
+    await bucket.put("alpha/screenshots/secret.png", PNG, {
+      customMetadata: { visibility: "private" },
+    });
+    const gallery = await create();
+    const publicItem = (await (
+      await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+        method: "POST",
+        body: JSON.stringify({ expectedVersion: 1, objectKey: "screenshots/one.png" }),
+      })
+    ).json()) as { id: string };
+    const privateItem = (await (
+      await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+        method: "POST",
+        body: JSON.stringify({ expectedVersion: 2, objectKey: "screenshots/secret.png" }),
+      })
+    ).json()) as { id: string };
+
+    const privateDownload = await app.request(
+      `/public/galleries/${gallery.id}/items/${privateItem.id}/download`,
+      {},
+      env,
+    );
+    expect(privateDownload.status).toBe(404);
+    expect(await privateDownload.json()).toMatchObject({
+      error: { code: "gallery_item_not_found" },
+    });
+
+    const publicDownload = await app.request(
+      `/public/galleries/${gallery.id}/items/${publicItem.id}/download`,
+      {},
+      env,
+    );
+    expect(publicDownload.status).toBe(200);
+  });
+
+  it("keeps the private item fully visible (url + status available) on the owner surface", async () => {
+    await bucket.put("alpha/screenshots/secret.png", PNG, {
+      customMetadata: { visibility: "private" },
+    });
+    const gallery = await create();
+    const privateItem = (await (
+      await request(`/v1/alpha/galleries/${gallery.id}/items`, {
+        method: "POST",
+        body: JSON.stringify({ expectedVersion: 1, objectKey: "screenshots/secret.png" }),
+      })
+    ).json()) as { id: string };
+
+    const owner = await request(`/v1/alpha/galleries/${gallery.id}`);
+    expect(owner.status).toBe(200);
+    expect(await owner.json()).toMatchObject({
+      items: [{ id: privateItem.id, status: "available", url: expect.any(String) }],
+    });
+  });
+});
