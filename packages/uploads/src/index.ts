@@ -1,4 +1,4 @@
-export { inferContentType, buildMarkdown } from "./embed.js";
+export { inferContentType, buildMarkdown, buildUploadMarkdown } from "./embed.js";
 export {
   DEFAULT_EMBED_PUBLIC_BASE_URL,
   embedBaseUrlFromEnv,

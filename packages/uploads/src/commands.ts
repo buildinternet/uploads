@@ -25,7 +25,7 @@ import {
   workspaceFromToken,
   type ResolvedConfig,
 } from "./config.js";
-import { buildMarkdown } from "./embed.js";
+import { buildUploadMarkdown } from "./embed.js";
 import { readLocalRepoCommentConfig, resolveCommentOptions } from "./comment-config.js";
 import { urlForGithubEmbed } from "./public-urls.js";
 import { UploadsError } from "./errors.js";
@@ -618,9 +618,10 @@ export async function uploadPreparedImage(
     }),
     metadata,
   });
-  const markdown = buildMarkdown(urlForGithubEmbed(result.url, result.embedUrl)!, {
+  const markdown = buildUploadMarkdown(urlForGithubEmbed(result.url, result.embedUrl), {
     alt: opts.alt(prepared),
     width: opts.width,
+    key: result.key,
   });
   return { result, prepared, markdown, sentMetadata: metadata };
 }
@@ -1066,8 +1067,9 @@ async function uploadAttachmentBatch(
           upload: {
             ...result,
             file,
-            markdown: buildMarkdown(urlForGithubEmbed(result.url, result.embedUrl)!, {
+            markdown: buildUploadMarkdown(urlForGithubEmbed(result.url, result.embedUrl), {
               alt: sourceName,
+              key: result.key,
             }),
             optimize: {
               optimized: prepared.optimized,

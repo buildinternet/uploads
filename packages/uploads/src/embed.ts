@@ -30,3 +30,18 @@ export function buildMarkdown(url: string, opts: { alt: string; width?: number }
   }
   return `![${opts.alt}](${url})`;
 }
+
+/**
+ * Null-safe wrapper for upload flows: workspaces with no public base URL
+ * (BYO signed-URLs-only) upload fine but have no embeddable URL, and the
+ * markdown must degrade to honest plain text instead of `![alt](null)`.
+ */
+export function buildUploadMarkdown(
+  url: string | null | undefined,
+  opts: { alt: string; width?: number; key: string },
+): string {
+  if (!url) {
+    return `\`${opts.key}\` uploaded (no public URL — this workspace serves signed URLs only)`;
+  }
+  return buildMarkdown(url, opts);
+}
