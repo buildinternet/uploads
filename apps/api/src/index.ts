@@ -32,13 +32,20 @@ import { internalBilling } from "./routes/internal-billing";
 import { protectedResourceMetadata, requestOrigin } from "./well-known";
 import { ROBOTS_TXT } from "./robots";
 
+/** Loopback origins are trusted only outside production — mirrors
+ *  apps/auth/src/trusted-origins.ts. */
+function devOriginAllowed(origin: string, env: { ENVIRONMENT?: string }): boolean {
+  if (env.ENVIRONMENT === "production") return false;
+  return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+}
+
 // Lets the browser console on the web origin (and local dev) call the token-
 // authenticated endpoints. CORS is not the security boundary — bearer tokens
 // are — but without these headers the preflight for Authorization fails.
 const consoleCors = cors({
   origin: (origin, c) => {
     if (origin === (c.env.WEB_ORIGIN || "https://uploads.sh")) return origin;
-    if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return origin;
+    if (devOriginAllowed(origin, c.env)) return origin;
     return null;
   },
   // PATCH is used by browser console clients for file metadata + galleries.
@@ -58,7 +65,7 @@ const consoleCors = cors({
 const adminUiCors = cors({
   origin: (origin, c) => {
     if (origin === (c.env.WEB_ORIGIN || "https://uploads.sh")) return origin;
-    if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return origin;
+    if (devOriginAllowed(origin, c.env)) return origin;
     return null;
   },
   credentials: true,

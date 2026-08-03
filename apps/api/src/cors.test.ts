@@ -99,3 +99,79 @@ describe("CORS preflights from the web origin", () => {
     expect(res.headers.get("Access-Control-Allow-Methods")).toContain("PATCH");
   });
 });
+
+// Loopback origins (http://localhost[:port], http://127.0.0.1[:port]) are
+// reflected on credentialed CORS for local dev convenience, but that
+// reflection must not survive in production — see plans/003. A local page
+// loading a victim's uploads.sh session cookie could otherwise make
+// credentialed cross-origin reads against /admin-ui, /me, and the
+// session-cookie-authenticated /v1/workspaces surface.
+describe("loopback origin reflection is gated by ENVIRONMENT", () => {
+  function loopbackPreflight(path: string, env: Record<string, unknown>) {
+    return app.request(
+      `https://api.uploads.sh${path}`,
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: "http://localhost:5173",
+          "Access-Control-Request-Method": "GET",
+        },
+      },
+      env as unknown as Env,
+    );
+  }
+
+  it("does not reflect localhost on /me in production", async () => {
+    const res = await loopbackPreflight("/me/workspaces", { ENVIRONMENT: "production" });
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+
+  it("still allows the configured WEB_ORIGIN on /me in production", async () => {
+    const res = await app.request(
+      "https://api.uploads.sh/me/workspaces",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://uploads.sh",
+          "Access-Control-Request-Method": "GET",
+        },
+      },
+      { ENVIRONMENT: "production" } as unknown as Env,
+    );
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://uploads.sh");
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+  });
+
+  it("reflects localhost on /me when ENVIRONMENT is unset (dev)", async () => {
+    const res = await loopbackPreflight("/me/workspaces", {});
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+  });
+
+  it("does not reflect localhost on /v1/workspaces in production", async () => {
+    const res = await loopbackPreflight("/v1/workspaces", { ENVIRONMENT: "production" });
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+
+  it("still allows the configured WEB_ORIGIN on /v1/workspaces in production", async () => {
+    const res = await app.request(
+      "https://api.uploads.sh/v1/workspaces",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://uploads.sh",
+          "Access-Control-Request-Method": "POST",
+        },
+      },
+      { ENVIRONMENT: "production" } as unknown as Env,
+    );
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://uploads.sh");
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+  });
+
+  it("reflects localhost on /v1/workspaces when ENVIRONMENT is unset (dev)", async () => {
+    const res = await loopbackPreflight("/v1/workspaces", {});
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("http://localhost:5173");
+    expect(res.headers.get("Access-Control-Allow-Credentials")).toBe("true");
+  });
+});
