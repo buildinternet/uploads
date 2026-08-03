@@ -8,6 +8,7 @@ const MIGRATIONS = [
   "migrations/20260711180000_galleries.sql",
   "migrations/20260713210559_file_metadata.sql",
   "migrations/20260710140000_workspace_usage.sql",
+  "migrations/20260730170533_delete_usage_claims.sql",
 ];
 
 // Prefixed shared-bucket record — the common case, and the baseline these

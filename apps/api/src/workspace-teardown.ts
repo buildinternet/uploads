@@ -1,6 +1,6 @@
 /**
  * Shared hard-teardown sequence for a workspace: R2 objects, D1 rows (file
- * metadata + galleries), best-effort auth org, then the `ws:<name>` KV
+ * metadata + galleries + usage), best-effort auth org, then the `ws:<name>` KV
  * record. Used by the admin hard-delete path (`DELETE
  * /admin/workspaces/:name?hard=1`) and by the retention sweep's finalization
  * of an expired soft delete (`apps/api/src/retention-sweep.ts`).
@@ -19,6 +19,7 @@ import { deleteFileMetadataForWorkspace } from "./file-metadata";
 import { deleteGalleriesForWorkspace } from "./galleries";
 import { deleteOrg } from "./org-workspaces";
 import { storage } from "./storage";
+import { deleteUsageForWorkspace } from "./usage";
 import {
   isUnprefixedDedicatedBucket,
   type PurgedTombstone,
@@ -99,6 +100,7 @@ export async function teardownWorkspace(
 
   const { galleries } = await deleteGalleriesForWorkspace(env.DB, name);
   await deleteFileMetadataForWorkspace(env.DB, name);
+  await deleteUsageForWorkspace(env.DB, name);
 
   // Best-effort, like the self-serve rollback path in routes/workspaces.ts
   // — an org left behind after this point is orphaned (no KV record means

@@ -415,6 +415,19 @@ export async function clearDeleteUsageClaimSafe(
 }
 
 /**
+ * Deletes every usage row for a workspace being torn down — the period
+ * ledger and any in-flight delete claims. Plain (throwing), like
+ * `deleteFileMetadataForWorkspace`: teardown's fail-safe ordering wants a
+ * loud failure before the KV record is removed, not a silent leak.
+ */
+export async function deleteUsageForWorkspace(db: D1Database, workspace: string): Promise<void> {
+  await db.batch([
+    db.prepare(`DELETE FROM workspace_usage WHERE workspace = ?`).bind(workspace),
+    db.prepare(`DELETE FROM delete_usage_claims WHERE workspace = ?`).bind(workspace),
+  ]);
+}
+
+/**
  * Replace absolute bytes/objects from a storage scan (reconcile).
  * Preserves uploads_in_period for the current period when the row exists.
  */
