@@ -25,9 +25,15 @@ import { UsageFakeD1 } from "./usage-fake-d1";
 // reservation skip the cap for a BYO-shaped record" from "how bytes
 // physically move", which is exactly what this fix changes.
 const fakeBucket = new FakeR2Bucket();
+
+// Function declaration (not const) so the hoisted vi.mock factory below can
+// reference it whenever the mocked module is first imported.
+function forceBinding(ws: Record<string, unknown>) {
+  return { ...ws, binding: "UPLOADS_DEFAULT" };
+}
+
 vi.mock("../src/storage", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/storage")>();
-  const forceBinding = (ws: Record<string, unknown>) => ({ ...ws, binding: "UPLOADS_DEFAULT" });
   return {
     ...original,
     storageConfig: (env: unknown, ws: Record<string, unknown>) =>
