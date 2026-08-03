@@ -1,5 +1,11 @@
 # @buildinternet/uploads
 
+## 0.37.3
+
+### Patch Changes
+
+- 7e2c7fb: put/attach/screenshot no longer emit broken `![…](null)` markdown on workspaces without a public URL; the CLI now falls back to a plain-text note naming the uploaded key.
+
 ## 0.37.2
 
 ### Patch Changes
