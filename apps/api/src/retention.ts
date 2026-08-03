@@ -1,7 +1,9 @@
 /**
  * App-driven retention: delete objects older than `retentionDays` on the
  * workspace record. Uses object `lastModified` from the store (R2 upload time).
- * After purge, call reconcile so the ledger matches storage.
+ * Each delete batch also removes the matching `file_metadata` rows so
+ * find/search and the facet endpoints stop surfacing purged keys. After
+ * purge, call reconcile so the ledger matches storage.
  *
  * files-sdk notes:
  * - Walk with `listAll()` (same as reconcile) — cursor pagination, prefix-scoped.
@@ -13,6 +15,7 @@
  *   lifecycle policy per prefix.
  */
 import { positiveLimit } from "./budget";
+import { deleteFileMetadataForKeys } from "./file-metadata";
 import { reconcileWorkspaceUsage, type ReconcileResult } from "./reconcile";
 import { storage } from "./storage";
 import { isUnprefixedDedicatedBucket, type WorkspaceRecord } from "./workspace";
@@ -83,6 +86,7 @@ export async function purgeExpiredObjects(
     if (batch.length === 0) return;
     // Bulk form: native multi-delete on R2/S3 when available.
     await store.delete(batch);
+    await deleteFileMetadataForKeys(env.DB, workspaceName, batch);
     batch = [];
   }
 
