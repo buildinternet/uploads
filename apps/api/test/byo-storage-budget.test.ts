@@ -3,8 +3,8 @@ import { FakeR2Bucket } from "./fake-r2";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { UsageFakeD1 } from "./usage-fake-d1";
 
-// Regression coverage for the BYO-bucket storage-budget fix (issue #365,
-// plan 002): a self-serve BYO workspace is stamped `plan: "free"`, so once
+// Regression coverage for the BYO-bucket storage-budget fix: a self-serve
+// BYO workspace is stamped `plan: "free"`, so once
 // its ledger crosses the free-plan byte cap every upload used to fail with
 // 507 `storage_quota_exceeded` — a hard outage for a customer paying their
 // own R2 bill. The atomic reservation in `putObject` (files-core.ts) must
@@ -120,7 +120,7 @@ function put(env: unknown, key = "shot.png") {
   );
 }
 
-describe("BYO-bucket workspaces skip the platform storage cap (issue #365)", () => {
+describe("BYO-bucket workspaces skip the platform storage cap", () => {
   it("accepts an upload on a BYO workspace already over the free-plan byte cap, and still increments the ledger", async () => {
     const { env, db } = await makeByoEnv();
 

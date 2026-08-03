@@ -102,7 +102,7 @@ describe("CORS preflights from the web origin", () => {
 
 // Loopback origins (http://localhost[:port], http://127.0.0.1[:port]) are
 // reflected on credentialed CORS for local dev convenience, but that
-// reflection must not survive in production — see plans/003. A local page
+// reflection must not survive in production. A local page
 // loading a victim's uploads.sh session cookie could otherwise make
 // credentialed cross-origin reads against /admin-ui, /me, and the
 // session-cookie-authenticated /v1/workspaces surface.

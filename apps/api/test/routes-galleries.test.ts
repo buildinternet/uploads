@@ -923,7 +923,7 @@ describe("GET /public/galleries/:id/items/:item/download", () => {
   });
 });
 
-describe("private gallery items are withheld from the public surfaces (issue #365 / plan 004)", () => {
+describe("private gallery items are withheld from the public surfaces", () => {
   it("public gallery JSON withholds a private item but leaves the public item untouched", async () => {
     await bucket.put("alpha/screenshots/secret.png", PNG, {
       customMetadata: { visibility: "private" },
