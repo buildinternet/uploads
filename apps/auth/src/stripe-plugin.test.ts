@@ -4,12 +4,14 @@
 import { drizzle } from "drizzle-orm/d1";
 import { describe, expect, it } from "vitest";
 import type { AuthEnv } from "./auth";
+import type { syncWorkspacePlan } from "./billing-bridge";
 import * as schema from "./schema";
 import {
   checkoutSessionParamsFor,
   desiredPlanForStatus,
   isOrgBillingAdmin,
   stripePluginOrNone,
+  subscriptionLifecycleHandlers,
 } from "./stripe-plugin";
 import { createFakeD1 } from "./test/fake-d1";
 
@@ -166,5 +168,85 @@ describe("isOrgBillingAdmin", () => {
     const env = dbEnv();
     const { db, orgId } = await seed(env);
     expect(await isOrgBillingAdmin(db, crypto.randomUUID(), orgId)).toBe(false);
+  });
+});
+
+function recordingSync() {
+  const calls: { referenceId: string; plan: "free" | "pro" }[] = [];
+  const sync = (async (_env, _db, referenceId, plan) => {
+    calls.push({ referenceId, plan });
+  }) as typeof syncWorkspacePlan;
+  return { calls, sync };
+}
+
+describe("subscriptionLifecycleHandlers", () => {
+  function buildHandlers() {
+    const env = dbEnv({ ...ALL_BRIDGE_DEPS });
+    const db = drizzle(env.DB, { schema });
+    const { calls, sync } = recordingSync();
+    const handlers = subscriptionLifecycleHandlers(env, db, sync);
+    return { handlers, calls };
+  }
+
+  it("onSubscriptionComplete syncs the workspace to pro", async () => {
+    const { handlers, calls } = buildHandlers();
+    await handlers.onSubscriptionComplete({ subscription: { referenceId: "org_1" } });
+    expect(calls).toEqual([{ referenceId: "org_1", plan: "pro" }]);
+  });
+
+  it("onSubscriptionUpdate syncs to pro for active and trialing", async () => {
+    const { handlers, calls } = buildHandlers();
+    await handlers.onSubscriptionUpdate({
+      subscription: { referenceId: "org_1", status: "active" },
+    });
+    await handlers.onSubscriptionUpdate({
+      subscription: { referenceId: "org_1", status: "trialing" },
+    });
+    expect(calls).toEqual([
+      { referenceId: "org_1", plan: "pro" },
+      { referenceId: "org_1", plan: "pro" },
+    ]);
+  });
+
+  it("onSubscriptionUpdate syncs to free for past_due and unpaid", async () => {
+    const { handlers, calls } = buildHandlers();
+    await handlers.onSubscriptionUpdate({
+      subscription: { referenceId: "org_1", status: "past_due" },
+    });
+    await handlers.onSubscriptionUpdate({
+      subscription: { referenceId: "org_1", status: "unpaid" },
+    });
+    expect(calls).toEqual([
+      { referenceId: "org_1", plan: "free" },
+      { referenceId: "org_1", plan: "free" },
+    ]);
+  });
+
+  it("onSubscriptionCancel does not downgrade immediately for a period-end cancel", async () => {
+    const { handlers, calls } = buildHandlers();
+    await handlers.onSubscriptionCancel({
+      subscription: { referenceId: "org_1", status: "active" },
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("onSubscriptionCancel downgrades immediately for a terminal status", async () => {
+    const { handlers, calls } = buildHandlers();
+    await handlers.onSubscriptionCancel({
+      subscription: { referenceId: "org_1", status: "canceled" },
+    });
+    expect(calls).toEqual([{ referenceId: "org_1", plan: "free" }]);
+  });
+
+  it("onSubscriptionDeleted syncs the workspace to free", async () => {
+    const { handlers, calls } = buildHandlers();
+    await handlers.onSubscriptionDeleted({ subscription: { referenceId: "org_1" } });
+    expect(calls).toEqual([{ referenceId: "org_1", plan: "free" }]);
+  });
+
+  it("passes the subscription's referenceId through verbatim", async () => {
+    const { handlers, calls } = buildHandlers();
+    await handlers.onSubscriptionComplete({ subscription: { referenceId: "org_specific_id" } });
+    expect(calls[0]?.referenceId).toBe("org_specific_id");
   });
 });

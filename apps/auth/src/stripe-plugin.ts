@@ -38,7 +38,7 @@ import { syncWorkspacePlan } from "./billing-bridge";
 import type { AuthEnv } from "./auth";
 
 type Db = ReturnType<typeof drizzle<typeof schema>>;
-type StripePluginEnv = AuthEnv &
+export type StripePluginEnv = AuthEnv &
   Pick<Env, "STRIPE_SECRET_KEY" | "STRIPE_WEBHOOK_SECRET" | "API" | "BILLING_INTERNAL_KEY"> &
   Pick<Env, "STRIPE_CHECKOUT_TOS_CONSENT">;
 
@@ -87,6 +87,49 @@ export async function isOrgBillingAdmin(
 }
 
 /**
+ * The four subscription lifecycle handlers, extracted (like
+ * `checkoutSessionParamsFor`) so the plan-flip wiring is directly
+ * unit-testable — the configured plugin object doesn't expose its
+ * subscription options for inspection. `sync` is injectable for tests;
+ * production callers use the default `syncWorkspacePlan`.
+ */
+export function subscriptionLifecycleHandlers(
+  env: StripePluginEnv,
+  db: Db,
+  sync: typeof syncWorkspacePlan = syncWorkspacePlan,
+) {
+  return {
+    onSubscriptionComplete: async ({ subscription }: { subscription: { referenceId: string } }) => {
+      await sync(env, db, subscription.referenceId, "pro");
+    },
+    onSubscriptionUpdate: async ({
+      subscription,
+    }: {
+      subscription: { referenceId: string; status: string };
+    }) => {
+      await sync(env, db, subscription.referenceId, desiredPlanForStatus(subscription.status));
+    },
+    onSubscriptionCancel: async ({
+      subscription,
+    }: {
+      subscription: { referenceId: string; status: string };
+    }) => {
+      // cancel_at_period_end keeps status "active"/"trialing" until the
+      // period actually ends — the eventual `subscription.deleted` event
+      // (onSubscriptionDeleted below) does that downgrade. Only an
+      // immediate (non-period-end) cancel, which lands here with a
+      // terminal status already, downgrades now.
+      if (desiredPlanForStatus(subscription.status) === "free") {
+        await sync(env, db, subscription.referenceId, "free");
+      }
+    },
+    onSubscriptionDeleted: async ({ subscription }: { subscription: { referenceId: string } }) => {
+      await sync(env, db, subscription.referenceId, "free");
+    },
+  };
+}
+
+/**
  * `[]` unless `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, the `API` service
  * binding, and `BILLING_INTERNAL_KEY` all resolve — otherwise a single
  * configured `stripe()` plugin. Spread into auth.ts's `plugins` array right
@@ -127,30 +170,7 @@ export function stripePluginOrNone(env: StripePluginEnv, db: Db) {
         // set first, or Stripe rejects the session and the upgrade button
         // dies).
         getCheckoutSessionParams: () => checkoutSessionParamsFor(env),
-        onSubscriptionComplete: async ({ subscription }) => {
-          await syncWorkspacePlan(env, db, subscription.referenceId, "pro");
-        },
-        onSubscriptionUpdate: async ({ subscription }) => {
-          await syncWorkspacePlan(
-            env,
-            db,
-            subscription.referenceId,
-            desiredPlanForStatus(subscription.status),
-          );
-        },
-        onSubscriptionCancel: async ({ subscription }) => {
-          // cancel_at_period_end keeps status "active"/"trialing" until the
-          // period actually ends — the eventual `subscription.deleted` event
-          // (onSubscriptionDeleted below) does that downgrade. Only an
-          // immediate (non-period-end) cancel, which lands here with a
-          // terminal status already, downgrades now.
-          if (desiredPlanForStatus(subscription.status) === "free") {
-            await syncWorkspacePlan(env, db, subscription.referenceId, "free");
-          }
-        },
-        onSubscriptionDeleted: async ({ subscription }) => {
-          await syncWorkspacePlan(env, db, subscription.referenceId, "free");
-        },
+        ...subscriptionLifecycleHandlers(env, db),
       },
     }),
   ];
