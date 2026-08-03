@@ -21,7 +21,7 @@ jobs:
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -45,6 +45,12 @@ jobs:
       # oxlint needs the package built to resolve those modules.
       - name: Build workspace packages
         run: pnpm --filter @buildinternet/uploads run build
+
+      # tsc --noEmit across every workspace. Type-aware oxlint below is not a
+      # substitute — it doesn't run the compiler. CONTRIBUTING.md documents
+      # this as part of the CI gate.
+      - name: Typecheck
+        run: pnpm typecheck
 
       - name: Oxlint
         run: pnpm lint
@@ -78,7 +84,7 @@ jobs:
       - name: Generate Wrangler types
         run: pnpm types
 
-      # Single-process Vitest across every workspace project (see vitest.config.ts).
+      # Single-process Vitest across every workspace project (see vitest.projects.ts).
       # The root `pretest` builds @buildinternet/uploads first — apps/mcp imports
       # it from dist. Replaces the former serial `pnpm --filter … test` chain and
       # adds apps/web, packages/email, and packages/errors to CI coverage.
