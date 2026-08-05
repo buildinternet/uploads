@@ -12,7 +12,8 @@
     "forceConsistentCasingInFileNames": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "verbatimModuleSyntax": false
+    "verbatimModuleSyntax": false,
+    "types": ["node"]
   },
-  "include": ["src"]
+  "include": ["src", "tsup.config.ts"]
 }
