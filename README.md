@@ -7,10 +7,10 @@
 **The missing upload command for coding agents.**
 
 A lightweight file-hosting service on Cloudflare Workers. Agents capture
-screenshots as they work — each one staged to the branch automatically — so by
-the time the PR opens it has screenshots already attached in one tidy
-attachments comment. Built on [files-sdk](https://files-sdk.dev) so the storage layer is
-provider-agnostic (R2 today; any files-sdk adapter later).
+screenshots as they work. When the pull request opens, all screenshots appear
+in one tidy comment that updates automatically on each revision. Built on
+[files-sdk](https://files-sdk.dev) so the storage layer is provider-agnostic
+(R2 today; any files-sdk adapter later).
 
 <p>
   <a href="https://uploads.sh"><b>uploads.sh</b></a> &nbsp;·&nbsp;
@@ -50,8 +50,8 @@ an agent that just captured a before/after has nowhere to put it.
 still in progress. An agent runs `uploads put ./after.png` the moment a change
 is visible; on a branch that stages the file automatically — no PR required, no
 flag to remember. Capture at every milestone and there is nothing to reassemble
-at the end: when the PR opens, everything staged is promoted into a single
-managed attachments comment.
+at the end: when the pull request opens, everything staged is promoted into one
+tidy comment that updates automatically on each revision.
 
 Keys are hash-free, so re-uploading the same filename overwrites in place and
 the URL never changes — every embed of it updates at once. Workspaces keep
