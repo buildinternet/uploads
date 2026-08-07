@@ -178,24 +178,6 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       .gap {
         height: 0.9em;
       }
-      .cursor {
-        display: inline-block;
-        width: 0.6em;
-        height: 1.1em;
-        background: var(--accent);
-        vertical-align: text-bottom;
-        animation: blink 1.1s steps(1) infinite;
-      }
-      @keyframes blink {
-        50% {
-          opacity: 0;
-        }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .cursor {
-          animation: none;
-        }
-      }
 
       /* ---------- connector ---------- */
       .flow-note {
@@ -294,22 +276,15 @@ Source (and where to look if something breaks): https://github.com/buildinternet
       .ghc figure {
         margin: 0;
       }
-      .ghc .ph {
+      .ghc .shot {
+        display: block;
+        width: 100%;
+        height: auto;
         aspect-ratio: 16 / 10;
-        border: 1.5px dashed #444c56;
+        object-fit: cover;
+        border: 1px solid #444c56;
         border-radius: 6px;
-        background: linear-gradient(
-          135deg,
-          rgba(139, 148, 158, 0.06) 0%,
-          rgba(139, 148, 158, 0.02) 100%
-        );
-        display: grid;
-        place-items: center;
-        color: #545d68;
-      }
-      .ghc .ph svg {
-        width: 42px;
-        height: 42px;
+        background: #1c2128;
       }
       .ghc figcaption {
         font: 11px var(--mono);
@@ -645,14 +620,8 @@ Source (and where to look if something breaks): https://github.com/buildinternet
             <span class="prompt">$</span>
             <span class="cmd">uploads put ./after.png</span>
           </p>
-          <p class="line out hidden">&gt;&gt; uploading ./after.png</p>
           <p class="line out hidden">
-            Staged for branch feat/nav - auto-comments to pull request when opened
-          </p>
-          <div class="gap"></div>
-          <p class="line hidden">
-            <span class="prompt">$</span>
-            <span class="cursor" aria-hidden="true"></span>
+            Uploaded for branch feat/nav - auto-comments to pull request when opened
           </p>
         </div>
       </section>
@@ -663,8 +632,7 @@ Source (and where to look if something breaks): https://github.com/buildinternet
 
       <section
         class="ghc"
-        role="img"
-        aria-label="Wireframe of the managed GitHub attachments comment, posted by the uploads.sh bot, with two inline images"
+        aria-label="Mock of the managed GitHub attachments comment, posted by the uploads.sh bot, with a before/after screenshot pair inline"
       >
         <div class="avatar">
           <svg viewBox="0 0 32 32" shape-rendering="crispEdges" aria-hidden="true">
@@ -695,23 +663,25 @@ Source (and where to look if something breaks): https://github.com/buildinternet
           <div class="body">
             <div class="imgs">
               <figure>
-                <div class="ph" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
-                    <rect x="3" y="4" width="18" height="16" rx="2"></rect>
-                    <circle cx="9" cy="10" r="1.8"></circle>
-                    <path d="M3 17 L9.5 12.5 L13.5 15.5 L17 13 L21 16"></path>
-                  </svg>
-                </div>
+                <img
+                  class="shot"
+                  src="/preview/hero-before.webp"
+                  width="640"
+                  height="400"
+                  loading="lazy"
+                  alt="App header with a Follow button overlapping the page title — the before shot"
+                />
                 <figcaption><span>before.webp</span></figcaption>
               </figure>
               <figure>
-                <div class="ph" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
-                    <rect x="3" y="4" width="18" height="16" rx="2"></rect>
-                    <circle cx="9" cy="10" r="1.8"></circle>
-                    <path d="M3 17 L9.5 12.5 L13.5 15.5 L17 13 L21 16"></path>
-                  </svg>
-                </div>
+                <img
+                  class="shot"
+                  src="/preview/hero-after.webp"
+                  width="640"
+                  height="400"
+                  loading="lazy"
+                  alt="The same header with the overlap fixed and the layout clean — the after shot"
+                />
                 <figcaption><span>after.webp</span></figcaption>
               </figure>
             </div>
