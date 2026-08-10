@@ -321,7 +321,11 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
           <>
             <div className="wsp-grid">
               {drill.items.map((item) => (
-                <ShotThumb key={item.key} item={item} onOpen={() => open(item)} />
+                <ShotThumb
+                  key={item.key}
+                  item={{ ...item, state: item.metadata?.state }}
+                  onOpen={() => open(item)}
+                />
               ))}
             </div>
             {drill.items.length === 0 && <p className="wft-end">No screenshots at this path.</p>}
