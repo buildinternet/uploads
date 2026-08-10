@@ -554,7 +554,10 @@ describe("/me alias forwards (issue #613 phase 3)", () => {
   });
 
   it("GET /me/workspaces/:name/billing matches the canonical shape", async () => {
-    const { env } = makeEnv({ sessionUser: MEMBER, role: "member" });
+    // Seed a usage row so both responses carry its fixed updated_at; without
+    // one, getWorkspaceUsage stamps each response with its own request-time
+    // updatedAt and the parity comparison flakes across a millisecond tick.
+    const { env } = makeEnv({ sessionUser: MEMBER, role: "member", usage: { objects: 0 } });
     const canonical = await app.request(
       "/v1/workspaces/acme/billing",
       { headers: sessionHeaders },
