@@ -167,6 +167,19 @@ describe("foldStateIntoFilename", () => {
   it("handles a filename with no extension", () => {
     expect(foldStateIntoFilename("screenshot", "before")).toBe("screenshot-before");
   });
+
+  it("folds only canonical state values — free-form metadata state stays out of the key", () => {
+    // A free-form `--meta state=…` passes validateMetaMap (any printable
+    // ASCII, including `/` and spaces) and reaches the fold via the merged
+    // metadata bag; it must never enter the derived object name.
+    expect(foldStateIntoFilename("localhost-docs-mcp.png", "x/y")).toBe("localhost-docs-mcp.png");
+    expect(foldStateIntoFilename("localhost-docs-mcp.png", "two words")).toBe(
+      "localhost-docs-mcp.png",
+    );
+    expect(foldStateIntoFilename("localhost-docs-mcp.png", "Before")).toBe(
+      "localhost-docs-mcp.png",
+    );
+  });
 });
 
 describe("captureScreenshot backend selection", () => {

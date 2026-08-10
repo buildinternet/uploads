@@ -32,6 +32,11 @@ export type MetaStateValue = (typeof META_STATE_VALUES)[number];
 
 const STATE_VALUE_SET: ReadonlySet<string> = new Set(META_STATE_VALUES);
 
+/** True when `value` is exactly one of the canonical state values. */
+export function isMetaStateValue(value: string): value is MetaStateValue {
+  return STATE_VALUE_SET.has(value);
+}
+
 /** Common spellings agents reach for, mapped to the canonical `state` value. */
 const STATE_ALIASES: Readonly<Record<string, MetaStateValue>> = {
   pre: "before",

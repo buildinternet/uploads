@@ -622,10 +622,13 @@ export async function runScreenshot(
   // One JSON `hint` slot (mirrors bare put): the binding warning is more
   // actionable than the generic staging note, so it wins when both fire; a
   // replaced-object note (issue #618) is the lowest priority of the three —
-  // it only surfaces when nothing else already claimed the slot.
+  // it only surfaces when nothing else already claimed the slot. Since state
+  // folds into the derived key, replaced + state means a same-side re-capture,
+  // which is the intended replace-in-place flow — word it as informational,
+  // not as a problem.
   const replacedHint =
     result.replaced && explicitMeta.state
-      ? `this upload replaced the existing object at ${result.key} (same derived key for state=${explicitMeta.state})`
+      ? `re-capture replaced the previous state=${explicitMeta.state} object at ${result.key} — expected for repeat captures of the same URL + state`
       : undefined;
   const jsonHint = bindingWarning ?? stagingNote ?? replacedHint;
 

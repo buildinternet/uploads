@@ -12,6 +12,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import { UploadsError } from "./errors.js";
+import { isMetaStateValue } from "./metadata-vocab.js";
 import { captureRemote, MAX_REMOTE_HTML_BYTES } from "./screenshot-remote.js";
 import type { DetectRoots } from "./screenshot-local.js";
 
@@ -286,11 +287,16 @@ function deriveFilename(target: ScreenshotTarget): string {
  * already ends with `-<state>` (e.g. re-deriving from a stored filename)
  * doesn't double-append.
  *
+ * Only the canonical state values fold. Callers pass the merged metadata bag's
+ * `state`, which a free-form `--meta state=…` can populate with any printable
+ * ASCII (validateMetaMap allows `/` and spaces) — that stays metadata-only
+ * rather than entering the object key.
+ *
  * Callers must skip this entirely when the caller gave an explicit key/name
  * (e.g. `--key`) — this only applies to the auto-derived filename.
  */
 export function foldStateIntoFilename(filename: string, state: string | undefined): string {
-  if (!state) return filename;
+  if (!state || !isMetaStateValue(state)) return filename;
   const match = /^(.*?)(\.[^./]+)?$/.exec(filename);
   const stem = match?.[1] ?? filename;
   const ext = match?.[2] ?? "";

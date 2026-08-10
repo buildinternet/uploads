@@ -6,6 +6,7 @@ import { UsageError } from "../src/cli-args.js";
 import type { UploadsClient } from "../src/client.js";
 import type { CliContext } from "../src/commands.js";
 import { runScreenshot, type AnnotateModule } from "../src/commands/screenshot.js";
+import { foldStateIntoFilename } from "../src/screenshot.js";
 import type { CommandRunner } from "../src/github-gh.js";
 import type { CaptureScreenshotResult } from "../src/screenshot.js";
 import type { AnnotationSpec, SpecError } from "../src/annotate/index.js";
@@ -86,9 +87,10 @@ function fakeCapture(
 }
 
 /**
- * Records the `state` the command passed through to captureImpl and mimics
- * the real captureScreenshot's state-folding (issue #618) so wiring can be
- * asserted end to end without going through the real backend-selection code.
+ * Records the `state` the command passed through to captureImpl and applies
+ * the real `foldStateIntoFilename` (issue #618) so wiring — including the
+ * canonical-values-only guard — can be asserted end to end without going
+ * through the real backend-selection code.
  */
 function fakeCaptureRecordingState(record: {
   state?: string;
@@ -96,8 +98,7 @@ function fakeCaptureRecordingState(record: {
   return async (opts) => {
     const state = (opts as { state?: string }).state;
     record.state = state;
-    const filename = state ? `example-com-${state}.png` : "example-com.png";
-    return { png, filename, backend: "remote" };
+    return { png, filename: foldStateIntoFilename("example-com.png", state), backend: "remote" };
   };
 }
 
@@ -944,6 +945,25 @@ describe("runScreenshot --state folded into the derived name (issue #618)", () =
     expect(puts[0]?.key).toBe("screenshots/explicit.png");
   });
 
+  it("does not fold a free-form --meta state into the derived name", async () => {
+    // `--meta state=x/y` passes validateMetaMap (any printable ASCII) and
+    // reaches captureImpl via the merged metadata bag, but only canonical
+    // state values may enter the object key.
+    const { client, puts } = fakeClient();
+    const record: { state?: string } = {};
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--meta", "state=x/y"],
+      false,
+      noRun,
+      fakeCaptureRecordingState(record),
+    );
+    expect(code).toBe(0);
+    expect(record.state).toBe("x/y");
+    expect(puts[0]?.filename).toBe("example-com.png");
+    expect(puts[0]?.metadata?.state).toBe("x/y");
+  });
+
   it("does not fold state when no --state was given", async () => {
     const { client } = fakeClient();
     const record: { state?: string } = {};
@@ -1015,8 +1035,8 @@ describe("runScreenshot replaced-object note (issue #618)", () => {
     );
     const parsed = JSON.parse(stdout);
     expect(parsed.replaced).toBe(true);
-    expect(parsed.hint).toContain("replaced the existing object");
-    expect(parsed.hint).toContain("state=after");
+    expect(parsed.hint).toContain("re-capture replaced the previous state=after object");
+    expect(parsed.hint).toContain("expected for repeat captures");
   });
 
   it("does not set the json hint when replaced but no --state was given", async () => {
