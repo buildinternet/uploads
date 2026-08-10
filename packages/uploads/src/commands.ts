@@ -426,7 +426,7 @@ function formatOptimizeNote(opt: {
   return undefined;
 }
 
-function writeReplacedNote(
+export function writeReplacedNote(
   replaced: boolean | undefined,
   quiet: boolean,
   dryRun = false,

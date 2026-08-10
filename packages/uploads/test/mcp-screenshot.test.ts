@@ -10,13 +10,16 @@ import { rpc, validator } from "./mcp-harness.js";
 // handler (by design — keeps mcp/tools.ts free of a static reference to the
 // local-backend chain). Mock captureScreenshot there so this test never
 // launches a browser or hits the network, while keeping the real parsers.
+// State-aware: mimics the real captureScreenshot's state-folding (issue
+// #618) closely enough to assert the tool wires `state` through correctly,
+// without going through the real backend-selection code.
 vi.mock("../src/screenshot.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/screenshot.js")>();
   return {
     ...actual,
-    captureScreenshot: vi.fn(async () => ({
+    captureScreenshot: vi.fn(async (opts: { state?: string }) => ({
       png: new Uint8Array([1, 2, 3]),
-      filename: "example-com.png",
+      filename: opts.state ? `example-com-${opts.state}.png` : "example-com.png",
       backend: "remote" as const,
     })),
   };
@@ -134,6 +137,41 @@ describe("mcp screenshot tool", () => {
       arguments: { target: "https://example.com", via: "carrier-pigeon" },
     });
     expect(res.result.isError).toBe(true);
+  });
+});
+
+describe("mcp screenshot tool --state folded into the derived name (issue #618)", () => {
+  it("folds state into the derived key, so before/after produce distinct objects", async () => {
+    const { server: serverBefore, puts: putsBefore } = serverWith();
+    const beforeRes = await rpc(serverBefore, "tools/call", {
+      name: "screenshot",
+      arguments: { target: "https://example.com", state: "before", pr: 9, repo: "o/r" },
+    });
+    expect(beforeRes.result.isError).toBe(false);
+    expect(putsBefore[0]?.key).toBe("gh/o/r/pull/9/example-com-before.png");
+
+    const { server: serverAfter, puts: putsAfter } = serverWith();
+    const afterRes = await rpc(serverAfter, "tools/call", {
+      name: "screenshot",
+      arguments: { target: "https://example.com", state: "after", pr: 9, repo: "o/r" },
+    });
+    expect(afterRes.result.isError).toBe(false);
+    expect(putsAfter[0]?.key).toBe("gh/o/r/pull/9/example-com-after.png");
+    expect(putsAfter[0]?.key).not.toBe(putsBefore[0]?.key);
+  });
+
+  it("does not fold state when an explicit key is given", async () => {
+    const { server, puts } = serverWith();
+    const res = await rpc(server, "tools/call", {
+      name: "screenshot",
+      arguments: {
+        target: "https://example.com",
+        state: "before",
+        key: "screenshots/explicit.png",
+      },
+    });
+    expect(res.result.isError).toBe(false);
+    expect(puts[0]?.key).toBe("screenshots/explicit.png");
   });
 });
 

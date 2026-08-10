@@ -91,8 +91,11 @@ explicitly when you want its extras (uploading several files at once with
 shared flags, or triggering promotion/comment sync as a side effect):
 
 ```bash
-uploads put ./step1-before.png --meta path=/settings --state before
+uploads screenshot http://localhost:4321/settings --out step1-before.png --state before
 uploads screenshot http://localhost:4321/settings --out step2-after.png --state after
+
+# or, capturing an existing local file instead of a live URL:
+uploads put ./step1-before.png --meta path=/settings --state before
 
 # or, explicitly, e.g. to upload several at once:
 uploads attach ./step1-before.png ./step2-after.png --branch --state after
@@ -136,9 +139,21 @@ highest-value queryable tag, and it's just as easy to forget outside
 `uploads put`/`uploads attach` of an existing file have nothing to derive it
 from). Both cost one flag now and make `uploads find state=after` or
 `uploads find path=/settings` work months later, when the filenames mean
-nothing to anyone:
+nothing to anyone.
+
+**`uploads screenshot` for both sides of a same-URL before/after pair is the
+straightforward path** — its object name derives from the captured URL, and
+`--state` folds into that derived name (`localhost-docs-mcp.webp` becomes
+`localhost-docs-mcp-before.webp`/`-after.webp`), so capturing the same URL
+twice with different states lands two distinct objects instead of one
+overwriting the other. An explicit `--key` is unaffected — pass one when you
+need a specific object name. A `put` of an already-existing file still needs
+its own filenames or `--key` to keep before/after distinct, since there's no
+URL to derive a stem from:
 
 ```bash
+uploads screenshot https://app.example/settings --pr 123 --state before
+uploads screenshot https://app.example/settings --pr 123 --state after
 uploads put ./after.png --pr 123 --meta path=/settings --state after
 ```
 

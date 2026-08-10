@@ -27,6 +27,7 @@ import {
   putStagingNoteText,
   resolveStageBindingWarning,
   mergeStagingMeta,
+  writeReplacedNote,
   type BranchTarget,
 } from "../commands.js";
 import { resolvePutDefaults } from "../config.js";
@@ -87,6 +88,15 @@ they reference via file:// or relative paths only resolves with --via local).
 localhost/private-network URLs are reachable only by the
 local backend — with --via remote (or auto falling back to remote) these
 fail fast with a clear error instead of sending a doomed request.
+
+The object name is derived from the target URL (host + path), not chosen by
+you — e.g. https://app.example/settings becomes app.example-settings.png.
+--state folds into that derived name (a -before/-after/... suffix), so
+capturing the same URL with --state before then --state after produces two
+distinct objects instead of the second silently overwriting the first.
+Re-capturing the same URL + --state replaces that object in place — the
+intended idempotency for repeat captures. --key bypasses all of this and
+sets the whole object key verbatim (no folding).
 
 After capture, screenshots share the put upload pipeline: optional --frame,
 optimize-by-default, --pr/--issue attachment + --comment, --gallery, --meta.
@@ -456,6 +466,9 @@ export async function runScreenshot(
     reducedMotion,
     evalJs,
     initScript,
+    // Skip folding when an explicit --key was given — --key sets the whole
+    // key, so there's no auto-derived name to fold state into.
+    state: keyHint ? undefined : explicitMeta.state,
     measureSelectors: annotateSelectors.length > 0 ? annotateSelectors : undefined,
     apiUrl: ctx.config.apiUrl,
     token: ctx.config.token,
@@ -587,6 +600,7 @@ export async function runScreenshot(
         `>> optimized ${prepared.originalBytes} → ${prepared.outputBytes} bytes\n`,
       );
     }
+    writeReplacedNote(result.replaced, ctx.quiet, dryRun, result.wouldRefuse);
     process.stderr.write(`>> key: ${result.key}${dryRun ? " (dry run — not uploaded)" : ""}\n`);
     if (stagingTarget !== undefined) {
       process.stderr.write(
@@ -606,8 +620,14 @@ export async function runScreenshot(
   }
 
   // One JSON `hint` slot (mirrors bare put): the binding warning is more
-  // actionable than the generic staging note, so it wins when both fire.
-  const jsonHint = bindingWarning ?? stagingNote;
+  // actionable than the generic staging note, so it wins when both fire; a
+  // replaced-object note (issue #618) is the lowest priority of the three —
+  // it only surfaces when nothing else already claimed the slot.
+  const replacedHint =
+    result.replaced && explicitMeta.state
+      ? `this upload replaced the existing object at ${result.key} (same derived key for state=${explicitMeta.state})`
+      : undefined;
+  const jsonHint = bindingWarning ?? stagingNote ?? replacedHint;
 
   switch (format) {
     case "json":

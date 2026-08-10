@@ -7,6 +7,7 @@ import {
   captureScreenshot,
   classifyTarget,
   DEV_TOOLBAR_SELECTORS,
+  foldStateIntoFilename,
   isPrivateOrLocalHost,
   parseViewport,
   parseWaitUntil,
@@ -141,8 +142,68 @@ describe("classifyTarget", () => {
   });
 });
 
+describe("foldStateIntoFilename", () => {
+  it("inserts -<state> before the extension", () => {
+    expect(foldStateIntoFilename("localhost-docs-mcp.png", "before")).toBe(
+      "localhost-docs-mcp-before.png",
+    );
+    expect(foldStateIntoFilename("localhost-docs-mcp.png", "after")).toBe(
+      "localhost-docs-mcp-after.png",
+    );
+  });
+
+  it("is a no-op when no state is given", () => {
+    expect(foldStateIntoFilename("localhost-docs-mcp.png", undefined)).toBe(
+      "localhost-docs-mcp.png",
+    );
+  });
+
+  it("does not double-append when the stem already ends with -<state>", () => {
+    expect(foldStateIntoFilename("localhost-docs-mcp-before.png", "before")).toBe(
+      "localhost-docs-mcp-before.png",
+    );
+  });
+
+  it("handles a filename with no extension", () => {
+    expect(foldStateIntoFilename("screenshot", "before")).toBe("screenshot-before");
+  });
+});
+
 describe("captureScreenshot backend selection", () => {
   const png = new Uint8Array([9, 9, 9]);
+
+  it("folds --state into the derived filename, so before/after produce distinct keys", async () => {
+    const before = await captureScreenshot({
+      target: "https://example.com/docs/mcp",
+      via: "remote",
+      state: "before",
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureRemoteImpl: async () => png,
+    });
+    const after = await captureScreenshot({
+      target: "https://example.com/docs/mcp",
+      via: "remote",
+      state: "after",
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureRemoteImpl: async () => png,
+    });
+    expect(before.filename).toBe("example.com-docs-mcp-before.png");
+    expect(after.filename).toBe("example.com-docs-mcp-after.png");
+    expect(before.filename).not.toBe(after.filename);
+  });
+
+  it("leaves the derived filename untouched when no state is given", async () => {
+    const result = await captureScreenshot({
+      target: "https://example.com/docs/mcp",
+      via: "remote",
+      apiUrl: "https://api.uploads.sh",
+      token: "t",
+      captureRemoteImpl: async () => png,
+    });
+    expect(result.filename).toBe("example.com-docs-mcp.png");
+  });
 
   it("uses local when --via local is requested", async () => {
     let usedLocal = false;
