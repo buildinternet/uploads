@@ -56,6 +56,7 @@ import {
   type Membership,
   type OrgMember,
 } from "../org-workspaces";
+import { presetResolvedSessionUser } from "../dual-workspace-auth";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
 import { selfServeWorkspaceRecord } from "../self-serve-defaults";
 import { objectPublicUrls, storage, storageConfig } from "../storage";
@@ -92,7 +93,13 @@ async function forwardToWorkspaceFiles(c: Context<SessionVars>, path: string): P
   } catch {
     executionCtx = undefined;
   }
-  return workspaceFiles.fetch(new Request(url, c.req.raw), c.env, executionCtx);
+  const forwarded = new Request(url, c.req.raw);
+  // This router's own `sessionAuth` middleware already resolved the caller
+  // (see the `.use("/*", sessionAuth, requireSessionUser)` mount below) —
+  // hand that off so `dualWorkspaceAuth` skips a second `get-session` fetch
+  // for the same request (issue #613 phase 1 follow-up).
+  presetResolvedSessionUser(forwarded, requireUserId(c));
+  return workspaceFiles.fetch(forwarded, c.env, executionCtx);
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

@@ -72,9 +72,9 @@ function makeFakeDB() {
  * user with an `acme` org membership.
  */
 async function makeEnv(
-  opts: { member?: boolean; session?: boolean } = {},
+  opts: { member?: boolean; session?: boolean; getSessionCalls?: { count: number } } = {},
 ): Promise<{ env: Parameters<typeof app.request>[2]; bucket: FakeR2Bucket }> {
-  const { member = true, session = true } = opts;
+  const { member = true, session = true, getSessionCalls } = opts;
   const record: WorkspaceRecord = {
     provider: "r2",
     bucket: "uploads-default",
@@ -98,6 +98,7 @@ async function makeEnv(
       fetch: async (input: RequestInfo | URL) => {
         const url = new URL(input instanceof Request ? input.url : input);
         if (url.pathname === "/api/auth/get-session") {
+          if (getSessionCalls) getSessionCalls.count++;
           return session ? Response.json({ session: {}, user: USER }) : Response.json(null);
         }
         if (url.pathname === "/internal/memberships") {
@@ -343,5 +344,45 @@ describe("old-path aliases forward unchanged (issue #613)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { items: { key: string }[] };
     expect(body.items.map((i) => i.key)).toEqual(["shots/a.png"]);
+  });
+
+  it("resolves the session exactly once for a forwarded aliased route (CodeRabbit finding, PR #615)", async () => {
+    const getSessionCalls = { count: 0 };
+    const { env } = await makeEnv({ getSessionCalls });
+    const res = await app.request(
+      "/me/workspaces/acme/files/facets",
+      { headers: { cookie: "session=x" } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    // `me.ts`'s own `sessionAuth` middleware resolves the session once;
+    // `dualWorkspaceAuth` must find the pre-resolved userId and skip its own
+    // `get-session` fetch rather than resolving it again.
+    expect(getSessionCalls.count).toBe(1);
+  });
+
+  it("a direct external request to the canonical path still authenticates via sessionAuth (WeakMap miss)", async () => {
+    const getSessionCalls = { count: 0 };
+    const { env, bucket } = await makeEnv({ getSessionCalls });
+    await seed(bucket);
+    const res = await app.request(
+      "/v1/workspaces/acme/files",
+      { headers: { cookie: "session=x" } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(getSessionCalls.count).toBe(1);
+  });
+
+  it("membership rejection still applies to forwarded aliased calls (wrong workspace -> 404)", async () => {
+    const { env } = await makeEnv({ member: false });
+    const res = await app.request(
+      "/me/workspaces/acme/files/facets",
+      { headers: { cookie: "session=x" } },
+      env,
+    );
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("workspace_not_found");
   });
 });
