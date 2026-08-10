@@ -112,6 +112,10 @@ describe("workspaceTabFromPathname", () => {
     expect(workspaceTabFromPathname("/account/workspaces/buildinternet/settings")).toBe("settings");
   });
 
+  it("maps /screenshots to the screenshots tab", () => {
+    expect(workspaceTabFromPathname("/account/workspaces/acme/screenshots")).toBe("screenshots");
+  });
+
   it("returns empty outside the workspace shell", () => {
     expect(workspaceTabFromPathname("/account")).toBe("");
     expect(workspaceTabFromPathname("/account/workspaces")).toBe("");
@@ -392,6 +396,14 @@ describe("renderWorkspaceSectionNavHtml", () => {
       /href="\/account\/workspaces\/buildinternet\/galleries"[^>]*aria-current="page"/,
     );
     expect(html).toContain('class="side-link"');
+  });
+
+  it("renders a screenshots link between files and galleries", () => {
+    const html = renderWorkspaceSectionNavHtml("acme", "screenshots");
+    expect(html).toContain('href="/account/workspaces/acme/screenshots"');
+    expect(html.indexOf("screenshots")).toBeGreaterThan(html.indexOf("files"));
+    expect(html.indexOf("screenshots")).toBeLessThan(html.indexOf("galleries"));
+    expect(html).toContain('aria-current="page"');
   });
 
   it("returns empty when no workspace is active", () => {
