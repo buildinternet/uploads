@@ -8,7 +8,7 @@
  * installation lookup. See github-promote.ts for the copy logic.
  */
 import { ValidationError } from "@uploads/errors";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { postPromoteBranchAttachments } from "../github-promote-service";
 import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
@@ -51,22 +51,29 @@ function parseBody(body: Record<string, unknown>): PromoteBody {
   return { repo, num, branch };
 }
 
+/**
+ * Handler body (issue #613 phase 3): extracted to a named function so the
+ * canonical dual-auth vertical (`routes/workspace-github.ts`) can reuse it
+ * verbatim — same pattern as `githubCommentHandler` above.
+ */
+export async function githubPromoteHandler(c: Context<WorkspaceVars>) {
+  const target = parseBody(await jsonBody(c));
+  const workspaceName = c.get("workspaceName");
+  // Promote + gated claim live in github-promote-service so the hosted MCP
+  // promote tool reuses the same path (no drift with this route).
+  const result = await postPromoteBranchAttachments(
+    c.env,
+    c.get("workspace"),
+    workspaceName,
+    c.get("mintingUserId"),
+    target,
+  );
+  return c.json(result);
+}
+
 export const githubPromote = new Hono<WorkspaceVars>().post(
   "/promote",
   writeRateLimit,
   requireScope("files:write"),
-  async (c) => {
-    const target = parseBody(await jsonBody(c));
-    const workspaceName = c.get("workspaceName");
-    // Promote + gated claim live in github-promote-service so the hosted MCP
-    // promote tool reuses the same path (no drift with this route).
-    const result = await postPromoteBranchAttachments(
-      c.env,
-      c.get("workspace"),
-      workspaceName,
-      c.get("mintingUserId"),
-      target,
-    );
-    return c.json(result);
-  },
+  githubPromoteHandler,
 );

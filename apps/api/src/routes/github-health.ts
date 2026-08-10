@@ -12,7 +12,7 @@
  * (issue #333) — missing it never flips `ok` to false, it only surfaces a
  * hint that bot-comment self-healing isn't enabled.
  */
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import {
   appEventSubscriptions,
   githubAppConfig,
@@ -38,52 +38,59 @@ export interface GithubHealthResult {
   hint?: string;
 }
 
+/**
+ * Handler body (issue #613 phase 3): extracted to a named function so the
+ * canonical dual-auth vertical (`routes/workspace-github.ts`) can reuse it
+ * verbatim — same pattern as the other four GitHub sub-routers.
+ */
+export async function githubHealthHandler(c: Context<WorkspaceVars>) {
+  const cfg = githubAppConfig(c.env);
+  if (!cfg) {
+    return c.json<GithubHealthResult>({
+      configured: false,
+      ok: false,
+      events: null,
+      missingEvents: [...REQUIRED_WEBHOOK_EVENTS],
+      requiredEvents: REQUIRED_WEBHOOK_EVENTS,
+      recommendedEvents: RECOMMENDED_WEBHOOK_EVENTS,
+      missingRecommendedEvents: [...RECOMMENDED_WEBHOOK_EVENTS],
+      hint: "GitHub App is not configured on this worker (GITHUB_APP_ID/GITHUB_APP_PRIVATE_KEY/GITHUB_APP_HOME_INSTALLATION_ID)",
+    });
+  }
+
+  const events = await appEventSubscriptions(cfg);
+  if (events === null) {
+    return c.json<GithubHealthResult>({
+      configured: true,
+      ok: false,
+      events: null,
+      missingEvents: [...REQUIRED_WEBHOOK_EVENTS],
+      requiredEvents: REQUIRED_WEBHOOK_EVENTS,
+      recommendedEvents: RECOMMENDED_WEBHOOK_EVENTS,
+      missingRecommendedEvents: [...RECOMMENDED_WEBHOOK_EVENTS],
+      hint: "could not reach GET /app to read subscribed webhook events — try again shortly",
+    });
+  }
+
+  const missingEvents = REQUIRED_WEBHOOK_EVENTS.filter((e) => !events.includes(e));
+  const missingRecommendedEvents = RECOMMENDED_WEBHOOK_EVENTS.filter((e) => !events.includes(e));
+  return c.json<GithubHealthResult>({
+    configured: true,
+    ok: missingEvents.length === 0,
+    events,
+    missingEvents,
+    requiredEvents: REQUIRED_WEBHOOK_EVENTS,
+    recommendedEvents: RECOMMENDED_WEBHOOK_EVENTS,
+    missingRecommendedEvents,
+    hint:
+      missingEvents.length > 0
+        ? `subscribe to ${missingEvents.join(", ")} at github.com/settings/apps/<your-app> → Permissions & events → Subscribe to events`
+        : undefined,
+  });
+}
+
 export const githubHealth = new Hono<WorkspaceVars>().get(
   "/health",
   requireScope("files:read"),
-  async (c) => {
-    const cfg = githubAppConfig(c.env);
-    if (!cfg) {
-      return c.json<GithubHealthResult>({
-        configured: false,
-        ok: false,
-        events: null,
-        missingEvents: [...REQUIRED_WEBHOOK_EVENTS],
-        requiredEvents: REQUIRED_WEBHOOK_EVENTS,
-        recommendedEvents: RECOMMENDED_WEBHOOK_EVENTS,
-        missingRecommendedEvents: [...RECOMMENDED_WEBHOOK_EVENTS],
-        hint: "GitHub App is not configured on this worker (GITHUB_APP_ID/GITHUB_APP_PRIVATE_KEY/GITHUB_APP_HOME_INSTALLATION_ID)",
-      });
-    }
-
-    const events = await appEventSubscriptions(cfg);
-    if (events === null) {
-      return c.json<GithubHealthResult>({
-        configured: true,
-        ok: false,
-        events: null,
-        missingEvents: [...REQUIRED_WEBHOOK_EVENTS],
-        requiredEvents: REQUIRED_WEBHOOK_EVENTS,
-        recommendedEvents: RECOMMENDED_WEBHOOK_EVENTS,
-        missingRecommendedEvents: [...RECOMMENDED_WEBHOOK_EVENTS],
-        hint: "could not reach GET /app to read subscribed webhook events — try again shortly",
-      });
-    }
-
-    const missingEvents = REQUIRED_WEBHOOK_EVENTS.filter((e) => !events.includes(e));
-    const missingRecommendedEvents = RECOMMENDED_WEBHOOK_EVENTS.filter((e) => !events.includes(e));
-    return c.json<GithubHealthResult>({
-      configured: true,
-      ok: missingEvents.length === 0,
-      events,
-      missingEvents,
-      requiredEvents: REQUIRED_WEBHOOK_EVENTS,
-      recommendedEvents: RECOMMENDED_WEBHOOK_EVENTS,
-      missingRecommendedEvents,
-      hint:
-        missingEvents.length > 0
-          ? `subscribe to ${missingEvents.join(", ")} at github.com/settings/apps/<your-app> → Permissions & events → Subscribe to events`
-          : undefined,
-    });
-  },
+  githubHealthHandler,
 );

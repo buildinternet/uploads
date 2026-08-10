@@ -111,6 +111,91 @@ export function workspacesFromMembership(membership: Membership): string[] {
   return [membership.organizationSlug];
 }
 
+/**
+ * One workspace's membership info, projected for the account-facing session
+ * surfaces (`routes/me.ts`, `routes/workspace-members.ts`). Lives here (not
+ * in `routes/me.ts`) so `routes/workspaces.ts` (governance/self-serve token
+ * routes) can share this membership-resolution logic without importing
+ * `routes/me.ts` — that direction would cycle back once `routes/me.ts`
+ * forwards its `POST /workspaces/:name/invites` alias into
+ * `routes/workspaces.ts`'s now-dual-authed canonical route (issue #613
+ * phase 3).
+ */
+export interface MyWorkspace {
+  workspace: string;
+  organization: { id: string; slug: string; name: string };
+  role: string;
+}
+
+export function myWorkspaceFromMembership(membership: Membership, workspace: string): MyWorkspace {
+  return {
+    workspace,
+    organization: {
+      id: membership.organizationId,
+      slug: membership.organizationSlug,
+      name: membership.organizationName || membership.organizationSlug,
+    },
+    role: membership.role,
+  };
+}
+
+/**
+ * Caller's membership for `name`, or a uniform 404 (not 403 — no existence
+ * probe). Slug-scoped membership query (one AUTH join), not the full list.
+ */
+export async function memberWorkspaceOr404(
+  env: Env,
+  userId: string,
+  name: string,
+): Promise<MyWorkspace> {
+  // 1:1 today: workspace name === org slug. Multi-workspace orgs would expand
+  // via workspacesFromMembership over the full list instead.
+  const [membership] = await membershipsForUser(env, userId, { slug: name });
+  if (!membership || !workspacesFromMembership(membership).includes(name)) {
+    throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+  }
+  return myWorkspaceFromMembership(membership, name);
+}
+
+/**
+ * Membership admin|owner for this workspace — 404 if not a member, 403 if
+ * member but not privileged. Shared by `routes/me.ts`'s admin-gated session
+ * routes and `routes/workspaces.ts`'s self-serve token governance dual-auth
+ * guard (issue #262 Task 3).
+ */
+export async function adminWorkspaceOr403(
+  env: Env,
+  userId: string,
+  name: string,
+): Promise<MyWorkspace> {
+  const ws = await memberWorkspaceOr404(env, userId, name);
+  if (ws.role !== "admin" && ws.role !== "owner") {
+    throw new ForbiddenError("workspace admin or owner role required", {
+      code: "workspace_admin_required",
+    });
+  }
+  return ws;
+}
+
+/**
+ * True iff the user holds org role `owner` (not `admin`) for workspace
+ * `name`, resolved via the same org<->workspace mapping as
+ * `adminWorkspaceOr403`/`memberWorkspaceOr404` (issue #265 — extends the
+ * #249 self-serve deletion gate from creator-only to creator OR org owner).
+ * Non-throwing: a non-member or unknown workspace is simply `false`, not a
+ * 404 — callers combine this with other ownership checks and want a uniform
+ * "not authorized" outcome rather than a membership-probing 404.
+ */
+export async function isWorkspaceOwner(env: Env, userId: string, name: string): Promise<boolean> {
+  try {
+    const ws = await memberWorkspaceOr404(env, userId, name);
+    return ws.role === "owner";
+  } catch (err) {
+    if (err instanceof NotFoundError) return false;
+    throw err;
+  }
+}
+
 /** A raw member row from the auth worker's `/internal/orgs/:slug/members`. */
 export interface OrgMember {
   id: string;

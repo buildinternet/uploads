@@ -11,23 +11,13 @@
  */
 import { resolveWorkspaceCreateQuota } from "@uploads/billing";
 import {
-  NOTE_MAX_CHARS,
   resolveCommentOptions,
   type OptionSource,
   type ResolvedCommentOptions,
 } from "@uploads/comment-config";
-import {
-  ConflictError,
-  ForbiddenError,
-  NotFoundError,
-  RateLimitedError,
-  ValidationError,
-} from "@uploads/errors";
-import { createFilesRouter, type R2Jurisdiction } from "@uploads/storage";
+import { NotFoundError, ValidationError } from "@uploads/errors";
+import { createFilesRouter } from "@uploads/storage";
 import { Hono, type Context } from "hono";
-import { usageWithLimits } from "../budget";
-import { sealCredentialFieldsStrict } from "../secrets";
-import { throwForInviteError } from "../invite-error";
 import { parseExternalReference } from "../external-references";
 import { previewFixtureItems } from "../comment-preview-fixtures";
 import { badKey, listObjects } from "../files-core";
@@ -42,45 +32,44 @@ import { githubInstallStatus, type GithubInstallStatus } from "../github-install
 import { findRepoLink, listRepoLinksForWorkspace } from "../github-repo-links";
 import { resolveRepoCommentOptions, workspaceCommentDefaults } from "../repo-comment-config";
 import { resolveTitles } from "../github-titles";
-import { allowWrite } from "../guards";
 import {
-  invitesForOrg,
-  membersForOrg,
+  adminWorkspaceOr403,
+  memberWorkspaceOr404,
   membershipsForUser,
-  removeMember,
-  revokeInvite,
-  subscriptionForOrg,
-  updateMemberRole,
+  myWorkspaceFromMembership,
   workspacesFromMembership,
-  type Membership,
-  type OrgMember,
+  type MyWorkspace,
 } from "../org-workspaces";
 import { presetResolvedSessionUser } from "../dual-workspace-auth";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
-import { selfServeWorkspaceRecord } from "../self-serve-defaults";
 import { storage } from "../storage";
-import { getWorkspaceUsage } from "../usage";
-import { byoBucketAllowed, loadWorkspaceRecord, type WorkspaceRecord } from "../workspace";
-import { mutateWorkspaceRecord } from "../workspace-mutate";
-import { planResponse, planSourceFor } from "../workspace-plan";
+import { loadWorkspaceRecord } from "../workspace";
+import { planResponse } from "../workspace-plan";
 import { workspaceFiles } from "./workspace-files";
+import { workspaceMembers } from "./workspace-members";
+import { workspaceSettings } from "./workspace-settings";
 import { workspaceUsage } from "./workspace-usage";
-import {
-  candidateFromBody,
-  storageReconcile,
-  storageStatusResponse,
-  storageVerify,
-} from "./workspace-storage";
+import { workspaces } from "./workspaces";
 
 /**
- * Rewrites `c`'s request onto `workspaceFiles`'s own path space (its routes
- * are registered as `/:workspace/files*`, independent of any parent mount —
- * see routes/workspace-files.ts) and re-dispatches through it directly. The
- * canonical dual-auth middleware + handler run exactly as they would for a
- * caller hitting `/v1/workspaces/:workspace/files*` directly, so response
- * shape can't drift from the canonical route without this alias breaking too.
+ * Rewrites `c`'s request onto `router`'s own path space and re-dispatches
+ * through it directly, so the canonical dual-auth middleware + handler run
+ * exactly as they would for a caller hitting the canonical route directly —
+ * response shape can't drift from the canonical route without the alias
+ * breaking too. `path` must already have every interpolated segment
+ * `encodeURIComponent`-encoded by the caller (see the `forwardToWorkspace*`
+ * wrappers below): an unencoded `/` or `..` in a param would let `URL`
+ * normalize dot segments and reshape which route this actually dispatches
+ * to (CodeRabbit PR #617 review finding 2).
+ *
+ * Shared by every `forwardToWorkspace*` wrapper below — they differ only in
+ * which canonical router they re-dispatch through.
  */
-async function forwardToWorkspaceFiles(c: Context<SessionVars>, path: string): Promise<Response> {
+async function forwardTo(
+  router: { fetch: typeof workspaceFiles.fetch },
+  c: Context<SessionVars>,
+  path: string,
+): Promise<Response> {
   const url = new URL(c.req.url);
   url.pathname = path;
   // `c.executionCtx` throws outside a real Workers/`app.fetch(req, env, ctx)`
@@ -99,223 +88,65 @@ async function forwardToWorkspaceFiles(c: Context<SessionVars>, path: string): P
   // hand that off so `dualWorkspaceAuth` skips a second `get-session` fetch
   // for the same request (issue #613 phase 1 follow-up).
   presetResolvedSessionUser(forwarded, requireUserId(c));
-  return workspaceFiles.fetch(forwarded, c.env, executionCtx);
+  return router.fetch(forwarded, c.env, executionCtx);
 }
 
 /**
- * Same forwarding pattern as `forwardToWorkspaceFiles`, targeting the
- * canonical usage vertical (`routes/workspace-usage.ts`, issue #613 phase 2).
- * Response shape is a strict superset of the pre-#613 session shape (adds
- * `scopes`/`plan`; every other field — `workspace`/`bytes`/`objects`/
- * `uploadsInPeriod`/`periodStart`/limits — matches verbatim), so this is a
- * genuine forward, not a re-implementation.
+ * Forwards to the canonical files vertical (`routes/workspace-files.ts`,
+ * issue #613 phase 1) — routes registered as `/:workspace/files*`.
  */
-async function forwardToWorkspaceUsage(c: Context<SessionVars>, path: string): Promise<Response> {
-  const url = new URL(c.req.url);
-  url.pathname = path;
-  let executionCtx: Context<SessionVars>["executionCtx"] | undefined;
-  try {
-    executionCtx = c.executionCtx;
-  } catch {
-    executionCtx = undefined;
-  }
-  const forwarded = new Request(url, c.req.raw);
-  presetResolvedSessionUser(forwarded, requireUserId(c));
-  return workspaceUsage.fetch(forwarded, c.env, executionCtx);
+function forwardToWorkspaceFiles(c: Context<SessionVars>, path: string): Promise<Response> {
+  return forwardTo(workspaceFiles, c, path);
 }
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/** `imageWidth` bounds (issue #307): "full" or an integer clamp width in px. */
-const COMMENT_IMAGE_WIDTH_MIN = 160;
-const COMMENT_IMAGE_WIDTH_MAX = 1000;
-/** `maxInlineImages` bounds (issue #307). */
-const COMMENT_MAX_INLINE_IMAGES_MIN = 1;
-const COMMENT_MAX_INLINE_IMAGES_MAX = 48;
-
-/** The five workspace-level comment-defaults fields (issue #307). */
-const COMMENT_SETTINGS_KEYS = [
-  "imageWidth",
-  "maxInlineImages",
-  "showMetadata",
-  "linkToFilePage",
-  "note",
-] as const;
-type CommentSettingsKey = (typeof COMMENT_SETTINGS_KEYS)[number];
-
-/** Record field each API key writes to. */
-const COMMENT_SETTINGS_RECORD_FIELD: Record<CommentSettingsKey, keyof WorkspaceRecord> = {
-  imageWidth: "githubCommentImageWidth",
-  maxInlineImages: "githubCommentMaxInlineImages",
-  showMetadata: "githubCommentShowMetadata",
-  linkToFilePage: "githubCommentLinkToFilePage",
-  note: "githubCommentNote",
-};
-
-type CommentSettingsValue = string | number | boolean;
-type CommentSettingsPatch = Partial<Record<CommentSettingsKey, CommentSettingsValue | null>>;
 
 /**
- * Validates a PATCH body for the workspace-level managed-comment defaults
- * (issue #307). This is the single enforcement point for the bounds the
- * resolver itself does not clamp (a review finding on the Task 1 parser):
- * imageWidth "full" or an integer 160–1000, maxInlineImages an integer
- * 1–48, and note trimmed, non-empty, and at most `NOTE_MAX_CHARS`. Reject-
- * all-or-apply-all — the whole body is checked before any record mutation,
- * so an invalid field never partially applies. An omitted key means "leave
- * unchanged"; an explicit `null` clears the field. Unknown keys are
- * ignored, mirroring `validateGithubCommentSettingsPatch` (admin-ui.ts) and
- * `validateLimitsPatch` (workspace-limits.ts), the two sibling workspace-
- * record PATCH validators in this codebase.
+ * Forwards to the canonical usage vertical (`routes/workspace-usage.ts`,
+ * issue #613 phase 2). Response shape is a strict superset of the pre-#613
+ * session shape (adds `scopes`/`plan`; every other field —
+ * `workspace`/`bytes`/`objects`/`uploadsInPeriod`/`periodStart`/limits —
+ * matches verbatim), so this is a genuine forward, not a re-implementation.
  */
-function validateCommentSettingsPatch(body: unknown): CommentSettingsPatch {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    throw new ValidationError("request body must be a JSON object", { code: "invalid_settings" });
-  }
-  const record = body as Record<string, unknown>;
-  const patch: CommentSettingsPatch = {};
-
-  if ("imageWidth" in record) {
-    const value = record.imageWidth;
-    if (value === null) {
-      patch.imageWidth = null;
-    } else if (value === "full") {
-      patch.imageWidth = "full";
-    } else if (
-      typeof value === "number" &&
-      Number.isInteger(value) &&
-      value >= COMMENT_IMAGE_WIDTH_MIN &&
-      value <= COMMENT_IMAGE_WIDTH_MAX
-    ) {
-      patch.imageWidth = value;
-    } else {
-      throw new ValidationError(
-        `imageWidth must be "full", an integer ${COMMENT_IMAGE_WIDTH_MIN}–${COMMENT_IMAGE_WIDTH_MAX}, or null`,
-        { code: "invalid_settings", details: { field: "imageWidth" } },
-      );
-    }
-  }
-
-  if ("maxInlineImages" in record) {
-    const value = record.maxInlineImages;
-    if (value === null) {
-      patch.maxInlineImages = null;
-    } else if (
-      typeof value === "number" &&
-      Number.isInteger(value) &&
-      value >= COMMENT_MAX_INLINE_IMAGES_MIN &&
-      value <= COMMENT_MAX_INLINE_IMAGES_MAX
-    ) {
-      patch.maxInlineImages = value;
-    } else {
-      throw new ValidationError(
-        `maxInlineImages must be an integer ${COMMENT_MAX_INLINE_IMAGES_MIN}–${COMMENT_MAX_INLINE_IMAGES_MAX} or null`,
-        { code: "invalid_settings", details: { field: "maxInlineImages" } },
-      );
-    }
-  }
-
-  if ("showMetadata" in record) {
-    const value = record.showMetadata;
-    if (value !== null && typeof value !== "boolean") {
-      throw new ValidationError("showMetadata must be a boolean or null", {
-        code: "invalid_settings",
-        details: { field: "showMetadata" },
-      });
-    }
-    patch.showMetadata = value;
-  }
-
-  if ("linkToFilePage" in record) {
-    const value = record.linkToFilePage;
-    if (value !== null && typeof value !== "boolean") {
-      throw new ValidationError("linkToFilePage must be a boolean or null", {
-        code: "invalid_settings",
-        details: { field: "linkToFilePage" },
-      });
-    }
-    patch.linkToFilePage = value;
-  }
-
-  if ("note" in record) {
-    const value = record.note;
-    if (value === null) {
-      patch.note = null;
-    } else if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (trimmed.length === 0 || trimmed.length > NOTE_MAX_CHARS) {
-        throw new ValidationError(`note must be 1–${NOTE_MAX_CHARS} characters after trimming`, {
-          code: "invalid_settings",
-          details: { field: "note" },
-        });
-      }
-      patch.note = trimmed;
-    } else {
-      throw new ValidationError("note must be a string or null", {
-        code: "invalid_settings",
-        details: { field: "note" },
-      });
-    }
-  }
-
-  return patch;
+function forwardToWorkspaceUsage(c: Context<SessionVars>, path: string): Promise<Response> {
+  return forwardTo(workspaceUsage, c, path);
 }
 
-/** Response body shared by GET and PATCH: the workspace-level comment defaults. */
-function commentSettingsResponse(record: WorkspaceRecord) {
-  return {
-    imageWidth: record.githubCommentImageWidth ?? null,
-    maxInlineImages: record.githubCommentMaxInlineImages ?? null,
-    showMetadata: record.githubCommentShowMetadata ?? null,
-    linkToFilePage: record.githubCommentLinkToFilePage ?? null,
-    note: record.githubCommentNote ?? null,
-  };
+/**
+ * Forwards to the canonical invites/members vertical
+ * (`routes/workspace-members.ts`, issue #613 phase 3) for the session-only
+ * routes (`members`/`people`/`invites` GET/DELETE/`members/:id` PATCH). The
+ * canonical handlers are the exact bodies this file's routes used to run
+ * (extracted verbatim, see git history), so this is a genuine forward.
+ */
+function forwardToWorkspaceMembers(c: Context<SessionVars>, path: string): Promise<Response> {
+  return forwardTo(workspaceMembers, c, path);
+}
+
+/**
+ * Forwards `POST /workspaces/:name/invites` to `routes/workspaces.ts`'s
+ * `POST /:name/invites` — the ONE invites/members route with a genuine
+ * bearer capability, upgraded in place to `dualGovernanceAuth` rather than
+ * duplicated into `workspace-members.ts` (see that route's docblock). Same
+ * response shape as this file's pre-#613 handler (both built `{ ...payload,
+ * acceptUrl }` from the same AUTH `/internal/invite` call), so this is a
+ * genuine forward, not a reimplementation.
+ */
+function forwardToWorkspaceInvite(c: Context<SessionVars>, name: string): Promise<Response> {
+  return forwardTo(workspaces, c, `/${encodeURIComponent(name)}/invites`);
+}
+
+/**
+ * Forwards to the canonical comment-settings/storage/billing/summary
+ * verticals (`routes/workspace-settings.ts`, issue #613 phase 3). The
+ * canonical handlers are the exact bodies these four routes used to run in
+ * this file (extracted verbatim, see git history), so this is a genuine
+ * forward, not a reimplementation.
+ */
+function forwardToWorkspaceSettings(c: Context<SessionVars>, path: string): Promise<Response> {
+  return forwardTo(workspaceSettings, c, path);
 }
 
 /** `?repo=` shape for the comment preview endpoint: exactly one `/`, no empty segments. */
 const REPO_SHAPE_RE = /^[^/\s]+\/[^/\s]+$/;
-
-interface MyWorkspace {
-  workspace: string;
-  organization: { id: string; slug: string; name: string };
-  role: string;
-}
-
-function myWorkspaceFromMembership(membership: Membership, workspace: string): MyWorkspace {
-  return {
-    workspace,
-    organization: {
-      id: membership.organizationId,
-      slug: membership.organizationSlug,
-      name: membership.organizationName || membership.organizationSlug,
-    },
-    role: membership.role,
-  };
-}
-
-function canManageRole(role: string): boolean {
-  return role === "admin" || role === "owner";
-}
-
-/** Sanitize org members for the account people UI (opaque `id` only for managers). */
-function projectMembers(members: OrgMember[], canManage: boolean) {
-  return members.map((m) => {
-    const row: {
-      id?: string;
-      email: string;
-      name: string;
-      role: string;
-      createdAt?: string;
-    } = {
-      email: m.email ?? "",
-      name: m.name ?? "",
-      role: m.role ?? "member",
-      createdAt: m.createdAt,
-    };
-    if (canManage) row.id = m.id;
-    return row;
-  });
-}
 
 /**
  * Every workspace the user's memberships map to. Memberships already include
@@ -333,64 +164,12 @@ async function myWorkspaces(env: Env, userId: string): Promise<MyWorkspace[]> {
   return out;
 }
 
-/**
- * Caller's membership for `name`, or a uniform 404 (not 403 — no existence
- * probe). Slug-scoped membership query (one AUTH join), not the full list.
- */
-async function memberWorkspaceOr404(env: Env, userId: string, name: string): Promise<MyWorkspace> {
-  // 1:1 today: workspace name === org slug. Multi-workspace orgs would expand
-  // via workspacesFromMembership over the full list instead.
-  const [membership] = await membershipsForUser(env, userId, { slug: name });
-  if (!membership || !workspacesFromMembership(membership).includes(name)) {
-    throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-  }
-  return myWorkspaceFromMembership(membership, name);
-}
-
 function requireUserId(c: Context<SessionVars>): string {
   // requireSessionUser guarantees a session user; the guard is belt-and-braces
   // and keeps the 404 (not 401) shape uniform with the not-a-member case.
   const userId = c.get("sessionUser")?.id;
   if (!userId) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
   return userId;
-}
-
-/**
- * Membership admin|owner for this workspace — 404 if not a member, 403 if
- * member but not privileged. Exported for reuse by the self-serve token
- * governance dual-auth guard (`workspaces.ts`, issue #262 Task 3).
- */
-export async function adminWorkspaceOr403(
-  env: Env,
-  userId: string,
-  name: string,
-): Promise<MyWorkspace> {
-  const ws = await memberWorkspaceOr404(env, userId, name);
-  if (ws.role !== "admin" && ws.role !== "owner") {
-    throw new ForbiddenError("workspace admin or owner role required", {
-      code: "workspace_admin_required",
-    });
-  }
-  return ws;
-}
-
-/**
- * True iff the user holds org role `owner` (not `admin`) for workspace
- * `name`, resolved via the same org<->workspace mapping as
- * `adminWorkspaceOr403`/`memberWorkspaceOr404` (issue #265 — extends the
- * #249 self-serve deletion gate from creator-only to creator OR org owner).
- * Non-throwing: a non-member or unknown workspace is simply `false`, not a
- * 404 — callers combine this with other ownership checks and want a uniform
- * "not authorized" outcome rather than a membership-probing 404.
- */
-export async function isWorkspaceOwner(env: Env, userId: string, name: string): Promise<boolean> {
-  try {
-    const ws = await memberWorkspaceOr404(env, userId, name);
-    return ws.role === "owner";
-  } catch (err) {
-    if (err instanceof NotFoundError) return false;
-    throw err;
-  }
 }
 
 export const me = new Hono<SessionVars>()
@@ -445,127 +224,39 @@ export const me = new Hono<SessionVars>()
   // route's old shape (adds `scopes`/`plan`), so this is a genuine forward
   // (see `forwardToWorkspaceUsage`'s docblock), not a reimplementation.
   .get("/workspaces/:name/usage", (c) =>
-    forwardToWorkspaceUsage(c, `/${c.req.param("name")}/usage`),
+    forwardToWorkspaceUsage(c, `/${encodeURIComponent(c.req.param("name"))}/usage`),
   )
 
   // Workspace shell for the account rail: membership + public URL + usage.
-  .get("/workspaces/:name/summary", async (c) => {
-    const name = c.req.param("name");
-    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
-
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) {
-      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-    }
-
-    const publicBaseUrl = record.publicBaseUrl;
-    let usage: ReturnType<typeof usageWithLimits> | null = null;
-    if (record) {
-      try {
-        usage = usageWithLimits(await getWorkspaceUsage(c.env.DB, name), record);
-      } catch {
-        usage = null;
-      }
-    }
-
-    return c.json({
-      workspace: ws.workspace,
-      organization: ws.organization,
-      role: ws.role,
-      hasPublicUrl: Boolean(publicBaseUrl),
-      publicBaseUrl,
-      usage,
-    });
-  })
+  // Issue #613 phase 3: forwards to the canonical dual-auth-free (session-
+  // only) handler in `routes/workspace-settings.ts` — the extracted handler
+  // is byte-for-byte the body this route used to run, so response shape
+  // can't drift. See `forwardToWorkspaceSettings`'s docblock.
+  .get("/workspaces/:name/summary", (c) =>
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/summary`),
+  )
 
   // Plan metadata, resolved effective limits, usage, and subscription state
-  // for the account billing tab — 404s unless the caller is a member.
-  // `plan`/`available`/`planApplied`/`limits` reuse workspace-plan.ts's
-  // `planResponse` — the same attribution contract the admin plan surface
-  // uses (Task 5's Critical fix): a record with no `plan` field must never
-  // display free-plan default caps it isn't actually enforcing, so
-  // `planApplied` is `false` and `limits` mirrors enforcement
-  // (explicit-or-unlimited) rather than the plan defaults.
-  //
-  // `planSource`/`subscription` (issue #445, purely additive to the shape
-  // above — a billing-tab lane builds its UI against this) are sourced from
-  // the auth D1 `subscription` table over the AUTH service binding
-  // (org-workspaces.ts's `subscriptionForOrg`), the same internal-bridge
-  // pattern as every other org lookup here. `subscriptionForOrg` never
-  // throws — an AUTH outage degrades to `subscription: null` +
-  // `planSource: "none"`-or-"admin" (whichever `planSourceFor` derives with a
-  // null subscription) rather than a 500. `stripeCustomerId` is deliberately
-  // dropped here — it's an admin-ui-only field (see routes/admin-ui.ts's
-  // plan surface), never exposed to the member-facing /me API.
-  .get("/workspaces/:name/billing", async (c) => {
-    const name = c.req.param("name");
-    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
+  // for the account billing tab. Same forward as above. `stripeCustomerId`
+  // redaction preserved exactly in the canonical handler — see its docblock.
+  .get("/workspaces/:name/billing", (c) =>
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/billing`),
+  )
 
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) {
-      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-    }
+  // People in one workspace — member-gated (teammate fields only, not admin
+  // raw rows). Issue #613 phase 3: forwards to the canonical dual-auth-free
+  // (session-only) handler in `routes/workspace-members.ts` — the extracted
+  // handler is byte-for-byte the body this route used to run, so response
+  // shape can't drift. See `forwardToWorkspaceMembers`'s docblock.
+  .get("/workspaces/:name/members", (c) =>
+    forwardToWorkspaceMembers(c, `/${encodeURIComponent(c.req.param("name"))}/members`),
+  )
 
-    const { plan, available, planApplied, limits } = planResponse(name, record);
-
-    const [usage, authSubscription] = await Promise.all([
-      getWorkspaceUsage(c.env.DB, name)
-        .then((raw) => usageWithLimits(raw, record))
-        .catch(() => null),
-      subscriptionForOrg(c.env, ws.organization.slug),
-    ]);
-
-    const planSource = planSourceFor(record, authSubscription);
-    const subscription = authSubscription
-      ? {
-          status: authSubscription.status,
-          periodEnd: authSubscription.periodEnd,
-          cancelAtPeriodEnd: authSubscription.cancelAtPeriodEnd,
-        }
-      : null;
-
-    return c.json({
-      workspace: ws.workspace,
-      organization: ws.organization,
-      plan,
-      available,
-      planApplied,
-      limits,
-      usage,
-      planSource,
-      subscription,
-    });
-  })
-
-  // People in one workspace — member-gated (teammate fields only, not admin raw rows).
-  .get("/workspaces/:name/members", async (c) => {
-    const name = c.req.param("name");
-    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    const canManage = canManageRole(ws.role);
-    const members = await membersForOrg(c.env, ws.organization.slug);
-    return c.json({
-      members: projectMembers(members, canManage),
-    });
-  })
-
-  // People tab: members + (for admins) pending invites + role in one authz pass.
-  .get("/workspaces/:name/people", async (c) => {
-    const name = c.req.param("name");
-    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    const canManage = canManageRole(ws.role);
-    const [members, invites] = await Promise.all([
-      membersForOrg(c.env, ws.organization.slug),
-      canManage ? invitesForOrg(c.env, ws.organization.slug) : Promise.resolve([]),
-    ]);
-
-    return c.json({
-      role: ws.role,
-      canManage,
-      organization: ws.organization,
-      members: projectMembers(members, canManage),
-      invites: canManage ? invites : [],
-    });
-  })
+  // People tab: members + (for admins) pending invites + role in one authz
+  // pass. Same forward as above.
+  .get("/workspaces/:name/people", (c) =>
+    forwardToWorkspaceMembers(c, `/${encodeURIComponent(c.req.param("name"))}/people`),
+  )
 
   // Galleries in one workspace — member-gated. Issue #613 phase 2: NOT
   // forwarded to the canonical `/v1/workspaces/:workspace/galleries` list —
@@ -599,28 +290,31 @@ export const me = new Hono<SessionVars>()
   // (a wart fix carried over from the token-authed surface, which already
   // worked this way).
   .get("/workspaces/:name/files", (c) =>
-    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files`),
+    forwardToWorkspaceFiles(c, `/${encodeURIComponent(c.req.param("name"))}/files`),
   )
   .get("/workspaces/:name/files/search", (c) =>
-    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/search`),
+    forwardToWorkspaceFiles(c, `/${encodeURIComponent(c.req.param("name"))}/files/search`),
   )
   .get("/workspaces/:name/files/facets", (c) =>
-    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/facets`),
+    forwardToWorkspaceFiles(c, `/${encodeURIComponent(c.req.param("name"))}/files/facets`),
   )
   .get("/workspaces/:name/files/by-path", (c) =>
-    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/by-path`),
+    forwardToWorkspaceFiles(c, `/${encodeURIComponent(c.req.param("name"))}/files/by-path`),
   )
   .get("/workspaces/:name/file-url", (c) =>
-    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/file-url`),
+    forwardToWorkspaceFiles(c, `/${encodeURIComponent(c.req.param("name"))}/files/file-url`),
   )
   .patch("/workspaces/:name/files/visibility", (c) =>
-    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/visibility`),
+    forwardToWorkspaceFiles(c, `/${encodeURIComponent(c.req.param("name"))}/files/visibility`),
   )
   .delete("/workspaces/:name/files", (c) => {
     const key = c.req.query("key") ?? "";
     if (badKey(key)) throw new NotFoundError();
     const keyPath = key.split("/").map(encodeURIComponent).join("/");
-    return forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/${keyPath}`);
+    return forwardToWorkspaceFiles(
+      c,
+      `/${encodeURIComponent(c.req.param("name"))}/files/${keyPath}`,
+    );
   })
 
   // files-sdk's folder-aware browser gateway. Authorization happens before a
@@ -647,110 +341,53 @@ export const me = new Hono<SessionVars>()
 
   // Invite an email to the org backing this workspace (Better Auth invitation).
   // Workspace org admin|owner only. Returns acceptUrl so self-hosted installs
-  // without Email Sending can still hand the invitee a link.
-  .post("/workspaces/:name/invites", async (c) => {
-    const name = c.req.param("name");
-    const userId = requireUserId(c);
-    // Membership already carries org slug (1:1 mapping) — no second org fetch.
-    const ws = await adminWorkspaceOr403(c.env, userId, name);
-
-    if (!(await allowWrite(c.env, name))) {
-      throw new RateLimitedError("rate limit exceeded");
-    }
-
-    const body = await c.req
-      .json<{ email?: unknown; role?: unknown }>()
-      .catch(() => ({}) as { email?: unknown; role?: unknown });
-    // Account UI always invites as member; API still accepts role for CLI.
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-    const role = typeof body.role === "string" ? body.role.trim() : "member";
-    if (!email || !EMAIL_RE.test(email)) {
-      throw new ValidationError("invalid email address", { code: "invalid_email" });
-    }
-    if (role !== "member" && role !== "admin") {
-      throw new ValidationError("role must be member or admin", { code: "invalid_role" });
-    }
-
-    // Per-recipient rate limit when the binding is configured (hosted always;
-    // self-hosted opt-in via wrangler). Absent binding = no RL (same as other
-    // optional limiters).
-    const limiter = c.env.INVITE_LIMITER;
-    if (limiter) {
-      const { success } = await limiter.limit({ key: `invite:email:${email}` });
-      if (!success) throw new RateLimitedError("invite rate limit exceeded");
-    }
-
-    const response = await c.env.AUTH.fetch("https://auth.internal/internal/invite", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-uploads-internal": "1" },
-      body: JSON.stringify({
-        organizationSlug: ws.organization.slug,
-        email,
-        role,
-        inviterUserId: userId,
-      }),
-    });
-    const payload = (await response.json().catch(() => null)) as {
-      invitation?: { id?: string };
-      acceptUrl?: string;
-    } | null;
-    if (!response.ok) throwForInviteError(response.status, payload);
-    // Ensure acceptUrl even if an older auth worker omits it.
-    const webOrigin = (c.env.WEB_ORIGIN || "https://uploads.sh").replace(/\/$/, "");
-    const id = payload?.invitation?.id;
-    const acceptUrl =
-      payload?.acceptUrl ?? (id ? `${webOrigin}/accept-invitation/${id}` : undefined);
-    return c.json({ ...payload, acceptUrl }, response.status === 200 ? 200 : 201);
-  })
+  // without Email Sending can still hand the invitee a link. Issue #613
+  // phase 3: forwards to `routes/workspaces.ts`'s canonical
+  // `POST /:name/invites` (now `dualGovernanceAuth`-guarded) — see
+  // `forwardToWorkspaceInvite`'s docblock for why this route, uniquely among
+  // this vertical's session routes, forwards to `workspaces.ts` rather than
+  // `workspace-members.ts`.
+  .post("/workspaces/:name/invites", (c) => forwardToWorkspaceInvite(c, c.req.param("name")))
 
   // Pending invites for this workspace — admin/owner only (they can revoke).
-  .get("/workspaces/:name/invites", async (c) => {
-    const name = c.req.param("name");
-    const ws = await adminWorkspaceOr403(c.env, requireUserId(c), name);
-    const invites = await invitesForOrg(c.env, ws.organization.slug);
-    return c.json({ invites });
-  })
+  // Issue #613 phase 3: forwards to the canonical session-only handler in
+  // `routes/workspace-members.ts`.
+  .get("/workspaces/:name/invites", (c) =>
+    forwardToWorkspaceMembers(c, `/${encodeURIComponent(c.req.param("name"))}/invites`),
+  )
 
-  // Revoke a pending invite — admin/owner only.
-  .delete("/workspaces/:name/invites/:id", async (c) => {
-    const name = c.req.param("name");
-    const userId = requireUserId(c);
-    const ws = await adminWorkspaceOr403(c.env, userId, name);
-    if (!(await allowWrite(c.env, name))) throw new RateLimitedError("rate limit exceeded");
-    await revokeInvite(c.env, ws.organization.slug, c.req.param("id"), userId);
-    return c.json({ ok: true });
-  })
+  // Revoke a pending invite — admin/owner only. Same forward as above. Each
+  // param is `encodeURIComponent`-ed before interpolation: `c.req.param`
+  // returns the URL-decoded segment, so a raw `/` or `..` here could
+  // otherwise reshape the forwarded pathname and dispatch against a
+  // different route than the one this URL named (CodeRabbit PR #617 review
+  // finding 2 — hygiene/correctness, not an auth bypass, since
+  // `sessionAdminGate` re-resolves membership on whatever workspace the
+  // rewritten request actually names).
+  .delete("/workspaces/:name/invites/:id", (c) =>
+    forwardToWorkspaceMembers(
+      c,
+      `/${encodeURIComponent(c.req.param("name"))}/invites/${encodeURIComponent(c.req.param("id"))}`,
+    ),
+  )
 
-  // Remove a member (by opaque member id) — admin/owner only; matrix enforced in auth worker.
-  .delete("/workspaces/:name/members/:memberId", async (c) => {
-    const name = c.req.param("name");
-    const userId = requireUserId(c);
-    const ws = await adminWorkspaceOr403(c.env, userId, name);
-    if (!(await allowWrite(c.env, name))) throw new RateLimitedError("rate limit exceeded");
-    await removeMember(c.env, ws.organization.slug, c.req.param("memberId"), userId);
-    return c.json({ ok: true });
-  })
+  // Remove a member (by opaque member id) — admin/owner only; matrix
+  // enforced in auth worker. Same forward pattern, same per-segment encoding.
+  .delete("/workspaces/:name/members/:memberId", (c) =>
+    forwardToWorkspaceMembers(
+      c,
+      `/${encodeURIComponent(c.req.param("name"))}/members/${encodeURIComponent(c.req.param("memberId"))}`,
+    ),
+  )
 
   // Change a member's role (admin↔member); auth worker enforces the matrix.
-  .patch("/workspaces/:name/members/:memberId", async (c) => {
-    const name = c.req.param("name");
-    const userId = requireUserId(c);
-    const ws = await adminWorkspaceOr403(c.env, userId, name);
-    if (!(await allowWrite(c.env, name))) throw new RateLimitedError("rate limit exceeded");
-    const body = await c.req.json<{ role?: unknown }>().catch(() => ({}) as { role?: unknown });
-    const role = typeof body.role === "string" ? body.role.trim() : "";
-    if (role !== "admin" && role !== "member") {
-      throw new ValidationError("role must be admin or member", { code: "invalid_role" });
-    }
-    const member = await updateMemberRole(
-      c.env,
-      ws.organization.slug,
-      c.req.param("memberId"),
-      role,
-      userId,
-    );
-    return c.json({ member });
-  })
+  // Same forward pattern, same per-segment encoding.
+  .patch("/workspaces/:name/members/:memberId", (c) =>
+    forwardToWorkspaceMembers(
+      c,
+      `/${encodeURIComponent(c.req.param("name"))}/members/${encodeURIComponent(c.req.param("memberId"))}`,
+    ),
+  )
 
   // Batch PR/issue titles for the connected-work rail (issue #267). Member-
   // gated: title text for private repos is sensitive, and membership scoping
@@ -815,50 +452,17 @@ export const me = new Hono<SessionVars>()
   // Workspace-level managed-comment defaults (issue #307): image width,
   // inline-image cap, the two legacy booleans, and a short note. Admin/owner
   // only — these are workspace-wide defaults every repo comment inherits
-  // unless a repo's `.uploads.yml` overrides them.
-  .get("/workspaces/:name/comment-settings", async (c) => {
-    const name = c.req.param("name");
-    await adminWorkspaceOr403(c.env, requireUserId(c), name);
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-    return c.json(commentSettingsResponse(record));
-  })
+  // unless a repo's `.uploads.yml` overrides them. Issue #613 phase 3:
+  // forwards to the canonical handler in `routes/workspace-settings.ts` —
+  // the extracted handler is byte-for-byte the body this route used to run.
+  .get("/workspaces/:name/comment-settings", (c) =>
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/comment-settings`),
+  )
 
-  // Patch the defaults above. Validated in full before any write (reject-
-  // all-or-apply-all — see `validateCommentSettingsPatch`); an omitted key
-  // leaves the field unchanged, an explicit `null` clears it.
-  .patch("/workspaces/:name/comment-settings", async (c) => {
-    const name = c.req.param("name");
-    const userId = requireUserId(c);
-    await adminWorkspaceOr403(c.env, userId, name);
-    if (!(await allowWrite(c.env, name))) {
-      throw new RateLimitedError("rate limit exceeded");
-    }
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      throw new ValidationError("request body must be valid JSON", { code: "invalid_settings" });
-    }
-    const patch = validateCommentSettingsPatch(body);
-    const record = await mutateWorkspaceRecord(
-      c.env,
-      name,
-      (current) => {
-        const next = { ...current };
-        for (const key of COMMENT_SETTINGS_KEYS) {
-          if (!(key in patch)) continue;
-          const field = COMMENT_SETTINGS_RECORD_FIELD[key];
-          const value = patch[key];
-          if (value === null || value === undefined) delete next[field];
-          else (next as Record<string, unknown>)[field] = value;
-        }
-        return next;
-      },
-      { requireServing: true },
-    );
-    return c.json(commentSettingsResponse(record));
-  })
+  // Patch the defaults above. Same forward as above.
+  .patch("/workspaces/:name/comment-settings", (c) =>
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/comment-settings`),
+  )
 
   // Preview the production managed-comment body against resolved comment
   // settings (issue #307). Admin/owner-gated like the settings routes above:
@@ -938,228 +542,20 @@ export const me = new Hono<SessionVars>()
 
   // Self-serve BYO R2 bucket (issue #583 Task 1.1): read/verify/write/detach
   // of a workspace's storage config. Same audience as the comment-settings
-  // triple above (admin/owner only) — storage config is workspace-wide and
-  // security sensitive. Readable regardless of `byoBucketEnabled` (the
-  // settings UI needs the flag value to decide whether to show the panel at
-  // all); verify/write/detach 403 when the flag is off (fail-closed, see
-  // `byoBucketAllowed` in workspace.ts). Never returns credential values —
-  // `storageStatusResponse` (workspace-storage.ts) projects masked/presence
-  // fields only, same posture as `GET /admin/workspaces/:name` (admin.ts).
-  .get("/workspaces/:name/storage", async (c) => {
-    const name = c.req.param("name");
-    await adminWorkspaceOr403(c.env, requireUserId(c), name);
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-    return c.json(storageStatusResponse(record, byoBucketAllowed(record)));
-  })
-
-  // Runs the verify pipeline (storage-verify.ts) against the request body —
-  // never saved state — so an admin can iterate on credentials before
-  // anything is persisted. Rate-limited via `allowWrite` like every other
-  // mutating-adjacent route here: each call does real remote I/O (auth
-  // probe + a write/read/delete round-trip against the candidate bucket).
-  .post("/workspaces/:name/storage/verify", async (c) => {
-    const name = c.req.param("name");
-    const userId = requireUserId(c);
-    await adminWorkspaceOr403(c.env, userId, name);
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-    if (!byoBucketAllowed(record)) {
-      throw new ForbiddenError("BYO storage is not enabled for this workspace", {
-        code: "byo_bucket_disabled",
-      });
-    }
-    if (!(await allowWrite(c.env, name))) {
-      throw new RateLimitedError("rate limit exceeded");
-    }
-
-    const body = await c.req.json().catch(() => null);
-    const candidate = candidateFromBody(body);
-    const result = await storageVerify(candidate);
-    return c.json(result);
-  })
-
-  // Persist a verified BYO config. Never trusts a client-side "verified"
-  // claim — re-runs the same pipeline server-side against the request body,
-  // and only writes on a pass. On a fail, responds with the verify result
-  // (422) so the UI can render the same checklist the standalone verify
-  // route would have. `mutateWorkspaceRecord` (with `requireServing`) both
-  // re-checks the workspace hasn't been soft-deleted since the request
-  // started and gives us the read-immediately-before-write window issue #387
-  // exists for; sealing happens *inside* that callback (precedent:
-  // `reencrypt-registry.ts`), never on data read earlier in the request.
-  .put("/workspaces/:name/storage", async (c) => {
-    const name = c.req.param("name");
-    const userId = requireUserId(c);
-    await adminWorkspaceOr403(c.env, userId, name);
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-    if (!byoBucketAllowed(record)) {
-      throw new ForbiddenError("BYO storage is not enabled for this workspace", {
-        code: "byo_bucket_disabled",
-      });
-    }
-    if (!(await allowWrite(c.env, name))) {
-      throw new RateLimitedError("rate limit exceeded");
-    }
-
-    const body = await c.req.json().catch(() => null);
-    const candidate = candidateFromBody(body);
-    const result = await storageVerify(candidate);
-    if (!result.ok) {
-      return c.json(result, 422);
-    }
-
-    // No migration of populated workspaces in v1 (plan's global constraints):
-    // attaching a BYO bucket to a workspace that already holds files would
-    // orphan them on the shared bucket. Checked against the D1 usage ledger
-    // *before* the mutation — a KV-only read inside the callback can't see
-    // this — accepting the narrow race where a concurrent upload lands
-    // between this check and the write (the callback's `requireServing`
-    // re-check guards the record itself, not usage).
-    const usage = await getWorkspaceUsage(c.env.DB, name);
-    if (usage.objects > 0 && candidate.adoptExistingContents !== true) {
-      throw new ConflictError(
-        "this workspace already has files — BYO storage can only be attached to an empty workspace",
-        { code: "workspace_storage_not_empty" },
-      );
-    }
-
-    const nowIso = new Date().toISOString();
-    const updated = await mutateWorkspaceRecord(
-      c.env,
-      name,
-      async (current) => {
-        const sealed = await sealCredentialFieldsStrict(c.env.WORKSPACE_SECRETS_KEY, {
-          accessKeyId: candidate.accessKeyId,
-          secretAccessKey: candidate.secretAccessKey,
-        });
-        const next: WorkspaceRecord = { ...current };
-        delete next.prefix;
-        delete next.binding;
-        next.bucket = candidate.bucket;
-        next.accountId = candidate.accountId;
-        next.accessKeyId = sealed.accessKeyId;
-        next.secretAccessKey = sealed.secretAccessKey;
-        if (candidate.publicBaseUrl) next.publicBaseUrl = candidate.publicBaseUrl;
-        else delete next.publicBaseUrl;
-        // Cast is safe: `storageVerify` above already ran the shape check
-        // (storage-verify.ts) that 422s on anything outside R2_JURISDICTIONS.
-        if (candidate.jurisdiction) next.jurisdiction = candidate.jurisdiction as R2Jurisdiction;
-        else delete next.jurisdiction;
-        next.storageConfiguredAt = nowIso;
-        next.storageVerifiedAt = nowIso;
-        next.storageConfiguredBy = userId;
-        // Display fragment for the settings UI, captured from the plaintext
-        // before sealing — `next.accessKeyId` is ciphertext from here on.
-        next.storageAccessKeyIdLast4 = candidate.accessKeyId.slice(-4);
-        return next;
-      },
-      { requireServing: true },
-    );
-
-    console.log(JSON.stringify({ event: "workspace_storage_configured", workspace: name, userId }));
-
-    // `adoptExistingContents` bypassed the emptiness guard, so the D1 usage
-    // ledger still describes the old backing storage while the adopted
-    // bucket's contents are what this workspace now serves. Rebuild the
-    // ledger from the new bucket so it's honest immediately (it's dormant
-    // for `maxStorageBytes` while BYO is active — `storageBudgetApplies` —
-    // but powers the settings UI and becomes authoritative again on detach).
-    // Best-effort: the config write above already succeeded, and reconcile
-    // can be re-run any time.
-    if (candidate.adoptExistingContents === true) {
-      await storageReconcile(c.env, updated, name).catch((err) =>
-        console.error("workspace storage attach: usage reconcile failed for", name, err),
-      );
-    }
-
-    return c.json({ ...storageStatusResponse(updated, true), verify: result });
-  })
-
-  // Detach BYO storage and restore shared-bucket defaults. Never touches the
-  // customer's bucket or its objects — only the platform's own KV record.
-  // Blocked unless the workspace's usage ledger reports zero objects, or the
-  // caller explicitly passes `force` (query `?force=true` or a JSON body
-  // `{ "force": true }`) — mirrors the empty-workspace guard on PUT above,
-  // in the opposite direction. Shared-bucket fields (bucket/binding/prefix/
-  // publicBaseUrl) come from `selfServeWorkspaceRecord` so this can't drift
-  // from what a brand-new self-serve workspace actually gets; everything
-  // else on the record (limits, github links, comment settings, plan, other
-  // flags) is preserved untouched.
-  .delete("/workspaces/:name/storage", async (c) => {
-    const name = c.req.param("name");
-    const userId = requireUserId(c);
-    await adminWorkspaceOr403(c.env, userId, name);
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-    if (!byoBucketAllowed(record)) {
-      throw new ForbiddenError("BYO storage is not enabled for this workspace", {
-        code: "byo_bucket_disabled",
-      });
-    }
-    if (!(await allowWrite(c.env, name))) {
-      throw new RateLimitedError("rate limit exceeded");
-    }
-
-    const queryForce = c.req.query("force");
-    const bodyForce = await c.req
-      .json<{ force?: unknown }>()
-      .then((b) => b?.force === true)
-      .catch(() => false);
-    const force = queryForce === "true" || queryForce === "1" || bodyForce;
-
-    if (!force) {
-      const usage = await getWorkspaceUsage(c.env.DB, name);
-      if (usage.objects > 0) {
-        throw new ConflictError(
-          "this workspace still has files on its BYO bucket — pass force to detach anyway",
-          { code: "workspace_storage_not_empty" },
-        );
-      }
-    }
-
-    const updated = await mutateWorkspaceRecord(
-      c.env,
-      name,
-      (current) => {
-        const shared = selfServeWorkspaceRecord({
-          name,
-          userId: current.createdByUserId ?? userId,
-          now: new Date(),
-        });
-        const next: WorkspaceRecord = { ...current };
-        next.bucket = shared.bucket;
-        next.binding = shared.binding;
-        next.prefix = shared.prefix;
-        if (shared.publicBaseUrl) next.publicBaseUrl = shared.publicBaseUrl;
-        else delete next.publicBaseUrl;
-        delete next.accountId;
-        delete next.accessKeyId;
-        delete next.secretAccessKey;
-        delete next.jurisdiction;
-        delete next.storageConfiguredAt;
-        delete next.storageVerifiedAt;
-        delete next.storageConfiguredBy;
-        delete next.storageAccessKeyIdLast4;
-        return next;
-      },
-      { requireServing: true },
-    );
-
-    console.log(JSON.stringify({ event: "workspace_storage_detached", workspace: name, userId }));
-
-    // `force` bypassed the emptiness guard, so the ledger still describes
-    // the detached BYO bucket — but `maxStorageBytes` enforcement resumes on
-    // the shared bucket the moment this record is restored, and stale counts
-    // could leave the workspace permanently over-budget with nothing to
-    // delete. Rebuild from the restored shared-bucket prefix (best-effort,
-    // same rationale as the attach path above).
-    if (force) {
-      await storageReconcile(c.env, updated, name).catch((err) =>
-        console.error("workspace storage detach: usage reconcile failed for", name, err),
-      );
-    }
-
-    return c.json(storageStatusResponse(updated, byoBucketAllowed(updated)));
-  });
+  // triple above (admin/owner only). Issue #613 phase 3: forwards to the
+  // canonical handlers in `routes/workspace-settings.ts` — extracted
+  // byte-for-byte from the bodies these four routes used to run, so
+  // response shape (masked `storageStatusResponse` projection, never
+  // credential values) can't drift.
+  .get("/workspaces/:name/storage", (c) =>
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/storage`),
+  )
+  .post("/workspaces/:name/storage/verify", (c) =>
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/storage/verify`),
+  )
+  .put("/workspaces/:name/storage", (c) =>
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/storage`),
+  )
+  .delete("/workspaces/:name/storage", (c) =>
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/storage`),
+  );

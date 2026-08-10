@@ -6,7 +6,7 @@
  * failure surfaces as a 5xx rather than an empty-looking feed.
  */
 import { ValidationError } from "@uploads/errors";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { listPrActivityForWorkspace } from "../github-pr-activity";
 import { requireScope, type WorkspaceVars } from "../workspace";
 
@@ -24,13 +24,20 @@ function parseLimit(raw: string | undefined): number {
   return limit;
 }
 
+/**
+ * Handler body (issue #613 phase 3): extracted to a named function so the
+ * canonical dual-auth vertical (`routes/workspace-github.ts`) can reuse it
+ * verbatim — same pattern as the other four GitHub sub-routers.
+ */
+export async function githubActivityHandler(c: Context<WorkspaceVars>) {
+  const limit = parseLimit(c.req.query("limit"));
+  const workspaceName = c.get("workspaceName");
+  const activity = await listPrActivityForWorkspace(c.env.DB, workspaceName, limit);
+  return c.json({ workspace: workspaceName, activity });
+}
+
 export const githubActivity = new Hono<WorkspaceVars>().get(
   "/activity",
   requireScope("files:read"),
-  async (c) => {
-    const limit = parseLimit(c.req.query("limit"));
-    const workspaceName = c.get("workspaceName");
-    const activity = await listPrActivityForWorkspace(c.env.DB, workspaceName, limit);
-    return c.json({ workspace: workspaceName, activity });
-  },
+  githubActivityHandler,
 );

@@ -9,7 +9,7 @@
  * (`claimed: false`, `owner`) rather than silently pretending to succeed.
  */
 import { ValidationError, ForbiddenError } from "@uploads/errors";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { isEntitledToClaimRepo } from "../github-claim-authz";
 import {
   deleteRepoLinkForWorkspace,
@@ -50,92 +50,105 @@ function linkResponse(repo: string, link: RepoLink | null) {
   };
 }
 
-export const githubLink = new Hono<WorkspaceVars>()
-  .get("/link", requireScope("files:read"), async (c) => {
-    const repo = parseRepo(c.req.query("repo"));
-    const link = await findRepoLink(c.env.DB, repo);
-    return c.json(linkResponse(repo, link));
-  })
-  // `/repo-link` (issue #398): a deliberately minimal, cross-tenant-safe
-  // counterpart to `/link` above. `/link` names the owning workspace in its
-  // response — fine for an authenticated inspect/claim flow the caller
-  // initiated for their own repo, but wrong for the `attach --branch` stage
-  // warning, which fires for ANY repo the CLI happens to detect from local
-  // git context. That warning must be able to say "this repo belongs to
-  // someone else" without ever saying to whom, so this route collapses the
-  // full link record down to a tri-state relative to the calling workspace:
-  // "self" (bound to me), "other" (bound, not to me), or "none" (unbound).
-  // Uses the lenient `findRepoLink` (never throws — a D1 blip degrades to
-  // "none", not a 5xx) because this is advisory-only; the CLI already
-  // silences anything but a clean 200.
-  .get("/repo-link", requireScope("files:read"), async (c) => {
-    const repo = parseRepo(c.req.query("repo"));
-    const workspaceName = c.get("workspaceName");
-    const link = await findRepoLink(c.env.DB, repo);
-    return c.json({ binding: deriveRepoBinding(link, workspaceName) });
-  })
-  .post("/link", writeRateLimit, requireScope("files:write"), async (c) => {
-    const repo = parseRepo((await jsonBody(c)).repo);
-    const workspaceName = c.get("workspaceName");
+/**
+ * Handler bodies (issue #613 phase 3): extracted to named functions so the
+ * canonical dual-auth vertical (`routes/workspace-github.ts`) can reuse them
+ * verbatim — same pattern as `routes/galleries.ts`'s phase-2 extraction.
+ */
+export async function githubLinkGetHandler(c: Context<WorkspaceVars>) {
+  const repo = parseRepo(c.req.query("repo"));
+  const link = await findRepoLink(c.env.DB, repo);
+  return c.json(linkResponse(repo, link));
+}
 
-    const before = await findRepoLink(c.env.DB, repo);
-    if (before) {
-      // Already bound — honestly report the owner rather than claiming
-      // success. First-claim-wins: this call never overwrites it, whether
-      // the owner is this workspace or another one.
-      return c.json({
-        claimed: before.workspaceName === workspaceName,
-        ...linkResponse(repo, before),
-      });
-    }
+// `/repo-link` (issue #398): a deliberately minimal, cross-tenant-safe
+// counterpart to `/link` above. `/link` names the owning workspace in its
+// response — fine for an authenticated inspect/claim flow the caller
+// initiated for their own repo, but wrong for the `attach --branch` stage
+// warning, which fires for ANY repo the CLI happens to detect from local
+// git context. That warning must be able to say "this repo belongs to
+// someone else" without ever saying to whom, so this route collapses the
+// full link record down to a tri-state relative to the calling workspace:
+// "self" (bound to me), "other" (bound, not to me), or "none" (unbound).
+// Uses the lenient `findRepoLink` (never throws — a D1 blip degrades to
+// "none", not a 5xx) because this is advisory-only; the CLI already
+// silences anything but a clean 200.
+export async function githubRepoLinkGetHandler(c: Context<WorkspaceVars>) {
+  const repo = parseRepo(c.req.query("repo"));
+  const workspaceName = c.get("workspaceName");
+  const link = await findRepoLink(c.env.DB, repo);
+  return c.json({ binding: deriveRepoBinding(link, workspaceName) });
+}
 
-    // Cross-tenant authorization (issue #297): this is the explicit-claim
-    // counterpart to the implicit claims in routes/github-comment.ts and
-    // routes/github-promote.ts — same gate, because this endpoint has even
-    // less friction (no upload, no GitHub API call of its own) than either
-    // of those. An unbound repo can only be claimed when this workspace's
-    // linked GitHub identity is verified (via the App's installation token)
-    // to have push/maintain/admin access to it. Soft-decline, not an error —
-    // `uploads github link` reports this the same way it reports "someone
-    // else owns it".
-    const entitled = await isEntitledToClaimRepo(c.env, repo, c.get("mintingUserId"));
-    if (!entitled) {
-      return c.json({
-        claimed: false,
-        reason: "not_authorized" as const,
-        ...linkResponse(repo, null),
-      });
-    }
+export async function githubLinkPostHandler(c: Context<WorkspaceVars>) {
+  const repo = parseRepo((await jsonBody(c)).repo);
+  const workspaceName = c.get("workspaceName");
 
-    await recordRepoLink(c.env.DB, repo, workspaceName, "cli");
-    const after = await findRepoLink(c.env.DB, repo);
+  const before = await findRepoLink(c.env.DB, repo);
+  if (before) {
+    // Already bound — honestly report the owner rather than claiming
+    // success. First-claim-wins: this call never overwrites it, whether
+    // the owner is this workspace or another one.
     return c.json({
-      claimed: after?.workspaceName === workspaceName,
-      ...linkResponse(repo, after),
+      claimed: before.workspaceName === workspaceName,
+      ...linkResponse(repo, before),
     });
-  })
-  // Self-serve unlink (issue #318): a workspace can only remove a binding it
-  // owns — this never lets one workspace unclaim another's repo. Use the
-  // admin-gated route (routes/admin-ui.ts) to reassign or remove someone
-  // else's stuck/abandoned binding.
-  .delete("/link", writeRateLimit, requireScope("files:write"), async (c) => {
-    const repo = parseRepo(c.req.query("repo"));
-    const workspaceName = c.get("workspaceName");
+  }
 
-    // Strict lookup: unlike the GET/POST handlers above (where a D1 blip
-    // degrading to "unclaimed" is an acceptable inspect-only fallback), a
-    // D1 read failure here must surface as a 5xx, not silently report
-    // `{unlinked: false, reason: "not_linked"}` (CodeRabbit, issue #318).
-    const before = await findRepoLinkStrict(c.env.DB, repo);
-    if (!before) {
-      return c.json({ repo, unlinked: false, reason: "not_linked" as const });
-    }
-    if (before.workspaceName !== workspaceName) {
-      throw new ForbiddenError(
-        `${repo} is bound to a different workspace ("${before.workspaceName}") — ask an operator to reassign it`,
-        { code: "not_link_owner" },
-      );
-    }
-    const removed = await deleteRepoLinkForWorkspace(c.env.DB, repo, workspaceName);
-    return c.json({ repo, unlinked: removed });
+  // Cross-tenant authorization (issue #297): this is the explicit-claim
+  // counterpart to the implicit claims in routes/github-comment.ts and
+  // routes/github-promote.ts — same gate, because this endpoint has even
+  // less friction (no upload, no GitHub API call of its own) than either
+  // of those. An unbound repo can only be claimed when this workspace's
+  // linked GitHub identity is verified (via the App's installation token)
+  // to have push/maintain/admin access to it. Soft-decline, not an error —
+  // `uploads github link` reports this the same way it reports "someone
+  // else owns it".
+  const entitled = await isEntitledToClaimRepo(c.env, repo, c.get("mintingUserId"));
+  if (!entitled) {
+    return c.json({
+      claimed: false,
+      reason: "not_authorized" as const,
+      ...linkResponse(repo, null),
+    });
+  }
+
+  await recordRepoLink(c.env.DB, repo, workspaceName, "cli");
+  const after = await findRepoLink(c.env.DB, repo);
+  return c.json({
+    claimed: after?.workspaceName === workspaceName,
+    ...linkResponse(repo, after),
   });
+}
+
+// Self-serve unlink (issue #318): a workspace can only remove a binding it
+// owns — this never lets one workspace unclaim another's repo. Use the
+// admin-gated route (routes/admin-ui.ts) to reassign or remove someone
+// else's stuck/abandoned binding.
+export async function githubLinkDeleteHandler(c: Context<WorkspaceVars>) {
+  const repo = parseRepo(c.req.query("repo"));
+  const workspaceName = c.get("workspaceName");
+
+  // Strict lookup: unlike the GET/POST handlers above (where a D1 blip
+  // degrading to "unclaimed" is an acceptable inspect-only fallback), a
+  // D1 read failure here must surface as a 5xx, not silently report
+  // `{unlinked: false, reason: "not_linked"}` (CodeRabbit, issue #318).
+  const before = await findRepoLinkStrict(c.env.DB, repo);
+  if (!before) {
+    return c.json({ repo, unlinked: false, reason: "not_linked" as const });
+  }
+  if (before.workspaceName !== workspaceName) {
+    throw new ForbiddenError(
+      `${repo} is bound to a different workspace ("${before.workspaceName}") — ask an operator to reassign it`,
+      { code: "not_link_owner" },
+    );
+  }
+  const removed = await deleteRepoLinkForWorkspace(c.env.DB, repo, workspaceName);
+  return c.json({ repo, unlinked: removed });
+}
+
+export const githubLink = new Hono<WorkspaceVars>()
+  .get("/link", requireScope("files:read"), githubLinkGetHandler)
+  .get("/repo-link", requireScope("files:read"), githubRepoLinkGetHandler)
+  .post("/link", writeRateLimit, requireScope("files:write"), githubLinkPostHandler)
+  .delete("/link", writeRateLimit, requireScope("files:write"), githubLinkDeleteHandler);

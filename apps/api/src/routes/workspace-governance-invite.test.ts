@@ -38,6 +38,15 @@ function appWith(opts: {
     .onError((err, c) => respondError(c, err));
   const auth = stubAuth(async (req) => {
     const url = new URL(req.url);
+    // Issue #613 phase 3: `POST /:name/invites` is now dual-authed
+    // (`dualGovernanceAuth`) — a request with no bearer token falls through
+    // to a real session resolution instead of an immediate 401, so this
+    // stub needs to answer `get-session` like a real (signed-out) auth
+    // worker would: 401, not the catch-all 404 below (which `sessionAuth`
+    // treats as a service outage, 503 — not this test's intent).
+    if (url.pathname === "/api/auth/get-session") {
+      return new Response(null, { status: 401 });
+    }
     if (url.pathname === "/internal/orgs/acme") {
       if (!orgFound) return new Response(null, { status: 404 });
       return Response.json({ organization: { id: "org1", slug: "acme", name: "Acme" } });
