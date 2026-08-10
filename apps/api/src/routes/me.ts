@@ -30,7 +30,6 @@ import { sealCredentialFieldsStrict } from "../secrets";
 import { throwForInviteError } from "../invite-error";
 import { parseExternalReference } from "../external-references";
 import { previewFixtureItems } from "../comment-preview-fixtures";
-import { getMetadataForKeys, groupObjectsByPath } from "../file-metadata";
 import { badKey, listObjects } from "../files-core";
 import { listGalleries } from "../galleries";
 import { galleryListSummaries } from "../gallery-service";
@@ -59,7 +58,7 @@ import {
 import { presetResolvedSessionUser } from "../dual-workspace-auth";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
 import { selfServeWorkspaceRecord } from "../self-serve-defaults";
-import { objectPublicUrls, storage, storageConfig } from "../storage";
+import { storage } from "../storage";
 import { getWorkspaceUsage } from "../usage";
 import { byoBucketAllowed, loadWorkspaceRecord, type WorkspaceRecord } from "../workspace";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
@@ -580,50 +579,9 @@ export const me = new Hono<SessionVars>()
   .get("/workspaces/:name/files/facets", (c) =>
     forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/facets`),
   )
-  // Recent uploads grouped by their `path` metadata value — the screenshots
-  // page's single overview query (spec: docs/superpowers/specs/
-  // 2026-08-10-screenshots-by-path-design.md). Drill-in reuses the sibling
-  // `files/search?meta.path=…` route; this one only answers "which paths,
-  // how recent, first few keys". Member- and record-gated exactly like the
-  // facets route. `state` is the one metadata key enriched — the page badges
-  // before/after and nothing else, so no other keys leak into the payload.
-  .get("/workspaces/:name/files/by-path", async (c) => {
-    const name = c.req.param("name");
-    await memberWorkspaceOr404(c.env, requireUserId(c), name);
-
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) {
-      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-    }
-
-    const { groups, truncated } = await groupObjectsByPath(c.env.DB, name);
-    const metaByKey = await getMetadataForKeys(
-      c.env.DB,
-      name,
-      groups.flatMap((group) => group.recent),
-      { metaKeys: ["state"] },
-    );
-    const cfg = await storageConfig(c.env, record);
-
-    return c.json({
-      groups: groups.map((group) => ({
-        path: group.path,
-        count: group.count,
-        lastUpdated: group.lastUpdated,
-        recent: group.recent.map((key) => {
-          const urls = objectPublicUrls(c.env, cfg, key);
-          const state = metaByKey.get(key)?.state;
-          return {
-            key,
-            url: urls.url,
-            embedUrl: urls.embedUrl,
-            ...(state !== undefined ? { state } : {}),
-          };
-        }),
-      })),
-      truncated,
-    });
-  })
+  .get("/workspaces/:name/files/by-path", (c) =>
+    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/by-path`),
+  )
   .get("/workspaces/:name/file-url", (c) =>
     forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/file-url`),
   )

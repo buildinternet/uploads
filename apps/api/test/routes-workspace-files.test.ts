@@ -320,6 +320,32 @@ describe("GET /v1/workspaces/:workspace/files/facets and /search (dual auth)", (
   });
 });
 
+describe("GET /v1/workspaces/:workspace/files/by-path (dual auth)", () => {
+  it("bearer token: returns the grouped shape", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    const res = await app.request(
+      "/v1/workspaces/acme/files/by-path",
+      { headers: { Authorization: `Bearer ${TOKEN}` } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ groups: [], truncated: false });
+  });
+
+  it("session cookie: reaches the same handler", async () => {
+    const { env, bucket } = await makeEnv();
+    await seed(bucket);
+    const res = await app.request(
+      "/v1/workspaces/acme/files/by-path",
+      { headers: { cookie: "session=x" } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ groups: [], truncated: false });
+  });
+});
+
 describe("old-path aliases forward unchanged (issue #613)", () => {
   it("/me/workspaces/:name/file-url still returns the same shape as canonical", async () => {
     const { env, bucket } = await makeEnv();

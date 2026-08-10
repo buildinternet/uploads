@@ -28,7 +28,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { dualWorkspaceAuth, type DualAuthVars } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
 import { badKey, deleteObject, listObjects, setObjectVisibility } from "../files-core";
-import { getMetadataForKeys, listFacets } from "../file-metadata";
+import { getMetadataForKeys, groupObjectsByPath, listFacets } from "../file-metadata";
 import {
   normalizeSearchName,
   parseMetaQueryFilters,
@@ -115,6 +115,45 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   // workspace actually contains, and (with `?key=`) that key's values.
   .get("/:workspace/files/facets", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
     return c.json(await listFacets(c.env.DB, c.get("workspaceName"), c.req.query("key")));
+  })
+
+  // Recent uploads grouped by their `path` metadata value — the screenshots
+  // page's single overview query (spec: docs/superpowers/specs/
+  // 2026-08-10-screenshots-by-path-design.md). Drill-in reuses the sibling
+  // `files/search?meta.path=…` route; this one only answers "which paths,
+  // how recent, first few keys". `state` is the one metadata key enriched —
+  // the page badges before/after and nothing else, so no other keys leak
+  // into the payload.
+  .get("/:workspace/files/by-path", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
+    const record = c.get("workspace");
+    const name = c.get("workspaceName");
+    const { groups, truncated } = await groupObjectsByPath(c.env.DB, name);
+    const metaByKey = await getMetadataForKeys(
+      c.env.DB,
+      name,
+      groups.flatMap((group) => group.recent),
+      { metaKeys: ["state"] },
+    );
+    const cfg = await storageConfig(c.env, record);
+
+    return c.json({
+      groups: groups.map((group) => ({
+        path: group.path,
+        count: group.count,
+        lastUpdated: group.lastUpdated,
+        recent: group.recent.map((key) => {
+          const urls = objectPublicUrls(c.env, cfg, key);
+          const state = metaByKey.get(key)?.state;
+          return {
+            key,
+            url: urls.url,
+            embedUrl: urls.embedUrl,
+            ...(state !== undefined ? { state } : {}),
+          };
+        }),
+      })),
+      truncated,
+    });
   })
 
   // Resolve a selected file to a usable URL (issue #613 wart fix: this used
