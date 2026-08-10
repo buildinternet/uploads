@@ -1,0 +1,81 @@
+---
+/**
+ * Screenshots grouped by `path` metadata — `WorkspaceLayout` + the
+ * `ScreenshotsByPath` island. Sibling route to `[name].astro` (files);
+ * cloned structure, own mount id.
+ */
+import WorkspaceLayout from "../../../../layouts/WorkspaceLayout.astro";
+import { isBrowseWorkspace } from "../../../../lib/workspace-browse-url";
+
+export const prerender = false;
+
+const nameParam = Astro.params.name ?? "";
+const workspace = isBrowseWorkspace(nameParam) ? nameParam : "";
+if (!workspace) return Astro.redirect("/account/workspaces");
+
+const tip = {
+  body: "capture with <code>uploads screenshot https://app.example/settings</code> — the page path is recorded automatically and groups shots here.",
+};
+---
+
+<WorkspaceLayout workspace={workspace} tip={tip}>
+  {
+    /* React (dynamic-imported below) replaces this wholesale on mount — no
+      HTML-string placeholder builder exists for this page, so the gap before
+      that import resolves is empty; the component's own loading skeleton
+      renders immediately after mount. */
+  }
+  <div id="ws-screenshots"></div>
+
+  <script>
+    import { onAstroPageLoad } from "../../../../lib/account-shell";
+    import { resolveActiveWorkspace } from "../../../../lib/workspace-browse-url";
+    import { createElement } from "react";
+    import { createRoot, type Root } from "react-dom/client";
+
+    let screenshotsRoot: Root | null = null;
+
+    function teardown(): void {
+      if (!screenshotsRoot) return;
+      try {
+        screenshotsRoot.unmount();
+      } catch {
+        // Container may already be gone after a body swap.
+      }
+      screenshotsRoot = null;
+    }
+
+    async function boot(): Promise<void> {
+      const mount = document.getElementById("ws-screenshots");
+      if (!mount) return;
+
+      // Tear down the previous mount before Astro swaps this page's body away
+      // (registered once per boot() call — {once:true} auto-clears itself so
+      // repeated astro:page-load events from ClientRouter never stack listeners).
+      document.addEventListener("astro:before-swap", teardown, { once: true });
+
+      const w = window as unknown as {
+        __UPLOADS_API_ORIGIN__: string;
+        __UPLOADS_ACTIVE_WORKSPACE__: string;
+      };
+      const apiOrigin = w.__UPLOADS_API_ORIGIN__;
+      // Pathname wins when the boot global is empty/stale after ClientRouter
+      // sibling navigation (same convention as WorkspaceLayout's own script).
+      const workspace = resolveActiveWorkspace(
+        window.location.pathname,
+        w.__UPLOADS_ACTIVE_WORKSPACE__ || "",
+      );
+
+      const { ScreenshotsByPath } = await import("../../../../components/ScreenshotsByPath");
+      if (!document.contains(mount)) return;
+      teardown();
+      screenshotsRoot = createRoot(mount);
+      screenshotsRoot.render(createElement(ScreenshotsByPath, { apiOrigin, workspace }));
+    }
+
+    // astro:page-load fires on the initial load too (same as every sibling
+    // tab), so this single registration mounts on first load and on nav —
+    // no separate eager call, which would double-mount + double-fetch.
+    onAstroPageLoad(() => void boot());
+  </script>
+</WorkspaceLayout>
