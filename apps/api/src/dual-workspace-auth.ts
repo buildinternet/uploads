@@ -6,7 +6,7 @@
  * to know which one arrived. See `routes/workspace-files.ts` for the first
  * vertical built on this.
  */
-import { NotFoundError, UnauthorizedError } from "@uploads/errors";
+import { ForbiddenError, NotFoundError, UnauthorizedError } from "@uploads/errors";
 import type { MiddlewareHandler } from "hono";
 import { FILE_SCOPES } from "./auth-db";
 import { membershipsForUser, workspacesFromMembership } from "./org-workspaces";
@@ -112,6 +112,51 @@ export function dualWorkspaceAuth(): MiddlewareHandler<DualAuthVars> {
     c.set("authScopes", [...FILE_SCOPES]);
     c.set("authSource", "session");
     c.set("mintingUserId", null);
+    await next();
+  };
+}
+
+/**
+ * Session-only admin|owner tier gate, layered AFTER `dualWorkspaceAuth()` for
+ * verticals whose bearer analog is scope-gated but whose SESSION analog needs
+ * a stricter tier than plain membership — first built for the github vertical
+ * (issue #613 phase 3: link/health/activity require admin/owner for a session
+ * caller, matching `routes/me.ts`'s `adminWorkspaceOr403` posture for the
+ * pre-existing `/me/workspaces/:name/repo-links` route). Reusable as-is by
+ * any later vertical with the same "bearer keeps its scope, session needs
+ * admin/owner" posture — e.g. invites/members (see
+ * `.context/613-api-consolidation-plan.md`).
+ *
+ * A no-op for a bearer credential (`authSource !== "session"`): bearer's only
+ * gate stays whatever `requireScope` the route already applies — this
+ * middleware never tightens or loosens bearer behavior.
+ *
+ * For a session caller, `dualWorkspaceAuth` has already proven membership
+ * (non-member 404s before this middleware is ever reached), so a member who
+ * isn't admin/owner gets a 403 here, not a 404 — "not allowed", not "doesn't
+ * exist", same reasoning as `workspace-usage.ts`'s `requireToken` guard.
+ * Deliberately re-resolves the membership role via its own `membershipsForUser`
+ * call rather than threading a role through `DualAuthVars` — `dualWorkspaceAuth`
+ * only ever needed to prove membership existed, not carry the role forward,
+ * and adding a role field to `WorkspaceVars` would leak a session-only concept
+ * into the bearer-shared type. Costs one extra round trip on session admin
+ * routes only, same as `me.ts`'s own `memberWorkspaceOr404` -> `adminWorkspaceOr403`
+ * double-lookup shape.
+ */
+export function requireSessionAdmin(): MiddlewareHandler<DualAuthVars> {
+  return async (c, next) => {
+    if (c.get("authSource") === "session") {
+      const user = c.get("sessionUser") as SessionUser | null;
+      const name = c.get("workspaceName");
+      if (!user || !name) throw new UnauthorizedError();
+      const [membership] = await membershipsForUser(c.env, user.id, { slug: name });
+      const role = membership?.role;
+      if (role !== "admin" && role !== "owner") {
+        throw new ForbiddenError("workspace admin or owner role required", {
+          code: "workspace_admin_required",
+        });
+      }
+    }
     await next();
   };
 }

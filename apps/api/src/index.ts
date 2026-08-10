@@ -13,6 +13,7 @@ import { workspaces } from "./routes/workspaces";
 import { workspaceFiles } from "./routes/workspace-files";
 import { workspaceGalleries } from "./routes/workspace-galleries";
 import { workspaceUsage } from "./routes/workspace-usage";
+import { workspaceGithub } from "./routes/workspace-github";
 import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
 import { runObservabilityRetention } from "./observability-retention";
@@ -149,6 +150,11 @@ export const app = new Hono<WorkspaceVars>()
   // `workspaceFiles` above.
   .route("/v1/workspaces", workspaceGalleries)
   .route("/v1/workspaces", workspaceUsage)
+  // Canonical dual-auth github vertical (issue #613 phase 3):
+  // `/v1/workspaces/:workspace/github/*`, collapsing the five sub-routers
+  // mounted separately below into one router. Same "self-contained
+  // sub-router, own auth + error boundary" shape as `workspaceFiles` above.
+  .route("/v1/workspaces", workspaceGithub)
   // Anonymous CLI/MCP usage pings — no auth, before workspace guard.
   .route("/v1/telemetry", telemetry)
   // Explicit opt-in diagnostic reports (message + optional log) — no auth.

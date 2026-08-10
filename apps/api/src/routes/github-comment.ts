@@ -10,7 +10,7 @@
  * tools (issue #392) — this route is just the HTTP wrapper.
  */
 import { ValidationError } from "@uploads/errors";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { postManagedComment } from "../github-comment-service";
 import type { GhTargetKind } from "../github-comment-render";
 import { writeRateLimit } from "../guards";
@@ -46,20 +46,31 @@ function parseTarget(body: Record<string, unknown>): {
   return { repo, num, kind, resync: body.resync === true };
 }
 
+/**
+ * Handler body (issue #613 phase 3): extracted to a named function so the
+ * canonical dual-auth vertical (`routes/workspace-github.ts`) can reuse it
+ * verbatim instead of copy-pasting — same "response shape can't drift"
+ * guarantee `routes/workspace-galleries.ts` established for phase 2. The old
+ * bearer path below keeps its own `requireScope("files:read")` UNCHANGED
+ * (issue #613 flags this as a wart — a write op scoped as a read — but the
+ * fix only applies to the canonical surface, see workspace-github.ts).
+ */
+export async function githubCommentHandler(c: Context<WorkspaceVars>) {
+  const { resync, ...target } = parseTarget(await jsonBody(c));
+  const result = await postManagedComment(
+    c.env,
+    c.get("workspace"),
+    c.get("workspaceName"),
+    c.get("mintingUserId"),
+    target,
+    { resync },
+  );
+  return c.json(result);
+}
+
 export const githubComment = new Hono<WorkspaceVars>().post(
   "/comment",
   writeRateLimit,
   requireScope("files:read"),
-  async (c) => {
-    const { resync, ...target } = parseTarget(await jsonBody(c));
-    const result = await postManagedComment(
-      c.env,
-      c.get("workspace"),
-      c.get("workspaceName"),
-      c.get("mintingUserId"),
-      target,
-      { resync },
-    );
-    return c.json(result);
-  },
+  githubCommentHandler,
 );
