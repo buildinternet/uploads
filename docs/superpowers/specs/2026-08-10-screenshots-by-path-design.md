@@ -36,7 +36,14 @@ Response shape:
       "path": "/settings",
       "count": 14,
       "lastUpdated": "2026-08-09T21:14:03Z",
-      "recent": [{ "key": "shots/settings-a3f9.webp", "state": "after" }]
+      "recent": [
+        {
+          "key": "shots/settings-a3f9.webp",
+          "url": "https://storage.uploads.sh/acme/shots/settings-a3f9.webp",
+          "embedUrl": "https://storage.uploads.sh/acme/shots/settings-a3f9.webp",
+          "state": "after"
+        }
+      ]
     }
   ],
   "truncated": false
@@ -44,6 +51,8 @@ Response shape:
 ```
 
 `state` is present only when set. No other metadata keys are returned.
+
+`url`/`embedUrl` are resolved like the sibling `files/search` route (`objectPublicUrls`); both are `null` for workspaces without public storage URLs.
 
 ### Web
 
