@@ -873,6 +873,10 @@ export function createUploadsMcpTools(opts: {
             hide: optStringArray(args, "hide"),
             hideDevTools: optBool(args, "noHideDevTools") ? false : undefined,
             reducedMotion: optBool(args, "reducedMotion"),
+            // Skip folding when an explicit key was given — key sets the
+            // whole object key, so there's no auto-derived name to fold
+            // state into.
+            state: keyArg ? undefined : metadataWithCaptureFacts?.state,
             apiUrl: config.apiUrl,
             token: config.token,
           });

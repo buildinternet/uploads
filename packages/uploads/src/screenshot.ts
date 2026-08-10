@@ -12,6 +12,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, resolve as resolvePath } from "node:path";
 import { pathToFileURL } from "node:url";
 import { UploadsError } from "./errors.js";
+import { isMetaStateValue } from "./metadata-vocab.js";
 import { captureRemote, MAX_REMOTE_HTML_BYTES } from "./screenshot-remote.js";
 import type { DetectRoots } from "./screenshot-local.js";
 
@@ -198,6 +199,14 @@ export interface CaptureScreenshotOptions {
   fullPage?: boolean;
   colorScheme?: "dark" | "light";
   waitUntil?: WaitUntil;
+  /**
+   * Folded into the auto-derived filename's stem (e.g. `-before`) so a
+   * before/after pair of the same URL yields two distinct object names
+   * instead of silently overwriting each other. Callers must omit this when
+   * the caller also gave an explicit object key/name — folding only applies
+   * to the auto-derived name.
+   */
+  state?: string;
   /** Extra CSS selectors to hide (display:none) before capture. */
   hide?: string[];
   /**
@@ -268,6 +277,34 @@ function deriveFilename(target: ScreenshotTarget): string {
 }
 
 /**
+ * Folds a `--state` value into an auto-derived filename's stem, e.g.
+ * `localhost-docs-mcp.png` + "before" → `localhost-docs-mcp-before.png`. This
+ * is what keeps a before/after pair (same URL, two states) from colliding on
+ * the same object key (issue #618) — without it, the second capture silently
+ * overwrote the first.
+ *
+ * No-op when `state` is undefined, and idempotent: re-folding a filename that
+ * already ends with `-<state>` (e.g. re-deriving from a stored filename)
+ * doesn't double-append.
+ *
+ * Only the canonical state values fold. Callers pass the merged metadata bag's
+ * `state`, which a free-form `--meta state=…` can populate with any printable
+ * ASCII (validateMetaMap allows `/` and spaces) — that stays metadata-only
+ * rather than entering the object key.
+ *
+ * Callers must skip this entirely when the caller gave an explicit key/name
+ * (e.g. `--key`) — this only applies to the auto-derived filename.
+ */
+export function foldStateIntoFilename(filename: string, state: string | undefined): string {
+  if (!state || !isMetaStateValue(state)) return filename;
+  const match = /^(.*?)(\.[^./]+)?$/.exec(filename);
+  const stem = match?.[1] ?? filename;
+  const ext = match?.[2] ?? "";
+  if (stem.endsWith(`-${state}`)) return filename;
+  return `${stem}-${state}${ext}`;
+}
+
+/**
  * Best-effort local-browser probe used only to decide `auto` routing. Never
  * throws — any failure (e.g. optional playwright-core not installed) means
  * "no local browser available". Returns the full detection result (not just
@@ -295,7 +332,7 @@ export async function captureScreenshot(
   const target = classifyTarget(opts.target);
   const viewport = opts.viewport ?? DEFAULT_SCREENSHOT_VIEWPORT;
   const waitUntil = opts.waitUntil ?? "load";
-  const filename = deriveFilename(target);
+  const filename = foldStateIntoFilename(deriveFilename(target), opts.state);
 
   // Only private-network URLs are truly unreachable remotely; an .html file
   // is sent to the remote backend as an inline `html` body (though anything

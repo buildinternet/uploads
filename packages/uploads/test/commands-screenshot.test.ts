@@ -6,12 +6,13 @@ import { UsageError } from "../src/cli-args.js";
 import type { UploadsClient } from "../src/client.js";
 import type { CliContext } from "../src/commands.js";
 import { runScreenshot, type AnnotateModule } from "../src/commands/screenshot.js";
+import { foldStateIntoFilename } from "../src/screenshot.js";
 import type { CommandRunner } from "../src/github-gh.js";
 import type { CaptureScreenshotResult } from "../src/screenshot.js";
 import type { AnnotationSpec, SpecError } from "../src/annotate/index.js";
 
 /** Fake client capturing put() calls; other methods throw if reached. */
-function fakeClient() {
+function fakeClient(opts: { replaced?: boolean } = {}) {
   const puts: {
     key?: string;
     filename: string;
@@ -23,7 +24,7 @@ function fakeClient() {
   const client = {
     put: async (
       body: Uint8Array,
-      opts: {
+      putOpts: {
         filename: string;
         key?: string;
         prefix?: string;
@@ -32,20 +33,21 @@ function fakeClient() {
       },
     ) => {
       puts.push({
-        key: opts.key,
-        filename: opts.filename,
-        prefix: opts.prefix,
-        dryRun: opts.dryRun,
+        key: putOpts.key,
+        filename: putOpts.filename,
+        prefix: putOpts.prefix,
+        dryRun: putOpts.dryRun,
         body,
-        metadata: opts.metadata,
+        metadata: putOpts.metadata,
       });
       return {
         workspace: "test",
-        key: opts.key ?? "screenshots/misc/generated.png",
-        url: `https://x.test/${opts.key ?? "screenshots/misc/generated.png"}`,
+        key: putOpts.key ?? "screenshots/misc/generated.png",
+        url: `https://x.test/${putOpts.key ?? "screenshots/misc/generated.png"}`,
         embedUrl: null,
         size: body.byteLength,
         contentType: "image/png",
+        replaced: opts.replaced ?? false,
       };
     },
     list: async () => ({ items: [], cursor: null }),
@@ -82,6 +84,22 @@ function fakeCapture(
   measures?: Record<string, { x: number; y: number; w: number; h: number }>,
 ): (opts: unknown) => Promise<CaptureScreenshotResult> {
   return async () => ({ png, filename: "example-com.png", backend, measures });
+}
+
+/**
+ * Records the `state` the command passed through to captureImpl and applies
+ * the real `foldStateIntoFilename` (issue #618) so wiring — including the
+ * canonical-values-only guard — can be asserted end to end without going
+ * through the real backend-selection code.
+ */
+function fakeCaptureRecordingState(record: {
+  state?: string;
+}): (opts: unknown) => Promise<CaptureScreenshotResult> {
+  return async (opts) => {
+    const state = (opts as { state?: string }).state;
+    record.state = state;
+    return { png, filename: foldStateIntoFilename("example-com.png", state), backend: "remote" };
+  };
 }
 
 class FakeAnnotateSpecError extends Error {
@@ -879,6 +897,162 @@ describe("screenshot canonical metadata", () => {
     ]);
     expect(meta?.ticket).toBe("RAL-1");
     expect(meta?.path).toBeUndefined();
+  });
+});
+
+describe("runScreenshot --state folded into the derived name (issue #618)", () => {
+  it("passes --state through to captureImpl, yielding a distinct key per state", async () => {
+    const { client, puts } = fakeClient();
+    const record: { state?: string } = {};
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--state", "before"],
+      false,
+      noRun,
+      fakeCaptureRecordingState(record),
+    );
+    expect(code).toBe(0);
+    expect(record.state).toBe("before");
+    expect(puts[0]?.filename).toBe("example-com-before.png");
+
+    const { client: client2, puts: puts2 } = fakeClient();
+    const record2: { state?: string } = {};
+    const code2 = await runScreenshot(
+      ctxWith(client2),
+      ["https://example.com", "--state", "after"],
+      false,
+      noRun,
+      fakeCaptureRecordingState(record2),
+    );
+    expect(code2).toBe(0);
+    expect(record2.state).toBe("after");
+    expect(puts2[0]?.filename).toBe("example-com-after.png");
+    expect(puts2[0]?.filename).not.toBe(puts[0]?.filename);
+  });
+
+  it("does not fold state when an explicit --key is given", async () => {
+    const { client, puts } = fakeClient();
+    const record: { state?: string } = {};
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--state", "before", "--key", "screenshots/explicit.png"],
+      false,
+      noRun,
+      fakeCaptureRecordingState(record),
+    );
+    expect(code).toBe(0);
+    expect(record.state).toBeUndefined();
+    expect(puts[0]?.key).toBe("screenshots/explicit.png");
+  });
+
+  it("does not fold a free-form --meta state into the derived name", async () => {
+    // `--meta state=x/y` passes validateMetaMap (any printable ASCII) and
+    // reaches captureImpl via the merged metadata bag, but only canonical
+    // state values may enter the object key.
+    const { client, puts } = fakeClient();
+    const record: { state?: string } = {};
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--meta", "state=x/y"],
+      false,
+      noRun,
+      fakeCaptureRecordingState(record),
+    );
+    expect(code).toBe(0);
+    expect(record.state).toBe("x/y");
+    expect(puts[0]?.filename).toBe("example-com.png");
+    expect(puts[0]?.metadata?.state).toBe("x/y");
+  });
+
+  it("does not fold state when no --state was given", async () => {
+    const { client } = fakeClient();
+    const record: { state?: string } = {};
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com"],
+      false,
+      noRun,
+      fakeCaptureRecordingState(record),
+    );
+    expect(code).toBe(0);
+    expect(record.state).toBeUndefined();
+  });
+});
+
+describe("runScreenshot replaced-object note (issue #618)", () => {
+  it("prints the same replaced note as put in human mode", async () => {
+    const { client } = fakeClient({ replaced: true });
+    const stderr = await captureStderr(() =>
+      runScreenshot(
+        { ...ctxWith(client), quiet: false },
+        ["https://example.com", "--state", "after"],
+        false,
+        noRun,
+        fakeCapture("remote"),
+      ),
+    );
+    expect(stderr).toContain(">> replaced existing object (same URL)\n");
+  });
+
+  it("does not print a replaced note when nothing was replaced", async () => {
+    const { client } = fakeClient({ replaced: false });
+    const stderr = await captureStderr(() =>
+      runScreenshot(
+        { ...ctxWith(client), quiet: false },
+        ["https://example.com", "--state", "after"],
+        false,
+        noRun,
+        fakeCapture("remote"),
+      ),
+    );
+    expect(stderr).not.toContain("replaced existing object");
+  });
+
+  it("is suppressed in quiet mode", async () => {
+    const { client } = fakeClient({ replaced: true });
+    const stderr = await captureStderr(() =>
+      runScreenshot(
+        ctxWith(client), // quiet: true by default
+        ["https://example.com", "--state", "after"],
+        false,
+        noRun,
+        fakeCapture("remote"),
+      ),
+    );
+    expect(stderr).not.toContain("replaced existing object");
+  });
+
+  it("carries a replaced+state hint in the json hint slot", async () => {
+    const { client } = fakeClient({ replaced: true });
+    const stdout = await captureStdout(() =>
+      runScreenshot(
+        { ...ctxWith(client), json: true, quiet: false },
+        ["https://example.com", "--state", "after"],
+        false,
+        noRun,
+        fakeCapture("remote"),
+      ),
+    );
+    const parsed = JSON.parse(stdout);
+    expect(parsed.replaced).toBe(true);
+    expect(parsed.hint).toContain("re-capture replaced the previous state=after object");
+    expect(parsed.hint).toContain("expected for repeat captures");
+  });
+
+  it("does not set the json hint when replaced but no --state was given", async () => {
+    const { client } = fakeClient({ replaced: true });
+    const stdout = await captureStdout(() =>
+      runScreenshot(
+        { ...ctxWith(client), json: true, quiet: false },
+        ["https://example.com"],
+        false,
+        noRun,
+        fakeCapture("remote"),
+      ),
+    );
+    const parsed = JSON.parse(stdout);
+    expect(parsed.replaced).toBe(true);
+    expect(parsed.hint).toBeUndefined();
   });
 });
 

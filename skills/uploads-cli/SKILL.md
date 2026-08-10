@@ -457,6 +457,21 @@ limits) — renders and puts share one monthly counter.
 `uploads doctor` reports which local browser (if any) was detected and which
 backend `--via auto` would currently pick.
 
+**Key derivation and `--state`.** Whenever the object's filename is
+auto-derived from the captured URL (host + path) — the default dated
+layout, or the `--pr`/`--issue` leaf name — passing `--state` folds it into
+that derived filename stem —
+`localhost-docs-mcp.webp` becomes `localhost-docs-mcp-before.webp` /
+`localhost-docs-mcp-after.webp` — so capturing the same URL twice with
+`--state before` then `--state after` produces two distinct objects instead
+of the second silently overwriting the first. Re-capturing the same URL with
+the _same_ state still replaces the existing object in place (idempotent
+re-capture). An explicit `--key` is unaffected by `--state` folding. On
+overwrite, human mode prints `>> replaced existing object (same URL)` to
+stderr (same wording as `put`'s hot-swap note, above) and `--format json`
+adds `"replaced": true`, plus a `hint` field when a `--state` capture
+replaced an existing object.
+
 ### Baking in callouts: `--annotate`
 
 `--annotate <file|->` bakes hand-drawn boxes, arrows, labels, freeform
