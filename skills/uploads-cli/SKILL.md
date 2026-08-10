@@ -785,7 +785,7 @@ uploads list --prefix screenshots/        # list objects (key + url)
 uploads list --pr 123                      # everything attached to a PR
 uploads list --meta app=myapp              # filter by metadata (repeatable, ANDed)
 uploads list --name hero --meta app=web    # filename substring (+ optional meta)
-uploads find app=myapp page=settings       # same filter, human-friendly positional pairs
+uploads find app=myapp path=/settings      # same filter, human-friendly positional pairs
 uploads find hero                          # filename substring alone
 uploads list --all --json                  # paginate fully, machine-readable
 uploads meta get <key>                     # show an object's metadata

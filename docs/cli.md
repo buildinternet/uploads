@@ -210,11 +210,12 @@ is separate from optimize/frame provenance.
 
 Suggested pairs for screenshots:
 
-| Key    | Example                             | Meaning                          |
-| ------ | ----------------------------------- | -------------------------------- |
-| `url`  | `https://app.example/settings`      | Page URL the shot was taken from |
-| `path` | `/settings` or `Settings > Profile` | In-app route or nav path         |
-| `app`  | `web`, `ios`, `android`             | Surface / product shown          |
+| Key     | Example                             | Meaning                                                                                         |
+| ------- | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `url`   | `https://app.example/settings`      | Page URL the shot was taken from                                                                |
+| `path`  | `/settings` or `Settings > Profile` | In-app route or nav path                                                                        |
+| `app`   | `web`, `ios`, `android`             | Surface / product shown                                                                         |
+| `state` | `before`, `after`                   | UI state shown (`before`, `after`, `empty`, `error`, `loading`); `--state <s>` is the shorthand |
 
 ```bash
 uploads put ./settings.png \
@@ -229,8 +230,8 @@ uploads attach ./mobile-checkout.png \
 
 uploads find app=web path=/settings
 uploads meta get screenshots/myapp/42/settings.webp
-uploads meta set screenshots/myapp/42/settings.webp page=onboarding --delete path
-uploads meta set screenshots/myapp/42/settings.webp --meta page=onboarding
+uploads meta set screenshots/myapp/42/settings.webp path=/onboarding --delete url
+uploads meta set screenshots/myapp/42/settings.webp --meta path=/onboarding
 ```
 
 `meta set` and `find` take pairs in either spelling: positional `k=v`, or the
