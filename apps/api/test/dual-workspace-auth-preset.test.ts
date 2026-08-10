@@ -102,6 +102,26 @@ describe("preset session + requireSessionAdmin composition (issue #613 phase 3 r
     expect(res.status).toBe(404);
   });
 
+  // CodeRabbit PR #617 review finding 5: none of the tests above carry an
+  // `Authorization` header, so they never exercise the branch a forwarded
+  // `/me` request actually hits in production — its original bearer header
+  // (e.g. a Better Auth bearer session) rides along verbatim alongside the
+  // preset. A preset must win unconditionally, BEFORE `dualWorkspaceAuth`
+  // ever branches on that header, so it can't get re-routed into the token
+  // path and 401 an already-authenticated caller a second time.
+  it("a preset session takes priority over a forwarded bearer header (no get-session call)", async () => {
+    const getSessionCalls = { count: 0 };
+    const env = makeEnv({ role: "admin", getSessionCalls });
+    const request = new Request("https://internal/acme/github/link?repo=acme%2Fweb", {
+      headers: { authorization: "Bearer up_acme_not-a-real-token" },
+    });
+    presetResolvedSessionUser(request, USER_ID);
+    const res = await workspaceGithub.fetch(request, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ repo: "acme/web", linked: false });
+    expect(getSessionCalls.count).toBe(0);
+  });
+
   it("a direct (non-preset) admin session still works via the real sessionAuth round trip", async () => {
     const getSessionCalls = { count: 0 };
     const env = makeEnv({ role: "admin", getSessionCalls });

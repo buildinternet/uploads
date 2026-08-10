@@ -359,6 +359,41 @@ describe("GET/POST/DELETE /v1/workspaces/:workspace/github/link (dual-auth, sess
     expect(memberRes.status).toBe(403);
   });
 
+  // Regression for CodeRabbit PR #617 review finding 3: `dualWorkspaceAuth`
+  // used to hardcode `mintingUserId` to `null` on the session path, so
+  // `isEntitledToClaimRepo` (which treats a null minting user as
+  // "not entitled" by construction) always declined an admin session
+  // caller's claim of an unbound repo — even one they're verifiably
+  // entitled to. `mintingUserId` must carry the real session `userId`
+  // (`USER.id`) so this entitlement check runs against the actual caller.
+  it("claims an unbound repo for an entitled admin session caller (mintingUserId propagation)", async () => {
+    const { env, githubCache, db } = await makeEnv({ role: "admin" });
+    githubCache.store.set("ghinst:acme/web", { value: "42" });
+    githubCache.store.set("ghtok:42", { value: "cached-token" });
+    githubCache.store.set(`ghlogin:${USER.id}`, { value: "octocat" });
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string) =>
+      String(url).includes("/collaborators/octocat/permission")
+        ? new Response(JSON.stringify({ permission: "write" }), { status: 200 })
+        : new Response("nf", { status: 404 })) as unknown as typeof fetch;
+    try {
+      const res = await app.request(
+        "/v1/workspaces/acme/github/link",
+        {
+          method: "POST",
+          headers: { ...sessionCookie, "content-type": "application/json" },
+          body: JSON.stringify({ repo: "acme/web" }),
+        },
+        env,
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ claimed: true, workspace: WS, source: "cli" });
+      expect(db.repoLinks.get("acme/web")).toMatchObject({ workspace_name: WS, source: "cli" });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   it("DELETE link: admin session 200s, member session 403s", async () => {
     const admin = await makeEnv({ role: "admin" });
     const adminRes = await app.request(

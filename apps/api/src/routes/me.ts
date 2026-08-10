@@ -52,14 +52,24 @@ import { workspaceUsage } from "./workspace-usage";
 import { workspaces } from "./workspaces";
 
 /**
- * Rewrites `c`'s request onto `workspaceFiles`'s own path space (its routes
- * are registered as `/:workspace/files*`, independent of any parent mount —
- * see routes/workspace-files.ts) and re-dispatches through it directly. The
- * canonical dual-auth middleware + handler run exactly as they would for a
- * caller hitting `/v1/workspaces/:workspace/files*` directly, so response
- * shape can't drift from the canonical route without this alias breaking too.
+ * Rewrites `c`'s request onto `router`'s own path space and re-dispatches
+ * through it directly, so the canonical dual-auth middleware + handler run
+ * exactly as they would for a caller hitting the canonical route directly —
+ * response shape can't drift from the canonical route without the alias
+ * breaking too. `path` must already have every interpolated segment
+ * `encodeURIComponent`-encoded by the caller (see the `forwardToWorkspace*`
+ * wrappers below): an unencoded `/` or `..` in a param would let `URL`
+ * normalize dot segments and reshape which route this actually dispatches
+ * to (CodeRabbit PR #617 review finding 2).
+ *
+ * Shared by every `forwardToWorkspace*` wrapper below — they differ only in
+ * which canonical router they re-dispatch through.
  */
-async function forwardToWorkspaceFiles(c: Context<SessionVars>, path: string): Promise<Response> {
+async function forwardTo(
+  router: { fetch: typeof workspaceFiles.fetch },
+  c: Context<SessionVars>,
+  path: string,
+): Promise<Response> {
   const url = new URL(c.req.url);
   url.pathname = path;
   // `c.executionCtx` throws outside a real Workers/`app.fetch(req, env, ctx)`
@@ -78,50 +88,37 @@ async function forwardToWorkspaceFiles(c: Context<SessionVars>, path: string): P
   // hand that off so `dualWorkspaceAuth` skips a second `get-session` fetch
   // for the same request (issue #613 phase 1 follow-up).
   presetResolvedSessionUser(forwarded, requireUserId(c));
-  return workspaceFiles.fetch(forwarded, c.env, executionCtx);
+  return router.fetch(forwarded, c.env, executionCtx);
 }
 
 /**
- * Same forwarding pattern as `forwardToWorkspaceFiles`, targeting the
- * canonical usage vertical (`routes/workspace-usage.ts`, issue #613 phase 2).
- * Response shape is a strict superset of the pre-#613 session shape (adds
- * `scopes`/`plan`; every other field — `workspace`/`bytes`/`objects`/
- * `uploadsInPeriod`/`periodStart`/limits — matches verbatim), so this is a
- * genuine forward, not a re-implementation.
+ * Forwards to the canonical files vertical (`routes/workspace-files.ts`,
+ * issue #613 phase 1) — routes registered as `/:workspace/files*`.
  */
-async function forwardToWorkspaceUsage(c: Context<SessionVars>, path: string): Promise<Response> {
-  const url = new URL(c.req.url);
-  url.pathname = path;
-  let executionCtx: Context<SessionVars>["executionCtx"] | undefined;
-  try {
-    executionCtx = c.executionCtx;
-  } catch {
-    executionCtx = undefined;
-  }
-  const forwarded = new Request(url, c.req.raw);
-  presetResolvedSessionUser(forwarded, requireUserId(c));
-  return workspaceUsage.fetch(forwarded, c.env, executionCtx);
+function forwardToWorkspaceFiles(c: Context<SessionVars>, path: string): Promise<Response> {
+  return forwardTo(workspaceFiles, c, path);
 }
 
 /**
- * Same forwarding pattern, targeting the canonical invites/members vertical
+ * Forwards to the canonical usage vertical (`routes/workspace-usage.ts`,
+ * issue #613 phase 2). Response shape is a strict superset of the pre-#613
+ * session shape (adds `scopes`/`plan`; every other field —
+ * `workspace`/`bytes`/`objects`/`uploadsInPeriod`/`periodStart`/limits —
+ * matches verbatim), so this is a genuine forward, not a re-implementation.
+ */
+function forwardToWorkspaceUsage(c: Context<SessionVars>, path: string): Promise<Response> {
+  return forwardTo(workspaceUsage, c, path);
+}
+
+/**
+ * Forwards to the canonical invites/members vertical
  * (`routes/workspace-members.ts`, issue #613 phase 3) for the session-only
  * routes (`members`/`people`/`invites` GET/DELETE/`members/:id` PATCH). The
  * canonical handlers are the exact bodies this file's routes used to run
  * (extracted verbatim, see git history), so this is a genuine forward.
  */
-async function forwardToWorkspaceMembers(c: Context<SessionVars>, path: string): Promise<Response> {
-  const url = new URL(c.req.url);
-  url.pathname = path;
-  let executionCtx: Context<SessionVars>["executionCtx"] | undefined;
-  try {
-    executionCtx = c.executionCtx;
-  } catch {
-    executionCtx = undefined;
-  }
-  const forwarded = new Request(url, c.req.raw);
-  presetResolvedSessionUser(forwarded, requireUserId(c));
-  return workspaceMembers.fetch(forwarded, c.env, executionCtx);
+function forwardToWorkspaceMembers(c: Context<SessionVars>, path: string): Promise<Response> {
+  return forwardTo(workspaceMembers, c, path);
 }
 
 /**
@@ -133,42 +130,19 @@ async function forwardToWorkspaceMembers(c: Context<SessionVars>, path: string):
  * acceptUrl }` from the same AUTH `/internal/invite` call), so this is a
  * genuine forward, not a reimplementation.
  */
-async function forwardToWorkspaceInvite(c: Context<SessionVars>, name: string): Promise<Response> {
-  const url = new URL(c.req.url);
-  url.pathname = `/${name}/invites`;
-  let executionCtx: Context<SessionVars>["executionCtx"] | undefined;
-  try {
-    executionCtx = c.executionCtx;
-  } catch {
-    executionCtx = undefined;
-  }
-  const forwarded = new Request(url, c.req.raw);
-  presetResolvedSessionUser(forwarded, requireUserId(c));
-  return workspaces.fetch(forwarded, c.env, executionCtx);
+function forwardToWorkspaceInvite(c: Context<SessionVars>, name: string): Promise<Response> {
+  return forwardTo(workspaces, c, `/${encodeURIComponent(name)}/invites`);
 }
 
 /**
- * Same forwarding pattern, targeting the canonical comment-settings/storage/
- * billing/summary verticals (`routes/workspace-settings.ts`, issue #613
- * phase 3). The canonical handlers are the exact bodies these four routes
- * used to run in this file (extracted verbatim, see git history), so this
- * is a genuine forward, not a reimplementation.
+ * Forwards to the canonical comment-settings/storage/billing/summary
+ * verticals (`routes/workspace-settings.ts`, issue #613 phase 3). The
+ * canonical handlers are the exact bodies these four routes used to run in
+ * this file (extracted verbatim, see git history), so this is a genuine
+ * forward, not a reimplementation.
  */
-async function forwardToWorkspaceSettings(
-  c: Context<SessionVars>,
-  path: string,
-): Promise<Response> {
-  const url = new URL(c.req.url);
-  url.pathname = path;
-  let executionCtx: Context<SessionVars>["executionCtx"] | undefined;
-  try {
-    executionCtx = c.executionCtx;
-  } catch {
-    executionCtx = undefined;
-  }
-  const forwarded = new Request(url, c.req.raw);
-  presetResolvedSessionUser(forwarded, requireUserId(c));
-  return workspaceSettings.fetch(forwarded, c.env, executionCtx);
+function forwardToWorkspaceSettings(c: Context<SessionVars>, path: string): Promise<Response> {
+  return forwardTo(workspaceSettings, c, path);
 }
 
 /** `?repo=` shape for the comment preview endpoint: exactly one `/`, no empty segments. */
@@ -250,7 +224,7 @@ export const me = new Hono<SessionVars>()
   // route's old shape (adds `scopes`/`plan`), so this is a genuine forward
   // (see `forwardToWorkspaceUsage`'s docblock), not a reimplementation.
   .get("/workspaces/:name/usage", (c) =>
-    forwardToWorkspaceUsage(c, `/${c.req.param("name")}/usage`),
+    forwardToWorkspaceUsage(c, `/${encodeURIComponent(c.req.param("name"))}/usage`),
   )
 
   // Workspace shell for the account rail: membership + public URL + usage.
@@ -259,14 +233,14 @@ export const me = new Hono<SessionVars>()
   // is byte-for-byte the body this route used to run, so response shape
   // can't drift. See `forwardToWorkspaceSettings`'s docblock.
   .get("/workspaces/:name/summary", (c) =>
-    forwardToWorkspaceSettings(c, `/${c.req.param("name")}/summary`),
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/summary`),
   )
 
   // Plan metadata, resolved effective limits, usage, and subscription state
   // for the account billing tab. Same forward as above. `stripeCustomerId`
   // redaction preserved exactly in the canonical handler — see its docblock.
   .get("/workspaces/:name/billing", (c) =>
-    forwardToWorkspaceSettings(c, `/${c.req.param("name")}/billing`),
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/billing`),
   )
 
   // People in one workspace — member-gated (teammate fields only, not admin
@@ -275,13 +249,13 @@ export const me = new Hono<SessionVars>()
   // handler is byte-for-byte the body this route used to run, so response
   // shape can't drift. See `forwardToWorkspaceMembers`'s docblock.
   .get("/workspaces/:name/members", (c) =>
-    forwardToWorkspaceMembers(c, `/${c.req.param("name")}/members`),
+    forwardToWorkspaceMembers(c, `/${encodeURIComponent(c.req.param("name"))}/members`),
   )
 
   // People tab: members + (for admins) pending invites + role in one authz
   // pass. Same forward as above.
   .get("/workspaces/:name/people", (c) =>
-    forwardToWorkspaceMembers(c, `/${c.req.param("name")}/people`),
+    forwardToWorkspaceMembers(c, `/${encodeURIComponent(c.req.param("name"))}/people`),
   )
 
   // Galleries in one workspace — member-gated. Issue #613 phase 2: NOT
@@ -316,28 +290,31 @@ export const me = new Hono<SessionVars>()
   // (a wart fix carried over from the token-authed surface, which already
   // worked this way).
   .get("/workspaces/:name/files", (c) =>
-    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files`),
+    forwardToWorkspaceFiles(c, `/${encodeURIComponent(c.req.param("name"))}/files`),
   )
   .get("/workspaces/:name/files/search", (c) =>
-    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/search`),
+    forwardToWorkspaceFiles(c, `/${encodeURIComponent(c.req.param("name"))}/files/search`),
   )
   .get("/workspaces/:name/files/facets", (c) =>
-    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/facets`),
+    forwardToWorkspaceFiles(c, `/${encodeURIComponent(c.req.param("name"))}/files/facets`),
   )
   .get("/workspaces/:name/files/by-path", (c) =>
-    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/by-path`),
+    forwardToWorkspaceFiles(c, `/${encodeURIComponent(c.req.param("name"))}/files/by-path`),
   )
   .get("/workspaces/:name/file-url", (c) =>
-    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/file-url`),
+    forwardToWorkspaceFiles(c, `/${encodeURIComponent(c.req.param("name"))}/files/file-url`),
   )
   .patch("/workspaces/:name/files/visibility", (c) =>
-    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/visibility`),
+    forwardToWorkspaceFiles(c, `/${encodeURIComponent(c.req.param("name"))}/files/visibility`),
   )
   .delete("/workspaces/:name/files", (c) => {
     const key = c.req.query("key") ?? "";
     if (badKey(key)) throw new NotFoundError();
     const keyPath = key.split("/").map(encodeURIComponent).join("/");
-    return forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/${keyPath}`);
+    return forwardToWorkspaceFiles(
+      c,
+      `/${encodeURIComponent(c.req.param("name"))}/files/${keyPath}`,
+    );
   })
 
   // files-sdk's folder-aware browser gateway. Authorization happens before a
@@ -376,24 +353,40 @@ export const me = new Hono<SessionVars>()
   // Issue #613 phase 3: forwards to the canonical session-only handler in
   // `routes/workspace-members.ts`.
   .get("/workspaces/:name/invites", (c) =>
-    forwardToWorkspaceMembers(c, `/${c.req.param("name")}/invites`),
+    forwardToWorkspaceMembers(c, `/${encodeURIComponent(c.req.param("name"))}/invites`),
   )
 
-  // Revoke a pending invite — admin/owner only. Same forward as above.
+  // Revoke a pending invite — admin/owner only. Same forward as above. Each
+  // param is `encodeURIComponent`-ed before interpolation: `c.req.param`
+  // returns the URL-decoded segment, so a raw `/` or `..` here could
+  // otherwise reshape the forwarded pathname and dispatch against a
+  // different route than the one this URL named (CodeRabbit PR #617 review
+  // finding 2 — hygiene/correctness, not an auth bypass, since
+  // `sessionAdminGate` re-resolves membership on whatever workspace the
+  // rewritten request actually names).
   .delete("/workspaces/:name/invites/:id", (c) =>
-    forwardToWorkspaceMembers(c, `/${c.req.param("name")}/invites/${c.req.param("id")}`),
+    forwardToWorkspaceMembers(
+      c,
+      `/${encodeURIComponent(c.req.param("name"))}/invites/${encodeURIComponent(c.req.param("id"))}`,
+    ),
   )
 
   // Remove a member (by opaque member id) — admin/owner only; matrix
-  // enforced in auth worker. Same forward pattern.
+  // enforced in auth worker. Same forward pattern, same per-segment encoding.
   .delete("/workspaces/:name/members/:memberId", (c) =>
-    forwardToWorkspaceMembers(c, `/${c.req.param("name")}/members/${c.req.param("memberId")}`),
+    forwardToWorkspaceMembers(
+      c,
+      `/${encodeURIComponent(c.req.param("name"))}/members/${encodeURIComponent(c.req.param("memberId"))}`,
+    ),
   )
 
   // Change a member's role (admin↔member); auth worker enforces the matrix.
-  // Same forward pattern.
+  // Same forward pattern, same per-segment encoding.
   .patch("/workspaces/:name/members/:memberId", (c) =>
-    forwardToWorkspaceMembers(c, `/${c.req.param("name")}/members/${c.req.param("memberId")}`),
+    forwardToWorkspaceMembers(
+      c,
+      `/${encodeURIComponent(c.req.param("name"))}/members/${encodeURIComponent(c.req.param("memberId"))}`,
+    ),
   )
 
   // Batch PR/issue titles for the connected-work rail (issue #267). Member-
@@ -463,12 +456,12 @@ export const me = new Hono<SessionVars>()
   // forwards to the canonical handler in `routes/workspace-settings.ts` —
   // the extracted handler is byte-for-byte the body this route used to run.
   .get("/workspaces/:name/comment-settings", (c) =>
-    forwardToWorkspaceSettings(c, `/${c.req.param("name")}/comment-settings`),
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/comment-settings`),
   )
 
   // Patch the defaults above. Same forward as above.
   .patch("/workspaces/:name/comment-settings", (c) =>
-    forwardToWorkspaceSettings(c, `/${c.req.param("name")}/comment-settings`),
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/comment-settings`),
   )
 
   // Preview the production managed-comment body against resolved comment
@@ -555,14 +548,14 @@ export const me = new Hono<SessionVars>()
   // response shape (masked `storageStatusResponse` projection, never
   // credential values) can't drift.
   .get("/workspaces/:name/storage", (c) =>
-    forwardToWorkspaceSettings(c, `/${c.req.param("name")}/storage`),
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/storage`),
   )
   .post("/workspaces/:name/storage/verify", (c) =>
-    forwardToWorkspaceSettings(c, `/${c.req.param("name")}/storage/verify`),
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/storage/verify`),
   )
   .put("/workspaces/:name/storage", (c) =>
-    forwardToWorkspaceSettings(c, `/${c.req.param("name")}/storage`),
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/storage`),
   )
   .delete("/workspaces/:name/storage", (c) =>
-    forwardToWorkspaceSettings(c, `/${c.req.param("name")}/storage`),
+    forwardToWorkspaceSettings(c, `/${encodeURIComponent(c.req.param("name"))}/storage`),
   );

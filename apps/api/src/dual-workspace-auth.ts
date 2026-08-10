@@ -150,7 +150,15 @@ export function dualWorkspaceAuth(): MiddlewareHandler<DualAuthVars> {
     c.set("workspaceName", name);
     c.set("authScopes", [...FILE_SCOPES]);
     c.set("authSource", "session");
-    c.set("mintingUserId", null);
+    // A bearer token's `mintingUserId` names the Better Auth user whose
+    // linked GitHub identity `isEntitledToClaimRepo` checks (see
+    // `github-claim-authz.ts`) — for a session caller, that's simply the
+    // authenticated session user, not `null`. Leaving this `null` on the
+    // session path silently forced every session-admin repo claim through
+    // `github/link` to fail with `not_authorized`, since
+    // `isEntitledToClaimRepo` treats a null minting user as "not entitled"
+    // by construction (CodeRabbit PR #617 review finding 3).
+    c.set("mintingUserId", userId);
     c.set("sessionUserId", userId);
     await next();
   };

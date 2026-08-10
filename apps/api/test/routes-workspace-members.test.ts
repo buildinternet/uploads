@@ -322,8 +322,20 @@ describe("session-only admin routes (invites list/revoke, member remove/role)", 
     expect(await res.json()).toEqual({ member: { id: "m-2", userId: "u-2", role: "admin" } });
   });
 
-  it("PATCH /members/:memberId: invalid role 400s before any AUTH call", async () => {
-    const env = makeEnv();
+  // Was named "...400s before any AUTH call" — false: `sessionAdminGate`
+  // (get-session + /internal/memberships) runs before `memberRoleUpdateHandler`
+  // ever validates `role`, so AUTH calls do happen ahead of the 400. Renamed
+  // to describe only what's actually guaranteed: the invalid role never
+  // reaches the auth worker's own member-role PATCH (CodeRabbit PR #617
+  // review finding 6).
+  it("PATCH /members/:memberId: invalid role 400s and never reaches the auth worker PATCH", async () => {
+    let patched = false;
+    const env = makeEnv({
+      onPatch: () => {
+        patched = true;
+        return Response.json({ member: {} });
+      },
+    });
     const res = await app.request(
       "/v1/workspaces/acme/members/m-2",
       {
@@ -334,6 +346,7 @@ describe("session-only admin routes (invites list/revoke, member remove/role)", 
       env,
     );
     expect(res.status).toBe(400);
+    expect(patched).toBe(false);
   });
 });
 
