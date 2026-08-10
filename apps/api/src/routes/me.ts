@@ -23,20 +23,14 @@ import {
   RateLimitedError,
   ValidationError,
 } from "@uploads/errors";
-import { createFilesRouter, signedDownloadUrl, type R2Jurisdiction } from "@uploads/storage";
+import { createFilesRouter, type R2Jurisdiction } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
 import { sealCredentialFieldsStrict } from "../secrets";
 import { throwForInviteError } from "../invite-error";
 import { parseExternalReference } from "../external-references";
 import { previewFixtureItems } from "../comment-preview-fixtures";
-import { getMetadataForKeys, groupObjectsByPath, listFacets } from "../file-metadata";
-import {
-  normalizeSearchName,
-  parseMetaQueryFilters,
-  searchFilesByNameAndMeta,
-} from "../file-search";
-import { badKey, deleteObject, listObjects, setObjectVisibility } from "../files-core";
+import { badKey, listObjects } from "../files-core";
 import { listGalleries } from "../galleries";
 import { galleryListSummaries } from "../gallery-service";
 import {
@@ -61,20 +55,51 @@ import {
   type Membership,
   type OrgMember,
 } from "../org-workspaces";
+import { presetResolvedSessionUser } from "../dual-workspace-auth";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
 import { selfServeWorkspaceRecord } from "../self-serve-defaults";
-import { objectPublicUrls, publicUrl, storage, storageConfig } from "../storage";
+import { storage } from "../storage";
 import { getWorkspaceUsage } from "../usage";
-import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
 import { byoBucketAllowed, loadWorkspaceRecord, type WorkspaceRecord } from "../workspace";
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { planResponse, planSourceFor } from "../workspace-plan";
+import { workspaceFiles } from "./workspace-files";
 import {
   candidateFromBody,
   storageReconcile,
   storageStatusResponse,
   storageVerify,
 } from "./workspace-storage";
+
+/**
+ * Rewrites `c`'s request onto `workspaceFiles`'s own path space (its routes
+ * are registered as `/:workspace/files*`, independent of any parent mount —
+ * see routes/workspace-files.ts) and re-dispatches through it directly. The
+ * canonical dual-auth middleware + handler run exactly as they would for a
+ * caller hitting `/v1/workspaces/:workspace/files*` directly, so response
+ * shape can't drift from the canonical route without this alias breaking too.
+ */
+async function forwardToWorkspaceFiles(c: Context<SessionVars>, path: string): Promise<Response> {
+  const url = new URL(c.req.url);
+  url.pathname = path;
+  // `c.executionCtx` throws outside a real Workers/`app.fetch(req, env, ctx)`
+  // invocation (e.g. the `app().request(path, init, env)` helper most route
+  // tests use, including this file's) — same guard as the welcome-email
+  // `waitUntil` above.
+  let executionCtx: Context<SessionVars>["executionCtx"] | undefined;
+  try {
+    executionCtx = c.executionCtx;
+  } catch {
+    executionCtx = undefined;
+  }
+  const forwarded = new Request(url, c.req.raw);
+  // This router's own `sessionAuth` middleware already resolved the caller
+  // (see the `.use("/*", sessionAuth, requireSessionUser)` mount below) —
+  // hand that off so `dualWorkspaceAuth` skips a second `get-session` fetch
+  // for the same request (issue #613 phase 1 follow-up).
+  presetResolvedSessionUser(forwarded, requireUserId(c));
+  return workspaceFiles.fetch(forwarded, c.env, executionCtx);
+}
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -534,252 +559,40 @@ export const me = new Hono<SessionVars>()
     });
   })
 
-  // A page of a workspace's files (public URLs), folder-aware and hydrated
-  // with D1 `gh.*` metadata — member-gated. Query
-  // params mirror the token-scoped `GET /v1/:workspace/files` (files.ts):
-  // `prefix`/`cursor` pass straight through, `limit` defaults to 100 (clamped
-  // inside `listObjects`), and `delimiter` (new here) enables S3-style
-  // "folder" navigation — `listObjects` surfaces the resulting common
-  // prefixes as `prefixes` for the settings-page file browser.
-  .get("/workspaces/:name/files", async (c) => {
-    const name = c.req.param("name");
-    await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) {
-      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-    }
-
-    const { prefix, delimiter, cursor } = c.req.query();
-    const limit = Number(c.req.query("limit") ?? 100) || 100;
-    const {
-      items,
-      cursor: nextCursor,
-      prefixes,
-    } = await listObjects(c.env, record, {
-      prefix,
-      delimiter,
-      limit,
-      cursor,
-    });
-
-    const metaByKey = await getMetadataForKeys(
-      c.env.DB,
-      name,
-      items.map((item) => item.key),
-    );
-    const files = items.map((item) => ({ ...item, metadata: metaByKey.get(item.key) }));
-
-    return c.json({ files, prefixes, cursor: nextCursor });
-  })
-
-  // Metadata search — the session-authed twin of the token route's
-  // `GET /v1/:workspace/files?meta.*` / `?name=` (files.ts). Same AND-of-
-  // equality semantics and shared helpers; scoped to one workspace, member-
-  // gated. Results carry no `visibility` (it isn't in the D1 index — accepted
-  // caveat). Always returns `truncated` (session contract differs from the
-  // token meta-only envelope).
-  .get("/workspaces/:name/files/search", async (c) => {
-    const name = c.req.param("name");
-    await memberWorkspaceOr404(c.env, requireUserId(c), name);
-
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) {
-      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-    }
-
-    const query = c.req.query();
-    const rawName = c.req.query("name");
-    const nameTerm = rawName === undefined ? undefined : normalizeSearchName(rawName);
-    const filters = parseMetaQueryFilters(query, (param) => c.req.queries(param));
-    const hasMeta = Object.keys(filters).length > 0;
-
-    if (!hasMeta && nameTerm === undefined) {
-      throw new ValidationError("at least one meta.* filter or name is required", {
-        code: "file_metadata_invalid_key",
-      });
-    }
-
-    // Session search keeps a fixed page of 100 (same as before #528).
-    const SEARCH_LIMIT = 100;
-    const cfg = await storageConfig(c.env, record);
-    const { matches, truncated } = await searchFilesByNameAndMeta(c.env, record, name, {
-      filters: hasMeta ? filters : undefined,
-      nameTerm,
-      prefix: query.prefix,
-      pageSize: SEARCH_LIMIT,
-    });
-
-    return c.json({
-      items: matches.map((match) => {
-        const urls = objectPublicUrls(c.env, cfg, match.key);
-        return { key: match.key, url: urls.url, embedUrl: urls.embedUrl, metadata: match.metadata };
-      }),
-      truncated,
-    });
-  })
-
-  // Facet discovery for the files-tab filter bar: which metadata keys this
-  // workspace actually contains, and (with `?key=`) that key's values. The
-  // filter bar cannot otherwise tell a user what is filterable — keys are
-  // user- and agent-defined, not a schema. Member-gated exactly as the
-  // sibling search route is, and gated the same way on the workspace record
-  // so a soft-deleted (or tombstoned) workspace 404s here too, even though
-  // this route reads only D1 — the record load is the deletion gate, not a
-  // storage-config lookup.
-  .get("/workspaces/:name/files/facets", async (c) => {
-    const name = c.req.param("name");
-    await memberWorkspaceOr404(c.env, requireUserId(c), name);
-
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) {
-      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-    }
-
-    return c.json(await listFacets(c.env.DB, name, c.req.query("key")));
-  })
-
-  // Recent uploads grouped by their `path` metadata value — the screenshots
-  // page's single overview query (spec: docs/superpowers/specs/
-  // 2026-08-10-screenshots-by-path-design.md). Drill-in reuses the sibling
-  // `files/search?meta.path=…` route; this one only answers "which paths,
-  // how recent, first few keys". Member- and record-gated exactly like the
-  // facets route. `state` is the one metadata key enriched — the page badges
-  // before/after and nothing else, so no other keys leak into the payload.
-  .get("/workspaces/:name/files/by-path", async (c) => {
-    const name = c.req.param("name");
-    await memberWorkspaceOr404(c.env, requireUserId(c), name);
-
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) {
-      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-    }
-
-    const { groups, truncated } = await groupObjectsByPath(c.env.DB, name);
-    const metaByKey = await getMetadataForKeys(
-      c.env.DB,
-      name,
-      groups.flatMap((group) => group.recent),
-      { metaKeys: ["state"] },
-    );
-    const cfg = await storageConfig(c.env, record);
-
-    return c.json({
-      groups: groups.map((group) => ({
-        path: group.path,
-        count: group.count,
-        lastUpdated: group.lastUpdated,
-        recent: group.recent.map((key) => {
-          const urls = objectPublicUrls(c.env, cfg, key);
-          const state = metaByKey.get(key)?.state;
-          return {
-            key,
-            url: urls.url,
-            embedUrl: urls.embedUrl,
-            ...(state !== undefined ? { state } : {}),
-          };
-        }),
-      })),
-      truncated,
-    });
-  })
-
-  // Resolve a selected browser item to a usable URL, by storage capability
-  // (issue #123): the stable public URL when `publicBaseUrl` is configured;
-  // otherwise a short-lived signed download URL when the provider can sign;
-  // otherwise a typed error rather than a 200 with `url: null`. This is
-  // separate from the gateway's `url` verb because its forced attachment
-  // disposition requires signing, while binding-mode R2 uses publicBaseUrl.
-  .get("/workspaces/:name/file-url", async (c) => {
-    const name = c.req.param("name");
-    await memberWorkspaceOr404(c.env, requireUserId(c), name);
+  // Issue #613 phase 1: list/search/facets/by-path/file-url/visibility/delete
+  // now forward to the canonical dual-auth handlers in
+  // `routes/workspace-files.ts` (mounted at `/v1/workspaces/:workspace/files*`)
+  // via a path rewrite — `forwardToWorkspaceFiles` re-dispatches through that
+  // router directly, so response shape is unchanged: the canonical handlers
+  // were ported verbatim from this file's original implementations (removed
+  // here, see git history). `DELETE` additionally rewrites its query-param
+  // `?key=` onto the canonical route's path segment — the one
+  // behavior-preserving exception, since the canonical DELETE is path-keyed
+  // (a wart fix carried over from the token-authed surface, which already
+  // worked this way).
+  .get("/workspaces/:name/files", (c) =>
+    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files`),
+  )
+  .get("/workspaces/:name/files/search", (c) =>
+    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/search`),
+  )
+  .get("/workspaces/:name/files/facets", (c) =>
+    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/facets`),
+  )
+  .get("/workspaces/:name/files/by-path", (c) =>
+    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/by-path`),
+  )
+  .get("/workspaces/:name/file-url", (c) =>
+    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/file-url`),
+  )
+  .patch("/workspaces/:name/files/visibility", (c) =>
+    forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/visibility`),
+  )
+  .delete("/workspaces/:name/files", (c) => {
     const key = c.req.query("key") ?? "";
     if (badKey(key)) throw new NotFoundError();
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) throw new NotFoundError();
-    const store = await storage(c.env, record);
-    if (!(await store.exists(key))) throw new NotFoundError();
-
-    const cfg = await storageConfig(c.env, record);
-    const url = publicUrl(cfg, key);
-    if (url) return c.json({ url });
-
-    const signed = await signedDownloadUrl(store, key);
-    if (signed) return c.json({ url: signed });
-
-    throw new ValidationError(
-      "no public or signed URL available for this workspace's storage configuration",
-      { code: "file_url_unavailable" },
-    );
-  })
-
-  // Toggle a file's `visibility` custom-metadata flag — member-gated, same key
-  // convention as `file-url` (key via query param; embedding it in the path
-  // segment fights Hono's routing for keys containing `/`). Storage mechanics
-  // (head/size-cap/download/re-upload) live in files-core's
-  // `setObjectVisibility`; this route keeps auth, key validation, body
-  // validation, and error mapping.
-  //
-  // Wire value stays "public" | "private" (issue #166: renaming the field
-  // would be a breaking API change), but the semantics are "unlisted," not
-  // byte-private: `visibility: "private"` hides an object from the public
-  // file listing and 401-gates `/public/files/...` + the `/f/…` page
-  // (public-files.ts). On a workspace with `publicBaseUrl` the raw object URL
-  // still serves bytes unsigned to anyone who has it — this endpoint never
-  // controlled that. Document that distinction anywhere this field is
-  // surfaced to API consumers; don't call it "private" in a byte-privacy
-  // sense.
-  .patch("/workspaces/:name/files/visibility", async (c) => {
-    const name = c.req.param("name");
-    await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    const key = c.req.query("key") ?? "";
-    if (badKey(key)) throw new NotFoundError();
-
-    // Throttle rewrites per workspace — checked only after the membership
-    // gate, so a non-member can't burn a workspace's write budget. Same
-    // WRITE_LIMITER the token-scoped mutating routes use (see guards.ts).
-    if (!(await allowWrite(c.env, name))) {
-      throw new RateLimitedError("rate limit exceeded");
-    }
-
-    const body = await c.req.json().catch(() => null);
-    const requested = (body as { visibility?: unknown } | null)?.visibility;
-    if (
-      typeof requested !== "string" ||
-      !(VISIBILITY_VALUES as readonly string[]).includes(requested)
-    ) {
-      throw new ValidationError('visibility must be "public" or "private"', {
-        code: "invalid_visibility",
-      });
-    }
-
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) throw new NotFoundError();
-    const store = await storage(c.env, record);
-
-    await setObjectVisibility(store, key, requested as "public" | "private");
-
-    return c.json({ key, visibility: sanitizeVisibility(requested) ?? "public" });
-  })
-
-  // Delete a file — member-gated web administration (spec 2026-07-30). Same
-  // key convention and gate ordering as the visibility route above; all
-  // storage/D1/ledger mechanics live in files-core's deleteObject (shared
-  // with the token-authed DELETE /v1/:workspace/files/:key). Any member may
-  // delete — parity with the CLI, where any member token can `uploads delete`.
-  .delete("/workspaces/:name/files", async (c) => {
-    const name = c.req.param("name");
-    await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    const key = c.req.query("key") ?? "";
-    if (badKey(key)) throw new NotFoundError();
-
-    if (!(await allowWrite(c.env, name))) {
-      throw new RateLimitedError("rate limit exceeded");
-    }
-
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) throw new NotFoundError();
-
-    return c.json(await deleteObject(c.env, record, key, name));
+    const keyPath = key.split("/").map(encodeURIComponent).join("/");
+    return forwardToWorkspaceFiles(c, `/${c.req.param("name")}/files/${keyPath}`);
   })
 
   // files-sdk's folder-aware browser gateway. Authorization happens before a

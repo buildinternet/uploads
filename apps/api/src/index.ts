@@ -10,6 +10,7 @@ import { adminUi } from "./routes/admin-ui";
 import { auth } from "./routes/auth";
 import { tokens } from "./routes/tokens";
 import { workspaces } from "./routes/workspaces";
+import { workspaceFiles } from "./routes/workspace-files";
 import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
 import { runObservabilityRetention } from "./observability-retention";
@@ -132,6 +133,14 @@ export const app = new Hono<WorkspaceVars>()
   // brings its own session auth. See routes/tokens.ts.
   .route("/v1/tokens", tokens)
   .route("/v1/workspaces", workspaces)
+  // Canonical dual-auth files vertical (issue #613 phase 1):
+  // `/v1/workspaces/:workspace/files*`, session cookie OR bearer token. Same
+  // `/v1/workspaces` mount prefix as the lifecycle router above, distinct
+  // sub-router — same "same base path, distinct sub-app" pattern already
+  // used five times below for `/v1/:workspace/github`. Brings its own auth
+  // (`dualWorkspaceAuth`, applied per-route inside workspace-files.ts), so
+  // it does not sit behind the `workspaceAuth` guard further down.
+  .route("/v1/workspaces", workspaceFiles)
   // Anonymous CLI/MCP usage pings — no auth, before workspace guard.
   .route("/v1/telemetry", telemetry)
   // Explicit opt-in diagnostic reports (message + optional log) — no auth.

@@ -224,7 +224,8 @@ export type WorkspaceVars = {
     workspace: WorkspaceRecord;
     workspaceName: string;
     authScopes: FileScope[];
-    authSource: "d1" | "legacy";
+    /** "session" is set only by `dualWorkspaceAuth` (see dual-workspace-auth.ts). */
+    authSource: "d1" | "legacy" | "session";
     /** Better Auth user behind the bearer token (issue #340), or null. */
     mintingUserId: string | null;
   };
