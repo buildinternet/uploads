@@ -14,6 +14,7 @@ import { workspaceFiles } from "./routes/workspace-files";
 import { workspaceGalleries } from "./routes/workspace-galleries";
 import { workspaceUsage } from "./routes/workspace-usage";
 import { workspaceGithub } from "./routes/workspace-github";
+import { workspaceMembers } from "./routes/workspace-members";
 import { me } from "./routes/me";
 import { runRetentionSweep } from "./retention-sweep";
 import { runObservabilityRetention } from "./observability-retention";
@@ -155,6 +156,17 @@ export const app = new Hono<WorkspaceVars>()
   // mounted separately below into one router. Same "self-contained
   // sub-router, own auth + error boundary" shape as `workspaceFiles` above.
   .route("/v1/workspaces", workspaceGithub)
+  // Canonical invites/members vertical (issue #613 phase 3):
+  // `/v1/workspaces/:workspace/members`, `/people`, `/invites*`,
+  // `/members/:memberId*` — session-only (a bearer 403s
+  // `members_requires_session`; see `routes/workspace-members.ts`'s
+  // docblock for why this vertical mints no new bearer capability). The one
+  // route in this vertical with a real bearer capability,
+  // `POST /:name/invites`, is NOT here — it was upgraded in place inside
+  // `workspaces` above (now `dualGovernanceAuth`-guarded) rather than
+  // parallel-registered, to avoid a same-path double-registration/shadowing
+  // hazard with the pre-existing governance-token route.
+  .route("/v1/workspaces", workspaceMembers)
   // Anonymous CLI/MCP usage pings — no auth, before workspace guard.
   .route("/v1/telemetry", telemetry)
   // Explicit opt-in diagnostic reports (message + optional log) — no auth.

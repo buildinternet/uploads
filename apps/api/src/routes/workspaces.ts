@@ -15,7 +15,8 @@ import {
 } from "@uploads/errors";
 import { resolveWorkspaceCreateQuota, workspaceCapMessage } from "@uploads/billing";
 import { Hono, type MiddlewareHandler } from "hono";
-import { adminWorkspaceOr403, isWorkspaceOwner } from "./me";
+import { dualGovernanceAuth } from "../dual-workspace-auth";
+import { respondError } from "../error-response";
 import {
   isFileScope,
   isOperatorScope,
@@ -27,8 +28,10 @@ import { recordAdoptionSafe } from "../adoption";
 import { allowWorkspaceCreate, allowWrite } from "../guards";
 import { throwForInviteError } from "../invite-error";
 import {
+  adminWorkspaceOr403,
   deleteOrg,
   isGithubLinked,
+  isWorkspaceOwner,
   membershipsForUser,
   orgForWorkspace,
   provisionOrg,
@@ -365,17 +368,41 @@ workspaces.post("/:name/restore", sessionAuth, requireSessionUser, async (c) => 
 });
 
 /**
- * Token-authed invite (issue #262) — mirrors `POST /me/workspaces/:name/invites`
- * but is bearer-token-authed with a D1 `workspace:invite`-scoped token
- * (`workspaceGovernanceAuth`, see `../workspace.ts`) instead of a session
- * cookie. Per the plan's invite-attribution rule, the invite acts as the
- * token's `minting_user_id` — the auth worker's internal invite route
- * independently re-checks that user's org admin/owner role server-side
- * (`apps/auth/src/internal-routes.ts`), so a minter who lost their org role
- * can no longer invite with an old token even though the token itself is
- * still active.
+ * Canonical invites route (issue #613 phase 3): `POST /v1/workspaces/:name/invites`
+ * is now dual-authed via `dualGovernanceAuth("workspace:invite")` rather than
+ * the bare `workspaceGovernanceAuth` it used pre-#613 — EITHER a D1
+ * `workspace:invite`-scoped bearer token (unchanged behavior, delegated
+ * verbatim — see `workspace-governance-invite.test.ts`) OR a session user
+ * holding org role admin/owner in `:name` (matching `adminWorkspaceOr403`'s
+ * posture, the same tier the pre-existing `POST /me/workspaces/:name/invites`
+ * route already required).
+ *
+ * This is the "upgrade the existing path in place" outcome called out in
+ * `.context/613-api-consolidation-plan.md`'s invites/members section: the old
+ * bearer-only path already lived at the canonical `/v1/workspaces/:name/...`
+ * convention, so making it dual-auth here — rather than standing up a
+ * parallel registration in `routes/workspace-members.ts` — avoids a same-path
+ * double-registration/shadowing hazard. The handler body below is completely
+ * unchanged: `dualGovernanceAuth` sets `governanceMintingUserId` to the
+ * session `userId` on the session path (mirroring what a token's
+ * `minting_user_id` represents), so the "act as this user" logic below works
+ * identically for both auth paths without a single line of branching.
+ *
+ * Per the plan's invite-attribution rule, the invite acts as
+ * `governanceMintingUserId` — for a bearer token, the auth worker's internal
+ * invite route independently re-checks that user's org admin/owner role
+ * server-side (`apps/auth/src/internal-routes.ts`), so a minter who lost
+ * their org role can no longer invite with an old token even though the
+ * token itself is still active; for a session caller, `dualGovernanceAuth`
+ * already re-resolved the role on every request (no stale-role risk to begin
+ * with).
+ *
+ * `routes/me.ts`'s `POST /workspaces/:name/invites` now forwards here (see
+ * `forwardToWorkspaceMembers` in `routes/me.ts`) rather than running its own
+ * copy of this handler — the response shape was already identical between
+ * the two paths before this change.
  */
-workspaces.post("/:name/invites", workspaceGovernanceAuth("workspace:invite"), async (c) => {
+workspaces.post("/:name/invites", dualGovernanceAuth("workspace:invite"), async (c) => {
   const name = c.req.param("name");
   requireWorkspaceName(name);
 
@@ -507,3 +534,13 @@ workspaces.delete("/:name/tokens", workspaceManageAuth(), async (c) => {
     },
   });
 });
+
+// Own error boundary (issue #613 phase 3) — required now that `routes/me.ts`
+// `.fetch()`s this router directly for its `POST /workspaces/:name/invites`
+// alias (same "self-contained sub-router, own auth + error boundary" shape
+// `workspace-files.ts`/`workspace-usage.ts`/`workspace-github.ts` already
+// carry for the same reason). Identical formatting to the parent `app`'s own
+// `.onError()` in `index.ts`, so this changes nothing for requests that
+// still reach `workspaces` via the normal `.route("/v1/workspaces", ...)`
+// mount — only the new direct-`.fetch()` path actually depends on it.
+workspaces.onError((err, c) => respondError(c, err));

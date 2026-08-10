@@ -7,7 +7,8 @@
  * vertical built on this.
  */
 import { ForbiddenError, NotFoundError, UnauthorizedError } from "@uploads/errors";
-import type { MiddlewareHandler } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
+import { type WorkspaceScope } from "./auth-db";
 import { FILE_SCOPES } from "./auth-db";
 import { membershipsForUser, workspacesFromMembership } from "./org-workspaces";
 import {
@@ -16,7 +17,13 @@ import {
   type SessionUser,
   type SessionVars,
 } from "./session-auth";
-import { loadWorkspaceRecord, workspaceAuth, type WorkspaceVars } from "./workspace";
+import {
+  loadWorkspaceRecord,
+  workspaceAuth,
+  workspaceGovernanceAuth,
+  type GovernanceVars,
+  type WorkspaceVars,
+} from "./workspace";
 
 /** Combined context vars for routes reachable by either auth path. */
 export type DualAuthVars = {
@@ -65,6 +72,24 @@ async function requireMembership(env: Env, userId: string, name: string): Promis
 }
 
 /**
+ * Resolves the calling session's `userId`, honoring the `presetResolvedUser`
+ * WeakMap handoff (see above) before falling back to a real `sessionAuth` +
+ * `requireSessionUser` round trip. Shared by `dualWorkspaceAuth` and
+ * `dualGovernanceAuth` (and any session-only-but-bearer-aware guard a
+ * canonical vertical wants to build) so "resolve the session exactly once
+ * per forwarded request" stays true everywhere, not just on the files
+ * vertical. Throws (via `requireSessionUser`) on no session — same as before
+ * this was extracted.
+ */
+export async function resolveSessionUserId(c: Context<SessionVars>): Promise<string> {
+  const preresolvedUserId = PRERESOLVED_USER.get(c.req.raw);
+  if (preresolvedUserId !== undefined) return preresolvedUserId;
+  await sessionAuth(c, async () => {});
+  await requireSessionUser(c, async () => {});
+  return (c.get("sessionUser") as SessionUser).id;
+}
+
+/**
  * Guards a `/…/:workspace/…` route with EITHER a bearer token (resolution
  * identical to `workspaceAuth`) OR a session cookie (membership check
  * identical to `me.ts`'s `memberWorkspaceOr404`).
@@ -85,20 +110,7 @@ export function dualWorkspaceAuth(): MiddlewareHandler<DualAuthVars> {
       return workspaceAuth(c as unknown as Parameters<typeof workspaceAuth>[0], next);
     }
 
-    const preresolvedUserId = PRERESOLVED_USER.get(c.req.raw);
-    let userId: string;
-    if (preresolvedUserId !== undefined) {
-      // Session already resolved upstream (e.g. `me.ts`'s own `sessionAuth`
-      // middleware, for a forwarded old-path alias) — skip the redundant
-      // `get-session` round trip. Membership is still checked below: that
-      // lookup hasn't run yet for this request.
-      userId = preresolvedUserId;
-    } else {
-      const sessionC = c as unknown as Parameters<typeof sessionAuth>[0];
-      await sessionAuth(sessionC, async () => {});
-      await requireSessionUser(sessionC, async () => {});
-      userId = (c.get("sessionUser") as SessionUser).id;
-    }
+    const userId = await resolveSessionUserId(c as unknown as Context<SessionVars>);
 
     const name = c.req.param("workspace");
     if (!name) throw new UnauthorizedError();
@@ -157,6 +169,72 @@ export function requireSessionAdmin(): MiddlewareHandler<DualAuthVars> {
         });
       }
     }
+    await next();
+  };
+}
+
+/** Combined context vars for a `dualGovernanceAuth`-guarded route. */
+export type GovernanceSessionVars = {
+  Variables: GovernanceVars["Variables"] & SessionVars["Variables"];
+  Bindings: Env;
+};
+
+/**
+ * Dual-auth guard for the workspace-*governance* scope namespace (issue #613
+ * phase 3, invites/members vertical) — distinct from `dualWorkspaceAuth`,
+ * which grants a session caller every `FILE_SCOPES`. Governance scopes
+ * (`workspace:invite`/`workspace:manage`/etc., see `auth-db.ts`) are a
+ * separate D1 token shape (`workspaceGovernanceAuth`) with no file-plane
+ * analog, so a session caller here is never "granted a scope" — they're held
+ * to the same admin/owner org-role tier the pre-existing `/me` governance-
+ * adjacent routes (`adminWorkspaceOr403` in `routes/me.ts`) already require.
+ *
+ * A presented bearer credential is authoritative and delegates straight to
+ * `workspaceGovernanceAuth(requiredScope)` — verbatim, so a governance-token
+ * caller's behavior is provably unchanged by introducing this guard (see
+ * `routes/workspace-governance-invite.test.ts`, still green against
+ * `POST /v1/workspaces/:name/invites` after it was upgraded to use this
+ * function in place of a bare `workspaceGovernanceAuth("workspace:invite")`).
+ *
+ * With no bearer: resolves the session (honoring the `presetResolvedUser`
+ * WeakMap handoff via `resolveSessionUserId`), 404s a non-member (uniform,
+ * no existence probe — same `requireMembership` shape as `dualWorkspaceAuth`),
+ * then 403s `workspace_admin_required` for a member who isn't admin/owner —
+ * identical codes/ordering to `me.ts`'s `adminWorkspaceOr403`
+ * (`memberWorkspaceOr404` -> role check), so a session caller's behavior is
+ * also provably unchanged by the swap. Sets `governanceMintingUserId` to the
+ * session `userId` (mirroring what a bearer token's `minting_user_id`
+ * represents — "who does this governance action act as") so a handler
+ * written against `GovernanceVars` (e.g. the invite-creation handler in
+ * `routes/workspaces.ts`) needs zero changes to work from either auth path.
+ */
+export function dualGovernanceAuth(
+  requiredScope: WorkspaceScope,
+): MiddlewareHandler<GovernanceSessionVars> {
+  return async (c, next) => {
+    const authorization = c.req.header("Authorization");
+    if (authorization?.startsWith("Bearer ")) {
+      return workspaceGovernanceAuth(requiredScope)(
+        c as unknown as Parameters<ReturnType<typeof workspaceGovernanceAuth>>[0],
+        next,
+      );
+    }
+
+    const userId = await resolveSessionUserId(c as unknown as Context<SessionVars>);
+    const name = c.req.param("name") ?? c.req.param("workspace");
+    if (!name) throw new UnauthorizedError();
+
+    const [membership] = await membershipsForUser(c.env, userId, { slug: name });
+    if (!membership || !workspacesFromMembership(membership).includes(name)) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
+    if (membership.role !== "admin" && membership.role !== "owner") {
+      throw new ForbiddenError("workspace admin or owner role required", {
+        code: "workspace_admin_required",
+      });
+    }
+
+    c.set("governanceMintingUserId", userId);
     await next();
   };
 }

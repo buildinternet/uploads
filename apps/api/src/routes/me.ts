@@ -27,7 +27,6 @@ import { createFilesRouter, type R2Jurisdiction } from "@uploads/storage";
 import { Hono, type Context } from "hono";
 import { usageWithLimits } from "../budget";
 import { sealCredentialFieldsStrict } from "../secrets";
-import { throwForInviteError } from "../invite-error";
 import { parseExternalReference } from "../external-references";
 import { previewFixtureItems } from "../comment-preview-fixtures";
 import { badKey, listObjects } from "../files-core";
@@ -44,16 +43,14 @@ import { resolveRepoCommentOptions, workspaceCommentDefaults } from "../repo-com
 import { resolveTitles } from "../github-titles";
 import { allowWrite } from "../guards";
 import {
-  invitesForOrg,
-  membersForOrg,
+  adminWorkspaceOr403,
+  memberWorkspaceOr404,
   membershipsForUser,
-  removeMember,
-  revokeInvite,
+  myWorkspaceFromMembership,
   subscriptionForOrg,
-  updateMemberRole,
   workspacesFromMembership,
   type Membership,
-  type OrgMember,
+  type MyWorkspace,
 } from "../org-workspaces";
 import { presetResolvedSessionUser } from "../dual-workspace-auth";
 import { requireSessionUser, sessionAuth, type SessionVars } from "../session-auth";
@@ -64,7 +61,9 @@ import { byoBucketAllowed, loadWorkspaceRecord, type WorkspaceRecord } from "../
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { planResponse, planSourceFor } from "../workspace-plan";
 import { workspaceFiles } from "./workspace-files";
+import { workspaceMembers } from "./workspace-members";
 import { workspaceUsage } from "./workspace-usage";
+import { workspaces } from "./workspaces";
 import {
   candidateFromBody,
   storageReconcile,
@@ -124,7 +123,49 @@ async function forwardToWorkspaceUsage(c: Context<SessionVars>, path: string): P
   return workspaceUsage.fetch(forwarded, c.env, executionCtx);
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/**
+ * Same forwarding pattern, targeting the canonical invites/members vertical
+ * (`routes/workspace-members.ts`, issue #613 phase 3) for the session-only
+ * routes (`members`/`people`/`invites` GET/DELETE/`members/:id` PATCH). The
+ * canonical handlers are the exact bodies this file's routes used to run
+ * (extracted verbatim, see git history), so this is a genuine forward.
+ */
+async function forwardToWorkspaceMembers(c: Context<SessionVars>, path: string): Promise<Response> {
+  const url = new URL(c.req.url);
+  url.pathname = path;
+  let executionCtx: Context<SessionVars>["executionCtx"] | undefined;
+  try {
+    executionCtx = c.executionCtx;
+  } catch {
+    executionCtx = undefined;
+  }
+  const forwarded = new Request(url, c.req.raw);
+  presetResolvedSessionUser(forwarded, requireUserId(c));
+  return workspaceMembers.fetch(forwarded, c.env, executionCtx);
+}
+
+/**
+ * Forwards `POST /workspaces/:name/invites` to `routes/workspaces.ts`'s
+ * `POST /:name/invites` — the ONE invites/members route with a genuine
+ * bearer capability, upgraded in place to `dualGovernanceAuth` rather than
+ * duplicated into `workspace-members.ts` (see that route's docblock). Same
+ * response shape as this file's pre-#613 handler (both built `{ ...payload,
+ * acceptUrl }` from the same AUTH `/internal/invite` call), so this is a
+ * genuine forward, not a reimplementation.
+ */
+async function forwardToWorkspaceInvite(c: Context<SessionVars>, name: string): Promise<Response> {
+  const url = new URL(c.req.url);
+  url.pathname = `/${name}/invites`;
+  let executionCtx: Context<SessionVars>["executionCtx"] | undefined;
+  try {
+    executionCtx = c.executionCtx;
+  } catch {
+    executionCtx = undefined;
+  }
+  const forwarded = new Request(url, c.req.raw);
+  presetResolvedSessionUser(forwarded, requireUserId(c));
+  return workspaces.fetch(forwarded, c.env, executionCtx);
+}
 
 /** `imageWidth` bounds (issue #307): "full" or an integer clamp width in px. */
 const COMMENT_IMAGE_WIDTH_MIN = 160;
@@ -275,48 +316,6 @@ function commentSettingsResponse(record: WorkspaceRecord) {
 /** `?repo=` shape for the comment preview endpoint: exactly one `/`, no empty segments. */
 const REPO_SHAPE_RE = /^[^/\s]+\/[^/\s]+$/;
 
-interface MyWorkspace {
-  workspace: string;
-  organization: { id: string; slug: string; name: string };
-  role: string;
-}
-
-function myWorkspaceFromMembership(membership: Membership, workspace: string): MyWorkspace {
-  return {
-    workspace,
-    organization: {
-      id: membership.organizationId,
-      slug: membership.organizationSlug,
-      name: membership.organizationName || membership.organizationSlug,
-    },
-    role: membership.role,
-  };
-}
-
-function canManageRole(role: string): boolean {
-  return role === "admin" || role === "owner";
-}
-
-/** Sanitize org members for the account people UI (opaque `id` only for managers). */
-function projectMembers(members: OrgMember[], canManage: boolean) {
-  return members.map((m) => {
-    const row: {
-      id?: string;
-      email: string;
-      name: string;
-      role: string;
-      createdAt?: string;
-    } = {
-      email: m.email ?? "",
-      name: m.name ?? "",
-      role: m.role ?? "member",
-      createdAt: m.createdAt,
-    };
-    if (canManage) row.id = m.id;
-    return row;
-  });
-}
-
 /**
  * Every workspace the user's memberships map to. Memberships already include
  * org id/slug/name from AUTH, so this is one service call — not N org
@@ -333,64 +332,12 @@ async function myWorkspaces(env: Env, userId: string): Promise<MyWorkspace[]> {
   return out;
 }
 
-/**
- * Caller's membership for `name`, or a uniform 404 (not 403 — no existence
- * probe). Slug-scoped membership query (one AUTH join), not the full list.
- */
-async function memberWorkspaceOr404(env: Env, userId: string, name: string): Promise<MyWorkspace> {
-  // 1:1 today: workspace name === org slug. Multi-workspace orgs would expand
-  // via workspacesFromMembership over the full list instead.
-  const [membership] = await membershipsForUser(env, userId, { slug: name });
-  if (!membership || !workspacesFromMembership(membership).includes(name)) {
-    throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-  }
-  return myWorkspaceFromMembership(membership, name);
-}
-
 function requireUserId(c: Context<SessionVars>): string {
   // requireSessionUser guarantees a session user; the guard is belt-and-braces
   // and keeps the 404 (not 401) shape uniform with the not-a-member case.
   const userId = c.get("sessionUser")?.id;
   if (!userId) throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
   return userId;
-}
-
-/**
- * Membership admin|owner for this workspace — 404 if not a member, 403 if
- * member but not privileged. Exported for reuse by the self-serve token
- * governance dual-auth guard (`workspaces.ts`, issue #262 Task 3).
- */
-export async function adminWorkspaceOr403(
-  env: Env,
-  userId: string,
-  name: string,
-): Promise<MyWorkspace> {
-  const ws = await memberWorkspaceOr404(env, userId, name);
-  if (ws.role !== "admin" && ws.role !== "owner") {
-    throw new ForbiddenError("workspace admin or owner role required", {
-      code: "workspace_admin_required",
-    });
-  }
-  return ws;
-}
-
-/**
- * True iff the user holds org role `owner` (not `admin`) for workspace
- * `name`, resolved via the same org<->workspace mapping as
- * `adminWorkspaceOr403`/`memberWorkspaceOr404` (issue #265 — extends the
- * #249 self-serve deletion gate from creator-only to creator OR org owner).
- * Non-throwing: a non-member or unknown workspace is simply `false`, not a
- * 404 — callers combine this with other ownership checks and want a uniform
- * "not authorized" outcome rather than a membership-probing 404.
- */
-export async function isWorkspaceOwner(env: Env, userId: string, name: string): Promise<boolean> {
-  try {
-    const ws = await memberWorkspaceOr404(env, userId, name);
-    return ws.role === "owner";
-  } catch (err) {
-    if (err instanceof NotFoundError) return false;
-    throw err;
-  }
 }
 
 export const me = new Hono<SessionVars>()
@@ -537,35 +484,20 @@ export const me = new Hono<SessionVars>()
     });
   })
 
-  // People in one workspace — member-gated (teammate fields only, not admin raw rows).
-  .get("/workspaces/:name/members", async (c) => {
-    const name = c.req.param("name");
-    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    const canManage = canManageRole(ws.role);
-    const members = await membersForOrg(c.env, ws.organization.slug);
-    return c.json({
-      members: projectMembers(members, canManage),
-    });
-  })
+  // People in one workspace — member-gated (teammate fields only, not admin
+  // raw rows). Issue #613 phase 3: forwards to the canonical dual-auth-free
+  // (session-only) handler in `routes/workspace-members.ts` — the extracted
+  // handler is byte-for-byte the body this route used to run, so response
+  // shape can't drift. See `forwardToWorkspaceMembers`'s docblock.
+  .get("/workspaces/:name/members", (c) =>
+    forwardToWorkspaceMembers(c, `/${c.req.param("name")}/members`),
+  )
 
-  // People tab: members + (for admins) pending invites + role in one authz pass.
-  .get("/workspaces/:name/people", async (c) => {
-    const name = c.req.param("name");
-    const ws = await memberWorkspaceOr404(c.env, requireUserId(c), name);
-    const canManage = canManageRole(ws.role);
-    const [members, invites] = await Promise.all([
-      membersForOrg(c.env, ws.organization.slug),
-      canManage ? invitesForOrg(c.env, ws.organization.slug) : Promise.resolve([]),
-    ]);
-
-    return c.json({
-      role: ws.role,
-      canManage,
-      organization: ws.organization,
-      members: projectMembers(members, canManage),
-      invites: canManage ? invites : [],
-    });
-  })
+  // People tab: members + (for admins) pending invites + role in one authz
+  // pass. Same forward as above.
+  .get("/workspaces/:name/people", (c) =>
+    forwardToWorkspaceMembers(c, `/${c.req.param("name")}/people`),
+  )
 
   // Galleries in one workspace — member-gated. Issue #613 phase 2: NOT
   // forwarded to the canonical `/v1/workspaces/:workspace/galleries` list —
@@ -647,110 +579,37 @@ export const me = new Hono<SessionVars>()
 
   // Invite an email to the org backing this workspace (Better Auth invitation).
   // Workspace org admin|owner only. Returns acceptUrl so self-hosted installs
-  // without Email Sending can still hand the invitee a link.
-  .post("/workspaces/:name/invites", async (c) => {
-    const name = c.req.param("name");
-    const userId = requireUserId(c);
-    // Membership already carries org slug (1:1 mapping) — no second org fetch.
-    const ws = await adminWorkspaceOr403(c.env, userId, name);
-
-    if (!(await allowWrite(c.env, name))) {
-      throw new RateLimitedError("rate limit exceeded");
-    }
-
-    const body = await c.req
-      .json<{ email?: unknown; role?: unknown }>()
-      .catch(() => ({}) as { email?: unknown; role?: unknown });
-    // Account UI always invites as member; API still accepts role for CLI.
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-    const role = typeof body.role === "string" ? body.role.trim() : "member";
-    if (!email || !EMAIL_RE.test(email)) {
-      throw new ValidationError("invalid email address", { code: "invalid_email" });
-    }
-    if (role !== "member" && role !== "admin") {
-      throw new ValidationError("role must be member or admin", { code: "invalid_role" });
-    }
-
-    // Per-recipient rate limit when the binding is configured (hosted always;
-    // self-hosted opt-in via wrangler). Absent binding = no RL (same as other
-    // optional limiters).
-    const limiter = c.env.INVITE_LIMITER;
-    if (limiter) {
-      const { success } = await limiter.limit({ key: `invite:email:${email}` });
-      if (!success) throw new RateLimitedError("invite rate limit exceeded");
-    }
-
-    const response = await c.env.AUTH.fetch("https://auth.internal/internal/invite", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-uploads-internal": "1" },
-      body: JSON.stringify({
-        organizationSlug: ws.organization.slug,
-        email,
-        role,
-        inviterUserId: userId,
-      }),
-    });
-    const payload = (await response.json().catch(() => null)) as {
-      invitation?: { id?: string };
-      acceptUrl?: string;
-    } | null;
-    if (!response.ok) throwForInviteError(response.status, payload);
-    // Ensure acceptUrl even if an older auth worker omits it.
-    const webOrigin = (c.env.WEB_ORIGIN || "https://uploads.sh").replace(/\/$/, "");
-    const id = payload?.invitation?.id;
-    const acceptUrl =
-      payload?.acceptUrl ?? (id ? `${webOrigin}/accept-invitation/${id}` : undefined);
-    return c.json({ ...payload, acceptUrl }, response.status === 200 ? 200 : 201);
-  })
+  // without Email Sending can still hand the invitee a link. Issue #613
+  // phase 3: forwards to `routes/workspaces.ts`'s canonical
+  // `POST /:name/invites` (now `dualGovernanceAuth`-guarded) — see
+  // `forwardToWorkspaceInvite`'s docblock for why this route, uniquely among
+  // this vertical's session routes, forwards to `workspaces.ts` rather than
+  // `workspace-members.ts`.
+  .post("/workspaces/:name/invites", (c) => forwardToWorkspaceInvite(c, c.req.param("name")))
 
   // Pending invites for this workspace — admin/owner only (they can revoke).
-  .get("/workspaces/:name/invites", async (c) => {
-    const name = c.req.param("name");
-    const ws = await adminWorkspaceOr403(c.env, requireUserId(c), name);
-    const invites = await invitesForOrg(c.env, ws.organization.slug);
-    return c.json({ invites });
-  })
+  // Issue #613 phase 3: forwards to the canonical session-only handler in
+  // `routes/workspace-members.ts`.
+  .get("/workspaces/:name/invites", (c) =>
+    forwardToWorkspaceMembers(c, `/${c.req.param("name")}/invites`),
+  )
 
-  // Revoke a pending invite — admin/owner only.
-  .delete("/workspaces/:name/invites/:id", async (c) => {
-    const name = c.req.param("name");
-    const userId = requireUserId(c);
-    const ws = await adminWorkspaceOr403(c.env, userId, name);
-    if (!(await allowWrite(c.env, name))) throw new RateLimitedError("rate limit exceeded");
-    await revokeInvite(c.env, ws.organization.slug, c.req.param("id"), userId);
-    return c.json({ ok: true });
-  })
+  // Revoke a pending invite — admin/owner only. Same forward as above.
+  .delete("/workspaces/:name/invites/:id", (c) =>
+    forwardToWorkspaceMembers(c, `/${c.req.param("name")}/invites/${c.req.param("id")}`),
+  )
 
-  // Remove a member (by opaque member id) — admin/owner only; matrix enforced in auth worker.
-  .delete("/workspaces/:name/members/:memberId", async (c) => {
-    const name = c.req.param("name");
-    const userId = requireUserId(c);
-    const ws = await adminWorkspaceOr403(c.env, userId, name);
-    if (!(await allowWrite(c.env, name))) throw new RateLimitedError("rate limit exceeded");
-    await removeMember(c.env, ws.organization.slug, c.req.param("memberId"), userId);
-    return c.json({ ok: true });
-  })
+  // Remove a member (by opaque member id) — admin/owner only; matrix
+  // enforced in auth worker. Same forward pattern.
+  .delete("/workspaces/:name/members/:memberId", (c) =>
+    forwardToWorkspaceMembers(c, `/${c.req.param("name")}/members/${c.req.param("memberId")}`),
+  )
 
   // Change a member's role (admin↔member); auth worker enforces the matrix.
-  .patch("/workspaces/:name/members/:memberId", async (c) => {
-    const name = c.req.param("name");
-    const userId = requireUserId(c);
-    const ws = await adminWorkspaceOr403(c.env, userId, name);
-    if (!(await allowWrite(c.env, name))) throw new RateLimitedError("rate limit exceeded");
-    const body = await c.req.json<{ role?: unknown }>().catch(() => ({}) as { role?: unknown });
-    const role = typeof body.role === "string" ? body.role.trim() : "";
-    if (role !== "admin" && role !== "member") {
-      throw new ValidationError("role must be admin or member", { code: "invalid_role" });
-    }
-    const member = await updateMemberRole(
-      c.env,
-      ws.organization.slug,
-      c.req.param("memberId"),
-      role,
-      userId,
-    );
-    return c.json({ member });
-  })
+  // Same forward pattern.
+  .patch("/workspaces/:name/members/:memberId", (c) =>
+    forwardToWorkspaceMembers(c, `/${c.req.param("name")}/members/${c.req.param("memberId")}`),
+  )
 
   // Batch PR/issue titles for the connected-work rail (issue #267). Member-
   // gated: title text for private repos is sensitive, and membership scoping
