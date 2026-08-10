@@ -7,6 +7,7 @@ import {
   getSuggestedWorkspaceName,
   getWorkspaceFacets,
   getWorkspaceFacetValues,
+  getWorkspaceFilesByPath,
   getWorkspaceInvites,
   getWorkspaceMembers,
   getWorkspaceStorageStatus,
@@ -311,6 +312,53 @@ describe("searchWorkspaceFiles", () => {
     await expect(
       searchWorkspaceFiles("http://127.0.0.1:8787", "acme", [{ key: "app", value: "web" }]),
     ).resolves.toEqual({ kind: "unavailable", reason: "malformed" });
+  });
+});
+
+describe("getWorkspaceFilesByPath", () => {
+  const GROUP = {
+    path: "/settings",
+    count: 2,
+    lastUpdated: "2026-08-09T21:14:03.000Z",
+    recent: [
+      {
+        key: "shots/a.png",
+        url: "https://s.example/a.png",
+        embedUrl: "https://s.example/a.png",
+        state: "after",
+      },
+      { key: "shots/b.png", url: null, embedUrl: null },
+    ],
+  };
+
+  it("returns groups on a well-formed response", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
+      Response.json({ groups: [GROUP], truncated: false }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
+    expect(result).toEqual({ kind: "ok", groups: [GROUP], truncated: false });
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      "https://api.uploads.sh/me/workspaces/acme/files/by-path",
+    );
+  });
+
+  it("is unavailable on a malformed body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ groups: [{ path: 1 }] })),
+    );
+    const result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
+    expect(result.kind).toBe("unavailable");
+  });
+
+  it("is unavailable on a non-2xx response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 500 })),
+    );
+    const result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
+    expect(result.kind).toBe("unavailable");
   });
 });
 

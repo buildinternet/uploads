@@ -632,6 +632,73 @@ export async function facetValues(
   };
 }
 
+/** Max path groups returned by `groupObjectsByPath`. */
+export const BY_PATH_GROUP_LIMIT = 50;
+/** Recent object keys returned per path group. */
+export const BY_PATH_RECENT_LIMIT = 6;
+
+export type PathGroup = {
+  path: string;
+  count: number;
+  lastUpdated: string;
+  recent: string[];
+};
+
+/**
+ * Recent uploads grouped by their `path` metadata value — the screenshots
+ * page's one query (spec: docs/superpowers/specs/2026-08-10-screenshots-by-path-design.md).
+ * Groups come back most-recently-active first, each carrying its newest
+ * BY_PATH_RECENT_LIMIT keys and total count.
+ *
+ * One windowed statement over the `path` rows only (seeked via
+ * `file_metadata_lookup_idx (workspace, meta_key, meta_value)`), so rows-read
+ * scales with path-tagged files, not the whole metadata table. For `path`
+ * rows `updated_at` is effectively upload time — the key is written at
+ * upload — which is what "recent" should mean here. The group cap is applied
+ * while assembling (rows arrive grouped), keeping the newest groups.
+ */
+export async function groupObjectsByPath(
+  db: D1Database,
+  workspace: string,
+): Promise<{ groups: PathGroup[]; truncated: boolean }> {
+  const result = await db
+    .prepare(
+      `SELECT path, object_key, cnt, latest FROM (
+         SELECT meta_value AS path, object_key,
+                ROW_NUMBER() OVER (PARTITION BY meta_value ORDER BY updated_at DESC, object_key ASC) AS rn,
+                COUNT(*) OVER (PARTITION BY meta_value) AS cnt,
+                MAX(updated_at) OVER (PARTITION BY meta_value) AS latest
+         FROM file_metadata
+         WHERE workspace = ? AND meta_key = 'path'
+       )
+       WHERE rn <= ?
+       ORDER BY latest DESC, path ASC, rn ASC`,
+    )
+    .bind(workspace, BY_PATH_RECENT_LIMIT)
+    .all<{ path: string; object_key: string; cnt: number; latest: string }>();
+
+  const groups: PathGroup[] = [];
+  let truncated = false;
+  for (const row of result.results) {
+    const current = groups[groups.length - 1];
+    if (current?.path === row.path) {
+      current.recent.push(row.object_key);
+      continue;
+    }
+    if (groups.length === BY_PATH_GROUP_LIMIT) {
+      truncated = true;
+      break;
+    }
+    groups.push({
+      path: row.path,
+      count: row.cnt,
+      lastUpdated: row.latest,
+      recent: [row.object_key],
+    });
+  }
+  return { groups, truncated };
+}
+
 export type FacetKeysResult = {
   keys: Array<{ key: string; count: number; distinctValues: number }>;
   truncated: boolean;

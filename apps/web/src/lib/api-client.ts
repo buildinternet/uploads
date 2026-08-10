@@ -820,6 +820,75 @@ export async function searchWorkspaceFiles(
   return { kind: "ok", items: body.items, truncated: body.truncated };
 }
 
+/** One recent upload inside a `by-path` group. */
+export interface PathGroupItem {
+  key: string;
+  url: string | null;
+  embedUrl: string | null;
+  /** Present only when the file carries `state` metadata (e.g. before/after). */
+  state?: string;
+}
+
+/** One `path` metadata value with its recent uploads. */
+export interface FilesPathGroup {
+  path: string;
+  count: number;
+  lastUpdated: string;
+  recent: PathGroupItem[];
+}
+
+export type FilesByPathResult =
+  | { kind: "ok"; groups: FilesPathGroup[]; truncated: boolean }
+  | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
+
+function isPathGroupItem(value: unknown): value is PathGroupItem {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.key === "string" &&
+    (item.url === null || typeof item.url === "string") &&
+    (item.embedUrl === null || typeof item.embedUrl === "string") &&
+    (item.state === undefined || typeof item.state === "string")
+  );
+}
+
+function isFilesPathGroup(value: unknown): value is FilesPathGroup {
+  if (!value || typeof value !== "object") return false;
+  const group = value as Record<string, unknown>;
+  return (
+    typeof group.path === "string" &&
+    typeof group.count === "number" &&
+    typeof group.lastUpdated === "string" &&
+    Array.isArray(group.recent) &&
+    group.recent.every(isPathGroupItem)
+  );
+}
+
+/** GET /me/workspaces/:name/files/by-path — recent uploads grouped by `path` metadata. */
+export async function getWorkspaceFilesByPath(
+  apiOrigin: string,
+  name: string,
+): Promise<FilesByPathResult> {
+  const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files/by-path`;
+  const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
+  if (result.kind === "unavailable") return result;
+  const { response } = result;
+  if (!response.ok) return { kind: "unavailable", reason: "server" };
+  const body = (await response.json().catch(() => null)) as {
+    groups?: unknown;
+    truncated?: unknown;
+  } | null;
+  if (
+    !body ||
+    !Array.isArray(body.groups) ||
+    typeof body.truncated !== "boolean" ||
+    !body.groups.every(isFilesPathGroup)
+  ) {
+    return { kind: "unavailable", reason: "malformed" };
+  }
+  return { kind: "ok", groups: body.groups, truncated: body.truncated };
+}
+
 /** One metadata key present in a workspace, with its file and value counts. */
 export interface FacetKey {
   key: string;

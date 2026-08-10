@@ -1790,6 +1790,56 @@ describe("GET /me/workspaces/:name/files/search", () => {
   });
 });
 
+describe("GET /me/workspaces/:name/files/by-path", () => {
+  it("groups path-tagged files with urls and state badges", async () => {
+    const db = metadataDb([
+      { workspace: "acme", key: "shots/a.png", meta: { path: "/settings", state: "after" } },
+      { workspace: "acme", key: "shots/b.png", meta: { path: "/settings" } },
+      { workspace: "acme", key: "shots/c.png", meta: { app: "web" } },
+    ]);
+    const env = memberEnv({ workspace: "acme", db, bucket: new FakeR2Bucket(), record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/by-path", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      groups: {
+        path: string;
+        count: number;
+        lastUpdated: string;
+        recent: { key: string; url: string | null; state?: string }[];
+      }[];
+      truncated: boolean;
+    };
+    expect(body.truncated).toBe(false);
+    expect(body.groups).toHaveLength(1);
+    expect(body.groups[0]).toMatchObject({ path: "/settings", count: 2 });
+    const byKey = Object.fromEntries(body.groups[0]!.recent.map((r) => [r.key, r]));
+    expect(byKey["shots/a.png"]).toMatchObject({
+      url: "https://storage.uploads.sh/acme/shots/a.png",
+      state: "after",
+    });
+    // `state` is present only when set — no empty-string placeholder.
+    expect(byKey["shots/b.png"]).not.toHaveProperty("state");
+  });
+
+  it("returns empty groups for a workspace with no path metadata", async () => {
+    const env = memberEnv({
+      workspace: "acme",
+      db: metadataDb([]),
+      bucket: new FakeR2Bucket(),
+      record: R2_RECORD,
+    });
+    const res = await app().request("/me/workspaces/acme/files/by-path", {}, env);
+    expect(res.status).toBe(200);
+    expect((await res.json()) as unknown).toEqual({ groups: [], truncated: false });
+  });
+
+  it("404s for a workspace the caller is not a member of", async () => {
+    const env = memberEnv({ workspace: "acme", db: metadataDb([]), record: R2_RECORD });
+    const res = await app().request("/me/workspaces/other/files/by-path", {}, env);
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("GET /me/workspaces/:name/files/facets", () => {
   it("lists the workspace's metadata keys with counts", async () => {
     const db = metadataDb([

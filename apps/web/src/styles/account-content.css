@@ -1772,3 +1772,120 @@ button.wft-card__name:focus-visible {
   color: var(--fg);
   outline: none;
 }
+
+/* Screenshots-by-path tab (Task 6) — sits beside the `wft-` file table;
+   reuses its custom properties (--line/--muted/--fg/--panel/--mono) so the
+   two tabs read as one system. */
+.wsp {
+  display: grid;
+  gap: 24px;
+}
+.wsp-group {
+  display: grid;
+  gap: 10px;
+}
+.wsp-group__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wsp-group__path {
+  font-weight: 600;
+  font-size: 13px;
+}
+.wsp-group__meta {
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.wsp-group__viewall {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.wsp-group__head:hover .wsp-group__viewall,
+.wsp-group__head:focus-visible .wsp-group__viewall {
+  color: var(--fg);
+}
+
+.wsp-drill__heading {
+  margin: 10px 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* Horizontal strip of a group's recent thumbs (overview). */
+.wsp-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.wsp-strip .wsp-tile {
+  flex: none;
+}
+
+/* Responsive grid of a full path's items (drill-in). */
+.wsp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.wsp-tile {
+  position: relative;
+  display: block;
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.wsp-strip .wsp-tile {
+  width: 96px;
+}
+
+.wsp-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 2px;
+  border: 1px solid var(--line);
+  background-size: cover;
+  background-position: center;
+}
+.wsp-thumb--tile {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: var(--panel);
+  font: 11px var(--mono);
+  text-transform: lowercase;
+}
+.wsp-thumb--skel {
+  background: var(--panel);
+}
+
+.wsp-state {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

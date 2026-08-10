@@ -30,7 +30,7 @@ import { sealCredentialFieldsStrict } from "../secrets";
 import { throwForInviteError } from "../invite-error";
 import { parseExternalReference } from "../external-references";
 import { previewFixtureItems } from "../comment-preview-fixtures";
-import { getMetadataForKeys, listFacets } from "../file-metadata";
+import { getMetadataForKeys, groupObjectsByPath, listFacets } from "../file-metadata";
 import {
   normalizeSearchName,
   parseMetaQueryFilters,
@@ -636,6 +636,51 @@ export const me = new Hono<SessionVars>()
     }
 
     return c.json(await listFacets(c.env.DB, name, c.req.query("key")));
+  })
+
+  // Recent uploads grouped by their `path` metadata value — the screenshots
+  // page's single overview query (spec: docs/superpowers/specs/
+  // 2026-08-10-screenshots-by-path-design.md). Drill-in reuses the sibling
+  // `files/search?meta.path=…` route; this one only answers "which paths,
+  // how recent, first few keys". Member- and record-gated exactly like the
+  // facets route. `state` is the one metadata key enriched — the page badges
+  // before/after and nothing else, so no other keys leak into the payload.
+  .get("/workspaces/:name/files/by-path", async (c) => {
+    const name = c.req.param("name");
+    await memberWorkspaceOr404(c.env, requireUserId(c), name);
+
+    const record = await loadWorkspaceRecord(c.env, name);
+    if (!record) {
+      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
+    }
+
+    const { groups, truncated } = await groupObjectsByPath(c.env.DB, name);
+    const metaByKey = await getMetadataForKeys(
+      c.env.DB,
+      name,
+      groups.flatMap((group) => group.recent),
+      { metaKeys: ["state"] },
+    );
+    const cfg = await storageConfig(c.env, record);
+
+    return c.json({
+      groups: groups.map((group) => ({
+        path: group.path,
+        count: group.count,
+        lastUpdated: group.lastUpdated,
+        recent: group.recent.map((key) => {
+          const urls = objectPublicUrls(c.env, cfg, key);
+          const state = metaByKey.get(key)?.state;
+          return {
+            key,
+            url: urls.url,
+            embedUrl: urls.embedUrl,
+            ...(state !== undefined ? { state } : {}),
+          };
+        }),
+      })),
+      truncated,
+    });
   })
 
   // Resolve a selected browser item to a usable URL, by storage capability

@@ -2,7 +2,13 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { fileURLToPath, URL as NodeURL } from "node:url";
 import { describe, expect, it } from "vitest";
-import { facetKeys, facetValues } from "./file-metadata";
+import {
+  facetKeys,
+  facetValues,
+  groupObjectsByPath,
+  BY_PATH_GROUP_LIMIT,
+  BY_PATH_RECENT_LIMIT,
+} from "./file-metadata";
 
 class SQLiteStatement {
   values: unknown[] = [];
@@ -43,6 +49,28 @@ function db(rows: Array<{ workspace: string; key: string; meta: Record<string, s
   for (const row of rows) {
     for (const [k, v] of Object.entries(row.meta)) {
       insert.run(row.workspace, row.key, k, v, "2026-07-25T00:00:00.000Z");
+    }
+  }
+  return new SQLiteD1(database) as unknown as D1Database;
+}
+
+/** Like `db()` but with a per-row timestamp, for recency-ordered queries. */
+function timedDb(
+  rows: Array<{ workspace: string; key: string; meta: Record<string, string>; at: string }>,
+) {
+  const database = new DatabaseSync(":memory:");
+  database.exec(
+    readFileSync(
+      fileURLToPath(new NodeURL("../migrations/20260713210559_file_metadata.sql", import.meta.url)),
+      "utf8",
+    ),
+  );
+  const insert = database.prepare(
+    "INSERT INTO file_metadata (workspace, object_key, meta_key, meta_value, updated_at) VALUES (?, ?, ?, ?, ?)",
+  );
+  for (const row of rows) {
+    for (const [k, v] of Object.entries(row.meta)) {
+      insert.run(row.workspace, row.key, k, v, row.at);
     }
   }
   return new SQLiteD1(database) as unknown as D1Database;
@@ -136,5 +164,75 @@ describe("facetValues", () => {
       "video.poster",
     );
     expect(result.values).toEqual([]);
+  });
+});
+
+describe("groupObjectsByPath", () => {
+  const at = (i: number) => `2026-08-01T00:00:${String(i).padStart(2, "0")}.000Z`;
+
+  it("groups keys by path value, most recently active group first", async () => {
+    const result = await groupObjectsByPath(
+      timedDb([
+        { workspace: "acme", key: "a.png", meta: { path: "/settings" }, at: at(1) },
+        { workspace: "acme", key: "b.png", meta: { path: "/home" }, at: at(2) },
+        { workspace: "acme", key: "c.png", meta: { path: "/settings" }, at: at(3) },
+      ]),
+      "acme",
+    );
+    expect(result.truncated).toBe(false);
+    expect(result.groups).toEqual([
+      { path: "/settings", count: 2, lastUpdated: at(3), recent: ["c.png", "a.png"] },
+      { path: "/home", count: 1, lastUpdated: at(2), recent: ["b.png"] },
+    ]);
+  });
+
+  it("caps recent keys per group at BY_PATH_RECENT_LIMIT but counts all", async () => {
+    const rows = Array.from({ length: BY_PATH_RECENT_LIMIT + 2 }, (_, i) => ({
+      workspace: "acme",
+      key: `shot-${i}.png`,
+      meta: { path: "/home" },
+      at: at(i),
+    }));
+    const result = await groupObjectsByPath(timedDb(rows), "acme");
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0]!.count).toBe(BY_PATH_RECENT_LIMIT + 2);
+    expect(result.groups[0]!.recent).toHaveLength(BY_PATH_RECENT_LIMIT);
+    // Newest first — the two oldest fell off.
+    expect(result.groups[0]!.recent[0]).toBe(`shot-${BY_PATH_RECENT_LIMIT + 1}.png`);
+    expect(result.groups[0]!.recent).not.toContain("shot-0.png");
+    expect(result.groups[0]!.recent).not.toContain("shot-1.png");
+  });
+
+  it("caps groups at BY_PATH_GROUP_LIMIT and reports truncation", async () => {
+    const rows = Array.from({ length: BY_PATH_GROUP_LIMIT + 1 }, (_, i) => ({
+      workspace: "acme",
+      key: `shot-${i}.png`,
+      meta: { path: `/page-${i}` },
+      at: at(i),
+    }));
+    const result = await groupObjectsByPath(timedDb(rows), "acme");
+    expect(result.groups).toHaveLength(BY_PATH_GROUP_LIMIT);
+    expect(result.truncated).toBe(true);
+    // Group cap keeps the most recently active groups, drops the oldest.
+    expect(result.groups.map((g) => g.path)).not.toContain("/page-0");
+  });
+
+  it("ignores other workspaces and other meta keys", async () => {
+    const result = await groupObjectsByPath(
+      timedDb([
+        { workspace: "acme", key: "a.png", meta: { path: "/home", state: "after" }, at: at(1) },
+        { workspace: "other", key: "b.png", meta: { path: "/home" }, at: at(2) },
+        { workspace: "acme", key: "c.png", meta: { app: "web" }, at: at(3) },
+      ]),
+      "acme",
+    );
+    expect(result.groups).toEqual([
+      { path: "/home", count: 1, lastUpdated: at(1), recent: ["a.png"] },
+    ]);
+  });
+
+  it("returns empty groups for a workspace with no path metadata", async () => {
+    const result = await groupObjectsByPath(timedDb([]), "acme");
+    expect(result).toEqual({ groups: [], truncated: false });
   });
 });
