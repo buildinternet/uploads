@@ -167,21 +167,6 @@ beforeEach(async () => {
   };
 });
 
-async function bearer(path: string, init: RequestInit = {}) {
-  return app.request(
-    path,
-    {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${TOKEN}`,
-        "Content-Type": "application/json",
-        ...init.headers,
-      },
-    },
-    await makeEnv(),
-  );
-}
-
 async function createViaCanonical(env: Parameters<typeof app.request>[2]) {
   const res = await app.request(
     "/v1/workspaces/acme/galleries",
