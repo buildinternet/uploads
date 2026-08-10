@@ -9,16 +9,20 @@
  *
  * Posture (`.context/613-api-consolidation-plan.md`, "invites / members"):
  *
- *  - `GET /members`, `GET /people` — **session-only**: any member. A bearer
- *    credential 403s `members_requires_session` — there is no bearer scope
- *    that grants "read the roster" today and this PR mints no new one. The
- *    `people` response hides `invites` from non-managers, preserved verbatim
- *    from the pre-#613 `/me` handler this was extracted from.
+ *  - `GET /members`, `GET /people` — **session-only**: any member. An
+ *    `up_`-shaped bearer credential 403s `members_requires_session` — there
+ *    is no bearer scope that grants "read the roster" today and this PR
+ *    mints no new one. A non-`up_` bearer (a Better Auth session token, no
+ *    cookie) is not a workspace-token shape and is instead handed to session
+ *    resolution, same as a cookie — see `sessionMemberGate`'s docblock
+ *    (issue #613 phase 3 review finding 1). The `people` response hides
+ *    `invites` from non-managers, preserved verbatim from the pre-#613 `/me`
+ *    handler this was extracted from.
  *  - `GET /invites`, `DELETE /invites/:id`, `DELETE /members/:memberId`,
  *    `PATCH /members/:memberId` — **session-only**, admin/owner-gated. Same
- *    bearer-403 posture as above (same `members_requires_session` code) —
- *    no bearer capability for list/revoke/remove/role-change existed before
- *    this PR and none is added.
+ *    bearer posture as above (same `members_requires_session` code for an
+ *    `up_`-shaped bearer) — no bearer capability for list/revoke/remove/
+ *    role-change existed before this PR and none is added.
  *  - `POST /invites` is NOT here — it is the one route in this vertical with
  *    a genuine pre-existing bearer capability (`workspace:invite` governance
  *    token), so it stays where it already lived at the canonical path
@@ -39,7 +43,7 @@
  */
 import { ForbiddenError, NotFoundError, RateLimitedError, ValidationError } from "@uploads/errors";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
-import { resolveSessionUserId } from "../dual-workspace-auth";
+import { hasPreresolvedSession, resolveSessionUserId } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
 import { allowWrite } from "../guards";
 import {
@@ -88,15 +92,32 @@ function projectMembers(members: OrgMember[], canManage: boolean) {
 }
 
 /**
- * Session-only member gate: a bearer `Authorization` header 403s outright
- * (no governance-token fallback — this vertical mints no read/list/manage
- * bearer capability in this PR), otherwise resolves the session + membership
- * with a uniform 404 for non-members (never a 403 — no existence probe, same
- * posture as `dualWorkspaceAuth`/`dualGovernanceAuth`).
+ * Session-only member gate: an `up_`-shaped bearer `Authorization` header
+ * 403s outright (no governance-token fallback — this vertical mints no
+ * read/list/manage bearer capability in this PR), otherwise resolves the
+ * session + membership with a uniform 404 for non-members (never a 403 — no
+ * existence probe, same posture as `dualWorkspaceAuth`/`dualGovernanceAuth`).
+ *
+ * Bearer discrimination (issue #613 phase 3 review finding 1): a preset
+ * (`hasPreresolvedSession`, e.g. a forwarded `/me` request whose session
+ * `me.ts` already validated via its own `sessionAuth`) always wins,
+ * unconditionally, BEFORE ever looking at the `Authorization` header — a
+ * forwarded request keeps its original headers verbatim, so a caller who
+ * authenticated to `/me` with a Better Auth bearer session (no cookie) must
+ * not be rejected a second time here. Absent a preset, only an `up_`-shaped
+ * bearer is rejected as "wrong credential type" — the same `up_`-prefix
+ * discrimination `workspaceManageAuth` (`routes/workspaces.ts`) and
+ * `dualGovernanceAuth` use to tell a workspace/governance token apart from a
+ * Better Auth bearer session riding the same header. Any other bearer (or
+ * none) falls through to `resolveSessionUserId`, which forwards the
+ * `Authorization` header to `get-session` as-is and validates a Better Auth
+ * session bearer exactly like a cookie.
  */
 function sessionMemberGate(): MiddlewareHandler<MembersVars> {
   return async (c, next) => {
-    if (c.req.header("Authorization")?.startsWith("Bearer ")) {
+    const authorization = c.req.header("Authorization");
+    const rawToken = authorization?.startsWith("Bearer ") ? authorization.slice(7) : undefined;
+    if (!hasPreresolvedSession(c.req.raw) && rawToken?.startsWith("up_")) {
       throw new ForbiddenError("requires a session", { code: "members_requires_session" });
     }
     const userId = await resolveSessionUserId(c as unknown as Context<SessionVars>);

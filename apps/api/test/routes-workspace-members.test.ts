@@ -164,6 +164,27 @@ describe("GET /v1/workspaces/:workspace/members", () => {
     const res = await app.request("/v1/workspaces/acme/members", {}, env);
     expect(res.status).toBe(401);
   });
+
+  // Issue #613 phase 3 review finding 1: a Better Auth bearer-session caller
+  // (the `bearer()` plugin, apps/auth/src/auth.ts — a device-flow/CLI session
+  // with no cookie) must succeed here exactly like a cookie session. The stub
+  // AUTH's `get-session` doesn't care whether it was reached via `cookie` or
+  // `authorization` (session-auth.ts's `resolveSessionUser` forwards both
+  // unconditionally), so a non-`up_` bearer is the fixture for a Better Auth
+  // session token.
+  it("succeeds for a Better Auth bearer session with no cookie (direct canonical call)", async () => {
+    const getSessionCalls = { count: 0 };
+    const env = makeEnv({ getSessionCalls });
+    const res = await app.request(
+      "/v1/workspaces/acme/members",
+      { headers: { Authorization: "Bearer better-auth-session-token" } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { members: Record<string, unknown>[] };
+    expect(body.members[0]).toHaveProperty("id", "m-admin");
+    expect(getSessionCalls.count).toBe(1);
+  });
 });
 
 describe("GET /v1/workspaces/:workspace/people", () => {
@@ -408,6 +429,29 @@ describe("POST /v1/workspaces/:workspace/invites (dual governance auth)", () => 
     );
     expect(res.status).toBe(404);
   });
+
+  // Issue #613 phase 3 review finding 1: a Better Auth bearer session (no
+  // `up_` prefix, no cookie) hitting this canonical route directly must
+  // resolve via session auth, not the D1 governance-token path — same
+  // `up_`-prefix discrimination `workspaceManageAuth` already uses.
+  it("admin session presented as a Better Auth bearer (no cookie) works", async () => {
+    const env = makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/invites",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer better-auth-session-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ email: "bearer-session@example.com" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { invitation: { email: string } };
+    expect(body.invitation.email).toBe("bearer-session@example.com");
+  });
 });
 
 describe("/me alias forwards (issue #613 phase 3)", () => {
@@ -539,5 +583,49 @@ describe("/me alias forwards (issue #613 phase 3)", () => {
     const res = await app.request("/me/workspaces/acme/invites", { headers: sessionHeaders }, env);
     expect(res.status).toBe(200);
     expect(((await res.json()) as { invites: unknown[] }).invites).toHaveLength(1);
+  });
+
+  // Issue #613 phase 3 review finding 1: `/me`'s own `sessionAuth` +
+  // `requireSessionUser` middleware validates a Better Auth bearer session
+  // (no cookie) exactly like a cookie session and presets the resolved
+  // userId. `forwardToWorkspaceMembers` re-dispatches with the ORIGINAL
+  // request headers intact — including that `Authorization: Bearer …`
+  // header — so `sessionMemberGate` must consult the preset before ever
+  // branching on the (irrelevant, already-authenticated) bearer header.
+  it("GET /me/workspaces/:name/members succeeds for a caller who authenticated with a Better Auth bearer session (no cookie)", async () => {
+    const getSessionCalls = { count: 0 };
+    const env = makeEnv({ getSessionCalls });
+    const res = await app.request(
+      "/me/workspaces/acme/members",
+      { headers: { Authorization: "Bearer better-auth-session-token" } },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { members: Record<string, unknown>[] };
+    expect(body.members[0]).toHaveProperty("id", "m-admin");
+    // Exactly one get-session call: /me's own middleware resolves it once,
+    // and the preset means the forwarded canonical request never re-resolves.
+    expect(getSessionCalls.count).toBe(1);
+  });
+
+  it("POST /me/workspaces/:name/invites succeeds for a caller who authenticated with a Better Auth bearer session (no cookie)", async () => {
+    const getSessionCalls = { count: 0 };
+    const env = makeEnv({ getSessionCalls });
+    const res = await app.request(
+      "/me/workspaces/acme/invites",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer better-auth-session-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ email: "forwarded-bearer@example.com" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { invitation: { email: string } };
+    expect(body.invitation.email).toBe("forwarded-bearer@example.com");
+    expect(getSessionCalls.count).toBe(1);
   });
 });
