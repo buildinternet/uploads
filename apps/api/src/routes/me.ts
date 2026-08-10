@@ -64,6 +64,7 @@ import { byoBucketAllowed, loadWorkspaceRecord, type WorkspaceRecord } from "../
 import { mutateWorkspaceRecord } from "../workspace-mutate";
 import { planResponse, planSourceFor } from "../workspace-plan";
 import { workspaceFiles } from "./workspace-files";
+import { workspaceUsage } from "./workspace-usage";
 import {
   candidateFromBody,
   storageReconcile,
@@ -99,6 +100,28 @@ async function forwardToWorkspaceFiles(c: Context<SessionVars>, path: string): P
   // for the same request (issue #613 phase 1 follow-up).
   presetResolvedSessionUser(forwarded, requireUserId(c));
   return workspaceFiles.fetch(forwarded, c.env, executionCtx);
+}
+
+/**
+ * Same forwarding pattern as `forwardToWorkspaceFiles`, targeting the
+ * canonical usage vertical (`routes/workspace-usage.ts`, issue #613 phase 2).
+ * Response shape is a strict superset of the pre-#613 session shape (adds
+ * `scopes`/`plan`; every other field — `workspace`/`bytes`/`objects`/
+ * `uploadsInPeriod`/`periodStart`/limits — matches verbatim), so this is a
+ * genuine forward, not a re-implementation.
+ */
+async function forwardToWorkspaceUsage(c: Context<SessionVars>, path: string): Promise<Response> {
+  const url = new URL(c.req.url);
+  url.pathname = path;
+  let executionCtx: Context<SessionVars>["executionCtx"] | undefined;
+  try {
+    executionCtx = c.executionCtx;
+  } catch {
+    executionCtx = undefined;
+  }
+  const forwarded = new Request(url, c.req.raw);
+  presetResolvedSessionUser(forwarded, requireUserId(c));
+  return workspaceUsage.fetch(forwarded, c.env, executionCtx);
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -417,18 +440,13 @@ export const me = new Hono<SessionVars>()
   })
 
   // Usage + limits for one workspace — 404s unless the caller is a member.
-  .get("/workspaces/:name/usage", async (c) => {
-    const name = c.req.param("name");
-    await memberWorkspaceOr404(c.env, requireUserId(c), name);
-
-    const record = await loadWorkspaceRecord(c.env, name);
-    if (!record) {
-      throw new NotFoundError("workspace not found", { code: "workspace_not_found" });
-    }
-
-    const usage = await getWorkspaceUsage(c.env.DB, name);
-    return c.json(usageWithLimits(usage, record));
-  })
+  // Issue #613 phase 2: forwards to the canonical dual-auth handler in
+  // `routes/workspace-usage.ts` — its response is a strict superset of this
+  // route's old shape (adds `scopes`/`plan`), so this is a genuine forward
+  // (see `forwardToWorkspaceUsage`'s docblock), not a reimplementation.
+  .get("/workspaces/:name/usage", (c) =>
+    forwardToWorkspaceUsage(c, `/${c.req.param("name")}/usage`),
+  )
 
   // Workspace shell for the account rail: membership + public URL + usage.
   .get("/workspaces/:name/summary", async (c) => {
@@ -549,7 +567,17 @@ export const me = new Hono<SessionVars>()
     });
   })
 
-  // Galleries in one workspace — member-gated.
+  // Galleries in one workspace — member-gated. Issue #613 phase 2: NOT
+  // forwarded to the canonical `/v1/workspaces/:workspace/galleries` list —
+  // this session shape carries `itemCount`/`references` per gallery (from
+  // `galleryListSummaries`) that the canonical/bearer list route omits (it
+  // uses the cheaper `gallerySummary` projection instead), so canonical is
+  // not a strict superset. `apps/web/src/lib/api-client.ts`'s `GallerySummary`
+  // does mark both fields optional ("Omitted on older API deployments"), but
+  // per the conservative rule for this migration (keep-and-document over
+  // inventing a new shape), this handler stays as-is rather than either
+  // dropping those fields for everyone or growing the canonical route to add
+  // them just for this alias. See `.context/613-api-consolidation-plan.md`.
   .get("/workspaces/:name/galleries", async (c) => {
     const name = c.req.param("name");
     await memberWorkspaceOr404(c.env, requireUserId(c), name);

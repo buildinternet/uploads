@@ -334,6 +334,11 @@ describe("GET /me/workspaces/:name/usage", () => {
 
     const res = await app().request("/me/workspaces/acme/usage", {}, env);
     expect(res.status).toBe(200);
+    // Issue #613 phase 2: this route now forwards to the canonical dual-auth
+    // handler (`routes/workspace-usage.ts`), whose response is a strict
+    // superset of the pre-#613 shape — adds `scopes` (every `FILE_SCOPES`,
+    // granted to session callers) and `plan` (catalog id; "free" here since
+    // the seeded workspace record has no `plan` field).
     expect(await res.json()).toEqual({
       workspace: "acme",
       bytes: 500,
@@ -343,6 +348,8 @@ describe("GET /me/workspaces/:name/usage", () => {
       updatedAt: "2026-07-10T00:00:00.000Z",
       maxStorageBytes: 1000,
       storageRemainingBytes: 500,
+      scopes: ["files:read", "files:write", "files:delete"],
+      plan: "free",
     });
   });
 });
