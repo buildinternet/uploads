@@ -23,8 +23,9 @@
  * queue's own retry/backoff handles them.
  */
 
-import { NotFoundError } from "@uploads/errors";
+import { AppError, isRetryableType, NotFoundError } from "@uploads/errors";
 import { attachmentKeyBasename, extractUserAttachments } from "./github-attachment-extract";
+import { sanitizeKeySegment } from "./github-comment-render";
 import {
   githubAppConfig,
   githubFetch,
@@ -68,7 +69,14 @@ export interface IngestSummary {
 export interface IngestDeps {
   fetchImpl?: typeof fetch;
   putImpl?: typeof putObject;
-  now?: () => Date;
+  /**
+   * Installation token already minted by the caller (`ingestForWebhook` and
+   * `reconcileIngestTarget` both mint one to fetch the source text before
+   * reconciling) — `fetchAndStore` reuses it instead of minting a fresh
+   * token per attachment. Absent only for a direct `reconcileIngestSource`
+   * call with no pre-minted token, which still self-mints as before.
+   */
+  token?: string;
 }
 
 function emptySummary(): IngestSummary {
@@ -83,37 +91,44 @@ function mergeSummary(into: IngestSummary, from: IngestSummary): void {
 }
 
 /**
- * putObject-thrown errors carrying one of these codes are guard failures the
- * upload path already classified as permanent — the ingest pipeline treats
- * them the same way (skip, don't ledger, don't retry) rather than duplicating
- * their thresholds.
+ * Extensions that don't match their subtype verbatim. Every other content
+ * type accepted by the workspace's upload policy derives its extension from
+ * the subtype (`image/webp` → `webp`, `image/avif` → `avif`, `video/webm` →
+ * `webm`), so this stays a short override list rather than a shadow table of
+ * every allowed type — see the media-gate comment in `fetchAndStore`.
  */
-const SKIP_CODES = new Set([
-  "storage_quota_exceeded",
-  "upload_budget_exceeded",
-  "unsupported_media_type",
-  "file_metadata_limit_exceeded",
-  "empty_body",
-]);
-
-const EXT_BY_TYPE: Record<string, string> = {
-  "image/png": "png",
+const EXT_OVERRIDES: Record<string, string> = {
   "image/jpeg": "jpg",
-  "image/gif": "gif",
-  "image/webp": "webp",
-  "video/mp4": "mp4",
-  "video/webm": "webm",
 };
 
+function extensionForContentType(contentType: string): string {
+  return EXT_OVERRIDES[contentType] ?? contentType.split("/")[1] ?? "bin";
+}
+
+/**
+ * DELIBERATELY a different layout from github-promote.ts's
+ * `gh/<owner>/<name>/pull/<num>/<filename>` attachment prefix: ingested
+ * assets are an INDEX only (queryable via `gh.*` metadata, e.g. the "From
+ * GitHub" rail), not a source of truth for the managed comment — they must
+ * not land under the prefix `gatherCommentBody` lists when rendering it.
+ */
 function ingestKey(ref: IngestSourceRef, assetId: string, ext: string): string {
-  const repoSeg = ref.repo.toLowerCase().replace("/", "-");
+  const [owner, name] = ref.repo.split("/");
+  const repoSeg =
+    `${sanitizeKeySegment(owner ?? "")}-${sanitizeKeySegment(name ?? "")}`.toLowerCase();
   return `gh/${repoSeg}/${ref.kind}-${ref.num}/${attachmentKeyBasename(assetId)}.${ext}`;
 }
 
 function ingestMetadata(ref: IngestSourceRef, author: string | null): Record<string, string> {
   return {
     "gh.repo": ref.repo.toLowerCase(),
-    "gh.kind": ref.kind,
+    // Stored vocabulary is singular ("issue"/"pull"), matching the CLI
+    // (packages/uploads/src/github.ts) and `deriveGithubContext`
+    // (routes/public-files.ts). `ref.kind` itself stays plural ("issues") —
+    // that's the GitHub REST API path segment, also used for the object-key
+    // layout above (`{pull|issues}-{num}`), which is unrelated to this
+    // stored value and unchanged.
+    "gh.kind": ref.kind === "issues" ? "issue" : "pull",
     "gh.number": String(ref.num),
     "gh.origin": "github",
     ...(author ? { "gh.author": author } : {}),
@@ -125,10 +140,10 @@ function ingestMetadata(ref: IngestSourceRef, author: string | null): Record<str
 type FetchAndStoreResult = { kind: "ok"; key: string } | { kind: "skip"; reason: string };
 
 /**
- * Mints an installation token, fetches one asset's bytes, sniffs/guards
- * them, and puts the object. Guard failures return a `skip` result; a failed
- * token mint or a non-guard fetch/put failure throws (transient — see the
- * module doc-comment).
+ * Fetches one asset's bytes (reusing `deps.token` when the caller already
+ * minted one, else self-minting), sniffs/guards them, and puts the object.
+ * Guard failures return a `skip` result; a failed token mint or a non-guard
+ * fetch/put failure throws (transient — see the module doc-comment).
  */
 async function fetchAndStore(
   env: Env,
@@ -141,14 +156,17 @@ async function fetchAndStore(
 ): Promise<FetchAndStoreResult> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const putImpl = deps.putImpl ?? putObject;
-  const now = deps.now ?? (() => new Date());
 
-  const cfg = githubAppConfig(env);
-  if (!cfg) return { kind: "skip", reason: "app_not_configured" };
-  const installationId = await installationForRepo(env, cfg, ref.repo, fetchImpl);
-  if (installationId === null) return { kind: "skip", reason: "app_not_installed" };
-  const token = await installationToken(env, cfg, installationId, fetchImpl);
-  if (!token) throw new Error("github installation token mint failed");
+  let token = deps.token;
+  if (!token) {
+    const cfg = githubAppConfig(env);
+    if (!cfg) return { kind: "skip", reason: "app_not_configured" };
+    const installationId = await installationForRepo(env, cfg, ref.repo, fetchImpl);
+    if (installationId === null) return { kind: "skip", reason: "app_not_installed" };
+    const minted = await installationToken(env, cfg, installationId, fetchImpl);
+    if (!minted) throw new Error("github installation token mint failed");
+    token = minted;
+  }
 
   const res = await githubFetch(fetchImpl, attachment.url, {
     headers: { authorization: `Bearer ${token}`, "user-agent": "uploads.sh" },
@@ -161,17 +179,23 @@ async function fetchAndStore(
   }
   const bytes = new Uint8Array(await res.arrayBuffer());
 
+  // Media gate: membership in the workspace's own upload allowlist
+  // (`resolveUploadPolicy(ws).allowed`, guards.ts) rather than a shadow
+  // table duplicating it — a type this workspace's direct uploads accept
+  // (e.g. `image/avif`) is accepted here too, with no separate list to keep
+  // in sync. Non-sniffable bytes or a type outside the allowlist is the same
+  // permanent `unsupported_media_type` skip either way.
+  const policy = resolveUploadPolicy(ws);
   const sniffed = detectContentType(bytes);
-  if (!sniffed || !(sniffed in EXT_BY_TYPE)) {
+  if (!sniffed || !policy.allowed.has(sniffed)) {
     return { kind: "skip", reason: "unsupported_media_type" };
   }
 
-  const policy = resolveUploadPolicy(ws);
   if (bytes.length > maxBytesForContentType(policy, sniffed)) {
     return { kind: "skip", reason: "too_large" };
   }
 
-  const key = ingestKey(ref, attachment.id, EXT_BY_TYPE[sniffed]!);
+  const key = ingestKey(ref, attachment.id, extensionForContentType(sniffed));
   try {
     await putImpl(env, ws, key, bytes, workspaceName, {
       metadata: ingestMetadata(ref, author),
@@ -179,9 +203,16 @@ async function fetchAndStore(
       surface: "github",
     });
   } catch (err) {
-    const code = (err as { code?: unknown })?.code;
-    if (typeof code === "string" && SKIP_CODES.has(code)) {
-      return { kind: "skip", reason: code };
+    // Taxonomy-based, not an enumerated code list: putObject's guard
+    // failures (budget, metadata caps, empty body, unsupported type, …) are
+    // all AppError subclasses, and every one of them carries a non-retryable
+    // `type` (@uploads/errors' `isRetryableType`) — retrying the identical
+    // request later can't succeed, so it's a permanent skip like the other
+    // guard checks above. An AppError with a retryable type (rate_limited,
+    // unavailable) or any non-AppError failure rethrows, so the queue's own
+    // retry/backoff handles it instead.
+    if (err instanceof AppError && !isRetryableType(err.type)) {
+      return { kind: "skip", reason: err.code ?? err.type };
     }
     throw err;
   }
@@ -194,7 +225,7 @@ async function fetchAndStore(
     kind: ref.kind,
     num: ref.num,
     source: ref.source,
-    createdAt: now().toISOString(),
+    createdAt: new Date().toISOString(),
   });
 
   return { kind: "ok", key };
@@ -219,8 +250,15 @@ export async function reconcileIngestSource(
   const found = text === null ? [] : extractUserAttachments(text);
   const foundIds = new Set(found.map((a) => a.id));
 
+  // Hoisted out of the loop below and fetched in parallel — one row lookup
+  // per found attachment, independent of the others, rather than serialized
+  // await-per-iteration.
+  const rows = new Map(
+    await Promise.all(found.map(async (a) => [a.id, await ledgerRow(db, ref.repo, a.id)] as const)),
+  );
+
   for (const attachment of found) {
-    const row = await ledgerRow(db, ref.repo, attachment.id);
+    const row = rows.get(attachment.id) ?? null;
     if (row) {
       if (row.detachedAt === null) {
         // Already attached under this exact source — nothing to do. If the
@@ -254,7 +292,6 @@ export async function reconcileIngestSource(
     summary.ingested.push(result.key);
   }
 
-  const now = deps.now ?? (() => new Date());
   const existing = await ledgerRowsForSource(db, ref.repo, ref.source);
   for (const row of existing) {
     if (row.detachedAt !== null) continue;
@@ -264,7 +301,7 @@ export async function reconcileIngestSource(
     // only sees stale (pre-write) ledger state on retry if the ledger
     // write is the one that happens last.
     await updateFileMetadataValue(db, row.workspace, row.objectKey, "gh.detached", "true");
-    await setLedgerDetached(db, ref.repo, row.assetId, now().toISOString());
+    await setLedgerDetached(db, ref.repo, row.assetId, new Date().toISOString());
     summary.detached.push(row.objectKey);
   }
 
@@ -319,7 +356,10 @@ export async function ingestForWebhook(
   if (!token) throw new Error("github installation token mint failed");
 
   const { text, author } = await fetchSourceText(fetchImpl, token, ref);
-  await reconcileIngestSource(env, ws, link.workspaceName, ref, text, author, deps);
+  await reconcileIngestSource(env, ws, link.workspaceName, ref, text, author, {
+    ...deps,
+    token,
+  });
 }
 
 /**
@@ -383,7 +423,7 @@ export async function reconcileIngestTarget(
       bodyRef,
       bodyJson.body ?? null,
       bodyJson.user?.login ?? null,
-      deps,
+      { ...deps, token },
     ),
   );
 
@@ -419,7 +459,7 @@ export async function reconcileIngestTarget(
           commentRef,
           comment.body ?? null,
           comment.user?.login ?? null,
-          deps,
+          { ...deps, token },
         ),
       );
     }

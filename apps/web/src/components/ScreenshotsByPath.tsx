@@ -110,7 +110,10 @@ function extLabel(key: string): string {
 function ghLabel(item: SearchFileItem): string {
   const kind = item.metadata["gh.kind"];
   const number = item.metadata["gh.number"];
-  const kindLabel = kind === "pull" ? "PR" : kind === "issues" ? "Issue" : kind;
+  // Stored vocabulary is singular ("issue"), matching the CLI and
+  // deriveGithubContext (routes/public-files.ts) — "issues" is kept too for
+  // robustness against any pre-migration row still carrying the old value.
+  const kindLabel = kind === "pull" ? "PR" : kind === "issue" || kind === "issues" ? "Issue" : kind;
   const numberLabel = number ? `#${number}` : "";
   const base = [kindLabel, numberLabel].filter(Boolean).join(" ") || "GitHub";
   const author = item.metadata["gh.author"];

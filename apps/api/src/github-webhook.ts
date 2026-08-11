@@ -376,11 +376,11 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
       const source = `comment:${commentId}`;
       const body = ip.comment?.body;
       const hasUrl = typeof body === "string" && hasUserAttachmentUrl(body);
-      if (ip.action === "created" && hasUrl) {
-        ev.ingest = { repo, kind, num, source };
-      } else if (ip.action === "edited" && ip.sender?.type !== "Bot") {
-        ev.ingest = { repo, kind, num, source };
-      } else if (ip.action === "deleted" && hasUrl) {
+      const gated =
+        (ip.action === "created" && hasUrl) ||
+        (ip.action === "edited" && ip.sender?.type !== "Bot") ||
+        (ip.action === "deleted" && hasUrl);
+      if (gated) {
         ev.ingest = { repo, kind, num, source };
       }
     }

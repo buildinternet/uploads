@@ -24,6 +24,7 @@ import { recordRepoLink } from "./github-repo-links";
 import type { WorkspaceRecord } from "./workspace";
 import { FakeKv } from "../test/fake-kv";
 import { GITHUB_APP_CFG_ENV } from "../test/github-app-env";
+import { fakeFetch, pngRoute, withGlobalFetch } from "../test/helpers/github-fetch-fakes";
 import { UsageFakeD1 } from "../test/usage-fake-d1";
 
 const REPO = "acme/app";
@@ -56,20 +57,6 @@ function withRegistry(env: Env, record: WorkspaceRecord): Env {
   return { ...env, REGISTRY: registry } as unknown as Env;
 }
 
-/** Matches routes by substring against the requested URL, like repo-comment-config.test.ts's fakeFetch. */
-function fakeFetch(routes: Record<string, (init: RequestInit) => Response | Promise<Response>>) {
-  return (async (url: string, init: RequestInit = {}) => {
-    for (const [pattern, handler] of Object.entries(routes)) {
-      if (String(url).includes(pattern)) return handler(init);
-    }
-    return new Response("not found", { status: 404 });
-  }) as unknown as typeof fetch;
-}
-
-function pngRoute(): Response {
-  return new Response(PNG, { status: 200, headers: { "content-type": "image/png" } });
-}
-
 function spyPut() {
   const calls: Array<{
     key: string;
@@ -100,20 +87,10 @@ function spyPut() {
   return { putImpl: putImpl as unknown as typeof import("./files-core").putObject, calls };
 }
 
-async function withGlobalFetch<T>(impl: typeof fetch, fn: () => Promise<T>): Promise<T> {
-  const real = globalThis.fetch;
-  globalThis.fetch = impl;
-  try {
-    return await fn();
-  } finally {
-    globalThis.fetch = real;
-  }
-}
-
 describe("reconcileIngestSource", () => {
   it("new asset in body: put + ledger row + metadata stamped", async () => {
     const { env } = baseEnv();
-    const fetchImpl = fakeFetch({ [ASSET_ID]: pngRoute });
+    const fetchImpl = fakeFetch({ [ASSET_ID]: pngRoute(PNG) });
     const { putImpl, calls } = spyPut();
     const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
 
@@ -158,7 +135,7 @@ describe("reconcileIngestSource", () => {
       source: "body",
       createdAt: new Date().toISOString(),
     });
-    const fetchImpl = vi.fn(fakeFetch({ [ASSET_ID]: pngRoute }));
+    const fetchImpl = vi.fn(fakeFetch({ [ASSET_ID]: pngRoute(PNG) }));
     const { putImpl, calls } = spyPut();
 
     const summary = await reconcileIngestSource(env, ws, WS, ref, `see ${ASSET_URL}`, "octocat", {
@@ -278,6 +255,78 @@ describe("reconcileIngestSource", () => {
     expect(await ledgerRow(env.DB, REPO, ASSET_ID)).toBeNull();
   });
 
+  it("media gate derives from the shared upload allowlist: AVIF (in guards.ts's allowlist) is accepted", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    // ftyp box (offset 4) with major brand "avif" — the exact bytes
+    // guards.ts's detectContentType sniffs as image/avif.
+    const AVIF = new Uint8Array([
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66,
+    ]);
+    const fetchImpl = fakeFetch({
+      [ASSET_ID]: () =>
+        new Response(AVIF, { status: 200, headers: { "content-type": "image/avif" } }),
+    });
+    const { putImpl, calls } = spyPut();
+
+    const summary = await reconcileIngestSource(env, ws, WS, ref, `see ${ASSET_URL}`, null, {
+      fetchImpl,
+      putImpl,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.key).toBe(`gh/acme-app/pull-7/${attachmentKeyBasename(ASSET_ID)}.avif`);
+    expect(summary.skipped).toEqual([]);
+  });
+
+  it("media gate follows a workspace's own restricted allowlist: webm passes when it's in policy.allowed", async () => {
+    const { env } = baseEnv();
+    const webmWs = { allowedContentTypes: ["video/webm"] } as WorkspaceRecord;
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    // EBML header — the bytes detectContentType sniffs as video/webm.
+    const WEBM = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3, 4]);
+    const fetchImpl = fakeFetch({
+      [ASSET_ID]: () =>
+        new Response(WEBM, { status: 200, headers: { "content-type": "video/webm" } }),
+    });
+    const { putImpl, calls } = spyPut();
+
+    const summary = await reconcileIngestSource(env, webmWs, WS, ref, `see ${ASSET_URL}`, null, {
+      fetchImpl,
+      putImpl,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.key).toBe(`gh/acme-app/pull-7/${attachmentKeyBasename(ASSET_ID)}.webm`);
+    expect(summary.skipped).toEqual([]);
+  });
+
+  it("media gate follows a workspace's own restricted allowlist: a type outside it (PNG) is skipped even though the default allowlist accepts it", async () => {
+    const { env } = baseEnv();
+    // Restricted to webm only — proves the gate reads `policy.allowed`
+    // rather than a fixed table that would accept PNG regardless.
+    const webmOnlyWs = { allowedContentTypes: ["video/webm"] } as WorkspaceRecord;
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    const fetchImpl = fakeFetch({ [ASSET_ID]: pngRoute(PNG) });
+    const { putImpl, calls } = spyPut();
+
+    const summary = await reconcileIngestSource(
+      env,
+      webmOnlyWs,
+      WS,
+      ref,
+      `see ${ASSET_URL}`,
+      null,
+      {
+        fetchImpl,
+        putImpl,
+      },
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(summary.skipped).toEqual([{ url: ASSET_URL, reason: "unsupported_media_type" }]);
+  });
+
   it("guard skip: asset 404 is a permanent skip", async () => {
     const { env } = baseEnv();
     const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
@@ -295,7 +344,7 @@ describe("reconcileIngestSource", () => {
     const { env } = baseEnv();
     const smallWs = { maxUploadBytes: 4 } as WorkspaceRecord;
     const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
-    const fetchImpl = fakeFetch({ [ASSET_ID]: pngRoute });
+    const fetchImpl = fakeFetch({ [ASSET_ID]: pngRoute(PNG) });
     const { putImpl, calls } = spyPut();
 
     const summary = await reconcileIngestSource(env, smallWs, WS, ref, `see ${ASSET_URL}`, null, {
@@ -311,7 +360,7 @@ describe("reconcileIngestSource", () => {
   it("budget-code putImpl error is a skip; a plain error rethrows", async () => {
     const { env } = baseEnv();
     const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
-    const fetchImpl = fakeFetch({ [ASSET_ID]: pngRoute });
+    const fetchImpl = fakeFetch({ [ASSET_ID]: pngRoute(PNG) });
 
     const budgetPut = vi.fn(async () => {
       throw new InsufficientStorageError("storage quota exceeded", {
@@ -518,7 +567,7 @@ describe("ingestForWebhook", () => {
         new Response(JSON.stringify({ body: `see ${ASSET_URL}`, user: { login: "octocat" } }), {
           status: 200,
         }),
-      [ASSET_ID]: pngRoute,
+      [ASSET_ID]: pngRoute(PNG),
     });
     const { putImpl, calls } = spyPut();
     const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
@@ -596,7 +645,7 @@ describe("reconcileIngestTarget", () => {
       if (u.includes("/repos/acme/app/issues/7")) {
         return new Response(JSON.stringify({ body: "", user: { login: "bob" } }), { status: 200 });
       }
-      if (u.includes(otherAssetId)) return pngRoute();
+      if (u.includes(otherAssetId)) return pngRoute(PNG)();
       void init;
       return new Response("nf", { status: 404 });
     }) as unknown as typeof fetch;
@@ -654,7 +703,7 @@ describe("reconcileIngestTarget", () => {
       if (u.includes("/repos/acme/app/issues/7")) {
         return new Response(JSON.stringify({ body: "", user: { login: "bob" } }), { status: 200 });
       }
-      if (u.includes(otherAssetId)) return pngRoute();
+      if (u.includes(otherAssetId)) return pngRoute(PNG)();
       return new Response("nf", { status: 404 });
     }) as unknown as typeof fetch;
     const { putImpl, calls } = spyPut();

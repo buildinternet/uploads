@@ -17,6 +17,7 @@ import { FakeKv } from "./fake-kv";
 import { FakeR2Bucket } from "./fake-r2";
 import { GITHUB_APP_CFG_ENV } from "./github-app-env";
 import { withMintingUserToken } from "./helpers/fake-minting-user-token";
+import { withGlobalFetch } from "./helpers/github-fetch-fakes";
 import { UsageFakeD1 } from "./usage-fake-d1";
 
 const WS = "acme";
@@ -524,16 +525,6 @@ describe("POST /v1/workspaces/:workspace/github/ingest (manual, dual-auth)", () 
       }
       return new Response("not found", { status: 404 });
     }) as unknown as typeof fetch;
-  }
-
-  async function withGlobalFetch<T>(impl: typeof fetch, fn: () => Promise<T>): Promise<T> {
-    const real = globalThis.fetch;
-    globalThis.fetch = impl;
-    try {
-      return await fn();
-    } finally {
-      globalThis.fetch = real;
-    }
   }
 
   it("token auth + linked repo + one asset in body: 200 with ingested length 1", async () => {

@@ -15,7 +15,11 @@ export interface GhTarget {
   num: number;
 }
 
-function sanitizeKeySegment(s: string): string {
+/** Non-safe chars → `-` for a single R2 key segment (owner/name/branch/…).
+ * Exported for reuse by other GitHub-key builders (github-ingest.ts) that
+ * need the identical sanitization rule — github-promote.ts keeps its own
+ * byte-identical private copy rather than importing this one. */
+export function sanitizeKeySegment(s: string): string {
   return s.replace(/[^A-Za-z0-9._-]/g, "-");
 }
 

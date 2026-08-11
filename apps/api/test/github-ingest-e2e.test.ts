@@ -25,6 +25,7 @@ import type { WorkspaceRecord } from "../src/workspace";
 import { FakeKv } from "./fake-kv";
 import { FakeR2Bucket } from "./fake-r2";
 import { GITHUB_APP_CFG_ENV } from "./github-app-env";
+import { fakeFetch, pngRoute, withGlobalFetch } from "./helpers/github-fetch-fakes";
 import { UsageFakeD1 } from "./usage-fake-d1";
 
 const REPO = "acme/app";
@@ -88,30 +89,6 @@ function msg(body: WebhookEvent): FakeMessage {
 
 function batch(messages: FakeMessage[]): MessageBatch<WebhookEvent> {
   return { queue: GITHUB_WEBHOOK_QUEUE, messages } as unknown as MessageBatch<WebhookEvent>;
-}
-
-/** Matches routes by substring against the requested URL (repo-comment-config.test.ts style). */
-function fakeFetch(routes: Record<string, (init: RequestInit) => Response | Promise<Response>>) {
-  return (async (url: string, init: RequestInit = {}) => {
-    for (const [pattern, handler] of Object.entries(routes)) {
-      if (String(url).includes(pattern)) return handler(init);
-    }
-    return new Response("not found", { status: 404 });
-  }) as unknown as typeof fetch;
-}
-
-function pngRoute(): Response {
-  return new Response(PNG, { status: 200, headers: { "content-type": "image/png" } });
-}
-
-async function withGlobalFetch<T>(impl: typeof fetch, fn: () => Promise<T>): Promise<T> {
-  const real = globalThis.fetch;
-  globalThis.fetch = impl;
-  try {
-    return await fn();
-  } finally {
-    globalThis.fetch = real;
-  }
 }
 
 describe("github ingest end-to-end (webhook → queue → real putObject)", () => {
@@ -185,7 +162,7 @@ describe("github ingest end-to-end (webhook → queue → real putObject)", () =
           JSON.stringify({ body: issueCommentPayload.comment.body, user: { login: "octocat" } }),
           { status: 200 },
         ),
-      [ASSET_ID]: pngRoute,
+      [ASSET_ID]: pngRoute(PNG),
     });
 
     const message = msg(ev!);
