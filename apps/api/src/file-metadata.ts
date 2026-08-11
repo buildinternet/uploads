@@ -721,6 +721,31 @@ export async function groupObjectsByPath(
   return { groups, truncated };
 }
 
+/**
+ * Project label for the screenshots page (spec:
+ * docs/superpowers/specs/2026-08-11-screenshots-project-grouping-design.md).
+ * Coalesces repo → gh.repo → url origin → "Other". Display/grouping only —
+ * never stored. Mirrored (with identical cases) by
+ * apps/web/src/lib/workspace-screenshots.ts.
+ */
+export function projectLabelFromMeta(meta: {
+  repo?: string | null;
+  ghRepo?: string | null;
+  url?: string | null;
+}): string {
+  if (meta.repo) return meta.repo;
+  if (meta.ghRepo) return meta.ghRepo;
+  if (meta.url) {
+    try {
+      const host = new URL(meta.url).host;
+      if (host) return host;
+    } catch {
+      // fall through — an unparseable url is just "no url"
+    }
+  }
+  return "Other";
+}
+
 export type FacetKeysResult = {
   keys: Array<{ key: string; count: number; distinctValues: number }>;
   truncated: boolean;

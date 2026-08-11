@@ -6,6 +6,7 @@ import {
   facetKeys,
   facetValues,
   groupObjectsByPath,
+  projectLabelFromMeta,
   BY_PATH_GROUP_LIMIT,
   BY_PATH_RECENT_LIMIT,
 } from "./file-metadata";
@@ -234,5 +235,27 @@ describe("groupObjectsByPath", () => {
   it("returns empty groups for a workspace with no path metadata", async () => {
     const result = await groupObjectsByPath(timedDb([]), "acme");
     expect(result).toEqual({ groups: [], truncated: false });
+  });
+});
+
+describe("projectLabelFromMeta", () => {
+  it("prefers repo over gh.repo over url origin", () => {
+    expect(
+      projectLabelFromMeta({ repo: "acme/web", ghRepo: "acme/other", url: "https://x.dev/p" }),
+    ).toBe("acme/web");
+    expect(projectLabelFromMeta({ ghRepo: "acme/other", url: "https://x.dev/p" })).toBe(
+      "acme/other",
+    );
+  });
+  it("falls back to the url host, keeping the port", () => {
+    expect(projectLabelFromMeta({ url: "https://uploads.localhost/settings" })).toBe(
+      "uploads.localhost",
+    );
+    expect(projectLabelFromMeta({ url: "http://localhost:3000/admin" })).toBe("localhost:3000");
+  });
+  it("returns Other for missing or unparseable url", () => {
+    expect(projectLabelFromMeta({})).toBe("Other");
+    expect(projectLabelFromMeta({ url: "not a url" })).toBe("Other");
+    expect(projectLabelFromMeta({ repo: null, ghRepo: null, url: null })).toBe("Other");
   });
 });
