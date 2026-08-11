@@ -14,6 +14,11 @@
  *    route adopts, fixing the issue's "DELETE keys off a query param" wart
  *    for the canonical surface (the old `/me` query-param path is preserved
  *    verbatim as an alias, not removed).
+ *  - sign/put/get/patch: shared with the legacy bearer router through
+ *    `files-shared-handlers.ts`; both paths execute the same handler bodies.
+ *
+ * The canonical list/search response remains distinct from the legacy
+ * bearer's list/search contract. Reconciling those shapes stays out of scope.
  *
  * `visibility` keeps the query-param key convention rather than a path
  * segment: this router already relies on Hono's `:key{.+}` catch-all for
@@ -24,7 +29,7 @@
  */
 import { NotFoundError, ValidationError } from "@uploads/errors";
 import { signedDownloadUrl } from "@uploads/storage";
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono, type Handler, type MiddlewareHandler } from "hono";
 import { dualWorkspaceAuth, type DualAuthVars } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
 import { badKey, deleteObject, listObjects, setObjectVisibility } from "../files-core";
@@ -38,6 +43,13 @@ import { writeRateLimit } from "../guards";
 import { objectPublicUrls, publicUrl, storage, storageConfig } from "../storage";
 import { sanitizeVisibility, VISIBILITY_VALUES } from "../visibility";
 import { requireScope } from "../workspace";
+import {
+  getFileHandler,
+  patchFileHandler,
+  putFileHandler,
+  signFileHandler,
+  type SharedFilesHandler,
+} from "./files-shared-handlers";
 
 // `requireScope`/`writeRateLimit` are typed against `WorkspaceVars`; this
 // router's `DualAuthVars` is that type plus session fields, so a Context for
@@ -47,6 +59,9 @@ function scoped(scope: Parameters<typeof requireScope>[0]): MiddlewareHandler<Du
   return requireScope(scope) as unknown as MiddlewareHandler<DualAuthVars>;
 }
 const rateLimited = writeRateLimit as unknown as MiddlewareHandler<DualAuthVars>;
+function shared(handler: SharedFilesHandler): Handler<DualAuthVars> {
+  return handler as unknown as Handler<DualAuthVars>;
+}
 
 export const workspaceFiles = new Hono<DualAuthVars>()
 
@@ -211,6 +226,37 @@ export const workspaceFiles = new Hono<DualAuthVars>()
 
       return c.json({ key, visibility: sanitizeVisibility(requested) ?? "public" });
     },
+  )
+
+  // These four key operations share their handler bodies with the legacy
+  // bearer router. Keep every catch-all route after the static paths above:
+  // Hono's `:key{.+}` matching otherwise risks swallowing a static suffix.
+  .post(
+    "/:workspace/files/sign",
+    dualWorkspaceAuth(),
+    rateLimited,
+    scoped("files:write"),
+    shared(signFileHandler),
+  )
+  .put(
+    "/:workspace/files/:key{.+}",
+    dualWorkspaceAuth(),
+    rateLimited,
+    scoped("files:write"),
+    shared(putFileHandler),
+  )
+  .get(
+    "/:workspace/files/:key{.+}",
+    dualWorkspaceAuth(),
+    scoped("files:read"),
+    shared(getFileHandler),
+  )
+  .patch(
+    "/:workspace/files/:key{.+}",
+    dualWorkspaceAuth(),
+    rateLimited,
+    scoped("files:write"),
+    shared(patchFileHandler),
   )
 
   // Delete a file — path-keyed (the shape the bearer-token surface already
