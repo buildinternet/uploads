@@ -127,7 +127,7 @@ export const workspaceFiles = new Hono<DualAuthVars>()
   .get("/:workspace/files/by-path", dualWorkspaceAuth(), scoped("files:read"), async (c) => {
     const record = c.get("workspace");
     const name = c.get("workspaceName");
-    const { groups, truncated } = await groupObjectsByPath(c.env.DB, name);
+    const { groups, truncated } = await groupObjectsByPath(c.env.DB, name); // `projects` unused pending the next task
     const metaByKey = await getMetadataForKeys(
       c.env.DB,
       name,
