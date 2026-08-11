@@ -2258,9 +2258,18 @@ export async function runPut(
   // Derived `repo` (spec: 2026-08-11-screenshots-project-grouping-design.md):
   // the capturing repo, on every layout including gh/staging. mergeDerivedMeta
   // keeps explicit --meta repo= wins and never breaks the caps.
-  if (!noGit && derivedMetaEnabled(parsed.flags, defaults)) {
+  //
+  // `metadata === undefined` means "leave whatever's already stored for this
+  // key untouched" (client.ts only sends X-Uploads-Meta-* when the map is
+  // defined; a defined map is a full replace server-side). A bare `uploads
+  // put` with no --meta/gh/staging context leaves `metadata` undefined by
+  // design — never synthesize `{ repo }` there just because a repo happens
+  // to be derivable, or a plain re-upload of an existing key would silently
+  // wipe everything already stored on it. Only fold repo in when `metadata`
+  // is already a defined object for another reason.
+  if (!noGit && derivedMetaEnabled(parsed.flags, defaults) && metadata !== undefined) {
     const slug = deriveRepoSlugFromGit(run);
-    if (slug) metadata = mergeDerivedMeta(metadata ?? {}, { repo: slug });
+    if (slug) metadata = mergeDerivedMeta(metadata, { repo: slug });
   }
 
   // Bare-put nudge (issue #393): only relevant when staging didn't take over

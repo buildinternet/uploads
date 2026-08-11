@@ -904,7 +904,14 @@ describe("runPut derived repo metadata (spec: 2026-08-11-screenshots-project-gro
     };
   }
 
-  it("records derived repo metadata from the git remote (mixed-case remote -> lowercase slug)", async () => {
+  // Critical regression guard: `metadata === undefined` means "leave
+  // whatever's already stored for this key untouched" (client.ts only sends
+  // X-Uploads-Meta-* when the map is defined; a defined map is a full
+  // server-side replace). A bare put with no --meta/gh/staging context must
+  // NOT get a repo derived just because one happens to be resolvable — that
+  // would turn every re-upload of an existing key inside a git checkout into
+  // a silent metadata wipe.
+  it("does NOT synthesize metadata just to add repo on a bare put (metadata stays undefined)", async () => {
     const { client, puts } = fakeClient();
     await runPut(
       ctxWith(client),
@@ -912,12 +919,28 @@ describe("runPut derived repo metadata (spec: 2026-08-11-screenshots-project-gro
       false,
       repoOnlyRunner("git@github.com:Acme/Web.git"),
     );
-    expect(puts[0].metadata).toMatchObject({ repo: "acme/web" });
+    expect(puts[0].metadata).toBeUndefined();
+  });
+
+  it("folds derived repo into metadata that's already defined via --meta (mixed-case remote -> lowercase slug)", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "o/r", "--ref", "manual", "--meta", "app=myapp"],
+      false,
+      repoOnlyRunner("git@github.com:Acme/Web.git"),
+    );
+    expect(puts[0].metadata).toMatchObject({ app: "myapp", repo: "acme/web" });
   });
 
   it("suppresses derived repo with --no-git", async () => {
     const { client, puts } = fakeClient();
-    await runPut(ctxWith(client), [tmpFile(), "--repo", "myapp", "--no-git"], false, noRun);
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "myapp", "--no-git", "--meta", "app=myapp"],
+      false,
+      noRun,
+    );
     expect(puts[0].metadata?.repo).toBeUndefined();
   });
 
