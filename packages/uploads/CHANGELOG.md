@@ -1,5 +1,16 @@
 # @buildinternet/uploads
 
+## 0.39.0
+
+### Minor Changes
+
+- 9d7793b: Add `uploads ingest` to mirror GitHub-native PR/issue attachments into the workspace.
+
+### Patch Changes
+
+- ea1da34: `uploads github doctor` now prints the App's actual subscribed webhook events (including recommended ones like `issue_comment`) instead of only the required subset.
+- fad6b61: `uploads ingest`: honor --format json; note manual reconcile now detaches assets from deleted comments.
+
 ## 0.38.0
 
 ### Minor Changes
