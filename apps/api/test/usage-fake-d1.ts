@@ -7,6 +7,7 @@ import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
 import { IngestLedgerTable } from "./helpers/fake-ingest-ledger-table";
 import { PrActivityTable } from "./helpers/fake-pr-activity-table";
+import { PrivatePrefixesTable } from "./helpers/fake-private-prefixes-table";
 import { RepoLinksTable } from "./helpers/fake-repo-links-table";
 
 export type UsageRow = {
@@ -50,6 +51,12 @@ export class UsageFakeD1 {
   get ingestLedger() {
     return this.ingestLedgerTable.rows;
   }
+  // Backs `github_private_prefixes` — randomized per-branch attachment URL
+  // prefixes for private repos (issue #631).
+  private privatePrefixesTable = new PrivatePrefixesTable();
+  get privatePrefixes() {
+    return this.privatePrefixesTable.rows;
+  }
 
   prepare = (sql: string) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -69,6 +76,8 @@ export class UsageFakeD1 {
         if (linkResult !== undefined) return linkResult;
         const ledgerFirstResult = this.ingestLedgerTable.tryFirst(normalized, values);
         if (ledgerFirstResult !== undefined) return ledgerFirstResult;
+        const prefixFirstResult = this.privatePrefixesTable.tryFirst(normalized, values);
+        if (prefixFirstResult !== undefined) return prefixFirstResult;
         throw new Error(`unsupported first: ${normalized}`);
       },
       all: async <T>() => {
@@ -80,6 +89,8 @@ export class UsageFakeD1 {
         if (activityResult) return activityResult;
         const ledgerAllResult = this.ingestLedgerTable.tryAll<T>(normalized, values);
         if (ledgerAllResult) return ledgerAllResult;
+        const prefixAllResult = this.privatePrefixesTable.tryAll<T>(normalized, values);
+        if (prefixAllResult) return prefixAllResult;
         // Galleries aren't modeled by this fake (route/gallery-specific tests
         // bring their own D1 stand-in) — an empty page is a safe, honest
         // default for callers (e.g. the webhook auto-promote gather) that
@@ -98,6 +109,8 @@ export class UsageFakeD1 {
         if (activityResult) return activityResult;
         const ledgerRunResult = this.ingestLedgerTable.tryRun(normalized, values);
         if (ledgerRunResult) return ledgerRunResult;
+        const prefixRunResult = this.privatePrefixesTable.tryRun(normalized, values);
+        if (prefixRunResult) return prefixRunResult;
         const claimResult = this.deleteUsageClaimsTable.tryRun(normalized, values);
         if (claimResult) return claimResult;
         if (normalized.startsWith("INSERT OR IGNORE INTO workspace_usage")) {
