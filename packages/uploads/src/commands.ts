@@ -3166,6 +3166,56 @@ export async function runComment(
   return 0;
 }
 
+// --- ingest ---
+
+const INGEST_HELP = `uploads ingest — mirror GitHub-native attachments from a PR/issue into the workspace
+
+Usage:
+  uploads ingest --pr <n> [--repo owner/name]
+  uploads ingest --issue <n> [--repo owner/name]
+
+Scans the PR/issue description and comments for github.com/user-attachments
+media, mirrors new ones into the workspace (indexed, not added to the managed
+comment), and detaches ones no longer referenced. Works on any repo linked to
+the workspace; the .uploads.yml ingestGithubAttachments knob only gates the
+automatic webhook path.
+
+Examples:
+  uploads ingest --pr 123
+  uploads ingest --issue 45 --repo acme/app --format json
+`;
+
+export async function runIngest(
+  ctx: CliContext,
+  args: string[],
+  help = false,
+  run: CommandRunner = execRunner,
+): Promise<number> {
+  const parsed = parseCommandArgs(args);
+  if (help || parsed.help) {
+    writeCommandHelp(INGEST_HELP);
+    return 0;
+  }
+  const target = ghTargetFromFlags(parsed.flags, run);
+  if (!target) {
+    throw new UsageError("--pr or --issue required");
+  }
+
+  const result = await ctx.client.ingestGithub(target);
+  if (ctx.json) {
+    await writeJson(result);
+    return 0;
+  }
+  if (!ctx.quiet) {
+    let line = `Ingested ${result.ingested.length}, re-attached ${result.reattached.length}, detached ${result.detached.length}, skipped ${result.skipped.length}\n`;
+    for (const skip of result.skipped) {
+      line += `  skipped: ${skip.url} (${skip.reason})\n`;
+    }
+    process.stderr.write(line);
+  }
+  return 0;
+}
+
 // --- github link ---
 
 const GITHUB_HELP = `uploads github link [--repo <owner/name>] [--status] [--workspace <name>]

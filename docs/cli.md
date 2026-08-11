@@ -75,27 +75,28 @@ command to run by hand, rather than overwriting your build.
 
 ## Command overview
 
-| Command                  | What it does                                                            |
-| ------------------------ | ----------------------------------------------------------------------- |
-| `attach <file…>`         | Attach media to the current PR (stable URLs + comment)                  |
-| `put <file>`             | Upload one file → public URL + GitHub markdown                          |
-| `screenshot <url\|html>` | Capture a page (or local HTML) and host it in one step                  |
-| `annotate <image>`       | Bake boxes, arrows, labels, strokes, and redactions onto an image       |
-| `comment`                | Create/update a PR/issue attachments comment (via `gh`)                 |
-| `list` / `find k=v`      | List objects, optionally filtered by queryable metadata                 |
-| `meta get` / `meta set`  | Read or merge-set an object's queryable metadata                        |
-| `gallery …`              | Create and organize public media galleries                              |
-| `delete <key>`           | Delete an object                                                        |
-| `usage`                  | Workspace storage / upload counters                                     |
-| `install`                | Skills + remote MCP + hooks (Grok/Cursor); see plugins for Claude/Codex |
-| `hook`                   | Agent harness handlers (e.g. pre-PR screenshot reminder)                |
-| `update`                 | Update the CLI, then refresh skills / MCP / hooks                       |
-| `login` / `logout`       | Sign in (browser or enrollment code) / clear saved token                |
-| `whoami` (`status`)      | Show the active workspace and token                                     |
-| `invite`                 | Invite a teammate to a workspace (workspace admin)                      |
-| `doctor` / `health`      | Health + auth + workspace checks / API liveness                         |
-| `setup` / `config`       | Inspect and configure CLI settings                                      |
-| `mcp`                    | Serve MCP over stdio, both spec eras (tools mirror the CLI)             |
+| Command                  | What it does                                                                  |
+| ------------------------ | ----------------------------------------------------------------------------- |
+| `attach <file…>`         | Attach media to the current PR (stable URLs + comment)                        |
+| `put <file>`             | Upload one file → public URL + GitHub markdown                                |
+| `screenshot <url\|html>` | Capture a page (or local HTML) and host it in one step                        |
+| `annotate <image>`       | Bake boxes, arrows, labels, strokes, and redactions onto an image             |
+| `comment`                | Create/update a PR/issue attachments comment (via `gh`)                       |
+| `ingest`                 | Mirror `github.com/user-attachments` media from a PR/issue into the workspace |
+| `list` / `find k=v`      | List objects, optionally filtered by queryable metadata                       |
+| `meta get` / `meta set`  | Read or merge-set an object's queryable metadata                              |
+| `gallery …`              | Create and organize public media galleries                                    |
+| `delete <key>`           | Delete an object                                                              |
+| `usage`                  | Workspace storage / upload counters                                           |
+| `install`                | Skills + remote MCP + hooks (Grok/Cursor); see plugins for Claude/Codex       |
+| `hook`                   | Agent harness handlers (e.g. pre-PR screenshot reminder)                      |
+| `update`                 | Update the CLI, then refresh skills / MCP / hooks                             |
+| `login` / `logout`       | Sign in (browser or enrollment code) / clear saved token                      |
+| `whoami` (`status`)      | Show the active workspace and token                                           |
+| `invite`                 | Invite a teammate to a workspace (workspace admin)                            |
+| `doctor` / `health`      | Health + auth + workspace checks / API liveness                               |
+| `setup` / `config`       | Inspect and configure CLI settings                                            |
+| `mcp`                    | Serve MCP over stdio, both spec eras (tools mirror the CLI)                   |
 
 Run `uploads <command> --help` for a command's flags.
 
@@ -175,6 +176,22 @@ exists` without writing.
 > (`gh/myorg/myapp/pull/123/after.png`), so generic names are easier to guess
 > than hashed keys. Treat uploads as public; don't host secrets or sensitive UI.
 > Tighter access controls for private repos are planned — see [roadmap](roadmap.md).
+
+**Mirroring GitHub-native attachments** (`uploads ingest`) handles the other
+direction: images someone dropped straight into a PR/issue via
+`github.com/user-attachments/…`, which only exist behind GitHub's own
+authenticated hosting. `uploads ingest --pr <n>` (or `--issue <n>`) scans the
+description and comments, mirrors any new ones into the workspace (indexed,
+not added to the managed comment), and detaches ones no longer referenced:
+
+```bash
+uploads ingest --pr 123
+uploads ingest --issue 45 --repo myorg/myapp
+```
+
+This is the manual/backfill entry point. The `.uploads.yml` `ingestGithubAttachments`
+knob gates the automatic webhook path only — it has no effect on running
+`ingest` directly.
 
 ## Annotating screenshots
 

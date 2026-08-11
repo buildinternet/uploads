@@ -773,6 +773,26 @@ recommended so a deleted/mangled bot comment self-heals instead of waiting
 for the next PR push) — useful when webhook-driven behavior (auto-promotion,
 title updates, self-healing) seems to be silently doing nothing.
 
+### Mirroring GitHub-native attachments (`uploads ingest`)
+
+Images someone drops straight into a PR/issue via `github.com/user-attachments/…`
+only exist behind GitHub's own authenticated hosting — they're never public
+URLs. `uploads ingest --pr <n>` (or `--issue <n>`) scans the description and
+comments for that media, mirrors any new ones into the workspace (indexed,
+not added to the managed comment), and detaches ones no longer referenced —
+a reattached one un-detaches without a re-fetch:
+
+```bash
+uploads ingest --pr 123
+uploads ingest --issue 45 --repo owner/name --json
+```
+
+Requires the repo be linked to the workspace (`uploads github link`) and the
+GitHub App installed — otherwise it fails with a clear error rather than
+guessing. This is the manual/backfill entry point; the `.uploads.yml`
+`ingestGithubAttachments` knob only gates the automatic webhook path and has
+no effect on running `ingest` directly.
+
 ### Embedding best practices
 
 - **Meaningful alt text**, always — it's what readers with images off and search see.

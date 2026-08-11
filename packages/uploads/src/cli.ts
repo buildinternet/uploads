@@ -25,6 +25,7 @@ import {
   runDoctor,
   runComment,
   runGithub,
+  runIngest,
   runUsage,
   runReconcile,
   runPurgeExpired,
@@ -382,7 +383,8 @@ export async function runCli(argv: string[]): Promise<number> {
       case "purge-expired":
       case "doctor":
       case "comment":
-      case "github": {
+      case "github":
+      case "ingest": {
         const ctx = createContext(parsed.globals, !showHelp, cmdArgs);
         switch (parsed.command) {
           case "attach":
@@ -405,6 +407,9 @@ export async function runCli(argv: string[]): Promise<number> {
             break;
           case "github":
             code = await runGithub(ctx, cmdArgs, showHelp);
+            break;
+          case "ingest":
+            code = await runIngest(ctx, cmdArgs, showHelp);
             break;
           case "list":
             code = await runList(ctx, cmdArgs, showHelp);
