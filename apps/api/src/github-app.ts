@@ -322,6 +322,7 @@ export async function repoIsPrivate(
   repo: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<boolean | null> {
+  if (!REPO_RE.test(repo)) return null;
   const key = `ghpriv:${repo}`;
   const cached = (await env.GITHUB_CACHE.get(key)) as string | null;
   if (cached !== null) return cached === "1";
@@ -349,6 +350,7 @@ export async function repoIsPrivate(
  * the cache without an extra API round trip.
  */
 export async function cacheRepoPrivacy(env: Env, repo: string, isPrivate: boolean): Promise<void> {
+  if (!REPO_RE.test(repo)) return;
   await env.GITHUB_CACHE.put(`ghpriv:${repo}`, isPrivate ? "1" : "0", {
     expirationTtl: REPO_PRIVACY_TTL,
   });
@@ -370,6 +372,7 @@ export async function prHeadBranch(
   num: number,
   fetchImpl: typeof fetch = fetch,
 ): Promise<string | null> {
+  if (!REPO_RE.test(repo) || !Number.isSafeInteger(num) || num < 1) return null;
   const key = `prhead:${repo}#${num}`;
   const cached = (await env.GITHUB_CACHE.get(key)) as string | null;
   if (cached !== null) return cached;

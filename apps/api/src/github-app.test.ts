@@ -289,6 +289,15 @@ describe("repoIsPrivate", () => {
     const fetchImpl = (async () => new Response("", { status: 401 })) as typeof fetch;
     expect(await repoIsPrivate(envWith(kv), cfgWith(pem), 42, "o/r", fetchImpl)).toBeNull();
   });
+
+  it("returns null on a malformed repo without fetching", async () => {
+    const { pem } = await testKeyPair();
+    const kv = kvWithToken();
+    const fetchImpl = (async () => {
+      throw new Error("must not fetch");
+    }) as unknown as typeof fetch;
+    expect(await repoIsPrivate(envWith(kv), cfgWith(pem), 42, "o/../r", fetchImpl)).toBeNull();
+  });
 });
 
 describe("cacheRepoPrivacy", () => {
@@ -307,6 +316,12 @@ describe("cacheRepoPrivacy", () => {
     const kv = new FakeKv();
     await cacheRepoPrivacy(envWith(kv), "o/r", false);
     expect(kv.store.get("ghpriv:o/r")).toEqual({ value: "0", expirationTtl: 600 });
+  });
+
+  it("skips the KV write for a malformed repo", async () => {
+    const kv = new FakeKv();
+    await cacheRepoPrivacy(envWith(kv), "o/../r", true);
+    expect(kv.store.size).toBe(0);
   });
 });
 
@@ -339,10 +354,18 @@ describe("prHeadBranch", () => {
     expect(calls).toBe(1);
   });
 
-  it("returns null (uncached) on an API error", async () => {
+  it("returns null (uncached) on a 502", async () => {
     const { pem } = await testKeyPair();
     const kv = kvWithToken();
     const fetchImpl = (async () => new Response("", { status: 502 })) as typeof fetch;
+    expect(await prHeadBranch(envWith(kv), cfgWith(pem), 42, "o/r", 7, fetchImpl)).toBeNull();
+    expect(kv.store.get("prhead:o/r#7")).toBeUndefined();
+  });
+
+  it("returns null (uncached) on a 404", async () => {
+    const { pem } = await testKeyPair();
+    const kv = kvWithToken();
+    const fetchImpl = (async () => new Response("", { status: 404 })) as typeof fetch;
     expect(await prHeadBranch(envWith(kv), cfgWith(pem), 42, "o/r", 7, fetchImpl)).toBeNull();
     expect(kv.store.get("prhead:o/r#7")).toBeUndefined();
   });
@@ -352,5 +375,15 @@ describe("prHeadBranch", () => {
     const kv = new FakeKv();
     const fetchImpl = (async () => new Response("", { status: 401 })) as typeof fetch;
     expect(await prHeadBranch(envWith(kv), cfgWith(pem), 42, "o/r", 7, fetchImpl)).toBeNull();
+  });
+
+  it("returns null on a malformed repo or num without fetching", async () => {
+    const { pem } = await testKeyPair();
+    const kv = kvWithToken();
+    const fetchImpl = (async () => {
+      throw new Error("must not fetch");
+    }) as unknown as typeof fetch;
+    expect(await prHeadBranch(envWith(kv), cfgWith(pem), 42, "o/../r", 7, fetchImpl)).toBeNull();
+    expect(await prHeadBranch(envWith(kv), cfgWith(pem), 42, "o/r", 0, fetchImpl)).toBeNull();
   });
 });
