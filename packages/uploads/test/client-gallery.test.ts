@@ -69,11 +69,17 @@ describe("gallery client methods", () => {
       deleted: true,
       id: "gal_example",
     });
-    expect(fetch.mock.calls[0][0]).toBe("https://api.test/v1/test/galleries");
-    expect(fetch.mock.calls[1][0]).toBe("https://api.test/v1/test/galleries/gal_example");
-    expect(fetch.mock.calls[2][0]).toBe("https://api.test/v1/test/galleries?limit=10");
-    expect(fetch.mock.calls[3][0]).toBe("https://api.test/v1/test/galleries/gal_example/items");
-    expect(fetch.mock.calls[4][0]).toBe("https://api.test/v1/test/galleries/gal_example");
+    expect(fetch.mock.calls[0][0]).toBe("https://api.test/v1/workspaces/test/galleries");
+    expect(fetch.mock.calls[1][0]).toBe(
+      "https://api.test/v1/workspaces/test/galleries/gal_example",
+    );
+    expect(fetch.mock.calls[2][0]).toBe("https://api.test/v1/workspaces/test/galleries?limit=10");
+    expect(fetch.mock.calls[3][0]).toBe(
+      "https://api.test/v1/workspaces/test/galleries/gal_example/items",
+    );
+    expect(fetch.mock.calls[4][0]).toBe(
+      "https://api.test/v1/workspaces/test/galleries/gal_example",
+    );
   });
 });
 
@@ -126,10 +132,10 @@ describe("gallery external-reference client methods", () => {
     });
 
     expect(fetch.mock.calls.map(([input]) => String(input))).toEqual([
-      "https://api.test/v1/test/galleries/gal_example/external-references",
-      "https://api.test/v1/test/galleries/gal_example/external-references",
-      "https://api.test/v1/test/galleries/gal_example/external-references/ref-1",
-      "https://api.test/v1/test/galleries/by-reference?provider=github&coordinate=buildinternet%2Fuploads%2358&limit=10&cursor=next",
+      "https://api.test/v1/workspaces/test/galleries/gal_example/external-references",
+      "https://api.test/v1/workspaces/test/galleries/gal_example/external-references",
+      "https://api.test/v1/workspaces/test/galleries/gal_example/external-references/ref-1",
+      "https://api.test/v1/workspaces/test/galleries/by-reference?provider=github&coordinate=buildinternet%2Fuploads%2358&limit=10&cursor=next",
     ]);
   });
 });
@@ -138,7 +144,7 @@ describe("gallery client workspace isolation", () => {
   it("keeps alpha and beta gallery requests under their own workspace paths", async () => {
     const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
-      const workspace = url.includes("/v1/alpha/") ? "alpha" : "beta";
+      const workspace = url.includes("/v1/workspaces/alpha/") ? "alpha" : "beta";
       if (url.endsWith("/galleries") && init?.method === "POST") {
         return new Response(
           JSON.stringify({
@@ -173,10 +179,10 @@ describe("gallery client workspace isolation", () => {
     await beta.listGalleries({ limit: 1 });
 
     expect(fetch.mock.calls.map(([input]) => String(input))).toEqual([
-      "https://api.test/v1/alpha/galleries",
-      "https://api.test/v1/beta/galleries",
-      "https://api.test/v1/alpha/galleries?limit=1",
-      "https://api.test/v1/beta/galleries?limit=1",
+      "https://api.test/v1/workspaces/alpha/galleries",
+      "https://api.test/v1/workspaces/beta/galleries",
+      "https://api.test/v1/workspaces/alpha/galleries?limit=1",
+      "https://api.test/v1/workspaces/beta/galleries?limit=1",
     ]);
   });
 });

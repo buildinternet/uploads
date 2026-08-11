@@ -299,7 +299,7 @@ export type GithubCommentResult =
       required?: string[];
     };
 
-/** `POST /v1/:workspace/github/promote` request/response (server contract, PR #310). */
+/** `POST /v1/workspaces/:workspace/github/promote` request/response (server contract, PR #310). */
 export interface PromoteBranchAttachmentsOptions {
   repo: string;
   num: number;
@@ -316,7 +316,7 @@ export interface PromoteBranchAttachmentsResult {
   skipped: PromoteSkip[];
 }
 
-/** `GET`/`POST /v1/:workspace/github/link` result (server contract, phase 4b). */
+/** `GET`/`POST /v1/workspaces/:workspace/github/link` result (server contract, phase 4b). */
 export interface GithubLinkResult {
   repo: string;
   linked: boolean;
@@ -337,7 +337,7 @@ export interface GithubLinkClaimResult extends GithubLinkResult {
   reason?: "not_authorized";
 }
 
-/** `DELETE /v1/:workspace/github/link` result (issue #318, self-serve unlink). */
+/** `DELETE /v1/workspaces/:workspace/github/link` result (issue #318, self-serve unlink). */
 export interface GithubLinkUnlinkResult {
   repo: string;
   unlinked: boolean;
@@ -345,7 +345,7 @@ export interface GithubLinkUnlinkResult {
 }
 
 /**
- * `GET /v1/:workspace/github/repo-link` result (issue #398). Deliberately
+ * `GET /v1/workspaces/:workspace/github/repo-link` result (issue #398). Deliberately
  * minimal relative to `GithubLinkResult`: never names the owning workspace
  * when it isn't this one — "self"/"other"/"none" is all the stage-time
  * warning needs, and anything richer would leak cross-tenant info to a
@@ -378,7 +378,7 @@ export interface HealthResult {
   ok: boolean;
 }
 
-/** `GET /v1/:workspace/github/health` result (issue #293 follow-up). */
+/** `GET /v1/workspaces/:workspace/github/health` result (issue #293 follow-up). */
 export interface GithubHealthResult {
   configured: boolean;
   ok: boolean;
@@ -754,16 +754,21 @@ function encodeKeyPath(key: string): string {
   return key.split("/").map(encodeURIComponent).join("/");
 }
 
+// Stays on the legacy `/v1/:workspace/files` wildcard for now (issue #613):
+// the canonical files vertical has no upload PUT, POST /sign, or GET/PATCH
+// /:key metadata yet, and its list/search adopted the session response shape
+// rather than the bearer one. Move this once the canonical vertical grows
+// those routes and the bearer list shape is reconciled.
 function filesBase(config: UploadsClientConfig): string {
   return `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/files`;
 }
 
 function usageBase(config: UploadsClientConfig): string {
-  return `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/usage`;
+  return `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/usage`;
 }
 
 function galleriesBase(config: UploadsClientConfig): string {
-  return `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/galleries`;
+  return `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/galleries`;
 }
 
 function mapApiError(
@@ -1185,7 +1190,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     }): Promise<GithubCommentResult> {
       return request<GithubCommentResult>(
         "POST",
-        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/comment`,
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/comment`,
         {
           body: new TextEncoder().encode(JSON.stringify(opts)),
           headers: { "Content-Type": "application/json" },
@@ -1204,7 +1209,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     ): Promise<PromoteBranchAttachmentsResult> {
       return request<PromoteBranchAttachmentsResult>(
         "POST",
-        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/promote`,
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/promote`,
         {
           body: new TextEncoder().encode(JSON.stringify(opts)),
           headers: { "Content-Type": "application/json" },
@@ -1218,7 +1223,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     async githubLinkStatus(repo: string): Promise<GithubLinkResult> {
       return request<GithubLinkResult>(
         "GET",
-        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/link?repo=${encodeURIComponent(repo)}`,
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/link?repo=${encodeURIComponent(repo)}`,
       );
     },
 
@@ -1232,7 +1237,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     async githubLinkClaim(repo: string): Promise<GithubLinkClaimResult> {
       return request<GithubLinkClaimResult>(
         "POST",
-        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/link`,
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/link`,
         {
           body: new TextEncoder().encode(JSON.stringify({ repo })),
           headers: { "Content-Type": "application/json" },
@@ -1250,7 +1255,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     async githubRepoLinkStatus(repo: string): Promise<GithubRepoLinkResult> {
       return request<GithubRepoLinkResult>(
         "GET",
-        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/repo-link?repo=${encodeURIComponent(repo)}`,
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/repo-link?repo=${encodeURIComponent(repo)}`,
       );
     },
 
@@ -1262,9 +1267,9 @@ export function createUploadsClient(config: UploadsClientConfig) {
     /**
      * `POST /v1/workspaces/:workspace/github/ingest` (Task 6) — manual/
      * backfill mirror of a PR/issue's `github.com/user-attachments` media
-     * into the workspace. Only mounted on the canonical `/v1/workspaces`
-     * surface (no old bearer-only alias), unlike the other `github/*`
-     * client methods above.
+     * into the workspace. Only ever had the canonical `/v1/workspaces`
+     * route (no old bearer-only alias) — unlike the other `github/*` client
+     * methods above, which moved onto it in issue #613.
      */
     async ingestGithub(input: {
       repo: string;
@@ -1288,7 +1293,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     async githubHealth(): Promise<GithubHealthResult> {
       return request<GithubHealthResult>(
         "GET",
-        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/health`,
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/health`,
       );
     },
 
@@ -1302,7 +1307,7 @@ export function createUploadsClient(config: UploadsClientConfig) {
     async githubLinkUnlink(repo: string): Promise<GithubLinkUnlinkResult> {
       return request<GithubLinkUnlinkResult>(
         "DELETE",
-        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/link?repo=${encodeURIComponent(repo)}`,
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/link?repo=${encodeURIComponent(repo)}`,
       );
     },
 

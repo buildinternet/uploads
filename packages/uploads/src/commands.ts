@@ -1319,7 +1319,7 @@ export async function uploadPuts(opts: {
 }
 
 /**
- * Best-effort call to `POST /v1/:workspace/github/promote` (server contract,
+ * Best-effort call to `POST /v1/workspaces/:workspace/github/promote` (server contract,
  * PR #310). Degrade-safe like `syncAttachmentsComment`'s bot path: an older
  * or self-hosted worker without this route (404), a forbidden token (403),
  * or a network error all collapse to "nothing promoted" — the caller must
