@@ -399,6 +399,28 @@ export async function addMissingFileMetadata(
   return next;
 }
 
+/**
+ * Targeted single-key value update. Exists because `replaceFileMetadata` is
+ * delete-then-insert over the whole key set and would wipe server-owned
+ * `video.*` rows — never use replace to flip one flag. Used by the GitHub
+ * attachment ingest reconciler to stamp `gh.detached` without disturbing any
+ * other row. No-op (no row created) if the key isn't already present.
+ */
+export async function updateFileMetadataValue(
+  db: D1Database,
+  workspace: string,
+  objectKey: string,
+  metaKey: string,
+  value: string,
+): Promise<void> {
+  await db
+    .prepare(
+      "UPDATE file_metadata SET meta_value = ?, updated_at = ? WHERE workspace = ? AND object_key = ? AND meta_key = ?",
+    )
+    .bind(value, new Date().toISOString(), workspace, objectKey, metaKey)
+    .run();
+}
+
 /** Deletes all metadata rows for an object (e.g. on object delete). */
 export async function deleteFileMetadata(
   db: D1Database,

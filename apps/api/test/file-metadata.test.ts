@@ -7,8 +7,10 @@ import {
   META_MAX_KEYS,
   META_MAX_TOTAL_BYTES,
   META_VALUE_MAX,
+  replaceFileMetadata,
   setFileMetadata,
   setServerFileMetadata,
+  updateFileMetadataValue,
   validateMetadataEntries,
   validateStoredMetadataEntries,
 } from "../src/file-metadata";
@@ -261,6 +263,27 @@ describe("setFileMetadata: post-merge validation must not re-reject stored serve
         "video.poster": "1",
         "video.duration": "14",
         path: "/checkout",
+      });
+    } finally {
+      sqlite.close();
+    }
+  });
+});
+
+describe("updateFileMetadataValue", () => {
+  it("flips one key without touching others or server-owned video.* rows", async () => {
+    const sqlite = new SqliteD1(FILE_METADATA_MIGRATION);
+    try {
+      const db = database(sqlite);
+      await replaceFileMetadata(db, "ws", "k.png", { "gh.detached": "false", path: "/x" });
+      await setServerFileMetadata(db, "ws", "k.png", { "video.poster": "1" });
+
+      await updateFileMetadataValue(db, "ws", "k.png", "gh.detached", "true");
+
+      await expect(getFileMetadata(db, "ws", "k.png")).resolves.toEqual({
+        "gh.detached": "true",
+        path: "/x",
+        "video.poster": "1",
       });
     } finally {
       sqlite.close();
