@@ -93,7 +93,7 @@ export function AccountFileBrowser({
     if (tab) tab.opener = null;
     try {
       const response = await credentialedFetch(
-        `${apiOrigin.replace(/\/$/, "")}/me/workspaces/${encodeURIComponent(workspace)}/file-url?key=${encodeURIComponent(key)}`,
+        `${apiOrigin.replace(/\/$/, "")}/v1/workspaces/${encodeURIComponent(workspace)}/files/file-url?key=${encodeURIComponent(key)}`,
       );
       const body = (await response.json().catch(() => ({}))) as { url?: string };
       if (!(response.ok && body.url)) throw new Error("file URL unavailable");

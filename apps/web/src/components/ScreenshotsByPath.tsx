@@ -54,7 +54,7 @@ async function resolveSignedFileUrl(
   key: string,
 ): Promise<string | null> {
   const result = await fetchWithTimeout(
-    `${apiOrigin.replace(/\/$/, "")}/me/workspaces/${encodeURIComponent(workspace)}/file-url?key=${encodeURIComponent(key)}`,
+    `${apiOrigin.replace(/\/$/, "")}/v1/workspaces/${encodeURIComponent(workspace)}/files/file-url?key=${encodeURIComponent(key)}`,
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable") return null;
