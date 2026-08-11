@@ -210,8 +210,13 @@ async function fetchAndStore(
     // request later can't succeed, so it's a permanent skip like the other
     // guard checks above. An AppError with a retryable type (rate_limited,
     // unavailable) or any non-AppError failure rethrows, so the queue's own
-    // retry/backoff handles it instead.
-    if (err instanceof AppError && !isRetryableType(err.type)) {
+    // retry/backoff handles it instead. One carve-out: upload_budget_exceeded
+    // is typed rate_limited, but its budget window outlasts any queue retry
+    // horizon — the spec calls it a permanent skip, not a retry.
+    if (
+      err instanceof AppError &&
+      (!isRetryableType(err.type) || err.code === "upload_budget_exceeded")
+    ) {
       return { kind: "skip", reason: err.code ?? err.type };
     }
     throw err;

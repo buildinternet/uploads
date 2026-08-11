@@ -8,7 +8,7 @@
  * `globalThis.fetch` for the duration of the call (repo-comment-config.test.ts
  * style) in addition to passing the same fake as `deps.fetchImpl`.
  */
-import { InsufficientStorageError } from "@uploads/errors";
+import { InsufficientStorageError, RateLimitedError } from "@uploads/errors";
 import { describe, expect, it, vi } from "vitest";
 import { attachmentKeyBasename } from "./github-attachment-extract";
 import {
@@ -373,6 +373,20 @@ describe("reconcileIngestSource", () => {
       putImpl: budgetPut,
     });
     expect(summary.skipped).toEqual([{ url: ASSET_URL, reason: "storage_quota_exceeded" }]);
+    expect(await ledgerRow(env.DB, REPO, ASSET_ID)).toBeNull();
+
+    // upload_budget_exceeded is typed rate_limited (normally retryable) but
+    // budget windows outlast queue retries — the carve-out keeps it a skip.
+    const uploadBudgetPut = vi.fn(async () => {
+      throw new RateLimitedError("upload budget exceeded", {
+        code: "upload_budget_exceeded",
+      });
+    }) as unknown as typeof import("./files-core").putObject;
+    const budgetSummary = await reconcileIngestSource(env, ws, WS, ref, `see ${ASSET_URL}`, null, {
+      fetchImpl,
+      putImpl: uploadBudgetPut,
+    });
+    expect(budgetSummary.skipped).toEqual([{ url: ASSET_URL, reason: "upload_budget_exceeded" }]);
     expect(await ledgerRow(env.DB, REPO, ASSET_ID)).toBeNull();
 
     const boomPut = vi.fn(async () => {
