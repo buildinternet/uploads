@@ -58,8 +58,10 @@ jobs:
       - name: Oxfmt
         run: pnpm format:check
 
-      # A changeset for an ignored package yields an empty version PR and blocks
-      # the npm publish — reject it here before it can merge.
+      # Two ways a changeset can break the Release workflow after merge, both
+      # rejected here: naming a package outside the workspace (changeset status),
+      # and naming an ignored package, which yields an empty version PR and
+      # blocks the npm publish (changeset-lint.mjs).
       - name: Changeset lint
         run: pnpm changeset:lint
 

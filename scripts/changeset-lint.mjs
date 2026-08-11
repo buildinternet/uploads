@@ -1,6 +1,13 @@
 /**
  * Fail if any changeset targets a package in the changesets `ignore` list.
  *
+ * This runs *after* `changeset status` (see the `changeset:lint` script), which
+ * is the upstream check and rejects a changeset naming a package that is not in
+ * the workspace at all — e.g. the root `uploads` instead of the published
+ * `@buildinternet/uploads`. `changeset status` does NOT catch the ignored-package
+ * case below: it reports such a changeset as a clean, empty release plan. The two
+ * checks are complementary; keep both.
+ *
  * Such a changeset can never produce a release (the package is versioned out of
  * band — Workers Builds, not npm), yet it makes `changeset version` yield an
  * empty diff. The Release workflow's changesets/action then dies creating the
