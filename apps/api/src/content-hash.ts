@@ -47,6 +47,7 @@ export const INHERITABLE_META_KEYS = [
   "captured",
   "state",
   "app",
+  "repo",
 ] as const;
 
 const INHERITABLE_KEY_SET: ReadonlySet<string> = new Set(INHERITABLE_META_KEYS);
