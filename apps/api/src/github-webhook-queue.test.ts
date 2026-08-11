@@ -6,14 +6,17 @@
  * processing semantics themselves are covered by github-webhook.test.ts and
  * the auto-promote/reconcile suites, which exercise the queueless inline path.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { extractWebhookEvent, handleWebhook, type WebhookEvent } from "./github-webhook";
 import {
   GITHUB_WEBHOOK_DLQ,
   GITHUB_WEBHOOK_QUEUE,
   handleGithubWebhookBatch,
 } from "./github-webhook-queue";
+import { ingestForWebhook } from "./github-ingest";
 import { FakeKv } from "../test/fake-kv";
+
+vi.mock("./github-ingest", () => ({ ingestForWebhook: vi.fn() }));
 
 class FakeQueue {
   sent: WebhookEvent[] = [];
@@ -93,6 +96,116 @@ describe("extractWebhookEvent", () => {
     });
     expect(ev).toEqual({ keys: ["ghref:acme/web#7"] });
   });
+
+  const URL = "https://github.com/user-attachments/assets/0a1b2c3d-1111-2222-3333-444455556666";
+
+  it("pull_request opened with attachment url sets ingest", () => {
+    const ev = extractWebhookEvent("pull_request", {
+      action: "opened",
+      repository: { full_name: "acme/app" },
+      pull_request: { number: 7, body: `hello ${URL}` },
+    });
+    expect(ev?.ingest).toEqual({ repo: "acme/app", kind: "pull", num: 7, source: "body" });
+  });
+
+  it("pull_request opened without attachment url sets no ingest", () => {
+    const ev = extractWebhookEvent("pull_request", {
+      action: "opened",
+      repository: { full_name: "acme/app" },
+      pull_request: { number: 7, body: "hi" },
+    });
+    expect(ev?.ingest).toBeUndefined();
+  });
+
+  it("issues edited with a body change always sets ingest (removal case)", () => {
+    const ev = extractWebhookEvent("issues", {
+      action: "edited",
+      changes: { body: { from: "old" } },
+      repository: { full_name: "acme/app" },
+      issue: { number: 3, body: "no urls anymore" },
+    });
+    expect(ev?.ingest).toEqual({ repo: "acme/app", kind: "issues", num: 3, source: "body" });
+  });
+
+  it("issues edited title-only (no changes.body) sets no ingest", () => {
+    const ev = extractWebhookEvent("issues", {
+      action: "edited",
+      changes: { title: { from: "old title" } },
+      repository: { full_name: "acme/app" },
+      issue: { number: 3, body: `still has ${URL}` },
+    });
+    expect(ev?.ingest).toBeUndefined();
+  });
+
+  it("issue_comment created with url sets ingest with comment source", () => {
+    const ev = extractWebhookEvent("issue_comment", {
+      action: "created",
+      repository: { full_name: "acme/app" },
+      issue: { number: 7, pull_request: {} },
+      comment: { id: 44, body: URL, user: { login: "octocat", type: "User" } },
+    });
+    expect(ev?.ingest).toEqual({ repo: "acme/app", kind: "pull", num: 7, source: "comment:44" });
+  });
+
+  it("issue_comment created without url sets no ingest", () => {
+    const ev = extractWebhookEvent("issue_comment", {
+      action: "created",
+      repository: { full_name: "acme/app" },
+      issue: { number: 7, pull_request: {} },
+      comment: { id: 44, body: "plain text", user: { login: "octocat", type: "User" } },
+    });
+    expect(ev).toBeNull();
+  });
+
+  it("issue_comment edited always sets ingest; deleted sets ingest only when the removed body had a url", () => {
+    const edited = extractWebhookEvent("issue_comment", {
+      action: "edited",
+      repository: { full_name: "acme/app" },
+      issue: { number: 7, pull_request: {} },
+      comment: {
+        id: 44,
+        body: "no urls in the new body",
+        user: { login: "octocat", type: "User" },
+      },
+      sender: { login: "octocat", type: "User" },
+    });
+    expect(edited?.ingest).toEqual({
+      repo: "acme/app",
+      kind: "pull",
+      num: 7,
+      source: "comment:44",
+    });
+
+    const editedByBot = extractWebhookEvent("issue_comment", {
+      action: "edited",
+      repository: { full_name: "acme/app" },
+      issue: { number: 7, pull_request: {} },
+      comment: { id: 44, body: "our own write", user: { login: "our-bot", type: "Bot" } },
+      sender: { login: "our-bot", type: "Bot" },
+    });
+    expect(editedByBot?.ingest).toBeUndefined();
+
+    const deletedWithUrl = extractWebhookEvent("issue_comment", {
+      action: "deleted",
+      repository: { full_name: "acme/app" },
+      issue: { number: 7, pull_request: {} },
+      comment: { id: 44, body: URL, user: { login: "octocat", type: "User" } },
+    });
+    expect(deletedWithUrl?.ingest).toEqual({
+      repo: "acme/app",
+      kind: "pull",
+      num: 7,
+      source: "comment:44",
+    });
+
+    const deletedPlainText = extractWebhookEvent("issue_comment", {
+      action: "deleted",
+      repository: { full_name: "acme/app" },
+      issue: { number: 7, pull_request: {} },
+      comment: { id: 44, body: "plain text", user: { login: "octocat", type: "User" } },
+    });
+    expect(deletedPlainText?.ingest).toBeUndefined();
+  });
 });
 
 describe("handleWebhook producer path", () => {
@@ -166,5 +279,24 @@ describe("handleGithubWebhookBatch", () => {
     expect(kv.store.has("ghtok:42")).toBe(true); // untouched — terminal log only.
     expect(m.acked).toBe(true);
     expect(m.retried).toBe(false);
+  });
+
+  it("dispatches ingest events to ingestForWebhook and acks", async () => {
+    vi.mocked(ingestForWebhook).mockResolvedValueOnce(undefined);
+    const ref = { repo: "acme/app", kind: "pull" as const, num: 7, source: "body" };
+    const m = msg({ keys: [], ingest: ref });
+    await handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_QUEUE, [m]), envWith(new FakeKv()));
+    expect(ingestForWebhook).toHaveBeenCalledWith(expect.anything(), ref);
+    expect(m.acked).toBe(true);
+    expect(m.retried).toBe(false);
+  });
+
+  it("retries a message whose ingestForWebhook throws", async () => {
+    vi.mocked(ingestForWebhook).mockRejectedValueOnce(new Error("transient"));
+    const ref = { repo: "acme/app", kind: "pull" as const, num: 7, source: "body" };
+    const m = msg({ keys: [], ingest: ref });
+    await handleGithubWebhookBatch(batch(GITHUB_WEBHOOK_QUEUE, [m]), envWith(new FakeKv()));
+    expect(m.retried).toBe(true);
+    expect(m.acked).toBe(false);
   });
 });
