@@ -305,6 +305,7 @@ describe("reconcileIngestSource", () => {
 
     expect(calls).toHaveLength(0);
     expect(summary.skipped).toEqual([{ url: ASSET_URL, reason: "too_large" }]);
+    expect(await ledgerRow(env.DB, REPO, ASSET_ID)).toBeNull();
   });
 
   it("budget-code putImpl error is a skip; a plain error rethrows", async () => {
@@ -487,5 +488,112 @@ describe("reconcileIngestTarget", () => {
     expect(summary.ingested).toHaveLength(1);
     const rows = await ledgerRowsForSource(env.DB, REPO, "comment:200");
     expect(rows).toHaveLength(1);
+  });
+
+  it("logs a structured truncation notice when all 3 comment pages come back full, and still reconciles them", async () => {
+    const { env } = baseEnv();
+    const otherAssetId = "assets/33333333-3333-3333-3333-333333333333";
+    const otherAssetUrl = `https://github.com/user-attachments/${otherAssetId}`;
+    const pageOf = (start: number, withAttachmentOnLast: boolean) =>
+      Array.from({ length: 100 }, (_, i) => {
+        const isLast = withAttachmentOnLast && i === 99;
+        return {
+          id: start + i,
+          body: isLast ? `see ${otherAssetUrl}` : "no attachment here",
+          user: { login: "bob" },
+        };
+      });
+    const page1 = pageOf(1000, false);
+    const page2 = pageOf(2000, false);
+    const page3 = pageOf(3000, true); // last comment on page 3 carries the attachment
+    const commentCalls: string[] = [];
+    const impl = (async (url: string) => {
+      const u = String(url);
+      if (u.includes("/access_tokens")) {
+        return new Response(JSON.stringify({ token: "t" }), { status: 201 });
+      }
+      if (u.includes("/installation")) {
+        return new Response(JSON.stringify({ id: 42 }), { status: 200 });
+      }
+      if (u.includes("/issues/7/comments")) {
+        commentCalls.push(u);
+        if (u.includes("&page=1")) return new Response(JSON.stringify(page1), { status: 200 });
+        if (u.includes("&page=2")) return new Response(JSON.stringify(page2), { status: 200 });
+        if (u.includes("&page=3")) return new Response(JSON.stringify(page3), { status: 200 });
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (u.includes("/repos/acme/app/issues/7")) {
+        return new Response(JSON.stringify({ body: "", user: { login: "bob" } }), { status: 200 });
+      }
+      if (u.includes(otherAssetId)) return pngRoute();
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+    const { putImpl, calls } = spyPut();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      const summary = await reconcileIngestTarget(
+        env,
+        ws,
+        WS,
+        { repo: REPO, kind: "pull", num: 7 },
+        { fetchImpl: impl, putImpl },
+      );
+
+      expect(commentCalls.filter((u) => u.includes("&page=1"))).toHaveLength(1);
+      expect(commentCalls.filter((u) => u.includes("&page=2"))).toHaveLength(1);
+      expect(commentCalls.filter((u) => u.includes("&page=3"))).toHaveLength(1);
+      expect(commentCalls.filter((u) => u.includes("&page=4"))).toHaveLength(0);
+      // The reconciler still processed every comment it fetched, including
+      // page 3's — the truncation is "we stopped requesting more pages",
+      // not "we dropped what we already have".
+      expect(calls).toHaveLength(1);
+      expect(summary.ingested).toHaveLength(1);
+      const rows = await ledgerRowsForSource(env.DB, REPO, `comment:${3000 + 99}`);
+      expect(rows).toHaveLength(1);
+
+      expect(logSpy).toHaveBeenCalledWith(
+        JSON.stringify({
+          message: "github ingest comment scan truncated",
+          repo: REPO,
+          num: 7,
+        }),
+      );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("throws github_app_not_installed instead of an empty summary when the app isn't configured", async () => {
+    const db = new UsageFakeD1();
+    const kv = new FakeKv(); // no ghinst:/ghtok: cache entries seeded
+    const env = {
+      DB: db,
+      GITHUB_CACHE: kv,
+      // Deliberately omit GITHUB_APP_CFG_ENV so githubAppConfig(env) returns null.
+    } as unknown as Env;
+
+    await expect(
+      reconcileIngestTarget(env, ws, WS, { repo: REPO, kind: "pull", num: 7 }, {}),
+    ).rejects.toMatchObject({ code: "github_app_not_installed" });
+  });
+
+  it("throws github_app_not_installed when the app is configured but not installed on the repo", async () => {
+    const { env } = baseEnv();
+    const impl = fakeFetch({
+      "/installation": () => new Response("nf", { status: 404 }),
+    });
+    // Bypass the KV-cached installation id from baseEnv() so installationForRepo actually misses.
+    const freshEnv = { ...env, GITHUB_CACHE: new FakeKv() } as unknown as Env;
+
+    await expect(
+      reconcileIngestTarget(
+        freshEnv,
+        ws,
+        WS,
+        { repo: REPO, kind: "pull", num: 7 },
+        { fetchImpl: impl },
+      ),
+    ).rejects.toMatchObject({ code: "github_app_not_installed" });
   });
 });

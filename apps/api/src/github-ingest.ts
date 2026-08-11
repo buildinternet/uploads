@@ -23,6 +23,7 @@
  * queue's own retry/backoff handles them.
  */
 
+import { NotFoundError } from "@uploads/errors";
 import { attachmentKeyBasename, extractUserAttachments } from "./github-attachment-extract";
 import {
   githubAppConfig,
@@ -315,6 +316,15 @@ export async function ingestForWebhook(
  * comment (paginated, 100/page, up to 3 pages — a repo with a genuinely
  * longer thread logs a structured truncation notice rather than silently
  * capping). Returns the merged summary across body + all comments.
+ *
+ * Unlike `ingestForWebhook` (which degrades to a silent no-op when the repo
+ * isn't linked or the knob is off — routine, expected states for most repos)
+ * a missing/uninstalled GitHub App here is surfaced as a thrown
+ * `NotFoundError` (`code: "github_app_not_installed"`): this entry point is
+ * driven by an explicit user/admin action whose result is shown back to
+ * them, so an empty summary would be indistinguishable from "nothing to
+ * ingest" when the real story is "ingestion can't run at all". Token-mint
+ * failure still throws a plain (transient) `Error`, unchanged.
  */
 export async function reconcileIngestTarget(
   env: Env,
@@ -327,9 +337,16 @@ export async function reconcileIngestTarget(
   const merged = emptySummary();
 
   const cfg = githubAppConfig(env);
-  if (!cfg) return merged;
+  if (!cfg) {
+    throw new NotFoundError("github app not configured", { code: "github_app_not_installed" });
+  }
   const installationId = await installationForRepo(env, cfg, target.repo, fetchImpl);
-  if (installationId === null) return merged;
+  if (installationId === null) {
+    throw new NotFoundError("github app not installed on repo", {
+      code: "github_app_not_installed",
+      details: { repo: target.repo },
+    });
+  }
   const token = await installationToken(env, cfg, installationId, fetchImpl);
   if (!token) throw new Error("github installation token mint failed");
 
