@@ -51,7 +51,7 @@
     "preuploads": "pnpm --filter @buildinternet/uploads run build",
     "uploads": "pnpm exec uploads",
     "changeset": "changeset",
-    "changeset:lint": "changeset status && node scripts/changeset-lint.mjs",
+    "changeset:lint": "node scripts/changeset-lint.mjs",
     "changeset:version": "changeset version && pnpm install --lockfile-only",
     "changeset:publish": "changeset publish",
     "prepare": "husky"
@@ -59,6 +59,7 @@
   "devDependencies": {
     "@buildinternet/uploads": "workspace:*",
     "@changesets/cli": "^2.31.0",
+    "@manypkg/get-packages": "1.1.3",
     "husky": "^9.1.7",
     "lint-staged": "^17.0.8",
     "oxfmt": "^0.57.0",
