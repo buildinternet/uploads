@@ -317,6 +317,7 @@ describe("searchWorkspaceFiles", () => {
 
 describe("getWorkspaceFilesByPath", () => {
   const GROUP = {
+    project: "acme/web",
     path: "/settings",
     count: 2,
     lastUpdated: "2026-08-09T21:14:03.000Z",
@@ -330,14 +331,20 @@ describe("getWorkspaceFilesByPath", () => {
       { key: "shots/b.png", url: null, embedUrl: null },
     ],
   };
+  const PROJECT = { label: "acme/web", count: 2, lastUpdated: "2026-08-09T21:14:03.000Z" };
 
-  it("returns groups on a well-formed response", async () => {
+  it("returns groups and projects on a well-formed response", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
-      Response.json({ groups: [GROUP], truncated: false }),
+      Response.json({ groups: [GROUP], projects: [PROJECT], truncated: false }),
     );
     vi.stubGlobal("fetch", fetchMock);
     const result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
-    expect(result).toEqual({ kind: "ok", groups: [GROUP], truncated: false });
+    expect(result).toEqual({
+      kind: "ok",
+      groups: [GROUP],
+      projects: [PROJECT],
+      truncated: false,
+    });
     expect(fetchMock.mock.calls[0]![0]).toBe(
       "https://api.uploads.sh/me/workspaces/acme/files/by-path",
     );
@@ -346,10 +353,20 @@ describe("getWorkspaceFilesByPath", () => {
   it("is unavailable on a malformed body", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ groups: [{ path: 1 }] })),
+      vi.fn(async () => Response.json({ groups: [{ path: 1 }], projects: [] })),
     );
     const result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
     expect(result.kind).toBe("unavailable");
+  });
+
+  it("is unavailable on malformed projects", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ groups: [GROUP], projects: [{ label: 1 }] })),
+    );
+    const result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
+    expect(result.kind).toBe("unavailable");
+    expect((result as { reason: string }).reason).toBe("malformed");
   });
 
   it("is unavailable on a non-2xx response", async () => {

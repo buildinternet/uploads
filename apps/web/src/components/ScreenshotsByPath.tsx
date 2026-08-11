@@ -22,7 +22,7 @@ import { filePath } from "../lib/public-file";
 import { fetchWithTimeout } from "../lib/request";
 import {
   lastUpdatedLabel,
-  readScreenshotsPath,
+  readScreenshotsView,
   screenshotsSearch,
   shotKindFromKey,
 } from "../lib/workspace-screenshots";
@@ -192,8 +192,8 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
   const [infoRetryNonce, setInfoRetryNonce] = useState(0);
   const [overview, setOverview] = useState<OverviewState>({ status: "loading" });
   const [overviewRetryNonce, setOverviewRetryNonce] = useState(0);
-  const [drillPath, setDrillPath] = useState<string>(() =>
-    readScreenshotsPath(window.location.search),
+  const [drillPath, setDrillPath] = useState<string>(
+    () => readScreenshotsView(window.location.search).path,
   );
   const [drill, setDrill] = useState<DrillState>({ status: "idle" });
   const [drillRetryNonce, setDrillRetryNonce] = useState(0);
@@ -261,7 +261,7 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
   // same path. Clearing drillPath ("") goes back to the overview without a
   // search fetch.
   useEffect(() => {
-    history.replaceState(null, "", window.location.pathname + screenshotsSearch(drillPath));
+    history.replaceState(null, "", window.location.pathname + screenshotsSearch("", drillPath));
     if (!drillPath) {
       setDrill({ status: "idle" });
       return;

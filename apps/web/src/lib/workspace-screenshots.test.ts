@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   lastUpdatedLabel,
-  readScreenshotsPath,
+  projectLabelFromItemMeta,
+  readScreenshotsView,
   screenshotsSearch,
   shotKindFromKey,
 } from "./workspace-screenshots";
@@ -30,14 +31,34 @@ describe("lastUpdatedLabel", () => {
   });
 });
 
-describe("screenshots path round-trip", () => {
-  it("reads ?path= and ignores its absence", () => {
-    expect(readScreenshotsPath("?path=%2Fsettings")).toBe("/settings");
-    expect(readScreenshotsPath("?other=1")).toBe("");
-    expect(readScreenshotsPath("")).toBe("");
+describe("projectLabelFromItemMeta", () => {
+  // Pinned to the same cases as apps/api projectLabelFromMeta — keep in sync.
+  it("prefers repo over gh.repo over url origin", () => {
+    expect(
+      projectLabelFromItemMeta({ repo: "acme/web", "gh.repo": "acme/api", url: "https://x.dev/p" }),
+    ).toBe("acme/web");
+    expect(projectLabelFromItemMeta({ "gh.repo": "acme/api" })).toBe("acme/api");
+    expect(projectLabelFromItemMeta({ url: "http://localhost:3000/admin" })).toBe("localhost:3000");
   });
-  it("writes a search string that reads back", () => {
-    expect(readScreenshotsPath(screenshotsSearch("/settings"))).toBe("/settings");
-    expect(screenshotsSearch("")).toBe("");
+  it("returns Other for missing/unparseable", () => {
+    expect(projectLabelFromItemMeta(undefined)).toBe("Other");
+    expect(projectLabelFromItemMeta({})).toBe("Other");
+    expect(projectLabelFromItemMeta({ url: "not a url" })).toBe("Other");
+  });
+});
+
+describe("screenshots view URL state", () => {
+  it("round-trips project and path", () => {
+    expect(readScreenshotsView("?project=acme%2Fweb&path=%2Fadmin")).toEqual({
+      project: "acme/web",
+      path: "/admin",
+    });
+    expect(screenshotsSearch("acme/web", "/admin")).toBe("?project=acme%2Fweb&path=%2Fadmin");
+    expect(screenshotsSearch("acme/web", "")).toBe("?project=acme%2Fweb");
+    expect(screenshotsSearch("", "")).toBe("");
+  });
+  it("keeps legacy bare ?path= links working", () => {
+    expect(readScreenshotsView("?path=%2Fadmin")).toEqual({ project: "", path: "/admin" });
+    expect(screenshotsSearch("", "/admin")).toBe("?path=%2Fadmin");
   });
 });

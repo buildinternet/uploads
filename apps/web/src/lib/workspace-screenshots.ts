@@ -34,15 +34,37 @@ export function lastUpdatedLabel(iso: string, now: Date): string {
   return `${MONTHS[then.getUTCMonth()]} ${then.getUTCDate()}`;
 }
 
-/** `?path=` drill-in value, "" when absent. */
-export function readScreenshotsPath(search: string): string {
-  return new URLSearchParams(search.startsWith("?") ? search.slice(1) : search).get("path") ?? "";
+/**
+ * Client mirror of the API's projectLabelFromMeta (apps/api/src/file-metadata.ts)
+ * — reimplemented per this page's convention; test cases pinned to the same
+ * fixtures on both sides. Used to bucket search results and GitHub items
+ * into their project sections.
+ */
+export function projectLabelFromItemMeta(meta: Record<string, string> | undefined): string {
+  if (meta?.repo) return meta.repo;
+  if (meta?.["gh.repo"]) return meta["gh.repo"];
+  if (meta?.url) {
+    try {
+      const host = new URL(meta.url).host;
+      if (host) return host;
+    } catch {
+      // unparseable url is just "no url"
+    }
+  }
+  return "Other";
 }
 
-/** Search string for a drill-in URL ("" clears back to the overview). */
-export function screenshotsSearch(path: string): string {
-  if (!path) return "";
+/** `?project=` / `?path=` view state, "" when absent. */
+export function readScreenshotsView(search: string): { project: string; path: string } {
+  const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  return { project: params.get("project") ?? "", path: params.get("path") ?? "" };
+}
+
+/** Search string for a view ("" for both clears back to the overview). */
+export function screenshotsSearch(project: string, path: string): string {
   const params = new URLSearchParams();
-  params.set("path", path);
-  return `?${params.toString()}`;
+  if (project) params.set("project", project);
+  if (path) params.set("path", path);
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
 }
