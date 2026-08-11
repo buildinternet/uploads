@@ -520,11 +520,19 @@ export function createUploadsMcpTools(opts: {
         });
         // Derived `repo` metadata (spec: 2026-08-11-screenshots-project-grouping-design.md).
         // Same derivation the CLI does; MCP always derives (no --no-auto), so
-        // this is only suppressed by noGit.
+        // this is only suppressed by noGit. metadataProp's contract: omitting
+        // `metadata` means "leave what's already stored for this key
+        // untouched" — an object (even {}) triggers a full replace. So only
+        // fold the derived repo into a defined object when the caller already
+        // supplied metadata, or branch staging is building one below anyway
+        // (mergeStagingMeta always returns a defined object); never
+        // synthesize metadata on a bare re-upload just to add repo, or a
+        // no-metadata put would silently wipe everything already stored.
         const repoSlug = !noGit ? deriveRepoSlugFromGit(run) : undefined;
-        const metadataWithRepo = repoSlug
-          ? mergeDerivedMeta(metadata ?? {}, { repo: repoSlug })
-          : metadata;
+        const metadataWithRepo =
+          repoSlug !== undefined && (metadata !== undefined || stagingTarget !== undefined)
+            ? mergeDerivedMeta(metadata ?? {}, { repo: repoSlug })
+            : metadata;
         const putMetadata = stagingTarget
           ? mergeStagingMeta(metadataWithRepo, stagingTarget)
           : metadataWithRepo;

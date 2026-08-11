@@ -235,6 +235,16 @@ const noRun: CommandRunner = () => {
   throw new Error("runner should not be called");
 };
 
+/** Answers only `git config --get remote.origin.url`; anything else throws,
+ * so staging/gh auto-resolution stay out of the picture and only the
+ * derived-`repo` wiring is under test. */
+function repoOnlyRunner(originUrl: string): CommandRunner {
+  return (cmd, args) => {
+    if (cmd === "git" && args[0] === "config") return `${originUrl}\n`;
+    throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+  };
+}
+
 /**
  * Fake gh/git runner for the bare-put branch-staging trigger (issue #403),
  * mirroring `stagingRunner` in commands-put.test.ts for the MCP `put` tool.
@@ -694,6 +704,58 @@ describe("tools/call put", () => {
     });
     expect(res.result.isError).toBe(true);
     expect(res.result.content[0].text).toContain("invalid metadata key");
+  });
+
+  describe("derived repo metadata (spec: 2026-08-11-screenshots-project-grouping)", () => {
+    it("folds derived repo into explicitly-supplied metadata", async () => {
+      const { server, puts } = serverWith({
+        runner: repoOnlyRunner("git@github.com:Acme/Web.git"),
+      });
+      const res = await rpc(server, "tools/call", {
+        name: "put",
+        arguments: {
+          contentBase64: PNG_B64,
+          filename: "shot.png",
+          key: "tagged/shot.png",
+          metadata: { app: "myapp" },
+        },
+      });
+      expect(res.result.isError).toBe(false);
+      expect(puts[0].metadata).toEqual({ app: "myapp", repo: "acme/web" });
+    });
+
+    // Critical regression guard: metadataProp's contract is "omit means leave
+    // stored metadata untouched; a defined object (even {}) fully replaces
+    // it". A derivable repo must never turn an omitted `metadata` argument
+    // into a defined object — that would silently wipe everything already
+    // stored on a bare re-upload of an existing key.
+    it("does NOT synthesize a metadata object just to add repo when metadata is omitted", async () => {
+      const { server, puts } = serverWith({
+        runner: repoOnlyRunner("git@github.com:Acme/Web.git"),
+      });
+      const res = await rpc(server, "tools/call", {
+        name: "put",
+        arguments: { contentBase64: PNG_B64, filename: "shot.png", key: "plain/shot.png" },
+      });
+      expect(res.result.isError).toBe(false);
+      expect(puts[0].metadata).toBeUndefined();
+    });
+
+    it("suppresses derived repo with noGit even when metadata is supplied", async () => {
+      const { server, puts } = serverWith();
+      const res = await rpc(server, "tools/call", {
+        name: "put",
+        arguments: {
+          contentBase64: PNG_B64,
+          filename: "shot.png",
+          key: "tagged/shot.png",
+          metadata: { app: "myapp" },
+          noGit: true,
+        },
+      });
+      expect(res.result.isError).toBe(false);
+      expect(puts[0].metadata).toEqual({ app: "myapp" });
+    });
   });
 });
 
