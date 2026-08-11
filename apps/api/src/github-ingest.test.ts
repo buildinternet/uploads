@@ -346,6 +346,135 @@ describe("reconcileIngestSource", () => {
       reconcileIngestSource(env, ws, WS, ref, `see ${ASSET_URL}`, null, { fetchImpl }),
     ).rejects.toThrow();
   });
+
+  /**
+   * Wraps `env.DB` so the FIRST `.run()` on a statement whose normalized SQL
+   * contains `sqlSubstring` throws, then behaves normally forever after —
+   * simulating a transient D1 failure on exactly one write (e.g. the ledger
+   * UPDATE) without disturbing any other statement. Used by the retry-safety
+   * regression tests below: metadata-first ordering means a ledger-write
+   * failure must leave the ledger guard seeing pre-write state, so a second
+   * reconcile call redoes (idempotently) both writes and reaches a fully
+   * consistent end state.
+   */
+  function failOnceOn(db: Env["DB"], sqlSubstring: string): Env["DB"] {
+    let armed = true;
+    const originalPrepare = db.prepare.bind(db);
+    return {
+      ...db,
+      prepare: (sql: string) => {
+        const stmt = originalPrepare(sql);
+        if (!sql.replace(/\s+/g, " ").includes(sqlSubstring)) return stmt;
+        return {
+          ...stmt,
+          bind: (...args: unknown[]) => {
+            const bound = stmt.bind(...args);
+            return {
+              ...bound,
+              run: async () => {
+                if (armed) {
+                  armed = false;
+                  throw new Error("transient D1 failure");
+                }
+                return bound.run();
+              },
+            };
+          },
+        };
+      },
+    } as unknown as Env["DB"];
+  }
+
+  it("retry-safe reattach: ledger write fails first, retry reaches consistent state", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    await recordIngestedAsset(env.DB, {
+      repo: REPO,
+      assetId: ASSET_ID,
+      workspace: WS,
+      objectKey: KEY,
+      kind: "pull",
+      num: 7,
+      source: "body",
+      createdAt: new Date().toISOString(),
+    });
+    await setLedgerDetached(env.DB, REPO, ASSET_ID, new Date().toISOString());
+    await replaceFileMetadata(env.DB, WS, KEY, { "gh.detached": "true" });
+
+    const flakyDb = failOnceOn(env.DB, "UPDATE github_ingested_assets SET detached_at");
+    const flakyEnv = { ...env, DB: flakyDb } as unknown as Env;
+
+    await expect(
+      reconcileIngestSource(flakyEnv, ws, WS, ref, `see ${ASSET_URL}`, "octocat", {}),
+    ).rejects.toThrow("transient D1 failure");
+
+    // Metadata-first: the metadata write landed even though the call
+    // rejected, but the ledger row is still marked detached — the guard
+    // will see stale state and redo both writes on retry.
+    expect((await getFileMetadata(env.DB, WS, KEY))["gh.detached"]).toBe("false");
+    expect((await ledgerRow(env.DB, REPO, ASSET_ID))?.detachedAt).not.toBeNull();
+
+    const summary = await reconcileIngestSource(
+      flakyEnv,
+      ws,
+      WS,
+      ref,
+      `see ${ASSET_URL}`,
+      "octocat",
+      {},
+    );
+
+    expect(summary).toEqual({ ingested: [], reattached: [KEY], detached: [], skipped: [] });
+    const row = await ledgerRow(env.DB, REPO, ASSET_ID);
+    expect(row?.detachedAt).toBeNull();
+    const meta = await getFileMetadata(env.DB, WS, KEY);
+    expect(meta["gh.detached"]).toBe("false");
+  });
+
+  it("retry-safe detach: ledger write fails first, retry reaches consistent state", async () => {
+    const { env } = baseEnv();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+    await recordIngestedAsset(env.DB, {
+      repo: REPO,
+      assetId: ASSET_ID,
+      workspace: WS,
+      objectKey: KEY,
+      kind: "pull",
+      num: 7,
+      source: "body",
+      createdAt: new Date().toISOString(),
+    });
+    await replaceFileMetadata(env.DB, WS, KEY, { "gh.detached": "false" });
+
+    const flakyDb = failOnceOn(env.DB, "UPDATE github_ingested_assets SET detached_at");
+    const flakyEnv = { ...env, DB: flakyDb } as unknown as Env;
+
+    await expect(
+      reconcileIngestSource(flakyEnv, ws, WS, ref, "no attachment here", null, {}),
+    ).rejects.toThrow("transient D1 failure");
+
+    // Metadata-first: the metadata write landed even though the call
+    // rejected, but the ledger row is still attached — the guard will see
+    // stale state and redo both writes on retry.
+    expect((await getFileMetadata(env.DB, WS, KEY))["gh.detached"]).toBe("true");
+    expect((await ledgerRow(env.DB, REPO, ASSET_ID))?.detachedAt).toBeNull();
+
+    const summary = await reconcileIngestSource(
+      flakyEnv,
+      ws,
+      WS,
+      ref,
+      "no attachment here",
+      null,
+      {},
+    );
+
+    expect(summary).toEqual({ ingested: [], reattached: [], detached: [KEY], skipped: [] });
+    const row = await ledgerRow(env.DB, REPO, ASSET_ID);
+    expect(row?.detachedAt).not.toBeNull();
+    const meta = await getFileMetadata(env.DB, WS, KEY);
+    expect(meta["gh.detached"]).toBe("true");
+  });
 });
 
 describe("ingestForWebhook", () => {

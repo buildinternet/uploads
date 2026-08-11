@@ -232,9 +232,16 @@ export async function reconcileIngestSource(
         continue;
       }
       // Previously detached, now referenced again — reattach without a
-      // re-fetch; the object is still in storage.
-      await setLedgerDetached(db, ref.repo, attachment.id, null);
+      // re-fetch; the object is still in storage. Metadata write goes
+      // first: if it lands but the ledger write then fails and the
+      // message retries, the ledger row's `detachedAt !== null` guard
+      // above still holds and both writes redo (the metadata UPDATE is
+      // idempotent). Ledger-first would let a later metadata failure
+      // slip through unseen — the guard would see the already-clean
+      // ledger row and skip the row entirely, leaving `gh.detached`
+      // permanently stale.
       await updateFileMetadataValue(db, row.workspace, row.objectKey, "gh.detached", "false");
+      await setLedgerDetached(db, ref.repo, attachment.id, null);
       summary.reattached.push(row.objectKey);
       continue;
     }
@@ -252,8 +259,12 @@ export async function reconcileIngestSource(
   for (const row of existing) {
     if (row.detachedAt !== null) continue;
     if (foundIds.has(row.assetId)) continue;
-    await setLedgerDetached(db, ref.repo, row.assetId, now().toISOString());
+    // Metadata-first for the same retry-safety reason as the reattach
+    // branch above: the `detachedAt !== null` guard on entry to this loop
+    // only sees stale (pre-write) ledger state on retry if the ledger
+    // write is the one that happens last.
     await updateFileMetadataValue(db, row.workspace, row.objectKey, "gh.detached", "true");
+    await setLedgerDetached(db, ref.repo, row.assetId, now().toISOString());
     summary.detached.push(row.objectKey);
   }
 
