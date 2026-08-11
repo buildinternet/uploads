@@ -155,13 +155,13 @@ function parseWorkspaceUsage(body: unknown): WorkspaceUsage | null {
   return body as WorkspaceUsage;
 }
 
-/** GET /me/workspaces/:name/usage. Returns null on any non-2xx or malformed body. */
+/** GET /v1/workspaces/:name/usage. Returns null on any non-2xx or malformed body. */
 export async function getMyWorkspaceUsage(
   apiOrigin: string,
   name: string,
 ): Promise<WorkspaceUsage | null> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/usage`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/usage`,
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable" || !result.response.ok) return null;
@@ -177,7 +177,7 @@ export type WorkspaceSummaryResult =
   | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" | "not_found" };
 
 /**
- * GET /me/workspaces/:name/summary — membership + public URL + usage for the
+ * GET /v1/workspaces/:name/summary — membership + public URL + usage for the
  * workspace shell/rail (one authz pass instead of full list + usage).
  */
 export async function getWorkspaceSummary(
@@ -185,7 +185,7 @@ export async function getWorkspaceSummary(
   name: string,
 ): Promise<WorkspaceSummaryResult> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/summary`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/summary`,
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable") return result;
@@ -296,9 +296,22 @@ function isWorkspaceFile(value: unknown): value is WorkspaceFile {
   return typeof f.key === "string" && (f.url === null || typeof f.url === "string");
 }
 
-/** GET /me/workspaces/:name/files. See {@link fetchWorkspaceList}. */
-export function getMyWorkspaceFiles(apiOrigin: string, name: string): Promise<WorkspaceFile[]> {
-  return fetchWorkspaceList(apiOrigin, name, "files", "files", isWorkspaceFile);
+/**
+ * GET /v1/workspaces/:name/files. Same contract as {@link fetchWorkspaceList}
+ * but on the canonical dual-auth surface rather than `/me`.
+ */
+export async function getMyWorkspaceFiles(
+  apiOrigin: string,
+  name: string,
+): Promise<WorkspaceFile[]> {
+  const result = await fetchWithTimeout(
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files`,
+    { credentials: "include", cache: "no-store" },
+  );
+  if (result.kind === "unavailable" || !result.response.ok) return [];
+  const body = (await result.response.json().catch(() => null)) as Record<string, unknown> | null;
+  const list = body?.files;
+  return Array.isArray(list) ? list.filter(isWorkspaceFile) : [];
 }
 
 export type FileVisibility = "public" | "private";
@@ -308,7 +321,7 @@ export type SetFileVisibilityResult =
   | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
 
 /**
- * PATCH /me/workspaces/:name/files/visibility — toggles a file's private flag
+ * PATCH /v1/workspaces/:name/files/visibility — toggles a file's private flag
  * (issue #139). Key travels as a query param, matching `file-url`'s
  * convention, since embedding an arbitrary (possibly `/`-containing) key in
  * the path segment fights routing.
@@ -320,7 +333,7 @@ export async function setFileVisibility(
   visibility: FileVisibility,
 ): Promise<SetFileVisibilityResult> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files/visibility?key=${encodeURIComponent(key)}`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/visibility?key=${encodeURIComponent(key)}`,
     {
       method: "PATCH",
       credentials: "include",
@@ -346,17 +359,20 @@ export type DeleteWorkspaceFileResult =
   | { kind: "unavailable"; reason: RequestFailure | "server" };
 
 /**
- * DELETE /me/workspaces/:name/files — permanently deletes a file (spec
- * 2026-07-30). Key travels as a query param, matching `file-url` and the
- * visibility route.
+ * DELETE /v1/workspaces/:name/files/<keyPath> — permanently deletes a file
+ * (spec 2026-07-30). Unlike the legacy `/me` alias, the canonical route keys
+ * the file off path segments rather than a `?key=` query param: each `/`
+ * separated component of `key` is percent-encoded individually and joined
+ * back with `/`, matching the API's own alias rewrite (apps/api/src/routes/me.ts).
  */
 export async function deleteWorkspaceFile(
   apiOrigin: string,
   name: string,
   key: string,
 ): Promise<DeleteWorkspaceFileResult> {
+  const keyPath = key.split("/").map(encodeURIComponent).join("/");
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files?key=${encodeURIComponent(key)}`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/${keyPath}`,
     { method: "DELETE", credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable") return result;
@@ -412,13 +428,13 @@ function mapWorkspaceMembers(list: unknown[]): WorkspaceMember[] {
   }));
 }
 
-/** GET /me/workspaces/:name/members — teammates in the workspace, member-gated. */
+/** GET /v1/workspaces/:name/members — teammates in the workspace, member-gated. */
 export async function getWorkspaceMembers(
   apiOrigin: string,
   name: string,
 ): Promise<WorkspaceMembersResult> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/members`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/members`,
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable" || !result.response.ok) return { kind: "unavailable" };
@@ -442,7 +458,7 @@ export type WorkspacePeopleResult =
   | { kind: "unavailable"; reason?: "not_found" | "server" | RequestFailure };
 
 /**
- * GET /me/workspaces/:name/people — members + invites (+ role) for the people
+ * GET /v1/workspaces/:name/people — members + invites (+ role) for the people
  * tab in one request.
  */
 export async function getWorkspacePeople(
@@ -450,7 +466,7 @@ export async function getWorkspacePeople(
   name: string,
 ): Promise<WorkspacePeopleResult> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/people`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/people`,
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable") return result;
@@ -507,7 +523,7 @@ export interface WorkspaceBilling {
   planApplied: boolean;
   limits: WorkspaceBillingLimits;
   usage: Record<string, unknown> | null;
-  /** Issue #445: additive fields — see GET /me/workspaces/:name/billing. */
+  /** Issue #445: additive fields — see GET /v1/workspaces/:name/billing. */
   planSource: WorkspacePlanSource;
   subscription: WorkspaceSubscription | null;
 }
@@ -517,7 +533,7 @@ export type WorkspaceBillingResult =
   | { kind: "unavailable"; reason?: "not_found" | "server" | RequestFailure };
 
 /**
- * GET /me/workspaces/:name/billing — plan metadata, resolved effective
+ * GET /v1/workspaces/:name/billing — plan metadata, resolved effective
  * limits, usage, and (always-null-for-now) subscription for the billing tab.
  */
 export async function getWorkspaceBilling(
@@ -525,7 +541,7 @@ export async function getWorkspaceBilling(
   name: string,
 ): Promise<WorkspaceBillingResult> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/billing`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/billing`,
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable") return result;
@@ -576,7 +592,7 @@ export async function getWorkspaceBilling(
 }
 
 /**
- * POST /me/workspaces/:name/invites — workspace admin|owner invites an email.
+ * POST /v1/workspaces/:name/invites — workspace admin|owner invites an email.
  * Always prefer showing `acceptUrl` (works without outbound email).
  */
 export async function inviteToWorkspace(
@@ -585,7 +601,7 @@ export async function inviteToWorkspace(
   email: string,
 ): Promise<InviteResult> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/invites`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/invites`,
     {
       method: "POST",
       credentials: "include",
@@ -650,13 +666,13 @@ function manageResultFor(status: number): ManageResult {
   return { kind: "unavailable", reason: "server" };
 }
 
-/** GET /me/workspaces/:name/invites — pending invites, admin/owner only. */
+/** GET /v1/workspaces/:name/invites — pending invites, admin/owner only. */
 export async function getWorkspaceInvites(
   apiOrigin: string,
   name: string,
 ): Promise<WorkspaceInvitesResult> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/invites`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/invites`,
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable" || !result.response.ok) return { kind: "unavailable" };
@@ -685,7 +701,7 @@ async function manageMutation(
   return manageResultFor(result.response.status);
 }
 
-/** DELETE /me/workspaces/:name/invites/:id */
+/** DELETE /v1/workspaces/:name/invites/:id */
 export async function revokeWorkspaceInvite(
   apiOrigin: string,
   name: string,
@@ -693,12 +709,12 @@ export async function revokeWorkspaceInvite(
 ): Promise<ManageResult> {
   return manageMutation(
     apiOrigin,
-    `/me/workspaces/${encodeURIComponent(name)}/invites/${encodeURIComponent(inviteId)}`,
+    `/v1/workspaces/${encodeURIComponent(name)}/invites/${encodeURIComponent(inviteId)}`,
     { method: "DELETE" },
   );
 }
 
-/** DELETE /me/workspaces/:name/members/:memberId */
+/** DELETE /v1/workspaces/:name/members/:memberId */
 export async function removeWorkspaceMember(
   apiOrigin: string,
   name: string,
@@ -706,12 +722,12 @@ export async function removeWorkspaceMember(
 ): Promise<ManageResult> {
   return manageMutation(
     apiOrigin,
-    `/me/workspaces/${encodeURIComponent(name)}/members/${encodeURIComponent(memberId)}`,
+    `/v1/workspaces/${encodeURIComponent(name)}/members/${encodeURIComponent(memberId)}`,
     { method: "DELETE" },
   );
 }
 
-/** PATCH /me/workspaces/:name/members/:memberId */
+/** PATCH /v1/workspaces/:name/members/:memberId */
 export async function updateWorkspaceMemberRole(
   apiOrigin: string,
   name: string,
@@ -720,7 +736,7 @@ export async function updateWorkspaceMemberRole(
 ): Promise<ManageResult> {
   return manageMutation(
     apiOrigin,
-    `/me/workspaces/${encodeURIComponent(name)}/members/${encodeURIComponent(memberId)}`,
+    `/v1/workspaces/${encodeURIComponent(name)}/members/${encodeURIComponent(memberId)}`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -791,7 +807,7 @@ function isSearchFileItem(value: unknown): value is SearchFileItem {
   );
 }
 
-/** GET /me/workspaces/:name/files/search — session-authed metadata + name search. */
+/** GET /v1/workspaces/:name/files/search — session-authed metadata + name search. */
 export async function searchWorkspaceFiles(
   apiOrigin: string,
   name: string,
@@ -800,7 +816,7 @@ export async function searchWorkspaceFiles(
 ): Promise<SearchFilesResult> {
   const params = new URLSearchParams(buildSearchQuery(filters));
   if (opts.name) params.set("name", opts.name);
-  const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files/search?${params.toString()}`;
+  const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/search?${params.toString()}`;
   const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -883,12 +899,12 @@ function isProjectSummary(value: unknown): value is ProjectSummary {
   );
 }
 
-/** GET /me/workspaces/:name/files/by-path — recent uploads grouped by `path` metadata. */
+/** GET /v1/workspaces/:name/files/by-path — recent uploads grouped by `path` metadata. */
 export async function getWorkspaceFilesByPath(
   apiOrigin: string,
   name: string,
 ): Promise<FilesByPathResult> {
-  const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files/by-path`;
+  const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/by-path`;
   const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
   if (result.kind === "unavailable") return result;
   const { response } = result;
@@ -948,7 +964,7 @@ function isFacetValue(value: unknown): value is FacetValue {
 }
 
 /**
- * GET /me/workspaces/:name/files/facets — which metadata keys this workspace
+ * GET /v1/workspaces/:name/files/facets — which metadata keys this workspace
  * contains. A single `unavailable` kind (no `reason`) is enough here: the
  * filter bar degrades to its syntax hint either way and never surfaces the
  * distinction, unlike a search failure which the user must be told about.
@@ -957,7 +973,7 @@ export async function getWorkspaceFacets(
   apiOrigin: string,
   name: string,
 ): Promise<FacetKeysResult> {
-  const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files/facets`;
+  const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/facets`;
   const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
   if (result.kind === "unavailable" || !result.response.ok) return { kind: "unavailable" };
   const body = (await result.response.json().catch(() => null)) as {
@@ -975,13 +991,13 @@ export async function getWorkspaceFacets(
   return { kind: "ok", keys: body.keys, truncated: body.truncated };
 }
 
-/** GET /me/workspaces/:name/files/facets?key= — one key's values. */
+/** GET /v1/workspaces/:name/files/facets?key= — one key's values. */
 export async function getWorkspaceFacetValues(
   apiOrigin: string,
   name: string,
   key: string,
 ): Promise<FacetValuesResult> {
-  const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/files/facets?key=${encodeURIComponent(key)}`;
+  const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/files/facets?key=${encodeURIComponent(key)}`;
   const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
   if (result.kind === "unavailable" || !result.response.ok) return { kind: "unavailable" };
   const body = (await result.response.json().catch(() => null)) as {
@@ -1130,7 +1146,7 @@ function toWorkspaceFolderFile(raw: Record<string, unknown>): WorkspaceFolderFil
 }
 
 /**
- * GET /me/workspaces/:name/files?prefix=&cursor=&limit= — folder-aware,
+ * GET /v1/workspaces/:name/files?prefix=&cursor=&limit= — folder-aware,
  * gh.*-metadata-hydrated workspace file listing (commit 0f9ac65). Backs the
  * settings-page files tab's folder browser, so like {@link fetchWorkspaceList}
  * this is a "less central" detail helper: any transport failure, non-2xx, or
@@ -1153,7 +1169,7 @@ export async function listWorkspaceFolder(
   if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
   if (opts.limit !== undefined) params.set("limit", String(opts.limit));
   const query = params.toString();
-  const url = `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(workspace)}/files${query ? `?${query}` : ""}`;
+  const url = `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(workspace)}/files${query ? `?${query}` : ""}`;
 
   const result = await fetchWithTimeout(url, { credentials: "include", cache: "no-store" });
   if (result.kind === "unavailable" || !result.response.ok) return emptyFolderListing();
@@ -1217,13 +1233,13 @@ function toCommentSettings(body: unknown): CommentSettings | null {
   };
 }
 
-/** GET /me/workspaces/:name/comment-settings — admin/owner only. */
+/** GET /v1/workspaces/:name/comment-settings — admin/owner only. */
 export async function getWorkspaceCommentSettings(
   apiOrigin: string,
   name: string,
 ): Promise<CommentSettingsResult> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/comment-settings`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/comment-settings`,
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable") return result;
@@ -1242,7 +1258,7 @@ export type CommentSettingsPatchResult =
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
 
 /**
- * PATCH /me/workspaces/:name/comment-settings. `patch` is partial — an
+ * PATCH /v1/workspaces/:name/comment-settings. `patch` is partial — an
  * omitted key leaves the field unchanged server-side, an explicit `null`
  * clears it. On a 400 the server's `error.message` is surfaced verbatim
  * (already a complete sentence naming the offending field/bounds) so the
@@ -1254,7 +1270,7 @@ export async function patchWorkspaceCommentSettings(
   patch: Partial<CommentSettings>,
 ): Promise<CommentSettingsPatchResult> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/comment-settings`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/comment-settings`,
     {
       method: "PATCH",
       credentials: "include",
@@ -1411,7 +1427,7 @@ export type WorkspaceStorageStatusResult =
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
 
 /**
- * GET /me/workspaces/:name/storage — admin/owner only, but readable
+ * GET /v1/workspaces/:name/storage — admin/owner only, but readable
  * regardless of `byoBucketEnabled` so the settings panel can decide whether
  * to reveal itself at all (mirrors `loadCommentSettings`'s
  * hidden-until-`ok` convention in settings.astro).
@@ -1421,7 +1437,7 @@ export async function getWorkspaceStorageStatus(
   name: string,
 ): Promise<WorkspaceStorageStatusResult> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/storage`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/storage`,
     { credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable") return result;
@@ -1494,7 +1510,7 @@ export type StorageVerifyApiResult =
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
 
 /**
- * POST /me/workspaces/:name/storage/verify — runs the server-side probe
+ * POST /v1/workspaces/:name/storage/verify — runs the server-side probe
  * pipeline against `candidate` without persisting anything (step 3 of the
  * connect wizard). 403 means `byoBucketEnabled` is off for this workspace.
  */
@@ -1504,7 +1520,7 @@ export async function verifyWorkspaceStorage(
   candidate: StorageCandidate,
 ): Promise<StorageVerifyApiResult> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/storage/verify`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/storage/verify`,
     {
       method: "POST",
       credentials: "include",
@@ -1532,7 +1548,7 @@ export type StorageSaveResult =
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
 
 /**
- * PUT /me/workspaces/:name/storage — attach or rotate a BYO config. The
+ * PUT /v1/workspaces/:name/storage — attach or rotate a BYO config. The
  * server re-verifies `candidate` itself (never trusts a client-side
  * "verified" claim), so a 422 here carries a fresh `StorageVerifyResult`
  * the wizard can render exactly like the standalone verify call's.
@@ -1543,7 +1559,7 @@ export async function putWorkspaceStorage(
   candidate: StorageCandidate,
 ): Promise<StorageSaveResult> {
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/storage`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/storage`,
     {
       method: "PUT",
       credentials: "include",
@@ -1583,7 +1599,7 @@ export type StorageDetachResult =
   | { kind: "unavailable"; reason: RequestFailure | "forbidden" | "not_found" | "server" };
 
 /**
- * DELETE /me/workspaces/:name/storage — detach BYO storage and restore
+ * DELETE /v1/workspaces/:name/storage — detach BYO storage and restore
  * shared-bucket defaults. `force: true` bypasses the empty-bucket guard
  * (caller must have already confirmed with the user — never touches the
  * customer's bucket or its objects either way).
@@ -1595,7 +1611,7 @@ export async function deleteWorkspaceStorage(
 ): Promise<StorageDetachResult> {
   const qs = opts.force ? "?force=true" : "";
   const result = await fetchWithTimeout(
-    `${trimOrigin(apiOrigin)}/me/workspaces/${encodeURIComponent(name)}/storage${qs}`,
+    `${trimOrigin(apiOrigin)}/v1/workspaces/${encodeURIComponent(name)}/storage${qs}`,
     { method: "DELETE", credentials: "include", cache: "no-store" },
   );
   if (result.kind === "unavailable") return result;
