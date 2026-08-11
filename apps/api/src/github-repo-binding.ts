@@ -19,3 +19,17 @@ export {
   type RepoBinding,
   type RepoLink,
 } from "./github-repo-links";
+
+/**
+ * Re-exported for `apps/mcp` (issue #631): the hosted MCP's gh-fallback
+ * comment gather needs to resolve the same plain/private key mode this
+ * worker's `POST /v1/:workspace/github/private-prefix` route serves, without
+ * an extra HTTP round-trip when it's already running in-process alongside
+ * `@uploads/api`. Same "export the function, not the module" intent as the
+ * re-exports above.
+ */
+export {
+  resolveGhKeyContext,
+  type GhKeyMode,
+  type ResolveGhKeyRequest,
+} from "./github-private-prefix-service";

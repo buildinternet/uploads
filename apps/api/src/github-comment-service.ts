@@ -41,7 +41,7 @@ import type { WorkspaceRecord } from "./workspace";
  *   can never claim a new repo (though they can still act on repos already
  *   bound to `default`).
  */
-async function checkRepoAuthorization(
+export async function checkRepoAuthorization(
   env: Env,
   repo: string,
   workspaceName: string,
