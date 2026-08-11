@@ -1,8 +1,8 @@
 diff --git a/dist/r2/index.d.ts b/dist/r2/index.d.ts
-index 4359929d2d8a9f7ef0586a482b5e06dcb4013bbc..b1c9bf5315f0ef3dc0010839c72f9c89374d5035 100644
+index 384b7e676dea11a61312e2452a74832cd9c81aa3..9269aba06c4db80d34804890034df280382f51a7 100644
 --- a/dist/r2/index.d.ts
 +++ b/dist/r2/index.d.ts
-@@ -31,6 +31,12 @@ export interface R2HttpOptions {
+@@ -32,6 +32,12 @@ export interface R2HttpOptions {
       * Defaults to 3600.
       */
      defaultUrlExpiresIn?: number;
@@ -12,10 +12,10 @@ index 4359929d2d8a9f7ef0586a482b5e06dcb4013bbc..b1c9bf5315f0ef3dc0010839c72f9c89
 +     * buckets (e.g. `https://<accountId>.eu.r2.cloudflarestorage.com`).
 +     */
 +    endpoint?: string;
- }
- export interface R2BindingOptions {
-     /** Workers `R2Bucket` binding. Reads and writes go through the binding. */
-@@ -62,6 +68,12 @@ export interface R2BindingOptions {
+     /**
+      * Which HTTP engine backs the adapter.
+      *
+@@ -90,6 +96,12 @@ export interface R2BindingOptions {
       * signing (hybrid mode without `publicBaseUrl`). Defaults to 3600.
       */
      defaultUrlExpiresIn?: number;
@@ -27,21 +27,21 @@ index 4359929d2d8a9f7ef0586a482b5e06dcb4013bbc..b1c9bf5315f0ef3dc0010839c72f9c89
 +    endpoint?: string;
  }
  export type R2AdapterOptions = R2BindingOptions | R2HttpOptions;
- export type R2Adapter = Adapter<S3Client | R2Bucket>;
+ export type R2Adapter = Adapter<S3Client | R2Bucket | AwsClient>;
 diff --git a/dist/r2/index.js b/dist/r2/index.js
-index 291ca05dee674c7845e5e18868d481a3e4168b10..654e4b2a617aba3d4eff1074d9dbcf8ed5cf4e3a 100644
+index 7d4a03a71d8d0e6bd99b65d842520d14822c9f61..bfcb3612e17a6d63c00196667ff833e05b5a4fb6 100644
 --- a/dist/r2/index.js
 +++ b/dist/r2/index.js
-@@ -137,7 +137,7 @@ var r2FromBinding = (opts) => {
-     ...opts.defaultUrlExpiresIn !== undefined && {
-       defaultUrlExpiresIn: opts.defaultUrlExpiresIn
-     },
+@@ -504,7 +504,7 @@ var r2FromBinding = (opts) => {
+   const hybrid = opts.accountId && opts.accessKeyId && opts.secretAccessKey && httpBucket ? s3FetchAdapter({
+     accessKeyId: opts.accessKeyId,
+     bucket: httpBucket,
 -    endpoint: `https://${opts.accountId}.r2.cloudflarestorage.com`,
 +    endpoint: opts.endpoint ?? `https://${opts.accountId}.r2.cloudflarestorage.com`,
      forcePathStyle: true,
-     region: "auto"
-   }) : null;
-@@ -231,7 +231,11 @@ var r2FromBinding = (opts) => {
+     name: "r2-hybrid-signer",
+     providerLabel: "R2 error",
+@@ -601,7 +601,11 @@ var r2FromBinding = (opts) => {
            ...options?.prefix && { prefix: options.prefix },
            ...options?.limit !== undefined && { limit: options.limit },
            ...options?.cursor && { cursor: options.cursor },
@@ -54,7 +54,16 @@ index 291ca05dee674c7845e5e18868d481a3e4168b10..654e4b2a617aba3d4eff1074d9dbcf8e
          });
        } catch (error) {
          throw mapR2Error(error);
-@@ -336,7 +340,7 @@ var r2FromHttp = (opts) => {
+@@ -705,7 +709,7 @@ var r2FromHttp = (opts) => {
+       ...opts.defaultUrlExpiresIn !== undefined && {
+         defaultUrlExpiresIn: opts.defaultUrlExpiresIn
+       },
+-      endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
++      endpoint: opts.endpoint ?? `https://${accountId}.r2.cloudflarestorage.com`,
+       ...opts.fetch && { fetch: opts.fetch },
+       forcePathStyle: true,
+       name: "r2-http-fetch",
+@@ -729,7 +733,7 @@ var r2FromHttp = (opts) => {
      ...opts.defaultUrlExpiresIn !== undefined && {
        defaultUrlExpiresIn: opts.defaultUrlExpiresIn
      },
