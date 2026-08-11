@@ -111,7 +111,8 @@ function ghLabel(item: SearchFileItem): string {
   const kind = item.metadata["gh.kind"];
   const number = item.metadata["gh.number"];
   const kindLabel = kind === "pull" ? "PR" : kind === "issues" ? "Issue" : kind;
-  const base = kindLabel && number ? `${kindLabel} #${number}` : kindLabel || number || "GitHub";
+  const numberLabel = number ? `#${number}` : "";
+  const base = [kindLabel, numberLabel].filter(Boolean).join(" ") || "GitHub";
   const author = item.metadata["gh.author"];
   return author ? `${base} · ${author}` : base;
 }
@@ -372,31 +373,35 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
     );
   }
 
-  // Overview: empty state when no path-tagged screenshots exist at all.
-  if (overview.groups.length === 0) {
-    return (
-      <div className="ws-empty-state">
-        <p className="ws-empty-state__title">No screenshots with a path yet</p>
-        <p className="ws-empty-state__body">
-          <code>uploads screenshot</code> records the page it captured automatically, and any upload
-          can pass <code>--meta path=/settings</code> to group here. See{" "}
-          <a href="/docs">the docs</a> for details.
-        </p>
-      </div>
-    );
-  }
+  // Overview: by-path groups, or the empty state when no path-tagged
+  // screenshots exist at all — either way, the GitHub section (when
+  // non-empty) still renders below it, since GitHub-ingested files carry no
+  // `path` metadata and would otherwise never surface in a GitHub-only
+  // workspace.
+  const showGh = ghState.status === "ready" && ghState.items.length > 0;
 
   return (
     <div className="wsp">
-      {overview.groups.map((group) => (
-        <PathGroupSection key={group.path} group={group} onDrill={setDrillPath} onOpen={open} />
-      ))}
-      {overview.truncated && (
-        <p className="wft-end">Showing the most active paths — narrow with a specific path.</p>
+      {overview.groups.length === 0 ? (
+        <div className="ws-empty-state">
+          <p className="ws-empty-state__title">No screenshots with a path yet</p>
+          <p className="ws-empty-state__body">
+            <code>uploads screenshot</code> records the page it captured automatically, and any
+            upload can pass <code>--meta path=/settings</code> to group here. See{" "}
+            <a href="/docs">the docs</a> for details.
+          </p>
+        </div>
+      ) : (
+        <>
+          {overview.groups.map((group) => (
+            <PathGroupSection key={group.path} group={group} onDrill={setDrillPath} onOpen={open} />
+          ))}
+          {overview.truncated && (
+            <p className="wft-end">Showing the most active paths — narrow with a specific path.</p>
+          )}
+        </>
       )}
-      {ghState.status === "ready" && ghState.items.length > 0 && (
-        <GitHubSection items={ghState.items} onOpen={open} />
-      )}
+      {showGh && <GitHubSection items={ghState.items} onOpen={open} />}
     </div>
   );
 }
