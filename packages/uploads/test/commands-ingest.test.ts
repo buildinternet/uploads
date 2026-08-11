@@ -115,6 +115,34 @@ describe("runIngest", () => {
     }
   });
 
+  it("writes the raw response as JSON when --format json is given without ctx.json", async () => {
+    const result: IngestGithubResult = {
+      repo: "acme/web",
+      kind: "pull",
+      num: 7,
+      ingested: ["gh/acme/web/pull/7/a.png"],
+      reattached: [],
+      detached: [],
+      skipped: [],
+    };
+    const ingestGithub = vi.fn(async () => result);
+    const client = fakeClient({ ingestGithub });
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      const code = await runIngest(
+        ctxWith(client),
+        ["--pr", "7", "--format", "json"],
+        false,
+        repoRunner(),
+      );
+      expect(code).toBe(0);
+      const printed = writeSpy.mock.calls.map((c) => String(c[0])).join("");
+      expect(JSON.parse(printed)).toEqual(result);
+    } finally {
+      writeSpy.mockRestore();
+    }
+  });
+
   it("renders skipped entries as human-readable lines", async () => {
     const ingestGithub = vi.fn(
       async (): Promise<IngestGithubResult> => ({

@@ -3202,7 +3202,8 @@ export async function runIngest(
   }
 
   const result = await ctx.client.ingestGithub(target);
-  if (ctx.json) {
+  const jsonMode = ctx.json || flagString(parsed.flags, "--format") === "json";
+  if (jsonMode) {
     await writeJson(result);
     return 0;
   }
