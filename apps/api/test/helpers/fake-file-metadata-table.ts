@@ -69,6 +69,23 @@ export class FileMetadataTable {
       this.metadata.delete(this.scopeKey(workspace, objectKey));
       return { success: true, meta: { changes: 1 }, results: [] };
     }
+    if (normalizedSql.startsWith("UPDATE file_metadata SET meta_value = ?")) {
+      // updateFileMetadataValue: targeted single-key flip (e.g. gh.detached),
+      // no-op if the key isn't already present.
+      const [value, , workspace, objectKey, metaKey] = args as [
+        string,
+        string,
+        string,
+        string,
+        string,
+      ];
+      const map = this.metadata.get(this.scopeKey(workspace, objectKey));
+      if (!map || !map.has(metaKey)) {
+        return { success: true, meta: { changes: 0 }, results: [] };
+      }
+      map.set(metaKey, value);
+      return { success: true, meta: { changes: 1 }, results: [] };
+    }
     return undefined;
   }
 

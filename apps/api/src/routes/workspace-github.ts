@@ -42,10 +42,12 @@
  * createdAt}`), same "don't forward a shape that isn't a strict superset"
  * rule phase 2 applied to the galleries list alias.
  */
-import { ForbiddenError } from "@uploads/errors";
-import { Hono, type MiddlewareHandler } from "hono";
+import { ForbiddenError, NotFoundError, ValidationError } from "@uploads/errors";
+import { Hono, type Handler, type MiddlewareHandler } from "hono";
 import { dualWorkspaceAuth, requireSessionAdmin, type DualAuthVars } from "../dual-workspace-auth";
 import { respondError } from "../error-response";
+import { reconcileIngestTarget } from "../github-ingest";
+import { deriveRepoBinding, findRepoLink } from "../github-repo-links";
 import { writeRateLimit } from "../guards";
 import { requireScope } from "../workspace";
 import { githubActivityHandler } from "./github-activity";
@@ -58,6 +60,53 @@ import {
 } from "./github-link";
 import { githubHealthHandler } from "./github-health";
 import { githubPromoteHandler } from "./github-promote";
+
+// Same owner/name grammar as routes/github-comment.ts's `REPO_RE` — repeated
+// here rather than imported since that copy is module-private (deliberately
+// not exported to avoid coupling this handler to that route's file).
+const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+
+/**
+ * POST /:workspace/github/ingest (Task 6, manual/backfill entry point). Dual-
+ * auth, `files:write`-scoped, rate-limited — unlike `comment`/`promote` this
+ * is NOT token-only, since it doesn't post to GitHub on the caller's behalf.
+ *
+ * Deliberately bypasses the `ingestGithubAttachments` per-repo/per-workspace
+ * knob (`reconcileIngestTarget` doesn't consult it) — an explicit manual
+ * ingest is opt-in by construction, same reasoning as a manual backfill
+ * command ignoring an automation on/off switch.
+ *
+ * `reconcileIngestTarget` throws `NotFoundError` (`code:
+ * "github_app_not_installed"`) when the GitHub App isn't configured or isn't
+ * installed on the repo — that's allowed to propagate here and maps to a 404
+ * via `respondError`.
+ */
+const githubIngestHandler: Handler<DualAuthVars> = async (c) => {
+  const ws = c.get("workspace");
+  const workspaceName = c.get("workspaceName");
+  const body = await c.req.json().catch(() => ({}));
+  const repo = typeof body.repo === "string" ? body.repo : "";
+  const pr = typeof body.pr === "number" ? body.pr : undefined;
+  const issue = typeof body.issue === "number" ? body.issue : undefined;
+  if (!REPO_RE.test(repo) || (pr === undefined) === (issue === undefined)) {
+    throw new ValidationError("repo plus exactly one of pr or issue required", {
+      code: "github_ingest_target",
+    });
+  }
+  const link = await findRepoLink(c.env.DB, repo);
+  if (deriveRepoBinding(link, workspaceName) !== "self") {
+    // 404 (not 403) so an "other"-bound repo can't be told apart from an
+    // unlinked one — never leaks whether/where it's linked (issue #398).
+    throw new NotFoundError("repo is not linked to this workspace", { code: "repo_not_linked" });
+  }
+  const target = {
+    repo,
+    kind: pr !== undefined ? ("pull" as const) : ("issues" as const),
+    num: (pr ?? issue) as number,
+  };
+  const summary = await reconcileIngestTarget(c.env, ws, workspaceName, target);
+  return c.json({ repo: repo.toLowerCase(), kind: target.kind, num: target.num, ...summary });
+};
 
 // Same cross-cast pattern as `routes/workspace-galleries.ts`'s `scoped`:
 // these helpers/handlers are typed against `WorkspaceVars`, a strict subset
@@ -144,6 +193,13 @@ export const workspaceGithub = new Hono<DualAuthVars>()
     scoped("files:read"),
     adminForSession,
     githubActivityHandler as unknown as MiddlewareHandler<DualAuthVars>,
+  )
+  .post(
+    "/:workspace/github/ingest",
+    dualWorkspaceAuth(),
+    rateLimited,
+    scoped("files:write"),
+    githubIngestHandler,
   )
   // `.fetch()`-ed directly by nothing today (no old-path alias forwards
   // through this router — see the module docblock's repo-links note), but

@@ -184,6 +184,11 @@ export const ROOT_COMMANDS: readonly CatalogCommand[] = [
     ],
   },
   {
+    name: "ingest",
+    usage: "ingest (--pr <n> | --issue <n>)",
+    summary: "Mirror GitHub-native user-attachments media from a PR/issue into the workspace",
+  },
+  {
     name: "list",
     summary: "List objects (--meta k=v filters by queryable metadata)",
     essential: true,

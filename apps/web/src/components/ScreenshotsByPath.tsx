@@ -106,6 +106,20 @@ function extLabel(key: string): string {
   return match ? match[1].toLowerCase() : "file";
 }
 
+/** "PR #7" / "Issue #3", plus the author when present. */
+function ghLabel(item: SearchFileItem): string {
+  const kind = item.metadata["gh.kind"];
+  const number = item.metadata["gh.number"];
+  // Stored vocabulary is singular ("issue"), matching the CLI and
+  // deriveGithubContext (routes/public-files.ts) — "issues" is kept too for
+  // robustness against any pre-migration row still carrying the old value.
+  const kindLabel = kind === "pull" ? "PR" : kind === "issue" || kind === "issues" ? "Issue" : kind;
+  const numberLabel = number ? `#${number}` : "";
+  const base = [kindLabel, numberLabel].filter(Boolean).join(" ") || "GitHub";
+  const author = item.metadata["gh.author"];
+  return author ? `${base} · ${author}` : base;
+}
+
 // ── Thumb tile ─────────────────────────────────────────────────────────
 
 function ShotThumb({
@@ -183,6 +197,7 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
   );
   const [drill, setDrill] = useState<DrillState>({ status: "idle" });
   const [drillRetryNonce, setDrillRetryNonce] = useState(0);
+  const [ghState, setGhState] = useState<DrillState>({ status: "loading" });
 
   // Workspace-level facts (hasPublicUrl), gated behind session resolution —
   // same pattern as WorkspaceFileTable.
@@ -218,6 +233,29 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
       cancelled = true;
     };
   }, [apiOrigin, workspace, overviewRetryNonce]);
+
+  // GitHub-mirrored screenshots ("From GitHub" section), fetched in parallel
+  // with the by-path overview. A failure here must never block or break the
+  // by-path view — it just renders nothing.
+  useEffect(() => {
+    let cancelled = false;
+    onSession(() => {
+      void searchWorkspaceFiles(apiOrigin, workspace, [
+        { key: "gh.origin", value: "github" },
+        { key: "gh.detached", value: "false" },
+      ]).then((result) => {
+        if (cancelled) return;
+        setGhState(
+          result.kind === "ok"
+            ? { status: "ready", items: result.items, truncated: result.truncated }
+            : { status: "error" },
+        );
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiOrigin, workspace]);
 
   // Drill-in fetch — URL-synced so a reload or shared link lands on the
   // same path. Clearing drillPath ("") goes back to the overview without a
@@ -338,28 +376,63 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
     );
   }
 
-  // Overview: empty state when no path-tagged screenshots exist at all.
-  if (overview.groups.length === 0) {
-    return (
-      <div className="ws-empty-state">
-        <p className="ws-empty-state__title">No screenshots with a path yet</p>
-        <p className="ws-empty-state__body">
-          <code>uploads screenshot</code> records the page it captured automatically, and any upload
-          can pass <code>--meta path=/settings</code> to group here. See{" "}
-          <a href="/docs">the docs</a> for details.
-        </p>
-      </div>
-    );
-  }
+  // Overview: by-path groups, or the empty state when no path-tagged
+  // screenshots exist at all — either way, the GitHub section (when
+  // non-empty) still renders below it, since GitHub-ingested files carry no
+  // `path` metadata and would otherwise never surface in a GitHub-only
+  // workspace.
+  const showGh = ghState.status === "ready" && ghState.items.length > 0;
 
   return (
     <div className="wsp">
-      {overview.groups.map((group) => (
-        <PathGroupSection key={group.path} group={group} onDrill={setDrillPath} onOpen={open} />
-      ))}
-      {overview.truncated && (
-        <p className="wft-end">Showing the most active paths — narrow with a specific path.</p>
+      {overview.groups.length === 0 ? (
+        <div className="ws-empty-state">
+          <p className="ws-empty-state__title">No screenshots with a path yet</p>
+          <p className="ws-empty-state__body">
+            <code>uploads screenshot</code> records the page it captured automatically, and any
+            upload can pass <code>--meta path=/settings</code> to group here. See{" "}
+            <a href="/docs">the docs</a> for details.
+          </p>
+        </div>
+      ) : (
+        <>
+          {overview.groups.map((group) => (
+            <PathGroupSection key={group.path} group={group} onDrill={setDrillPath} onOpen={open} />
+          ))}
+          {overview.truncated && (
+            <p className="wft-end">Showing the most active paths — narrow with a specific path.</p>
+          )}
+        </>
       )}
+      {showGh && <GitHubSection items={ghState.items} onOpen={open} />}
+    </div>
+  );
+}
+
+function GitHubSection({
+  items,
+  onOpen,
+}: {
+  items: SearchFileItem[];
+  onOpen: (file: SearchFileItem) => void;
+}) {
+  return (
+    <div className="wsp-group">
+      <div className="wsp-group__head">
+        <span className="wsp-group__path">From GitHub</span>
+        <span className="wsp-group__meta">
+          {items.length} {items.length === 1 ? "file" : "files"}
+        </span>
+      </div>
+      <div className="wsp-strip">
+        {items.map((item) => (
+          <ShotThumb
+            key={item.key}
+            item={{ ...item, state: ghLabel(item) }}
+            onOpen={() => onOpen(item)}
+          />
+        ))}
+      </div>
     </div>
   );
 }

@@ -9,12 +9,15 @@
  * posture on link/repo-link/health/activity, and untouched old-path behavior.
  */
 import { beforeAll, describe, expect, it } from "vitest";
+import { attachmentKeyBasename } from "../src/github-attachment-extract";
+import { recordRepoLink } from "../src/github-repo-links";
 import { app } from "../src/index";
 import { sha256Hex, type WorkspaceRecord } from "../src/workspace";
 import { FakeKv } from "./fake-kv";
 import { FakeR2Bucket } from "./fake-r2";
 import { GITHUB_APP_CFG_ENV } from "./github-app-env";
 import { withMintingUserToken } from "./helpers/fake-minting-user-token";
+import { withGlobalFetch } from "./helpers/github-fetch-fakes";
 import { UsageFakeD1 } from "./usage-fake-d1";
 
 const WS = "acme";
@@ -493,6 +496,216 @@ describe("GET /v1/workspaces/:workspace/github/activity (dual-auth, session-admi
       env,
     );
     expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /v1/workspaces/:workspace/github/ingest (manual, dual-auth)", () => {
+  const REPO = "acme/web";
+  const ASSET_ID = "assets/11111111-1111-1111-1111-111111111111";
+  const ASSET_URL = `https://github.com/user-attachments/${ASSET_ID}`;
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+  const KEY = `gh/acme-web/pull-5/${attachmentKeyBasename(ASSET_ID)}.png`;
+
+  function seedInstallation(githubCache: FakeKv) {
+    githubCache.store.set(`ghinst:${REPO}`, { value: "42" });
+    githubCache.store.set("ghtok:42", { value: "ghs_test" });
+  }
+
+  function fakeGithubFetch(bodyText: string) {
+    return (async (url: string) => {
+      const u = String(url);
+      if (u.includes(`/repos/${REPO}/issues/5/comments`)) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (u.includes(`/repos/${REPO}/issues/5`)) {
+        return Response.json({ body: bodyText, user: { login: "octocat" } });
+      }
+      if (u.includes(ASSET_ID)) {
+        return new Response(PNG, { status: 200, headers: { "content-type": "image/png" } });
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+  }
+
+  it("token auth + linked repo + one asset in body: 200 with ingested length 1", async () => {
+    const { env, db, githubCache } = await makeEnv();
+    await recordRepoLink(db as unknown as D1Database, REPO, WS, "test");
+    seedInstallation(githubCache);
+
+    const res = await withGlobalFetch(fakeGithubFetch(`see ${ASSET_URL}`), async () =>
+      app.request(
+        "/v1/workspaces/acme/github/ingest",
+        {
+          method: "POST",
+          headers: { ...bearer(), "content-type": "application/json" },
+          body: JSON.stringify({ repo: REPO, pr: 5 }),
+        },
+        env,
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      repo: string;
+      kind: string;
+      num: number;
+      ingested: string[];
+      reattached: string[];
+      detached: string[];
+      skipped: unknown[];
+    };
+    expect(body).toEqual({
+      repo: REPO,
+      kind: "pull",
+      num: 5,
+      ingested: [KEY],
+      reattached: [],
+      detached: [],
+      skipped: [],
+    });
+  });
+
+  it("both pr and issue set: 400 ValidationError code github_ingest_target", async () => {
+    const { env, db } = await makeEnv();
+    await recordRepoLink(db as unknown as D1Database, REPO, WS, "test");
+    const res = await app.request(
+      "/v1/workspaces/acme/github/ingest",
+      {
+        method: "POST",
+        headers: { ...bearer(), "content-type": "application/json" },
+        body: JSON.stringify({ repo: REPO, pr: 5, issue: 6 }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    const errBody = (await res.json()) as { error?: { code?: string } };
+    expect(errBody.error?.code).toBe("github_ingest_target");
+  });
+
+  it("neither pr nor issue set: 400 ValidationError code github_ingest_target", async () => {
+    const { env, db } = await makeEnv();
+    await recordRepoLink(db as unknown as D1Database, REPO, WS, "test");
+    const res = await app.request(
+      "/v1/workspaces/acme/github/ingest",
+      {
+        method: "POST",
+        headers: { ...bearer(), "content-type": "application/json" },
+        body: JSON.stringify({ repo: REPO }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    const errBody = (await res.json()) as { error?: { code?: string } };
+    expect(errBody.error?.code).toBe("github_ingest_target");
+  });
+
+  it("repo not linked to any workspace: 404 repo_not_linked", async () => {
+    const { env } = await makeEnv();
+    const res = await app.request(
+      "/v1/workspaces/acme/github/ingest",
+      {
+        method: "POST",
+        headers: { ...bearer(), "content-type": "application/json" },
+        body: JSON.stringify({ repo: REPO, pr: 5 }),
+      },
+      env,
+    );
+    expect(res.status).toBe(404);
+    const errBody = (await res.json()) as { error?: { code?: string } };
+    expect(errBody.error?.code).toBe("repo_not_linked");
+  });
+
+  it("repo linked to a different workspace: 404 repo_not_linked, does not leak the owning workspace", async () => {
+    const { env, db } = await makeEnv();
+    await recordRepoLink(db as unknown as D1Database, REPO, "someone-else", "test");
+    const res = await app.request(
+      "/v1/workspaces/acme/github/ingest",
+      {
+        method: "POST",
+        headers: { ...bearer(), "content-type": "application/json" },
+        body: JSON.stringify({ repo: REPO, pr: 5 }),
+      },
+      env,
+    );
+    expect(res.status).toBe(404);
+    const bodyText = await res.text();
+    expect(bodyText).not.toContain("someone-else");
+    const errBody = JSON.parse(bodyText) as { error?: { code?: string } };
+    expect(errBody.error?.code).toBe("repo_not_linked");
+  });
+
+  it("works with the ingest knob off (manual bypasses it)", async () => {
+    // makeEnv()'s workspace record never sets `githubIngestAttachments`, so
+    // this exercises the same knob-less record the webhook path would
+    // silently no-op on — the manual endpoint must still ingest.
+    const { env, db, githubCache } = await makeEnv();
+    await recordRepoLink(db as unknown as D1Database, REPO, WS, "test");
+    seedInstallation(githubCache);
+
+    const res = await withGlobalFetch(fakeGithubFetch(`see ${ASSET_URL}`), async () =>
+      app.request(
+        "/v1/workspaces/acme/github/ingest",
+        {
+          method: "POST",
+          headers: { ...bearer(), "content-type": "application/json" },
+          body: JSON.stringify({ repo: REPO, issue: 5 }),
+        },
+        env,
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { kind: string; ingested: string[] };
+    expect(body.kind).toBe("issues");
+    expect(body.ingested).toEqual([`gh/acme-web/issues-5/${attachmentKeyBasename(ASSET_ID)}.png`]);
+  });
+
+  it("github app not configured/installed propagates as 404 github_app_not_installed", async () => {
+    const { env, db, githubCache } = await makeEnv();
+    await recordRepoLink(db as unknown as D1Database, REPO, WS, "test");
+    // Deliberately don't seed ghinst:/ghtok: — installationForRepo misses.
+    void githubCache;
+    const res = await withGlobalFetch(
+      (async (url: string) =>
+        String(url).includes("/installation")
+          ? new Response("nf", { status: 404 })
+          : new Response("nf", { status: 404 })) as unknown as typeof fetch,
+      async () =>
+        app.request(
+          "/v1/workspaces/acme/github/ingest",
+          {
+            method: "POST",
+            headers: { ...bearer(), "content-type": "application/json" },
+            body: JSON.stringify({ repo: REPO, pr: 5 }),
+          },
+          env,
+        ),
+    );
+    expect(res.status).toBe(404);
+    const errBody = (await res.json()) as { error?: { code?: string } };
+    expect(errBody.error?.code).toBe("github_app_not_installed");
+  });
+
+  it("session (cookie) auth also reaches the handler", async () => {
+    const { env, db, githubCache } = await makeEnv();
+    await recordRepoLink(db as unknown as D1Database, REPO, WS, "test");
+    seedInstallation(githubCache);
+
+    const res = await withGlobalFetch(fakeGithubFetch(`see ${ASSET_URL}`), async () =>
+      app.request(
+        "/v1/workspaces/acme/github/ingest",
+        {
+          method: "POST",
+          headers: { ...sessionCookie, "content-type": "application/json" },
+          body: JSON.stringify({ repo: REPO, pr: 5 }),
+        },
+        env,
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ingested: string[] };
+    expect(body.ingested).toEqual([KEY]);
   });
 });
 

@@ -137,13 +137,14 @@ const COMMENT_IMAGE_WIDTH_MAX = 1000;
 const COMMENT_MAX_INLINE_IMAGES_MIN = 1;
 const COMMENT_MAX_INLINE_IMAGES_MAX = 48;
 
-/** The five workspace-level comment-defaults fields (issue #307). */
+/** The six workspace-level comment-defaults fields (issue #307; ingestGithubAttachments added issue-spec 2026-08-11). */
 const COMMENT_SETTINGS_KEYS = [
   "imageWidth",
   "maxInlineImages",
   "showMetadata",
   "linkToFilePage",
   "note",
+  "ingestGithubAttachments",
 ] as const;
 type CommentSettingsKey = (typeof COMMENT_SETTINGS_KEYS)[number];
 
@@ -154,6 +155,7 @@ const COMMENT_SETTINGS_RECORD_FIELD: Record<CommentSettingsKey, keyof WorkspaceR
   showMetadata: "githubCommentShowMetadata",
   linkToFilePage: "githubCommentLinkToFilePage",
   note: "githubCommentNote",
+  ingestGithubAttachments: "githubIngestAttachments",
 };
 
 type CommentSettingsValue = string | number | boolean;
@@ -240,6 +242,17 @@ function validateCommentSettingsPatch(body: unknown): CommentSettingsPatch {
     patch.linkToFilePage = value;
   }
 
+  if ("ingestGithubAttachments" in record) {
+    const value = record.ingestGithubAttachments;
+    if (value !== null && typeof value !== "boolean") {
+      throw new ValidationError("ingestGithubAttachments must be a boolean or null", {
+        code: "invalid_settings",
+        details: { field: "ingestGithubAttachments" },
+      });
+    }
+    patch.ingestGithubAttachments = value;
+  }
+
   if ("note" in record) {
     const value = record.note;
     if (value === null) {
@@ -272,6 +285,7 @@ function commentSettingsResponse(record: WorkspaceRecord) {
     showMetadata: record.githubCommentShowMetadata ?? null,
     linkToFilePage: record.githubCommentLinkToFilePage ?? null,
     note: record.githubCommentNote ?? null,
+    ingestGithubAttachments: record.githubIngestAttachments ?? null,
   };
 }
 

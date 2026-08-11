@@ -355,6 +355,25 @@ export interface GithubRepoLinkResult {
   binding: "self" | "other" | "none";
 }
 
+/**
+ * `POST /v1/workspaces/:workspace/github/ingest` result (Task 6, manual/
+ * backfill entry point for GitHub-native `user-attachments` media). `repo`
+ * comes back lowercased by the server.
+ */
+export interface IngestGithubResult {
+  repo: string;
+  kind: "pull" | "issues";
+  num: number;
+  /** Object keys newly mirrored into the workspace this call. */
+  ingested: string[];
+  /** Object keys whose previously-detached ledger row was un-detached. */
+  reattached: string[];
+  /** Object keys detached because they're no longer referenced. */
+  detached: string[];
+  /** Attachment URLs skipped, with the reason. */
+  skipped: { url: string; reason: string }[];
+}
+
 export interface HealthResult {
   ok: boolean;
 }
@@ -1240,6 +1259,32 @@ export function createUploadsClient(config: UploadsClientConfig) {
      * `UploadsError` (status 404) on an older/self-hosted server without
      * this route — callers treat that as "unknown", not "broken".
      */
+    /**
+     * `POST /v1/workspaces/:workspace/github/ingest` (Task 6) — manual/
+     * backfill mirror of a PR/issue's `github.com/user-attachments` media
+     * into the workspace. Only mounted on the canonical `/v1/workspaces`
+     * surface (no old bearer-only alias), unlike the other `github/*`
+     * client methods above.
+     */
+    async ingestGithub(input: {
+      repo: string;
+      kind: "pull" | "issues";
+      num: number;
+    }): Promise<IngestGithubResult> {
+      const body =
+        input.kind === "pull"
+          ? { repo: input.repo, pr: input.num }
+          : { repo: input.repo, issue: input.num };
+      return request<IngestGithubResult>(
+        "POST",
+        `${config.apiUrl}/v1/workspaces/${encodeURIComponent(config.workspace)}/github/ingest`,
+        {
+          body: new TextEncoder().encode(JSON.stringify(body)),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    },
+
     async githubHealth(): Promise<GithubHealthResult> {
       return request<GithubHealthResult>(
         "GET",

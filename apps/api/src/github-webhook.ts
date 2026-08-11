@@ -37,10 +37,12 @@
  * degraded rather than dropping deliveries.
  */
 
+import { hasUserAttachmentUrl } from "./github-attachment-extract";
 import { githubAppConfig, installationForRepo } from "./github-app";
 import { commentCacheKey, gatherCommentBody, upsertBotComment } from "./github-comment";
 import { ATTACHMENTS_MARKER } from "./github-comment-render";
 import type { GhTarget } from "./github-comment-render";
+import { ingestForWebhook, type IngestSourceRef } from "./github-ingest";
 import { promoteBranchAttachments } from "./github-promote";
 // Strict lookup on purpose (#287): a D1 outage must THROW so the queue
 // consumer retries the event, not read as "repo not linked" and ack-drop it.
@@ -208,7 +210,7 @@ interface IssueCommentPayload {
   action?: unknown;
   repository?: { full_name?: unknown };
   issue?: { number?: unknown; pull_request?: unknown };
-  comment?: { body?: unknown; user?: { login?: unknown; type?: unknown } };
+  comment?: { id?: unknown; body?: unknown; user?: { login?: unknown; type?: unknown } };
   sender?: { login?: unknown; type?: unknown };
 }
 
@@ -283,6 +285,9 @@ export interface WebhookEvent {
   promote?: { repo: string; num: number; branch: string };
   /** Gated issue_comment edited/deleted → heal the managed comment. */
   reconcile?: { repo: string; num: number; kind: GhTarget["kind"] };
+  /** Opt-in GitHub-native attachment ingest (spec 2026-08-11). Source ref only —
+   * the consumer re-fetches current text, so this stays queue-compact. */
+  ingest?: IngestSourceRef;
 }
 
 /**
@@ -305,10 +310,27 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
   } else if (eventType === "issues" || eventType === "pull_request") {
     const fullName = (p.repository as { full_name?: unknown } | undefined)?.full_name;
     const item = (eventType === "issues" ? p.issue : p.pull_request) as
-      | { number?: unknown }
+      | { number?: unknown; body?: unknown }
       | undefined;
     if (typeof fullName === "string" && typeof item?.number === "number") {
       ev.keys.push(`ghref:${fullName.toLowerCase()}#${item.number}`);
+
+      // Ingest gating (spec 2026-08-11): opened → substring-gated on the
+      // body; edited → gated only on the presence of a body *change* (covers
+      // both add and remove — removal leaves no url in the new body, but the
+      // consumer re-fetches and reconciles against the empty case too).
+      // Casing intentionally NOT lowercased here, matching `promote` — the
+      // ledger normalizes internally.
+      const action = p.action;
+      const kind: GhTarget["kind"] = eventType === "pull_request" ? "pull" : "issues";
+      if (action === "opened" && typeof item.body === "string" && hasUserAttachmentUrl(item.body)) {
+        ev.ingest = { repo: fullName, kind, num: item.number, source: "body" };
+      } else if (action === "edited") {
+        const changes = p.changes as { body?: unknown } | undefined;
+        if (changes && "body" in changes) {
+          ev.ingest = { repo: fullName, kind, num: item.number, source: "body" };
+        }
+      }
     }
   }
 
@@ -341,10 +363,31 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
     if (isReconcilableCommentEvent(ip) && typeof repo === "string" && typeof num === "number") {
       ev.reconcile = { repo, num, kind: ip.issue?.pull_request ? "pull" : "issues" };
     }
+
+    // Ingest gating (spec 2026-08-11): created/deleted are substring-gated
+    // (a deleted comment's payload carries its pre-deletion body — the
+    // consumer's GET then 404s, detaching everything under that source).
+    // edited always fires unless the sender is a Bot (our own comment write
+    // or another bot's churn) — a removal is invisible in the new body, so
+    // the only reliable signal is "something changed".
+    const commentId = ip.comment?.id;
+    if (typeof repo === "string" && typeof num === "number" && typeof commentId === "number") {
+      const kind: GhTarget["kind"] = ip.issue?.pull_request ? "pull" : "issues";
+      const source = `comment:${commentId}`;
+      const body = ip.comment?.body;
+      const hasUrl = typeof body === "string" && hasUserAttachmentUrl(body);
+      const gated =
+        (ip.action === "created" && hasUrl) ||
+        (ip.action === "edited" && ip.sender?.type !== "Bot") ||
+        (ip.action === "deleted" && hasUrl);
+      if (gated) {
+        ev.ingest = { repo, kind, num, source };
+      }
+    }
   }
   // ping and unknown events fall through with no work.
 
-  return ev.keys.length || ev.promote || ev.reconcile ? ev : null;
+  return ev.keys.length || ev.promote || ev.reconcile || ev.ingest ? ev : null;
 }
 
 /**
@@ -363,6 +406,9 @@ export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<v
   if (ev.reconcile) {
     await reconcileBotComment(env, ev.reconcile.repo, ev.reconcile.num, ev.reconcile.kind);
   }
+  if (ev.ingest) {
+    await ingestForWebhook(env, ev.ingest);
+  }
 }
 
 /** `processWebhookEvent` with every failure caught and logged — the inline
@@ -376,6 +422,7 @@ async function processInline(env: Env, ev: WebhookEvent): Promise<void> {
         message: "webhook inline processing failed",
         promote: ev.promote ?? null,
         reconcile: ev.reconcile ?? null,
+        ingest: ev.ingest ?? null,
         error: err instanceof Error ? err.message : String(err),
       }),
     );

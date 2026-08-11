@@ -149,6 +149,8 @@ export interface WorkspaceRecord {
   /** Workspace default short markdown note under the comment header.
    * Trimmed, max 500 chars (validated on PATCH). Repo config overrides. */
   githubCommentNote?: string;
+  /** Workspace default for the repo `ingestGithubAttachments` knob (issue-spec 2026-08-11). */
+  githubIngestAttachments?: boolean;
   /**
    * Per-workspace opt-out for video poster generation (issue #299). Default
    * (undefined/true) generates. The surgical kill switch between "all

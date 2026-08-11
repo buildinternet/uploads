@@ -38,6 +38,7 @@ export async function handleGithubWebhookBatch(
           attempts: msg.attempts,
           promote: msg.body?.promote ?? null,
           reconcile: msg.body?.reconcile ?? null,
+          ingest: msg.body?.ingest ?? null,
           error: err instanceof Error ? err.message : String(err),
         }),
       );
