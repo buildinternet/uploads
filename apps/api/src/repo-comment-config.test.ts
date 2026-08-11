@@ -353,6 +353,7 @@ describe("workspaceCommentDefaults", () => {
       githubCommentNote: "hi",
       githubCommentLinkToFilePage: false,
       githubCommentShowMetadata: false,
+      githubIngestAttachments: true,
     } as WorkspaceRecord;
     const defaults = workspaceCommentDefaults(ws);
     expect(defaults).toEqual({
@@ -361,6 +362,7 @@ describe("workspaceCommentDefaults", () => {
       note: "hi",
       linkToFilePage: false,
       showMetadata: false,
+      ingestGithubAttachments: true,
     });
   });
 

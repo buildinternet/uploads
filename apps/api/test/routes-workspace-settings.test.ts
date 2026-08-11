@@ -196,6 +196,7 @@ describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
       showMetadata: null,
       linkToFilePage: null,
       note: null,
+      ingestGithubAttachments: null,
     });
   });
 
@@ -276,6 +277,38 @@ describe("GET/PATCH /v1/workspaces/:workspace/comment-settings", () => {
         method: "PATCH",
         headers: { ...sessionHeaders, "content-type": "application/json" },
         body: JSON.stringify({ imageWidth: 1 }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH round-trips ingestGithubAttachments for an owner session", async () => {
+    const { env, registry } = makeEnv({ role: "owner" });
+    const res = await app.request(
+      "/v1/workspaces/acme/comment-settings",
+      {
+        method: "PATCH",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ ingestGithubAttachments: true }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ingestGithubAttachments: true });
+    expect(
+      registry.record<{ githubIngestAttachments?: boolean }>("acme")?.githubIngestAttachments,
+    ).toBe(true);
+  });
+
+  it("PATCH rejects a non-boolean ingestGithubAttachments with 400", async () => {
+    const { env } = makeEnv({ role: "admin" });
+    const res = await app.request(
+      "/v1/workspaces/acme/comment-settings",
+      {
+        method: "PATCH",
+        headers: { ...sessionHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ ingestGithubAttachments: "yes" }),
       },
       env,
     );

@@ -22,6 +22,7 @@ export interface RepoCommentConfig {
   metaState?: boolean;
   linkToFilePage?: boolean;
   note?: string;
+  ingestGithubAttachments?: boolean;
 }
 export interface WorkspaceCommentDefaults {
   imageWidth?: "full" | number;
@@ -29,6 +30,7 @@ export interface WorkspaceCommentDefaults {
   showMetadata?: boolean; // maps to BOTH metaPath and metaState
   linkToFilePage?: boolean;
   note?: string;
+  ingestGithubAttachments?: boolean;
 }
 export interface ResolvedCommentOptions {
   imageWidth: "auto" | "full" | number;
@@ -37,6 +39,7 @@ export interface ResolvedCommentOptions {
   metaState: boolean;
   linkToFilePage: boolean;
   note: string | null;
+  ingestGithubAttachments: boolean;
 }
 export type OptionSource = "repo" | "workspace" | "auto";
 
@@ -47,6 +50,7 @@ export const AUTO_COMMENT_OPTIONS: ResolvedCommentOptions = {
   metaState: true,
   linkToFilePage: true,
   note: null,
+  ingestGithubAttachments: false,
 };
 
 export const NOTE_MAX_CHARS = 500;
@@ -102,6 +106,13 @@ export function parseRepoCommentConfig(
     else warnings.push(`linkToFilePage: expected a boolean; dropped`);
   }
 
+  // ingestGithubAttachments: boolean
+  if ("ingestGithubAttachments" in c) {
+    const v = c.ingestGithubAttachments;
+    if (typeof v === "boolean") config.ingestGithubAttachments = v;
+    else warnings.push(`ingestGithubAttachments: expected a boolean; dropped`);
+  }
+
   // meta.path / meta.state: booleans nested under `meta`
   if ("meta" in c) {
     const v = c.meta;
@@ -152,6 +163,9 @@ export function resolveCommentOptions(
       : {}),
     ...(ws?.linkToFilePage !== undefined ? { linkToFilePage: ws.linkToFilePage } : {}),
     ...(ws?.note ? { note: ws.note } : {}),
+    ...(ws?.ingestGithubAttachments !== undefined
+      ? { ingestGithubAttachments: ws.ingestGithubAttachments }
+      : {}),
   };
   const options = { ...AUTO_COMMENT_OPTIONS };
   const source = Object.fromEntries(
@@ -164,6 +178,7 @@ export function resolveCommentOptions(
       "metaPath",
       "metaState",
       "linkToFilePage",
+      "ingestGithubAttachments",
     ] as const) {
       if (cfg[key] !== undefined && source[key] === "auto") {
         (options as Record<string, unknown>)[key] = cfg[key];

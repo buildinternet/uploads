@@ -136,6 +136,8 @@ export function workspaceCommentDefaults(ws: WorkspaceRecord): WorkspaceCommentD
   if (ws.githubCommentLinkToFilePage !== undefined)
     defaults.linkToFilePage = ws.githubCommentLinkToFilePage;
   if (ws.githubCommentNote !== undefined) defaults.note = ws.githubCommentNote;
+  if (ws.githubIngestAttachments !== undefined)
+    defaults.ingestGithubAttachments = ws.githubIngestAttachments;
   return defaults;
 }
 
