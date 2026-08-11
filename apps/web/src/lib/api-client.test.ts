@@ -353,7 +353,7 @@ describe("getWorkspaceFilesByPath", () => {
   it("is unavailable on a malformed body", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ groups: [{ path: 1 }], projects: [] })),
+      vi.fn(async () => Response.json({ groups: [{ path: 1 }], projects: [], truncated: false })),
     );
     const result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
     expect(result.kind).toBe("unavailable");
@@ -362,7 +362,9 @@ describe("getWorkspaceFilesByPath", () => {
   it("is unavailable on malformed projects", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ groups: [GROUP], projects: [{ label: 1 }] })),
+      vi.fn(async () =>
+        Response.json({ groups: [GROUP], projects: [{ label: 1 }], truncated: false }),
+      ),
     );
     const result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
     expect(result.kind).toBe("unavailable");

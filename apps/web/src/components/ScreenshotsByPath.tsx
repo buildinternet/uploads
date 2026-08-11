@@ -375,7 +375,7 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
           className="text-btn"
           onClick={() => setView({ project: view.project, path: "" })}
         >
-          {view.project ? `← ${view.project}` : "← all paths"}
+          {view.project ? `← ${view.project}` : "← all projects"}
         </button>
         <h2 className="wsp-drill__heading">{view.path}</h2>
         {drill.status === "loading" && (
@@ -408,9 +408,26 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
                 />
               ))}
             </div>
-            {drillItems.length === 0 && <p className="wft-end">No screenshots at this path.</p>}
-            {drill.truncated && (
-              <p className="wft-end">Showing the first 100 — narrow the path to see more.</p>
+            {/* The project scope is applied client-side AFTER the search's
+                100-item cap (the origin-labeled fallback can't be expressed
+                as a metadata filter — spec keeps URL-prefix search out of
+                scope), so a truncated response may hide project matches: say
+                so rather than claiming an empty/complete result. */}
+            {drillItems.length === 0 && (
+              <p className="wft-end">
+                {view.project && drill.truncated
+                  ? `None of the first 100 at this path belong to ${view.project} — there may be more beyond that.`
+                  : view.project
+                    ? "No screenshots at this path for this project."
+                    : "No screenshots at this path."}
+              </p>
+            )}
+            {drillItems.length > 0 && drill.truncated && (
+              <p className="wft-end">
+                {view.project
+                  ? "Project filter applied to the first 100 at this path — there may be more."
+                  : "Showing the first 100 — narrow the path to see more."}
+              </p>
             )}
           </>
         )}
