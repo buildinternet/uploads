@@ -893,6 +893,46 @@ describe("runPut auto gh.* metadata (default path)", () => {
   });
 });
 
+describe("runPut derived repo metadata (spec: 2026-08-11-screenshots-project-grouping)", () => {
+  /** Answers only `git config --get remote.origin.url`; anything else (the
+   * auto gh.* resolution's rev-parse/gh calls) throws, so autoTarget stays
+   * undefined and only the derived `repo` metadata is under test here. */
+  function repoOnlyRunner(originUrl: string): CommandRunner {
+    return (cmd, args) => {
+      if (cmd === "git" && args[0] === "config") return `${originUrl}\n`;
+      throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+    };
+  }
+
+  it("records derived repo metadata from the git remote (mixed-case remote -> lowercase slug)", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "o/r", "--ref", "manual"],
+      false,
+      repoOnlyRunner("git@github.com:Acme/Web.git"),
+    );
+    expect(puts[0].metadata).toMatchObject({ repo: "acme/web" });
+  });
+
+  it("suppresses derived repo with --no-git", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(ctxWith(client), [tmpFile(), "--repo", "myapp", "--no-git"], false, noRun);
+    expect(puts[0].metadata?.repo).toBeUndefined();
+  });
+
+  it("lets an explicit --meta repo= win over the derived value", async () => {
+    const { client, puts } = fakeClient();
+    await runPut(
+      ctxWith(client),
+      [tmpFile(), "--repo", "o/r", "--ref", "manual", "--meta", "repo=custom/one"],
+      false,
+      repoOnlyRunner("git@github.com:Acme/Web.git"),
+    );
+    expect(puts[0].metadata?.repo).toBe("custom/one");
+  });
+});
+
 describe("runPut gh.title metadata (issue #267)", () => {
   it("stamps gh.title on the explicit --pr path when the title resolves", async () => {
     const { client, puts } = fakeClient();

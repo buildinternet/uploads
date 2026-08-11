@@ -64,7 +64,7 @@ import {
   upsertAttachmentsComment,
   type CommandRunner,
 } from "./github-gh.js";
-import { deriveRepoFromGit } from "./keys.js";
+import { deriveRepoFromGit, deriveRepoSlugFromGit } from "./keys.js";
 import { resolvePutPrefix } from "./destinations.js";
 import {
   optimizeImageForUpload,
@@ -2253,6 +2253,14 @@ export async function runPut(
         }
       }
     }
+  }
+
+  // Derived `repo` (spec: 2026-08-11-screenshots-project-grouping-design.md):
+  // the capturing repo, on every layout including gh/staging. mergeDerivedMeta
+  // keeps explicit --meta repo= wins and never breaks the caps.
+  if (!noGit && derivedMetaEnabled(parsed.flags, defaults)) {
+    const slug = deriveRepoSlugFromGit(run);
+    if (slug) metadata = mergeDerivedMeta(metadata ?? {}, { repo: slug });
   }
 
   // Bare-put nudge (issue #393): only relevant when staging didn't take over

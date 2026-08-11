@@ -836,6 +836,56 @@ describe("runScreenshot gh.title metadata (issue #267)", () => {
   });
 });
 
+describe("runScreenshot derived repo metadata (spec: 2026-08-11-screenshots-project-grouping)", () => {
+  /** Answers only `git config --get remote.origin.url`; anything else throws
+   * so gh.* auto resolution stays out of the picture. */
+  function repoOnlyRunner(originUrl: string): CommandRunner {
+    return (cmd, args) => {
+      if (cmd === "git" && args[0] === "config") return `${originUrl}\n`;
+      throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+    };
+  }
+
+  it("records derived repo metadata from the git remote (mixed-case remote -> lowercase slug)", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com"],
+      false,
+      repoOnlyRunner("git@github.com:Acme/Web.git"),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.metadata).toMatchObject({ repo: "acme/web" });
+  });
+
+  it("suppresses derived repo with --no-git", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--no-git"],
+      false,
+      noRun,
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.metadata?.repo).toBeUndefined();
+  });
+
+  it("lets an explicit --meta repo= win over the derived value", async () => {
+    const { client, puts } = fakeClient();
+    const code = await runScreenshot(
+      ctxWith(client),
+      ["https://example.com", "--meta", "repo=custom/one"],
+      false,
+      repoOnlyRunner("git@github.com:Acme/Web.git"),
+      fakeCapture("remote"),
+    );
+    expect(code).toBe(0);
+    expect(puts[0]?.metadata?.repo).toBe("custom/one");
+  });
+});
+
 describe("screenshot canonical metadata", () => {
   /** Run a capture with --no-git (no repo resolution) and return the put options. */
   async function metaFor(args: string[]): Promise<Record<string, string> | undefined> {

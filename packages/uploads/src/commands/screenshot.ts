@@ -40,6 +40,7 @@ import {
   type CommandRunner,
 } from "../github-gh.js";
 import { ghBranchAttachmentKey } from "../github.js";
+import { deriveRepoSlugFromGit } from "../keys.js";
 import { safeCaptureFacts } from "../capture-facts.js";
 import { parseMetaFlags, validateMetaMap } from "../metadata.js";
 import { mergeDerivedMeta } from "../metadata-vocab.js";
@@ -433,10 +434,11 @@ export async function runScreenshot(
   // Explicit input (--meta plus the dedicated flags) wins over capture facts.
   const explicitMeta = { ...metaExtras, ...stateAppMetaFromFlags(parsed.flags) };
   const deriveMeta = derivedMetaEnabled(parsed.flags, putDefaults);
-  const withFacts = mergeDerivedMeta(
-    explicitMeta,
-    deriveMeta ? safeCaptureFacts(target, viewport, colorScheme) : {},
-  );
+  const repoSlug = deriveMeta && !noGit ? deriveRepoSlugFromGit(run) : undefined;
+  const withFacts = mergeDerivedMeta(explicitMeta, {
+    ...(deriveMeta ? safeCaptureFacts(target, viewport, colorScheme) : {}),
+    ...(repoSlug ? { repo: repoSlug } : {}),
+  });
 
   let metadata: Record<string, string> | undefined = withFacts;
   if (ghTarget) {
