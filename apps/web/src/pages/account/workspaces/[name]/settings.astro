@@ -198,6 +198,52 @@ const tip = {
           </div>
         </div>
 
+        <div class="cs-row" id="cs-row-ingest">
+          <div class="cs-row__info">
+            <div class="cs-row__label-line">
+              <span class="cs-row__label">ingest github attachments</span>
+            </div>
+            <p class="cs-row__desc">
+              Mirror images and video dragged into PR/issue bodies and comments on linked repos into
+              this workspace. Repos can override with <code>ingestGithubAttachments</code> in&#32;
+              <code>.uploads.yml</code>.
+            </p>
+          </div>
+          <div class="cs-row__control">
+            <div
+              class="cs-seg"
+              role="radiogroup"
+              aria-label="Ingest GitHub attachments"
+              id="cs-ingest-github-attachments"
+            >
+              <button
+                type="button"
+                class="cs-seg__btn"
+                role="radio"
+                aria-checked="true"
+                tabindex="0"
+                data-value="">auto (off)</button
+              >
+              <button
+                type="button"
+                class="cs-seg__btn"
+                role="radio"
+                aria-checked="false"
+                tabindex="-1"
+                data-value="true">on</button
+              >
+              <button
+                type="button"
+                class="cs-seg__btn"
+                role="radio"
+                aria-checked="false"
+                tabindex="-1"
+                data-value="false">off</button
+              >
+            </div>
+          </div>
+        </div>
+
         <div class="cs-row cs-row--note" id="cs-row-note">
           <div class="cs-row__note-head">
             <span class="cs-row__label">note</span>
@@ -596,6 +642,7 @@ const tip = {
       const maxInlineInput = requireElement<HTMLInputElement>("#cs-max-inline", page);
       const metaSeg = requireElement<HTMLElement>("#cs-show-metadata", page);
       const linkSeg = requireElement<HTMLElement>("#cs-link-to-file-page", page);
+      const ingestSeg = requireElement<HTMLElement>("#cs-ingest-github-attachments", page);
       const noteInput = requireElement<HTMLTextAreaElement>("#cs-note", page);
       const noteCount = requireElement<HTMLElement>("#cs-note-count", page);
       const saveBtn = requireElement<HTMLButtonElement>("#cs-save-btn", page);
@@ -749,6 +796,7 @@ const tip = {
           showMetadata: selectValueToTriState(segValue(metaSeg)),
           linkToFilePage: selectValueToTriState(segValue(linkSeg)),
           note: noteInput.value.trim() === "" ? null : noteInput.value,
+          ingestGithubAttachments: selectValueToTriState(segValue(ingestSeg)),
         };
       }
 
@@ -807,6 +855,7 @@ const tip = {
           settings.maxInlineImages === null ? "" : String(settings.maxInlineImages);
         paintSegmented(metaSeg, triStateToSelectValue(settings.showMetadata));
         paintSegmented(linkSeg, triStateToSelectValue(settings.linkToFilePage));
+        paintSegmented(ingestSeg, triStateToSelectValue(settings.ingestGithubAttachments));
         noteInput.value = settings.note ?? "";
         noteCount.textContent = String(noteInput.value.length);
         savedSettings = { ...settings };
@@ -820,6 +869,7 @@ const tip = {
       });
       bindSegmented(metaSeg, () => markEdited());
       bindSegmented(linkSeg, () => markEdited());
+      bindSegmented(ingestSeg, () => markEdited());
       widthPxInput.addEventListener("input", () => markEdited());
       maxInlineInput.addEventListener("input", () => markEdited());
       noteInput.addEventListener("input", () => {

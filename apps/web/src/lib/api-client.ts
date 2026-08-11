@@ -1166,6 +1166,8 @@ export interface CommentSettings {
   showMetadata: boolean | null;
   linkToFilePage: boolean | null;
   note: string | null;
+  /** `null` (auto) defaults to `false` — unlike the other tri-state fields, which default to `true`. */
+  ingestGithubAttachments: boolean | null;
 }
 
 export type CommentSettingsResult =
@@ -1181,7 +1183,16 @@ function toCommentSettings(body: unknown): CommentSettings | null {
   const showMetadata = typeof b.showMetadata === "boolean" ? b.showMetadata : null;
   const linkToFilePage = typeof b.linkToFilePage === "boolean" ? b.linkToFilePage : null;
   const note = typeof b.note === "string" ? b.note : null;
-  return { imageWidth, maxInlineImages, showMetadata, linkToFilePage, note };
+  const ingestGithubAttachments =
+    typeof b.ingestGithubAttachments === "boolean" ? b.ingestGithubAttachments : null;
+  return {
+    imageWidth,
+    maxInlineImages,
+    showMetadata,
+    linkToFilePage,
+    note,
+    ingestGithubAttachments,
+  };
 }
 
 /** GET /me/workspaces/:name/comment-settings — admin/owner only. */
