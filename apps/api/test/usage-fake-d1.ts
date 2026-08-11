@@ -5,6 +5,7 @@
 
 import { DeleteUsageClaimsTable } from "./helpers/fake-delete-usage-claims-table";
 import { FileMetadataTable } from "./helpers/fake-file-metadata-table";
+import { IngestLedgerTable } from "./helpers/fake-ingest-ledger-table";
 import { PrActivityTable } from "./helpers/fake-pr-activity-table";
 import { RepoLinksTable } from "./helpers/fake-repo-links-table";
 
@@ -43,6 +44,12 @@ export class UsageFakeD1 {
   get prActivity() {
     return this.prActivityTable.rows;
   }
+  // Backs `github_ingested_assets` — the ingest ledger's idempotency
+  // backbone (Task 2 of the GitHub attachment ingestion feature).
+  private ingestLedgerTable = new IngestLedgerTable();
+  get ingestLedger() {
+    return this.ingestLedgerTable.rows;
+  }
 
   prepare = (sql: string) => {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -60,6 +67,8 @@ export class UsageFakeD1 {
         }
         const linkResult = this.repoLinksTable.tryFirst(normalized, values);
         if (linkResult !== undefined) return linkResult;
+        const ledgerFirstResult = this.ingestLedgerTable.tryFirst(normalized, values);
+        if (ledgerFirstResult !== undefined) return ledgerFirstResult;
         throw new Error(`unsupported first: ${normalized}`);
       },
       all: async <T>() => {
@@ -69,6 +78,8 @@ export class UsageFakeD1 {
         if (linkResult) return linkResult;
         const activityResult = this.prActivityTable.tryAll<T>(normalized, values);
         if (activityResult) return activityResult;
+        const ledgerAllResult = this.ingestLedgerTable.tryAll<T>(normalized, values);
+        if (ledgerAllResult) return ledgerAllResult;
         // Galleries aren't modeled by this fake (route/gallery-specific tests
         // bring their own D1 stand-in) — an empty page is a safe, honest
         // default for callers (e.g. the webhook auto-promote gather) that
@@ -85,6 +96,8 @@ export class UsageFakeD1 {
         if (linkResult) return linkResult;
         const activityResult = this.prActivityTable.tryRun(normalized, values);
         if (activityResult) return activityResult;
+        const ledgerRunResult = this.ingestLedgerTable.tryRun(normalized, values);
+        if (ledgerRunResult) return ledgerRunResult;
         const claimResult = this.deleteUsageClaimsTable.tryRun(normalized, values);
         if (claimResult) return claimResult;
         if (normalized.startsWith("INSERT OR IGNORE INTO workspace_usage")) {
