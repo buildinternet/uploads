@@ -103,6 +103,15 @@ export class IngestLedgerTable {
       );
       return { success: true, results: results as T[], meta: {} };
     }
+    if (
+      normalizedSql.includes("FROM github_ingested_assets WHERE repo = ? AND kind = ? AND num = ?")
+    ) {
+      const [repo, kind, num] = args as [string, "pull" | "issues", number];
+      const results = [...this.rows.values()].filter(
+        (row) => row.repo === repo && row.kind === kind && row.num === num,
+      );
+      return { success: true, results: results as T[], meta: {} };
+    }
     return undefined;
   }
 }

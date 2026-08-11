@@ -36,6 +36,7 @@ import {
 import {
   ledgerRow,
   ledgerRowsForSource,
+  ledgerRowsForTarget,
   recordIngestedAsset,
   setLedgerDetached,
   setLedgerSource,
@@ -419,6 +420,11 @@ export async function reconcileIngestTarget(
     num: target.num,
     source: "body",
   };
+  // Sources actually reconciled this pass — drives orphan detection below.
+  // A comment absent from GitHub's response (deleted) never gets a source
+  // ref built for it, so it's never added here; a non-detached ledger row
+  // whose source isn't in this set was deleted out from under the ledger.
+  const seenSources = new Set<string>(["body"]);
   mergeSummary(
     merged,
     await reconcileIngestSource(
@@ -455,6 +461,7 @@ export async function reconcileIngestTarget(
         num: target.num,
         source: `comment:${comment.id}`,
       };
+      seenSources.add(commentRef.source);
       mergeSummary(
         merged,
         await reconcileIngestSource(
@@ -481,6 +488,24 @@ export async function reconcileIngestTarget(
         num: target.num,
       }),
     );
+  } else {
+    // Orphan detection: a comment deleted on GitHub is simply absent from
+    // the paginated list above — it never gets a `reconcileIngestSource`
+    // pass, so its ledger rows never enter that function's own
+    // no-longer-referenced detach loop. Catch those here by detaching every
+    // non-detached row for this target whose source we didn't just scan.
+    // Skipped entirely when the scan was truncated (above): unseen later
+    // pages mean an absent source isn't proof of deletion.
+    const rows = await ledgerRowsForTarget(env.DB, target.repo, target.kind, target.num);
+    for (const row of rows) {
+      if (row.detachedAt !== null) continue;
+      if (seenSources.has(row.source)) continue;
+      // Metadata-first, same retry-safety ordering as the per-source detach
+      // path in reconcileIngestSource.
+      await updateFileMetadataValue(env.DB, row.workspace, row.objectKey, "gh.detached", "true");
+      await setLedgerDetached(env.DB, target.repo, row.assetId, new Date().toISOString());
+      merged.detached.push(row.objectKey);
+    }
   }
 
   return merged;
