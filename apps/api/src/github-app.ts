@@ -302,3 +302,90 @@ export async function installationToken(
     return null;
   }
 }
+
+/**
+ * Repo visibility cache TTL — private/public is rare to flip, but not never
+ * (issue #631's private-attachment-prefix decision hinges on it), so 600s
+ * bounds staleness without hammering the API on every attachment resolve.
+ */
+const REPO_PRIVACY_TTL = 600;
+
+/**
+ * Whether `repo` ("owner/name") is private, or `null` when it can't be
+ * determined (no installation token, API failure). Cached in GITHUB_CACHE
+ * under `ghpriv:{repo}` as `"1"`/`"0"`.
+ */
+export async function repoIsPrivate(
+  env: Env,
+  cfg: GithubAppConfig,
+  installationId: number,
+  repo: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean | null> {
+  const key = `ghpriv:${repo}`;
+  const cached = (await env.GITHUB_CACHE.get(key)) as string | null;
+  if (cached !== null) return cached === "1";
+  const token = await installationToken(env, cfg, installationId, fetchImpl);
+  if (!token) return null;
+  try {
+    const res = await githubFetch(fetchImpl, `https://api.github.com/repos/${repo}`, {
+      headers: githubHeaders(token),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as { private?: unknown } | null;
+    if (typeof body?.private !== "boolean") return null;
+    await env.GITHUB_CACHE.put(key, body.private ? "1" : "0", {
+      expirationTtl: REPO_PRIVACY_TTL,
+    });
+    return body.private;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write-through for `repoIsPrivate`'s cache from webhook payloads (which
+ * already carry `repository.private`) — same key/TTL, so a webhook can prime
+ * the cache without an extra API round trip.
+ */
+export async function cacheRepoPrivacy(env: Env, repo: string, isPrivate: boolean): Promise<void> {
+  await env.GITHUB_CACHE.put(`ghpriv:${repo}`, isPrivate ? "1" : "0", {
+    expirationTtl: REPO_PRIVACY_TTL,
+  });
+}
+
+/** PR head-ref cache TTL — a PR's head ref never changes once opened. */
+const PR_HEAD_TTL = 3600;
+
+/**
+ * Lowercased head branch name for `repo`'s PR `num`, or `null` when it can't
+ * be determined (no installation token, API failure). Cached in
+ * GITHUB_CACHE under `prhead:{repo}#{num}`.
+ */
+export async function prHeadBranch(
+  env: Env,
+  cfg: GithubAppConfig,
+  installationId: number,
+  repo: string,
+  num: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
+  const key = `prhead:${repo}#${num}`;
+  const cached = (await env.GITHUB_CACHE.get(key)) as string | null;
+  if (cached !== null) return cached;
+  const token = await installationToken(env, cfg, installationId, fetchImpl);
+  if (!token) return null;
+  try {
+    const res = await githubFetch(fetchImpl, `https://api.github.com/repos/${repo}/pulls/${num}`, {
+      headers: githubHeaders(token),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as { head?: { ref?: unknown } } | null;
+    if (typeof body?.head?.ref !== "string") return null;
+    const ref = body.head.ref.toLowerCase();
+    await env.GITHUB_CACHE.put(key, ref, { expirationTtl: PR_HEAD_TTL });
+    return ref;
+  } catch {
+    return null;
+  }
+}

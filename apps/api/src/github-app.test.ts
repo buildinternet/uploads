@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   appEventSubscriptions,
   appJwt,
+  cacheRepoPrivacy,
   fetchPrActors,
   githubAppConfig,
   installationForRepo,
   installationToken,
+  prHeadBranch,
+  repoIsPrivate,
 } from "./github-app";
 import { FakeKv } from "../test/fake-kv";
 
@@ -230,5 +233,124 @@ describe("installationToken", () => {
     const fetchImpl = (async () => new Response("", { status: 401 })) as typeof fetch;
     expect(await installationToken(envWith(kv), cfgWith(pem), 4242, fetchImpl)).toBeNull();
     expect(kv.store.size).toBe(0);
+  });
+});
+
+describe("repoIsPrivate", () => {
+  function kvWithToken(): FakeKv {
+    const kv = new FakeKv();
+    kv.store.set("ghtok:42", { value: "cached-token" });
+    return kv;
+  }
+
+  it("fetches, caches true for 600s, and serves the cache without refetching", async () => {
+    const { pem } = await testKeyPair();
+    const kv = kvWithToken();
+    let calls = 0;
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      calls++;
+      expect(String(input)).toBe("https://api.github.com/repos/o/r");
+      return new Response(JSON.stringify({ private: true }), { status: 200 });
+    }) as typeof fetch;
+    expect(await repoIsPrivate(envWith(kv), cfgWith(pem), 42, "o/r", fetchImpl)).toBe(true);
+    expect(kv.store.get("ghpriv:o/r")).toEqual({ value: "1", expirationTtl: 600 });
+    expect(await repoIsPrivate(envWith(kv), cfgWith(pem), 42, "o/r", fetchImpl)).toBe(true);
+    expect(calls).toBe(1);
+  });
+
+  it("fetches and caches false for 600s", async () => {
+    const { pem } = await testKeyPair();
+    const kv = kvWithToken();
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({ private: false }), { status: 200 })) as typeof fetch;
+    expect(await repoIsPrivate(envWith(kv), cfgWith(pem), 42, "o/r", fetchImpl)).toBe(false);
+    expect(kv.store.get("ghpriv:o/r")).toEqual({ value: "0", expirationTtl: 600 });
+  });
+
+  it("returns null (uncached) on a 404", async () => {
+    const { pem } = await testKeyPair();
+    const kv = kvWithToken();
+    const fetchImpl = (async () => new Response("", { status: 404 })) as typeof fetch;
+    expect(await repoIsPrivate(envWith(kv), cfgWith(pem), 42, "o/r", fetchImpl)).toBeNull();
+    expect(kv.store.get("ghpriv:o/r")).toBeUndefined();
+  });
+
+  it("returns null (uncached) on a 500", async () => {
+    const { pem } = await testKeyPair();
+    const kv = kvWithToken();
+    const fetchImpl = (async () => new Response("", { status: 500 })) as typeof fetch;
+    expect(await repoIsPrivate(envWith(kv), cfgWith(pem), 42, "o/r", fetchImpl)).toBeNull();
+    expect(kv.store.get("ghpriv:o/r")).toBeUndefined();
+  });
+
+  it("returns null when no installation token can be minted", async () => {
+    const { pem } = await testKeyPair();
+    const kv = new FakeKv();
+    const fetchImpl = (async () => new Response("", { status: 401 })) as typeof fetch;
+    expect(await repoIsPrivate(envWith(kv), cfgWith(pem), 42, "o/r", fetchImpl)).toBeNull();
+  });
+});
+
+describe("cacheRepoPrivacy", () => {
+  it("write-through: repoIsPrivate answers from cache without fetching", async () => {
+    const { pem } = await testKeyPair();
+    const kv = new FakeKv();
+    await cacheRepoPrivacy(envWith(kv), "o/r", true);
+    expect(kv.store.get("ghpriv:o/r")).toEqual({ value: "1", expirationTtl: 600 });
+    const fetchImpl = (async () => {
+      throw new Error("must not fetch");
+    }) as unknown as typeof fetch;
+    expect(await repoIsPrivate(envWith(kv), cfgWith(pem), 42, "o/r", fetchImpl)).toBe(true);
+  });
+
+  it("caches false too", async () => {
+    const kv = new FakeKv();
+    await cacheRepoPrivacy(envWith(kv), "o/r", false);
+    expect(kv.store.get("ghpriv:o/r")).toEqual({ value: "0", expirationTtl: 600 });
+  });
+});
+
+describe("prHeadBranch", () => {
+  function kvWithToken(): FakeKv {
+    const kv = new FakeKv();
+    kv.store.set("ghtok:42", { value: "cached-token" });
+    return kv;
+  }
+
+  it("fetches, lowercases the ref, caches for 3600s, and serves the cache", async () => {
+    const { pem } = await testKeyPair();
+    const kv = kvWithToken();
+    let calls = 0;
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      calls++;
+      expect(String(input)).toBe("https://api.github.com/repos/o/r/pulls/7");
+      return new Response(JSON.stringify({ head: { ref: "Feature/MyBranch" } }), { status: 200 });
+    }) as typeof fetch;
+    expect(await prHeadBranch(envWith(kv), cfgWith(pem), 42, "o/r", 7, fetchImpl)).toBe(
+      "feature/mybranch",
+    );
+    expect(kv.store.get("prhead:o/r#7")).toEqual({
+      value: "feature/mybranch",
+      expirationTtl: 3600,
+    });
+    expect(await prHeadBranch(envWith(kv), cfgWith(pem), 42, "o/r", 7, fetchImpl)).toBe(
+      "feature/mybranch",
+    );
+    expect(calls).toBe(1);
+  });
+
+  it("returns null (uncached) on an API error", async () => {
+    const { pem } = await testKeyPair();
+    const kv = kvWithToken();
+    const fetchImpl = (async () => new Response("", { status: 502 })) as typeof fetch;
+    expect(await prHeadBranch(envWith(kv), cfgWith(pem), 42, "o/r", 7, fetchImpl)).toBeNull();
+    expect(kv.store.get("prhead:o/r#7")).toBeUndefined();
+  });
+
+  it("returns null when no installation token can be minted", async () => {
+    const { pem } = await testKeyPair();
+    const kv = new FakeKv();
+    const fetchImpl = (async () => new Response("", { status: 401 })) as typeof fetch;
+    expect(await prHeadBranch(envWith(kv), cfgWith(pem), 42, "o/r", 7, fetchImpl)).toBeNull();
   });
 });
