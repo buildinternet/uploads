@@ -44,7 +44,38 @@ describe("runGithub (doctor)", () => {
         ["doctor"],
       );
       expect(code).toBe(0);
-      expect(stdout.join("")).toContain("ok");
+      // The ACTUAL subscribed list (sorted), not just the required subset.
+      expect(stdout.join("")).toContain("ok — subscribed to issues, ping, pull_request");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("lists recommended events in the ok line when subscribed", async () => {
+    const stdout: string[] = [];
+    const spy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: unknown) => (stdout.push(String(chunk)), true));
+    try {
+      const code = await runGithub(
+        ctxWith(
+          clientWith({
+            configured: true,
+            ok: true,
+            events: ["pull_request", "issue_comment", "issues"],
+            missingEvents: [],
+            requiredEvents: ["issues", "pull_request"],
+            recommendedEvents: ["issue_comment"],
+            missingRecommendedEvents: [],
+          }),
+        ),
+        ["doctor"],
+      );
+      expect(code).toBe(0);
+      expect(stdout.join("")).toContain(
+        "ok — subscribed to issue_comment, issues, pull_request (all required + recommended events)",
+      );
+      expect(stdout.join("")).not.toContain("note: not subscribed");
     } finally {
       spy.mockRestore();
     }

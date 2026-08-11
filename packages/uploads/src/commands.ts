@@ -3237,7 +3237,8 @@ owns it; an operator can reassign or remove that binding instead.
 
 \`doctor\` checks the GitHub App itself: whether it's configured on the
 server, and whether it's subscribed to the webhook events uploads.sh's
-handler needs (issues, pull_request — see docs/github-app). A missing
+handler needs (required: issues, pull_request; recommended: issue_comment —
+see docs/github-app). A missing
 subscription is the classic silent failure: the App's ping stays green
 while webhook auto-promotion and title-cache invalidation quietly do
 nothing.
@@ -3258,7 +3259,7 @@ function missingRecommendedEventsOf(result: GithubHealthResult): string[] {
 function recommendedNoteLine(result: GithubHealthResult): string {
   const missing = missingRecommendedEventsOf(result);
   if (missing.length === 0) return "";
-  return `note: not subscribed to ${missing.join(", ")} (recommended) — enables bot-comment self-healing; subscribe under the App's Permissions & events\n`;
+  return `note: not subscribed to ${missing.join(", ")} (recommended) — enables bot-comment self-healing and comment-attachment ingestion; subscribe under the App's Permissions & events\n`;
 }
 
 function formatGithubDoctor(result: GithubHealthResult): string {
@@ -3269,8 +3270,19 @@ function formatGithubDoctor(result: GithubHealthResult): string {
     return `github app: configured, but health check failed${result.hint ? ` — ${result.hint}` : ""}\n`;
   }
   if (result.ok) {
+    // The ACTUAL subscribed list, not just the required subset — printing
+    // requiredEvents here once misdiagnosed a live App as "not subscribed to
+    // issue_comment" when it was (2026-08-11). `events` is non-null on every
+    // ok result (the null case returns above); the requiredEvents fallback
+    // only guards a malformed payload from an older server.
+    const subscribed = Array.isArray(result.events)
+      ? [...result.events].sort()
+      : [...result.requiredEvents];
+    const allPresent = missingRecommendedEventsOf(result).length === 0;
     return (
-      `github app: ok — subscribed to ${result.requiredEvents.join(", ")}\n` +
+      `github app: ok — subscribed to ${subscribed.join(", ")}` +
+      (allPresent ? " (all required + recommended events)" : "") +
+      "\n" +
       recommendedNoteLine(result)
     );
   }
