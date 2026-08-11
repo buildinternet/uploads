@@ -1809,16 +1809,18 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       groups: {
+        project: string;
         path: string;
         count: number;
         lastUpdated: string;
         recent: { key: string; url: string | null; state?: string }[];
       }[];
+      projects: { label: string; count: number; lastUpdated: string }[];
       truncated: boolean;
     };
     expect(body.truncated).toBe(false);
     expect(body.groups).toHaveLength(1);
-    expect(body.groups[0]).toMatchObject({ path: "/settings", count: 2 });
+    expect(body.groups[0]).toMatchObject({ project: "Other", path: "/settings", count: 2 });
     const byKey = Object.fromEntries(body.groups[0]!.recent.map((r) => [r.key, r]));
     expect(byKey["shots/a.png"]).toMatchObject({
       url: "https://storage.uploads.sh/acme/shots/a.png",
@@ -1826,6 +1828,22 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
     });
     // `state` is present only when set — no empty-string placeholder.
     expect(byKey["shots/b.png"]).not.toHaveProperty("state");
+  });
+
+  it("labels groups with a project and returns the projects summary", async () => {
+    const db = metadataDb([
+      { workspace: "acme", key: "w.png", meta: { path: "/admin", repo: "acme/web" } },
+      { workspace: "acme", key: "o.png", meta: { path: "/admin", url: "https://x.dev/admin" } },
+    ]);
+    const env = memberEnv({ workspace: "acme", db, bucket: new FakeR2Bucket(), record: R2_RECORD });
+    const res = await app().request("/me/workspaces/acme/files/by-path", {}, env);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      groups: { project: string; path: string }[];
+      projects: { label: string; count: number; lastUpdated: string }[];
+    };
+    expect(body.groups.map((g) => g.project).sort()).toEqual(["acme/web", "x.dev"]);
+    expect(body.projects.map((p) => p.label).sort()).toEqual(["acme/web", "x.dev"]);
   });
 
   it("returns empty groups for a workspace with no path metadata", async () => {
@@ -1837,7 +1855,7 @@ describe("GET /me/workspaces/:name/files/by-path", () => {
     });
     const res = await app().request("/me/workspaces/acme/files/by-path", {}, env);
     expect(res.status).toBe(200);
-    expect((await res.json()) as unknown).toEqual({ groups: [], truncated: false });
+    expect((await res.json()) as unknown).toEqual({ groups: [], projects: [], truncated: false });
   });
 
   it("404s for a workspace the caller is not a member of", async () => {

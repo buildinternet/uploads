@@ -330,7 +330,7 @@ describe("GET /v1/workspaces/:workspace/files/by-path (dual auth)", () => {
       env,
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ groups: [], truncated: false });
+    expect(await res.json()).toEqual({ groups: [], projects: [], truncated: false });
   });
 
   it("session cookie: reaches the same handler", async () => {
@@ -342,7 +342,7 @@ describe("GET /v1/workspaces/:workspace/files/by-path (dual auth)", () => {
       env,
     );
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ groups: [], truncated: false });
+    expect(await res.json()).toEqual({ groups: [], projects: [], truncated: false });
   });
 });
 

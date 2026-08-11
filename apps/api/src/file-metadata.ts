@@ -660,65 +660,117 @@ export const BY_PATH_GROUP_LIMIT = 50;
 export const BY_PATH_RECENT_LIMIT = 6;
 
 export type PathGroup = {
+  project: string;
   path: string;
   count: number;
   lastUpdated: string;
   recent: string[];
 };
 
+export type ProjectSummary = { label: string; count: number; lastUpdated: string };
+
 /**
- * Recent uploads grouped by their `path` metadata value — the screenshots
- * page's one query (spec: docs/superpowers/specs/2026-08-10-screenshots-by-path-design.md).
+ * Recent uploads grouped by (project, path) — the screenshots page's one
+ * query (spec: docs/superpowers/specs/2026-08-11-screenshots-project-grouping-design.md).
  * Groups come back most-recently-active first, each carrying its newest
- * BY_PATH_RECENT_LIMIT keys and total count.
+ * BY_PATH_RECENT_LIMIT keys and total count. `projects` summarizes the same
+ * data by project label alone, most-recent first.
  *
- * One windowed statement over the `path` rows only (seeked via
- * `file_metadata_lookup_idx (workspace, meta_key, meta_value)`), so rows-read
- * scales with path-tagged files, not the whole metadata table. For `path`
- * rows `updated_at` is effectively upload time — the key is written at
- * upload — which is what "recent" should mean here. The group cap is applied
- * while assembling (rows arrive grouped), keeping the newest groups.
+ * One flat scan of the `path` rows (seeked via `file_metadata_lookup_idx
+ * (workspace, meta_key, meta_value)`), with the three project-label keys
+ * pulled per object via correlated subselects on the same (workspace,
+ * object_key) index. Rows-read still scales with path-tagged files, not the
+ * whole metadata table. Grouping/windowing moves to JS because the group key
+ * (project label) is a coalesce SQL can't express cleanly — rows arrive
+ * newest-first, so first-seen order is the recency order.
  */
 export async function groupObjectsByPath(
   db: D1Database,
   workspace: string,
-): Promise<{ groups: PathGroup[]; truncated: boolean }> {
+): Promise<{ groups: PathGroup[]; projects: ProjectSummary[]; truncated: boolean }> {
   const result = await db
     .prepare(
-      `SELECT path, object_key, cnt, latest FROM (
-         SELECT meta_value AS path, object_key,
-                ROW_NUMBER() OVER (PARTITION BY meta_value ORDER BY updated_at DESC, object_key ASC) AS rn,
-                COUNT(*) OVER (PARTITION BY meta_value) AS cnt,
-                MAX(updated_at) OVER (PARTITION BY meta_value) AS latest
-         FROM file_metadata
-         WHERE workspace = ? AND meta_key = 'path'
-       )
-       WHERE rn <= ?
-       ORDER BY latest DESC, path ASC, rn ASC`,
+      `SELECT p.meta_value AS path, p.object_key AS object_key, p.updated_at AS updated_at,
+              (SELECT meta_value FROM file_metadata m WHERE m.workspace = p.workspace AND m.object_key = p.object_key AND m.meta_key = 'repo') AS repo,
+              (SELECT meta_value FROM file_metadata m WHERE m.workspace = p.workspace AND m.object_key = p.object_key AND m.meta_key = 'gh.repo') AS gh_repo,
+              (SELECT meta_value FROM file_metadata m WHERE m.workspace = p.workspace AND m.object_key = p.object_key AND m.meta_key = 'url') AS url
+       FROM file_metadata p
+       WHERE p.workspace = ? AND p.meta_key = 'path'
+       ORDER BY p.updated_at DESC, p.object_key ASC`,
     )
-    .bind(workspace, BY_PATH_RECENT_LIMIT)
-    .all<{ path: string; object_key: string; cnt: number; latest: string }>();
+    .bind(workspace)
+    .all<{
+      path: string;
+      object_key: string;
+      updated_at: string;
+      repo: string | null;
+      gh_repo: string | null;
+      url: string | null;
+    }>();
 
   const groups: PathGroup[] = [];
+  const byKey = new Map<string, PathGroup>();
   let truncated = false;
   for (const row of result.results) {
-    const current = groups[groups.length - 1];
-    if (current?.path === row.path) {
-      current.recent.push(row.object_key);
-      continue;
+    const project = projectLabelFromMeta({ repo: row.repo, ghRepo: row.gh_repo, url: row.url });
+    const groupKey = `${project} ${row.path}`;
+    let group = byKey.get(groupKey);
+    if (!group) {
+      if (groups.length === BY_PATH_GROUP_LIMIT) {
+        truncated = true;
+        continue; // existing groups keep counting; new ones are dropped
+      }
+      group = { project, path: row.path, count: 0, lastUpdated: row.updated_at, recent: [] };
+      byKey.set(groupKey, group);
+      groups.push(group);
     }
-    if (groups.length === BY_PATH_GROUP_LIMIT) {
-      truncated = true;
-      break;
-    }
-    groups.push({
-      path: row.path,
-      count: row.cnt,
-      lastUpdated: row.latest,
-      recent: [row.object_key],
-    });
+    group.count += 1;
+    if (group.recent.length < BY_PATH_RECENT_LIMIT) group.recent.push(row.object_key);
   }
-  return { groups, truncated };
+
+  const projectByLabel = new Map<string, ProjectSummary>();
+  for (const group of groups) {
+    const existing = projectByLabel.get(group.project);
+    if (existing) {
+      existing.count += group.count;
+      if (group.lastUpdated > existing.lastUpdated) existing.lastUpdated = group.lastUpdated;
+    } else {
+      projectByLabel.set(group.project, {
+        label: group.project,
+        count: group.count,
+        lastUpdated: group.lastUpdated,
+      });
+    }
+  }
+  const projects = [...projectByLabel.values()].sort((a, b) =>
+    b.lastUpdated.localeCompare(a.lastUpdated),
+  );
+  return { groups, projects, truncated };
+}
+
+/**
+ * Project label for the screenshots page (spec:
+ * docs/superpowers/specs/2026-08-11-screenshots-project-grouping-design.md).
+ * Coalesces repo → gh.repo → url origin → "Other". Display/grouping only —
+ * never stored. Mirrored (with identical cases) by
+ * apps/web/src/lib/workspace-screenshots.ts.
+ */
+export function projectLabelFromMeta(meta: {
+  repo?: string | null;
+  ghRepo?: string | null;
+  url?: string | null;
+}): string {
+  if (meta.repo) return meta.repo;
+  if (meta.ghRepo) return meta.ghRepo;
+  if (meta.url) {
+    try {
+      const host = new URL(meta.url).host;
+      if (host) return host;
+    } catch {
+      // fall through — an unparseable url is just "no url"
+    }
+  }
+  return "Other";
 }
 
 export type FacetKeysResult = {

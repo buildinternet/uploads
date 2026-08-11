@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { parseRepoFromRemoteUrl } from "./github.js";
 
 export function sanitizeKeySegment(s: string): string {
   return s.replace(/[^A-Za-z0-9._-]/g, "-");
@@ -28,6 +29,24 @@ export function deriveRepoFromGit(
       : execSync("git config --get remote.origin.url", { encoding: "utf8" }).trim();
     const match = url.match(/[/:]([^/]+?)(?:\.git)?$/);
     return match?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Full `owner/name` slug (lowercase, matching the `gh.repo` convention) from
+ * the cwd's git remote — the derived `repo` metadata value. Unlike
+ * `deriveRepoFromGit` above (key-segment name only), this keeps the owner.
+ */
+export function deriveRepoSlugFromGit(
+  run?: (cmd: string, args: string[], input?: string) => string,
+): string | undefined {
+  try {
+    const url = run
+      ? run("git", ["config", "--get", "remote.origin.url"])
+      : execSync("git config --get remote.origin.url", { encoding: "utf8" });
+    return parseRepoFromRemoteUrl(url)?.toLowerCase();
   } catch {
     return undefined;
   }

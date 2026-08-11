@@ -847,14 +847,22 @@ export interface PathGroupItem {
 
 /** One `path` metadata value with its recent uploads. */
 export interface FilesPathGroup {
+  project: string;
   path: string;
   count: number;
   lastUpdated: string;
   recent: PathGroupItem[];
 }
 
+/** One project bucket summary alongside the by-path groups. */
+export interface ProjectSummary {
+  label: string;
+  count: number;
+  lastUpdated: string;
+}
+
 export type FilesByPathResult =
-  | { kind: "ok"; groups: FilesPathGroup[]; truncated: boolean }
+  | { kind: "ok"; groups: FilesPathGroup[]; projects: ProjectSummary[]; truncated: boolean }
   | { kind: "unavailable"; reason: RequestFailure | "server" | "malformed" };
 
 function isPathGroupItem(value: unknown): value is PathGroupItem {
@@ -872,11 +880,22 @@ function isFilesPathGroup(value: unknown): value is FilesPathGroup {
   if (!value || typeof value !== "object") return false;
   const group = value as Record<string, unknown>;
   return (
+    typeof group.project === "string" &&
     typeof group.path === "string" &&
     typeof group.count === "number" &&
     typeof group.lastUpdated === "string" &&
     Array.isArray(group.recent) &&
     group.recent.every(isPathGroupItem)
+  );
+}
+
+function isProjectSummary(value: unknown): value is ProjectSummary {
+  if (!value || typeof value !== "object") return false;
+  const project = value as Record<string, unknown>;
+  return (
+    typeof project.label === "string" &&
+    typeof project.count === "number" &&
+    typeof project.lastUpdated === "string"
   );
 }
 
@@ -892,17 +911,20 @@ export async function getWorkspaceFilesByPath(
   if (!response.ok) return { kind: "unavailable", reason: "server" };
   const body = (await response.json().catch(() => null)) as {
     groups?: unknown;
+    projects?: unknown;
     truncated?: unknown;
   } | null;
   if (
     !body ||
     !Array.isArray(body.groups) ||
+    !Array.isArray(body.projects) ||
     typeof body.truncated !== "boolean" ||
-    !body.groups.every(isFilesPathGroup)
+    !body.groups.every(isFilesPathGroup) ||
+    !body.projects.every(isProjectSummary)
   ) {
     return { kind: "unavailable", reason: "malformed" };
   }
-  return { kind: "ok", groups: body.groups, truncated: body.truncated };
+  return { kind: "ok", groups: body.groups, projects: body.projects, truncated: body.truncated };
 }
 
 /** One metadata key present in a workspace, with its file and value counts. */

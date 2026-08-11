@@ -13,6 +13,7 @@ import {
   searchWorkspaceFiles,
   type FilesPathGroup,
   type PathGroupItem,
+  type ProjectSummary,
   type SearchFileItem,
 } from "../lib/api-client";
 import { loadWorkspaces } from "../lib/workspaces-nav";
@@ -22,10 +23,14 @@ import { filePath } from "../lib/public-file";
 import { fetchWithTimeout } from "../lib/request";
 import {
   lastUpdatedLabel,
-  readScreenshotsPath,
+  projectLabelFromItemMeta,
+  readScreenshotsView,
   screenshotsSearch,
   shotKindFromKey,
 } from "../lib/workspace-screenshots";
+
+/** How many path groups a project section previews before "view project →". */
+const PREVIEW_PATHS_PER_PROJECT = 3;
 
 interface ScreenshotsByPathProps {
   apiOrigin: string;
@@ -35,7 +40,12 @@ interface ScreenshotsByPathProps {
 type OverviewState =
   | { status: "loading" }
   | { status: "error" }
-  | { status: "ready"; groups: FilesPathGroup[]; truncated: boolean };
+  | {
+      status: "ready";
+      groups: FilesPathGroup[];
+      projects: ProjectSummary[];
+      truncated: boolean;
+    };
 
 type DrillState =
   | { status: "idle" }
@@ -192,8 +202,8 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
   const [infoRetryNonce, setInfoRetryNonce] = useState(0);
   const [overview, setOverview] = useState<OverviewState>({ status: "loading" });
   const [overviewRetryNonce, setOverviewRetryNonce] = useState(0);
-  const [drillPath, setDrillPath] = useState<string>(() =>
-    readScreenshotsPath(window.location.search),
+  const [view, setView] = useState<{ project: string; path: string }>(() =>
+    readScreenshotsView(window.location.search),
   );
   const [drill, setDrill] = useState<DrillState>({ status: "idle" });
   const [drillRetryNonce, setDrillRetryNonce] = useState(0);
@@ -224,7 +234,12 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
         if (cancelled) return;
         setOverview(
           result.kind === "ok"
-            ? { status: "ready", groups: result.groups, truncated: result.truncated }
+            ? {
+                status: "ready",
+                groups: result.groups,
+                projects: result.projects,
+                truncated: result.truncated,
+              }
             : { status: "error" },
         );
       });
@@ -258,18 +273,23 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
   }, [apiOrigin, workspace]);
 
   // Drill-in fetch — URL-synced so a reload or shared link lands on the
-  // same path. Clearing drillPath ("") goes back to the overview without a
-  // search fetch.
+  // same view. Clearing view.path ("") goes back to the overview/project
+  // view without a search fetch. Bare legacy `?path=` links keep working —
+  // they simply carry an empty view.project, so no project filter applies.
   useEffect(() => {
-    history.replaceState(null, "", window.location.pathname + screenshotsSearch(drillPath));
-    if (!drillPath) {
+    history.replaceState(
+      null,
+      "",
+      window.location.pathname + screenshotsSearch(view.project, view.path),
+    );
+    if (!view.path) {
       setDrill({ status: "idle" });
       return;
     }
     let cancelled = false;
     setDrill({ status: "loading" });
     onSession(() => {
-      void searchWorkspaceFiles(apiOrigin, workspace, [{ key: "path", value: drillPath }]).then(
+      void searchWorkspaceFiles(apiOrigin, workspace, [{ key: "path", value: view.path }]).then(
         (result) => {
           if (cancelled) return;
           setDrill(
@@ -283,7 +303,7 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
     return () => {
       cancelled = true;
     };
-  }, [apiOrigin, workspace, drillPath, drillRetryNonce]);
+  }, [apiOrigin, workspace, view.project, view.path, drillRetryNonce]);
 
   if (info.status === "loading" || overview.status === "loading") {
     return <OverviewLoadingSkeleton />;
@@ -327,15 +347,37 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
 
   const open = (file: { key: string; pageUrl?: string }) =>
     openFile(apiOrigin, workspace, info.hasPublicUrl, file);
+  const onDrill = (group: { project: string; path: string }) =>
+    setView({ project: group.project, path: group.path });
 
-  // Drill-in view.
-  if (drillPath) {
+  // GitHub items bucketed by project label, for both the overview's
+  // per-project strips and the project view's full "From GitHub" section.
+  const ghByProject = new Map<string, SearchFileItem[]>();
+  if (ghState.status === "ready") {
+    for (const item of ghState.items) {
+      const label = projectLabelFromItemMeta(item.metadata);
+      ghByProject.set(label, [...(ghByProject.get(label) ?? []), item]);
+    }
+  }
+
+  // Drill-in view (?path=, optionally scoped to ?project=).
+  if (view.path) {
+    const drillItems =
+      drill.status === "ready"
+        ? view.project === ""
+          ? drill.items
+          : drill.items.filter((item) => projectLabelFromItemMeta(item.metadata) === view.project)
+        : [];
     return (
       <div className="wsp">
-        <button type="button" className="text-btn" onClick={() => setDrillPath("")}>
-          ← all paths
+        <button
+          type="button"
+          className="text-btn"
+          onClick={() => setView({ project: view.project, path: "" })}
+        >
+          {view.project ? `← ${view.project}` : "← all projects"}
         </button>
-        <h2 className="wsp-drill__heading">{drillPath}</h2>
+        <h2 className="wsp-drill__heading">{view.path}</h2>
         {drill.status === "loading" && (
           <div className="wsp-grid" aria-busy="true">
             {Array.from({ length: 8 }, (_, i) => (
@@ -358,7 +400,7 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
         {drill.status === "ready" && (
           <>
             <div className="wsp-grid">
-              {drill.items.map((item) => (
+              {drillItems.map((item) => (
                 <ShotThumb
                   key={item.key}
                   item={{ ...item, state: item.metadata?.state }}
@@ -366,9 +408,26 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
                 />
               ))}
             </div>
-            {drill.items.length === 0 && <p className="wft-end">No screenshots at this path.</p>}
-            {drill.truncated && (
-              <p className="wft-end">Showing the first 100 — narrow the path to see more.</p>
+            {/* The project scope is applied client-side AFTER the search's
+                100-item cap (the origin-labeled fallback can't be expressed
+                as a metadata filter — spec keeps URL-prefix search out of
+                scope), so a truncated response may hide project matches: say
+                so rather than claiming an empty/complete result. */}
+            {drillItems.length === 0 && (
+              <p className="wft-end">
+                {view.project && drill.truncated
+                  ? `None of the first 100 at this path belong to ${view.project} — there may be more beyond that.`
+                  : view.project
+                    ? "No screenshots at this path for this project."
+                    : "No screenshots at this path."}
+              </p>
+            )}
+            {drillItems.length > 0 && drill.truncated && (
+              <p className="wft-end">
+                {view.project
+                  ? "Project filter applied to the first 100 at this path — there may be more."
+                  : "Showing the first 100 — narrow the path to see more."}
+              </p>
             )}
           </>
         )}
@@ -376,16 +435,56 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
     );
   }
 
-  // Overview: by-path groups, or the empty state when no path-tagged
-  // screenshots exist at all — either way, the GitHub section (when
-  // non-empty) still renders below it, since GitHub-ingested files carry no
-  // `path` metadata and would otherwise never surface in a GitHub-only
-  // workspace.
-  const showGh = ghState.status === "ready" && ghState.items.length > 0;
+  // Project view (?project=, no ?path=): every path group and the full
+  // GitHub strip for a single project, no preview truncation.
+  if (view.project) {
+    const projectGroups = overview.groups.filter((group) => group.project === view.project);
+    const projectGh = ghByProject.get(view.project);
+    const isEmpty = projectGroups.length === 0 && !projectGh;
+    return (
+      <div className="wsp">
+        <button
+          type="button"
+          className="text-btn"
+          onClick={() => setView({ project: "", path: "" })}
+        >
+          ← all projects
+        </button>
+        <h2 className="wsp-drill__heading">{view.project}</h2>
+        {isEmpty ? (
+          <div className="ws-empty-state">
+            <p className="ws-empty-state__title">No screenshots for this project</p>
+            <p className="ws-empty-state__body">
+              <code>uploads screenshot</code> records the page it captured automatically, and any
+              upload can pass <code>--meta path=/settings</code> to group here. See{" "}
+              <a href="/docs">the docs</a> for details.
+            </p>
+          </div>
+        ) : (
+          <>
+            {projectGroups.map((group) => (
+              <PathGroupSection key={group.path} group={group} onDrill={onDrill} onOpen={open} />
+            ))}
+            {projectGh && <GitHubSection items={projectGh} onOpen={open} />}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // Overview: one section per project (recency-ordered API projects, then
+  // GH-only labels), each with a preview of its path groups plus its
+  // "From GitHub" strip when present. The empty state shows only when there
+  // are no sections at all — a project with only GitHub-mirrored files (no
+  // `path` metadata) still gets a section via ghByProject.
+  const sectionLabels = [
+    ...overview.projects.map((p) => p.label),
+    ...[...ghByProject.keys()].filter((label) => !overview.projects.some((p) => p.label === label)),
+  ];
 
   return (
     <div className="wsp">
-      {overview.groups.length === 0 ? (
+      {sectionLabels.length === 0 ? (
         <div className="ws-empty-state">
           <p className="ws-empty-state__title">No screenshots with a path yet</p>
           <p className="ws-empty-state__body">
@@ -396,15 +495,70 @@ export function ScreenshotsByPath({ apiOrigin, workspace }: ScreenshotsByPathPro
         </div>
       ) : (
         <>
-          {overview.groups.map((group) => (
-            <PathGroupSection key={group.path} group={group} onDrill={setDrillPath} onOpen={open} />
-          ))}
+          {sectionLabels.map((label) => {
+            const projectSummary = overview.projects.find((p) => p.label === label);
+            const groups = overview.groups.filter((group) => group.project === label);
+            const ghItems = ghByProject.get(label);
+            return (
+              <ProjectSection
+                key={label}
+                label={label}
+                summary={projectSummary}
+                groups={groups.slice(0, PREVIEW_PATHS_PER_PROJECT)}
+                ghItems={ghItems}
+                onViewProject={() => setView({ project: label, path: "" })}
+                onDrill={onDrill}
+                onOpen={open}
+              />
+            );
+          })}
           {overview.truncated && (
             <p className="wft-end">Showing the most active paths — narrow with a specific path.</p>
           )}
         </>
       )}
-      {showGh && <GitHubSection items={ghState.items} onOpen={open} />}
+    </div>
+  );
+}
+
+function ProjectSection({
+  label,
+  summary,
+  groups,
+  ghItems,
+  onViewProject,
+  onDrill,
+  onOpen,
+}: {
+  label: string;
+  summary: ProjectSummary | undefined;
+  groups: FilesPathGroup[];
+  ghItems: SearchFileItem[] | undefined;
+  onViewProject: () => void;
+  onDrill: (group: { project: string; path: string }) => void;
+  onOpen: (file: PathGroupItem | SearchFileItem) => void;
+}) {
+  // A GH-only label (no by-path groups) has no ProjectSummary — fall back to
+  // the GitHub items' count so the header still reads sensibly.
+  const count = summary?.count ?? ghItems?.length ?? 0;
+  const lastUpdated = summary?.lastUpdated;
+
+  return (
+    <div className="wsp-project">
+      <div className="wsp-project__head">
+        <span className="wsp-project__label">{label}</span>
+        <span className="wsp-group__meta">
+          {count} {count === 1 ? "file" : "files"}
+          {lastUpdated ? ` · ${lastUpdatedLabel(lastUpdated, new Date())}` : ""}
+        </span>
+        <button type="button" className="text-btn wsp-project__viewall" onClick={onViewProject}>
+          view project →
+        </button>
+      </div>
+      {groups.map((group) => (
+        <PathGroupSection key={group.path} group={group} onDrill={onDrill} onOpen={onOpen} />
+      ))}
+      {ghItems && <GitHubSection items={ghItems} onOpen={onOpen} />}
     </div>
   );
 }
@@ -443,12 +597,12 @@ function PathGroupSection({
   onOpen,
 }: {
   group: FilesPathGroup;
-  onDrill: (path: string) => void;
+  onDrill: (group: { project: string; path: string }) => void;
   onOpen: (file: PathGroupItem) => void;
 }) {
   return (
     <div className="wsp-group">
-      <button type="button" className="wsp-group__head" onClick={() => onDrill(group.path)}>
+      <button type="button" className="wsp-group__head" onClick={() => onDrill(group)}>
         <span className="wsp-group__path">{group.path}</span>
         <span className="wsp-group__meta">
           {group.count} {group.count === 1 ? "file" : "files"} ·{" "}

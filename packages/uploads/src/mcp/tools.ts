@@ -29,6 +29,7 @@ import {
 import { resolvePutPrefix } from "../destinations.js";
 import { ghBranchAttachmentKey, ghKeyPrefix, type GhTarget } from "../github.js";
 import { safeCaptureFacts } from "../capture-facts.js";
+import { deriveRepoSlugFromGit } from "../keys.js";
 import { validateMetaMap } from "../metadata.js";
 import { mergeDerivedMeta } from "../metadata-vocab.js";
 import { type OptimizeImageOptions } from "../optimize.js";
@@ -517,7 +518,24 @@ export function createUploadsMcpTools(opts: {
           repoArg: optString(args, "repo") ?? defaults.repo,
           run,
         });
-        const putMetadata = stagingTarget ? mergeStagingMeta(metadata, stagingTarget) : metadata;
+        // Derived `repo` metadata (spec: 2026-08-11-screenshots-project-grouping-design.md).
+        // Same derivation the CLI does; MCP always derives (no --no-auto), so
+        // this is only suppressed by noGit. metadataProp's contract: omitting
+        // `metadata` means "leave what's already stored for this key
+        // untouched" — an object (even {}) triggers a full replace. So only
+        // fold the derived repo into a defined object when the caller already
+        // supplied metadata, or branch staging is building one below anyway
+        // (mergeStagingMeta always returns a defined object); never
+        // synthesize metadata on a bare re-upload just to add repo, or a
+        // no-metadata put would silently wipe everything already stored.
+        const repoSlug = !noGit ? deriveRepoSlugFromGit(run) : undefined;
+        const metadataWithRepo =
+          repoSlug !== undefined && (metadata !== undefined || stagingTarget !== undefined)
+            ? mergeDerivedMeta(metadata ?? {}, { repo: repoSlug })
+            : metadata;
+        const putMetadata = stagingTarget
+          ? mergeStagingMeta(metadataWithRepo, stagingTarget)
+          : metadataWithRepo;
 
         const putShared = {
           client,
@@ -848,10 +866,16 @@ export function createUploadsMcpTools(opts: {
           viewport,
           colorSchemeArg as "dark" | "light" | undefined,
         );
+        // Derived `repo` metadata (spec: 2026-08-11-screenshots-project-grouping-design.md).
+        // Same derivation the CLI does, suppressed by noGit.
+        const repoSlug = !noGit ? deriveRepoSlugFromGit(run) : undefined;
+        const captureDerivedWithRepo = repoSlug
+          ? { ...captureDerived, repo: repoSlug }
+          : captureDerived;
         const metadataBase =
-          metadata === undefined && Object.keys(captureDerived).length === 0
+          metadata === undefined && Object.keys(captureDerivedWithRepo).length === 0
             ? undefined
-            : mergeDerivedMeta(metadata ?? {}, captureDerived);
+            : mergeDerivedMeta(metadata ?? {}, captureDerivedWithRepo);
         // gh.* metadata: explicit pr/issue target wins; staging wins the same
         // way (matches attach --branch/bare put); otherwise capture-derived +
         // explicit only.

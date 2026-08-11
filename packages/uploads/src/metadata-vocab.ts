@@ -19,6 +19,7 @@ export const CANONICAL_META_KEYS = [
   "captured",
   "state",
   "app",
+  "repo",
 ] as const;
 
 export type CanonicalMetaKey = (typeof CANONICAL_META_KEYS)[number];

@@ -1780,6 +1780,35 @@ button.wft-card__name:focus-visible {
   display: grid;
   gap: 24px;
 }
+/* Overview project section — one level up from .wsp-group, so its head
+   reads slightly larger and its children (.wsp-group rows) sit stacked
+   underneath with the same rhythm as the rest of the page. */
+.wsp-project {
+  display: grid;
+  gap: 16px;
+}
+.wsp-project__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+}
+.wsp-project__label {
+  font-weight: 600;
+  font-size: 15px;
+}
+.wsp-project__viewall {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+  padding: 0;
+}
+.wsp-project__viewall:hover,
+.wsp-project__viewall:focus-visible {
+  color: var(--fg);
+}
+
 .wsp-group {
   display: grid;
   gap: 10px;

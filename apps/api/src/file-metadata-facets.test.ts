@@ -6,6 +6,7 @@ import {
   facetKeys,
   facetValues,
   groupObjectsByPath,
+  projectLabelFromMeta,
   BY_PATH_GROUP_LIMIT,
   BY_PATH_RECENT_LIMIT,
 } from "./file-metadata";
@@ -181,9 +182,16 @@ describe("groupObjectsByPath", () => {
     );
     expect(result.truncated).toBe(false);
     expect(result.groups).toEqual([
-      { path: "/settings", count: 2, lastUpdated: at(3), recent: ["c.png", "a.png"] },
-      { path: "/home", count: 1, lastUpdated: at(2), recent: ["b.png"] },
+      {
+        project: "Other",
+        path: "/settings",
+        count: 2,
+        lastUpdated: at(3),
+        recent: ["c.png", "a.png"],
+      },
+      { project: "Other", path: "/home", count: 1, lastUpdated: at(2), recent: ["b.png"] },
     ]);
+    expect(result.projects).toEqual([{ label: "Other", count: 3, lastUpdated: at(3) }]);
   });
 
   it("caps recent keys per group at BY_PATH_RECENT_LIMIT but counts all", async () => {
@@ -227,12 +235,72 @@ describe("groupObjectsByPath", () => {
       "acme",
     );
     expect(result.groups).toEqual([
-      { path: "/home", count: 1, lastUpdated: at(1), recent: ["a.png"] },
+      { project: "Other", path: "/home", count: 1, lastUpdated: at(1), recent: ["a.png"] },
     ]);
   });
 
   it("returns empty groups for a workspace with no path metadata", async () => {
     const result = await groupObjectsByPath(timedDb([]), "acme");
-    expect(result).toEqual({ groups: [], truncated: false });
+    expect(result).toEqual({ groups: [], projects: [], truncated: false });
+  });
+
+  it("splits the same path across projects and summarizes projects", async () => {
+    const result = await groupObjectsByPath(
+      db([
+        { workspace: "acme", key: "a.png", meta: { path: "/admin", repo: "acme/web" } },
+        { workspace: "acme", key: "b.png", meta: { path: "/admin", "gh.repo": "acme/api" } },
+        { workspace: "acme", key: "c.png", meta: { path: "/admin", url: "https://x.dev/admin" } },
+        { workspace: "acme", key: "d.png", meta: { path: "/other", repo: "acme/web" } },
+      ]),
+      "acme",
+    );
+    expect(result.groups.map((g) => [g.project, g.path, g.count])).toEqual(
+      expect.arrayContaining([
+        ["acme/web", "/admin", 1],
+        ["acme/api", "/admin", 1],
+        ["x.dev", "/admin", 1],
+        ["acme/web", "/other", 1],
+      ]),
+    );
+    expect(result.groups).toHaveLength(4);
+    const labels = result.projects.map((p) => p.label).sort();
+    expect(labels).toEqual(["acme/api", "acme/web", "x.dev"]);
+    expect(result.projects.find((p) => p.label === "acme/web")?.count).toBe(2);
+  });
+
+  it("prefers repo over gh.repo over url when a file has several", async () => {
+    const result = await groupObjectsByPath(
+      db([
+        {
+          workspace: "acme",
+          key: "a.png",
+          meta: { path: "/p", repo: "acme/web", "gh.repo": "acme/api", url: "https://x.dev/p" },
+        },
+      ]),
+      "acme",
+    );
+    expect(result.groups[0]).toMatchObject({ project: "acme/web", path: "/p" });
+  });
+});
+
+describe("projectLabelFromMeta", () => {
+  it("prefers repo over gh.repo over url origin", () => {
+    expect(
+      projectLabelFromMeta({ repo: "acme/web", ghRepo: "acme/other", url: "https://x.dev/p" }),
+    ).toBe("acme/web");
+    expect(projectLabelFromMeta({ ghRepo: "acme/other", url: "https://x.dev/p" })).toBe(
+      "acme/other",
+    );
+  });
+  it("falls back to the url host, keeping the port", () => {
+    expect(projectLabelFromMeta({ url: "https://uploads.localhost/settings" })).toBe(
+      "uploads.localhost",
+    );
+    expect(projectLabelFromMeta({ url: "http://localhost:3000/admin" })).toBe("localhost:3000");
+  });
+  it("returns Other for missing or unparseable url", () => {
+    expect(projectLabelFromMeta({})).toBe("Other");
+    expect(projectLabelFromMeta({ url: "not a url" })).toBe("Other");
+    expect(projectLabelFromMeta({ repo: null, ghRepo: null, url: null })).toBe("Other");
   });
 });
