@@ -11,6 +11,7 @@
 import { InsufficientStorageError, RateLimitedError } from "@uploads/errors";
 import { describe, expect, it, vi } from "vitest";
 import { attachmentKeyBasename } from "./github-attachment-extract";
+import { ghPrivateKeyPrefix } from "./github-comment-render";
 import {
   ingestForWebhook,
   reconcileIngestSource,
@@ -20,6 +21,7 @@ import {
 import { ledgerRow, ledgerRowsForSource, recordIngestedAsset } from "./github-ingest-ledger";
 import { setLedgerDetached } from "./github-ingest-ledger";
 import { getFileMetadata, replaceFileMetadata } from "./file-metadata";
+import { getOrMintPrefixId } from "./github-private-prefixes";
 import { recordRepoLink } from "./github-repo-links";
 import type { WorkspaceRecord } from "./workspace";
 import { FakeKv } from "../test/fake-kv";
@@ -41,6 +43,13 @@ function baseEnv(): { env: Env; db: UsageFakeD1; kv: FakeKv } {
   const kv = new FakeKv();
   kv.store.set("ghinst:acme/app", { value: "42" });
   kv.store.set("ghtok:42", { value: "ghs_test" });
+  // Public by default (cache hit — no network call): ingestForWebhook and
+  // reconcileIngestTarget now resolve a repo-level key mode via
+  // resolveGhKeyContext (issue #631) on every call, which — unlike this
+  // module's own GitHub calls — isn't fetchImpl-seamed, so a cache miss here
+  // would fall through to a REAL `fetch` in every test that doesn't care
+  // about privacy. Seeding the negative answer keeps them deterministic.
+  kv.store.set("ghpriv:acme/app", { value: "0" });
   const env = {
     DB: db,
     GITHUB_CACHE: kv,
@@ -906,5 +915,102 @@ describe("reconcileIngestTarget", () => {
         { fetchImpl: impl },
       ),
     ).rejects.toMatchObject({ code: "github_app_not_installed" });
+  });
+});
+
+describe("private-repo ingest keys (issue #631)", () => {
+  it("ingestForWebhook: a private repo writes under gh/private/<id>/ingest/<kind>-<num>/, distinct from the comment-gather prefix", async () => {
+    const { env: base, kv } = baseEnv();
+    kv.store.set("ghpriv:acme/app", { value: "1" });
+    const env = withRegistry(base, {
+      provider: "r2",
+      bucket: "b",
+      githubIngestAttachments: true,
+    } as WorkspaceRecord);
+    await recordRepoLink(env.DB, REPO, WS, "test");
+    const impl = fakeFetch({
+      "/contents/": () => new Response("nf", { status: 404 }),
+      "/repos/acme/app/issues/7": () =>
+        new Response(JSON.stringify({ body: `see ${ASSET_URL}`, user: { login: "octocat" } }), {
+          status: 200,
+        }),
+      [ASSET_ID]: pngRoute(PNG),
+    });
+    const { putImpl, calls } = spyPut();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+
+    await withGlobalFetch(impl, () => ingestForWebhook(env, ref, { fetchImpl: impl, putImpl }));
+
+    expect(calls).toHaveLength(1);
+    const writtenKey = calls[0]!.key;
+    const prefixId = await getOrMintPrefixId(env.DB, REPO, "");
+    expect(writtenKey).toBe(
+      `gh/private/${prefixId}/ingest/pull-7/${attachmentKeyBasename(ASSET_ID)}.png`,
+    );
+
+    // Never lands under the prefix the managed-comment gatherer lists for
+    // this PR — an ingested asset is an index only, not comment-visible.
+    const gatherPrefix = ghPrivateKeyPrefix(prefixId, { repo: REPO, kind: "pull", num: 7 });
+    expect(writtenKey.startsWith(gatherPrefix)).toBe(false);
+
+    const row = await ledgerRow(env.DB, REPO, ASSET_ID);
+    expect(row?.objectKey).toBe(writtenKey);
+  });
+
+  it("ingestForWebhook: a public repo is unaffected (still the plain ingest key)", async () => {
+    const { env: base } = baseEnv(); // ghpriv:acme/app seeded "0" by baseEnv()
+    const env = withRegistry(base, {
+      provider: "r2",
+      bucket: "b",
+      githubIngestAttachments: true,
+    } as WorkspaceRecord);
+    await recordRepoLink(env.DB, REPO, WS, "test");
+    const impl = fakeFetch({
+      "/contents/": () => new Response("nf", { status: 404 }),
+      "/repos/acme/app/issues/7": () =>
+        new Response(JSON.stringify({ body: `see ${ASSET_URL}`, user: { login: "octocat" } }), {
+          status: 200,
+        }),
+      [ASSET_ID]: pngRoute(PNG),
+    });
+    const { putImpl, calls } = spyPut();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+
+    await withGlobalFetch(impl, () => ingestForWebhook(env, ref, { fetchImpl: impl, putImpl }));
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.key).toBe(KEY);
+  });
+
+  it("reconcileIngestTarget: a private repo writes the same gh/private/<id>/ingest/ layout, resolving the mode once for the whole call", async () => {
+    const { env } = baseEnv();
+    (env.GITHUB_CACHE as unknown as FakeKv).store.set("ghpriv:acme/app", { value: "1" });
+    await recordRepoLink(env.DB, REPO, WS, "test");
+    const impl = fakeFetch({
+      "/access_tokens": () => new Response(JSON.stringify({ token: "t" }), { status: 201 }),
+      "/installation": () => new Response(JSON.stringify({ id: 42 }), { status: 200 }),
+      "/repos/acme/app/issues/7/comments": () => new Response(JSON.stringify([]), { status: 200 }),
+      "/repos/acme/app/issues/7": () =>
+        new Response(JSON.stringify({ body: `see ${ASSET_URL}`, user: { login: "bob" } }), {
+          status: 200,
+        }),
+      [ASSET_ID]: pngRoute(PNG),
+    });
+    const { putImpl, calls } = spyPut();
+
+    const summary = await reconcileIngestTarget(
+      env,
+      ws,
+      WS,
+      { repo: REPO, kind: "pull", num: 7 },
+      { fetchImpl: impl, putImpl },
+    );
+
+    expect(calls).toHaveLength(1);
+    const prefixId = await getOrMintPrefixId(env.DB, REPO, "");
+    expect(calls[0]!.key).toBe(
+      `gh/private/${prefixId}/ingest/pull-7/${attachmentKeyBasename(ASSET_ID)}.png`,
+    );
+    expect(summary.ingested).toEqual([calls[0]!.key]);
   });
 });

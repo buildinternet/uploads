@@ -38,7 +38,7 @@
  */
 
 import { hasUserAttachmentUrl } from "./github-attachment-extract";
-import { githubAppConfig, installationForRepo } from "./github-app";
+import { cacheRepoPrivacy, githubAppConfig, installationForRepo } from "./github-app";
 import { commentCacheKey, gatherCommentBody, upsertBotComment } from "./github-comment";
 import { ATTACHMENTS_MARKER } from "./github-comment-render";
 import type { GhTarget } from "./github-comment-render";
@@ -110,7 +110,7 @@ const PROMOTE_ACTIONS = new Set(["opened", "reopened", "synchronize"]);
 
 interface PullRequestPayload {
   action?: unknown;
-  repository?: { full_name?: unknown };
+  repository?: { full_name?: unknown; private?: unknown };
   pull_request?: {
     number?: unknown;
     head?: { ref?: unknown; repo?: { full_name?: unknown } };
@@ -208,7 +208,7 @@ const MARKER_SUBSTRING = ATTACHMENTS_MARKER.replace(/^<!--\s*|\s*-->$/g, "");
 
 interface IssueCommentPayload {
   action?: unknown;
-  repository?: { full_name?: unknown };
+  repository?: { full_name?: unknown; private?: unknown };
   issue?: { number?: unknown; pull_request?: unknown };
   comment?: { id?: unknown; body?: unknown; user?: { login?: unknown; type?: unknown } };
   sender?: { login?: unknown; type?: unknown };
@@ -288,6 +288,11 @@ export interface WebhookEvent {
   /** Opt-in GitHub-native attachment ingest (spec 2026-08-11). Source ref only —
    * the consumer re-fetches current text, so this stays queue-compact. */
   ingest?: IngestSourceRef;
+  /** Write-through for `repoIsPrivate`'s KV cache (issue #631) — present
+   * whenever the delivery's `repository.private` field is a boolean, so a
+   * webhook primes the private-prefix decision flow without an extra GitHub
+   * API round trip. */
+  privacy?: { repo: string; isPrivate: boolean };
 }
 
 /**
@@ -299,6 +304,18 @@ export interface WebhookEvent {
 export function extractWebhookEvent(eventType: string, payload: unknown): WebhookEvent | null {
   const p = (payload ?? {}) as Record<string, unknown>;
   const ev: WebhookEvent = { keys: [] };
+
+  // Privacy write-through (issue #631): any delivery carrying a top-level
+  // `repository` with a boolean `private` field (pull_request, issue_comment,
+  // and most other repo-scoped events) primes `repoIsPrivate`'s KV cache —
+  // cheap, payload-only, no I/O here.
+  const repoForPrivacy = p.repository as { full_name?: unknown; private?: unknown } | undefined;
+  if (
+    typeof repoForPrivacy?.full_name === "string" &&
+    typeof repoForPrivacy.private === "boolean"
+  ) {
+    ev.privacy = { repo: repoForPrivacy.full_name, isPrivate: repoForPrivacy.private };
+  }
 
   if (eventType === "installation") {
     const id = (p.installation as { id?: unknown } | undefined)?.id;
@@ -387,7 +404,7 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
   }
   // ping and unknown events fall through with no work.
 
-  return ev.keys.length || ev.promote || ev.reconcile || ev.ingest ? ev : null;
+  return ev.keys.length || ev.promote || ev.reconcile || ev.ingest || ev.privacy ? ev : null;
 }
 
 /**
@@ -398,6 +415,24 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
  * (`handleWebhook`'s no-queue fallback) catch and log instead.
  */
 export async function processWebhookEvent(env: Env, ev: WebhookEvent): Promise<void> {
+  if (ev.privacy) {
+    // Best-effort priming, not a gate: a KV outage here must never block
+    // promote/reconcile/ingest below (those degrade to plain on their own
+    // when the cache is unreadable) — same doctrine as the KV-delete
+    // allSettled just below, applied to a single awaited put.
+    try {
+      await cacheRepoPrivacy(env, ev.privacy.repo, ev.privacy.isPrivate);
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          message: "webhook privacy cache write-through failed",
+          repo: ev.privacy.repo,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    }
+  }
+
   await Promise.allSettled(ev.keys.map((key) => env.GITHUB_CACHE.delete(key)));
 
   if (ev.promote) {

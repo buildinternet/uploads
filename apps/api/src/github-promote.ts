@@ -19,6 +19,8 @@
 
 import { getMetadataForKeys, setFileMetadata } from "./file-metadata";
 import { putObject } from "./files-core";
+import { ghPrivateAttachmentKey, ghPrivateBranchKeyPrefix } from "./github-comment-render";
+import { resolveGhKeyContext } from "./github-private-prefix-service";
 import { storage } from "./storage";
 import { objectVisibility } from "./visibility";
 import type { WorkspaceRecord } from "./workspace";
@@ -84,11 +86,28 @@ export interface PromoteResult {
   skipped: PromoteSkip[];
 }
 
+/** One staged key found under one of the prefixes swept for this branch. */
+interface StagedEntry {
+  key: string;
+  /** The prefix `key` was listed under — stripped off to recover the filename. */
+  prefix: string;
+}
+
 /**
  * Copy the calling workspace's fresh branch-staged attachments into the
  * target PR's attachment prefix. Degrade-safe: a single-file copy failure is
  * collected into `skipped` rather than failing the whole call. Idempotent —
  * re-running overwrites the destination copies.
+ *
+ * Private-repo prefixes (issue #631): resolves the current key mode for
+ * `(target.repo, target.branch)` via `resolveGhKeyContext` (fail-open —
+ * `mintingUserId: null` since this runs server-side with no caller identity;
+ * `checkRepoAuthorization` still passes because this repo is already linked
+ * to `workspaceName` by the time anything calls promote). Private mode also
+ * sweeps the plain staged prefix — files staged before this feature shipped,
+ * or during a privacy flip, still promote — but every swept file's
+ * destination follows the CURRENT mode, not wherever it happened to be
+ * staged.
  */
 export async function promoteBranchAttachments(
   env: Env,
@@ -97,39 +116,54 @@ export async function promoteBranchAttachments(
   target: PromoteTarget,
 ): Promise<PromoteResult> {
   const [owner, name] = target.repo.split("/");
-  const prefix = stagedPrefix(owner, name, target.branch);
+  const plainPrefix = stagedPrefix(owner, name, target.branch);
   const store = await storage(env, ws);
+
+  const mode = await resolveGhKeyContext(env, workspaceName, null, {
+    repo: target.repo,
+    branch: target.branch,
+  });
 
   const promoted: string[] = [];
   const skipped: PromoteSkip[] = [];
 
-  // Enumerate every staged key under the prefix (bounded pagination — a
-  // pathological prefix can't loop forever), then split at the cap: the head
-  // gets processed, everything past it is reported as skipped rather than
-  // silently dropped.
-  const keys: string[] = [];
-  let cursor: string | undefined;
+  // Enumerate every staged key under the swept prefix(es) (bounded
+  // pagination — a pathological prefix can't loop forever), then split at
+  // the cap: the head gets processed, everything past it is reported as
+  // skipped rather than silently dropped.
+  const entries: StagedEntry[] = [];
   const MAX_LIST_PAGES = 50; // 50k objects at the 1000-per-page ceiling; far beyond any real staging prefix.
-  for (let page = 0; page < MAX_LIST_PAGES; page++) {
-    const result = await store.list({ prefix, limit: 1000, cursor });
-    for (const item of result.items) keys.push(item.key);
-    cursor = result.cursor ?? undefined;
-    if (!cursor) break;
+  async function listPrefix(prefix: string): Promise<void> {
+    let cursor: string | undefined;
+    for (let page = 0; page < MAX_LIST_PAGES; page++) {
+      const result = await store.list({ prefix, limit: 1000, cursor });
+      for (const item of result.items) entries.push({ key: item.key, prefix });
+      cursor = result.cursor ?? undefined;
+      if (!cursor) break;
+    }
+  }
+  await listPrefix(plainPrefix);
+  if (mode.mode === "private") {
+    await listPrefix(ghPrivateBranchKeyPrefix(mode.prefixId));
   }
 
-  if (keys.length === 0) return { promoted, skipped };
+  if (entries.length === 0) return { promoted, skipped };
 
-  const toProcess = keys.slice(0, PROMOTE_STAGED_CAP);
-  for (const key of keys.slice(PROMOTE_STAGED_CAP)) {
+  const toProcess = entries.slice(0, PROMOTE_STAGED_CAP);
+  for (const { key } of entries.slice(PROMOTE_STAGED_CAP)) {
     skipped.push({ key, reason: "cap_exceeded" });
   }
 
-  const metaByKey = await getMetadataForKeys(env.DB, workspaceName, toProcess);
+  const metaByKey = await getMetadataForKeys(
+    env.DB,
+    workspaceName,
+    toProcess.map((e) => e.key),
+  );
   const nowMs = Date.now();
   const nowIso = new Date(nowMs).toISOString();
   const ref = `${owner}/${name}#${target.num}`.toLowerCase();
 
-  for (const key of toProcess) {
+  for (const { key, prefix } of toProcess) {
     const stagedMeta = metaByKey.get(key);
     const stagedAt = stagedMeta?.["gh.staged-at"];
     if (!isFresh(stagedAt, nowMs)) {
@@ -142,7 +176,14 @@ export async function promoteBranchAttachments(
       skipped.push({ key, reason: "invalid_key" });
       continue;
     }
-    const destKey = destinationKey(owner, name, target.num, filename);
+    const destKey =
+      mode.mode === "private"
+        ? ghPrivateAttachmentKey(
+            mode.prefixId,
+            { repo: target.repo, kind: "pull", num: target.num },
+            filename,
+          )
+        : destinationKey(owner, name, target.num, filename);
 
     try {
       const source = await store.download(key);
