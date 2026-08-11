@@ -66,6 +66,27 @@ function bearer(token = TOKEN) {
   return { Authorization: `Bearer ${token}` };
 }
 
+/**
+ * Rebuilds `env.DB` so any SQL matching `predicate` throws instead of
+ * delegating to the fake — for exercising the fail-open guard around the
+ * route's `listActivePrefixIds` add-on without a dedicated throwing-D1 fake.
+ */
+function withThrowingDb(
+  env: Parameters<typeof app.request>[2],
+  db: UsageFakeD1,
+  predicate: (sql: string) => boolean,
+): Parameters<typeof app.request>[2] {
+  return {
+    ...(env as Record<string, unknown>),
+    DB: {
+      prepare: (sql: string) => {
+        if (predicate(sql)) throw new Error("simulated D1 failure");
+        return db.prepare(sql);
+      },
+    },
+  } as unknown as Parameters<typeof app.request>[2];
+}
+
 function post(path: string, body: unknown, env: Parameters<typeof app.request>[2], headers = {}) {
   return app.request(
     path,
@@ -102,6 +123,49 @@ describe("POST /v1/:workspace/github/private-prefix", () => {
     expect(body.mode).toBe("private");
     expect(body.prefixId).toMatch(/^[0-9a-f]{32}$/);
     expect(body.activePrefixIds).toEqual([body.prefixId]);
+  });
+
+  it("D1 failure listing activePrefixIds: still 200, degrades to an empty list (fail-open)", async () => {
+    const { env, db, githubCache } = await makeEnv();
+    githubCache.store.set(`ghinst:${REPO}`, { value: "42" });
+    githubCache.store.set(`ghpriv:${REPO}`, { value: "1" });
+    await recordRepoLink(db as unknown as D1Database, REPO, WS, "test");
+
+    // Only the list-all query (no `branch = ?`) throws — minting the row
+    // itself must still succeed so `mode: "private"` is reached.
+    const throwingEnv = withThrowingDb(
+      env,
+      db,
+      (sql) =>
+        sql.trim().startsWith("SELECT prefix_id FROM github_private_prefixes") &&
+        !sql.includes("branch = ?"),
+    );
+    const res = await post(
+      "/v1/acme/github/private-prefix",
+      { repo: REPO, branch: "feat-x" },
+      throwingEnv,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      mode: string;
+      prefixId: string;
+      activePrefixIds: string[];
+    };
+    expect(body.mode).toBe("private");
+    expect(body.prefixId).toMatch(/^[0-9a-f]{32}$/);
+    expect(body.activePrefixIds).toEqual([]);
+  });
+
+  it('explicit empty branch ("") is rejected — the repo-level sentinel stays server-internal', async () => {
+    const { env, githubCache } = await makeEnv();
+    githubCache.store.set(`ghinst:${REPO}`, { value: "42" });
+    githubCache.store.set(`ghpriv:${REPO}`, { value: "1" });
+
+    const res = await post("/v1/acme/github/private-prefix", { repo: REPO, branch: "" }, env);
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error).toBeDefined();
   });
 
   it("no bearer token: 401", async () => {

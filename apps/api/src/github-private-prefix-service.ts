@@ -72,6 +72,22 @@ export async function resolveGhKeyContext(
     branch = "";
   }
 
-  const prefixId = await getOrMintPrefixId(env.DB, req.repo, branch);
-  return { mode: "private", prefixId };
+  // Fail-open on the DB tail too: a transient D1 error minting/reading the
+  // row must degrade to plain, not propagate as a 500 — this resolve call
+  // sits directly in front of an upload, and the "never block an upload"
+  // invariant applies to every step, not just the lookups above it.
+  try {
+    const prefixId = await getOrMintPrefixId(env.DB, req.repo, branch);
+    return { mode: "private", prefixId };
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message: "resolveGhKeyContext: getOrMintPrefixId failed, degrading to plain",
+        repo: req.repo,
+        branch,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return { mode: "plain" };
+  }
 }

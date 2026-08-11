@@ -33,6 +33,13 @@ function parseRequest(body: Record<string, unknown>): ResolveGhKeyRequest {
   let branch: string | undefined;
   if (body.branch !== undefined) {
     if (typeof body.branch !== "string") throw new ValidationError("branch must be a string.");
+    // "" is the repo-level sentinel `resolveGhKeyContext`/`getOrMintPrefixId`
+    // use internally for issues/branch-less targets (see
+    // github-private-prefixes.ts's module doc) — it must stay
+    // server-derived, never caller-supplied, or a client could collide two
+    // logically distinct scopes (an explicit "no branch" vs. a real branch
+    // literally named "") onto the same minted prefix id.
+    if (body.branch === "") throw new ValidationError("branch must not be empty.");
     branch = body.branch;
   }
 
@@ -60,13 +67,36 @@ export async function githubPrivatePrefixHandler(c: Context<WorkspaceVars>) {
     req,
   );
   if (result.mode === "plain") return c.json({ mode: "plain" as const });
-  const activePrefixIds = await listActivePrefixIds(c.env.DB, req.repo);
+  // Best-effort: `activePrefixIds` is a convenience add-on for the CLI
+  // gh-fallback comment gather, not load-bearing for the mode the caller
+  // just resolved. A transient D1 failure here must not turn an otherwise-
+  // successful resolve into a 500 (same fail-open posture as
+  // `resolveGhKeyContext` itself) — degrade to an empty list instead.
+  let activePrefixIds: string[] = [];
+  try {
+    activePrefixIds = await listActivePrefixIds(c.env.DB, req.repo);
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message: "private-prefix: listActivePrefixIds failed, degrading to empty list",
+        repo: req.repo,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
   return c.json({ mode: "private" as const, prefixId: result.prefixId, activePrefixIds });
 }
 
 export const githubPrivatePrefix = new Hono<WorkspaceVars>().post(
   "/private-prefix",
   writeRateLimit,
-  requireScope("files:read"),
+  // files:write, not files:read (CodeRabbit-style review finding): the
+  // private path mints a `github_private_prefixes` row (a real mutation),
+  // and this resolve call sits in the same upload flow as `PUT
+  // /:workspace/files/:key`, which itself requires files:write
+  // (routes/files.ts) — match that, unlike `routes/github-comment.ts`'s
+  // files:read (a deliberately-unfixed pre-existing wart on a route that
+  // predates this one and never mints its own row on the read-scoped path).
+  requireScope("files:write"),
   githubPrivatePrefixHandler,
 );

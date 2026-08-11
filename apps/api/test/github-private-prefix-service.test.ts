@@ -47,6 +47,23 @@ async function bindTo(db: UsageFakeD1, workspace: string) {
   await recordRepoLink(db as unknown as D1Database, REPO, workspace, "test");
 }
 
+/**
+ * Rebuilds `env.DB` so any SQL containing `matchSubstring` throws instead of
+ * delegating to the fake — for exercising the fail-open guard around
+ * `getOrMintPrefixId`'s D1 calls without a dedicated throwing-D1 fake.
+ */
+function withThrowingDb(env: Env, db: UsageFakeD1, matchSubstring: string): Env {
+  return {
+    ...env,
+    DB: {
+      prepare: (sql: string) => {
+        if (sql.includes(matchSubstring)) throw new Error("simulated D1 failure");
+        return db.prepare(sql);
+      },
+    },
+  } as unknown as Env;
+}
+
 describe("resolveGhKeyContext", () => {
   it("App not configured → plain", async () => {
     const { env } = makeEnv({ appConfigured: false });
@@ -132,6 +149,18 @@ describe("resolveGhKeyContext", () => {
     const result = await resolveGhKeyContext(env, WS, null, { repo: REPO, branch: "main" });
     expect(result).toEqual({ mode: "plain" });
     expect(db.privatePrefixes.size).toBe(0);
+  });
+
+  it("D1 failure minting the prefix row → plain (fail-open, never a thrown 500)", async () => {
+    const { env, db, githubCache } = makeEnv();
+    seedInstalled(githubCache);
+    seedPrivacy(githubCache, true);
+    await bindTo(db, WS);
+
+    const throwingEnv = withThrowingDb(env, db, "github_private_prefixes");
+    await expect(
+      resolveGhKeyContext(throwingEnv, WS, "user-1", { repo: REPO, branch: "feat-z" }),
+    ).resolves.toEqual({ mode: "plain" });
   });
 
   it("privacy lookup failure (null) → plain", async () => {
