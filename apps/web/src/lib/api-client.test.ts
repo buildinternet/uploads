@@ -176,7 +176,7 @@ describe("setFileVisibility", () => {
   it("PATCHes with credentials and returns the resulting visibility", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe(
-        "http://127.0.0.1:8787/me/workspaces/acme/files/visibility?key=f%2Fx%2Fshot.png",
+        "http://127.0.0.1:8787/v1/workspaces/acme/files/visibility?key=f%2Fx%2Fshot.png",
       );
       expect(init?.method).toBe("PATCH");
       expect(init?.credentials).toBe("include");
@@ -228,9 +228,7 @@ describe("setFileVisibility", () => {
 describe("deleteWorkspaceFile", () => {
   it("DELETEs with credentials and reports success", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe(
-        "http://127.0.0.1:8787/me/workspaces/acme/files?key=f%2Fx%2Fshot.png",
-      );
+      expect(String(input)).toBe("http://127.0.0.1:8787/v1/workspaces/acme/files/f/x/shot.png");
       expect(init?.method).toBe("DELETE");
       expect(init?.credentials).toBe("include");
       return Response.json({ key: "f/x/shot.png", deleted: true });
@@ -339,7 +337,7 @@ describe("getWorkspaceFilesByPath", () => {
     const result = await getWorkspaceFilesByPath("https://api.uploads.sh", "acme");
     expect(result).toEqual({ kind: "ok", groups: [GROUP], truncated: false });
     expect(fetchMock.mock.calls[0]![0]).toBe(
-      "https://api.uploads.sh/me/workspaces/acme/files/by-path",
+      "https://api.uploads.sh/v1/workspaces/acme/files/by-path",
     );
   });
 
@@ -377,7 +375,7 @@ describe("getWorkspaceFacets", () => {
       keys: [{ key: "app", count: 2, distinctValues: 2 }],
       truncated: false,
     });
-    expect(fetchMock.mock.calls[0]![0]).toBe("https://api.test/me/workspaces/acme/files/facets");
+    expect(fetchMock.mock.calls[0]![0]).toBe("https://api.test/v1/workspaces/acme/files/facets");
   });
 
   it("reports unavailable on a malformed body", async () => {
@@ -421,7 +419,7 @@ describe("getWorkspaceFacetValues", () => {
       truncated: false,
     });
     expect(fetchMock.mock.calls[0]![0]).toBe(
-      "https://api.test/me/workspaces/acme/files/facets?key=app",
+      "https://api.test/v1/workspaces/acme/files/facets?key=app",
     );
   });
 
@@ -432,7 +430,7 @@ describe("getWorkspaceFacetValues", () => {
     vi.stubGlobal("fetch", fetchMock);
     await getWorkspaceFacetValues("https://api.test", "acme", "gh.repo");
     expect(fetchMock.mock.calls[0]![0]).toBe(
-      "https://api.test/me/workspaces/acme/files/facets?key=gh.repo",
+      "https://api.test/v1/workspaces/acme/files/facets?key=gh.repo",
     );
   });
 
@@ -443,7 +441,7 @@ describe("getWorkspaceFacetValues", () => {
     vi.stubGlobal("fetch", fetchMock);
     await getWorkspaceFacetValues("https://api.test", "acme", "team/name here");
     expect(fetchMock.mock.calls[0]![0]).toBe(
-      "https://api.test/me/workspaces/acme/files/facets?key=team%2Fname%20here",
+      "https://api.test/v1/workspaces/acme/files/facets?key=team%2Fname%20here",
     );
   });
 
@@ -488,7 +486,7 @@ describe("searchWorkspaceFiles with a name term", () => {
       name: "hero",
     });
     expect(fetchMock.mock.calls[0]![0]).toBe(
-      "https://api.test/me/workspaces/acme/files/search?meta.app=web&name=hero",
+      "https://api.test/v1/workspaces/acme/files/search?meta.app=web&name=hero",
     );
   });
 
@@ -499,7 +497,7 @@ describe("searchWorkspaceFiles with a name term", () => {
     vi.stubGlobal("fetch", fetchMock);
     await searchWorkspaceFiles("https://api.test", "acme", [], { name: "hero" });
     expect(fetchMock.mock.calls[0]![0]).toBe(
-      "https://api.test/me/workspaces/acme/files/search?name=hero",
+      "https://api.test/v1/workspaces/acme/files/search?name=hero",
     );
   });
 });
@@ -508,7 +506,7 @@ describe("listWorkspaceFolder", () => {
   it("builds the querystring from opts, omitting absent params", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe(
-        "http://127.0.0.1:8787/me/workspaces/acme/files?delimiter=%2F&prefix=f%2F&cursor=abc&limit=50",
+        "http://127.0.0.1:8787/v1/workspaces/acme/files?delimiter=%2F&prefix=f%2F&cursor=abc&limit=50",
       );
       expect(init?.credentials).toBe("include");
       return Response.json({ files: [], prefixes: [], cursor: null });
@@ -540,7 +538,7 @@ describe("listWorkspaceFolder", () => {
 
   it("still sends the folder delimiter when no opts are given", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/files?delimiter=%2F");
+      expect(String(input)).toBe("http://127.0.0.1:8787/v1/workspaces/acme/files?delimiter=%2F");
       return Response.json({ files: [], prefixes: [], cursor: null });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -792,7 +790,7 @@ describe("manage mutations map status codes", () => {
 
   it("updateWorkspaceMemberRole → ok on 200, sending role in the PATCH body", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe("https://api.test/me/workspaces/acme/members/m1");
+      expect(String(input)).toBe("https://api.test/v1/workspaces/acme/members/m1");
       expect(init?.method).toBe("PATCH");
       expect(init?.credentials).toBe("include");
       expect(JSON.parse(init!.body as string)).toEqual({ role: "admin" });
@@ -808,7 +806,7 @@ describe("manage mutations map status codes", () => {
 
   it("removeWorkspaceMember → ok on 200 via DELETE", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe("https://api.test/me/workspaces/acme/members/m1");
+      expect(String(input)).toBe("https://api.test/v1/workspaces/acme/members/m1");
       expect(init?.method).toBe("DELETE");
       expect(init?.credentials).toBe("include");
       return new Response(null, { status: 200 });
@@ -966,7 +964,7 @@ const CANDIDATE: StorageCandidate = {
 describe("getWorkspaceStorageStatus", () => {
   it("GETs with credentials and returns the shared/byo status", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/storage");
+      expect(String(input)).toBe("http://127.0.0.1:8787/v1/workspaces/acme/storage");
       expect(init?.credentials).toBe("include");
       return Response.json({
         mode: "shared",
@@ -1065,7 +1063,7 @@ describe("getWorkspaceStorageStatus", () => {
 describe("verifyWorkspaceStorage", () => {
   it("POSTs the candidate and returns the check list", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/storage/verify");
+      expect(String(input)).toBe("http://127.0.0.1:8787/v1/workspaces/acme/storage/verify");
       expect(init?.method).toBe("POST");
       expect(init?.credentials).toBe("include");
       expect(JSON.parse(init!.body as string)).toEqual(CANDIDATE);
@@ -1119,7 +1117,7 @@ describe("verifyWorkspaceStorage", () => {
 describe("putWorkspaceStorage", () => {
   it("PUTs the candidate and returns the resulting status on success", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/storage");
+      expect(String(input)).toBe("http://127.0.0.1:8787/v1/workspaces/acme/storage");
       expect(init?.method).toBe("PUT");
       expect(init?.credentials).toBe("include");
       expect(JSON.parse(init!.body as string)).toEqual(CANDIDATE);
@@ -1197,7 +1195,7 @@ describe("putWorkspaceStorage", () => {
 describe("deleteWorkspaceStorage", () => {
   it("DELETEs without force by default", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/storage");
+      expect(String(input)).toBe("http://127.0.0.1:8787/v1/workspaces/acme/storage");
       expect(init?.method).toBe("DELETE");
       expect(init?.credentials).toBe("include");
       return Response.json({ mode: "shared", byoBucketEnabled: true });
@@ -1212,7 +1210,7 @@ describe("deleteWorkspaceStorage", () => {
 
   it("appends ?force=true when force is requested", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      expect(String(input)).toBe("http://127.0.0.1:8787/me/workspaces/acme/storage?force=true");
+      expect(String(input)).toBe("http://127.0.0.1:8787/v1/workspaces/acme/storage?force=true");
       return Response.json({ mode: "shared", byoBucketEnabled: true });
     });
     vi.stubGlobal("fetch", fetchMock);

@@ -688,7 +688,7 @@ const ogImage = file
       // gate parallel to the server-side one this page already applied via
       // fetchPublicFile()/objectVisibility (apps/api's GET /public/files/...,
       // see apps/api/src/routes/public-files.ts). Both this probe and the
-      // /me/workspaces/:name/file-url resolver it calls must keep enforcing
+      // /v1/workspaces/:name/files/file-url resolver it calls must keep enforcing
       // the same auth_required condition as that server gate, or a signed-out
       // viewer could see one page disagree with the other about access.
       (async function () {
@@ -696,7 +696,7 @@ const ogImage = file
         const checking = document.getElementById("auth-checking");
         try {
           const endpoint = new URL(
-            `/me/workspaces/${encodeURIComponent(workspace)}/file-url`,
+            `/v1/workspaces/${encodeURIComponent(workspace)}/files/file-url`,
             apiOrigin,
           );
           endpoint.searchParams.set("key", key);
@@ -722,13 +722,13 @@ const ogImage = file
       })();
 
       // Member-only delete control (spec 2026-07-30). Reveal is progressive
-      // enhancement: the same /me/workspaces/:name/file-url probe the unlisted
+      // enhancement: the same /v1/workspaces/:name/files/file-url probe the unlisted
       // flow uses doubles as the membership check — 200 means member.
       (async function () {
         const zone = document.getElementById("delete-zone");
         if (!zone) return;
         const endpoint = new URL(
-          `/me/workspaces/${encodeURIComponent(workspace)}/file-url`,
+          `/v1/workspaces/${encodeURIComponent(workspace)}/files/file-url`,
           apiOrigin,
         );
         endpoint.searchParams.set("key", key);
@@ -798,7 +798,7 @@ const ogImage = file
           stepBtn.disabled = true;
           try {
             const target = new URL(
-              `/me/workspaces/${encodeURIComponent(workspace)}/files`,
+              `/v1/workspaces/${encodeURIComponent(workspace)}/files`,
               apiOrigin,
             );
             target.searchParams.set("key", key);
