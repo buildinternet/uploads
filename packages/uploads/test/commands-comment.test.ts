@@ -30,6 +30,8 @@ function listClient(
     // The bot path always declines in these tests, so every existing test
     // (written for the gh path) keeps exercising the gh fallback.
     upsertGithubComment: async () => ({ posted: false, reason: "not_installed" }),
+    // No active private prefix by default — plain-only listing (issue #631).
+    resolveGhPrefix: async () => ({ mode: "plain" }),
   } as unknown as UploadsClient;
 }
 
@@ -40,6 +42,7 @@ function fakeClient(overrides: Partial<UploadsClient> = {}): UploadsClient {
     findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
     getGallery: async (id: string) => ({ id, items: [] }),
     upsertGithubComment: async () => ({ posted: false, reason: "not_installed" }),
+    resolveGhPrefix: async () => ({ mode: "plain" }),
     ...overrides,
   } as unknown as UploadsClient;
 }
@@ -253,6 +256,74 @@ describe("syncAttachmentsComment", () => {
     );
     expect(res.via).toBe("gh");
     expect(res.action).toBe("created");
+  });
+
+  it("gh fallback also lists active private-prefix objects (issue #631)", async () => {
+    const listAll = vi.fn(async (opts: { prefix?: string }) => {
+      if (opts.prefix === "gh/acme/web/pull/12/") {
+        return [{ key: "gh/acme/web/pull/12/a.png", url: "u", embedUrl: null }];
+      }
+      if (opts.prefix === "gh/private/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/pull/12/") {
+        return [
+          {
+            key: "gh/private/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/pull/12/b.png",
+            url: "u2",
+            embedUrl: null,
+          },
+        ];
+      }
+      throw new Error(`unexpected prefix: ${opts.prefix}`);
+    });
+    const client = fakeClient({
+      upsertGithubComment: async () => ({ posted: false, reason: "not_installed" }),
+      listAll,
+      findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+      resolveGhPrefix: async () => ({
+        mode: "private",
+        prefixId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        activePrefixIds: ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+      }),
+    });
+    const run = ghRunnerThatFindsNoMarkerThenCreates();
+    const res = await syncAttachmentsComment(
+      client,
+      { repo: "acme/web", num: 12, kind: "pull" },
+      run,
+    );
+    expect(res.via).toBe("gh");
+    expect(res.count).toBe(2);
+    expect(listAll).toHaveBeenCalledTimes(2);
+  });
+
+  it("gh fallback lists plain-only when the resolve endpoint 404s (older server)", async () => {
+    const listAll = vi.fn(async (opts: { prefix?: string }) => {
+      expect(opts.prefix).toBe("gh/acme/web/pull/12/");
+      return [{ key: "gh/acme/web/pull/12/a.png", url: "u", embedUrl: null }];
+    });
+    const client = fakeClient({
+      upsertGithubComment: async () => ({ posted: false, reason: "not_installed" }),
+      listAll,
+      findGalleriesByReference: async () => ({ galleries: [], nextCursor: null }),
+      // Fail-open per resolveGhPrefix's own contract — a 404/network error
+      // there already resolves to `{ mode: "plain" }`, so the stub mirrors
+      // that resolved shape rather than throwing.
+      resolveGhPrefix: async () => ({ mode: "plain" }),
+    });
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    try {
+      const run = ghRunnerThatFindsNoMarkerThenCreates();
+      const res = await syncAttachmentsComment(
+        client,
+        { repo: "acme/web", num: 12, kind: "pull" },
+        run,
+      );
+      expect(res.via).toBe("gh");
+      expect(res.count).toBe(1);
+      expect(listAll).toHaveBeenCalledTimes(1);
+      expect(stderr.mock.calls.length).toBe(0); // no error noise on fail-open.
+    } finally {
+      stderr.mockRestore();
+    }
   });
 
   it("warns with the fix message on forbidden, then falls back to gh", async () => {

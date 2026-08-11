@@ -39,6 +39,7 @@ import {
   ghBranchAttachmentKey,
   ghBranchKeyPrefix,
   ghKeyPrefix,
+  ghPrivateKeyPrefix,
   ghMetadataFromTarget,
   parseGhKey,
   ghMetadataForBranch,
@@ -749,23 +750,47 @@ export async function syncAttachmentsComment(
   // always links to the file page and always shows metadata here, matching the
   // defaults. This only diverges from the bot-posted comment for a workspace
   // that both sets one of those flags false and falls through to this path.
+  //
+  // Also list every active private prefix for this repo (issue #631): a
+  // private repo's attachments can live under a randomized prefix instead of
+  // the plain one. `resolveGhPrefix` itself is fail-open (any HTTP/network
+  // failure there already resolves to `{ mode: "plain" }`); the try/catch
+  // here is belt-and-suspenders for a client that lacks the method entirely
+  // (an older embedder of this package) — either way, plain-only listing,
+  // silently, matching pre-#631 behavior exactly.
+  let ghPrefix: Awaited<ReturnType<UploadsClient["resolveGhPrefix"]>>;
+  try {
+    ghPrefix = await client.resolveGhPrefix({
+      repo: target.repo,
+      target: { kind: target.kind, num: target.num },
+    });
+  } catch {
+    ghPrefix = { mode: "plain" };
+  }
+  const activePrefixIds = ghPrefix.mode === "private" ? (ghPrefix.activePrefixIds ?? []) : [];
+  const prefixes = [
+    ghKeyPrefix(target),
+    ...activePrefixIds.map((id) => ghPrivateKeyPrefix(id, target)),
+  ];
   const items: AttachmentItem[] = (
-    await client.listAll({ prefix: ghKeyPrefix(target), metadata: true })
-  ).map(({ key, url, embedUrl, pageUrl, metadata }) => {
-    // The list endpoint returns every metadata key; the comment renders only
-    // these two. Narrowing here keeps both render paths byte-identical.
-    const path = metadata?.path;
-    const state = metadata?.state;
-    return {
-      key,
-      url,
-      embedUrl,
-      pageUrl,
-      ...(path || state
-        ? { meta: { ...(path ? { path } : {}), ...(state ? { state } : {}) } }
-        : {}),
-    };
-  });
+    await Promise.all(prefixes.map((prefix) => client.listAll({ prefix, metadata: true })))
+  )
+    .flat()
+    .map(({ key, url, embedUrl, pageUrl, metadata }) => {
+      // The list endpoint returns every metadata key; the comment renders only
+      // these two. Narrowing here keeps both render paths byte-identical.
+      const path = metadata?.path;
+      const state = metadata?.state;
+      return {
+        key,
+        url,
+        embedUrl,
+        pageUrl,
+        ...(path || state
+          ? { meta: { ...(path ? { path } : {}), ...(state ? { state } : {}) } }
+          : {}),
+      };
+    });
 
   const galleries: (GalleryCommentItem & { id: string })[] = [];
   let cursor: string | undefined;

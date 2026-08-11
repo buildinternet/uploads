@@ -299,6 +299,18 @@ export type GithubCommentResult =
       required?: string[];
     };
 
+/** `POST /v1/:workspace/github/private-prefix` request (server contract, issue #631). */
+export interface ResolveGhPrefixOptions {
+  repo: string;
+  branch?: string;
+  target?: { kind: "pull" | "issues"; num: number };
+}
+
+/** `POST /v1/:workspace/github/private-prefix` response (server contract, issue #631). */
+export type ResolveGhPrefixResult =
+  | { mode: "plain" }
+  | { mode: "private"; prefixId: string; activePrefixIds?: string[] };
+
 /** `POST /v1/:workspace/github/promote` request/response (server contract, PR #310). */
 export interface PromoteBranchAttachmentsOptions {
   repo: string;
@@ -913,6 +925,10 @@ export function createUploadsClient(config: UploadsClientConfig) {
     return request<Gallery>("GET", `${galleriesBase(config)}/${encodeURIComponent(id)}`);
   }
 
+  // Per-process cache for resolveGhPrefix, keyed by repo+branch+target — see
+  // that method's doc.
+  const resolveGhPrefixCache = new Map<string, ResolveGhPrefixResult>();
+
   return {
     async put(body: Uint8Array, opts: PutOptions & { filename: string }): Promise<PutResult> {
       const key =
@@ -1191,6 +1207,42 @@ export function createUploadsClient(config: UploadsClientConfig) {
           headers: { "Content-Type": "application/json" },
         },
       );
+    },
+
+    /**
+     * Resolve the GitHub-key mode (plain vs. randomized private prefix, issue
+     * #631) a caller should stage/list attachments under for `repo`. Fail-open:
+     * ANY failure — a 404 from an older/self-hosted server, a network error, a
+     * non-2xx response, or a malformed body — resolves to `{ mode: "plain" }`
+     * silently (no stderr noise), never throws. Cached per-process, keyed by
+     * repo+branch+target, so repeated calls for the same coordinate (e.g. the
+     * gh-fallback comment gather re-checking on every sync) cost one request.
+     */
+    async resolveGhPrefix(opts: ResolveGhPrefixOptions): Promise<ResolveGhPrefixResult> {
+      const cacheKey = JSON.stringify([
+        opts.repo.toLowerCase(),
+        opts.branch ?? "",
+        opts.target ?? null,
+      ]);
+      const cached = resolveGhPrefixCache.get(cacheKey);
+      if (cached) return cached;
+
+      const resolved = await (async (): Promise<ResolveGhPrefixResult> => {
+        try {
+          return await request<ResolveGhPrefixResult>(
+            "POST",
+            `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/private-prefix`,
+            {
+              body: new TextEncoder().encode(JSON.stringify(opts)),
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        } catch {
+          return { mode: "plain" };
+        }
+      })();
+      resolveGhPrefixCache.set(cacheKey, resolved);
+      return resolved;
     },
 
     /**
