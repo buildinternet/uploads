@@ -148,6 +148,10 @@ describe("promoteBranchAttachments — private prefixes (issue #631)", () => {
 
   it("private repo: a plain-staged file (pre-feature/privacy-flip leftover) still sweeps and promotes into the PRIVATE destination", async () => {
     const seeded = await seededEnv({ isPrivate: true });
+    // Mint the id up front (idempotent — matches whatever promote resolves
+    // internally) so the expected destination can be built with the same
+    // builder production code uses, not a hand-rolled shape assertion.
+    const prefixId = await getOrMintPrefixId(seeded.db as unknown as D1Database, REPO, BRANCH);
     await seedPlainStaged(seeded, "leftover.png");
 
     const result = await promoteBranchAttachments(seeded.env, seeded.ws, WS, {
@@ -156,13 +160,16 @@ describe("promoteBranchAttachments — private prefixes (issue #631)", () => {
       branch: BRANCH,
     });
 
-    expect(result.skipped).toEqual([]);
-    expect(result.promoted).toHaveLength(1);
-    const [promotedKey] = result.promoted;
     // Destination follows the CURRENT (private) mode, not the plain prefix
     // the file happened to be staged under.
-    expect(promotedKey).toMatch(/^gh\/private\/[0-9a-f]{32}\/pull\/7\/leftover\.png$/);
-    expect(seeded.bucket.store.has(`${PREFIX}${promotedKey}`)).toBe(true);
+    const expectedDest = ghPrivateAttachmentKey(
+      prefixId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "leftover.png",
+    );
+    expect(result.skipped).toEqual([]);
+    expect(result.promoted).toEqual([expectedDest]);
+    expect(seeded.bucket.store.has(`${PREFIX}${expectedDest}`)).toBe(true);
     // Nothing was written to the old plain destination.
     expect(seeded.bucket.store.has(`${PREFIX}${destKey("leftover.png")}`)).toBe(false);
   });
@@ -206,9 +213,85 @@ describe("promoteBranchAttachments — private prefixes (issue #631)", () => {
       branch: BRANCH,
     });
 
+    // The (only-just-minted-by-promote) id for THIS branch, not the sibling
+    // branch's id seeded above.
+    const prefixId = await getOrMintPrefixId(seeded.db as unknown as D1Database, REPO, BRANCH);
+    const expectedDest = ghPrivateAttachmentKey(
+      prefixId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "solo.png",
+    );
     expect(result.skipped).toEqual([]);
-    expect(result.promoted).toHaveLength(1);
-    expect(result.promoted[0]).toMatch(/^gh\/private\/[0-9a-f]{32}\/pull\/7\/solo\.png$/);
+    expect(result.promoted).toEqual([expectedDest]);
+  });
+
+  it("private repo: the SAME filename staged under both prefixes dedupes to one promoted entry (private wins), and the plain original is tagged promoted too", async () => {
+    const seeded = await seededEnv({ isPrivate: true });
+    const prefixId = await getOrMintPrefixId(seeded.db as unknown as D1Database, REPO, BRANCH);
+    const privateOriginalKey = await seedPrivateStaged(seeded, prefixId, "dup.png");
+    await seedPlainStaged(seeded, "dup.png");
+
+    const result = await promoteBranchAttachments(seeded.env, seeded.ws, WS, {
+      repo: REPO,
+      num: NUM,
+      branch: BRANCH,
+    });
+
+    const expectedDest = ghPrivateAttachmentKey(
+      prefixId,
+      { repo: REPO, kind: "pull", num: NUM },
+      "dup.png",
+    );
+    // Exactly one promoted entry — no duplicate for the same destination filename.
+    expect(result.promoted).toEqual([expectedDest]);
+    expect(result.skipped).toEqual([]);
+    expect(seeded.bucket.store.has(`${PREFIX}${expectedDest}`)).toBe(true);
+
+    // The private-staged copy is the one actually promoted (it wins).
+    const privateOriginalMeta = await getFileMetadata(seeded.env.DB, WS, privateOriginalKey);
+    expect(privateOriginalMeta["gh.status"]).toBe("promoted");
+    expect(privateOriginalMeta["gh.promoted-to"]).toBe(`${REPO}#${NUM}`.toLowerCase());
+
+    // The losing plain-staged duplicate is still "cleaned up" the same way a
+    // normally-promoted staged original is — tagged promoted — so it doesn't
+    // linger as an orphaned gh.status=staged row nobody ever revisits again.
+    const plainOriginalMeta = await getFileMetadata(seeded.env.DB, WS, stagedKey("dup.png"));
+    expect(plainOriginalMeta["gh.status"]).toBe("promoted");
+    expect(plainOriginalMeta["gh.promoted-to"]).toBe(`${REPO}#${NUM}`.toLowerCase());
+  });
+
+  it("resolveGhKeyContext throwing (e.g. a D1 outage in its authorization check) degrades promote to plain instead of aborting", async () => {
+    const seeded = await seededEnv({ isPrivate: true });
+    await seedPlainStaged(seeded, "hero.png");
+    // Only `prepare` is patched to throw for the repo-links lookup — every
+    // other D1 call (usage batches, metadata writes, ...) that the REST of
+    // promote still needs after degrading to plain must keep working, so
+    // this proxies through to the real fake rather than replacing it with a
+    // `prepare`-only stub.
+    const throwingDb = new Proxy(seeded.db, {
+      get(target, prop, receiver) {
+        if (prop === "prepare") {
+          return (sql: string) => {
+            if (sql.includes("github_repo_links")) throw new Error("simulated D1 outage");
+            return target.prepare(sql);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const throwingEnv = { ...seeded.env, DB: throwingDb } as unknown as Env;
+
+    const result = await promoteBranchAttachments(throwingEnv, seeded.ws, WS, {
+      repo: REPO,
+      num: NUM,
+      branch: BRANCH,
+    });
+
+    // checkRepoAuthorization's findRepoLinkStrict throws (by design, for a
+    // real D1 outage) — resolveGhKeyContext propagates it uncaught, but
+    // promoteBranchAttachments must still degrade to plain, not throw.
+    expect(result.promoted).toEqual([destKey("hero.png")]);
+    expect(result.skipped).toEqual([]);
   });
 
   it("fails open to plain when the repo isn't linked (unauthorized) even though it's private", async () => {

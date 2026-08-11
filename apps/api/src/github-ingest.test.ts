@@ -1013,4 +1013,98 @@ describe("private-repo ingest keys (issue #631)", () => {
     );
     expect(summary.ingested).toEqual([calls[0]!.key]);
   });
+
+  it("ingestForWebhook: resolveGhKeyContext throwing (e.g. a D1 outage in its authorization check) degrades to the plain ingest key instead of aborting", async () => {
+    const { env: base, kv, db } = baseEnv();
+    kv.store.set("ghpriv:acme/app", { value: "1" });
+    const env = withRegistry(base, {
+      provider: "r2",
+      bucket: "b",
+      githubIngestAttachments: true,
+    } as WorkspaceRecord);
+    await recordRepoLink(env.DB, REPO, WS, "test");
+    // `ingestForWebhook`'s own `findRepoLinkStrict` call (the FIRST hit on
+    // this table) must still succeed — it's not the call under test, and its
+    // own D1-outage-throws contract is unrelated to this guard. Only the
+    // SECOND hit — `resolveGhKeyContext`'s internal `checkRepoAuthorization`
+    // — is made to throw, simulating a transient D1 outage there specifically.
+    let repoLinkCalls = 0;
+    const throwingDb = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "prepare") {
+          return (sql: string) => {
+            if (sql.includes("FROM github_repo_links")) {
+              repoLinkCalls++;
+              if (repoLinkCalls > 1) throw new Error("simulated D1 outage");
+            }
+            return target.prepare(sql);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const throwingEnv = { ...env, DB: throwingDb } as unknown as Env;
+
+    const impl = fakeFetch({
+      "/contents/": () => new Response("nf", { status: 404 }),
+      "/repos/acme/app/issues/7": () =>
+        new Response(JSON.stringify({ body: `see ${ASSET_URL}`, user: { login: "octocat" } }), {
+          status: 200,
+        }),
+      [ASSET_ID]: pngRoute(PNG),
+    });
+    const { putImpl, calls } = spyPut();
+    const ref: IngestSourceRef = { repo: REPO, kind: "pull", num: 7, source: "body" };
+
+    await expect(
+      withGlobalFetch(impl, () => ingestForWebhook(throwingEnv, ref, { fetchImpl: impl, putImpl })),
+    ).resolves.toBeUndefined();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.key).toBe(KEY); // the plain (non-private) ingest key.
+  });
+
+  it("reconcileIngestTarget: resolveGhKeyContext throwing degrades to the plain ingest key instead of aborting", async () => {
+    const { env, kv, db } = baseEnv();
+    kv.store.set("ghpriv:acme/app", { value: "1" });
+    // reconcileIngestTarget itself never reads github_repo_links outside
+    // resolveGhKeyContext's own authorization check, so the very first hit
+    // can throw.
+    const throwingDb = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "prepare") {
+          return (sql: string) => {
+            if (sql.includes("FROM github_repo_links")) throw new Error("simulated D1 outage");
+            return target.prepare(sql);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const throwingEnv = { ...env, DB: throwingDb } as unknown as Env;
+
+    const impl = fakeFetch({
+      "/access_tokens": () => new Response(JSON.stringify({ token: "t" }), { status: 201 }),
+      "/installation": () => new Response(JSON.stringify({ id: 42 }), { status: 200 }),
+      "/repos/acme/app/issues/7/comments": () => new Response(JSON.stringify([]), { status: 200 }),
+      "/repos/acme/app/issues/7": () =>
+        new Response(JSON.stringify({ body: `see ${ASSET_URL}`, user: { login: "bob" } }), {
+          status: 200,
+        }),
+      [ASSET_ID]: pngRoute(PNG),
+    });
+    const { putImpl, calls } = spyPut();
+
+    const summary = await reconcileIngestTarget(
+      throwingEnv,
+      ws,
+      WS,
+      { repo: REPO, kind: "pull", num: 7 },
+      { fetchImpl: impl, putImpl },
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.key).toBe(KEY); // the plain (non-private) ingest key.
+    expect(summary.ingested).toEqual([KEY]);
+  });
 });

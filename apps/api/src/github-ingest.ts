@@ -159,6 +159,29 @@ function ingestKeyForMode(
     : ingestKey(ref, assetId, ext);
 }
 
+/**
+ * `resolveGhKeyContext`, guarded: its own D1 tail (`checkRepoAuthorization` →
+ * `findRepoLinkStrict`) deliberately PROPAGATES D1 errors rather than
+ * degrading — fine for its direct HTTP route caller, but ingest must never
+ * abort a webhook/backfill just because the mode couldn't be determined.
+ * Same fail-open idiom as the webhook's privacy-cache write-through and
+ * `promoteBranchAttachments`'s own guard.
+ */
+async function resolveModeSafe(env: Env, workspaceName: string, repo: string): Promise<GhKeyMode> {
+  try {
+    return await resolveGhKeyContext(env, workspaceName, null, { repo, branch: "" });
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message: "github-ingest: resolveGhKeyContext failed; degrading to plain",
+        repo,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return { mode: "plain" };
+  }
+}
+
 function ingestMetadata(ref: IngestSourceRef, author: string | null): Record<string, string> {
   return {
     "gh.repo": ref.repo.toLowerCase(),
@@ -404,10 +427,7 @@ export async function ingestForWebhook(
   // Repo-level mode (issue #631), resolved ONCE for this call — `branch: ""`
   // forces the repo-level sentinel regardless of `ref.kind`, matching the
   // ingest key layout's own repo/kind-num shape (no branch segment).
-  const mode = await resolveGhKeyContext(env, link.workspaceName, null, {
-    repo: ref.repo,
-    branch: "",
-  });
+  const mode = await resolveModeSafe(env, link.workspaceName, ref.repo);
 
   const { text, author } = await fetchSourceText(fetchImpl, token, ref);
   await reconcileIngestSource(env, ws, link.workspaceName, ref, text, author, {
@@ -458,10 +478,7 @@ export async function reconcileIngestTarget(
 
   // Repo-level mode (issue #631), resolved ONCE for this call — see
   // `ingestForWebhook`'s identical `branch: ""` rationale.
-  const mode = await resolveGhKeyContext(env, workspaceName, null, {
-    repo: target.repo,
-    branch: "",
-  });
+  const mode = await resolveModeSafe(env, workspaceName, target.repo);
 
   const bodyRes = await githubFetch(
     fetchImpl,

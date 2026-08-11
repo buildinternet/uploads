@@ -108,6 +108,22 @@ function repoFullNames(value: unknown): string[] {
 /** `pull_request` actions that trigger auto-promotion (a fresh/updated head to promote from). */
 const PROMOTE_ACTIONS = new Set(["opened", "reopened", "synchronize"]);
 
+/**
+ * Privacy write-through (issue #631): `{ repo, isPrivate }` when `repo`
+ * carries a boolean `private` field, else `undefined`. Takes the typed
+ * `repository` field straight off `PullRequestPayload`/`IssueCommentPayload`
+ * — no separate ad-hoc cast — so both payload interfaces' `private?: unknown`
+ * member is what's actually read here.
+ */
+function repoPrivacy(
+  repo: PullRequestPayload["repository"] | IssueCommentPayload["repository"],
+): WebhookEvent["privacy"] {
+  if (typeof repo?.full_name === "string" && typeof repo.private === "boolean") {
+    return { repo: repo.full_name, isPrivate: repo.private };
+  }
+  return undefined;
+}
+
 interface PullRequestPayload {
   action?: unknown;
   repository?: { full_name?: unknown; private?: unknown };
@@ -305,18 +321,6 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
   const p = (payload ?? {}) as Record<string, unknown>;
   const ev: WebhookEvent = { keys: [] };
 
-  // Privacy write-through (issue #631): any delivery carrying a top-level
-  // `repository` with a boolean `private` field (pull_request, issue_comment,
-  // and most other repo-scoped events) primes `repoIsPrivate`'s KV cache —
-  // cheap, payload-only, no I/O here.
-  const repoForPrivacy = p.repository as { full_name?: unknown; private?: unknown } | undefined;
-  if (
-    typeof repoForPrivacy?.full_name === "string" &&
-    typeof repoForPrivacy.private === "boolean"
-  ) {
-    ev.privacy = { repo: repoForPrivacy.full_name, isPrivate: repoForPrivacy.private };
-  }
-
   if (eventType === "installation") {
     const id = (p.installation as { id?: unknown } | undefined)?.id;
     if (typeof id === "number") ev.keys.push(`ghtok:${id}`);
@@ -353,6 +357,7 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
 
   if (eventType === "pull_request") {
     const pp = p as PullRequestPayload;
+    ev.privacy = repoPrivacy(pp.repository);
     const action = pp.action;
     const repo = pp.repository?.full_name;
     const pr = pp.pull_request;
@@ -375,6 +380,7 @@ export function extractWebhookEvent(eventType: string, payload: unknown): Webhoo
     // any I/O or enqueue, so the common case (an ordinary human comment on
     // any installed repo — this event fires on every one) costs nothing.
     const ip = p as IssueCommentPayload;
+    ev.privacy = repoPrivacy(ip.repository);
     const repo = ip.repository?.full_name;
     const num = ip.issue?.number;
     if (isReconcilableCommentEvent(ip) && typeof repo === "string" && typeof num === "number") {
