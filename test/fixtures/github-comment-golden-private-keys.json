@@ -1,0 +1,52 @@
+{
+  "prefixId": "0123456789abcdef0123456789abcdef",
+  "keyCases": [
+    {
+      "target": { "repo": "acme/web", "kind": "pull", "num": 12 },
+      "filename": "hero.png",
+      "expectedPrefix": "gh/private/0123456789abcdef0123456789abcdef/pull/12/",
+      "expectedKey": "gh/private/0123456789abcdef0123456789abcdef/pull/12/hero.png"
+    },
+    {
+      "target": { "repo": "o/r", "kind": "issues", "num": 7 },
+      "filename": "my shot (1).png",
+      "expectedPrefix": "gh/private/0123456789abcdef0123456789abcdef/issues/7/",
+      "expectedKey": "gh/private/0123456789abcdef0123456789abcdef/issues/7/my-shot--1-.png"
+    }
+  ],
+  "branchCases": [
+    {
+      "filename": "after.png",
+      "expectedPrefix": "gh/private/0123456789abcdef0123456789abcdef/branch/",
+      "expectedKey": "gh/private/0123456789abcdef0123456789abcdef/branch/after.png"
+    },
+    {
+      "filename": "my shot (1).png",
+      "expectedPrefix": "gh/private/0123456789abcdef0123456789abcdef/branch/",
+      "expectedKey": "gh/private/0123456789abcdef0123456789abcdef/branch/my-shot--1-.png"
+    }
+  ],
+  "parseCases": [
+    {
+      "key": "gh/private/0123456789abcdef0123456789abcdef/pull/5/x.png",
+      "expected": { "prefixId": "0123456789abcdef0123456789abcdef", "kind": "pull", "num": 5 }
+    },
+    {
+      "key": "gh/private/0123456789abcdef0123456789abcdef/issues/42/screenshot.webp",
+      "expected": { "prefixId": "0123456789abcdef0123456789abcdef", "kind": "issues", "num": 42 }
+    }
+  ],
+  "parseInvalidKeys": [
+    "gh/private/notHex/pull/5/x.png",
+    "gh/private/0123456789abcdef0123456789abcde/pull/5/x.png",
+    "gh/private/0123456789ABCDEF0123456789ABCDEF/pull/5/x.png",
+    "gh/acme/web/pull/12/hero.png",
+    "gh/private/0123456789abcdef0123456789abcdef/branch/x.png"
+  ],
+  "invalidPrefixIds": [
+    "not-hex",
+    "0123456789abcdef0123456789abcde",
+    "0123456789ABCDEF0123456789ABCDEF",
+    ""
+  ]
+}
