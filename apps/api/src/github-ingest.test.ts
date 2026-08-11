@@ -756,6 +756,125 @@ describe("reconcileIngestTarget", () => {
     }
   });
 
+  it("detaches a ledger row whose comment source was deleted on GitHub (absent from the fetched list)", async () => {
+    const { env } = baseEnv();
+    const orphanAssetId = "assets/44444444-4444-4444-4444-444444444444";
+    const orphanKey = `gh/acme-app/pull-7/${attachmentKeyBasename(orphanAssetId)}.png`;
+    // Row attributed to comment:999, which GitHub no longer returns — the
+    // comment was deleted.
+    await recordIngestedAsset(env.DB, {
+      repo: REPO,
+      assetId: orphanAssetId,
+      workspace: WS,
+      objectKey: orphanKey,
+      kind: "pull",
+      num: 7,
+      source: "comment:999",
+      createdAt: new Date().toISOString(),
+    });
+    await replaceFileMetadata(env.DB, WS, orphanKey, { "gh.detached": "false" });
+
+    const otherComment = { id: 500, body: "no attachment here", user: { login: "eve" } };
+    const impl = (async (url: string) => {
+      const u = String(url);
+      if (u.includes("/access_tokens")) {
+        return new Response(JSON.stringify({ token: "t" }), { status: 201 });
+      }
+      if (u.includes("/installation")) {
+        return new Response(JSON.stringify({ id: 42 }), { status: 200 });
+      }
+      if (u.includes("/issues/7/comments")) {
+        if (u.includes("&page=1")) {
+          return new Response(JSON.stringify([otherComment]), { status: 200 });
+        }
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (u.includes("/repos/acme/app/issues/7")) {
+        return new Response(JSON.stringify({ body: "", user: { login: "bob" } }), { status: 200 });
+      }
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    const summary = await reconcileIngestTarget(
+      env,
+      ws,
+      WS,
+      { repo: REPO, kind: "pull", num: 7 },
+      { fetchImpl: impl },
+    );
+
+    expect(summary.detached).toContain(orphanKey);
+    const row = await ledgerRow(env.DB, REPO, orphanAssetId);
+    expect(row?.detachedAt).not.toBeNull();
+    const meta = await getFileMetadata(env.DB, WS, orphanKey);
+    expect(meta["gh.detached"]).toBe("true");
+  });
+
+  it("does NOT run orphan detection when the comment scan was truncated (3 full pages)", async () => {
+    const { env } = baseEnv();
+    const orphanAssetId = "assets/55555555-5555-5555-5555-555555555555";
+    const orphanKey = `gh/acme-app/pull-7/${attachmentKeyBasename(orphanAssetId)}.png`;
+    await recordIngestedAsset(env.DB, {
+      repo: REPO,
+      assetId: orphanAssetId,
+      workspace: WS,
+      objectKey: orphanKey,
+      kind: "pull",
+      num: 7,
+      source: "comment:999",
+      createdAt: new Date().toISOString(),
+    });
+    await replaceFileMetadata(env.DB, WS, orphanKey, { "gh.detached": "false" });
+
+    const pageOf = (start: number) =>
+      Array.from({ length: 100 }, (_, i) => ({
+        id: start + i,
+        body: "no attachment here",
+        user: { login: "bob" },
+      }));
+    const page1 = pageOf(1000);
+    const page2 = pageOf(2000);
+    const page3 = pageOf(3000);
+    const impl = (async (url: string) => {
+      const u = String(url);
+      if (u.includes("/access_tokens")) {
+        return new Response(JSON.stringify({ token: "t" }), { status: 201 });
+      }
+      if (u.includes("/installation")) {
+        return new Response(JSON.stringify({ id: 42 }), { status: 200 });
+      }
+      if (u.includes("/issues/7/comments")) {
+        if (u.includes("&page=1")) return new Response(JSON.stringify(page1), { status: 200 });
+        if (u.includes("&page=2")) return new Response(JSON.stringify(page2), { status: 200 });
+        if (u.includes("&page=3")) return new Response(JSON.stringify(page3), { status: 200 });
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (u.includes("/repos/acme/app/issues/7")) {
+        return new Response(JSON.stringify({ body: "", user: { login: "bob" } }), { status: 200 });
+      }
+      return new Response("nf", { status: 404 });
+    }) as unknown as typeof fetch;
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      const summary = await reconcileIngestTarget(
+        env,
+        ws,
+        WS,
+        { repo: REPO, kind: "pull", num: 7 },
+        { fetchImpl: impl },
+      );
+
+      expect(summary.detached).not.toContain(orphanKey);
+      const row = await ledgerRow(env.DB, REPO, orphanAssetId);
+      expect(row?.detachedAt).toBeNull();
+      const meta = await getFileMetadata(env.DB, WS, orphanKey);
+      expect(meta["gh.detached"]).toBe("false");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it("throws github_app_not_installed instead of an empty summary when the app isn't configured", async () => {
     const db = new UsageFakeD1();
     const kv = new FakeKv(); // no ghinst:/ghtok: cache entries seeded

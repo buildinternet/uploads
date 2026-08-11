@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   ledgerRow,
   ledgerRowsForSource,
+  ledgerRowsForTarget,
   recordIngestedAsset,
   setLedgerDetached,
   setLedgerSource,
@@ -53,6 +54,42 @@ describe("github ingest ledger", () => {
       expect((await ledgerRow(db, "acme/app", "assets/aaaa-bbbb"))?.detachedAt).not.toBeNull();
       await setLedgerDetached(db, "acme/app", "assets/aaaa-bbbb", null);
       expect((await ledgerRow(db, "acme/app", "assets/aaaa-bbbb"))?.detachedAt).toBeNull();
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("ledgerRowsForTarget scopes by repo+kind+num across every source", async () => {
+    const sqlite = new SqliteD1(MIGRATIONS);
+    try {
+      const db = database(sqlite);
+      await recordIngestedAsset(db, row()); // source: "body"
+      await recordIngestedAsset(
+        db,
+        row({ assetId: "files/9/x.png", source: "comment:44", objectKey: "gh/other-comment.png" }),
+      );
+      await recordIngestedAsset(
+        db,
+        row({
+          assetId: "files/1/y.png",
+          num: 8,
+          objectKey: "gh/other-num.png",
+        }),
+      ); // different num — must not be included
+      await recordIngestedAsset(
+        db,
+        row({
+          assetId: "files/2/z.png",
+          kind: "issues",
+          objectKey: "gh/other-kind.png",
+        }),
+      ); // different kind — must not be included
+
+      const rows = await ledgerRowsForTarget(db, "acme/app", "pull", 7);
+      expect(rows).toHaveLength(2);
+      expect(new Set(rows.map((r) => r.assetId))).toEqual(
+        new Set(["assets/aaaa-bbbb", "files/9/x.png"]),
+      );
     } finally {
       sqlite.close();
     }

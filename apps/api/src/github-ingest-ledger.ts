@@ -119,6 +119,23 @@ export async function ledgerRowsForSource(
   return (results ?? []).map(fromRow);
 }
 
+/** All ledger rows for `repo` currently attributed to `kind`/`num` (across every source). */
+export async function ledgerRowsForTarget(
+  db: D1Database,
+  repo: string,
+  kind: "pull" | "issues",
+  num: number,
+): Promise<IngestLedgerRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT repo, asset_id, workspace, object_key, kind, num, source, created_at, detached_at
+       FROM github_ingested_assets WHERE repo = ? AND kind = ? AND num = ?`,
+    )
+    .bind(normalizeRepo(repo), kind, num)
+    .all<IngestLedgerDbRow>();
+  return (results ?? []).map(fromRow);
+}
+
 /**
  * Flips `detachedAt` for a ledger row — set to a timestamp when the
  * reconciler no longer finds the asset referenced, or back to null when it
