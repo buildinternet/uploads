@@ -46,7 +46,7 @@ export async function checkRepoAuthorization(
   repo: string,
   workspaceName: string,
   mintingUserId: string | null,
-  installId: number,
+  installId: number | null,
 ): Promise<{ posted: false; reason: "not_authorized"; message: string } | null> {
   const link = await findRepoLinkStrict(env.DB, repo);
   if (link) {
@@ -59,7 +59,13 @@ export async function checkRepoAuthorization(
         `workspace is not authorized to post the uploads-sh[bot] comment there.`,
     };
   }
-  const entitled = await isEntitledToClaimRepo(env, repo, mintingUserId, fetch, installId);
+  const entitled = await isEntitledToClaimRepo(
+    env,
+    repo,
+    mintingUserId,
+    fetch,
+    installId ?? undefined,
+  );
   if (!entitled) {
     return {
       posted: false,

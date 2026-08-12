@@ -311,6 +311,21 @@ export type ResolveGhPrefixResult =
   | { mode: "plain" }
   | { mode: "private"; prefixId: string; activePrefixIds?: string[] };
 
+/** `POST /v1/:workspace/github/private-prefix/rotate` request (server contract, issue #631). */
+export interface RotateGhPrefixOptions {
+  repo: string;
+  /** Mutually exclusive with `repoLevel`: rotate one branch's id. */
+  branch?: string;
+  /** Mutually exclusive with `branch`: rotate the repo-level id shared by
+   * issue attachments and ingested assets. */
+  repoLevel?: boolean;
+}
+
+/** `POST /v1/:workspace/github/private-prefix/rotate` response (server contract, issue #631). */
+export type RotateGhPrefixResult =
+  | { rotated: false; reason: string }
+  | { rotated: true; prefixId: string; moved: number };
+
 /** `POST /v1/:workspace/github/promote` request/response (server contract, PR #310). */
 export interface PromoteBranchAttachmentsOptions {
   repo: string;
@@ -1243,6 +1258,26 @@ export function createUploadsClient(config: UploadsClientConfig) {
       })();
       resolveGhPrefixCache.set(cacheKey, resolved);
       return resolved;
+    },
+
+    /**
+     * Rotate the active private-repo attachment prefix for `opts.repo` +
+     * (`opts.branch` or `opts.repoLevel`) (issue #631). Unlike
+     * `resolveGhPrefix`, this is NOT fail-open: it's an explicit, caller-
+     * initiated action, so a failure (including a 404 from an older/self-
+     * hosted server without this route) throws `UploadsError` — the CLI
+     * command decides how to present that, rather than this method silently
+     * degrading to a shape that would look like success.
+     */
+    async rotateGhPrefix(opts: RotateGhPrefixOptions): Promise<RotateGhPrefixResult> {
+      return request<RotateGhPrefixResult>(
+        "POST",
+        `${config.apiUrl}/v1/${encodeURIComponent(config.workspace)}/github/private-prefix/rotate`,
+        {
+          body: new TextEncoder().encode(JSON.stringify(opts)),
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     },
 
     /**

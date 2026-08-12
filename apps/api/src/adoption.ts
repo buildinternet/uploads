@@ -32,7 +32,7 @@ export type AdoptionMetric = (typeof ADOPTION_METRICS)[number];
  * CLI request from any other API request server-side, so finer-grained client
  * identity comes from the provenance bag's `client` value instead.
  */
-export type UploadSurface = "api" | "mcp" | "promote" | "github";
+export type UploadSurface = "api" | "mcp" | "promote" | "github" | "rotate";
 
 /**
  * Analytics Engine dimensions. Never written to D1 — see the module docs.

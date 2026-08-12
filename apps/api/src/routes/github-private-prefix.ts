@@ -15,7 +15,11 @@
  */
 import { ValidationError } from "@uploads/errors";
 import { Hono, type Context } from "hono";
-import { resolveGhKeyContext, type ResolveGhKeyRequest } from "../github-private-prefix-service";
+import {
+  resolveGhKeyContext,
+  rotatePrivatePrefix,
+  type ResolveGhKeyRequest,
+} from "../github-private-prefix-service";
 import { listActivePrefixIds } from "../github-private-prefixes";
 import { writeRateLimit } from "../guards";
 import { requireScope, type WorkspaceVars } from "../workspace";
@@ -99,4 +103,57 @@ export const githubPrivatePrefix = new Hono<WorkspaceVars>().post(
   // predates this one and never mints its own row on the read-scoped path).
   requireScope("files:write"),
   githubPrivatePrefixHandler,
+);
+
+interface RotateRequest {
+  repo: string;
+  /** "" is the repo-level sentinel (`repoLevel: true`), same meaning as
+   * `resolveGhKeyContext`'s internal branch="" — but here it's expressed as
+   * an explicit boolean rather than an empty string, so a caller can't
+   * silently trip the same "branch must not be empty" guard the resolve
+   * route uses to keep the sentinel server-internal. */
+  branch: string;
+}
+
+function parseRotateRequest(body: Record<string, unknown>): RotateRequest {
+  const repo = typeof body.repo === "string" ? body.repo : "";
+  if (!REPO_RE.test(repo) || repo.split("/").some((seg) => DOTS_ONLY_RE.test(seg)))
+    throw new ValidationError("repo must be owner/name.", { code: "invalid_repo" });
+
+  const repoLevel = body.repoLevel === true;
+  const hasBranch = body.branch !== undefined;
+  if (repoLevel && hasBranch) {
+    throw new ValidationError("pass either branch or repoLevel, not both.");
+  }
+  if (!repoLevel && !hasBranch) {
+    throw new ValidationError("branch or repoLevel is required.");
+  }
+  if (repoLevel) return { repo, branch: "" };
+
+  if (typeof body.branch !== "string" || body.branch === "") {
+    throw new ValidationError("branch must be a non-empty string.");
+  }
+  return { repo, branch: body.branch };
+}
+
+export async function githubPrivatePrefixRotateHandler(c: Context<WorkspaceVars>) {
+  const req = parseRotateRequest(await jsonBody(c));
+  const result = await rotatePrivatePrefix(
+    c.env,
+    c.get("workspace"),
+    c.get("workspaceName"),
+    c.get("mintingUserId"),
+    req.repo,
+    req.branch,
+  );
+  return c.json(result);
+}
+
+githubPrivatePrefix.post(
+  "/private-prefix/rotate",
+  writeRateLimit,
+  // files:write — rotation moves objects (copy+delete) and rewrites D1
+  // rows, same mutation class as the resolve route above.
+  requireScope("files:write"),
+  githubPrivatePrefixRotateHandler,
 );

@@ -10,6 +10,7 @@ import {
   type PutResult,
   type ResolveGhPrefixOptions,
   type ResolveGhPrefixResult,
+  type RotateGhPrefixResult,
   type UploadsClient,
 } from "./client.js";
 import {
@@ -3438,6 +3439,7 @@ export async function runIngest(
 const GITHUB_HELP = `uploads github link [--repo <owner/name>] [--status] [--workspace <name>]
 uploads github unlink [--repo <owner/name>] [--workspace <name>]
 uploads github doctor [--workspace <name>]
+uploads github rotate-prefix [--repo <owner/name>] [--branch <name> | --repo-level] [--workspace <name>]
 
 Claim, inspect, or release this workspace's binding to a GitHub repo (see the
 managed attachments comment / webhook auto-promotion, which use this
@@ -3459,12 +3461,22 @@ subscription is the classic silent failure: the App's ping stays green
 while webhook auto-promotion and title-cache invalidation quietly do
 nothing.
 
+\`rotate-prefix\` mints a fresh randomized URL prefix for a private repo's
+attachments and moves everything under the old one to it, so the old URLs
+404 at origin immediately (see docs/private-attachments.md). --branch
+defaults to the current git branch; --repo-level rotates the id shared by
+issue attachments and ingested assets instead of a branch's id. Rotation
+is an explicit action — an unauthorized caller gets an error, not a silent
+no-op.
+
 Examples:
   uploads github link
   uploads github link --repo buildinternet/uploads
   uploads github link --status
   uploads github unlink --repo buildinternet/uploads
   uploads github doctor
+  uploads github rotate-prefix --branch feature-x
+  uploads github rotate-prefix --repo-level
 `;
 
 /** Older servers' health payload predates recommendedEvents/missingRecommendedEvents — treat as no recommendations rather than crashing. */
@@ -3616,6 +3628,49 @@ async function runGithubUnlink(ctx: CliContext, repo: string): Promise<number> {
   return 0;
 }
 
+function formatGithubRotatePrefix(
+  repo: string,
+  branchLabel: string,
+  result: RotateGhPrefixResult,
+): string {
+  if (!result.rotated) {
+    return `nothing to rotate for ${repo} (${branchLabel}): ${result.reason}\n`;
+  }
+  return `rotated ${repo} (${branchLabel}): moved ${result.moved} object${result.moved === 1 ? "" : "s"} to a new prefix (${result.prefixId})\n`;
+}
+
+async function runGithubRotatePrefix(
+  ctx: CliContext,
+  repo: string,
+  branch: string | undefined,
+  repoLevel: boolean,
+): Promise<number> {
+  let result: RotateGhPrefixResult;
+  try {
+    result = await ctx.client.rotateGhPrefix(
+      repoLevel ? { repo, repoLevel: true } : { repo, branch },
+    );
+  } catch (err) {
+    if (err instanceof UploadsError && err.status === 404) {
+      throw new UsageError(
+        "server does not support private-prefix rotation yet (404) — upgrade the uploads.sh API/self-hosted worker",
+      );
+    }
+    if (err instanceof UploadsError && err.status === 403) {
+      throw new UsageError(`not authorized to rotate ${repo}'s attachment prefix (${err.message})`);
+    }
+    throw err;
+  }
+
+  if (ctx.json) {
+    await writeJson(result);
+    return result.rotated ? 0 : 1;
+  }
+  const branchLabel = repoLevel ? "repo-level" : (branch ?? "");
+  await writeStdout(formatGithubRotatePrefix(repo, branchLabel, result));
+  return result.rotated ? 0 : 1;
+}
+
 export async function runGithub(
   ctx: CliContext,
   args: string[],
@@ -3628,15 +3683,31 @@ export async function runGithub(
     writeCommandHelp(GITHUB_HELP);
     return help || parsed.help ? 0 : 2;
   }
-  if (action !== "link" && action !== "unlink" && action !== "doctor") {
-    throw new UsageError(`unknown github subcommand: ${action} (expected link or doctor)`, {
-      example: "uploads github link",
-    });
+  if (
+    action !== "link" &&
+    action !== "unlink" &&
+    action !== "doctor" &&
+    action !== "rotate-prefix"
+  ) {
+    throw new UsageError(
+      `unknown github subcommand: ${action} (expected link, unlink, doctor, or rotate-prefix)`,
+      { example: "uploads github link" },
+    );
   }
 
   if (action === "doctor") return runGithubDoctor(ctx);
 
   const repo = resolveRepo(flagString(parsed.flags, "--repo"), run);
+
+  if (action === "rotate-prefix") {
+    const repoLevel = flagBool(parsed.flags, "--repo-level");
+    const branchFlag = flagString(parsed.flags, "--branch");
+    if (repoLevel && branchFlag !== undefined) {
+      throw new UsageError("pass either --branch or --repo-level, not both");
+    }
+    const branch = repoLevel ? undefined : (branchFlag ?? resolveCurrentBranch(run));
+    return runGithubRotatePrefix(ctx, repo, branch, repoLevel);
+  }
 
   if (action === "unlink") return runGithubUnlink(ctx, repo);
 
