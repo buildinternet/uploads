@@ -56,6 +56,7 @@ describe.each([
   { path: "/account/developers", title: "Developers · uploads.sh" },
   { path: "/console", title: "uploads.sh console" },
   { path: "/f/acme/screenshots/shot.png", title: "shot.png · uploads.sh" },
+  { path: "/changelog", title: "Changelog" },
 ])("route reachability: $path", ({ path, title }) => {
   it("reaches the page handler (not a static 404) on a browser navigation request", async () => {
     let handlerCalled = false;

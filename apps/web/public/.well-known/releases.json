@@ -8,9 +8,14 @@
   "social": { "github": "buildinternet" },
   "releases": [
     {
-      "title": "@buildinternet/uploads",
-      "github": "buildinternet/uploads",
+      "title": "Changelog",
+      "url": "https://uploads.sh/changelog",
+      "feed": "https://uploads.sh/changelog.xml",
       "canonical": true
+    },
+    {
+      "title": "@buildinternet/uploads",
+      "github": "buildinternet/uploads"
     }
   ]
 }

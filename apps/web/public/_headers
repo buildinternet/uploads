@@ -96,3 +96,9 @@
   Content-Type: application/json; charset=utf-8
   Cache-Control: public, max-age=300
   Access-Control-Allow-Origin: *
+
+# Atom feed for /changelog — the machine locator declared in releases.json.
+/changelog.xml
+  Content-Type: application/atom+xml; charset=utf-8
+  Cache-Control: public, max-age=300
+  Access-Control-Allow-Origin: *
