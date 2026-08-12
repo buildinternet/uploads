@@ -108,13 +108,17 @@ export const workspaceFiles = new Hono<DualAuthVars>()
       });
     }
 
+    // `limit` narrows the page below the server cap (never raises it) — added
+    // for the bearer-find migration (#613), whose callers pass `--limit`.
     const SEARCH_LIMIT = 100;
+    const rawLimit = Number(c.req.query("limit") ?? SEARCH_LIMIT) || SEARCH_LIMIT;
+    const pageSize = Math.min(Math.max(1, Math.floor(rawLimit)), SEARCH_LIMIT);
     const cfg = await storageConfig(c.env, record);
     const { matches, truncated } = await searchFilesByNameAndMeta(c.env, record, name, {
       filters: hasMeta ? filters : undefined,
       nameTerm,
       prefix: query.prefix,
-      pageSize: SEARCH_LIMIT,
+      pageSize,
     });
 
     return c.json({
