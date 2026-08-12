@@ -16,6 +16,14 @@ export interface RemoteRenderRequest {
   viewport: { width: number; height: number; deviceScaleFactor: number };
   selector?: string;
   fullPage?: boolean;
+  /**
+   * Cap (CSS px) on full-page capture height (issue #652). Only sent when
+   * `fullPage` is true and the cap is active (nonzero); the server applies a
+   * best-effort clamp (see apps/api's render.ts) and reports whether it
+   * actually kicked in via the `X-Uploads-Full-Page-Clipped` response header,
+   * surfaced back on the result as `clipped`.
+   */
+  maxHeight?: number;
   colorScheme?: "dark" | "light";
   waitUntil?: "load" | "domcontentloaded" | "networkidle" | number;
   /** CSS selectors hidden (display:none) server-side before capture. */
@@ -56,11 +64,21 @@ function mapRenderError(status: number, message: string, code?: string): Uploads
   return new UploadsError(message, "API_ERROR", status);
 }
 
-/** POST the render request; resolves with raw PNG bytes on 200. */
+export interface RemoteRenderResult {
+  png: Uint8Array;
+  /**
+   * True when the server's best-effort full-page height clamp actually
+   * kicked in (read from the `X-Uploads-Full-Page-Clipped` response header).
+   * Always false when `maxHeight` wasn't sent.
+   */
+  clipped: boolean;
+}
+
+/** POST the render request; resolves with raw PNG bytes (+ clip status) on 200. */
 export async function captureRemote(
   body: RemoteRenderRequest,
   opts: RemoteRenderOptions,
-): Promise<Uint8Array> {
+): Promise<RemoteRenderResult> {
   if (body.html !== undefined) {
     const htmlBytes = new TextEncoder().encode(body.html).byteLength;
     if (htmlBytes > MAX_REMOTE_HTML_BYTES) {
@@ -98,7 +116,7 @@ export async function captureRemote(
     if (bytes.byteLength === 0) {
       throw new UploadsError("render endpoint returned an empty response", "RENDER_FAILED");
     }
-    return bytes;
+    return { png: bytes, clipped: res.headers.get("x-uploads-full-page-clipped") === "true" };
   } catch (err) {
     if (err instanceof UploadsError) throw err;
     const message = err instanceof Error ? err.message : "network request failed";

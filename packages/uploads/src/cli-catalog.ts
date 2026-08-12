@@ -70,6 +70,7 @@ export const SCREENSHOT_FLAGS: readonly string[] = [
   "--viewport",
   "--selector",
   "--full-page",
+  "--max-height",
   "--dark",
   "--light",
   "--wait",

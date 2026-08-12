@@ -17,14 +17,36 @@ describe("captureRemote", () => {
       return new Response(png, { status: 200, headers: { "content-type": "image/png" } });
     });
 
-    const bytes = await captureRemote(
+    const result = await captureRemote(
       { url: "https://example.com", viewport: { width: 1280, height: 800, deviceScaleFactor: 2 } },
       { apiUrl: "https://api.uploads.sh", token: "up_default_test", fetchImpl },
     );
 
     expect(seenUrl).toBe("https://api.uploads.sh/v1/render");
     expect(seenAuth).toBe("Bearer up_default_test");
-    expect(new Uint8Array(bytes)).toEqual(png);
+    expect(new Uint8Array(result.png)).toEqual(png);
+    expect(result.clipped).toBe(false);
+  });
+
+  it("reports clipped: true when the server sends the clip header", async () => {
+    const png = new Uint8Array([1, 2, 3, 4]);
+    const fetchImpl = fakeFetch(
+      () =>
+        new Response(png, {
+          status: 200,
+          headers: { "content-type": "image/png", "x-uploads-full-page-clipped": "true" },
+        }),
+    );
+    const result = await captureRemote(
+      {
+        url: "https://example.com",
+        viewport: { width: 1280, height: 800, deviceScaleFactor: 2 },
+        fullPage: true,
+        maxHeight: 5000,
+      },
+      { apiUrl: "https://api.uploads.sh", token: "t", fetchImpl },
+    );
+    expect(result.clipped).toBe(true);
   });
 
   it("maps render_failed to RENDER_FAILED", async () => {

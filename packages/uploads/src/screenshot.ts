@@ -65,6 +65,17 @@ export const DEFAULT_SCREENSHOT_VIEWPORT: ScreenshotViewport = {
   deviceScaleFactor: 2,
 };
 
+/**
+ * Default cap (CSS px) on `--full-page` capture height (issue #652). Picked
+ * from the 4000-6000px range the issue proposed: generous enough to cover a
+ * long single-viewport marketing/docs page without clipping, but well short
+ * of the multi-thousand-entry-list case that motivated this (a 53-entry
+ * changelog page, PR #651) — those still clip, with a note pointing at
+ * `--max-height` to raise or remove the cap. `0` (via `--max-height 0`) means
+ * uncapped, for the rare case the full strip is genuinely wanted.
+ */
+export const DEFAULT_FULL_PAGE_MAX_HEIGHT = 5000;
+
 /** Parses `WIDTHxHEIGHT[@SCALEx]`, e.g. "1280x800", "1280x800@2x", "1280x800@2". */
 export function parseViewport(raw: string | undefined): ScreenshotViewport {
   if (!raw) return DEFAULT_SCREENSHOT_VIEWPORT;
@@ -197,6 +208,13 @@ export interface CaptureScreenshotOptions {
   viewport?: ScreenshotViewport;
   selector?: string;
   fullPage?: boolean;
+  /**
+   * Cap (CSS px) on `--full-page` capture height. Only meaningful with
+   * `fullPage: true`; ignored otherwise. `undefined` applies
+   * `DEFAULT_FULL_PAGE_MAX_HEIGHT`; `0` means uncapped. Wired through both
+   * capture backends so behavior matches regardless of `via` (issue #652).
+   */
+  maxHeight?: number;
   colorScheme?: "dark" | "light";
   waitUntil?: WaitUntil;
   /**
@@ -238,6 +256,8 @@ export interface CaptureScreenshotOptions {
     viewport: ScreenshotViewport;
     selector?: string;
     fullPage?: boolean;
+    /** CSS px cap on full-page height; 0 or undefined = uncapped. */
+    maxHeightPx?: number;
     colorScheme?: "dark" | "light";
     waitUntil: WaitUntil;
     hide?: string[];
@@ -248,7 +268,12 @@ export interface CaptureScreenshotOptions {
     detectRoots?: DetectRoots;
     /** Pre-computed detection result from auto-routing, to avoid a second fs scan. */
     detectResult?: import("./screenshot-local.js").DetectResult;
-  }) => Promise<{ png: Uint8Array; measures?: Record<string, MeasuredBox> }>;
+  }) => Promise<{
+    png: Uint8Array;
+    measures?: Record<string, MeasuredBox>;
+    /** Present when `fullPage` + a positive `maxHeightPx` were given. */
+    clipped?: boolean;
+  }>;
   /** Injectable for tests: replaces the remote capture implementation. */
   captureRemoteImpl?: typeof captureRemote;
 }
@@ -259,6 +284,13 @@ export interface CaptureScreenshotResult {
   backend: "local" | "remote";
   /** Present when `measureSelectors` was given and the local backend ran. */
   measures?: Record<string, MeasuredBox>;
+  /**
+   * Present when `fullPage` was requested with a nonzero max-height cap
+   * (explicit or default) — regardless of backend. `clipped` tells the
+   * caller whether the cap actually kicked in, so it can print the
+   * "exceeds Npx; clipped" note and JSON `hint` (issue #652).
+   */
+  capped?: { maxHeightPx: number; clipped: boolean };
 }
 
 /** Derives a filename from a URL (host+path) or the source .html filename. */
@@ -346,6 +378,10 @@ export async function captureScreenshot(
   for (const sel of opts.hide ?? []) assertHideSelector(sel);
   const hide = [...(opts.hide ?? []), ...(autoHideDevTools ? DEV_TOOLBAR_SELECTORS : [])];
 
+  // Full-page height cap (issue #652): only meaningful with fullPage. 0
+  // (explicit --max-height 0) means uncapped; undefined applies the default.
+  const effectiveMaxHeight = opts.fullPage ? (opts.maxHeight ?? DEFAULT_FULL_PAGE_MAX_HEIGHT) : 0;
+
   // Populated only when auto-routing actually probes the filesystem, so it
   // can be threaded into captureLocalImpl below to avoid a second scan.
   let detected: import("./screenshot-local.js").DetectResult | undefined;
@@ -417,6 +453,7 @@ export async function captureScreenshot(
       viewport,
       selector: opts.selector,
       fullPage: opts.fullPage,
+      maxHeightPx: effectiveMaxHeight,
       colorScheme: opts.colorScheme,
       waitUntil,
       hide,
@@ -427,7 +464,11 @@ export async function captureScreenshot(
       detectRoots: opts.detectRoots,
       detectResult: detected,
     });
-    return { png: localResult.png, filename, backend, measures: localResult.measures };
+    const capped =
+      opts.fullPage && effectiveMaxHeight > 0
+        ? { maxHeightPx: effectiveMaxHeight, clipped: localResult.clipped === true }
+        : undefined;
+    return { png: localResult.png, filename, backend, measures: localResult.measures, capped };
   }
 
   if (target.kind === "html-file") {
@@ -441,12 +482,13 @@ export async function captureScreenshot(
   }
 
   const captureRemoteImpl = opts.captureRemoteImpl ?? captureRemote;
-  const png = await captureRemoteImpl(
+  const remoteResult = await captureRemoteImpl(
     {
       ...(target.kind === "html-file" ? { html: target.html } : { url: target.url }),
       viewport,
       selector: opts.selector,
       fullPage: opts.fullPage,
+      ...(opts.fullPage && effectiveMaxHeight > 0 ? { maxHeight: effectiveMaxHeight } : {}),
       colorScheme: opts.colorScheme,
       waitUntil,
       ...(hide.length > 0 ? { hide } : {}),
@@ -454,5 +496,9 @@ export async function captureScreenshot(
     },
     { apiUrl: opts.apiUrl, token: opts.token },
   );
-  return { png, filename, backend };
+  const capped =
+    opts.fullPage && effectiveMaxHeight > 0
+      ? { maxHeightPx: effectiveMaxHeight, clipped: remoteResult.clipped === true }
+      : undefined;
+  return { png: remoteResult.png, filename, backend, capped };
 }
